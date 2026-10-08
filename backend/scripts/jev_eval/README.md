@@ -196,3 +196,17 @@ done
 .venv/bin/python -m scripts.jev_eval.run_haiku --variant v2_richer_state --bucket holdout --limit 100 --confirm-full-run
 .venv/bin/python -m scripts.jev_eval.report --variant v3_curated_examples --bucket holdout --calibrate-from tune
 ```
+
+## G239: comparing judge models on OpenRouter
+
+`run_openrouter.py` is the generic runner (any OpenRouter model id; same dataset, split and v0 prompt as `run_haiku.py`, plus a self-reported confidence field, reasoning off, `data_collection: deny`, no Mongo writes). `run_jev.py` stays as the TypeSafe-direct history. From `backend/`:
+
+```bash
+.venv/bin/python -m scripts.jev_eval.run_openrouter --model <id> --data-policy-check
+.venv/bin/python -m scripts.jev_eval.run_openrouter --model <id> --limit 5              # proof; prints the cost estimate first
+.venv/bin/python -m scripts.jev_eval.run_openrouter --model <id> --confirm-full-run --budget-usd 1.0   # resumable
+# non-default token cap goes to a separate file: --max-tokens 1000 --tag mt1000
+.venv/bin/python -m scripts.jev_eval.report --models anthropic/claude-haiku-4-5,anthropic/claude-haiku-5.5,typesafe/jev-router,openrouter/auto
+```
+
+Results land in `out/<slug>_results.<variant>[.<tag>].jsonl` (gitignored; `--models` accepts `id@tag`). `out/dataset.jsonl` and `out/split.json` are the frozen G178 files; copy them from the G178 worktree rather than regenerating. Findings are in RESULTS.md.
