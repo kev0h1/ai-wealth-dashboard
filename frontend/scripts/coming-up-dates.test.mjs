@@ -87,29 +87,29 @@ check(
 check(
   "nextPaymentWhen: today keeps the word with the date after",
   nextPaymentWhen(bill({ daysAway: 0, date: "Sat 26 Sep" })),
-  "today, Sat 26th Sep",
+  "today, Sat 26 Sep",
 );
 check(
   "nextPaymentWhen: tomorrow keeps the word with the date after",
   nextPaymentWhen(bill({ daysAway: 1, date: "Sun 27 Sep" })),
-  "tomorrow, Sun 27th Sep",
+  "tomorrow, Sun 27 Sep",
 );
 check(
-  "nextPaymentWhen: any other day is short weekday + ordinal day + short month, no word",
+  "nextPaymentWhen: any other day is short weekday + day + short month, no ordinal, no word",
   nextPaymentWhen(bill({ daysAway: 5, date: "Wed 19 Aug" })),
-  "Wed 19th Aug",
+  "Wed 19 Aug",
 );
 
 // ── Month boundary: Sat 26 Sep 2026 -> Thu 1 Oct 2026 ─────────────────────
 check(
   "nextPaymentWhen across the Sep/Oct month boundary (26th)",
   nextPaymentWhen(bill({ daysAway: 4, date: "Sat 26 Sep" })),
-  "Sat 26th Sep",
+  "Sat 26 Sep",
 );
 check(
   "nextPaymentWhen across the Sep/Oct month boundary (1st, new month)",
   nextPaymentWhen(bill({ daysAway: 5, date: "Thu 1 Oct" })),
-  "Thu 1st Oct",
+  "Thu 1 Oct",
 );
 
 // ── computeDrop end to end: the fields the tile actually renders ─────────
@@ -123,7 +123,7 @@ check(
   const insight = computeDrop(bills);
   check("computeDrop month-boundary scenario reaches the calm branch", insight.kind, "calm");
   if (insight.kind === "calm") {
-    check("computeDrop calm heavyWhen crosses into October correctly", insight.heavyWhen, "Thu 1st Oct");
+    check("computeDrop calm heavyWhen crosses into October correctly", insight.heavyWhen, "Thu 1 Oct");
   }
 }
 
@@ -139,7 +139,7 @@ check(
   const insight = computeDrop(bills);
   check("computeDrop same-day scenario reaches the landing branch", insight.kind, "landing");
   if (insight.kind === "landing") {
-    check("computeDrop landing.when for today", insight.when, "today, Sat 26th Sep");
+    check("computeDrop landing.when for today", insight.when, "today, Sat 26 Sep");
   }
 }
 
@@ -152,7 +152,7 @@ check(
   const insight = computeDrop(bills);
   check("computeDrop tomorrow scenario reaches the landing branch", insight.kind, "landing");
   if (insight.kind === "landing") {
-    check("computeDrop landing.when for tomorrow", insight.when, "tomorrow, Sun 27th Sep");
+    check("computeDrop landing.when for tomorrow", insight.when, "tomorrow, Sun 27 Sep");
   }
 }
 
@@ -175,10 +175,10 @@ check(
 // window's whole amount lands crossDay on its own day, so this covers every
 // day that branch can actually reach (frontLoaded caps crossDay at 6).
 for (const [daysAway, date, expected] of [
-  [0, "Mon 28 Sep", "today, Mon 28th Sep"],
-  [1, "Tue 29 Sep", "tomorrow, Tue 29th Sep"],
-  [5, "Sat 3 Oct", "Sat 3rd Oct"],
-  [6, "Sun 4 Oct", "Sun 4th Oct"],
+  [0, "Mon 28 Sep", "today, Mon 28 Sep"],
+  [1, "Tue 29 Sep", "tomorrow, Tue 29 Sep"],
+  [5, "Sat 3 Oct", "Sat 3 Oct"],
+  [6, "Sun 4 Oct", "Sun 4 Oct"],
 ]) {
   const insight = computeDrop([bill({ name: "Rent", amount: 50, daysAway, date, kind: "commitment" })]);
   check(`computeDrop crossing-day fixture (day ${daysAway}) reaches concentrated`, insight.kind, "concentrated");
@@ -202,12 +202,12 @@ function heavyWhenFixture(daysAway, date) {
   return computeDrop([heavy, ...fillers]);
 }
 for (const [daysAway, date, expected] of [
-  [0, "Mon 28 Sep", "today, Mon 28th Sep"],
-  [1, "Tue 29 Sep", "tomorrow, Tue 29th Sep"],
-  [5, "Sat 3 Oct", "Sat 3rd Oct"],
-  [6, "Sun 4 Oct", "Sun 4th Oct"],
-  [7, "Mon 5 Oct", "Mon 5th Oct"],
-  [13, "Tue 13 Oct", "Tue 13th Oct"],
+  [0, "Mon 28 Sep", "today, Mon 28 Sep"],
+  [1, "Tue 29 Sep", "tomorrow, Tue 29 Sep"],
+  [5, "Sat 3 Oct", "Sat 3 Oct"],
+  [6, "Sun 4 Oct", "Sun 4 Oct"],
+  [7, "Mon 5 Oct", "Mon 5 Oct"],
+  [13, "Tue 13 Oct", "Tue 13 Oct"],
 ]) {
   const insight = heavyWhenFixture(daysAway, date);
   check(`heavyWhen fixture (day ${daysAway}) reaches a spread-out branch`, ["calm", "landing"].includes(insight.kind), true);
@@ -224,8 +224,8 @@ for (const [daysAway, date, expected] of [
   const insight = computeDrop([nearThursday, secondThursday]);
   check("second-Thursday collision fixture reaches the calm branch", insight.kind, "calm");
   if (insight.kind === "calm") {
-    check("second-Thursday heavyWhen names the far Thursday's own date", insight.heavyWhen, "Thu 8th Oct");
-    check("second-Thursday heavyWhen is not a bare weekday", insight.heavyWhen, "Thu 8th Oct");
+    check("second-Thursday heavyWhen names the far Thursday's own date", insight.heavyWhen, "Thu 8 Oct");
+    check("second-Thursday heavyWhen is not a bare weekday", insight.heavyWhen, "Thu 8 Oct");
     check(
       "second-Thursday heavyWhen differs from the nearer Thursday's own label (no collision)",
       insight.heavyWhen !== nextPaymentWhen(nearThursday),
@@ -243,7 +243,7 @@ const ALL_LABELS = [
 ];
 for (const label of ALL_LABELS) {
   const ordinalMatches = label.match(/\d+(st|nd|rd|th)/g) ?? [];
-  check(`"${label}" carries exactly one ordinal`, ordinalMatches.length, 1);
+  check(`"${label}" carries no ordinal (G208)`, ordinalMatches.length, 0);
   check(`"${label}" carries no 4-digit year`, /\b\d{4}\b/.test(label), false);
 }
 
