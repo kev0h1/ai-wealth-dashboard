@@ -3105,7 +3105,7 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
     # overwrite a newer snapshot (a category correction made after the older
     # task's reads began). It also decides whether `dirty_since` may be
     # cleared: only a stamp this recompute started after.
-    started_at = _ms(datetime.now())
+    started_at = _ms(datetime.now())  # naive-ok: cache watermark, compared only with other naive cache stamps
     try:
         # Clear the in-process AI cache so the next compute gets fresh predictions.
         # Dismiss/restore skip this — they only change filters, so the cached
@@ -4689,7 +4689,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
         data = cached
     else:
         # No cache yet — compute live, store, then return
-        _started = _ms(datetime.now())
+        _started = _ms(datetime.now())  # naive-ok: cache watermark, same as compute_and_cache_cashflow
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION

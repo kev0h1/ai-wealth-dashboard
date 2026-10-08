@@ -2017,7 +2017,7 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     )
     if not has_accounts:
         return None
-    _started = datetime.now()
+    _started = datetime.now()  # naive-ok: cache watermark
     _started = _started.replace(microsecond=(_started.microsecond // 1000) * 1000)
     cached = await _compute_cashflow_patterns(uid)
     cached["computed_at"] = datetime.now()

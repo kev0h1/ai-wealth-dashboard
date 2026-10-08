@@ -151,6 +151,11 @@ def txn_materially_changed(before: dict | None, after: dict) -> bool:
     )
 
 
+def _ms_now() -> datetime:
+    n = datetime.now()  # naive-ok: cache stamp, compared only with computed_from
+    return n.replace(microsecond=(n.microsecond // 1000) * 1000)
+
+
 async def mark_stale(uid: str, *, reason: str = "transactions_changed") -> None:
     """G177: record that `uid`'s transactions changed (a sync inserted or
     materially updated a row), so the forecast doc no longer reflects them.
@@ -167,7 +172,9 @@ async def mark_stale(uid: str, *, reason: str = "transactions_changed") -> None:
     try:
         await cashflow_cache_col.update_one(
             {"_id": uid},
-            {"$set": {"dirty_since": datetime.now()}},
+            # Millisecond precision, like the recompute watermark it is
+            # compared with (Mongo stores ms).
+            {"$set": {"dirty_since": _ms_now()}},
         )
     except Exception:
         logger.exception("mark_stale(%s, %s): could not stamp dirty_since", uid, reason)
@@ -197,7 +204,10 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
             return True, "user_refresh"
         if debounced:
             # A debounced tap must still not leave a doc a sync marked dirty.
-            d = await cashflow_cache_col.find_one({"_id": uid}, {"dirty_since": 1})
+            try:
+                d = await cashflow_cache_col.find_one({"_id": uid}, {"dirty_since": 1})
+            except Exception:
+                d = None  # best-effort: a lookup failure keeps the debounce
             if d and d.get("dirty_since") is not None:
                 return True, "dirty"
             return False, "debounced"
