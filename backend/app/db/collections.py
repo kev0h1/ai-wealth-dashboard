@@ -152,7 +152,7 @@ finexer_customers_col  = db["finexer_customers"]
 # A106: markers for a Finexer consent revoke that failed remotely (either a
 # raised exception, e.g. a timeout/outage, or a non-success HTTP status,
 # e.g. 500/503/429) at the moment app.services.retention.disconnect_connection
-# tried `DELETE /consents/{id}`, written BEFORE the local consent doc is
+# tried `POST /consents/{id}/revoke`, written BEFORE the local consent doc is
 # deleted so the retry sweep (app.services.retention.retry_orphaned_revocations)
 # has something to work from. One marker per consent id (`_id == consent_id`,
 # upserted, never one per attempt), keyed additionally by `user_hash` (sha256
