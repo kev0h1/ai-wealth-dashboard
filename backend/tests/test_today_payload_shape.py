@@ -59,11 +59,15 @@ def _stub_engine(monkeypatch):
     async def compute(uid, payday_preview=False, persist=True, account_eligibility_out=None):
         assert uid == UID
         if account_eligibility_out is not None:
-            account_eligibility_out.update(ELIGIBILITY)
+            account_eligibility_out.update({k: dict(v) for k, v in ELIGIBILITY.items()})
         return [dict(item) for item in ITEMS]
+
+    async def pool(uid):
+        return 100000.0  # G234: far above every fixture, so the cap never binds here
 
     monkeypatch.setattr(companion_service, "compute_today_items", compute)
     monkeypatch.setattr(companion_router, "compute_today_items", compute)
+    monkeypatch.setattr(companion_router, "_pooled_safe_to_spend", pool)
 
 
 def test_warm_up_today_payload_carries_account_eligibility(monkeypatch):
@@ -81,7 +85,15 @@ def test_warm_up_today_payload_carries_account_eligibility(monkeypatch):
         "the warm-up's today payload dropped account_eligibility, so every "
         "Home load served from the warmed cache loses the spend-from rail"
     )
-    assert payload["account_eligibility"] == ELIGIBILITY
+    # G234 adds account_headroom_raw / spend_from_capped; with the pool far
+    # above every figure the shown value is unchanged.
+    assert set(payload["account_eligibility"]) == set(ELIGIBILITY)
+    for key, entry in ELIGIBILITY.items():
+        got = payload["account_eligibility"][key]
+        assert got["headroom"] == entry["headroom"]
+        assert got["account_headroom_raw"] == entry["spend_from_headroom"]
+        assert got["spend_from_headroom"] == max(0.0, entry["spend_from_headroom"])
+        assert got["spend_from_capped"] is False
 
 
 def test_warm_up_and_route_build_the_identical_today_payload(monkeypatch):

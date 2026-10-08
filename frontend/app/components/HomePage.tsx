@@ -418,7 +418,7 @@ export default function HomePage() {
             // all. That case is no longer silent (see `todayStatus` above
             // and lib/spendFromAccount.ts's `SpendFromUnavailableReason`),
             // which is the whole point of recording "ready" alongside it.
-            setAccountEligibility(v.account_eligibility);
+            setAccountEligibility(v.account_eligibility ?? undefined);
             setTodayStatus("ready");
           }
         })
@@ -509,7 +509,7 @@ export default function HomePage() {
       .then((v) => {
         if (requestId !== loadRequestRef.current) return;
         setCompanionItems(v.items);
-        setAccountEligibility(v.account_eligibility);
+        setAccountEligibility(v.account_eligibility ?? undefined);
         setTodayStatus("ready");
       })
       .catch(() => {

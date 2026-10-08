@@ -125,7 +125,7 @@ function localBank(account: SpendFromAccount["account"]) {
 function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
   return (
     <p className="mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty">
-      Each figure is for that account only, not your full Safe to Spend.
+      Each figure is what that account can cover, never more than your Safe to Spend.
       {coverMoveVisible ? " The move above is already held back." : ""}
     </p>
   );
@@ -303,7 +303,7 @@ export function approvedSpendFromTreatment(
             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
             <p>
               No current account has room to spend from right now.
-              {coverMoveVisible ? " Use the move above first." : " Checked account by account, not against your full Safe to Spend."}
+              {coverMoveVisible ? " Use the move above first." : " Checked account by account."}
             </p>
           </div>
         ),

@@ -1,7 +1,8 @@
 // G218 fixtures. Shaped exactly like lib/api.ts's SafeToSpend, reusing the
 // G14 hero fixtures where one already fits. Static, no live data.
 
-import type { SafeToSpend } from "@/lib/api";
+import type { Account, AccountEligibility, SafeToSpend } from "@/lib/api";
+import { bestSpendAccount, type SpendFromResult } from "@/lib/spendFromAccount";
 import { HERO_FIXTURES } from "../safe-to-spend-hero/fixtures";
 
 export type FigureState =
@@ -13,7 +14,8 @@ export type FigureState =
   | "error"
   | "degraded"
   | "syncing"
-  | "excluded";
+  | "excluded"
+  | "capped";
 
 export const FIGURE_STATES: { id: FigureState; label: string }[] = [
   { id: "on-track", label: "On track" },
@@ -25,6 +27,7 @@ export const FIGURE_STATES: { id: FigureState; label: string }[] = [
   { id: "degraded", label: "Degraded" },
   { id: "syncing", label: "Syncing" },
   { id: "excluded", label: "Not counting 2 accounts" },
+  { id: "capped", label: "Spend from capped" },
 ];
 
 type Ok = Extract<SafeToSpend, { status: "ok" }>;
@@ -46,5 +49,35 @@ export const FIGURE_DATA: Record<FigureState, Ok | null> = {
   degraded: { ...base, calculation_status: "degraded", unavailable_components: ["allocations"] },
   syncing: { ...base, calculation_status: "syncing", sync_state: "syncing" },
   // G231: the on-track hero with two accounts the user does not count.
+  // G234: Kevin's numbers. Spendable 1,366.48 + income 6.50 - bills 950.78 -
+  // envelopes 231.84 - plans 80 = 110.36, Tight. Barclays holds 127 spare on
+  // its own bills, but the rail may not exceed the headline.
+  capped: { ...HERO_FIXTURES.tight, last_synced: base.last_synced, safe_to_spend: 110.36, safe_to_spend_cash: 110.36, card_growth_reserved: 0, spendable_now: 1366.48, bills_total: 950.78, income_before_payday: 6.5, buffer: 0, lowest_projected_balance: 400, commitments_reserved: 80, allocations_reserved: 231.84 },
   excluded: { ...base, safe_to_spend: 105, safe_to_spend_cash: 105, state: "comfortable", short_reason: null, spendable_now: 520, bills_total: 200, income_before_payday: 0, buffer: 100, lowest_projected_balance: 320, commitments_reserved: 70, allocations_reserved: 45, excluded_accounts_count: 2, excluded_accounts: [{ id: "joint-bills", name: "Joint bills" }, { id: "partner", name: "Partner current" }] },
 };
+
+// ── Spend from rail, as the backend delivers it (G234) ─────────────────────
+// The backend (cap_spend_from_to_pool) sends `spend_from_headroom` already
+// capped at the pooled Safe to Spend and floored at 0. These fixtures model
+// that OUTPUT by hand so the production card renders exactly what it would be
+// served; the client never caps anything itself.
+const RAIL_ACCOUNTS: Account[] = [
+  { id: "f-barclays", name: "Bills current", type: "bank", subtype: "TRANSACTION", balance: 640, currency: "GBP", provider: "Barclays", provider_id: "barclays_personal", status: "AUTHORIZED", cover_source_eligible: true },
+  { id: "f-monzo", name: "Everyday", type: "bank", subtype: "TRANSACTION", balance: 286, currency: "GBP", provider: "Monzo", provider_id: "monzo", status: "AUTHORIZED", cover_source_eligible: true },
+];
+const RAW_HEADROOM: Record<string, number> = { "f-barclays": 127, "f-monzo": 60 };
+
+export function spendFromForPool(pool: number): SpendFromResult {
+  const cap = Math.max(0, pool);
+  const eligibility: Record<string, AccountEligibility> = {};
+  for (const [id, raw] of Object.entries(RAW_HEADROOM)) {
+    eligibility[id] = {
+      short: false,
+      headroom: raw,
+      spend_from_headroom: Math.min(raw, cap),
+      account_headroom_raw: raw,
+      spend_from_capped: raw > cap,
+    };
+  }
+  return bestSpendAccount(eligibility, RAIL_ACCOUNTS);
+}

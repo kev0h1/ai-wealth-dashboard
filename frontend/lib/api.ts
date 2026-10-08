@@ -1673,16 +1673,26 @@ export type CompanionItem = {
 // figure can make the account's own live move card impossible. Optional so
 // older cached payloads (pre-G114) degrade to the standing figure rather
 // than breaking; see spendFromAccount.ts's rankByHeadroom for the fallback.
+//
+// G234 (2026-10-08): on GET /today, `spend_from_headroom` is ALREADY capped
+// by the backend at the pooled Safe to Spend (floored at 0, so 0 for every
+// account when the pool is 0 or below), because a single account's figure
+// does not deduct envelopes and plans and could exceed the headline. The
+// client reads it as-is and never re-derives. `account_headroom_raw` is the
+// uncapped figure (explanations only, never ranked or shown as spare) and
+// `spend_from_capped` says the pool is what bound it.
 export type AccountEligibility = {
   short: boolean;
   headroom: number;
   spend_from_headroom?: number;
+  account_headroom_raw?: number;
+  spend_from_capped?: boolean;
 };
 
 export type TodayResponse = {
   status: "ok";
   items: CompanionItem[];
-  account_eligibility?: Record<string, AccountEligibility>;
+  account_eligibility?: Record<string, AccountEligibility> | null;
 };
 
 export type CoverPlanResponse = TodayResponse;
