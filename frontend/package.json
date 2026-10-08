@@ -78,6 +78,7 @@
     "check:purchase-availability-ssr": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/purchase-availability-ssr.test.mjs",
     "check:coming-up-dates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/coming-up-dates.test.mjs",
     "check:deep-links": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/deep-links.test.mjs",
+    "check:a149-bank-return-reset": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/a149-bank-return-reset.test.mjs",
     "check:bank-connect-return": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/bank-connect-return.test.mjs",
     "check:callback-relay": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/callback-relay.test.mjs",
     "check:app-lock": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock.test.mjs",

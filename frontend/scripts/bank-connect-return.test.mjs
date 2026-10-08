@@ -142,7 +142,7 @@ assert.ok(sheet.includes("Browser.open({ url: auth_url })"), "native consent ope
 assert.ok(sheet.includes("launchMode(") && sheet.includes("buildLinkQuery(") && sheet.includes("stayOnReturn"));
 assert.ok(/finexerConnectLink\(bank\.id, native\)/.test(sheet) && /legacyBankConnectLink\(bank\.id, native\)/.test(sheet));
 assert.ok(sheet.includes("isNativePlatform()"));
-assert.ok(sheet.includes("browserFinished"));
+assert.ok(read("lib/useBankReturnReset.ts").includes("browserFinished"), "A149: the shared hook owns browserFinished");
 const hrefAt = sheet.indexOf("window.location.href = auth_url");
 assert.ok(hrefAt > sheet.indexOf("} else {", sheet.indexOf("Browser.open")), "full-page redirect only in the web branch");
 // onConnecting is not called before the native Browser.open (single native call site is the return handler).

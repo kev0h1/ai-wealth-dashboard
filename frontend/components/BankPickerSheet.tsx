@@ -10,6 +10,7 @@ import BankConnectionFlow from "@/components/bank-connect/BankConnectionFlow";
 import { isNativePlatform } from "@/lib/nativeAuth";
 import { DEEP_LINK_EVENT, type DeepLinkDetail } from "@/lib/deepLinks";
 import { registerBankSheet } from "@/lib/bankConnectReturn";
+import { useBankReturnReset } from "@/lib/useBankReturnReset";
 import { launchMode, buildLinkQuery } from "@/lib/bankConsentLaunch";
 
 const BANK_FAILED = "The bank connection didn’t complete. Try again.";
@@ -117,6 +118,10 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     setConnecting(value);
   }
 
+  // A149: coming back without a completed consent (Back, the in-app browser's X,
+  // a swipe back) clears the connecting state like Cancel, with no error.
+  const bankReturn = useBankReturnReset(() => updateConnecting(null));
+
   // A108: while the in-app browser is open the sheet waits for the hand-off
   // deep link. A return closes the sheet, a failure keeps it open with a
   // message, and dismissing the browser without a return just clears the spinner.
@@ -134,22 +139,9 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
       (closeRef.current ?? onCloseRef.current)();
     };
     window.addEventListener(DEEP_LINK_EVENT, onLink);
-    let removeBrowser: (() => void) | null = null;
-    let disposed = false;
-    if (isNativePlatform()) {
-      // A139: destructure and call inline, never return the plugin proxy from an async function.
-      void import("@capacitor/browser").then(({ Browser }) =>
-        Browser.addListener("browserFinished", () => updateConnecting(null)),
-      ).then((h) => {
-        if (disposed) void h.remove();
-        else removeBrowser = () => void h.remove();
-      }).catch(() => {});
-    }
     return () => {
-      disposed = true;
       unregister();
       window.removeEventListener(DEEP_LINK_EVENT, onLink);
-      removeBrowser?.();
     };
   }, []);
 
@@ -188,6 +180,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     if (connectingRef.current) return;
     updateConnecting(bank.id);
     setError(null);
+    bankReturn.begin();
     closeRef.current = close;
     const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
     const mode = launchMode(isNativePlatform(), !!rn);
@@ -218,6 +211,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
         ? err.message
         : "Failed to connect. Please try again.";
       setError(msg);
+      bankReturn.end();
       updateConnecting(null);
     }
   }

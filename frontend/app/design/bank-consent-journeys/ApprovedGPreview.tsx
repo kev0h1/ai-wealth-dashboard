@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
 import BankConnectionFlow from "@/components/bank-connect/BankConnectionFlow";
 import { primary, quiet } from "@/components/bank-connect/BankConnectionParts";
+import { useBankReturnReset } from "@/lib/useBankReturnReset";
 import HostedConsentPreview from "./HostedConsentPreview";
 
 /** The approved screens are the production flow with fixture-only operations.
@@ -18,6 +19,9 @@ export default function ApprovedGPreview({ banks, mode, initialState, onClose }:
   const [connecting, setConnecting] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(initialState === "load-error" ? "We could not load the bank list. Please try again." : null);
   const [loading, setLoading] = useState(initialState === "loading");
+  // A149: the production reset hook. "returned" simulates the user pressing Back
+  // from Finexer without consenting, 2.2s after Continue: the button re-enables, no error.
+  const bankReturn = useBankReturnReset(() => setConnecting(null));
   const handoff = useRef(false);
   const failedOnce = useRef(false);
   return <main className="min-h-dvh bg-[#f0f2f7] px-5 py-6 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -34,6 +38,7 @@ export default function ApprovedGPreview({ banks, mode, initialState, onClose }:
         onRetry={() => { setLoadError(null); setLoading(false); }}
         onConnect={(chosen, close) => {
           if (initialState === "pending") { setConnecting(chosen.id); return; }
+          if (initialState === "returned") { setConnecting(chosen.id); bankReturn.begin(); window.setTimeout(() => window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true })), 2200); return; }
           if (initialState === "error" && !failedOnce.current) {
             failedOnce.current = true;
             setConnectionError("Finexer did not open. Please try again. Preview only: no request was sent.");
