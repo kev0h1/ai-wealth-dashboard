@@ -79,7 +79,7 @@ function PreviewWindow({ open, onClose, seed }: { open: boolean; onClose: () => 
         onScroll={onScroll}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4 text-[14px] leading-6 [scrollbar-width:thin]">
         {empty && <PennyStarterState>
-          {STARTERS.map(label => <SuggestionChip key={label} label={label} onTap={() => ask(label)} />)}
+          {STARTERS.map(label => <SuggestionChip key={label} label={label} onTap={() => setInput(label)} />)}
         </PennyStarterState>}
         {messages.map(turn => <div key={turn.id} className={turn.role === "user" ? "ml-8 break-words rounded-2xl bg-indigo-50 px-3 py-2 text-slate-900 dark:bg-indigo-950 dark:text-slate-100" : "mr-4 break-words text-slate-700 dark:text-slate-200"}>
           <span className="sr-only">{turn.role === "user" ? "You" : "Penny"}: </span>{turn.text}
@@ -113,7 +113,7 @@ export default function PennyFullscreenClient() {
     <div className="mx-auto max-w-xl">
       <a href="/design" className={`${button} -ml-3 text-indigo-700 dark:text-indigo-300`}><ArrowLeft size={16} aria-hidden="true" />Design previews</a>
       <h1 className="mt-3 text-xl font-bold">Ask Penny, full screen</h1>
-      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">The sheet runs from the top safe area to the bottom safe area on a solid surface, so nothing of the page shows around it, with or without the keyboard. Open it, tap the input and type on your phone. The empty conversation shows a heading and starter chips that step aside once you type. Replies are local, not live advice.</p>
+      <p id="preview-info" className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">The sheet runs from the top safe area to the bottom safe area on a solid surface, so nothing of the page shows around it, with or without the keyboard. Open it, tap the input and type on your phone. The empty conversation shows a heading and starter chips that step aside once you type. Replies are local, not live advice. The chip labels and replies are fixtures, and the live conversation's thread logic and send path are not gated by this page.</p>
       <div className="mt-4 rounded-2xl bg-white p-4 text-sm dark:bg-slate-800">
         <p className="font-semibold">Tip card on the page behind</p>
         <p className="mt-1 text-slate-600 dark:text-slate-300">If any of this shows above or around the open sheet, the takeover has leaked.</p>

@@ -1972,8 +1972,9 @@ export default function PennyConversation({
   // takeover, so an empty thread shows a heading and the SAME chips as the
   // row above (allChips: one source) instead of a blank panel. The top row
   // steps aside on phones while this shows (`max-lg:hidden`); lg keeps the
-  // floating window and its row. Tapping a chip submits it through the
-  // existing send path (sendChip for chipId chips, send for the rest).
+  // floating window and its row. Tapping a chip follows the top row's
+  // 2026-08-25 ruling exactly: chipId chips answer free via sendChip, the rest
+  // POPULATE the composer (setInput) with no focus and no keyboard.
   const showStarter = inSheet && messages.length === 0 && !loading && !error;
 
   return (
@@ -2167,14 +2168,14 @@ export default function PennyConversation({
             {allChips.length > 0 && allChips.map((c) => {
               if (c.source === "personalised") {
                 return <SuggestionChip key={`start-personalised-${c.label}`} label={c.label}
-                  onTap={() => (c.chip_id ? sendChip(c.chip_id, c.label, c.params) : send(c.label))} />;
+                  onTap={() => (c.chip_id ? sendChip(c.chip_id, c.label, c.params) : setInput(c.label))} />;
               }
               if (c.kind === "link") {
                 return <LinkChip key={`start-link-${c.label}`} label={c.label}
                   onTap={() => { closePennySheet(); router.push(c.href); }} />;
               }
               return <SuggestionChip key={`start-ask-${c.q}`} label={c.label}
-                onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : send(c.q))} />;
+                onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : setInput(c.q))} />;
             })}
           </PennyStarterState>
         )}
