@@ -31,8 +31,8 @@ assert.ok(!/gradient/i.test(shared), "no gradient (Penny's)");
 assert.ok(!/border-left\s*:\s*[2-9]/.test(shared), "no side stripe");
 
 // A151: app_name is the registered agent's legal name, Finexer is named in the header.
-assert.equal(appName(), "AURIQ LTD");
-assert.ok(regulatedFooter(appName()).startsWith("AURIQ LTD acts as Finexer Ltd's registered agent."), "footer sentence names AURIQ LTD");
+assert.equal(appName(), "Sorted");
+assert.ok(regulatedFooter(appName()).startsWith("Sorted acts as Finexer Ltd's registered agent."), "footer sentence names Sorted");
 assert.ok(html.includes("<strong>Provided by Finexer Ltd</strong>, authorised by the FCA (firm reference 925695). AURIQ LTD, trading as Sorted, acts as its agent."), "Finexer prominence line");
 assert.ok(!existsSync(new URL("../../backend/app/data/finexer_brand/footer.html", import.meta.url)), "no footer_html: Finexer's own footer must remain");
 const fixtures = readFileSync(new URL("../app/design/finexer-consent-intro/fixtures.ts", import.meta.url), "utf8");
