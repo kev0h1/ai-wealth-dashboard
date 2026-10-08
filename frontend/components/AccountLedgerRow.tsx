@@ -118,6 +118,9 @@ export interface AccountLedgerRowProps {
    *  exactly as before. Retry lives on the page-level banner, so the row
    *  never grows a second interactive control. */
   sync?: SyncingInfo;
+  /** G236: mask the balance (and its spoken form) when the user has chosen to
+   *  hide balances. Absent, the row renders exactly as before. */
+  hideAmount?: boolean;
 }
 
 export default function AccountLedgerRow({
@@ -131,6 +134,7 @@ export default function AccountLedgerRow({
   onTermsClick,
   onAddRates,
   sync,
+  hideAmount,
 }: AccountLedgerRowProps) {
   const brand = accountBrand(brandAccountFor(row));
   const isCredit = row.kind === "Credit";
@@ -154,7 +158,7 @@ export default function AccountLedgerRow({
   // the sign has to do that job on its own (matches design/account-rows
   // shared.tsx's amountText). Non-credit output is unchanged: isOverdrawn
   // and `negative` are equivalent there.
-  const amountText = negative ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
+  const amountText = hideAmount ? "£••••" : negative ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
   // Spoken/aria state word — unchanged from before the redesign, so screen
   // readers still hear "owed" / "in credit" / "overdrawn" even though the
   // visual caption below only survives for non-credit rows.
@@ -198,7 +202,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Safe to Spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Safe to Spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />

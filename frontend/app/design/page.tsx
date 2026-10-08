@@ -32,6 +32,23 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "accounts-header",
+    name: "Accounts header, eye and Add · G236",
+    description:
+      "G236, skill: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md · Three points only: the eye toggle, the header balance and a one-handed Add · Today renders the production header (extracted unchanged) and shows the defect: the eye leaves the account rows unmasked · A Verdict header, Net worth as the one Display figure, no eye, a 56px floating Add · B Quiet header, Net worth as a Caption line, no eye, a full-width Add row at the top of the list · C Toolbar, no eye, the group filter and Add in a bar above the nav · A Balances hidden chip replaces the eye, and a proposed Settings switch holds the one global control · Invented accounts · ?variant=today|a|b|c&accounts=6|20&balances=shown|hidden&mode=light|dark&menu=open",
+    states: [
+      { label: "6 accounts", value: "6" },
+      { label: "20 accounts", value: "20" },
+    ],
+    variants: [
+      { label: "A · Verdict header", value: "a" },
+      { label: "B · Quiet header", value: "b" },
+      { label: "C · Toolbar", value: "c" },
+      { label: "Today", value: "today" },
+    ],
+    group: "current",
+  },
+  {
     slug: "bank-consent-journeys",
     name: "Bank connection journeys · A155 · approved G",
     description: "Approved G renders the production BankConnectionFlow with fixture banks and inert operations. The search is fixed below the header, outside the scrolling results. Full unchanged notice before Continue to Finexer. H and I are earlier alternatives, not production; I still needs Finexer approval. No live connection starts.",
