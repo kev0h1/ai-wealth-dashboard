@@ -80,4 +80,33 @@ export const PENNY_PANEL_CSS = `
 .penny-typing-underlay { position: fixed; inset: 0; z-index: 57; background: var(--background); pointer-events: none; }
 .penny-keyboard-frame[data-penny-ios-guard] { touch-action: none; }
 .penny-keyboard-frame[data-penny-ios-guard] [data-penny-scroll] { touch-action: pan-y; overscroll-behavior: contain; }
+
+/* G240 fullscreen presentation (opt-in via presentation="fullscreen"; phones
+   only, lg keeps the floating window). The frame spans the layout viewport
+   edge to edge; the panel pads itself by the safe-area insets so the header
+   clears the status bar and the composer clears the home indicator, and the
+   opaque underlay above (z-57) means no page ever shows around it. While
+   typing the bottom edge is the measured keyboard edge, so the bottom inset
+   is dropped (the keyboard covers the home indicator). Same G191 keyboard
+   strategy: no second margin is added. */
+@media (max-width: 1023px) {
+  .penny-fs-underlay { position: fixed; inset: 0; z-index: 57; background: var(--background); pointer-events: none; }
+  .penny-fs-frame, .penny-fs-frame.penny-keyboard-typing { top: var(--penny-fs-top, 0px); bottom: 0; left: 0; right: 0; padding: 0; }
+  .penny-fs-frame.penny-keyboard-typing { bottom: var(--penny-typing-bottom, 0px); }
+  /* Out-specify the landscape resting rule (0,3,0) so landscape is flush to the
+     bottom edge too; the panel's own safe-area padding is the only inset. */
+  .penny-keyboard-frame.penny-fs-frame[data-penny-device="landscape"]:not(.penny-keyboard-typing) { bottom: 0; }
+  .penny-fs-frame .penny-keyboard-panel {
+    height: 100%; min-height: 0; max-height: none; max-width: 100%;
+    border: 0; border-radius: 0; box-shadow: none;
+    padding-top: var(--penny-safe-top);
+    padding-bottom: var(--penny-safe-bottom);
+    padding-inline: max(0px, env(safe-area-inset-left, 0px)) max(0px, env(safe-area-inset-right, 0px));
+  }
+  .penny-fs-frame.penny-keyboard-typing .penny-keyboard-panel { padding-bottom: 0; }
+  .penny-keyboard-frame.penny-fs-frame[data-penny-device="landscape"] .penny-keyboard-panel { height: 100%; max-height: none; min-height: 0; }
+  /* Variant-owned starter content (empty-state chips, history, prompt stack)
+     yields to the conversation once the keyboard is up. */
+  .penny-fs-frame.penny-keyboard-typing [data-penny-fs-secondary] { display: none; }
+}
 `;
