@@ -6,6 +6,13 @@ import { fileURLToPath } from "node:url";
 
 const directory = new URL("../../../public/design-media/c22/worlds/", import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL("exports.json", directory), "utf8"));
+const fixture = JSON.parse(readFileSync(new URL("./campaign-data.json", import.meta.url), "utf8"));
+const total = fixture.payments.reduce((sum, payment) => sum + payment.amount, 0);
+assert.equal(total, 188);
+assert.equal(fixture.everyday.balance + fixture.bills.balance - total, 422);
+assert.equal(fixture.everyday.balance + fixture.bills.balance - total - fixture.buffer, 312);
+assert.equal(fixture.bills.balance + fixture.move, fixture.payments[1].amount);
+assert.equal(new Set(fixture.payments.map((payment) => payment.bank)).size, 2);
 const expected = new Map([
   ["c-feed.png", [1080, 1350]], ["c-story.png", [1080, 1920]],
   ["d-feed.png", [1080, 1350]], ["d-story.png", [1080, 1920]],

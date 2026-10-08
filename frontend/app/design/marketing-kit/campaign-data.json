@@ -1,0 +1,12 @@
+{
+  "person": "Alex Taylor",
+  "period": "8–30 October 2026",
+  "everyday": { "bank": "Monzo", "name": "Everyday account", "balance": 580 },
+  "bills": { "bank": "Barclays", "name": "Bills account", "balance": 30 },
+  "payments": [
+    { "id": "mobile", "name": "Mobile", "bank": "Monzo", "account": "Everyday account", "amount": 38, "date": "2026-10-09" },
+    { "id": "energy", "name": "Energy", "bank": "Barclays", "account": "Bills account", "amount": 150, "date": "2026-10-18" }
+  ],
+  "buffer": 110,
+  "move": 120
+}
