@@ -9,7 +9,7 @@ We use Finexer app templates to style the hosted consent pages for our app, Sort
 
 Our identifiers:
 
-- App id: the value of FINEXER_APP_ID in our dashboard (Kevin to fill in before sending)
+- App id: acc_DqPCRpHskkjNy7uYa1wv7mSv
 - Light template: Sorted light, aYiuDETVBXPq
 - Dark template: Sorted dark, 8pq22L45Lf9L
 
