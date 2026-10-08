@@ -38,7 +38,7 @@ const NOTES: Record<Variant, { title: string; body: string; weak: string }> = {
   a: {
     title: "A · Verdict header · Proposal",
     body: "Net worth is the one Display figure with a Caption under it, on the canvas. No eye: a quiet Balances hidden chip appears when hidden and returns the figures. Add is a 56px floating action in the thumb zone, above the nav and clear of Penny.",
-    weak: "Net worth dominates a page people also use to manage accounts. The floating action covers the right-hand balances as rows scroll under it.",
+    weak: "Net worth dominates a page people also use to manage accounts. Production BottomNav paints a 116px scrim (nav-scrim, z-40) over this zone, so the floating action sits at z-45 above it, and the fold-in must do the same or its lower half fades into a gradient that reads as Penny's. The floating action covers the right-hand balances as rows scroll under it.",
   },
   b: {
     title: "B · Quiet header · Proposal",
@@ -48,7 +48,7 @@ const NOTES: Record<Variant, { title: string; body: string; weak: string }> = {
   c: {
     title: "C · Toolbar · Proposal",
     body: "Title and Net worth as in A, no eye. The group filter moves into a bar above the nav with Add beside it, so both live in the thumb zone and nothing floats alone.",
-    weak: "Crowded at 390px: four filters fit, Investment and Owed are cut. A fixed bar eats about 76px of list height.",
+    weak: "Crowded at 390px: four filters fit, Investment and Owed are cut. A fixed bar is 62px tall and covers list content beneath it.",
   },
 };
 
@@ -57,7 +57,7 @@ const NOTES: Record<Variant, { title: string; body: string; weak: string }> = {
 // 102px at the centre. The floating Add sits 16px above the rail and to the right
 // of Penny; the full-width bar must clear Penny itself, so it sits 8px above it.
 const OFFSET = `bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+var(--design-controls-clearance,0px)+80px)]`;
-const OFFSET_BAR = `bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+var(--design-controls-clearance,0px)+100px)]`;
+const OFFSET_BAR = `bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+var(--design-controls-clearance,0px)+112px)]`;
 
 function money(v: number, hidden: boolean): string {
   if (hidden) return "£••••";
@@ -195,7 +195,6 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
   const note = NOTES[variant];
   const total = estate.rows.length;
   const nwText = money(estate.netWorth, hidden);
-  const nwLabel = hidden ? "Balance hidden" : undefined;
   const cardTotal = estate.rows.filter((r) => r.kind === "Credit").reduce((s, r) => s + Math.abs(Math.min(r.balance, 0)), 0);
   const nw = {
     value: estate.netWorth,
@@ -233,6 +232,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
         <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">{note.title}</p>
         <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{note.body}</p>
         <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Weakness: {note.weak}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">The find bar, filter chips and group cards below are mirrored from AccountsPage, not the production components; rows are production. Fold-in: balances default to hidden, so removing the eye without the Settings Hide balances switch would leave a new user unable to reveal them. Ship the switch, gate on preferencesReady, and pass hideAmount on every row.</p>
       </div>
 
       <div className="mx-auto w-full max-w-[430px] pb-[calc(11rem+env(safe-area-inset-bottom,0px))]">
@@ -256,7 +256,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
             <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
             <div className="mt-5" data-tutorial-id="tutorial-networth">
               <Label>Net worth</Label>
-              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white" aria-label={nwLabel}>{nwText}</p>
+              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Balance hidden" : nwText}</span></p>
               <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">across {total} accounts</p>
               {hidden && <HiddenChip onShow={() => setHidden(false)} />}
             </div>
@@ -266,8 +266,8 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
         {variant === "b" && (
           <header className="px-4 pt-5 pb-1">
             <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
-            <p className="mt-2 text-xs text-slate-600 dark:text-slate-400" data-tutorial-id="tutorial-networth" aria-label={hidden ? "Net worth hidden" : undefined}>
-              Net worth <span className="money text-slate-950 dark:text-white">{nwText}</span> · {total} accounts
+            <p className="mt-2 text-xs text-slate-600 dark:text-slate-400" data-tutorial-id="tutorial-networth">
+              Net worth <span aria-hidden="true" className="money text-slate-950 dark:text-white">{nwText}</span><span className="sr-only">{hidden ? "hidden" : nwText}</span> · {total} accounts
             </p>
             {hidden && <HiddenChip onShow={() => setHidden(false)} />}
             <div className="relative mt-4" ref={addRef} onKeyDown={onEscape}>
@@ -286,7 +286,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
             <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
             <div className="mt-5" data-tutorial-id="tutorial-networth">
               <Label>Net worth</Label>
-              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white" aria-label={nwLabel}>{nwText}</p>
+              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Balance hidden" : nwText}</span></p>
               {hidden && <HiddenChip onShow={() => setHidden(false)} />}
             </div>
           </header>
@@ -299,7 +299,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
       </div>
 
       {variant === "a" && (
-        <div ref={addRef} onKeyDown={onEscape} className={`fixed right-5 z-40 ${OFFSET}`}>
+        <div ref={addRef} onKeyDown={onEscape} className={`fixed right-5 z-[45] ${OFFSET}`}>
           {menuOpen && <ChoiceList onChoose={close} className={`absolute bottom-[calc(100%+8px)] right-0 ${MENU_BOX}`} />}
           <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Add account" className={`${addButtonBase} size-14 rounded-full shadow-xl`}>
             <Plus size={22} aria-hidden="true" />
@@ -308,7 +308,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
       )}
 
       {variant === "c" && (
-        <div ref={addRef} onKeyDown={onEscape} className={`fixed inset-x-3 z-40 mx-auto max-w-[406px] ${OFFSET_BAR}`}>
+        <div ref={addRef} onKeyDown={onEscape} className={`fixed inset-x-3 z-[45] mx-auto max-w-[406px] ${OFFSET_BAR}`}>
           {menuOpen && <ChoiceList onChoose={close} className={`absolute bottom-[calc(100%+8px)] right-0 ${MENU_BOX}`} />}
           <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800">
             <SegmentedControl
