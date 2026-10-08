@@ -895,6 +895,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "relay-claim",
+    name: "relay-claim",
+    description:
+      "D9: the real components/RelayClaimScreen.tsx, where an invited tester who signed in with Apple's Hide My Email lands after a RELAY_INVITE_CLAIM refusal: enter the invited address, receive a code there, confirm, or go back and link Apple from Settings after signing in another way. Stub actions, no live data",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "spend-shape",
     name: "spend-shape",
     description:

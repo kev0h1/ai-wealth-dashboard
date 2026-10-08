@@ -4,6 +4,10 @@ import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
 import { getToken, setTokenAsync, clearToken } from "./auth";
+import {
+  RELAY_SEND_CODE_PATH, RELAY_VERIFY_CODE_PATH, classifyAppleRefusal, classifyVerifyStatus,
+  type ClaimVerifyOutcome,
+} from "./relayClaim";
 import { runMobileLoginLoop, type LoginResult } from "./mobileLoginLoop";
 import {
   PENDING_LOGIN_TTL_MS,
@@ -196,7 +200,16 @@ export async function nativeAppleAuthorize(): Promise<{ identityToken: string; f
 // loop, closes the sheet), drops the persisted pending login, and discards any
 // token that raced in, so a cancelled attempt can never sign the user in later
 // (including after a relaunch).
-export type NativeLoginResult = "ok" | "invite_only" | "failed" | "timeout" | "cancelled";
+export type NativeLoginResult = "ok" | "invite_only" | "relay_claim" | "failed" | "timeout" | "cancelled";
+// D9: the signed claim a refused Hide My Email sign-in handed back. Held in
+// memory only (it is short-lived and useless without the emailed code).
+let relayClaim: { claimToken: string; prompt: string } | null = null;
+export function getRelayClaim(): { claimToken: string; prompt: string } | null {
+  return relayClaim;
+}
+export function clearRelayClaim(): void {
+  relayClaim = null;
+}
 let loginAbort: AbortController | null = null;
 let applySuppressed = false;
 // Set when THIS attempt stored a token, so Cancel never clears a session that
@@ -256,7 +269,12 @@ async function appleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> 
     if (!res.ok) {
       if (res.status === 403) {
         const body = await res.json().catch(() => null);
-        if (body?.detail?.code === "INVITE_ONLY") return "invite_only";
+        const refusal = classifyAppleRefusal(res.status, body);
+        if (refusal?.kind === "invite_only") return "invite_only";
+        if (refusal?.kind === "relay_claim") {
+          relayClaim = { claimToken: refusal.claimToken, prompt: refusal.prompt };
+          return "relay_claim";
+        }
       }
       reportAppleSignInDiagnostic("appleSignInExchange", `status ${res.status}`);
       return "failed";
@@ -272,6 +290,52 @@ async function appleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> 
   } catch (err) {
     if (signal.aborted) return "cancelled";
     reportAppleSignInDiagnostic("appleSignInExchange", err instanceof Error ? err.message : err);
+    return "failed";
+  }
+}
+
+// D9 path 2, step 1: ask the backend to email a one-time code to the invited
+// address. The backend answers ok whether or not the address is invited (no
+// oracle), so "sent" only means the request went through.
+export async function sendRelayClaimCode(email: string): Promise<"sent" | "limited" | "failed"> {
+  const claim = relayClaim;
+  if (!claim) return "failed";
+  try {
+    const res = await gatedFetch(`${API_BASE}${RELAY_SEND_CODE_PATH}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim_token: claim.claimToken, email }),
+    });
+    if (res.status === 429) return "limited";
+    return res.ok ? "sent" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+// D9 path 2, step 2: verify the code. On success the backend has linked the
+// Apple sub to the invited identity and returns a session token, which is
+// stored exactly like a normal native sign-in; the caller then establishes
+// the session.
+export async function verifyRelayClaimCode(email: string, code: string): Promise<ClaimVerifyOutcome> {
+  const claim = relayClaim;
+  if (!claim) return "failed";
+  try {
+    const res = await gatedFetch(`${API_BASE}${RELAY_VERIFY_CODE_PATH}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim_token: claim.claimToken, email, code }),
+    });
+    const outcome = classifyVerifyStatus(res.status);
+    if (outcome !== "ok") return outcome;
+    const data = await res.json();
+    if (data?.ok && data.session_token) {
+      await setTokenAsync(data.session_token);
+      relayClaim = null;
+      return "ok";
+    }
+    return "failed";
+  } catch {
     return "failed";
   }
 }

@@ -88,6 +88,7 @@
     "check:app-lock-gate": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/app-lock-gate.test.mjs",
     "check:display-name": "node --no-warnings --experimental-strip-types scripts/display-name.test.mjs",
     "check:global-401": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/global-401.test.mjs",
+    "check:relay-claim": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/relay-claim.test.mjs",
     "check:mobile-login-loop": "node --no-warnings --experimental-strip-types scripts/mobile-login-loop.test.mjs",
     "check:auth-token-store": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/auth-token-store.test.mjs",
     "check:cover-plan-due": "node --no-warnings --experimental-strip-types scripts/cover-plan-due.test.mjs",

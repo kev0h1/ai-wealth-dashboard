@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
-import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, cancelNativeLogin } from "@/lib/nativeAuth";
+import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, cancelNativeLogin, getRelayClaim, clearRelayClaim, sendRelayClaimCode, verifyRelayClaimCode } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
+import RelayClaimScreen from "@/components/RelayClaimScreen";
 import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
 
 export type { LoginPhase, ResumingLogin } from "@/lib/signInPhase";
@@ -48,6 +49,10 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   // the normal sign-in buttons so a different account can be tried,
   // clearing whichever of the two sources (prop or local) set it.
   const [inviteOnlyDismissed, setInviteOnlyDismissed] = useState(false);
+  // D9: a refused Hide My Email sign-in lands on the claim screen, not a
+  // dead end. Holds the prompt the backend sent; the claim token itself
+  // stays in lib/nativeAuth.
+  const [relayClaimPrompt, setRelayClaimPrompt] = useState<string | null>(null);
 
   // G202: the single phase source for a native sign-in. `startedAt` is set on
   // the Google/Apple tap and the phase returns to "idle" on every exit (ok,
@@ -102,7 +107,10 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     const result = attempt === "google" ? await nativeGoogleLogin() : await nativeAppleLogin();
     if (!runRef.current.isCurrent(run)) return; // cancelled
     if (result === "ok") await establish(run, attempt, startedAt);
-    else if (result === "invite_only") {
+    else if (result === "relay_claim") {
+      setRelayClaimPrompt(getRelayClaim()?.prompt ?? "");
+      setLocal({ kind: "idle" });
+    } else if (result === "invite_only") {
       setNativeInviteOnly(true);
       setLocal({ kind: "idle" });
     } else if (result === "cancelled") setLocal({ kind: "idle" });
@@ -141,6 +149,26 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
 
   async function handleAppleClick() {
     await runNative("apple");
+  }
+
+  if (relayClaimPrompt !== null) {
+    return (
+      <RelayClaimScreen
+        prompt={relayClaimPrompt}
+        onSend={sendRelayClaimCode}
+        onVerify={verifyRelayClaimCode}
+        onVerified={() => {
+          setRelayClaimPrompt(null);
+          lastAttemptRef.current = "apple";
+          userAttemptRef.current = true;
+          void establish(runRef.current.next(), "apple", Date.now());
+        }}
+        onBack={() => {
+          clearRelayClaim();
+          setRelayClaimPrompt(null);
+        }}
+      />
+    );
   }
 
   const isInviteOnly = (error === "invite_only" || nativeInviteOnly) && !inviteOnlyDismissed;
