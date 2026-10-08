@@ -43,6 +43,8 @@ API_URL = "https://api.finexer.com"
 # permission to read:") and the regulated footer ("<app_name> acts as Finexer
 # Ltd's registered agent"). The registered agent is the legal entity, so this is
 # AURIQ LTD (A151); the Sorted identity lives in the logo and header_html.
+# Kevin 2026-10-08: stays AURIQ LTD because Finexer substitutes app_name into the
+# regulated footer; revisit once Sorted is a registered trading name.
 APP_NAME = "AURIQ LTD"
 TEMPLATES = {"light": "Sorted light", "dark": "Sorted dark"}
 
