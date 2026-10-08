@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { X, Search, ChevronRight, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
+import { X, Search, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { api, ApiError, resolveApiAsset } from "@/lib/api";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
@@ -13,11 +13,23 @@ import { launchMode, buildLinkQuery } from "@/lib/bankConsentLaunch";
 
 const BANK_FAILED = "The bank connection didn’t complete. Try again.";
 
-interface Bank {
+export interface Bank {
   id: string;
   name: string;
   logo: string;
 }
+
+/** A155 design round. Where the A4.1 agency sentence lives in the picker:
+ *  "footer" is today's pinned five-line footer (the default, production is
+ *  unchanged until the fold-in); "list-end" puts the full sentence as the last
+ *  row of the scrolling list with a short pinned line and a Full notice jump;
+ *  "expandable" pins one compact line that opens in place to the full sentence;
+ *  "header" sets the full sentence in the sheet header under the description. */
+export type DisclosurePlacement = "footer" | "list-end" | "expandable" | "header";
+
+const DISCLOSURE_ID = "bank-picker-disclosure";
+const SOURCE_LINE = "Secure open banking · Powered by Finexer";
+const CAPTION_INK = "text-xs leading-5 text-slate-600 dark:text-slate-300";
 
 interface BankPickerSheetProps {
   onClose: () => void;
@@ -32,12 +44,62 @@ interface BankPickerSheetProps {
   /** Mid-flow callers (Onboarding): an ok return from the in-app browser must not
    *  navigate to Accounts; the caller carries on its own flow. */
   stayOnReturn?: boolean;
+  /** A155: where the A4.1 sentence sits. Defaults to today's pinned footer. */
+  disclosurePlacement?: DisclosurePlacement;
+  /** A155: a fixed 44px search field in every state (clear button inside the
+   *  field, no layout shift) that stays pinned under the sheet header while the
+   *  list scrolls. Off by default so production is unchanged. */
+  stickySearch?: boolean;
+  /** Design previews only: render these banks instead of fetching the list. */
+  banksOverride?: Bank[];
+  /** Design previews only: seed the search text. */
+  initialQuery?: string;
+  /** Design previews only: open the expandable disclosure on first render. */
+  initiallyExpanded?: boolean;
 }
 
-export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer", stayOnReturn = false }: BankPickerSheetProps) {
-  const [banks, setBanks] = useState<Bank[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+/** The sheet description, with the sentence set in it for the "header" placement. */
+export function pickerDescription(provider: "finexer" | "legacy", placement: DisclosurePlacement): ReactNode {
+  const line = provider === "legacy" ? LEGACY_BANK_SUBTITLE : SOURCE_LINE;
+  if (placement !== "header") return line;
+  return <>{line}<span className={`mt-2 block ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</span></>;
+}
+
+function ExpandableDisclosure({ initiallyExpanded = false }: { initiallyExpanded?: boolean }) {
+  const [open, setOpen] = useState(initiallyExpanded);
+  const regionId = "bank-picker-disclosure-region";
+  return <div>
+    <button type="button" aria-expanded={open} aria-controls={regionId} onClick={() => setOpen(o => !o)}
+      className={`flex w-full items-center justify-between gap-3 text-left font-medium ${CAPTION_INK} focus-visible:outline-2 focus-visible:outline-indigo-500`}>
+      <span>Regulated by the FCA through Finexer LTD</span>
+      <ChevronDown size={16} aria-hidden="true" className={`flex-shrink-0 text-slate-500 dark:text-slate-300 transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+    <p id={regionId} hidden={!open} className={`pb-1 ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</p>
+  </div>;
+}
+
+/** The sheet footer for a placement, or undefined when the footer is freed. */
+export function pickerFooter(placement: DisclosurePlacement, initiallyExpanded = false): ReactNode {
+  if (placement === "footer") {
+    return <p className="max-h-28 overflow-y-auto overscroll-contain text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">{AGENT_DISCLOSURE}</p>;
+  }
+  if (placement === "list-end") {
+    return <button type="button" onClick={() => {
+      const note = document.getElementById(DISCLOSURE_ID);
+      note?.scrollIntoView({ block: "end" });
+      note?.focus({ preventScroll: true });
+    }} className={`flex w-full items-center justify-between gap-3 text-left ${CAPTION_INK} focus-visible:outline-2 focus-visible:outline-indigo-500`}>
+      <span className="text-balance">Provided by Finexer LTD. AURIQ LTD acts as its agent.</span>
+      <span className="flex-shrink-0 font-semibold text-indigo-700 dark:text-indigo-300">Full notice</span>
+    </button>;
+  }
+  if (placement === "expandable") return <ExpandableDisclosure initiallyExpanded={initiallyExpanded} />;
+  return undefined;
+}
+export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer", stayOnReturn = false, disclosurePlacement = "footer", stickySearch = false, banksOverride, initialQuery = "", initiallyExpanded = false }: BankPickerSheetProps) {
+  const [banks, setBanks] = useState<Bank[]>(banksOverride ?? []);
+  const [loading, setLoading] = useState(!banksOverride);
+  const [query, setQuery] = useState(initialQuery);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -83,13 +145,21 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     };
   }, []);
 
+  // A155: focus the search on open only where no software keyboard can pop up
+  // unasked (a wide viewport with a fine pointer, never the native app).
   useEffect(() => {
+    if (!stickySearch || isNativePlatform()) return;
+    if (window.matchMedia("(min-width: 1024px) and (pointer: fine)").matches) searchRef.current?.focus({ preventScroll: true });
+  }, [stickySearch]);
+
+  useEffect(() => {
+    if (banksOverride) return;
     const fetchProviders = provider === "legacy" ? api.legacyBankProviders() : api.finexerProviders();
     fetchProviders
       .then(list => setBanks([...list].sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => setError("Failed to load banks"))
       .finally(() => setLoading(false));
-  }, [provider]);
+  }, [provider, banksOverride]);
 
   const filtered = query.trim()
     ? banks.filter(b => b.name.toLowerCase().includes(query.toLowerCase()))
@@ -134,12 +204,61 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
 
   return <SheetFrame
     title="Add a Bank"
-    description={provider === "legacy" ? LEGACY_BANK_SUBTITLE : "Secure open banking · Powered by Finexer"}
+    description={pickerDescription(provider, disclosurePlacement)}
     onClose={onClose}
     bodyClassName="px-0 py-0"
-    footer={<p className="max-h-28 overflow-y-auto overscroll-contain text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">{AGENT_DISCLOSURE}</p>}
+    footer={pickerFooter(disclosurePlacement, initiallyExpanded)}
   >
-    {({ close }) => <>
+    {({ close }) => <BankPickerBody
+      query={query} setQuery={setQuery} searchRef={searchRef} error={error} loading={loading}
+      filtered={filtered} connecting={connecting} onSelect={bank => handleSelect(bank, close)}
+      stickySearch={stickySearch} disclosurePlacement={disclosurePlacement} />}
+  </SheetFrame>;
+}
+
+interface BankPickerBodyProps {
+  query: string;
+  setQuery: (q: string) => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  error: string | null;
+  loading: boolean;
+  filtered: Bank[];
+  connecting: string | null;
+  onSelect: (bank: Bank) => void;
+  stickySearch: boolean;
+  disclosurePlacement: DisclosurePlacement;
+}
+
+/** The sheet body: search, error line, bank list, and the list-end sentence. Exported so the check can render it without the portal. */
+export function BankPickerBody({ query, setQuery, searchRef, error, loading, filtered, connecting, onSelect, stickySearch, disclosurePlacement }: BankPickerBodyProps) {
+  return <>
+      {stickySearch ? (
+        <div data-bank-search="sticky" className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 pb-3 pt-3 dark:border-slate-700 dark:bg-slate-900">
+          <div data-bank-search-field className="relative h-11 rounded-2xl bg-slate-100 focus-within:ring-2 focus-within:ring-indigo-500 dark:bg-slate-700">
+            <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-300" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search your bank…"
+              aria-label="Search your bank"
+              type="search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              enterKeyHint="search"
+              className="block h-11 w-full appearance-none rounded-2xl bg-transparent py-0 pl-10 pr-11 text-base leading-6 text-slate-800 outline-none placeholder:text-slate-600 dark:text-slate-100 dark:placeholder:text-slate-300 [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query && (
+              <button type="button" data-compact aria-label="Clear search" onClick={() => { setQuery(""); searchRef.current?.focus({ preventScroll: true }); }}
+                className="absolute right-0 top-0 flex size-11 items-center justify-center rounded-2xl text-slate-600 active:text-slate-800 dark:text-slate-300 dark:active:text-slate-100">
+                <X size={16} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="px-5 pb-3 pt-4">
           <div className="flex items-center gap-2.5 bg-slate-100 dark:bg-slate-700 rounded-2xl px-3.5 py-2.5">
             <Search size={15} className="text-slate-400 flex-shrink-0" />
@@ -163,6 +282,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
             )}
           </div>
       </div>
+      )}
 
         {error && (
           <p className="px-5 pb-2 text-[12px] font-semibold text-red-600 dark:text-red-400">{error}</p>
@@ -183,7 +303,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
               {filtered.map(bank => (
                 <button
                   key={bank.id}
-                  onClick={() => handleSelect(bank, close)}
+                  onClick={() => onSelect(bank)}
                   disabled={connecting !== null}
                   className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700/60 active:bg-slate-100 dark:active:bg-slate-700 transition-colors disabled:opacity-50 text-left"
                 >
@@ -219,6 +339,8 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
             </div>
           )}
       </div>
-    </>}
-  </SheetFrame>;
+      {disclosurePlacement === "list-end" && (
+        <p id={DISCLOSURE_ID} tabIndex={-1} className={`mx-5 mb-5 border-t border-slate-100 pt-4 outline-none dark:border-slate-700 ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</p>
+      )}
+  </>;
 }

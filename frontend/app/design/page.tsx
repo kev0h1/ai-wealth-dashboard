@@ -313,6 +313,24 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "bank-picker",
+    name: "bank-picker",
+    description:
+      "A155, skill: impeccable · Kevin 2026-10-08 (iPhone): the agency sentence was a five-line block pinned to the footer, the search grew taller once text was typed and scrolled away with the list · Every variant renders the real BankPickerSheet through new optional props, fixture banks, no API calls · All three fix the search the same way (fixed 44px in every state, clear button inside the field, pinned under the header while the list scrolls) · Directions drafted with openai/gpt-6-astra, rewritten to DESIGN.md · A shows the full sentence as the last row of the list with a short pinned line and a Full notice jump; B pins one line that opens in place to the sentence (needs Finexer to confirm it satisfies A4.2); C sets the full sentence in the header under Powered by Finexer, which takes about six lines so the list starts around a third of the way down a 390 by 844 phone · Today is the current footer for comparison · ?variant=today|a|b|c&state=empty|typing|scrolled|expanded&mode=light|dark",
+    states: [
+      { label: "Empty search", value: "empty" },
+      { label: "Typing", value: "typing" },
+      { label: "Scrolled", value: "scrolled" },
+      { label: "Expanded notice", value: "expanded" },
+    ],
+    variants: [
+      { label: "A · End of the list", value: "a" },
+      { label: "B · Expands in place", value: "b" },
+      { label: "C · In the header", value: "c" },
+      { label: "Today", value: "today" },
+    ],
+  },
+  {
     slug: "sheet-anatomy",
     name: "sheet-anatomy",
     description:
