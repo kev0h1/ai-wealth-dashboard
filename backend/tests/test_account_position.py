@@ -20,7 +20,7 @@ CASES = json.loads(
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_fixture_positions_and_spend_from(case):
     positions = compute_account_positions(
-        case["plans"], case["closing"], movements=case["movements"], credit_account_ids=set(),
+        case["plans"], case["closing"], movements=case["movements"], credit_account_ids=set(case.get("credit_account_ids", [])),
     )
     elig = {}
     for sid, pos in positions.items():

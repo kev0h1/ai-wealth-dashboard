@@ -12,7 +12,8 @@ const summary = (id, closing, extra = {}) => ({ id, bank: id, name: id, opening:
 
 for (const c of fixture.cases) {
   const bills = c.movements.map((m) => ({ name: "Move", expected_date: "2026-10-16", days_away: 8, is_credit_card: false, observed_pending: false, ...m, kind: "movement" }));
-  const plans = assessPlanOverlap(plansFromApi(c.plans), { upcoming_bills: bills }, end);
+  const creditAccounts = (c.credit_account_ids ?? []).map((id) => ({ id, type: "credit", subtype: "credit_card" }));
+  const plans = assessPlanOverlap(plansFromApi(c.plans), { upcoming_bills: bills }, end, creditAccounts);
   for (const [id, want] of Object.entries(c.expected)) {
     // Client fallback (old API): same answer as the server for the same fixture.
     const fallback = accountPlan(summary(id, c.closing[id]), plans);

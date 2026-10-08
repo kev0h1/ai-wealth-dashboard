@@ -4,99 +4,455 @@
     {
       "name": "kevin_barclays_japan",
       "pool": 108,
-      "closing": {"barclays": 141.04},
+      "closing": {
+        "barclays": 141.04
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "recent-transfers", "period_amount": 80, "filled_amount": null, "remaining": 80, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "recent-transfers",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
       ],
       "movements": [
-        {"account_id": "barclays", "dest_account_id": null, "amount": 423.62, "category": "Debt", "kind": "movement"},
-        {"account_id": "barclays", "dest_account_id": null, "amount": 99.8, "category": "Debt", "kind": "movement"},
-        {"account_id": "barclays", "dest_account_id": null, "amount": 29.44, "category": "Debt", "kind": "movement"}
+        {
+          "account_id": "barclays",
+          "dest_account_id": null,
+          "amount": 423.62,
+          "category": "Debt",
+          "kind": "movement"
+        },
+        {
+          "account_id": "barclays",
+          "dest_account_id": null,
+          "amount": 99.8,
+          "category": "Debt",
+          "kind": "movement"
+        },
+        {
+          "account_id": "barclays",
+          "dest_account_id": null,
+          "amount": 29.44,
+          "category": "Debt",
+          "kind": "movement"
+        }
       ],
-      "expected": {"barclays": {"after_payments": 141.04, "plans_reserved": 80, "after_payments_and_plans": 61.04, "uncertain": false, "estimated": true, "spend_from": 61.04}}
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": 61.04,
+          "uncertain": false,
+          "estimated": true,
+          "spend_from": 61.04
+        }
+      }
     },
     {
       "name": "no_plans_keeps_after_payments",
       "pool": 108,
-      "closing": {"barclays": 90.5},
+      "closing": {
+        "barclays": 90.5
+      },
       "plans": [],
       "movements": [],
-      "expected": {"barclays": {"after_payments": 90.5, "plans_reserved": 0, "after_payments_and_plans": 90.5, "uncertain": false, "estimated": false, "spend_from": 90.5}}
+      "expected": {
+        "barclays": {
+          "after_payments": 90.5,
+          "plans_reserved": 0,
+          "after_payments_and_plans": 90.5,
+          "uncertain": false,
+          "estimated": false,
+          "spend_from": 90.5
+        }
+      }
     },
     {
       "name": "pool_cap_binds",
       "pool": 40,
-      "closing": {"barclays": 141.04},
+      "closing": {
+        "barclays": 141.04
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "recent-transfers", "period_amount": 80, "filled_amount": null, "remaining": 80, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "recent-transfers",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
       ],
       "movements": [],
-      "expected": {"barclays": {"after_payments": 141.04, "plans_reserved": 80, "after_payments_and_plans": 61.04, "uncertain": false, "estimated": true, "spend_from": 40}}
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": 61.04,
+          "uncertain": false,
+          "estimated": true,
+          "spend_from": 40
+        }
+      }
     },
     {
       "name": "chosen_allocation_is_not_estimated",
       "pool": 500,
-      "closing": {"barclays": 300},
+      "closing": {
+        "barclays": 300
+      },
       "plans": [
-        {"id": "allocation:a1", "record_id": "a1", "kind": "allocation", "name": "Gifts", "destination": "Gifts pot", "destination_account_ids": ["gifts-pot"], "source_account_id": "barclays", "source_basis": "chosen", "period_amount": 50, "filled_amount": 20, "remaining": 30, "active": true}
+        {
+          "id": "allocation:a1",
+          "record_id": "a1",
+          "kind": "allocation",
+          "name": "Gifts",
+          "destination": "Gifts pot",
+          "destination_account_ids": [
+            "gifts-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 50,
+          "filled_amount": 20,
+          "remaining": 30,
+          "active": true
+        }
       ],
       "movements": [],
-      "expected": {"barclays": {"after_payments": 300, "plans_reserved": 30, "after_payments_and_plans": 270, "uncertain": false, "estimated": false, "spend_from": 270}}
+      "expected": {
+        "barclays": {
+          "after_payments": 300,
+          "plans_reserved": 30,
+          "after_payments_and_plans": 270,
+          "uncertain": false,
+          "estimated": false,
+          "spend_from": 270
+        }
+      }
     },
     {
       "name": "unassigned_plan_is_not_deducted_per_account",
       "pool": 108,
-      "closing": {"barclays": 141.04},
+      "closing": {
+        "barclays": 141.04
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": null, "source_basis": "unknown", "period_amount": 80, "filled_amount": null, "remaining": 80, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": null,
+          "source_basis": "unknown",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
       ],
       "movements": [],
-      "expected": {"barclays": {"after_payments": 141.04, "plans_reserved": 0, "after_payments_and_plans": 141.04, "uncertain": false, "estimated": false, "spend_from": 108}}
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 0,
+          "after_payments_and_plans": 141.04,
+          "uncertain": false,
+          "estimated": false,
+          "spend_from": 108
+        }
+      }
     },
     {
       "name": "unreadable_amount_is_uncertain_and_not_shown",
       "pool": 108,
-      "closing": {"barclays": 141.04},
+      "closing": {
+        "barclays": 141.04
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "chosen", "period_amount": 80, "filled_amount": null, "remaining": null, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": null,
+          "active": true
+        }
       ],
       "movements": [],
-      "expected": {"barclays": {"after_payments": 141.04, "plans_reserved": 0, "after_payments_and_plans": null, "uncertain": true, "estimated": false, "spend_from": 0}}
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 0,
+          "after_payments_and_plans": null,
+          "uncertain": true,
+          "estimated": false,
+          "spend_from": 0
+        }
+      }
     },
     {
       "name": "transfer_to_plan_pot_is_overlap_uncertain",
       "pool": 108,
-      "closing": {"barclays": 141.04},
+      "closing": {
+        "barclays": 141.04
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "chosen", "period_amount": 80, "filled_amount": null, "remaining": 80, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
       ],
       "movements": [
-        {"account_id": "barclays", "dest_account_id": "japan-pot", "amount": 500, "category": "Transfer", "kind": "movement"}
+        {
+          "account_id": "barclays",
+          "dest_account_id": "japan-pot",
+          "amount": 500,
+          "category": "Transfer",
+          "kind": "movement"
+        }
       ],
-      "expected": {"barclays": {"after_payments": 141.04, "plans_reserved": 80, "after_payments_and_plans": null, "uncertain": true, "estimated": false, "spend_from": 0}}
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": null,
+          "uncertain": true,
+          "estimated": false,
+          "spend_from": 0
+        }
+      }
     },
     {
       "name": "unknown_destination_near_slice_is_overlap_uncertain",
       "pool": 108,
-      "closing": {"barclays": 141.04},
+      "closing": {
+        "barclays": 141.04
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "chosen", "period_amount": 80, "filled_amount": null, "remaining": 80, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
       ],
       "movements": [
-        {"account_id": "barclays", "dest_account_id": null, "amount": 90, "category": "Transfer", "kind": "movement"}
+        {
+          "account_id": "barclays",
+          "dest_account_id": null,
+          "amount": 90,
+          "category": "Transfer",
+          "kind": "movement"
+        }
       ],
-      "expected": {"barclays": {"after_payments": 141.04, "plans_reserved": 80, "after_payments_and_plans": null, "uncertain": true, "estimated": false, "spend_from": 0}}
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": null,
+          "uncertain": true,
+          "estimated": false,
+          "spend_from": 0
+        }
+      }
     },
     {
       "name": "shared_receiving_pot_is_uncertain",
       "pool": 108,
-      "closing": {"barclays": 400},
+      "closing": {
+        "barclays": 400
+      },
       "plans": [
-        {"id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "chosen", "period_amount": 80, "filled_amount": null, "remaining": 80, "active": true},
-        {"id": "allocation:a1", "record_id": "a1", "kind": "allocation", "name": "Holiday", "destination": "Japan pot", "destination_account_ids": ["japan-pot"], "source_account_id": "barclays", "source_basis": "chosen", "period_amount": 50, "filled_amount": 0, "remaining": 50, "active": true}
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        },
+        {
+          "id": "allocation:a1",
+          "record_id": "a1",
+          "kind": "allocation",
+          "name": "Holiday",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 50,
+          "filled_amount": 0,
+          "remaining": 50,
+          "active": true
+        }
       ],
       "movements": [],
-      "expected": {"barclays": {"after_payments": 400, "plans_reserved": 130, "after_payments_and_plans": null, "uncertain": true, "estimated": false, "spend_from": 0}}
+      "expected": {
+        "barclays": {
+          "after_payments": 400,
+          "plans_reserved": 130,
+          "after_payments_and_plans": null,
+          "uncertain": true,
+          "estimated": false,
+          "spend_from": 0
+        }
+      }
+    },
+    {
+      "name": "pending_near_slice_move_is_overlap_uncertain",
+      "pool": 108,
+      "closing": {
+        "barclays": 141.04
+      },
+      "plans": [
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "recent-transfers",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
+      ],
+      "movements": [
+        {
+          "account_id": "barclays",
+          "dest_account_id": null,
+          "amount": 85,
+          "category": "Transfer",
+          "kind": "movement",
+          "pending": true
+        }
+      ],
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": null,
+          "uncertain": true,
+          "estimated": true,
+          "spend_from": 0
+        }
+      }
+    },
+    {
+      "name": "credit_destination_is_card_repayment_not_overlap",
+      "pool": 108,
+      "closing": {
+        "barclays": 141.04
+      },
+      "plans": [
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "recent-transfers",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
+      ],
+      "credit_account_ids": [
+        "amex"
+      ],
+      "movements": [
+        {
+          "account_id": "barclays",
+          "dest_account_id": "amex",
+          "amount": 80,
+          "category": "Transfer",
+          "kind": "movement"
+        }
+      ],
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": 61.04,
+          "uncertain": false,
+          "estimated": true,
+          "spend_from": 61.04
+        }
+      }
     }
   ]
 }

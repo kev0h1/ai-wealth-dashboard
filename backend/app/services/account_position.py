@@ -53,7 +53,7 @@ def assess_overlap(
     another owing plan, or when a forecast movement from its source could be
     its own contribution (goes to one of its destinations, or has an unknown
     destination, is not a card repayment and sits within +/-15% of the slice).
-    `movements` are non-card, non-pending movement bills inside the window."""
+    `movements` are movement bills inside the window; credit-card and observed_pending ones are skipped here."""
     out: dict[str, bool] = {}
     for idx, plan in enumerate(plans):
         if not plan.get("active") or _plan_remaining_pence(plan) == 0 or not has_plan_source(plan):
@@ -69,6 +69,10 @@ def assess_overlap(
         slice_ = _plan_remaining_pence(plan) / 100
         move = False
         for m in movements:
+            # Same exclusions as the client: card charges and observed-pending
+            # (settling) moves. An overdue, unobserved `pending` move still counts.
+            if m.get("is_credit_card") or m.get("observed_pending"):
+                continue
             if str(m.get("account_id") or "") != src:
                 continue
             dest = m.get("dest_account_id")

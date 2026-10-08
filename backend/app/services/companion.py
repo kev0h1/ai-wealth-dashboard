@@ -2673,8 +2673,8 @@ async def compute_today_items(
             }
             _gp_moves = [
                 b for b in assessable_bills
-                if b.get("kind") == MOVEMENT and not b.get("is_credit_card") and not b.get("pending")
-            ]
+                if b.get("kind") == MOVEMENT
+            ]  # exclusions (credit card, observed_pending) live in assess_overlap, matching the client
             _gp_closing = {
                 _sid: float(running.get(_sid, live_balances.get(_sid, 0.0)))
                 for _sid in account_eligibility_out
