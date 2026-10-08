@@ -87,7 +87,7 @@ bash scripts/apply-icons.sh
 # 2c. Board's own distinct-colourway icon set (H66; src/board/res/ overlay only)
 bash scripts/apply-board-icons.sh
 
-# 3. Build the frontend static export
+# 3. Build the frontend static export (C20: the published APK MUST use build:mobile:prod, the production API base)
 cd ../frontend
 npm run build:mobile
 
@@ -103,6 +103,9 @@ bash scripts/build-board-web-assets.sh
 # src/main/assets/public/ only — Board's src/board/assets/ is untouched by
 # `cap sync`, see step 4a)
 npx cap sync android
+
+# 5a. C20: set versionCode from frontend/public/sorted-apk.json (see README "Published APK")
+bash scripts/set-android-version.sh
 
 # 6. Build the APKs
 cd android
