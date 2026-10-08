@@ -6,8 +6,9 @@
 //
 // Checks: exactly one *.apk under public/ (recursive); it is the file named in
 // sorted-apk.json; its SHA-256 matches the recorded one; versionCode >
-// previousVersionCode; and, when aapt is available, the APK's own embedded
-// versionCode equals the recorded one.
+// previousVersionCode; and, the APK's own embedded
+// versionCode (via aapt, required) equals the recorded one; and the bundled JS
+// contains the production API base and not the UAT one (unzips the APK).
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -18,6 +19,26 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const publicDir = join(root, 'public')
 const metaPath = join(publicDir, 'sorted-apk.json')
 const fails = []
+const PROD_API = 'https://wealth.auriqltd.co.uk/api'
+const UAT_API = 'uat.wealth.auriqltd.co.uk/api'
+
+function findAapt() {
+  const dirs = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT, '/root/ai-wealth-dashboard/.android-sdk']
+  for (const d of dirs) {
+    if (!d) continue
+    const bt = join(d, 'build-tools')
+    if (!existsSync(bt)) continue
+    for (const v of readdirSync(bt).sort().reverse()) {
+      const p = join(bt, v, 'aapt')
+      if (existsSync(p)) return p
+    }
+  }
+  try {
+    return execFileSync('which', ['aapt'], { encoding: 'utf8' }).trim() || null
+  } catch {
+    return null
+  }
+}
 
 function findApks(dir) {
   const out = []
@@ -50,17 +71,28 @@ if (!existsSync(metaPath)) {
     if (relative(publicDir, apk) !== file) fails.push(`sorted-apk.json names ${file} but the APK is ${relative(publicDir, apk)}`)
     const actual = createHash('sha256').update(readFileSync(apk)).digest('hex')
     if (actual !== sha256) fails.push(`SHA-256 of ${relative(publicDir, apk)} is ${actual}, sorted-apk.json records ${sha256}`)
-    const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || resolve(root, '..', '.android-sdk')
-    const btDir = join(sdk, 'build-tools')
-    if (existsSync(btDir)) {
-      const vers = readdirSync(btDir).sort()
-      const aapt = vers.length ? join(btDir, vers[vers.length - 1], 'aapt') : null
-      if (aapt && existsSync(aapt)) {
-        const badging = execFileSync(aapt, ['dump', 'badging', apk], { encoding: 'utf8' })
-        const m = badging.match(/versionCode='(\d+)'/)
-        if (!m || Number(m[1]) !== versionCode) fails.push(`APK embeds versionCode ${m ? m[1] : 'unknown'}, sorted-apk.json records ${versionCode}`)
-      } else console.log('check:apk-single: aapt not found, skipped the embedded versionCode check')
-    } else console.log('check:apk-single: Android build-tools not found, skipped the embedded versionCode check')
+    // aapt: ANDROID_HOME, then the repo's .android-sdk, then PATH. Never silently skipped.
+    const aapt = findAapt()
+    if (!aapt) {
+      fails.push('aapt not found via ANDROID_HOME, /root/ai-wealth-dashboard/.android-sdk or PATH, so the embedded versionCode cannot be checked')
+    } else {
+      const badging = execFileSync(aapt, ['dump', 'badging', apk], { encoding: 'utf8' })
+      const m = badging.match(/versionCode='(\d+)'/)
+      if (!m || Number(m[1]) !== versionCode) fails.push(`APK embeds versionCode ${m ? m[1] : 'unknown'}, sorted-apk.json records ${versionCode}`)
+    }
+    // The published APK is the real app: it must talk to production, never UAT.
+    const apiBase = meta.api_base
+    if (apiBase !== PROD_API) fails.push(`sorted-apk.json api_base must be ${PROD_API}, found ${apiBase}`)
+    let bundle = ''
+    try {
+      bundle = execFileSync('unzip', ['-p', apk, 'assets/public/_next/*'], { encoding: 'latin1', maxBuffer: 512 * 1024 * 1024 })
+    } catch (e) {
+      fails.push('could not unzip the bundled web assets from the APK: ' + e.message)
+    }
+    if (bundle) {
+      if (!bundle.includes(PROD_API)) fails.push(`bundled JS does not contain the production API base ${PROD_API}`)
+      if (bundle.includes(UAT_API)) fails.push(`bundled JS contains the UAT API base ${UAT_API}`)
+    }
   }
 }
 

@@ -87,7 +87,7 @@ bash scripts/apply-icons.sh
 # 2c. Board's own distinct-colourway icon set (H66; src/board/res/ overlay only)
 bash scripts/apply-board-icons.sh
 
-# 3. Build the frontend static export
+# 3. Build the frontend static export (C20: the published APK MUST use build:mobile:prod, the production API base)
 cd ../frontend
 npm run build:mobile
 
