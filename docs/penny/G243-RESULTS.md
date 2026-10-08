@@ -33,6 +33,8 @@ Root cause: the model was never told the user's categories, `get_category_spend`
 
 ### Per-model results
 
+The saved run JSONs were rescored with `--rescore` after the advice control (ctl-02) was reclassified as an acceptable decline.
+
 | model | routing tool correct | answers correct | wrongful refusals | median / p95 latency | cost per question (warm cache) | run total | served model |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | anthropic/claude-haiku-4-5 (current) | 13/14 | 30/33 | 1 | 3.8 / 6.6 s | $0.0057 | $0.187 | anthropic/claude-haiku-4.5 on all 33 |

@@ -202,57 +202,59 @@ async def main():
 
     penny_agent.openrouter_chat = chat
 
-    rows, running = [], 0.0
-    for case in cases:
-        if running >= args.budget_usd:
-            print(f"STOPPED: actual cost ${running:.4f} reached --budget-usd")
-            break
-        uid = f"g243-eval-{case['id']}"
-        await db.user_categories.insert_one({"user_id": uid, "categories": [{"name": n, "kind": "discretionary"} for n in routing.CUSTOM_CATEGORIES]})
-        state["calls"], state["rounds"] = [], []
-        t0 = time.monotonic()
-        result = await penny_agent.run_penny_agent(uid, case["question"], [], case["screen"], "")
-        dt = time.monotonic() - t0
-        usage = await llm_usage_col.find({"user_id": uid}).to_list(50)
-        cost = sum(float(u.get("cost_usd") or 0) for u in usage)
-        running += cost
-        served = sorted({u.get("model") for u in usage if u.get("model")})
-        used = list(state["calls"])
-        tool_ok, answer_ok, refused, wrongful = _score(case, result, used)
-        row = {
-            "id": case["id"], "kind": case["kind"], "question": case["question"],
-            "tools_called": used, "tool_ok": tool_ok, "answer_ok": answer_ok and tool_ok or answer_ok,
-            "refused": refused, "wrongful_refusal": wrongful,
-            "provider_error": bool(result and result.get("provider_error")),
-            "rounds": len(usage), "served_models": served, "latency_s": round(dt, 2), "cost_usd": round(cost, 6),
-            "prompt_tokens": sum(int(u.get("prompt_tokens") or 0) for u in usage),
-            "completion_tokens": sum(int(u.get("completion_tokens") or 0) for u in usage),
-            "round_detail": list(state["rounds"]),
-            "reply": ((result or {}).get("reply") or "")[:300],
-        }
-        rows.append(row)
-        print(json.dumps({k: row[k] for k in ("id", "tools_called", "tool_ok", "answer_ok", "refused", "rounds", "served_models", "latency_s", "cost_usd")}, ensure_ascii=False), f"running=${running:.4f}")
+    try:
+        rows, running = [], 0.0
+        for case in cases:
+            if running >= args.budget_usd:
+                print(f"STOPPED: actual cost ${running:.4f} reached --budget-usd")
+                break
+            uid = f"g243-eval-{case['id']}"
+            await db.user_categories.insert_one({"user_id": uid, "categories": [{"name": n, "kind": "discretionary"} for n in routing.CUSTOM_CATEGORIES]})
+            state["calls"], state["rounds"] = [], []
+            t0 = time.monotonic()
+            result = await penny_agent.run_penny_agent(uid, case["question"], [], case["screen"], "")
+            dt = time.monotonic() - t0
+            usage = await llm_usage_col.find({"user_id": uid}).to_list(50)
+            cost = sum(float(u.get("cost_usd") or 0) for u in usage)
+            running += cost
+            served = sorted({u.get("model") for u in usage if u.get("model")})
+            used = list(state["calls"])
+            tool_ok, answer_ok, refused, wrongful = _score(case, result, used)
+            row = {
+                "id": case["id"], "kind": case["kind"], "question": case["question"],
+                "tools_called": used, "tool_ok": tool_ok, "answer_ok": answer_ok and tool_ok or answer_ok,
+                "refused": refused, "wrongful_refusal": wrongful,
+                "provider_error": bool(result and result.get("provider_error")),
+                "rounds": len(usage), "served_models": served, "latency_s": round(dt, 2), "cost_usd": round(cost, 6),
+                "prompt_tokens": sum(int(u.get("prompt_tokens") or 0) for u in usage),
+                "completion_tokens": sum(int(u.get("completion_tokens") or 0) for u in usage),
+                "round_detail": list(state["rounds"]),
+                "reply": ((result or {}).get("reply") or "")[:300],
+            }
+            rows.append(row)
+            print(json.dumps({k: row[k] for k in ("id", "tools_called", "tool_ok", "answer_ok", "refused", "rounds", "served_models", "latency_s", "cost_usd")}, ensure_ascii=False), f"running=${running:.4f}")
 
-    n = len(rows)
-    lat = sorted(r["latency_s"] for r in rows)
-    summary = {
-        "model": args.model, "questions": n, "prefix_mode": not category_fallback, "reasoning_none": args.reasoning_none,
-        "tool_selection_ok": sum(r["tool_ok"] for r in rows), "answer_ok": sum(r["answer_ok"] for r in rows),
-        "wrongful_refusals": sum(r["wrongful_refusal"] for r in rows), "provider_errors": sum(r["provider_error"] for r in rows),
-        "median_latency_s": statistics.median(lat) if lat else None,
-        "p95_latency_s": lat[min(n - 1, int(round(0.95 * (n - 1))))] if lat else None,
-        "total_cost_usd": round(running, 5), "cost_per_question_usd": round(running / n, 5) if n else None,
-        "served_models": {m: sum(1 for r in rows if m in r["served_models"]) for m in sorted({m for r in rows for m in r["served_models"]})},
-        "no_tool_calls_anywhere": all(not r["tools_called"] for r in rows),
-        "estimate_usd": round(total_est, 4),
-    }
-    req_rows = [r for r in rows if r["kind"] != "control"]
-    summary["verdict_cannot_run_loop"] = bool(req_rows) and all(not r["tools_called"] for r in req_rows) and n >= 3
-    print("SUMMARY", json.dumps(summary, ensure_ascii=False))
-    if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps({"summary": summary, "rows": rows}, indent=1, ensure_ascii=False))
-    await guarded_drop_database(db.client, live._SCRATCH_DB)
+        n = len(rows)
+        lat = sorted(r["latency_s"] for r in rows)
+        summary = {
+            "model": args.model, "questions": n, "prefix_mode": not category_fallback, "reasoning_none": args.reasoning_none,
+            "tool_selection_ok": sum(r["tool_ok"] for r in rows), "answer_ok": sum(r["answer_ok"] for r in rows),
+            "wrongful_refusals": sum(r["wrongful_refusal"] for r in rows), "provider_errors": sum(r["provider_error"] for r in rows),
+            "median_latency_s": statistics.median(lat) if lat else None,
+            "p95_latency_s": lat[min(n - 1, int(round(0.95 * (n - 1))))] if lat else None,
+            "total_cost_usd": round(running, 5), "cost_per_question_usd": round(running / n, 5) if n else None,
+            "served_models": {m: sum(1 for r in rows if m in r["served_models"]) for m in sorted({m for r in rows for m in r["served_models"]})},
+            "no_tool_calls_anywhere": all(not r["tools_called"] for r in rows),
+            "estimate_usd": round(total_est, 4),
+        }
+        req_rows = [r for r in rows if r["kind"] != "control"]
+        summary["verdict_cannot_run_loop"] = bool(req_rows) and all(not r["tools_called"] for r in req_rows) and n >= 3
+        print("SUMMARY", json.dumps(summary, ensure_ascii=False))
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps({"summary": summary, "rows": rows}, indent=1, ensure_ascii=False))
+    finally:
+        await guarded_drop_database(db.client, live._SCRATCH_DB)
 
 
 if __name__ == "__main__":
