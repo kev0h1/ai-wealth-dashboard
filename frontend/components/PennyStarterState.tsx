@@ -10,7 +10,7 @@ export default function PennyStarterState({ children }: { children?: ReactNode }
   return (
     <div data-penny-fs-secondary className="lg:hidden flex min-h-full flex-col items-center justify-center py-6 text-center">
       <p className="text-base font-semibold text-slate-900 dark:text-slate-100">What would you like to check?</p>
-      <p className="mt-1 max-w-[18rem] text-sm text-slate-600 dark:text-slate-300">Ask about your money, or start with one of these.</p>
+      <p className="mt-1 max-w-[20rem] text-balance text-sm text-slate-600 dark:text-slate-300">Ask about your money, or start with one of these.</p>
       {children && <div className="mt-4 flex flex-wrap justify-center gap-2">{children}</div>}
     </div>
   );
