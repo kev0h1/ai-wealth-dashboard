@@ -109,7 +109,7 @@ export default function PennyPage() {
   // below ever sees it. Either mechanism therefore makes an informational
   // item disappear from this hub entirely — there is no archive for a
   // dismissed informational item any more (that archive was exactly what
-  // let "X is covered" / "£X/mo staying in your pocket" cards linger here
+  // let "X has enough for what's due" / "£X/mo staying in your pocket" cards linger here
   // after a Home dismissal, the incoherence the owner flagged).
   const actionablePennyItems = items.filter(isActionableCompanionItem);
   const informationalPennyItems = items.filter(

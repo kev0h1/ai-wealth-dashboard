@@ -241,6 +241,69 @@ def humanise_account_name(name: str) -> str:
 
     return re.sub(r"[A-Za-z]+", _title_word, raw)
 
+def celebration_payload(stored: dict, dest_name: str | None, move_landed: bool = False) -> dict:
+    """Celebration copy for a covered destination — self-contained and calm.
+    Old docs may lack any of the underscore fields; every branch degrades to
+    warm copy rather than a raw id or a £0 figure."""
+    bill_name = stored.get("_bill_name") or "bill"
+    bill_amount = stored.get("_bill_amount") or 0
+    bill_count = int(stored.get("_dest_bill_count") or 0)
+    needs_total = stored.get("_dest_needs_total")
+    # G193 (Kevin-approved copy). The account name is shown through
+    # humanise_account_name (the backend twin of the frontend's
+    # tidyAccountName: re-cases a wholly upper-case provider name, leaves
+    # mixed-case names alone), never the raw provider string.
+    shown_name = humanise_account_name(dest_name) if dest_name else ""
+    headline = (
+        f"{shown_name} has enough for what's due"
+        if shown_name
+        else "That account has enough for what's due"
+    )
+    # "Your move landed" is only claimed when the caller has an OBSERVED
+    # move. This card fires whenever the destination's walk clears again
+    # (min_running >= 0), which can equally be income arriving or a bill
+    # shifting, so the live call site passes move_landed=False.
+    _lead_in = "Your move landed, so" if move_landed else "This account has enough, so"
+    if stored.get("_is_overdraft"):
+        body = (
+            "Your move landed and the account is back above £0."
+            if move_landed
+            else "The account is back above £0."
+        )
+    elif needs_total and bill_count > 1:
+        body = f"{_lead_in} the {bill_count} payments due from this account before payday should go through."
+    elif bill_amount:
+        body = f"{_lead_in} the £{int(round(float(bill_amount))):,} {_humanise_bill_name(bill_name)} payment should go through."
+    elif needs_total:
+        body = f"{_lead_in} the payments due from this account before payday should go through."
+    else:
+        body = f"{_lead_in} the payments due before payday should go through."
+    _payday_txt = ""
+    try:
+        _pd = date.fromisoformat(str(stored.get("_window_end") or "")[:10])
+        _payday_txt = f"{_pd.day} {_pd.strftime('%b')}"
+    except ValueError:
+        pass
+    _lead_amount = needs_total or bill_amount
+    if _lead_amount:
+        brief_lead = {
+            "value": _gbp(float(_lead_amount)),
+            "companion": f"due before {_payday_txt}" if _payday_txt else "due before payday",
+        }
+    elif stored.get("_is_overdraft"):
+        brief_lead = {"value": "Above £0", "companion": "overdrawn balance cleared"}
+    else:
+        brief_lead = {"value": "Covered", "companion": "before payday"}
+    return {
+        "id": f"celebrate:{stored['_id']}",
+        "type": "celebration",
+        "headline": headline,
+        "body": body,
+        "action": None,
+        "estimated": False,
+        "brief_lead": brief_lead,
+    }
+
 
 def _ceil5(amount: float) -> int:
     """Round up to nearest £5."""
@@ -4702,47 +4765,6 @@ async def compute_today_items(
             return nm, True
         return None, False
 
-    def _celebration_payload(stored: dict, dest_name: str | None) -> dict:
-        """Celebration copy for a covered destination — self-contained and calm.
-        Old docs may lack any of the underscore fields; every branch degrades to
-        warm copy rather than a raw id or a £0 figure."""
-        bill_name = stored.get("_bill_name") or "bill"
-        bill_amount = stored.get("_bill_amount") or 0
-        bill_count = int(stored.get("_dest_bill_count") or 0)
-        needs_total = stored.get("_dest_needs_total")
-        headline = (
-            f"Sorted: {dest_name} is covered"
-            if dest_name
-            else "Sorted: those payments are covered"
-        )
-        _at_clause = f" at {dest_name}" if dest_name else ""
-        if stored.get("_is_overdraft"):
-            body = "It's back above £0."
-        elif needs_total and bill_count > 1:
-            body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
-        elif bill_amount:
-            body = f"The £{int(round(float(bill_amount))):,} {_humanise_bill_name(bill_name)} is safe."
-        elif needs_total:
-            body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
-        else:
-            body = "Everything due there before period end is safe."
-        _lead_amount = needs_total or bill_amount
-        if _lead_amount:
-            brief_lead = {"value": _gbp(float(_lead_amount)), "companion": "held aside"}
-        elif stored.get("_is_overdraft"):
-            brief_lead = {"value": "Above £0", "companion": "overdrawn balance cleared"}
-        else:
-            brief_lead = {"value": "Covered", "companion": "before period end"}
-        return {
-            "id": f"celebrate:{stored['_id']}",
-            "type": "celebration",
-            "headline": headline,
-            "body": body,
-            "action": None,
-            "estimated": False,
-            "brief_lead": brief_lead,
-        }
-
     def _celebration_lapsed(stored: dict, now_utc: datetime) -> bool:
         """Return True when the stored celebration is past its 24-hour window.
         Docs without _celebrated_at are treated as NOT lapsed (they get healed below)."""
@@ -4841,7 +4863,7 @@ async def compute_today_items(
                     else 0
                 ),
                 "created_at": stored.get("created_at") or datetime.min,
-                "item": _celebration_payload(stored, dest_name),
+                "item": celebration_payload(stored, dest_name),
             })
 
     # One celebration per destination: several generations of docs can cover the

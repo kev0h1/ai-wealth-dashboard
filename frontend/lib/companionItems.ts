@@ -57,8 +57,8 @@ export function hasFundedCoverMove(items: CompanionItem[]): boolean {
  *                                  Mirrors HomeBrief's own
  *                                  rhythmItems/rhythmInfoItems split so the
  *                                  two definitions can never disagree.
- *   celebration     INFORMATIONAL a resolution statement ("Sorted: X is
- *                                  covered", "£49/mo is staying in your
+ *   celebration     INFORMATIONAL a resolution statement ("X has enough for what's due",
+ *                                  "£49/mo is staying in your
  *                                  pocket") — dismiss only, nothing to
  *                                  decide (CelebrationCard).
  *   cliff           INFORMATIONAL a standing fact about a promo rate ending;

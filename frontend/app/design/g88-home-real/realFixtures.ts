@@ -189,11 +189,11 @@ export const REAL_MOVE_ITEM = {
 export const REAL_CELEBRATION_ITEM = {
   id: "celebrate:plan:2026-09-25:397edc2734",
   type: "celebration",
-  headline: "Sorted: THE NUMBER ONE is covered",
-  body: "£152 of payments at THE NUMBER ONE are safe.",
+  headline: "The Number One has enough for what's due",
+  body: "This account has enough, so the 2 payments due from this account before payday should go through.",
   action: null,
   estimated: false,
-  brief_lead: { value: "£152", companion: "held aside" },
+  brief_lead: { value: "£152", companion: "due before 25 Sep" },
 } as unknown as CompanionItem;
 
 export const REAL_TRAJECTORY_ITEM = {
