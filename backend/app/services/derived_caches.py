@@ -23,7 +23,7 @@ The trigger is what distinguishes the two callers now:
   does not refresh is the bug.
 - `"auto"`: the worker's 4-hourly reconcile, webhook-triggered syncs and the
   Finexer OAuth callback. Recomputes when the sync pulled new transactions,
-  and otherwise only when the cache doc is missing, predates
+  when the doc carries a `dirty_since` stamp (G177, see `mark_stale`), and otherwise only when the cache doc is missing, predates
   `PATTERNS_VERSION`, or was written by a different engine build (see
   `app.core.build`). That last check is the cheap self-heal for a user the
   deploy-time pass missed; it costs one projected find_one.
@@ -42,10 +42,12 @@ tick warms them as it always has.
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Literal
 
 from app.core.build import engine_build
 from app.db.collections import cashflow_cache_col, transactions_col
+from app.services import response_cache
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +117,84 @@ def _debounce_user_refresh(uid: str) -> bool:
     return debounced
 
 
+# G177: the fields of a transaction row that can move a forecast. A re-pulled
+# row whose only difference is `category` or `merchant_key` (the categoriser
+# rewrites those after every sync) must NOT count as a change, or every
+# reconcile tick would mark every user stale and the 4-hourly gate would be
+# gone. `TXN_MATERIAL_PROJECTION` is what a sync reads back from the BEFORE
+# image of its upsert.
+TXN_MATERIAL_FIELDS = ("account_id", "date", "amount", "currency", "description", "transaction_type")
+TXN_MATERIAL_PROJECTION = {f: 1 for f in TXN_MATERIAL_FIELDS}
+
+
+def _norm_material(field: str, value):
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+    if field == "amount" and value is not None:
+        try:
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return value
+    return value
+
+
+def txn_materially_changed(before: dict | None, after: dict) -> bool:
+    """True if an upsert inserted the row (`before` is None) or changed any
+    field in TXN_MATERIAL_FIELDS. `before` is the pre-update image."""
+    if before is None:
+        return True
+    return any(
+        _norm_material(f, before.get(f)) != _norm_material(f, after.get(f))
+        for f in TXN_MATERIAL_FIELDS
+    )
+
+
+def _ms_now() -> datetime:
+    n = datetime.now()  # naive-ok: cache stamp, compared only with computed_from
+    return n.replace(microsecond=(n.microsecond // 1000) * 1000)
+
+
+async def mark_stale(uid: str, *, reason: str = "transactions_changed") -> None:
+    """G177: record that `uid`'s transactions changed (a sync inserted or
+    materially updated a row), so the forecast doc no longer reflects them.
+
+    Stamps `dirty_since` on the user's cashflow_cache doc and awaits a
+    response-cache invalidation (memory layer plus the per-user data-version
+    bump every other process and the Mongo layer key on). The stamp is what
+    makes the staleness visible to every later decision, whichever process
+    or sync path it comes from: `cache_needs_recompute` (auto trigger) and
+    the cashflow readers both treat a doc with `dirty_since` as stale, and
+    only a recompute that STARTED at or after the stamp clears it
+    (`clear_dirty`). Not upserted: a missing doc already reads as
+    `no_cache` and recomputes. Never raises into the sync that called it."""
+    try:
+        await cashflow_cache_col.update_one(
+            {"_id": uid},
+            # Millisecond precision, like the recompute watermark it is
+            # compared with (Mongo stores ms).
+            # A fresh change also lifts any read-path failure backoff.
+            {"$set": {"dirty_since": _ms_now()}, "$unset": {"dirty_retry_after": ""}},
+        )
+    except Exception:
+        logger.exception("mark_stale(%s, %s): could not stamp dirty_since", uid, reason)
+    try:
+        await response_cache.ainvalidate(uid)
+    except Exception:
+        logger.exception("mark_stale(%s, %s): response cache invalidation failed", uid, reason)
+
+
+async def clear_dirty(uid: str, started_at: datetime) -> None:
+    """Clear `dirty_since` iff the stamp is not newer than the recompute that
+    just landed, i.e. the recompute read the data after the change. A stamp
+    set while the recompute was running is newer and survives."""
+    await cashflow_cache_col.update_one(
+        {"_id": uid, "dirty_since": {"$lte": started_at}},
+        {"$unset": {"dirty_since": "", "dirty_retry_after": ""}},
+    )
+
+
 async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigger) -> tuple[bool, str]:
     """Whether this sync must recompute the derived caches, and why."""
     if trigger == "user":
@@ -124,16 +204,28 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
         if new_count > 0:
             return True, "user_refresh"
         if debounced:
+            # A debounced tap must still not leave a doc a sync marked dirty.
+            try:
+                d = await cashflow_cache_col.find_one({"_id": uid}, {"dirty_since": 1})
+            except Exception:
+                d = None  # best-effort: a lookup failure keeps the debounce
+            if d and d.get("dirty_since") is not None:
+                return True, "dirty"
             return False, "debounced"
         return True, "user_refresh"
     if new_count > 0:
         return True, "new_transactions"
     from app.routers.analytics import PATTERNS_VERSION
     doc = await cashflow_cache_col.find_one(
-        {"_id": uid}, {"computed_at": 1, "patterns_version": 1, "engine_build": 1},
+        {"_id": uid}, {"computed_at": 1, "patterns_version": 1, "engine_build": 1, "dirty_since": 1},
     )
     if not doc or doc.get("computed_at") is None:
         return True, "no_cache"
+    # G177: a sync inserted/updated transactions since the last recompute
+    # landed (mark_stale), even though THIS sync pulled nothing new and the
+    # engine build is current.
+    if doc.get("dirty_since") is not None:
+        return True, "dirty"
     if (doc.get("patterns_version") or 0) < PATTERNS_VERSION:
         return True, "patterns_version"
     if doc.get("engine_build") != engine_build():

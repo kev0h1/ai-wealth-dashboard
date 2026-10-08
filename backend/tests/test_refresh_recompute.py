@@ -49,7 +49,21 @@ def _clear_user_refresh_debounce():
 # ── fakes ────────────────────────────────────────────────────────────────────
 
 def _matches(doc: dict, filt: dict) -> bool:
-    return all(doc.get(k) == v for k, v in (filt or {}).items())
+    # $or / $exists / $lte: the compare-and-swap filter compute_and_cache_cashflow
+    # writes with (G177), and the dirty_since clear.
+    for k, v in (filt or {}).items():
+        if k == "$or":
+            if not any(_matches(doc, sub) for sub in v):
+                return False
+        elif isinstance(v, dict) and any(op.startswith("$") for op in v):
+            for op, arg in v.items():
+                if op == "$exists" and (k in doc) != arg:
+                    return False
+                if op == "$lte" and (doc.get(k) is None or not doc[k] <= arg):
+                    return False
+        elif doc.get(k) != v:
+            return False
+    return True
 
 
 class _FakeCursor:
@@ -158,6 +172,7 @@ def _patch_sync_all(monkeypatch, cashflow_col: FakeCol, *, truelayer_new: int):
 
     monkeypatch.setattr(analytics, "_compute_cashflow_patterns", fake_patterns)
     monkeypatch.setattr(analytics, "cashflow_cache_col", cashflow_col)
+    monkeypatch.setattr(derived_caches, "cashflow_cache_col", cashflow_col)
     monkeypatch.setattr(cashflow_service, "monthly_cashflow", fake_monthly_cf)
     shape_spy = _Spy()
     monkeypatch.setattr(money_shape, "compute_and_cache_money_shape", shape_spy)

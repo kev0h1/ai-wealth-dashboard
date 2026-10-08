@@ -20,6 +20,8 @@ from app.db.collections import (
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
 from app.services.pending_transactions import replace_pending_for_account
+from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
+from pymongo import ReturnDocument
 
 
 def _client() -> httpx.AsyncClient:
@@ -328,6 +330,23 @@ async def _upsert_finexer_transactions(
     user_id: str,
     identity: dict | None = None,
 ) -> tuple[list, list]:
+    """Walk and upsert (see `_upsert_finexer_walk`); G177: if the walk raises
+    part way, rows already written still mark the cashflow cache stale."""
+    state = {"changed": False}
+    try:
+        return await _upsert_finexer_walk(txns, account_id, user_id, identity, state)
+    finally:
+        if state["changed"]:
+            await mark_stale(user_id)
+
+
+async def _upsert_finexer_walk(
+    txns: list,
+    account_id: str,
+    user_id: str,
+    identity: dict | None,
+    state: dict,
+) -> tuple[list, list]:
     """Upsert SETTLED transactions into unified transactions_col; a row whose
     `status` field (UK Open Banking "Booked"/"Pending") reads "pending" is
     routed to the sibling pending collection instead — see
@@ -406,12 +425,18 @@ async def _upsert_finexer_transactions(
             except (TypeError, ValueError):
                 pass
 
-        result = await transactions_col.update_one(
+        # BEFORE image (None on insert) so a material update to an existing
+        # row is told apart from a no-op re-pull (G177).
+        before = await transactions_col.find_one_and_update(
             {"_id": txn_id},
             {"$set": tdoc, "$setOnInsert": {"_id": txn_id, "custom_category": None}},
             upsert=True,
+            projection=TXN_MATERIAL_PROJECTION,
+            return_document=ReturnDocument.BEFORE,
         )
-        if result.upserted_id is not None:
+        if txn_materially_changed(before, tdoc):
+            state["changed"] = True
+        if before is None:
             new_txns.append({
                 "description":   description,
                 "merchant_name": merchant or None,

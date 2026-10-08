@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.build import engine_build
+from pymongo.errors import DuplicateKeyError
 from app.core.config import OPENROUTER_API_KEY, mask_email
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
@@ -3090,8 +3091,70 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     }
 
 
+# G177 read path: N concurrent reads of a dirty doc must run ONE recompute,
+# and a failing recompute must not be retried by every request. In-process
+# (single uvicorn process, same trade-off as derived_caches' debounce dict);
+# bounded so it cannot grow with the user count.
+_DIRTY_RETRY_SECONDS = 60
+_READ_LOCKS_MAX = 512
+_read_recompute_locks: dict[str, asyncio.Lock] = {}
+
+
+def _read_lock(uid: str) -> asyncio.Lock:
+    lock = _read_recompute_locks.get(uid)
+    if lock is None:
+        if len(_read_recompute_locks) >= _READ_LOCKS_MAX:
+            for k in [k for k, v in _read_recompute_locks.items() if not v.locked()]:
+                del _read_recompute_locks[k]
+        lock = _read_recompute_locks[uid] = asyncio.Lock()
+    return lock
+
+
+async def recompute_if_dirty_for_read(uid: str, cached: dict | None) -> dict | None:
+    """Return `cached`, or a freshly recomputed doc if a sync marked it dirty
+    (`dirty_since`). Single-flight per user; after a failed recompute stamps
+    `dirty_retry_after` so reads serve the stale doc for
+    _DIRTY_RETRY_SECONDS instead of re-running the expensive compute."""
+    if not cached or cached.get("dirty_since") is None:
+        return cached
+
+    def _backing_off(doc):
+        ra = doc.get("dirty_retry_after")
+        return ra is not None and ra > datetime.now()  # naive-ok: cache stamp
+
+    if _backing_off(cached):
+        return cached
+    async with _read_lock(uid):
+        fresh = await cashflow_cache_col.find_one({"_id": uid})
+        if not fresh or fresh.get("dirty_since") is None or _backing_off(fresh):
+            return fresh or cached  # another reader already recomputed (or is backing off)
+        # clear_ai_cache stays True (the default), like the pipeline path:
+        # the AI recurring predictions must see the new transactions too.
+        await compute_and_cache_cashflow(uid)
+        after = await cashflow_cache_col.find_one({"_id": uid})
+        if after is not None and after.get("dirty_since") is not None:
+            await cashflow_cache_col.update_one(
+                {"_id": uid},
+                {"$set": {"dirty_retry_after": datetime.now() + timedelta(seconds=_DIRTY_RETRY_SECONDS)}},  # naive-ok: cache stamp
+            )
+        return after or fresh
+
+
+def _ms(dt: datetime) -> datetime:
+    """Truncate to Mongo's millisecond precision so the in-memory watermark
+    and the stored one compare equal."""
+    return dt.replace(microsecond=(dt.microsecond // 1000) * 1000)
+
+
 async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> None:
     """Background task: compute cashflow patterns and store to cache. Called after every sync."""
+    # G177/G190: the moment this recompute starts READING. It is the doc's
+    # `computed_from` watermark: the write below only lands if no recompute
+    # that started later has already landed, so a slow older task can never
+    # overwrite a newer snapshot (a category correction made after the older
+    # task's reads began). It also decides whether `dirty_since` may be
+    # cleared: only a stamp this recompute started after.
+    started_at = _ms(datetime.now())  # naive-ok: cache watermark, compared only with other naive cache stamps
     try:
         # Clear the in-process AI cache so the next compute gets fresh predictions.
         # Dismiss/restore skip this — they only change filters, so the cached
@@ -3115,14 +3178,30 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
             data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now()}
         except Exception as _mcf_e:
             print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
-        await cashflow_cache_col.update_one(
-            {"_id": uid},
-            # Fresh transactions/categories can move the 90-day medians the
-            # Spend tiles compare against, so the memoised per-category
-            # baselines go with the stale cashflow (see pace._read_cached_baseline).
-            {"$set": data, "$unset": {"total_baselines": ""}},
-            upsert=True,
-        )
+        data["computed_from"] = started_at
+        try:
+            await cashflow_cache_col.update_one(
+                # Compare-and-swap on the watermark. If a newer recompute has
+                # already landed the filter matches nothing, the upsert then
+                # tries to insert the same _id and Mongo raises
+                # DuplicateKeyError: this (older) task lost, which is correct.
+                {"_id": uid, "$or": [
+                    {"computed_from": {"$exists": False}},
+                    {"computed_from": {"$lte": started_at}},
+                ]},
+                # Fresh transactions/categories can move the 90-day medians the
+                # Spend tiles compare against, so the memoised per-category
+                # baselines go with the stale cashflow (see pace._read_cached_baseline).
+                {"$set": data, "$unset": {"total_baselines": ""}},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            print(f"[cashflow_cache] recompute for {uid} superseded by a newer one; not written")
+            return
+        # Clear the sync-staleness stamp (G177) iff it predates this
+        # recompute's reads; one set after they began survives for the next.
+        from app.services.derived_caches import clear_dirty
+        await clear_dirty(uid, started_at)
         # Fresh data invalidates the response caches (same-process memory
         # layer here; the per-user data version bump below is what actually
         # makes every OTHER process's cached entries — and Mongo's — stale,
@@ -3144,6 +3223,9 @@ async def at_risk_count(user: dict = Depends(current_user)):
     time is insufficient — reflecting payment sequencing and incoming income.
     """
     cached = await cashflow_cache_col.find_one({"_id": user["email"]})
+    # G177: a doc a sync marked dirty is recomputed (single-flight, with
+    # failure backoff) before this badge is computed from it.
+    cached = await recompute_if_dirty_for_read(user["email"], cached)
     if not cached or (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
         # This badge drives a user-visible red "at risk" count — a stale/pre-fix
         # cache doc (missing is_credit_card) can misclassify a credit card as a
@@ -4634,6 +4716,13 @@ async def get_cashflow(user: dict = Depends(current_user)):
     uid    = user["email"]
     cached = await cashflow_cache_col.find_one({"_id": uid})
 
+    if cached and cached.get("dirty_since") is not None:
+        # G177: a sync inserted/updated transactions after this doc was
+        # computed and its own recompute has not landed (or failed). Never
+        # serve it: recompute now so the next read is right, not the next
+        # 6h refresh.
+        cached = await recompute_if_dirty_for_read(uid, cached)
+
     if cached and (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
         # Pre-fix (or unversioned) cache doc — e.g. bills serialised before the
         # is_credit_card flag existed, where the missing key resolves to a
@@ -4651,6 +4740,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
         data = cached
     else:
         # No cache yet — compute live, store, then return
+        _started = _ms(datetime.now())  # naive-ok: cache watermark, same as compute_and_cache_cashflow
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
@@ -4662,7 +4752,18 @@ async def get_cashflow(user: dict = Depends(current_user)):
         # recompute it on the very next reconcile tick regardless of
         # engine build.
         data["engine_build"] = engine_build()
-        await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
+        data["computed_from"] = _started
+        try:
+            # Same compare-and-swap as compute_and_cache_cashflow (G177).
+            await cashflow_cache_col.update_one(
+                {"_id": uid, "$or": [
+                    {"computed_from": {"$exists": False}},
+                    {"computed_from": {"$lte": _started}},
+                ]},
+                {"$set": data}, upsert=True,
+            )
+        except DuplicateKeyError:
+            pass  # a newer recompute landed first; serve this response, keep theirs
         resp = await _build_cashflow_response(data, uid=uid)
 
     # G188: overlay LIVE pool balances onto the cached snapshot, through the
