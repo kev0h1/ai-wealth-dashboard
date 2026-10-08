@@ -1041,6 +1041,9 @@ cmd_finish() {
   log "checking no new naive local-clock date call in $worktree_dir/backend/app..."
   (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_naive_dates.py)
 
+  log "checking both database-drop guards are present and unmodified (H96) in $worktree_dir..."
+  (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_db_guard.py)
+
   require_memory "$worktree_dir" "the frontend checks" 1500 || exit 1
 
   log "running frontend typecheck in $worktree_dir/frontend..."
