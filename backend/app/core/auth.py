@@ -46,6 +46,12 @@ _MCP_OPEN_PATHS = {
     "/.well-known/openid-configuration",
 }
 
+# F21: the RFC 9728 path-insertion form of the protected-resource document
+# (/.well-known/oauth-protected-resource/api/mcp). Public under the same
+# flag as its siblings; the router itself 404s any suffix other than the
+# connector's own resource path.
+_MCP_OPEN_PREFIXES = ("/.well-known/oauth-protected-resource/",)
+
 
 async def current_user(request: Request) -> dict:
     """FastAPI dependency: extract & validate session token.
@@ -144,7 +150,10 @@ async def auth_middleware(request: Request, call_next):
         if limited := await ratelimit.check_catch_all_ip_limit(request):
             return limited
         return await call_next(request)
-    if path in _OPEN_PATHS or (MCP_CONNECTOR_ENABLED and path in _MCP_OPEN_PATHS):
+    if path in _OPEN_PATHS or (
+        MCP_CONNECTOR_ENABLED
+        and (path in _MCP_OPEN_PATHS or path.startswith(_MCP_OPEN_PREFIXES))
+    ):
         return await call_next(request)
     # F2/F3: an unauthenticated hit on /mcp gets the discovery header
     # attached to its 401 (both branches below), so an MCP client can find

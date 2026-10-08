@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
 import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
@@ -12,9 +11,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import TransactionRow from "@/components/TransactionRow";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
-import { useSheetA11y } from "@/lib/useSheetA11y";
+import { SheetFrame } from "@/components/SheetFrame";
 import { fmtWhole, daysLabel } from "@/lib/aimFormat";
 import MoneyText from "@/components/MoneyText";
 
@@ -236,14 +233,9 @@ function DoorBlock({ door }: { door: DoorProps }) {
 }
 
 export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door, highlightMerchants }: Props) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const colour = getCategoryColour(name, colours);
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const [toolOpen, setToolOpen] = useState(false);
 
   // ── Merchant-scoped deep-link (insight CTA) ──────────────────────────────
@@ -276,32 +268,17 @@ export default function CategorySheet({ name, title, total, count, transactions,
 
   // Bring the first matching row into view once the sheet has rendered.
   useEffect(() => {
-    if (!mounted || !merchantMode) return;
+    if (!merchantMode) return;
     const el = listRef.current?.querySelector('[data-merchant-match="true"]');
     if (!el) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     (el as HTMLElement).scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
-  }, [mounted, merchantMode]);
+  }, [merchantMode]);
 
-  if (!mounted) return null;
-
-  return createPortal(
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${title ?? name} category`}
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet rounded-t-3xl z-[70] max-h-[80dvh] flex flex-col"
-      >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center gap-3 px-5 pt-2 pb-4 flex-shrink-0">
+  return (
+    <SheetFrame title={title ?? name} onClose={onClose}>
+      {({ closeThen }) => <>
+        <div className="flex items-center gap-3 pb-4">
           {(() => {
             const Icon = getCategoryIcon(name, iconOverrides);
             return (
@@ -314,7 +291,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
             );
           })()}
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText text={title ?? name} /></h2>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText text={title ?? name} /></p>
             {/* Scope/comparison basis stated up front (Show Your Working) —
                 this sheet is always scoped to the period it was opened from. */}
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -324,19 +301,13 @@ export default function CategorySheet({ name, title, total, count, transactions,
           <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
             {sym}{total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 flex-shrink-0 ml-1"
-          >
-            <X size={15} color="#64748b" />
-          </button>
         </div>
 
         {/* Fuel/receipts hints — live in the header area, not as per-row
             ad-chips (approved spec: "NO ad-chips on rows"). Collapsed by
             default so the header stays quiet. */}
         {(name.toLowerCase() === "transport" || (name.toLowerCase() === "groceries" && isPro)) && (
-          <div className="px-5 pb-3 flex-shrink-0">
+          <div className="pb-3 flex-shrink-0">
             <button
               onClick={() => setToolOpen((o) => !o)}
               aria-expanded={toolOpen}
@@ -364,7 +335,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
         {/* Merchant deep-link chip — quiet, dismissible. Tap toggles between
             "highlight in all" and "only these rows"; × clears it. */}
         {merchantMode && (
-          <div className="flex items-center px-4 pb-1 flex-shrink-0">
+          <div className="flex items-center pb-1 flex-shrink-0">
             <button
               onClick={() => setMerchantFilterOn(v => !v)}
               aria-pressed={merchantFilterOn}
@@ -396,7 +367,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
         )}
 
         {/* Transaction list */}
-        <div ref={listRef} className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+        <div ref={listRef} className="border-t border-slate-100 dark:border-slate-700">
           {door && <DoorBlock door={door} />}
           {visibleTxns.map(tx => {
             const isMatch = merchantMode && matchesMerchant(tx);
@@ -408,14 +379,13 @@ export default function CategorySheet({ name, title, total, count, transactions,
               >
                 <TransactionRow
                   transaction={tx}
-                  onClick={() => { onClose(); setTimeout(() => onTransactionClick(tx), 50); }}
+                  onClick={() => closeThen(() => onTransactionClick(tx))}
                 />
               </div>
             );
           })}
         </div>
-      </div>
-    </>,
-    document.body
+      </>}
+    </SheetFrame>
   );
 }

@@ -21,6 +21,8 @@ time:
     that can never happen, then overrides the ones a given test cares about.
 """
 import asyncio
+import pytest
+import logging
 from datetime import datetime, timedelta
 
 import app.services.retention as retention
@@ -67,6 +69,14 @@ class _FakeCursor:
         for d in self._docs:
             yield d
 
+    def sort(self, key, direction=1):
+        self._docs = sorted(self._docs, key=lambda d: (d.get(key) is not None, d.get(key) or 0), reverse=direction < 0)
+        return self
+
+    def limit(self, n):
+        self._docs = self._docs[:n]
+        return self
+
     async def to_list(self, n):
         return list(self._docs)
 
@@ -112,13 +122,24 @@ class FakeCol:
             if _matches(d, filt):
                 target = d
                 break
+        inserted = False
         if target is None:
             if not upsert:
                 return
             target = {"_id": filt.get("_id")}
             self.docs[target["_id"]] = target
+            inserted = True
         for k, v in (update.get("$set") or {}).items():
             target[k] = v
+        # $setOnInsert (A106's `failed_at` first-failure timestamp) only
+        # ever applies the first time a doc is created by this upsert —
+        # exactly Mongo's own semantics, and the reason a retried failure
+        # never resets how long a marker has actually been pending.
+        if inserted:
+            for k, v in (update.get("$setOnInsert") or {}).items():
+                target.setdefault(k, v)
+        for k, v in (update.get("$inc") or {}).items():
+            target[k] = target.get(k, 0) + v
         for k in (update.get("$unset") or {}):
             target.pop(k, None)
 
@@ -139,24 +160,73 @@ class FakeCol:
         return _DeleteResult(count)
 
 
+class FakeDB:
+    """Stand-in for app.db.collections.db: a dict-like Mongo database whose
+    `__getitem__` hands back a FakeCol per bare collection name. A101's
+    ERASE_ONLY_COLLECTIONS sweep (erase_user/account_has_data) reads
+    `_cols.db[name]` directly since those five collections have no `*_col`
+    attribute left to getattr — this is what stops that path from ever
+    reaching the real Motor client in tests, the same job `_patch_all_collections`
+    below does for the `*_col`-bound majority."""
+
+    def __init__(self, cols: dict):
+        self._cols = dict(cols)
+
+    def __getitem__(self, name):
+        return self._cols[name]
+
+
 def _patch_all_collections(monkeypatch, overrides: dict) -> None:
     """Replace EVERY `*_col` attribute on the real app.db.collections module
-    with a FakeCol (empty by default), except names in `overrides`."""
+    with a FakeCol (empty by default), except names in `overrides`. Also
+    replaces `collections.db` with a FakeDB covering every bare name in
+    ERASE_ONLY_COLLECTIONS (A101), so erase_user/account_has_data's
+    db[name] fallback for the unbound Mono/M-Pesa collections never touches
+    real Mongo either — `overrides` may supply a FakeCol for one of those
+    bare names too, keyed the same way as a `*_col` override."""
     from app.db import collections as _real_cols
     for name in dir(_real_cols):
         if not name.endswith("_col"):
             continue
         monkeypatch.setattr(_real_cols, name, overrides.get(name, FakeCol()))
+    fake_db = FakeDB({
+        name: overrides.get(name, FakeCol()) for name in _real_cols.ERASE_ONLY_COLLECTIONS
+    })
+    monkeypatch.setattr(_real_cols, "db", fake_db)
+
+
+@pytest.fixture(autouse=True)
+def _fake_local_consents(monkeypatch):
+    """retry_orphaned_revocations also flips a still-authorised local consent
+    doc to revoked; never let that touch a real Mongo client in these tests."""
+    monkeypatch.setattr(retention, "finexer_consents_col", FakeCol())
 
 
 class FakeFxResponse:
-    def __init__(self, status_code):
+    def __init__(self, status_code, body=None):
         self.status_code = status_code
+        # A157: a 2xx revoke answers with the consent object; the fakes
+        # default to a cancelled one so "success" tests mean what they say.
+        self._body = body if body is not None else (
+            {"status": "canceled"} if 200 <= status_code < 300 else None)
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+
+def _consent_path(path):
+    """A157: revoke is POST /consents/{id}/revoke. The fakes assert that
+    exact shape and record the bare /consents/{id} so call lists stay terse."""
+    assert path.endswith("/revoke"), f"unexpected Finexer POST {path}"
+    return path[: -len("/revoke")]
 
 
 class FakeFxClient:
     """Stand-in for finexer_sync._client()'s async-context-managed httpx
-    client — only `.delete()` is exercised by disconnect_connection."""
+    client. A157: only `.post(/consents/{id}/revoke)` and the 404 follow-up
+    `.get(/consents/{id})` exist; any DELETE fails the test."""
 
     def __init__(self, status_code=204, raise_exc=None):
         self.status_code = status_code
@@ -169,11 +239,49 @@ class FakeFxClient:
     async def __aexit__(self, *a):
         return False
 
-    async def delete(self, path):
-        self.calls.append(path)
+    async def post(self, path):
+        self.calls.append(_consent_path(path))
         if self.raise_exc:
             raise self.raise_exc
         return FakeFxResponse(self.status_code)
+
+    async def get(self, path):
+        # 404 follow-up: the consent is gone.
+        return FakeFxResponse(404)
+
+    async def delete(self, path):
+        raise AssertionError(f"DELETE {path} is not a Finexer endpoint (A157)")
+
+
+class FakeFxMultiClient:
+    """Stand-in for finexer_sync._client() that answers a different status
+    code (or raises a different exception) per exact path, for
+    retry_orphaned_revocations tests exercising more than one marker in a
+    single pass."""
+
+    def __init__(self, responses: dict | None = None, raise_paths: dict | None = None):
+        self.responses = responses or {}
+        self.raise_paths = raise_paths or {}
+        self.calls: list = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, path):
+        path = _consent_path(path)
+        self.calls.append(path)
+        if path in self.raise_paths:
+            raise self.raise_paths[path]
+        return FakeFxResponse(self.responses[path])
+
+    async def get(self, path):
+        return FakeFxResponse(404)
+
+    async def delete(self, path):
+        raise AssertionError(f"DELETE {path} is not a Finexer endpoint (A157)")
 
 
 def _stub_cascade(monkeypatch, calls: list):
@@ -235,14 +343,15 @@ def test_sweep_finexer_canceled_consent_removed_and_revoke_attempted(monkeypatch
     _stub_cascade(monkeypatch, calls)
 
     consents = FakeCol([
-        {"_id": "fx-a", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=31)},
-        {"_id": "fx-b", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=10)},
-        {"_id": "fx-c", "user_id": "u2", "status": "canceled"},  # no timestamp -> kept
-        {"_id": "fx-d", "user_id": "u2", "status": "authorized"},  # never swept regardless
+        {"_id": "fx-a-test", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=31)},
+        {"_id": "fx-b-test", "user_id": "u2", "status": "canceled", "canceled_at": NOW - timedelta(days=10)},
+        {"_id": "fx-c-test", "user_id": "u2", "status": "canceled"},  # no timestamp -> kept
+        {"_id": "fx-d-test", "user_id": "u2", "status": "authorized"},  # never swept regardless
     ])
     monkeypatch.setattr(retention, "connections_col", FakeCol())
     monkeypatch.setattr(retention, "accounts_col", FakeCol())
     monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", FakeCol())
 
     fake_client = FakeFxClient(status_code=204)
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
@@ -250,8 +359,8 @@ def test_sweep_finexer_canceled_consent_removed_and_revoke_attempted(monkeypatch
     result = asyncio.run(retention.sweep_expired_connections(now=NOW))
 
     assert result["connections_removed"] == 1
-    assert set(consents.docs.keys()) == {"fx-b", "fx-c", "fx-d"}
-    assert fake_client.calls == ["/consents/fx-a"]
+    assert set(consents.docs.keys()) == {"fx-b-test", "fx-c-test", "fx-d-test"}
+    assert fake_client.calls == ["/consents/fx-a-test"]
 
 
 def test_sweep_finexer_remote_revoke_failure_is_non_fatal(monkeypatch):
@@ -259,11 +368,13 @@ def test_sweep_finexer_remote_revoke_failure_is_non_fatal(monkeypatch):
     _stub_cascade(monkeypatch, calls)
 
     consents = FakeCol([
-        {"_id": "fx-x", "user_id": "u3", "status": "revoked", "status_changed_at": NOW - timedelta(days=40)},
+        {"_id": "fx-x-test", "user_id": "u3", "status": "revoked", "status_changed_at": NOW - timedelta(days=40)},
     ])
+    markers = FakeCol()
     monkeypatch.setattr(retention, "connections_col", FakeCol())
     monkeypatch.setattr(retention, "accounts_col", FakeCol())
     monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
 
     fake_client = FakeFxClient(raise_exc=RuntimeError("Finexer is down"))
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
@@ -276,7 +387,16 @@ def test_sweep_finexer_remote_revoke_failure_is_non_fatal(monkeypatch):
     assert result["connections_removed"] == 1
     assert result["connection_errors"] == 0
     assert consents.docs == {}
-    assert fake_client.calls == ["/consents/fx-x"]
+    assert fake_client.calls == ["/consents/fx-x-test"]
+    # A106: the failure left a retry marker behind, keyed by the consent id,
+    # rather than silently vanishing with the local doc.
+    assert "fx-x-test" in markers.docs
+    marker = markers.docs["fx-x-test"]
+    assert marker["consent_id"] == "fx-x-test"
+    assert marker["user_hash"] == retention._hash_uid("u3")
+    assert marker["last_error"] == "RuntimeError"
+    assert marker["attempts"] == 1
+    assert "failed_at" in marker
 
 
 # ── sweep_dormant_users / erase_user ────────────────────────────────────────
@@ -351,34 +471,39 @@ def test_erase_user_revokes_live_finexer_consent_before_erasing(monkeypatch):
     _stub_cascade(monkeypatch, calls)
 
     connections = FakeCol([{"_id": "conn-1", "user_id": uid}])
-    consents = FakeCol([{"_id": "fx-1", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-1-test", "user_id": uid, "status": "authorized"}])
     accounts = FakeCol()
     transactions = FakeCol([{"_id": "t1", "user_id": uid}])
 
+    markers = FakeCol()
     _patch_all_collections(monkeypatch, {
         "connections_col": connections,
         "finexer_consents_col": consents,
         "accounts_col": accounts,
         "transactions_col": transactions,
+        "orphaned_revocations_col": markers,
     })
     # disconnect_connection reads retention's own top-level names directly.
     monkeypatch.setattr(retention, "connections_col", connections)
     monkeypatch.setattr(retention, "accounts_col", accounts)
     monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
 
     fake_client = FakeFxClient(status_code=204)
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
 
     result = asyncio.run(retention.erase_user(uid))
 
-    assert fake_client.calls == ["/consents/fx-1"]
+    assert fake_client.calls == ["/consents/fx-1-test"]
     assert "conn-1" not in connections.docs
-    assert "fx-1" not in consents.docs
+    assert "fx-1-test" not in consents.docs
     assert result["connections_revoked"] == 2
     assert "connection_errors" not in result
     # The rest of the user's data is still erased in the same call.
     assert all(d["user_id"] != uid for d in transactions.docs.values())
     assert result.get("transactions") == 1
+    # The revoke succeeded, so no retry marker is left behind.
+    assert markers.docs == {}
 
 
 def test_erase_user_remote_revoke_failure_is_non_fatal(monkeypatch):
@@ -387,33 +512,318 @@ def test_erase_user_remote_revoke_failure_is_non_fatal(monkeypatch):
     deletes the consent doc locally, returning success. That means erase_user
     never sees an exception here either, so the connection counts as revoked
     (not an error) and the doc is still gone; erasure of the rest of the
-    user's data is unaffected either way."""
+    user's data is unaffected either way. A106: the failure now also leaves a
+    retry marker behind, so the orphaned consent isn't unrecoverable."""
     uid = "u5@example.com"
     calls: list = []
     _stub_cascade(monkeypatch, calls)
 
     connections = FakeCol()
-    consents = FakeCol([{"_id": "fx-2", "user_id": uid, "status": "authorized"}])
+    consents = FakeCol([{"_id": "fx-2-test", "user_id": uid, "status": "authorized"}])
     accounts = FakeCol()
+    markers = FakeCol()
 
     _patch_all_collections(monkeypatch, {
         "connections_col": connections,
         "finexer_consents_col": consents,
         "accounts_col": accounts,
+        "orphaned_revocations_col": markers,
     })
     monkeypatch.setattr(retention, "connections_col", connections)
     monkeypatch.setattr(retention, "accounts_col", accounts)
     monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
 
     fake_client = FakeFxClient(raise_exc=RuntimeError("Finexer is down"))
     monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
 
     result = asyncio.run(retention.erase_user(uid))
 
-    assert fake_client.calls == ["/consents/fx-2"]
-    assert "fx-2" not in consents.docs
+    assert fake_client.calls == ["/consents/fx-2-test"]
+    assert "fx-2-test" not in consents.docs
     assert result["connections_revoked"] == 1
     assert "connection_errors" not in result
+    # Marker written keyed by consent id, with a user_hash rather than a
+    # user_id field — see test_orphaned_revocations_marker_survives_erase_user
+    # below for why that specific shape matters against THIS SAME call.
+    assert "fx-2-test" in markers.docs
+    marker = markers.docs["fx-2-test"]
+    assert marker["user_hash"] == retention._hash_uid(uid)
+    assert "user_id" not in marker
+    assert marker["last_error"] == "RuntimeError"
+    assert marker["attempts"] == 1
+
+
+# ── A106: orphaned-revocation markers ───────────────────────────────────────
+
+def test_disconnect_finexer_writes_marker_on_bad_status_no_exception(monkeypatch):
+    """The bug this item closes: a non-success HTTP status (no exception
+    raised at all) was previously only a logger.warning, with the local
+    delete happening unconditionally. That must now leave a marker exactly
+    like a raised exception does."""
+    uid = "u9@example.com"
+    calls: list = []
+    _stub_cascade(monkeypatch, calls)
+
+    consents = FakeCol([{"_id": "fx-9-test", "user_id": uid, "status": "authorized"}])
+    markers = FakeCol()
+    monkeypatch.setattr(retention, "connections_col", FakeCol())
+    monkeypatch.setattr(retention, "accounts_col", FakeCol())
+    monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+
+    fake_client = FakeFxClient(status_code=503)
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.disconnect_connection(uid, "fx-9-test"))
+
+    assert result == {"deleted": "fx-9-test", "accounts_removed": 0}
+    # The local delete still proceeds (best-effort revoke never blocks it).
+    assert "fx-9-test" not in consents.docs
+    assert "fx-9-test" in markers.docs
+    marker = markers.docs["fx-9-test"]
+    assert marker["consent_id"] == "fx-9-test"
+    assert marker["user_hash"] == retention._hash_uid(uid)
+    assert marker["last_error"] == "503"
+    assert marker["attempts"] == 1
+    assert "failed_at" in marker
+    assert "last_attempt_at" in marker
+
+
+def test_orphaned_revocations_marker_survives_erase_user_for_same_uid(monkeypatch):
+    """The single most important property: erase_user(uid) sweeps every
+    *_col matched by {"user_id": uid} or {"_id": uid} — a marker keyed by
+    user_hash (not user_id) and _id == consent_id (not uid) must not be
+    caught by that same sweep for the very uid it belongs to."""
+    uid = "u13@example.com"
+    markers = FakeCol([{
+        "_id": "fx-13-test", "consent_id": "fx-13-test",
+        "user_hash": retention._hash_uid(uid),
+        "failed_at": NOW, "last_attempt_at": NOW,
+        "last_error": "503", "attempts": 1,
+    }])
+    _patch_all_collections(monkeypatch, {"orphaned_revocations_col": markers})
+
+    asyncio.run(retention.erase_user(uid))
+
+    assert "fx-13-test" in markers.docs
+
+
+def test_disconnect_finexer_marker_write_failure_does_not_block_local_delete(monkeypatch):
+    """A Mongo hiccup writing the marker must never block a user's disconnect
+    or account deletion."""
+    uid = "u11@example.com"
+    calls: list = []
+    _stub_cascade(monkeypatch, calls)
+
+    consents = FakeCol([{"_id": "fx-11-test", "user_id": uid, "status": "authorized"}])
+
+    class ExplodingMarkerCol:
+        async def update_one(self, *a, **kw):
+            raise RuntimeError("mongo hiccup")
+
+        async def delete_one(self, *a, **kw):
+            raise RuntimeError("mongo hiccup")
+
+    monkeypatch.setattr(retention, "connections_col", FakeCol())
+    monkeypatch.setattr(retention, "accounts_col", FakeCol())
+    monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", ExplodingMarkerCol())
+
+    fake_client = FakeFxClient(status_code=503)
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.disconnect_connection(uid, "fx-11-test"))
+
+    assert result == {"deleted": "fx-11-test", "accounts_removed": 0}
+    assert "fx-11-test" not in consents.docs
+
+
+def test_disconnect_finexer_last_error_never_contains_message_body(monkeypatch):
+    """last_error must be the exception CLASS NAME only, never the message
+    body, which could carry account data."""
+    uid = "u12@example.com"
+    calls: list = []
+    _stub_cascade(monkeypatch, calls)
+
+    consents = FakeCol([{"_id": "fx-12-test", "user_id": uid, "status": "authorized"}])
+    markers = FakeCol()
+    monkeypatch.setattr(retention, "connections_col", FakeCol())
+    monkeypatch.setattr(retention, "accounts_col", FakeCol())
+    monkeypatch.setattr(retention, "finexer_consents_col", consents)
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+
+    fake_client = FakeFxClient(
+        raise_exc=RuntimeError("account 12345678 sort code 12-34-56 leaked in body")
+    )
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    asyncio.run(retention.disconnect_connection(uid, "fx-12-test"))
+
+    marker = markers.docs["fx-12-test"]
+    assert marker["last_error"] == "RuntimeError"
+    assert "sort code" not in marker["last_error"]
+    assert "12-34-56" not in marker["last_error"]
+    assert "12345678" not in marker["last_error"]
+
+
+def test_retry_orphaned_revocations_clears_on_200_204_404(monkeypatch):
+    markers = FakeCol([
+        {"_id": "fx-200", "consent_id": "fx-200", "user_hash": "h1", "failed_at": NOW, "attempts": 1},
+        {"_id": "fx-204", "consent_id": "fx-204", "user_hash": "h2", "failed_at": NOW, "attempts": 2},
+        {"_id": "fx-404", "consent_id": "fx-404", "user_hash": "h3", "failed_at": NOW, "attempts": 3},
+    ])
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+
+    fake_client = FakeFxMultiClient({
+        "/consents/fx-200": 200, "/consents/fx-204": 204, "/consents/fx-404": 404,
+    })
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.retry_orphaned_revocations(now=NOW))
+
+    assert result == {
+        "orphaned_retried": 3, "orphaned_cleared": 3,
+        "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
+    }
+    assert markers.docs == {}
+
+
+def test_retry_orphaned_revocations_leaves_marker_on_503_and_exception(monkeypatch):
+    markers = FakeCol([
+        {"_id": "fx-503", "consent_id": "fx-503", "user_hash": "h1", "failed_at": NOW, "attempts": 1},
+        {"_id": "fx-boom", "consent_id": "fx-boom", "user_hash": "h2", "failed_at": NOW, "attempts": 2},
+    ])
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+
+    fake_client = FakeFxMultiClient(
+        {"/consents/fx-503": 503},
+        raise_paths={"/consents/fx-boom": RuntimeError("still down")},
+    )
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.retry_orphaned_revocations(now=NOW + timedelta(hours=1)))
+
+    assert result == {
+        "orphaned_retried": 2, "orphaned_cleared": 0,
+        "orphaned_still_pending": 1, "orphaned_errors": 1, "orphaned_expired": 0,
+    }
+    assert "fx-503" in markers.docs
+    assert markers.docs["fx-503"]["attempts"] == 2
+    assert markers.docs["fx-503"]["last_error"] == "503"
+    assert "fx-boom" in markers.docs
+    assert markers.docs["fx-boom"]["attempts"] == 3
+    assert markers.docs["fx-boom"]["last_error"] == "RuntimeError"
+
+
+def test_retry_orphaned_revocations_reconnect_new_consent_id_untouched(monkeypatch):
+    """Finexer issues a fresh consent id on every new consent — a retried
+    DELETE for the OLD id must never reach a reconnected user's NEW consent,
+    even when both exist at the same time (old marker pending, new consent
+    live)."""
+    uid = "u10@example.com"
+    old_id, new_id = "fx-old", "fx-new"
+    markers = FakeCol([{
+        "_id": old_id, "consent_id": old_id,
+        "user_hash": retention._hash_uid(uid), "failed_at": NOW, "attempts": 1,
+    }])
+    consents = FakeCol([{"_id": new_id, "user_id": uid, "status": "authorized"}])
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+    monkeypatch.setattr(retention, "finexer_consents_col", consents)
+
+    # Finexer no longer recognises the old, superseded consent id.
+    fake_client = FakeFxClient(status_code=404)
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.retry_orphaned_revocations(now=NOW))
+
+    assert fake_client.calls == [f"/consents/{old_id}"]
+    assert old_id not in markers.docs
+    assert result["orphaned_cleared"] == 1
+    # The new, live consent was never touched by the retry.
+    assert new_id in consents.docs
+
+
+class _ExplodesOnFirstWriteCol(FakeCol):
+    """A FakeCol whose FIRST write (update_one or delete_one) raises, then
+    behaves normally for every write after that — for proving one marker's
+    Mongo failure doesn't abort the rest of retry_orphaned_revocations's
+    loop (the bug independent review caught: only the network call was
+    wrapped in try/except, so a write failure used to propagate straight
+    out of the function)."""
+
+    def __init__(self, docs=None):
+        super().__init__(docs)
+        self._first_write_done = False
+
+    async def update_one(self, filt, update, upsert=False):
+        if not self._first_write_done:
+            self._first_write_done = True
+            raise RuntimeError("mongo hiccup on first write")
+        return await super().update_one(filt, update, upsert=upsert)
+
+    async def delete_one(self, filt):
+        if not self._first_write_done:
+            self._first_write_done = True
+            raise RuntimeError("mongo hiccup on first write")
+        return await super().delete_one(filt)
+
+
+def test_retry_orphaned_revocations_write_failure_on_one_marker_does_not_abort_the_rest(monkeypatch):
+    markers = _ExplodesOnFirstWriteCol([
+        {"_id": "fx-a-test", "consent_id": "fx-a-test", "user_hash": "h1", "failed_at": NOW, "attempts": 1},
+        {"_id": "fx-b-test", "consent_id": "fx-b-test", "user_hash": "h2", "failed_at": NOW, "attempts": 1},
+    ])
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+
+    # Both consents revoke cleanly (204) remotely; fx-a-test's own delete_one
+    # write is the first write of the pass, so it's the one that explodes.
+    fake_client = FakeFxMultiClient({"/consents/fx-a-test": 204, "/consents/fx-b-test": 204})
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    result = asyncio.run(retention.retry_orphaned_revocations(now=NOW))
+
+    assert result == {
+        "orphaned_retried": 2, "orphaned_cleared": 1,
+        "orphaned_still_pending": 0, "orphaned_errors": 1, "orphaned_expired": 0,
+    }
+    # fx-a-test's write blew up, so its marker is still there; fx-b-test's own write
+    # (the second write of the pass) went through normally and was cleared.
+    assert "fx-a-test" in markers.docs
+    assert "fx-b-test" not in markers.docs
+
+
+def test_retry_orphaned_revocations_warns_once_attempts_reach_seven(monkeypatch, caplog):
+    markers = FakeCol([{
+        "_id": "fx-stale", "consent_id": "fx-stale", "user_hash": "h1",
+        "failed_at": NOW - timedelta(days=8), "attempts": 7,
+    }])
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+    fake_client = FakeFxClient(status_code=503)
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    with caplog.at_level(logging.WARNING, logger="app.services.retention"):
+        asyncio.run(retention.retry_orphaned_revocations(now=NOW))
+
+    assert any(
+        r.levelno == logging.WARNING and "fx-stale" in r.getMessage() and "after 7 attempts" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_retry_orphaned_revocations_no_warning_below_seven_attempts(monkeypatch, caplog):
+    markers = FakeCol([{
+        "_id": "fx-fresh", "consent_id": "fx-fresh", "user_hash": "h1",
+        "failed_at": NOW - timedelta(days=1), "attempts": 6,
+    }])
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+    fake_client = FakeFxClient(status_code=204)
+    monkeypatch.setattr(finexer_sync_module, "_client", lambda: fake_client)
+
+    with caplog.at_level(logging.WARNING, logger="app.services.retention"):
+        asyncio.run(retention.retry_orphaned_revocations(now=NOW))
+
+    assert not any("attempts" in r.getMessage() for r in caplog.records)
 
 
 def test_erase_user_revoke_exception_is_counted_and_non_fatal(monkeypatch):
@@ -472,9 +882,37 @@ def test_erase_user_with_no_connections_is_unchanged(monkeypatch):
     assert result == {"transactions": 1, "accounts": 1}
 
 
+def test_erase_user_sweeps_erase_only_collections(monkeypatch):
+    """A101: mpesa_accounts and mono_connections lost their *_col binding
+    when A98 removed the Kenya region, but erase_user must still delete a
+    user's documents from them via app.db.collections.ERASE_ONLY_COLLECTIONS
+    and a raw db[name] handle. Red on the code before this change (the old
+    dir()-based *_col loop never saw these two collections at all, so
+    neither doc would be removed); green after."""
+    uid = "u8@example.com"
+    mpesa_accounts = FakeCol([
+        {"_id": "mp-1", "user_id": uid, "currency": "KES", "name": "M-Pesa"},
+        {"_id": "mp-2", "user_id": "someone-else", "currency": "KES"},
+    ])
+    mono_connections = FakeCol([{"_id": "mono-1", "user_id": uid}])
+
+    _patch_all_collections(monkeypatch, {
+        "mpesa_accounts": mpesa_accounts,
+        "mono_connections": mono_connections,
+    })
+
+    result = asyncio.run(retention.erase_user(uid))
+
+    assert "mp-1" not in mpesa_accounts.docs
+    assert "mp-2" in mpesa_accounts.docs  # a different user's doc is untouched
+    assert "mono-1" not in mono_connections.docs
+    assert result["mpesa_accounts"] == 1
+    assert result["mono_connections"] == 1
+
+
 # ── run_retention_sweep wiring ───────────────────────────────────────────
 
-def test_run_retention_sweep_calls_both_sweeps(monkeypatch):
+def test_run_retention_sweep_calls_all_four_sweeps(monkeypatch):
     calls: list = []
 
     async def fake_conn_sweep(now=None):
@@ -489,16 +927,26 @@ def test_run_retention_sweep_calls_both_sweeps(monkeypatch):
         calls.append("relay")
         return {"relay_orphans_removed": 0, "relay_orphans_skipped": 0}
 
+    async def fake_orphan_retry(now=None):
+        calls.append("orphaned")
+        return {
+            "orphaned_retried": 0, "orphaned_cleared": 0,
+            "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
+        }
+
     monkeypatch.setattr(retention, "sweep_expired_connections", fake_conn_sweep)
     monkeypatch.setattr(retention, "sweep_dormant_users", fake_user_sweep)
     monkeypatch.setattr(retention, "sweep_orphaned_relay_accounts", fake_relay_sweep)
+    monkeypatch.setattr(retention, "retry_orphaned_revocations", fake_orphan_retry)
 
     result = asyncio.run(retention.run_retention_sweep(now=NOW))
 
-    assert calls == ["connections", "users", "relay"]
+    assert calls == ["connections", "users", "relay", "orphaned"]
     assert result == {
         "connections_removed": 0, "users_erased": 0,
         "relay_orphans_removed": 0, "relay_orphans_skipped": 0,
+        "orphaned_retried": 0, "orphaned_cleared": 0,
+        "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
     }
 
 
@@ -516,6 +964,19 @@ def test_account_has_data_true_when_any_data_collection_matches(monkeypatch):
 def test_account_has_data_false_when_nothing_matches(monkeypatch):
     _patch_all_collections(monkeypatch, {})
     assert asyncio.run(retention.account_has_data(RELAY)) is False
+
+
+def test_account_has_data_true_when_only_an_erase_only_collection_matches(monkeypatch):
+    """A101: account_has_data must still count a document in an
+    ERASE_ONLY_COLLECTIONS collection (no *_col binding survives A98) as
+    'this account has data' — otherwise the never-delete-an-account-with-
+    data guard erase_orphaned_relay_account relies on would be weakened for
+    exactly the accounts A99 is deciding about. Red on the code before this
+    change (account_has_data only ever walked _ACCOUNT_DATA_COLLECTIONS,
+    which no longer named mpesa_accounts_col after A98); green after."""
+    mpesa_accounts = FakeCol([{"_id": "mp-1", "user_id": RELAY, "currency": "KES"}])
+    _patch_all_collections(monkeypatch, {"mpesa_accounts": mpesa_accounts})
+    assert asyncio.run(retention.account_has_data(RELAY)) is True
 
 
 def test_erase_orphaned_relay_account_refuses_non_relay_address(monkeypatch):

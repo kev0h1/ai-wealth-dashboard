@@ -22,6 +22,13 @@ class Account(BaseModel):
     logo_url: Optional[str] = None
     bg_colors: Optional[list] = None
     apr: Optional[float] = None
+    # B45: true when the user's plan has no open banking (Statements) so this
+    # bank-synced account is read-only history, not live. Never set on manual
+    # or statement accounts, which stay current.
+    paused: bool = False
+    # G231: false when the user has chosen not to count this account towards
+    # Safe to Spend. Absent on the document means counted.
+    include_in_safe_to_spend: bool = True
 
 
 class Transaction(BaseModel):

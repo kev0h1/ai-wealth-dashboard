@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw, Pin, Percent } from "lucide-react";
-import { Account } from "@/lib/api";
+import { RefreshCw, Pin, Percent, Wallet } from "lucide-react";
+import { Account, providerLogoUrl } from "@/lib/api";
 
 /** Card-terms pill content (Accounts page credit-card rows). APR is
  *  information, not alarm — muted slate ink; amber only when a 0% promo is
@@ -43,6 +43,9 @@ interface AccountMiniCardProps {
    *  animation (e.g. cards rendered outside a fresh-load grid). */
   index?: number;
 }
+
+/** Empty initials mean "render the neutral account glyph" (G233). */
+export const OFFLINE_GLYPH = "";
 
 export interface BankMeta {
   label: string;
@@ -140,7 +143,7 @@ export const BANK_META: Record<string, BankMeta> = {
   // to fetch. Flat Slate Voice tone (#64748b, DESIGN.md) rather than a
   // gradient: this is a neutral system identity, not a provider brand, and
   // white 13px initials on this fixed hex clear contrast in both themes.
-  OFFLINE:      { label: "Offline",      bg: "#64748b",                                   initials: "OF" },
+  OFFLINE:      { label: "Offline",      bg: "#e2e8f0",                                   initials: OFFLINE_GLYPH },
 };
 
 /** Parse a hex colour like "#RRGGBB" or "#RGB" into [r, g, b] 0-255. Returns null on failure. */
@@ -277,7 +280,10 @@ export function accountBrand(account: Account): AccountBrand {
     }
   }
 
-  const logoSrc: string | null = account.logo_url ?? null;
+  // A148: account.logo_url is Finexer's remote URL, which the site CSP
+  // blocks; the same logo is served same-origin by provider id instead.
+  const logoSrc: string | null =
+    account.logo_url && account.provider_id ? providerLogoUrl(account.provider_id) : null;
   const initials = (account.provider ?? "?").slice(0, 2).toUpperCase();
   const label = account.provider || "Bank";
 
@@ -347,6 +353,20 @@ export function BankBadge({
         className={`${sized ? "" : "w-9 h-9 rounded-xl"} object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
         style={sized ? { width: size, height: size, borderRadius: radius } : undefined}
       />
+    );
+  }
+
+  if (!initials) {
+    // G233: no bank brand and no meaningful letters (offline accounts), so a
+    // neutral account glyph in slate ink on the neutral tile, never "OF".
+    return (
+      <div
+        aria-hidden="true"
+        className={`${sized ? "" : "w-9 h-9 rounded-xl"} flex items-center justify-center text-slate-600 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
+        style={{ background: brandBg ?? "#e2e8f0", ...(sized ? { width: size, height: size, borderRadius: radius } : {}) }}
+      >
+        <Wallet size={size !== undefined ? Math.max(8, Math.min(20, size - 8)) : 20} />
+      </div>
     );
   }
 

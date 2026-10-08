@@ -8,6 +8,7 @@ import { fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile } from "@/li
 import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
+import { todayIso } from "@/lib/calendar";
 
 /** G60: which of this context's five server-backed setters last failed to
  * save, and what to tell the user. A single slot, not one per field —
@@ -91,7 +92,7 @@ interface PrefsCtx extends Prefs {
   notePreferencesVersion: (version: number | null | undefined) => void;
 }
 
-const todayYM = () => new Date().toISOString().slice(0, 7);
+const todayYM = () => todayIso().slice(0, 7);
 
 const Ctx = createContext<PrefsCtx>({
   hideNetWorth: true,

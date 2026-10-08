@@ -74,6 +74,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
+from app.core.build import engine_build
 from app.core.config import MCP_CONNECTOR_ENABLED
 from app.core import timeutil
 from app.db.collections import (
@@ -127,7 +128,7 @@ def _money(amount, decimals: int = 0) -> dict:
     return {"raw": round(val, 2), "formatted": _fmt_gbp(val, decimals)}
 
 
-def _explain_tool_description() -> str:
+def _explain_tool_description(connector_enabled: bool | None = None) -> str:
     """The `explain` tool's own description, built by reading
     `MCP_CONNECTOR_ENABLED` at CALL time rather than baking a fixed string
     at import time, so a test can monkeypatch this module's own name for it
@@ -140,6 +141,21 @@ def _explain_tool_description() -> str:
     a running process, so a production process that boots with the
     connector off can never send this tool's description to the model with
     `mcp_connector` mentioned in it at all.
+
+    `connector_enabled` (B42): an explicit override, defaulting to this
+    module's own live `MCP_CONNECTOR_ENABLED` when left `None` — the
+    parameter exists purely so `tests/test_penny_golden_eval.py` can build
+    BOTH variants of this description directly, by calling this function
+    with `True` and `False`, without needing the process environment (or
+    this module's already-imported flag) to be in any particular state.
+    Before this parameter existed, the golden eval's pinned description
+    hash for `explain` silently baked in whichever state
+    `MCP_CONNECTOR_ENABLED` happened to hold in the process that captured
+    the pin, so the same suite passed in a worktree (no `backend/.env`,
+    flag unset/false) and failed wherever `backend/.env` sets the flag true
+    (the shared tree `scripts/integrate.py` actually tests in) — see B42.
+    `TOOL_SCHEMAS` below still calls this with no argument, so real request
+    traffic is completely unaffected by this parameter's existence.
 
     F16 rework, 2026-09-10 (Kevin, after rejecting the first pass): A17
     exists specifically so a connector-off deployment ships with the
@@ -155,11 +171,13 @@ def _explain_tool_description() -> str:
     unknown-topic valid-keys list `_exec_explain` returns (see that
     function) — no unreleased-feature copy sits in the production bundle
     in any form."""
+    if connector_enabled is None:
+        connector_enabled = MCP_CONNECTOR_ENABLED
     mcp_clause = (
         ", mcp_connector ('how do I connect the app as an MCP', 'connect "
         "Claude to my account', 'what is the MCP connector', 'can I use "
         "this with an AI assistant')"
-        if MCP_CONNECTOR_ENABLED else ""
+        if connector_enabled else ""
     )
     return (
         "Fixed, pre-written explanations the model must use instead of "
@@ -1966,7 +1984,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "next_payday": sts.get("next_payday"),
         "days_until_payday": sts.get("days_until_payday"),
         "state": sts.get("state"),
-        "short_reason": sts.get("short_reason"),
+        "short_reason": sts.get("short_reason"), "plans_only_short": bool(sts.get("plans_only_short")),  # G218, same line keeps the leak allowlist stable
         "bills_total": _money(sts.get("bills_total")),
         "card_debt": _money(sts.get("card_debt")),
         "card_growth": _money(sts.get("card_growth_total")),
@@ -2002,6 +2020,11 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     cached = await _compute_cashflow_patterns(uid)
     cached["computed_at"] = datetime.now()
     cached["patterns_version"] = PATTERNS_VERSION
+    # G159 review fix #5: same stamp analytics.py's own cache-miss branch
+    # writes, for the same reason — an unstamped doc reads as a different
+    # build to cache_needs_recompute's "auto" self-heal check forever, not
+    # just until the next real engine change.
+    cached["engine_build"] = engine_build()
     await cashflow_cache_col.update_one({"_id": uid}, {"$set": cached}, upsert=True)
     return cached
 
@@ -2462,7 +2485,7 @@ async def _exec_get_accounts(uid: str) -> dict:
             "kind": kind,
             "status": a.status,
             "dormant": _account_is_dormant(a, kind),
-            "pinned": a.id in pinned_ids,
+            "pinned": a.id in pinned_ids, "counts_towards_safe_to_spend": a.include_in_safe_to_spend,  # G231 (one line, keeps the leak allowlist stable)
         })
     result = {"accounts": rows}
     if last_synced:
@@ -2787,7 +2810,16 @@ async def _exec_get_goals(uid: str) -> dict:
             "per_period_slice": (
                 _money(g.get("per_period_slice")) if g.get("per_period_slice") is not None else None
             ),
+            # G228: quote the usual contribution beside this period's eased one.
+            "usual_slice": _money(g.get("usual_slice")) if g.get("usual_slice") is not None else None,
+            "eased_this_period": (
+                _money(g.get("eased_this_period")) if g.get("eased_this_period") is not None else None
+            ),
             "periods_left": g.get("periods_left"),
+            # G230: the current account the contribution leaves, and whether
+            # that is a guess from recent transfers (hedge it) or the user's choice.
+            "paid_from": g.get("source_account_name"),
+            "paid_from_inferred": bool(g.get("source_inferred")) if g.get("source_account_name") else None,
             "on_track": g.get("on_track"),
             "feasibility": g.get("feasibility"),
             "feasibility_note": g.get("feasibility_note"),
@@ -3075,6 +3107,7 @@ def _shape_plan_dest(dest: dict | None) -> dict | None:
         "balance": _money(dest.get("balance")),
         "needs_total": _money(dest.get("needs_total")),
         "needs_by": dest.get("needs_by"),
+        "needs_by_last": dest.get("needs_by_last"),
         "bills": [
             {"label": b.get("label"), "amount": _money(b.get("amount"))}
             for b in (dest.get("bills") or [])
@@ -3584,7 +3617,7 @@ _NUMBERS_COPY: dict[str, str] = {
         "to spend before payday. It starts from the lowest point your "
         "spendable balance is projected to hit between now and payday "
         "(after bills and expected income), then subtracts your buffer, "
-        "reserved commitment slices, and envelopes. Card balance growth "
+        "your goal plans for the period, and envelopes. Card balance growth "
         "is shown beside FREE rather than normally being subtracted from "
         "cash; only a card whose repayment has not been identified is held "
         "back as a cautious fallback. NOW minus BILLS doesn't equal FREE because "
@@ -3593,14 +3626,14 @@ _NUMBERS_COPY: dict[str, str] = {
         "usually read lower than a simple subtraction."
     ),
     "planning_runway": (
-        "Planning's runway is what's spendable right now minus the bills "
-        "still due before your next payday. It deliberately excludes "
-        "pooled no-op transfers, money moving between two of your own "
-        "spendable accounts nets to nothing for this total, so it "
-        "doesn't shrink the runway for a transfer that isn't really "
-        "costing you anything. It differs from Safe to Spend's FREE "
-        "figure because runway doesn't subtract your buffer or reserved "
-        "commitment slices, those only apply to FREE."
+        "Planning's runway is what's spendable right now, plus income expected "
+        "before payday, minus bills still due, what you still have to set aside "
+        "and your goal plans for the period. It excludes pooled no-op transfers, "
+        "money moving between two of your own spendable accounts nets to nothing "
+        "for this total. It differs from Safe to Spend's FREE figure only in that "
+        "it ends at payday rather than using the walk's lowest point, and it "
+        "doesn't subtract your safety buffer, which only applies to FREE. If goal "
+        "plans could not be loaded, the runway may read higher than it should."
     ),
     "grow_surplus_monthly": (
         "Grow's monthly surplus is your typical monthly income minus "
@@ -4177,7 +4210,13 @@ async def _resolve_allocation_for_propose(uid: str, allocation_ref: str) -> dict
             return {
                 "ambiguous": True,
                 "matches": [
-                    {"id": a["id"], "name": a["name"], "amount_per_period": _money(a["amount_per_period"])}
+                    {
+                        "id": a["id"], "name": a["name"],
+                        # Recurring amount, and what THIS pay period asks for
+                        # (they differ when the period alone was reduced).
+                        "amount_per_period": _money(a["amount_per_period"]),
+                        "period_amount": _money(a.get("period_amount", a["amount_per_period"])),
+                    }
                     for a in matches
                 ],
             }
@@ -4691,10 +4730,10 @@ async def _exec_propose_update_allocation(
     label = doc["name"]
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
     if paused is True:
-        summary = f"Pause the {label} allocation ({amount_fmt} per period)"
+        summary = f"Pause the {label} allocation ({amount_fmt} per period{_alloc_period_note(doc)})"
         consequence = "Frees up its unfilled remainder in safe to spend until you resume it."
     elif paused is False:
-        summary = f"Resume the {label} allocation ({amount_fmt} per period)"
+        summary = f"Resume the {label} allocation ({amount_fmt} per period{_alloc_period_note(doc)})"
         consequence = "Reserves its unfilled remainder from safe to spend again."
     else:
         bits = []
@@ -4710,6 +4749,17 @@ async def _exec_propose_update_allocation(
     return await _create_proposal(uid, "update_allocation", params, summary, consequence)
 
 
+def _alloc_period_note(doc: dict) -> str:
+    """G217: ", £161.60 this period" when this period's set-aside was reduced,
+    else an empty string. The recurring amount stays the figure quoted as such."""
+    period = doc.get("period_amount")
+    if period is None or round(float(period), 2) == round(float(doc.get("amount_per_period") or 0), 2):
+        return ""
+    value = round(float(period), 2)
+    shown = f"£{value:,.0f}" if value == int(value) else f"£{value:,.2f}"
+    return f", {shown} this period"
+
+
 async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
     if not allocation_ref or not str(allocation_ref).strip():
         return _tool_error("allocation_ref required")
@@ -4721,7 +4771,7 @@ async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
     doc = resolved["allocation"]
 
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
-    summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period)"
+    summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period{_alloc_period_note(doc)})"
     consequence = "Its unfilled remainder stops being reserved from safe to spend."
     params = {"allocation_id": doc["id"]}
     return await _create_proposal(uid, "delete_allocation", params, summary, consequence)

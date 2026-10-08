@@ -7,6 +7,7 @@ import { api, SavingsInsight } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
+import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
 
 // Where tapping the spotlight card body lands — the transactions hub, with
 // the tip already open, rather than the retired Insights page. A bare
@@ -43,12 +44,15 @@ interface HomeInsightSpotlightProps {
    *  cycle below. Lets HomePage's full-page loading hold know this
    *  self-fetching card is done. */
   onReady?: () => void;
+  /** Design previews only (/design/home-tip-gesture): render this fixture
+   *  insight and make no API calls. Dismissing just hides the card. */
+  previewInsight?: SavingsInsight;
 }
 
-export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightProps = {}) {
+export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
-  const [insight, setInsight] = useState<SavingsInsight | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [insight, setInsight] = useState<SavingsInsight | null>(previewInsight ?? null);
+  const [loaded, setLoaded] = useState(Boolean(previewInsight));
 
   // Latest onReady in a ref, and a fired-once guard — `load()` is also
   // re-invoked after a dismiss to surface the next eligible insight, and
@@ -57,51 +61,13 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
   useEffect(() => { onReadyRef.current = onReady; });
   const readyFiredRef = useRef(false);
 
-  const cardRef = useRef<HTMLDivElement>(null);
-  const startXRef = useRef(0);
-  const isDraggingRef = useRef(false);
-  const startTimeRef = useRef(0);
-
-  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    startXRef.current = e.clientX;
-    startTimeRef.current = Date.now();
-    isDraggingRef.current = true;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!isDraggingRef.current || !cardRef.current) return;
-    const dx = e.clientX - startXRef.current;
-    if (dx >= 0) return; // left-swipe only
-    cardRef.current.style.transform = `translateX(${dx}px)`;
-    cardRef.current.style.opacity = String(Math.max(0, 1 + dx / (cardRef.current.offsetWidth * 0.55)));
-  }
-
-  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!isDraggingRef.current || !cardRef.current) return;
-    isDraggingRef.current = false;
-    const dx = e.clientX - startXRef.current;
-    const elapsed = Date.now() - startTimeRef.current;
-    const velocity = elapsed > 0 ? Math.abs(dx) / elapsed : 0;
-    const width = cardRef.current.offsetWidth;
-    if (dx < 0 && (Math.abs(dx) > width * 0.35 || velocity > 0.5)) {
-      cardRef.current.style.transition = "transform 0.2s var(--ease-out), opacity 0.15s ease";
-      cardRef.current.style.transform = `translateX(-${width + 20}px)`;
-      cardRef.current.style.opacity = "0";
-      setTimeout(() => dismiss(), 200);
-    } else {
-      cardRef.current.style.transition = "transform 0.25s var(--ease-out), opacity 0.2s ease";
-      cardRef.current.style.transform = "translateX(0)";
-      cardRef.current.style.opacity = "1";
-      setTimeout(() => {
-        if (cardRef.current) {
-          cardRef.current.style.transition = "";
-        }
-      }, 250);
-    }
-  }
+  // G207: swipe-left-to-dismiss via the shared gesture helper (axis lock,
+  // cancel/lost-capture reset, reduced-motion aware). dismiss is a hoisted
+  // function declaration below, so referencing it here is safe.
+  const { ref: cardRef, handlers: swipe } = useSwipeDismiss<HTMLDivElement>(() => dismiss(), { axis: "x", sign: -1 });
 
   const load = useCallback(() => {
+    if (previewInsight) return;
     api
       .getSpotlightInsight()
       .then(setInsight)
@@ -112,7 +78,7 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
         readyFiredRef.current = true;
         onReadyRef.current?.();
       });
-  }, []);
+  }, [previewInsight]);
 
   useEffect(() => {
     load();
@@ -134,6 +100,7 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
   async function dismiss() {
     const id = insight!.id;
     setInsight(null); // hide immediately
+    if (previewInsight) return;
     try {
       await api.dismissSpotlightInsight(id);
     } catch {}
@@ -146,9 +113,8 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
       <div
         ref={cardRef}
         className="relative rounded-2xl glass-card overflow-hidden touch-pan-y"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        style={{ touchAction: "pan-y" }}
+        {...swipe}
       >
         {/* Dismiss × — V2 "Glass chip" (owner decision, Kevin 2026-08-27,
             /design/dismiss-x), replacing the opaque disc this used to be.

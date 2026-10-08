@@ -1,0 +1,34 @@
+
+    // A122: app-switcher privacy cover, merged into AppDelegate by the
+    // "Patch AppDelegate for app-switcher privacy" step in codemagic.yaml.
+    // iOS snapshots the window when didEnterBackground returns, so the cover
+    // must be added synchronously here, not from a JS listener. Notification
+    // observers (not the delegate callbacks) so it works whether or not the
+    // template has adopted UIScene. Deliberately keyed on background/foreground,
+    // not resign-active, so the Face ID sheet does not blank the lock screen.
+    private var sortedPrivacyCover: UIView?
+
+    func sortedInstallPrivacyCover() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self, self.sortedPrivacyCover == nil else { return }
+            let windows = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+            guard let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first else { return }
+            let cover = UIView(frame: window.bounds)
+            cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            // Mirrors the app's canvas token (globals.css --background): Mist
+            // Canvas #f0f2f7 in light, Midnight Canvas #0f172a in dark. Plain
+            // fill only, no gradient, no brand or Penny colour.
+            cover.backgroundColor = window.traitCollection.userInterfaceStyle == .dark
+                ? UIColor(red: 15.0 / 255, green: 23.0 / 255, blue: 42.0 / 255, alpha: 1)
+                : UIColor(red: 240.0 / 255, green: 242.0 / 255, blue: 247.0 / 255, alpha: 1)
+            window.addSubview(cover)
+            self.sortedPrivacyCover = cover
+        }
+        center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.sortedPrivacyCover?.removeFromSuperview()
+            self?.sortedPrivacyCover = nil
+        }
+    }

@@ -107,6 +107,23 @@ def test_home_payday_status_short_bills_never_says_negative_safe_to_spend(monkey
     _assert_house_style(answer)
 
 
+def test_home_payday_status_plans_only_short_speaks_the_amber_reading(monkeypatch):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "state": "short", "short_reason": "bills", "plans_only_short": True,
+            "safe_to_spend": -250, "safe_to_spend_cash": -250,
+            "days_until_payday": 12, "next_payday": "2026-10-18",
+            "lowest_projected_balance": 0, "calculation_status": "complete",
+        }
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+
+    answer = _run(answer_chip(UID, "home_payday_status", None))["answer"]
+    assert "£250 short after plans and envelopes" in answer
+    assert "short of covering this pay period" not in answer
+    assert "bills are covered" in answer.lower()
+    _assert_house_style(answer)
+
+
 def test_home_payday_status_short_bills_quotes_cash_not_net_when_card_growth_present(monkeypatch):
     # A fallback card reserve is kept separate from the genuine cash gap.
     # This chip must quote the same £42 cash gap the Home hero shows, then

@@ -89,6 +89,7 @@ from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     allocations_col,
+    commitments_col,
     manual_accounts_col,
     preferences_col,
     transactions_col,
@@ -100,6 +101,16 @@ from app.services.categories import clean_name
 from app.services.categorisation import series_key
 from app.services.description_match import matches_contains, matches_equals
 from app.services.pay_period import get_pay_period_for_date
+from app.services.account_plan_sources import (
+    account_label,
+    chosen_source,
+    eligible_source_account_map,
+    owned_plan_balance,
+    owned_account_map,
+    resolve_goal_source,
+    source_link_snapshot,
+    validate_source_account,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +309,19 @@ async def filled_this_period(
     return round(sum(abs(float(t.get("amount", 0) or 0)) for t in fills), 2)
 
 
+def _period_override_pence(doc: dict, period_end: date) -> int | None:
+    """G217: the per-period override for THIS pay period, in pence, or None.
+
+    `period_overrides` is `{period_end_iso: amount_pence}` and is read only for
+    the period being evaluated, so a reduction lapses by itself when the next
+    period starts and `amount_per_period` (the recurring amount) never moves.
+    """
+    raw = (doc.get("period_overrides") or {}).get(period_end.isoformat())
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+        return None
+    return int(raw)
+
+
 async def _serialise(doc: dict, start: date, end: date) -> dict:
     amount = float(doc.get("amount_per_period") or 0)
     recurrence = doc.get("recurrence", "every_period")
@@ -339,12 +363,21 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         doc.get("match_type"), doc.get("match_value", ""),
         window_start, window_end,
     )
-    remaining = 0.0 if (completed or pending) else round(max(0.0, amount - filled), 2)
+    override_pence = _period_override_pence(doc, eff_end)
+    # A reduction only: if the recurring amount was lowered below an older
+    # this-period override, the lower recurring amount wins.
+    period_amount = amount if override_pence is None else min(round(override_pence / 100, 2), amount)
+    remaining = 0.0 if (completed or pending) else round(max(0.0, period_amount - filled), 2)
     return {
         "id":                  str(doc["_id"]),
         "name":                doc.get("name"),
         "amount_per_period":   amount,
+        # G217: what THIS pay period asks for. Equals amount_per_period unless
+        # the user reduced this period only (period_override, in pounds).
+        "period_amount":       period_amount,
+        "period_override":     None if override_pence is None else period_amount,
         "fill_account_id":     doc.get("fill_account_id"),
+        "source_account_id":   doc.get("source_account_id"),
         "match_type":          doc.get("match_type"),
         "match_value":         doc.get("match_value"),
         "fill_display_name":   doc.get("fill_display_name"),
@@ -439,6 +472,140 @@ async def list_allocations(user: dict = Depends(current_user)):
     return {"items": items}
 
 
+@router.get("/account-plans")
+async def list_account_plans(user: dict = Depends(current_user)):
+    """Compact, read-only account-plan rows for the upcoming-money surface.
+
+    This intentionally avoids commitments.list_commitments and cashflow: both
+    calculate broader feasibility views and would make this simple plan read
+    recursive and unnecessarily expensive.
+    """
+    from app.routers import commitments
+    from app.services.companion import _direct_fill_leg_source
+
+    uid = user["email"]
+    account_map = await owned_account_map(uid)
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    allocation_docs = await allocations_col.find({"user_id": uid}).to_list(None)
+    items: list[dict] = []
+
+    for doc in allocation_docs:
+        serial = await _serialise(doc, start, end)
+        destination_id = str(doc.get("fill_account_id") or "")
+        source_id, basis = chosen_source(doc, account_map, {destination_id})
+        if basis == "legacy":
+            try:
+                fill_start = date.fromisoformat(serial["period_start"])
+                fill_end = date.fromisoformat(serial["period_end"])
+                fill_start = max(fill_start, _as_date(doc.get("effective_from"), fill_start))
+                inferred = await _direct_fill_leg_source(
+                    uid, destination_id, doc.get("match_type"),
+                    doc.get("match_value", ""), fill_start, fill_end,
+                    eligible_source_account_map(account_map, {destination_id}),
+                )
+                if inferred:
+                    try:
+                        source_id = validate_source_account(
+                            inferred, account_map, {destination_id},
+                        )
+                        basis = "recent-transfers" if source_id else "unknown"
+                    except HTTPException:
+                        basis = "unknown"
+            except Exception:
+                # One ambiguous or malformed historical fill must not hide
+                # the rest of the account-plan list.
+                logger.exception("Could not infer allocation plan source %s", doc.get("_id"))
+                basis = "unknown"
+            if basis == "legacy":
+                basis = "unknown"
+        items.append({
+            "id": f"allocation:{doc['_id']}",
+            "record_id": str(doc["_id"]),
+            "kind": "allocation",
+            "name": doc.get("name"),
+            "destination": account_label(account_map.get(destination_id), serial.get("fill_display_name") or ""),
+            "destination_account_ids": [destination_id] if destination_id else [],
+            "source_account_id": source_id,
+            "source_basis": basis,
+            "inferred": basis == "recent-transfers",
+            "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
+            "period_amount": serial.get("period_amount", serial["amount_per_period"]),
+            "filled_amount": serial["filled_this_period"],
+            "remaining": serial["remaining"],
+            "active": bool(serial["active"]) and not serial["completed"] and not serial["pending"],
+        })
+
+    goal_docs = await commitments_col.find(
+        {
+            "user_id": uid,
+            "$or": [
+                {"status": "active"},
+                {"status": {"$exists": False}},
+            ],
+        }
+    ).to_list(None)
+    # Goal maths failures are deliberately request failures. An invented
+    # amount would be worse than letting the UI say this plan is unavailable.
+    # Supplying every referenced id prevents the ledger from looking up an
+    # old/unowned pot by id. Unknown or unreadable historical pots fail the
+    # read rather than being silently treated as zero.
+    balances = {}
+    for doc in goal_docs:
+        for pot in commitments._doc_pots(doc):
+            aid = str(pot["account_id"])
+            account = account_map.get(aid)
+            if account is None:
+                raise HTTPException(503, "Account plan unavailable")
+            balance = owned_plan_balance(account)
+            if balance is None:
+                raise HTTPException(503, "Account plan unavailable")
+            balances[aid] = balance
+    ledger = await commitments.compute_pot_ledger(uid, docs=goal_docs, balances=balances)
+    today = timeutil.user_today()
+    from app.services.account_plan_sources import needs_inference
+    from app.services.companion import infer_plan_sources_batch
+    wanted = {
+        str(d["_id"]): sorted({str(p["account_id"]) for p in commitments._doc_pots(d)})
+        for d in goal_docs
+        if needs_inference(d, {str(p["account_id"]) for p in commitments._doc_pots(d)})
+    }
+    prefetched: dict = {}
+    if wanted:
+        try:
+            prefetched = await infer_plan_sources_batch(uid, wanted, account_map)
+        except Exception:
+            logger.exception("Could not infer goal plan sources")
+    for doc in goal_docs:
+        pots = commitments._doc_pots(doc)
+        destination_ids = [str(p["account_id"]) for p in pots]
+        # G230: goals infer their paying account from recent transfers into
+        # the sink pot(s), like set-asides; an explicit "Not set" stays pooled.
+        source_id, inferred = await resolve_goal_source(
+            uid, doc, account_map, set(destination_ids), prefetched=prefetched,
+        )
+        basis = "recent-transfers" if inferred else ("chosen" if source_id else "unknown")
+        slice_info = await commitments._pot_progress_and_slice(doc, cfg, ledger, today)
+        labels = [account_label(account_map.get(aid), "Funding account") for aid in destination_ids]
+        items.append({
+            "id": f"goal:{doc['_id']}",
+            "record_id": str(doc["_id"]),
+            "kind": "goal",
+            "name": doc.get("name"),
+            "destination": ", ".join(labels) if labels else "No funding pot",
+            "destination_account_ids": destination_ids,
+            "source_account_id": source_id,
+            "source_basis": basis,
+            "inferred": inferred,
+            "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
+            "period_amount": slice_info["per_period_slice"],
+            "filled_amount": None,
+            "remaining": slice_info["per_period_slice"],
+            "active": doc.get("status", "active") == "active",
+        })
+    return {"items": items}
+
+
 @router.get("/allocations/fill-candidates")
 async def fill_candidates(account_id: str = Query(...), user: dict = Depends(current_user)):
     """Recent (90d) CREDIT transaction series on `account_id`, grouped by
@@ -516,8 +683,16 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
         "effective_from":     datetime(effective_from.year, effective_from.month, effective_from.day),
         "recurrence":         recurrence,
         "active":             True,
+        # New plans persist null on omission: this is an intentional opt-out
+        # from inferred source suggestions. Only pre-G176 docs lack the key.
+        "source_account_id":   None,
         "created_at":         datetime.now(timezone.utc),
     }
+    if "source_account_id" in body:
+        sources = await owned_account_map(uid)
+        doc["source_account_id"] = validate_source_account(
+            body.get("source_account_id"), sources, {fill_account_id},
+        )
     if recurrence == "once":
         # The fixed boundary — see module docstring. Persisted once, at
         # creation, and never re-derived.
@@ -527,7 +702,7 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
     result = await allocations_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
-    response_cache.invalidate(uid)  # safe-to-spend reserve changed
+    await response_cache.ainvalidate(uid)  # subsequent reads must see the write
     return await _serialise(doc, start, end)
 
 
@@ -537,6 +712,9 @@ async def update_allocation(
 ):
     uid = user["email"]
     doc = await _get_owned(uid, allocation_id)
+    update_filter = {"_id": doc["_id"], "user_id": uid}
+    if "source_account_id" in body or "fill_account_id" in body:
+        update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id"))
 
     updates: dict = {}
     if "name" in body:
@@ -550,6 +728,15 @@ async def update_allocation(
         if not await _account_owned(uid, fid):
             raise HTTPException(400, "fill account not found")
         updates["fill_account_id"] = fid
+    if "source_account_id" in body:
+        sources = await owned_account_map(uid)
+        destination = str(updates.get("fill_account_id", doc.get("fill_account_id")) or "")
+        updates["source_account_id"] = validate_source_account(
+            body.get("source_account_id"), sources, {destination},
+        )
+    elif "fill_account_id" in updates and doc.get("source_account_id") == updates["fill_account_id"]:
+        # Keep the persisted invariant when a destination is re-linked.
+        updates["source_account_id"] = None
     if "match_type" in body:
         updates["match_type"] = _validate_match_type(body.get("match_type"))
     if "match_value" in body:
@@ -600,12 +787,79 @@ async def update_allocation(
         if await _conflicts(uid, eff_fill, eff_match_type, eff_match_value, exclude_id=doc["_id"]):
             raise HTTPException(400, "an active allocation already fills from this payment")
 
-    await allocations_col.update_one({"_id": doc["_id"]}, {"$set": updates})
+    result = await allocations_col.update_one(update_filter, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
     doc.update(updates)
 
-    response_cache.invalidate(uid)
+    await response_cache.ainvalidate(uid)
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    return await _serialise(doc, start, end)
+
+
+def _validate_period_amount(raw, recurring: float) -> float:
+    """A one-period amount may be 0 (skip this period) but never above the
+    allocation's recurring amount: this is a reduction, not a top-up (422)."""
+    try:
+        amount = float(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "amount must be a number")
+    if not (0 <= amount <= _MAX_AMOUNT) or amount != amount:
+        raise HTTPException(400, f"amount must be between 0 and {_MAX_AMOUNT}")
+    amount = round(amount, 2)
+    if amount > round(float(recurring or 0), 2):
+        raise HTTPException(422, "A one-period amount cannot be more than the recurring amount")
+    return amount
+
+
+@router.put("/allocations/{allocation_id}/period-override")
+async def set_period_override(allocation_id: str, body: dict, user: dict = Depends(current_user)):
+    """G217: change what this allocation asks for in the CURRENT pay period only.
+
+    Stores `period_overrides[period_end] = pence`. Every reader (the reserve in
+    Safe to Spend, `remaining`, the account sheet, the cover plan) already goes
+    through `_serialise`, so they all follow. The recurring `amount_per_period`
+    is untouched and the override lapses when the next period starts.
+    """
+    uid = user["email"]
+    doc = await _get_owned(uid, allocation_id)
+    amount = _validate_period_amount(body.get("amount"), doc.get("amount_per_period"))
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    serial = await _serialise(doc, start, end)
+    period_end = date.fromisoformat(serial["period_end"])
+    # Write only the live key and prune stale (earlier-period) keys; never
+    # replace the whole map from a possibly stale read.
+    live_key = period_end.isoformat()
+    update: dict = {"$set": {f"period_overrides.{live_key}": int(round(amount * 100))}}
+    stale = {f"period_overrides.{k}": "" for k in (doc.get("period_overrides") or {}) if k < live_key}
+    if stale:
+        update["$unset"] = stale
+    result = await allocations_col.update_one({"_id": doc["_id"], "user_id": uid}, update)
+    if result.matched_count == 0:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
+    overrides = dict(doc.get("period_overrides") or {})
+    overrides = {k: v for k, v in overrides.items() if k >= live_key}
+    overrides[live_key] = int(round(amount * 100))
+    doc["period_overrides"] = overrides
+    await response_cache.ainvalidate(uid)
+    return await _serialise(doc, start, end)
+
+
+@router.delete("/allocations/{allocation_id}/period-override")
+async def clear_period_override(allocation_id: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    doc = await _get_owned(uid, allocation_id)
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    serial = await _serialise(doc, start, end)
+    live_key = serial["period_end"]
+    await allocations_col.update_one(
+        {"_id": doc["_id"], "user_id": uid}, {"$unset": {f"period_overrides.{live_key}": ""}},
+    )
+    doc["period_overrides"] = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k != live_key}
+    await response_cache.ainvalidate(uid)
     return await _serialise(doc, start, end)
 
 

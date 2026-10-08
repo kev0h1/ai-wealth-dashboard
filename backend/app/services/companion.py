@@ -50,6 +50,23 @@ def _weekday_name(d: date) -> str:
     return _WEEKDAYS[d.weekday()]
 
 
+def _dest_due_range(dest_bills: list[dict], today: date) -> dict:
+    """First and last due dates for a destination's bills (G184).
+
+    `needs_by` stays the earliest label; `needs_by_last` is the latest bill's
+    label so the UI can say "First due X, last due Y" instead of implying
+    every payment lands by the first date.
+    """
+    dates = sorted(date.fromisoformat(b["expected_date"]) for b in dest_bills)
+    first, last = dates[0], dates[-1]
+    return {
+        "needs_by": _when_label(first, today),
+        "needs_by_last": _when_label(last, today),
+        "needs_by_date": first.isoformat(),
+        "needs_by_last_date": last.isoformat(),
+    }
+
+
 def _when_label(d: date, today: date) -> str:
     """Distance-aware date label: today/tomorrow/weekday-name (2-6 days)/short-date (>=7 days).
     Prevents "lands Friday" reading as "this Friday" when the date is actually weeks away."""
@@ -705,9 +722,11 @@ async def _direct_fill_leg_source(
     from app.routers.analytics import _has_affinity
 
     fills = await matching_fills_this_period(uid, fill_account_id, match_type, match_value, start, end)
-    if not fills:
-        return None
+    return await _pair_credits_to_source(uid, fill_account_id, fills, start, end, account_map)
 
+
+async def _load_debits(uid: str, start: date, end: date) -> list[dict]:
+    """Every own debit in [start, end], one query per transactions collection."""
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
     debit_q = {
@@ -716,12 +735,32 @@ async def _direct_fill_leg_source(
         "date": {"$gte": start_dt, "$lte": end_dt},
     }
     proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
-    candidates: list[dict] = []
+    out: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
-        for t in await col.find(debit_q, proj).to_list(None):
-            if str(t.get("account_id") or "") == str(fill_account_id):
-                continue  # a source must be a DIFFERENT, own, non-fill account
-            candidates.append(t)
+        out += await col.find(debit_q, proj).to_list(None)
+    return out
+
+
+async def _pair_credits_to_source(
+    uid: str, fill_account_id: str, fills: list[dict], start: date, end: date,
+    account_map: dict[str, dict], debits: list[dict] | None = None,
+) -> str | None:
+    """The pairing half of `_direct_fill_leg_source`, split out (G230) so a
+    plan's sink pot can reuse the exact same same-day, exact-amount,
+    name-affinity, fail-closed rule against ANY set of credits landing on
+    it, not just an allocation's rule-matched fills. See the docstring above
+    for the full doctrine; behaviour for allocations is unchanged."""
+    from app.routers.analytics import _has_affinity
+
+    if not fills:
+        return None
+
+    if debits is None:
+        debits = await _load_debits(uid, start, end)
+    candidates: list[dict] = [
+        t for t in debits
+        if str(t.get("account_id") or "") != str(fill_account_id)  # a source must be a DIFFERENT, own, non-fill account
+    ]
 
     def _day(t):
         d = t.get("date")
@@ -1972,6 +2011,20 @@ async def compute_today_items(
     below is gated on this flag; the in-memory item is still computed and
     returned either way, only the persistence is skipped.
 
+    H90 correction (2026-09-28): "EVERY write" above was not, in fact,
+    true until this fix — the trajectory item's `get_debt_plan_cached(uid)`
+    call (section 8f, below) wrote a fresh `debt_plan` response-cache doc
+    on a cache miss regardless of `persist`, because that helper had no
+    `persist` parameter of its own to thread this flag through. That
+    single unguarded write is what let `GET /today/cover-plan` (persist
+    False, called on every Settings load) and `get_today_brief` (persist
+    False, the case this docstring describes above) each write a doc under
+    whatever uid they ran for — including, once, Kevin's own uid, from
+    unmerged code exercising this exact path. Fixed by giving
+    `get_debt_plan_cached` its own `persist` parameter and passing this
+    one through to it; the claim above is now actually enforced, not just
+    documented.
+
     `account_eligibility_out` (G50, 2026-09-12): an optional out-param —
     when a caller passes a dict, this function fills it in place with
     `{account_id: {"short": bool, "headroom": float}}` for every account
@@ -2135,11 +2188,21 @@ async def compute_today_items(
     all_uk_accounts: list[dict] = []
     _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
                   "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
-                  "nickname": 1, "display_name": 1}
+                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
+    # G231: an account the user does not count towards Safe to Spend is
+    # neither a source nor a destination for any suggestion, and its balance
+    # never seeds a walk.
+    _g231_excluded: set[str] = set()
     async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
+        if acc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(acc["_id"]))
+            continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
     async for acc in yapily_accounts_col.find({"user_id": uid}, {**_acct_proj, "institution_id": 1}):
+        if acc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(acc["_id"]))
+            continue
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
 
@@ -2178,10 +2241,12 @@ async def compute_today_items(
     # now doubles as the manual-transfer tie-break in `_live_class` below.
     offline_accounts: list[dict] = []
     async for _macc in manual_accounts_col.find(
-        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1}
+        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1}
     ):
         _macc_type = _macc.get("account_type") or "savings"
-        if _macc_type == "credit_card":
+        if _macc.get("include_in_safe_to_spend") is False:
+            _g231_excluded.add(str(_macc["_id"]))
+        if _macc_type == "credit_card" or _macc.get("include_in_safe_to_spend") is False:
             continue
         offline_accounts.append({
             "_id": _macc["_id"],
@@ -2194,6 +2259,15 @@ async def compute_today_items(
         })
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
+
+    # G231 fail-closed: if the builder could not verify exclusions, re-apply the
+    # exclusion from the account rows loaded above to the walk's own lists.
+    if resp.get("exclusions_unverified") and _g231_excluded:
+        _w = {"upcoming_bills": window_bills, "upcoming_income": window_income}
+        from app.services.counted_accounts import drop_excluded_items as _g231_drop
+        _g231_drop(_w, _g231_excluded)
+        window_bills, window_income = _w["upcoming_bills"], _w["upcoming_income"]
+        assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
 
     # Envelope funding-source reservation (owner fix, 2026-08-31 — "does it
     # take account of what has been set aside on the envelope"). Computed
@@ -2832,6 +2906,9 @@ async def compute_today_items(
                 "balance": float(dest_balance),
                 "needs_total": 0,
                 "needs_by": "",
+                "needs_by_last": "",
+                "needs_by_date": None,
+                "needs_by_last_date": None,
                 "bills": [],
                 "is_overdraft": True,
             }
@@ -2859,7 +2936,7 @@ async def compute_today_items(
                 "provider": dest_provider,
                 "balance": float(dest_balance),
                 "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
-                "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
+                **_dest_due_range(dest_bills, today_d),
                 "bills": [
                     _plan_dest_bill(b, dest_acct)
                     for b in dest_bills
@@ -3263,7 +3340,8 @@ async def compute_today_items(
                 bills_total, bill_count, own_transfers_skipped = _acct_bills(acct_id)
                 balance = _bal(acct_id)
                 usual = usual_moves.get(acct_id)  # int or None — None means "no usual pattern seen"
-                if _is_savings(acc):
+                _dest_is_savings = _is_savings(acc)
+                if _dest_is_savings:
                     # Savings pots: the user's saving intent is theirs (Grow
                     # owns recommendations) — mirror their ritual, never
                     # auto-buffer. No spend/buffer padding; the move is
@@ -3291,10 +3369,21 @@ async def compute_today_items(
                     _c_slice = int(_commit.get("slice_total") or 0)
                     if _c_slice > 0 and move < _c_slice:
                         move = _c_slice
-                        if _is_savings(acc):
+                        if _dest_is_savings:
                             target = move + bills_total
                 if not (move > 0 or usual is not None):
                     continue
+                # G129 fix: a savings pot with no bills owed but a habitual
+                # amount still moving (e.g. Kevin's Barclays "Personal GBP"
+                # pot, £0 owed, £100 moving) is an accumulation top-up, not a
+                # shortfall — the frontend must be told this explicitly
+                # rather than infer it from `target == 0`, which only held
+                # by accident of the re-derive bug below (G129 note,
+                # 2026-09-18). Computed here, before the trim phases, since
+                # neither `bills_total` nor `move` for a savings destination
+                # is touched by Phase 1/2 trimming (those only cut
+                # buffer/spend_typical, both 0 for savings).
+                _habitual_top_up = _dest_is_savings and bills_total <= 0 and move > 0
                 _dest_entry = {
                     "account_id": acct_id,
                     "name": _clean_name(acc.get("name"), acct_id),
@@ -3307,6 +3396,19 @@ async def compute_today_items(
                     "target": int(round(target)),
                     "move": int(move),
                     "usual": int(usual) if usual is not None else None,
+                    # Explicit destination kind (G129) — "savings" carries its
+                    # own target formula (target = move + bills_total, no
+                    # spend/buffer padding, see above); "spend" is the
+                    # ordinary bill/everyday-spend account. The trimmed-month
+                    # re-derive block below reads this to decide which
+                    # formula to reapply, instead of unconditionally
+                    # overwriting every destination's target with the
+                    # non-savings formula.
+                    "destination_kind": "savings" if _dest_is_savings else "spend",
+                    # Explicit habitual-top-up flag (G129) — see comment
+                    # above `_habitual_top_up`. Never infer this from
+                    # `target == 0` on the frontend.
+                    "habitual_top_up": _habitual_top_up,
                     # Sum of MOVEMENT bills on THIS account excluded from
                     # `bills_total` above because their learned destination is
                     # one of the user's own accounts (see
@@ -3366,6 +3468,22 @@ async def compute_today_items(
 
                 # Re-derive final integer moves (respecting each dest's
                 # bills-only floor) and re-round the other fields.
+                #
+                # G129 fix: this used to recompute EVERY destination's
+                # target as bills_total + spend_typical + buffer,
+                # unconditionally overwriting a savings destination's own
+                # formula from the dest-building loop above (target = move +
+                # bills_total — see that loop's comment). Neither
+                # spend_typical nor buffer is ever non-zero for a savings
+                # destination (both trim phases above only cut those two
+                # fields, and they start at 0 for savings), so the old line
+                # silently collapsed a savings pot's target to its
+                # bills_total alone — 0 whenever the pot has no bills, even
+                # while `move` stayed positive (Kevin's Barclays "Personal
+                # GBP" pot: target 0, move 100). `destination_kind` (set
+                # above) is read here so each kind keeps its own formula
+                # through this re-derive, exactly as it had it before
+                # trimming.
                 for d in dests:
                     floor = max(0.0, d["bills_total"] - d["balance"])
                     floor_ceil = _ceil5(floor) if floor > 0 else 0
@@ -3373,7 +3491,10 @@ async def compute_today_items(
                     d["move"] = max(move_ceil, floor_ceil)
                     d["buffer"] = int(round(d["buffer"]))
                     d["spend_typical"] = int(round(d["spend_typical"]))
-                    d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
+                    if d.get("destination_kind") == "savings":
+                        d["target"] = d["move"] + int(round(d["bills_total"]))
+                    else:
+                        d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
 
                 total = sum(d["move"] for d in dests)
             else:
@@ -3388,7 +3509,19 @@ async def compute_today_items(
             stays = int(distributable - total) if (distributable - total) >= 0 else 0
 
             if total > 0:
-                headline = f"Payday plan: split £{salary_amount:,} across {n_moves} accounts"
+                # G129 fix: this used to quote `salary_amount` (the whole
+                # landed pay, £4,798 in Kevin's 2026-09-18 payload) as the
+                # figure being "split", when the amount actually distributed
+                # across the destinations is `total` (£3,075 in that same
+                # payload — the gap is whatever the plan leaves in the
+                # salary account plus any trimming). PaydayPlanCard.tsx
+                # strips the figure out of a salary-backed headline before
+                # rendering it (the hero figure carries the number instead),
+                # so this string wasn't visibly wrong on Home, but it is
+                # still the string persisted verbatim into the companion
+                # item document, and any other consumer (Penny tools, MCP)
+                # reads it as-is.
+                headline = f"Payday plan: split £{total:,} across {n_moves} accounts"
             else:
                 headline = "Payday plan: every account is already set"
 
@@ -4408,6 +4541,137 @@ async def compute_today_items(
                 {"$set": {"overflow_note": overflow_note}},
             )
 
+    # ── 6b. ALLOCATION SHORTFALL (G217) ─────────────────────────────────────
+    # An account whose payments clear but which goes short once this period's
+    # set-asides are applied. Distinct from every bill shortfall above: it is
+    # computed AFTER them, from the same end-of-window walk (`running`), never
+    # feeds `events`/`min_running`/`shortfalls`, and consumes `source_capacity`
+    # only here, after every bill card, payday plan and unfunded move has
+    # already been sized, so bill outputs are unchanged. Sources come from the
+    # SAME finder as the bill cards (`_find_legs_for_destination`: its order,
+    # its £10 buffer, its exclusions), never a second ranking. Ranks below all
+    # payment cards (see the merge in section 9).
+    allocation_items: list[dict] = []
+    _ap_plans: list[dict] = []
+    _ap_ctx: tuple | None = None
+    if not payday_preview:
+        try:
+            _ap_plans = await _load_account_plans(uid)
+            if _ap_plans:
+                from app.services.allocation_shortfall import compute_allocation_gaps, suggested_reduced_amount
+                _ap_closing = {
+                    sid: float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0))))
+                    for acc in all_uk_accounts + offline_accounts
+                    for sid in [acc["_str_id"]]
+                }
+                _ap_movement: dict[str, list] = {}
+                for _b in assessable_bills:
+                    if _b.get("kind") == MOVEMENT and not _b.get("is_credit_card") and not _b.get("pending"):
+                        _ap_movement.setdefault(str(_b.get("account_id") or ""), []).append(
+                            _b.get("dest_account_id") or None
+                        )
+                _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+                _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
+                for _g in compute_allocation_gaps(_ap_plans, _ap_closing, movement_out=_ap_movement):
+                    _pay_id = _g["account_id"]
+                    _pay_acc = _ap_accts.get(_pay_id)
+                    if _pay_acc is None:
+                        continue
+                    _item_id = f"allocation_shortfall:{_pay_id}:{window_end.isoformat()}"
+                    if _item_id in dismissed:
+                        continue
+                    _pay_name = _clean_name(_pay_acc.get("name"), _pay_id)
+                    _gap = _g["gap"]
+                    _alloc = _g["allocations"][0]
+                    _multi = len(_g["allocations"]) > 1
+
+                    def _build_alloc_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0, _n=_alloc["name"], _pn=_pay_name, _pid=_pay_id, _pa=_pay_acc):
+                        return {
+                            "from": {
+                                "account_id": src_id, "name": humanise_account_name(src_name), "provider": src_provider,
+                                "balance": float(src_balance),
+                                "safe_note": (
+                                    f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
+                                    if src_own_bills > 0 else "Nothing due from this account right now"
+                                ),
+                                "reserved_for_allocations": round(src_reserved, 2),
+                            },
+                            "to": {
+                                "account_id": _pid, "name": _pn, "provider": _provider_of(_pa),
+                                "balance": float(live_balances.get(_pid, float(_pa.get("balance") or 0))),
+                                "incoming": f"{_n} set-aside",
+                            },
+                        }
+
+                    _cap_snapshot = dict(source_capacity)
+                    _legs = _find_legs_for_destination(_pay_id, float(_ceil5(_gap)), _build_alloc_move_map)
+                    if _legs and sum(float(l["amount"]) for l in _legs) + 1e-6 < _gap:
+                        # Partial cover is not a remedy to offer: hand the
+                        # capacity back and show Reduce alone.
+                        source_capacity.clear()
+                        source_capacity.update(_cap_snapshot)
+                        _legs = []
+                    allocation_items.append({
+                        "id": _item_id,
+                        "type": "allocation_shortfall",
+                        "headline": (
+                            f"Your {_alloc['name']} set-aside is short" if not _multi
+                            else f"Your set-asides at {humanise_account_name(_pay_name)} are short"
+                        ),
+                        "body": f"{_gbp(_gap)} short this period.",
+                        # The app never moves money: the card phrases the move
+                        # as a recommendation from `moves`, so no action route.
+                        "action": None,
+                        "estimated": bool(_g["estimated"]),
+                        "amount": _gap,
+                        "allocation_shortfall": {
+                            "shortfall": _gap,
+                            "estimated": bool(_g["estimated"]),
+                            "paying_account": {
+                                "account_id": _pay_id,
+                                "name": _pay_name,
+                                "provider": _provider_of(_pay_acc),
+                            },
+                            "allocation": {
+                                "id": _alloc["id"],
+                                "name": _alloc["name"],
+                                "period_amount": _alloc["period_amount"],
+                                "suggested_amount": suggested_reduced_amount(_alloc, _gap),
+                            },
+                            "other_allocation_count": len(_g["allocations"]) - 1,
+                            "moves": [
+                                {"amount": l["amount"], "move_map": l["move_map"]} for l in _legs
+                            ],
+                        },
+                    })
+        except Exception:
+            log.warning("allocation shortfall failed for %s", uid, exc_info=True)
+            allocation_items = []
+
+    # ── 6c. PLAN EASING (G228) ──────────────────────────────────────────────
+    # A goal plan whose paying account is short this period, with no safe move
+    # that covers the gap. Reuses G217's eligibility (`compute_allocation_gaps`
+    # with require_allocation=False: same gap, floor and skips) and the SAME
+    # source finder as every other card; it never consumes source capacity and
+    # never moves money. One card at most, the plan with the largest slice
+    # first, ranked after the set-aside card. A plan already eased in this
+    # window shows its deferred one-liner instead (no gap needed: the easing
+    # itself is what closed it).
+    plan_easing_items: list[dict] = []
+    if not payday_preview:
+        try:
+            plan_easing_items = await _build_plan_easing_items(
+                uid, window_end, dismissed,
+                plans=_ap_plans, ctx=_ap_ctx,
+                running=running, live_balances=live_balances,
+                accounts=all_uk_accounts + offline_accounts,
+                assessable_bills=assessable_bills,
+                find_legs=_find_legs_for_destination, source_capacity=source_capacity,
+            )
+        except Exception:
+            log.warning("plan easing failed for %s", uid, exc_info=True)
+            plan_easing_items = []
+
     # ── 7. Auto-verification + celebration pass ─────────────────────────────
     # Active moves whose destination now clears its window flip to "done" and
     # celebrate. Done moves KEEP celebrating on every run — the reward moment
@@ -4917,6 +5181,117 @@ async def compute_today_items(
     except Exception as _ask_exc:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
 
+    # ── 8c-bis. ASK items (has your pay changed? / your pay moved) ─────────
+    # G157 build step 4: a confirmed income stream never silently drops to
+    # zero -- it keeps forecasting at its confirmed cadence/amount even once
+    # `income_payer.is_lapsed` says it has missed enough full cycles (2 for
+    # monthly, scaled for other cadences -- never a fixed day count that
+    # could expire between two ordinary paydays). Once lapsed, this raises
+    # the SAME kind of ask as `ask:payday` above (hedged, dismissible, never
+    # a silent decision) so the user says whether pay actually changed.
+    #
+    # G157 review fix (independent review of f431d576): `account_changed_
+    # from_usual` (set by `_confirmed_income_fallback`'s deterministic-
+    # attach step in analytics.py when the credit it confidently attaches
+    # lands in a DIFFERENT account than the stream's own usual one) was
+    # computed and persisted but never read anywhere -- the "your pay seems
+    # to land somewhere new" ask the item describes did not exist. Both
+    # asks are decided together, ONE pass over `recurring_income`, so a
+    # stream can never raise both: a moved salary is still landing, just
+    # somewhere new, not something that stopped, so the moved ask takes
+    # precedence over the lapsed one for the same stream.
+    try:
+        from app.services.income_payer import stable_stream_id as _stable_stream_id
+
+        def _acct_display_name(acct_id):
+            # Display name only, NEVER an account number -- `_account_map`
+            # entries are the same account docs every other card in this
+            # function reads `["name"]` off. An id this function can't
+            # resolve (offline/removed account) falls back to a generic,
+            # still-safe phrase rather than omitting the account entirely.
+            _acc = _account_map.get(str(acct_id or "")) if acct_id else None
+            return (_acc or {}).get("name") or "another account"
+
+        for _stream in (cached.get("recurring_income") or []):
+            if _stream.get("source") != "confirmed":
+                continue
+            _stream_id = _stable_stream_id(_stream.get("key", ""))
+            _amt = _stream.get("avg_amount")
+            if not _amt:
+                continue
+
+            if _stream.get("account_changed_from_usual"):
+                _moved_ask_id = f"ask:payer_account_moved:{_stream_id}"
+                if _moved_ask_id in dismissed:
+                    continue
+                _usual_name = _acct_display_name(_stream.get("usual_account_id"))
+                _new_name = _acct_display_name(_stream.get("account_id"))
+                # Renders via the generic ask card, dismissible through the
+                # same answer path as every other ask here -- "Not now"
+                # (Home) or POST /companion/dismiss (Penny) both hit the
+                # existing dismiss-by-id machinery, so this never repeats
+                # once answered, the same as ask:payer_lapsed below.
+                ask_items.append({
+                    "id": _moved_ask_id,
+                    "type": "ask",
+                    "headline": "Your pay seems to land somewhere new",
+                    "body": (
+                        f"It usually lands in {_usual_name}, but the most recent "
+                        f"payment looks like it went to {_new_name} instead. "
+                        "Still forecasting it as usual until you say otherwise."
+                    ),
+                    "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                    "estimated": False,
+                    "kind_label": "Your pay",
+                    "brief_lead": {
+                        "value": "Pay check",
+                        "companion": f"about £{_amt:,.0f} expected, now in {_new_name}",
+                    },
+                })
+                continue  # precedence: never also raise the lapsed ask below
+
+            if not _stream.get("lapsed"):
+                continue
+            _stream_ask_id = f"ask:payer_lapsed:{_stream_id}"
+            if _stream_ask_id in dismissed:
+                continue
+            # Renders via the generic ask card (AskGenericCard), not the
+            # payday-specific one: this id never matches "ask:payday", so
+            # it never triggers that card's confirm-payday call, which
+            # expects a fresh DETECTED proposal that a lapsed-but-still-
+            # confirmed stream may not have. A single `action` routes to
+            # income management to update the stream if pay genuinely
+            # changed; dismissing (Home's own "Not now") stands in for
+            # "no, still the same" -- there is nothing to confirm, the
+            # stream is already confirmed and still forecasting.
+            ask_items.append({
+                "id": _stream_ask_id,
+                "type": "ask",
+                "headline": "Has your pay changed?",
+                "body": (
+                    f"Your usual pay of about £{_amt:,.0f} hasn't been seen for a "
+                    "couple of paydays. Still forecasting it as usual until you say "
+                    "otherwise."
+                ),
+                "action": {"label": "Update my income", "route": "/spend", "kind": "set_payday"},
+                "estimated": False,
+                # Review fix (blocker 3, independent review of a165200d):
+                # AskGenericCard hardcoded "Card detail" as its kind label
+                # (written for the card-terms ask below, the only ask that
+                # ever used this card before this item), so this item's
+                # "Has your pay changed?" headline rendered under the wrong
+                # label. `kind_label` lets the card show the right one per
+                # item; the frontend falls back to "Card detail" when it is
+                # absent, so nothing else regresses.
+                "kind_label": "Your pay",
+                "brief_lead": {
+                    "value": "Pay check",
+                    "companion": f"about £{_amt:,.0f} expected, unconfirmed for a couple of paydays",
+                },
+            })
+    except Exception as _lapsed_ask_exc:
+        log.warning("ask:payer_lapsed item failed for %s: %s", uid, _lapsed_ask_exc)
+
     # ── 8d. ASK item (card terms) ───────────────────────────────────────────
     # Debt advice needs card terms (APR, promo end dates) and open banking
     # never provides them — they must be ASKED (Consent Rule: one dismissible
@@ -4955,6 +5330,11 @@ async def compute_today_items(
                         "body": _ct_body,
                         "action": {"label": "Add my rates", "route": "/accounts?cardTerms=1", "kind": "card_terms"},
                         "estimated": False,
+                        # Explicit now (review fix, blocker 3) rather than
+                        # relying on AskGenericCard's own hardcoded
+                        # fallback -- see ask:payer_lapsed above for why
+                        # the fallback exists at all.
+                        "kind_label": "Card detail",
                         "brief_lead": {
                             "value": "Card details",
                             "companion": "one answer keeps the debt plan accurate",
@@ -5060,7 +5440,15 @@ async def compute_today_items(
     try:
         from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
 
-        _plan = await _get_debt_plan(uid)
+        # H90: this is the one write inside compute_today_items that was
+        # NOT already gated on `persist` (every other write site in this
+        # function is an explicit `if persist:` above) — a cache MISS here
+        # called `response_cache.aput` regardless, so `persist=False`
+        # (GET /today/cover-plan, penny_tools.get_today_brief) still wrote
+        # a fresh debt_plan cache doc under whatever uid it was called
+        # with. Threading `persist` through makes get_debt_plan_cached's
+        # own promise ("EVERY write... gated on this flag") actually true.
+        _plan = await _get_debt_plan(uid, persist=persist)
         _verdict_str = _plan["totals"]["verdict"]
 
         if _verdict_str != "good":
@@ -5362,11 +5750,16 @@ async def compute_today_items(
     # action, but `items[:_MOVE_CARD_CAP]` is placed first here specifically
     # so a genuine bill-shortfall card is never evicted to make room for it;
     # it only ever claims a slot `items` didn't already need.
+    # G217: the set-aside shortfall (`allocation_items`) sits right after the
+    # unfunded move, so it ranks below EVERY payment card and, being a plan the
+    # user chose rather than a payment at risk, never evicts one.
     # Cliff items slot after celebrations (important standing fact), then trajectory
     # (debt pace — with the cliffs, after celebrations, before asks), then asks.
     result = (
         items[:_MOVE_CARD_CAP]
         + unfunded_move_items[:1]
+        + allocation_items[:1]
+        + plan_easing_items[:1]
         + celebration_items[:_MOVE_CARD_CAP]
         + cliff_items[:2]
         + trajectory_items[:1]
@@ -5377,6 +5770,140 @@ async def compute_today_items(
         + intent_pace_items
     )
     return result[:3]
+
+
+async def _build_plan_easing_items(
+    uid: str, window_end, dismissed: set[str], *, plans: list[dict], ctx, running: dict,
+    live_balances: dict, accounts: list[dict], assessable_bills: list[dict],
+    find_legs, source_capacity: dict,
+) -> list[dict]:
+    """G228 Home-brief item for easing a goal plan this period (see 6c)."""
+    from app.db.collections import commitments_col
+    from app.routers import commitments as _cm
+    from app.services.allocation_shortfall import compute_allocation_gaps
+
+    if not plans:
+        plans = await _load_account_plans(uid, goals=True)
+    if not any(p.get("kind") == "goal" for p in plans):
+        return []
+    accts = {a["_str_id"]: a for a in accounts}
+    if ctx is None:
+        closing = {
+            sid: float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0))))
+            for sid, acc in accts.items()
+        }
+        movement: dict[str, list] = {}
+        for b in assessable_bills:
+            if b.get("kind") == MOVEMENT and not b.get("is_credit_card") and not b.get("pending"):
+                movement.setdefault(str(b.get("account_id") or ""), []).append(b.get("dest_account_id") or None)
+    else:
+        closing, movement, accts = ctx
+
+    cfg = await _cm._pay_cfg(uid)
+    today = timeutil.user_today()
+    docs = await commitments_col.find({"user_id": uid, "status": "active"}).to_list(None)
+    if not docs:
+        return []
+    ledger = await _cm.compute_pot_ledger(uid, docs=docs)
+    by_id = {str(d["_id"]): d for d in docs}
+    infos: dict[str, dict] = {}
+    for cid, d in by_id.items():
+        infos[cid] = await _cm._pot_progress_and_slice(d, cfg, ledger, today)
+
+    def _payload(state: str, cid: str, *, gap: float = 0.0, cap: str | None = None, pay_name: str | None = None) -> dict:
+        d, info = by_id[cid], infos[cid]
+        ef = _cm._ease_fields(d, cfg, info, today)
+        usual = int(info["usual_slice"])
+        return {
+            "state": state,
+            "plan": {"id": cid, "name": str(d.get("name") or "Goal plan")},
+            "gap": gap,
+            "usual_slice": usual,
+            "max_easing": usual,
+            "periods_left": int(info["periods_left"]),
+            "target_date": str(d.get("target_date"))[:10],
+            "later_slice": ef["later_slice"],
+            "eased_this_period": ef["eased_this_period"],
+            "eased_mode": ef["eased_mode"],
+            "eased_count_12m": ef["eased_count_12m"],
+            "cap_reason": cap,
+            "paying_account_name": pay_name,
+        }
+
+    def _item(cid: str, payload: dict) -> dict:
+        name = payload["plan"]["name"]
+        deferred = payload["state"] == "deferred"
+        return {
+            "id": f"plan_easing:{cid}:{window_end.isoformat()}",
+            "type": "plan_easing",
+            "headline": (f"{name} is eased this period" if deferred else "Cash looks short this period"),
+            "body": "",
+            "action": None,
+            "estimated": False,
+            "amount": payload["gap"],
+            "plan_easing": payload,
+        }
+
+    candidates: list[tuple] = []
+    for g in compute_allocation_gaps(plans, closing, movement_out=movement, require_allocation=False):
+        pay_acc = accts.get(g["account_id"])
+        if pay_acc is None:
+            continue
+        for goal in g["goals"]:
+            cid = goal["id"]
+            if cid not in by_id or infos[cid]["eased_this_period"] is not None:
+                continue
+            candidates.append((goal["remaining"], cid, g, pay_acc))
+    # eligible plans before capped ones, then the largest slice first
+    def _cap_for(cid: str) -> str | None:
+        return _cm._ease_fields(by_id[cid], cfg, infos[cid], today)["ease_blocked_reason"]
+    candidates.sort(key=lambda c: (_cap_for(c[1]) is not None, -c[0], c[1]))
+    for _slice, cid, g, pay_acc in candidates:
+        item_id = f"plan_easing:{cid}:{window_end.isoformat()}"
+        if item_id in dismissed:
+            continue
+        gap = g["gap"]
+        pay_id = g["account_id"]
+        snapshot = dict(source_capacity)
+        legs = find_legs(pay_id, float(_ceil5(gap)), lambda *a, **k: {})
+        covered = bool(legs) and sum(float(l["amount"]) for l in legs) + 1e-6 >= gap
+        source_capacity.clear()
+        source_capacity.update(snapshot)  # an easing never claims a source
+        if covered:
+            continue  # a safe move covers it: the move card speaks, not an easing
+        pay_name = _clean_name(pay_acc.get("name"), pay_id)
+        cap = _cap_for(cid)
+        return [_item(cid, _payload("capped" if cap else "eligible", cid, gap=gap, cap=cap, pay_name=pay_name))]
+
+    # Nothing to offer: show the deferred line for an easing already in force.
+    eased = sorted(
+        (cid for cid in by_id if infos[cid]["eased_this_period"] is not None),
+        key=lambda cid: (-infos[cid]["usual_slice"], cid),
+    )
+    for cid in eased:
+        if f"plan_easing:{cid}:{window_end.isoformat()}" in dismissed:
+            continue
+        return [_item(cid, _payload("deferred", cid))]
+    return []
+
+
+async def _load_account_plans(uid: str, *, goals: bool = False) -> list[dict]:
+    """G217 seam: the same plan rows the account sheet reads (`GET /account-plans`).
+
+    Gated on an active allocation existing, so users without set-asides pay
+    nothing. Fail-open: any error means no allocation card, never a 500.
+    """
+    try:
+        from app.db.collections import allocations_col, commitments_col
+        if await allocations_col.find_one({"user_id": uid, "active": True}) is None and not (
+            goals and await commitments_col.find_one({"user_id": uid, "status": "active"}) is not None
+        ):
+            return []
+        from app.routers.allocations import list_account_plans
+        return list((await list_account_plans({"email": uid})).get("items") or [])
+    except Exception:
+        log.warning("allocation shortfall: account plans unavailable for %s", uid, exc_info=True)
+        return []
 
 
 async def _get_dismissed(uid: str) -> set[str]:
@@ -5394,3 +5921,49 @@ async def dismiss_item(uid: str, item_id: str) -> None:
         {"$addToSet": {"ids": item_id}},
         upsert=True,
     )
+
+
+async def infer_plan_sources_batch(
+    uid: str, wanted: dict[str, list[str]], account_map: dict[str, dict], *, days: int = 90,
+) -> dict[str, str | None]:
+    """G230: infer the paying account for many goal plans at once.
+
+    `wanted` maps a plan key to its sink pot ids. One credit query and one
+    debit query per transactions collection serve every plan (no per-plan
+    round trips); pairing then runs per pot in memory with the same rule set-
+    asides use. Read-only: callers must never persist the answers.
+    """
+    from app.core import timeutil
+    from datetime import timedelta
+
+    if not wanted:
+        return {}
+    end = timeutil.user_today()
+    start = end - timedelta(days=days)
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    pot_ids = sorted({aid for ids in wanted.values() for aid in ids})
+    q = {
+        "user_id": uid, "account_id": {"$in": pot_ids}, "transaction_type": "credit",
+        "date": {"$gte": start_dt, "$lte": end_dt},
+    }
+    proj = {"account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1}
+    credits_by_pot: dict[str, list[dict]] = {}
+    for col in (transactions_col, yapily_transactions_col):
+        for t in await col.find(q, proj).to_list(None):
+            credits_by_pot.setdefault(str(t.get("account_id") or ""), []).append(t)
+    debits = await _load_debits(uid, start, end) if credits_by_pot else []
+    pot_source: dict[str, str | None] = {}
+    for aid, credits in credits_by_pot.items():
+        pot_source[aid] = await _pair_credits_to_source(
+            uid, aid, credits, start, end, account_map, debits=debits,
+        )
+    out: dict[str, str | None] = {}
+    for key, ids in wanted.items():
+        votes: dict[str, int] = {}
+        for aid in ids:
+            src = pot_source.get(aid)
+            if src:
+                votes[src] = votes.get(src, 0) + 1
+        out[key] = _modal_account(votes)
+    return out

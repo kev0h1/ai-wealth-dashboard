@@ -1,0 +1,17 @@
+/* Contrast (WCAG): muted #cbd5e1 on #0f172a 12.0:1, on #1e293b 9.9:1; ink #f1f5f9 on #0f172a 16.3:1.
+   Finexer footer text (not styled by us) is expected at about #94a3b8, 7.0:1 on #0f172a. */
+/* Sorted dark token set (DESIGN.md): slate surfaces, hairline borders, no shadows. */
+:root {
+  /* White 14px text on #4f46e5 is about 6.3:1 (AA). Links need a lighter
+     indigo on slate: #818cf8 on #0f172a is about 6:1. */
+  --s-primary: #4f46e5;
+  --s-primary-hover: #4338ca;
+  --s-link: #818cf8;
+  --s-link-hover: #a5b4fc;
+  --s-canvas: #0f172a;
+  --s-card: #1e293b;
+  --s-border: #334155;
+  --s-ink: #f1f5f9;
+  --s-muted: #cbd5e1;
+  color-scheme: dark;
+}

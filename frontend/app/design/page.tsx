@@ -32,6 +32,334 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "bank-consent-journeys",
+    name: "Bank connection journeys · A155 · approved G",
+    description: "Approved G renders the production BankConnectionFlow with fixture banks and inert operations. The search is fixed below the header, outside the scrolling results. Full unchanged notice before Continue to Finexer. H and I are earlier alternatives, not production; I still needs Finexer approval. No live connection starts.",
+    states: [{ label: "Start", value: "start" }, { label: "No results", value: "noresults" }, { label: "Handoff problem", value: "error" }, { label: "Load problem (G)", value: "load-error" }, { label: "Loading (G)", value: "loading" }, { label: "Empty list (G)", value: "empty" }, { label: "Opening Finexer (G)", value: "pending" }],
+    variants: [{ label: "G · Bank first", value: "g" }, { label: "H · One continuous page", value: "h" }, { label: "I · Notice at consent", value: "i" }],
+  },
+  {
+    slug: "plan-source-account",
+    name: "Edit plan, Paid from · G230",
+    description:
+      "G230, skill: impeccable · Alignment, not a variant round: the production Edit plan sheet gains a quiet Paid from field (counted current accounts only; cards and accounts left out of Safe to Spend are never offered), prefilled with the account seen in recent transfers and hedged 'Based on recent transfers', with Not set keeping the plan pooled-only · Nothing is saved unless the user picks · Invented accounts, no API calls · ?state=inferred|chosen|unset&mode=light|dark",
+    states: [
+      { label: "Inferred from transfers", value: "inferred" },
+      { label: "Chosen", value: "chosen" },
+      { label: "Not set", value: "unset" },
+    ],
+  },
+  {
+    slug: "upcoming-by-account",
+    name: "Upcoming By account, attention first · G229",
+    description:
+      "G229, skill: impeccable · Alignment, not a variant round: the By account card on Upcoming now leads with accounts that need attention (short for payments, then short for plans, then ones to watch) and folds the rest behind one quiet row such as 3 accounts are fine, using the same grid-template-rows fold as Planning's rungs · An honest all-clear line when nothing needs attention · Renders the production card with invented accounts · ?fixture=long|watch|clear|all&mode=light|dark",
+    states: [
+      { label: "Long list, 2 need attention", value: "long" },
+      { label: "One to watch, 5 fine", value: "watch" },
+      { label: "All clear", value: "clear" },
+      { label: "Every account short", value: "all" },
+    ],
+  },
+  {
+    slug: "plan-deferral",
+    name: "Ease a goal plan for one period · G228 · shipped look",
+    description:
+      "G228 (Kevin picked A, 2026-10-07): the production Goal plan card and easing sheet rendered through real props with fixture figures · when cash is short and no safe move covers it, ease a plan for this period only, keeping the date or keeping the amount, with the engine's own figures (rounded up to £5) · no undo, reverting is editing the plan on Planning · set-asides and plans never trade cash · states: eligible (open the sheet), capped, deferred (the one-line result)",
+    states: [{ label: "Eligible", value: "eligible" }, { label: "Capped", value: "capped" }, { label: "Deferred", value: "deferred" }],
+  },
+  {
+    slug: "finexer-consent-intro",
+    name: "Finexer consent page intro block · G226 · shipped look (A canvas)",
+    description:
+      "G226 + A151: Approved A, folded in, with the template name AURIQ LTD (Finexer substitutes it into its headline and footer) and a line naming Finexer Ltd as the provider. The shipped Sorted intro (eyebrow, one sentence, Finexer line, hairline) at the top of the Finexer-hosted consent page, rendered from the live header.html and sorted*.css inside a MOCK of Finexer's page built from Kevin's Android screenshots (not a production component) · light and dark · dim headings are Finexer's styling pending A147's effect",
+    states: [
+      { label: "Dark", value: "dark" },
+      { label: "Light", value: "light" },
+    ],
+  },
+  {
+    slug: "ai-intro-reel",
+    name: "AI live-action stories around the reel · G224 · Café and Night out (Veo 3.1 Fast)",
+    description:
+      "G224: two AI-generated live-action stories around the untouched G223 reel · CAFÉ an 8 second intro, a woman walks into a café and the camera pushes into her phone (no audio) · NIGHT OUT a 20 second intro and outro, friends invite a man out, he says wait a sec, the phone plays the reel, then he runs to them smiling (with audio) · switch between the two at the top · muted autoplay, loops, controls to unmute · the people are AI-generated and must be labelled as AI on TikTok and Meta",
+    states: [{ label: "Play", value: "play" }],
+  },
+  {
+    slug: "reel-safe-to-spend",
+    name: "First Sorted reel, Safe to Spend · G223 · 15s vertical video (Remotion)",
+    description:
+      "G223: a 15 second, 1080x1920 vertical reel for TikTok, Reels and Stories, built in Remotion from the G222 Safe-to-Spend ad, a capabilities proof of concept · plays here muted and looping with controls, fitted to the screen · HOOK \"It\u2019s the 20th. What can you actually spend?\" · MESS the late-month maths tumbling in to a big ? · ANSWER a phone slides up with the production SafeToSpendCard through its real props and the figure counts up to \u00a3184 · PROOF a highlight over \"estimated\" and \"after bills, plans and your \u00a3100 buffer\" · END CARD icon, wordmark, \"Know what you can spend before payday.\", Get Sorted · burned-in captions, TikTok safe zones kept clear, no audio (music added later in CapCut) · fictional persona, emerald figure, indigo CTA, no gradient, no red · motion by emil-design-eng under PRODUCT.md and DESIGN.md · the MP4 is rendered with npm run reel:render · ?frame=0..449 freezes on one frame",
+    states: [
+      { label: "Play", value: "play" },
+    ],
+  },
+  {
+    slug: "ad-safe-to-spend",
+    name: "First Sorted ad, Safe to Spend · G222 · three static art directions",
+    description:
+      "G222 round 1: one ad message (what can you spend until payday) for TikTok, Instagram and Facebook, aimed at people who worry about money until payday · A The question (headline names the feeling, the card answers it), B The number (the figure leads, the card is evidence), C The relief (late-month maths against one number) · each renders at exact artboard size, feed 1080x1350 for Facebook and Instagram, story 1080x1920 for TikTok, Reels and Stories with the platform safe zones kept clear · the phone imagery is the production SafeToSpendCard through its real props with a fictional persona, no real bank, name or data · art direction by design-taste-frontend under PRODUCT.md and DESIGN.md, emerald figure, indigo CTA, no gradient, no red · add &chrome=1 for the switcher · ?variant=a|b|c&format=feed|story&mode=light|dark",
+    states: [
+      { label: "Feed", value: "feed" },
+      { label: "Story", value: "story" },
+    ],
+    variants: [
+      { label: "A The question", value: "a" },
+      { label: "B The number", value: "b" },
+      { label: "C The relief", value: "c" },
+    ],
+  },
+  {
+    slug: "sts-accounts-route",
+    name: "Safe to Spend route to Accounts · G219 · approved B, folded in",
+    description:
+      "G219: approved B, folded in. The quiet Your accounts link ships by default in the Safe to Spend action row below the disclaimer, beside the primary action or alone, in every state that renders a figure including syncing, never on loading, error or the first-sync shell · renders only the production SafeToSpendCard through props with fixture data, no variant switcher · ?state=on-track|tight|card|short-cash|short-plans|syncing&logos=on|missing&mode=light|dark",
+    states: [
+      { label: "On track", value: "on-track" },
+      { label: "Tight", value: "tight" },
+      { label: "Check card bill", value: "card" },
+      { label: "Short (cash)", value: "short-cash" },
+      { label: "Short (plans only)", value: "short-plans" },
+      { label: "Syncing", value: "syncing" },
+    ],
+  },
+  {
+    slug: "allocation-shortfall",
+    name: "Allocation shortfall card · G217 · approved A, folded in",
+    description:
+      "G217 fold-in of Kevin's pick (A, same anatomy lighter; revised 2026-10-06; materiality floor £5): the PRODUCTION AllocationShortfallCard rendered through props under the production MoveCard, as they stack on Home · ink figure in mono, neutral icon, no red, no amber, no Penny gradient · the move is a recommendation sentence (\"You could move £X from Savings, which looks able to spare it\"), never a button, because the app does not move money; one full-width action, Adjust set-aside; with no source a line saying why · the paying account is hedged (\"based on recent transfers\") when inferred · Adjust set-aside opens the this-period sheet, with Change every period leading to the full editor",
+    states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
+  },
+  {
+    slug: "sync-loading",
+    name: "Sync loading state · G214 · approved B, folded in",
+    description:
+      "G214, Kevin's pick B (stale-marked figure), now shipped: while a bank sync runs the Safe to Spend figure steps down to secondary ink with Last known amount and an as-of time, the chip carries the ring, and Accounts shows a ring beside the balance, Pending for a never-synced bank and a banner with Try again once a sync stalls or fails · the first sign-up has no hero yet, so the same grammar shows No figure yet above the sign-in ledger · renders the production SafeToSpendCard, FirstSyncCard, AccountLedgerRow and SyncNote with fixture props, nothing syncs · ?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark",
+    states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
+  },
+  {
+    slug: "safe-to-spend-figure",
+    name: "Safe to Spend figure colour · G218 · approved B, folded in",
+    description:
+      "G218, approved B (Kevin 2026-10-06) and folded in: the Safe to Spend figure is emerald On track, red only for a cash shortfall (red-500 in dark mode), amber when the shortfall exists only because of plans and envelopes, ink for Tight, card checks, error, degraded and syncing · renders the production SafeToSpendCard through props with fixture data, so a drift in the shipped colours shows here · ?state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing&mode=light|dark&view=single|strip|compare",
+    states: [
+      { label: "Short (cash)", value: "short-cash" },
+      { label: "On track", value: "on-track" },
+      { label: "Short (plans only)", value: "short-plans" },
+      { label: "Tight", value: "tight" },
+      { label: "Check card bill", value: "card" },
+      { label: "Error", value: "error" },
+      { label: "Degraded", value: "degraded" },
+      { label: "Syncing", value: "syncing" },
+    ],
+  },
+  {
+    slug: "error-states",
+    name: "Error states · G215",
+    description:
+      "G215: the designed replacements for Next's default 404 and error pages and for the browser's native pop-ups · not-found (That page isn't here), route error (Something went wrong, Back to Home, Try again) and the one-button notice sheet used instead of the browser pop-up · same anatomy as the sign-in hand-off page (brand line, verdict heading, one sentence, action low), no red, no gradient · renders the production ErrorState and ConfirmSheetView with fixture props · ?state=not-found|error|notice&mode=light|dark",
+    states: [{ label: "Not found", value: "not-found" }, { label: "Error", value: "error" }, { label: "Notice sheet", value: "notice" }],
+  },
+  {
+    slug: "first-sync",
+    name: "First bank sync state · G210",
+    description:
+      "G210: what Home shows while a first bank sync is running, stuck or failed, instead of the connect hero and a red verdict computed from partial data · a calm ledger (bank connected, fetching transactions, working out your figures) reusing the G202 sign-in ledger, a stalled state after 10 minutes with Try again, a failed state with Try again and Connect a different bank, and Safe to Spend's own syncing branch with no figure and no verdict · no red, no gradient · renders the production FirstSyncCard and SafeToSpendCard with fixture props, an established user adding a second bank sees the ledger above a normal verdict · nothing syncs · ?state=syncing|stalled|failed|second-bank|sts-syncing&mode=light|dark",
+    states: [{ label: "Syncing", value: "syncing" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "Second bank", value: "second-bank" }, { label: "Safe to Spend, syncing", value: "sts-syncing" }],
+  },
+  {
+    slug: "date-picker",
+    name: "Date and month picker · G136 · approved A, folded in",
+    description:
+      "G136 · approved A, folded in (Kevin 2026-10-05; skill: impeccable): the in-design date and month picker that replaces the browser's native date and month controls at every site · this page renders ONLY the production components/DatePicker (DateField and DatePickerSheet) with fixture props, inside the production SheetFrame on a 'Plan a big expense' style form, so it cannot drift from the app · calendar grid with 44px day cells, solid indigo selected pill, ringed today, past days muted never red, Today chip and a Cancel / Done footer · month selector and year selector in the header (Kevin 2026-10-05): tap the month name to pick a month, tap the year to pick a year (12 years a page with previous and next page), alongside the previous and next month chevrons · month mode is the same component: a year header over a 3 x 4 month grid, with the year selector behind it · keyboard (arrows, Home, End, PageUp, PageDown, Escape closes the picker only, focus returns to the field), grid semantics, aria-live heading · fixtures only, today fixed at 5 Oct 2026 · ?kind=day|month&state=closed|open|selected&variant=days|months|years&mode=light|dark",
+    states: [
+      { label: "Closed, empty field", value: "closed" },
+      { label: "Open, editing a value", value: "open" },
+      { label: "Value chosen", value: "selected" },
+    ],
+    variants: [
+      { label: "Day grid", value: "days" },
+      { label: "Month selector", value: "months" },
+      { label: "Year selector", value: "years" },
+    ],
+  },
+  {
+    slug: "app-lock",
+    name: "App lock screen · G203 · approved A, folded in",
+    description:
+      "G203 · approved A, folded in (Kevin picked A, Quiet door, 2026-10-04; skill: impeccable): the full-screen app lock shown behind Face ID, Touch ID or fingerprint, now the shipped look · this page renders ONLY the production components/LockScreenView.tsx through props, so it cannot drift from the app · centred flat indigo tile carrying the white Penny mark, heading, status line, full-width 48px Unlock, flat canvas with no gradient, motion off under reduced motion · copy names Face ID, Touch ID, your fingerprint, face unlock or your passcode per device, with honest not-confirmed and timed-out states · states: idle, prompting (no buttons, the OS sheet is up), failed and timed out (Try again plus the sign-out escape hatch, only after a failure) · fixture props only, the real gate is never mounted, unlock and sign out do nothing · ?state=idle|prompting|failed|timeout&device=iphone-face|iphone-touch|android-fingerprint|android-face|passcode|unresolved&mode=light|dark",
+    states: [
+      { label: "Idle", value: "idle" },
+      { label: "Prompting", value: "prompting" },
+      { label: "Failed", value: "failed" },
+      { label: "Timed out", value: "timeout" },
+    ],
+  },
+  {
+    slug: "signin-loading",
+    name: "Signing-in state · G202 · approved A, folded in",
+    description:
+      "G202 · approved A, folded in (Kevin picked Two stages on 2026-10-04): the calm 'signing you in' state shown from the moment the in-app browser returns until the session is ready or the attempt fails · a two-row ledger of the two real stages (browser hand-back, then session check), 'Still signing you in' after 20s with Cancel on screen, a focused role=alert notice on failure or timeout, and tap-to-retry when Sorted cannot be reached · renders the production LoginScreen and SignInProgress through the phase and nowMs props with a fake clock, fixtures only, nothing signs in · ?state=waiting|waiting-slow|checking|resume|failed|timeout|unreachable&mode=light|dark&t=<seconds>&live=1&chrome=0",
+    states: [{ label: "Signing in 0s", value: "waiting" }, { label: "Signing in 25s", value: "waiting-slow" }, { label: "Checking session", value: "checking" }, { label: "Resumed", value: "resume" }, { label: "Failed", value: "failed" }, { label: "Timed out", value: "timeout" }, { label: "Unreachable", value: "unreachable" }],
+  },
+  {
+    slug: "home-tip-gesture",
+    name: "Home tip card gesture · G207",
+    description: "G207 gesture check, not a design round: the production HomeInsightSpotlight (previewInsight prop, no API calls) among neighbour cards, to exercise vertical scroll starting on the card (must leave no offset) and swipe-left dismiss · static fixture",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "settings-overhaul",
+    name: "Settings overhaul · G201",
+    description:
+      "G201 settings overhaul design round (skills: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md): the Account hub at /settings regrouped by the job the user is doing, with deep configuration on drill-ins and sign out and delete isolated at the end · A Clear directory: four groups, 13 status rows, one page each / B Five jobs: five destinations, the shortest hub, related controls together in workspaces / C Quick adjustments first: three switches on the hub, bounded edits in sheets · every variant has the hub plus drill-in pages (cover plan safeguards placeholder linking to G200, pay period via the real sheet, notifications, sign-in methods, delete on its own screen) · renders production Toggle, ConfirmDialog, SheetFrame, PayPeriodSettingsSheet, YourPlanCard and CoverPlanSourcesCard, hub rows and several blocks are hand-authored stand-ins · static fixtures, nothing saves · ?variant=a|b|c&page=hub|notifications|cover-plan|signin|delete|money|experience|account&state=ready|attention|relay|empty&mode=light|dark&sheet=pay-period|financial",
+    states: [{ label: "Ready", value: "ready" }, { label: "Notifications blocked", value: "attention" }, { label: "Apple relay account", value: "relay" }, { label: "New account, web", value: "empty" }],
+    variants: [{ label: "A · Clear directory", value: "a" }, { label: "B · Five jobs", value: "b" }, { label: "C · Quick adjustments first", value: "c" }],
+  },
+  {
+    slug: "signin-handoff",
+    name: "Sign-in hand-off page · G199 · approved B, folded in",
+    description:
+      "G199 · approved B, folded in (Kevin 2026-10-03): the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error state · Open cockpit, type-led heading with the mark beside it, action anchored low under a hairline, no card · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · A108 adds the bank-connect frames (Bank connected, Bank did not link) from the same template · ?state=ok|hint|error|bank-ok|bank-error&mode=light|dark",
+    states: [{ label: "Signed in", value: "ok" }, { label: "After 3 seconds", value: "hint" }, { label: "Did not complete", value: "error" }, { label: "Bank connected", value: "bank-ok" }, { label: "Bank did not link", value: "bank-error" }],
+  },
+  {
+    slug: "penny-keyboard",
+    name: "Penny keyboard · G197",
+    description: "G197, approved B restored (Kevin 2026-10-02): Codex's conversation-first layout from G191 (02c22ef4) over the G196 keyboard mechanics. Tapping the input changes nothing. Once a software keyboard is up the Penny window takes over the visible height in one move, with a compact header (a clear gap between its line and the close button), the links and question chips hidden, the conversation filling the space and the composer and its note on the keyboard edge. Nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
+    states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
+  },
+  {
+    slug: "g176-account-status",
+    name: "g176-account-status",
+    description:
+      "G176 formatting follow-up, skill: impeccable polish · Approved B, Warning & info symbols · Two-decimal amounts in a fixed right-hand column, separate regular-font Left after / Short for captions, and estimates attached to the affected result · Renders the production By account card and account/plan working, using the shared account walk and plan calculations · Invented fixtures only, no API services · Hero and financial logic unchanged · ?variant=b&state=mixed|covered|estimated|short|moves|unknown|overlap|large|loading|error|empty&mode=light|dark",
+    states: [
+      { label: "Some accounts short", value: "mixed" },
+      { label: "Everything covered", value: "covered" },
+      { label: "Covered with an estimate", value: "estimated" },
+      { label: "All accounts short", value: "short" },
+      { label: "Optional transfers", value: "moves" },
+      { label: "Balance unavailable", value: "unknown" },
+      { label: "Calculation needs checking", value: "overlap" },
+      { label: "Long names and large amounts", value: "large" },
+      { label: "Plans loading", value: "loading" },
+      { label: "Plans could not load", value: "error" },
+      { label: "No account payments", value: "empty" },
+    ],
+    variants: [
+      { label: "B · Approved warning & info", value: "b" },
+    ],
+  },
+  {
+    slug: "goal-link-sheet",
+    name: "goal-link-sheet",
+    description:
+      "G204 bug-fix check, not a design round · the production Link goal to an account sheet (real GoalSourceForm and AccountRadioPicker) with raw upper-case providers, very long account and goal names and large balances, to confirm radios stay inside the sheet at 360px and 390px · invented data only · ?mode=light|dark&view=plan|edit-plan",
+    states: [{ label: "Long names", value: "long" }],
+  },
+  {
+    slug: "g176-account-plans",
+    name: "g176-account-plans",
+    description:
+      "G176 follow-up, skills: impeccable and emil-design-eng · Account details include remaining allocations and this-period goal contributions, with explicit paying-account evidence and no guessed source from the receiving pot · A Balance first keeps working folded; B Working first shows both balances and the full calculation · Both prototype a single persistent Details/Edit sheet with Back, Cancel, Save, error recovery and account linking · Six invented examples, no live data or API calls · Original production hero and By account card retained as page context; proposed detail layouts and source selection are preview-only · Hero arithmetic and payment-lag caveat unchanged · Future implementation must establish source provenance and prove any forecast-transfer overlap before account deductions · ?variant=a|b&state=gap|covered|unassigned|billgap|missing|empty&mode=light|dark&view=account|payment",
+    states: [
+      { label: "Plans need cash", value: "gap" },
+      { label: "Everything funded", value: "covered" },
+      { label: "Paying account unknown", value: "unassigned" },
+      { label: "A bill is short", value: "billgap" },
+      { label: "Balance unavailable", value: "missing" },
+      { label: "No set-asides", value: "empty" },
+    ],
+    variants: [
+      { label: "A · Balance first", value: "a" },
+      { label: "B · Working first", value: "b" },
+    ],
+  },
+  {
+    slug: "upcoming-account-edit",
+    name: "upcoming-account-edit",
+    description:
+      "G216 · skills: impeccable · Production UpcomingDetailFlow with invented data: open Monzo, tap EE LIMITED or the salary row to open the payment detail, edit or dismiss it, and Back returns to the account with live figures · Transfers in stay read-only · ?mode=light|dark&view=account",
+    states: [{ label: "Account open", value: "account" }],
+  },
+  {
+    slug: "g176-upcoming-rows",
+    name: "g176-upcoming-rows",
+    description:
+      "G176, skill: impeccable · Approved C, Needs a look: real production day groups keep issues open and covered payments folded; production row details and sheet show the working before editing · A By account and B Cash view remain as earlier comparisons · invented source-account fixtures include mixed, all-short, all-covered and optional-move states · mixed has £185 left overall but £200 needed in two accounts, with separate working · genuine bill gaps use a small red signifier; unfunded own moves use amber · preview editing and dismissal only change fixtures, with Undo · the live page keeps its existing runway calculation and payment-lag caveat, with a separate production By account card and shared account working · ?variant=a|b|c&state=mixed|short|covered|moves&mode=light|dark",
+    states: [
+      { label: "Some accounts short", value: "mixed" },
+      { label: "All accounts short", value: "short" },
+      { label: "All covered", value: "covered" },
+      { label: "Own transfers", value: "moves" },
+    ],
+    variants: [
+      { label: "A · By account", value: "a" },
+      { label: "B · Cash view", value: "b" },
+      { label: "C · Needs a look", value: "c" },
+    ],
+  },
+  {
+    slug: "sheet-swipe",
+    name: "sheet-swipe",
+    description:
+      "G205, skill: emil-design-eng · Swipe a sheet down to close it · Real production SheetFrame and goal sheet with a long scrolling body · Drag from the new grab bar or header at any time, or from the body only when scrolled to the top · Past a fifth of the height or a quick flick closes, otherwise it springs back · Locked sheet ignores swipe like the cross · Phones only, desktop dialogs unchanged · ?mode=light|dark",
+    states: [{ label: "Try it", value: "" }],
+  },
+  {
+    slug: "card-terms-sheet",
+    name: "card-terms-sheet",
+    description:
+      "G225, skill: impeccable · Alignment of the credit card terms sheet to the G192 sheet anatomy and DESIGN.md form patterns, not a new look · One section rhythm (space between question groups, label then helper then control), a typed rate in ink with only the placeholder grey, the stray full-width 0% button removed so Yes and No are the only answers, the 0% question reworded for a card with nothing on it, clearer offers copy, month pickers on the G136 DateField, and a sheet that hugs its content above the sticky footer · Renders the production CardTermsSheet through its real props with fixture cards; a fetch stand-in answers only the representative-rate lookup · ?state=balance|lookup|zero|promos (card= also works)&mode=light|dark",
+    states: [
+      { label: "Balance, rate confirmed", value: "balance" },
+      { label: "Rate found", value: "lookup" },
+      { label: "£0 balance", value: "zero" },
+      { label: "Existing deals", value: "promos" },
+    ],
+  },
+  {
+    slug: "bank-picker",
+    name: "bank-picker",
+    description:
+      "A155 round 2, skills: design-taste-frontend (art direction) with impeccable · Kevin asked for a fresh design that treats the bank picker as a selector with the wording built in: D Popular first (the agency sentence in a bordered How this connection works strip above search and six popular banks), E Index rail (search, then the sentence as the opening notice row of the list, six 44px alphabet jumps down the right), F Two-step page (a full-screen page: step one explains the connection and carries the sentence, step two is the selector; Onboarding, Home and Accounts would navigate to it instead of opening a sheet) · D, E and F are hand-authored proposals, not the production sheet · F's two reassurance lines are proposed copy awaiting Kevin's sign-off, and F step 2 repeats the sentence on purpose so it is visible without step 1 · Sentence visible by default in all three · Directions drafted with openai/gpt-6-astra, rewritten to DESIGN.md · Round 1 follows: A155, skill: impeccable · Kevin 2026-10-08 (iPhone): the agency sentence was a five-line block pinned to the footer, the search grew taller once text was typed and scrolled away with the list · Every variant renders the real BankPickerSheet through new optional props, fixture banks, no API calls · All three fix the search the same way (fixed 44px in every state, clear button inside the field, pinned under the header while the list scrolls) · Directions drafted with openai/gpt-6-astra, rewritten to DESIGN.md · A shows the full sentence as the last row of the list with a short pinned line and a Full notice jump; B pins one line that opens in place to the sentence (needs Finexer to confirm it satisfies A4.2); C sets the full sentence in the header under Powered by Finexer, which takes about six lines so the list starts around a third of the way down a 390 by 844 phone · Today is the current footer for comparison · ?variant=today|a|b|c|d|e|f&state=empty|typing|scrolled|noresults|chooser|expanded&mode=light|dark",
+    states: [
+      { label: "Empty search", value: "empty" },
+      { label: "Typing", value: "typing" },
+      { label: "Scrolled", value: "scrolled" },
+      { label: "No results", value: "noresults" },
+      { label: "Step 2 (F)", value: "chooser" },
+      { label: "Expanded notice (B)", value: "expanded" },
+    ],
+    variants: [
+      { label: "D · Popular first", value: "d" },
+      { label: "E · Index rail", value: "e" },
+      { label: "F · Two-step page", value: "f" },
+      { label: "A · End of the list", value: "a" },
+      { label: "B · Expands in place", value: "b" },
+      { label: "C · In the header", value: "c" },
+      { label: "Today", value: "today" },
+    ],
+  },
+  {
+    slug: "sheet-anatomy",
+    name: "sheet-anatomy",
+    description:
+      "G192 approved B, skill: impeccable adapt · Near-full-height task sheets share a fixed header, plain close control, independently scrolling body and safe-area action footer · Imports the real production goal and filter sheets with local fixture operations, no live API calls · Includes long lists, empty lists, save failure, save/clear controls and nested-flow checks · Customer sheets now share this frame; Penny and centred confirmation dialogs remain separate · A is retained for comparison · ?variant=a|b&state=goal|long|empty|error|contract&mode=light|dark",
+    states: [
+      { label: "Usual content", value: "goal" },
+      { label: "Long account list", value: "long" },
+      { label: "Empty lists", value: "empty" },
+      { label: "Save error", value: "error" },
+      { label: "Navigation checks", value: "contract" },
+    ],
+    variants: [
+      { label: "B · Approved focused task", value: "b" },
+      { label: "A · Compact", value: "a" },
+    ],
+  },
+  {
     slug: "payday-plan-standing-orders",
     name: "payday-plan-standing-orders",
     description:
@@ -193,6 +521,28 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "offline-account",
+    name: "offline-account",
+    description:
+      "G233 offline account detail alignment · the avatar is a neutral wallet glyph instead of OF initials, the kind line reads Offline account once (never Offline · Offline), and Add transaction sits beside the search field as a compact outlined 44px button with 12px between them and 20px before the list · renders the production AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar and TransactionRow through props · fixtures only, no live data · ?account=offline|bank&mode=light|dark",
+    states: [
+      { label: "Offline account", value: "offline" },
+      { label: "Bank account", value: "bank" },
+    ],
+  },
+  {
+    slug: "home-cleanup",
+    name: "home-cleanup",
+    description:
+      "G221 Home clean-up, approved C and folded in (Kevin 2026-10-06) · the shipped look: one rhythm down the Home stack (12 between cards in a group, 20 between sections, 8 under a section label; pinned cards inside Your money) and the Your estate block with its rows and one footer row, All N accounts (See your account for one), in place of the Manage link and the +N more row · renders the production SafeToSpendCard, HomeBrief cards, tip and Coming up cards, FirstAccountCard, HomeEstateSection and TransactionRow through props · account names use the brand-aware tidy name · synthetic accounts, no live data · ?accounts=1|4|20|fresh&mode=light|dark",
+    states: [
+      { label: "1 account", value: "1" },
+      { label: "4 accounts", value: "4" },
+      { label: "20 accounts", value: "20" },
+      { label: "Fresh user", value: "fresh" },
+    ],
+  },
+  {
     slug: "g88-home-canvas",
     name: "g88-home-canvas",
     description:
@@ -342,6 +692,24 @@ const ROUTES: PreviewRoute[] = [
       { label: "Home stack", value: "stack" },
       { label: "All eight cards", value: "family" },
       { label: "Debt trajectory states", value: "trajectory" },
+    ],
+  },
+  {
+    slug: "cover-plan-safeguards",
+    name: "cover-plan-safeguards",
+    description:
+      "G200 cover plan safeguards redesign (Kevin 2026-10-03, Android Settings screenshots): the shipped card mixes a live move, an opaque 0/0 to 2/3 strip, search, a Turned off group and a long skipped list with red dots into one wall of state · separates the user's choice (which accounts may fund cover) from the engine's current answer, with plain-English not-usable copy and no red outside the one genuine no-source case · A permission slip (verdict and exceptions lead, accounts behind one door, no live move, links to Upcoming) / B cover route (the engine's fixed order as two steps plus protections, one hedged sentence about today) / C permission ledger (search and Turned off/Allowed/All views, balances, built to stand alone as a drill-in page) · design drafted with openai/gpt-6-astra, rewritten to DESIGN.md · variants share the production card's props; 'now' renders the shipped CoverPlanSourcesCard with a live move for comparison · fixture data only · ?variant=a|b|c|now&state=default|all|none|stuck&estate=std|long&frame=inline|page&mode=light|dark",
+    variants: [
+      { label: "A Permission slip", value: "a" },
+      { label: "B Cover route", value: "b" },
+      { label: "C Permission ledger", value: "c" },
+      { label: "Shipped today", value: "now" },
+    ],
+    states: [
+      { label: "Two turned off", value: "default" },
+      { label: "Nothing turned off", value: "all" },
+      { label: "Everything off", value: "none" },
+      { label: "Only cannot-spare left", value: "stuck" },
     ],
   },
   {
@@ -556,6 +924,22 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "planning-ladder-timeline",
+    name: "Planning checkpoint timeline · G187",
+    description:
+      "G187 approved B, skill: impeccable · Shared production PlanningCheckpointTimeline: one card per expanded completed/later group with 16px either side of its dividers · External rail, live figures, original detail/options and privacy retained · B imports the production component; A is the unselected comparison · ?variant=b|a&expand=done|later|all&scenario=buffer|debt|goals|done|empty|hidden|long|attention|neutral&mode=light|dark",
+    variants: [
+      { label: "A · Individual cards", value: "a" },
+      { label: "B · Grouped cards", value: "b" },
+    ],
+    states: [
+      { label: "Active buffer", value: "buffer" },
+      { label: "Active debt", value: "debt" },
+      { label: "Investing stage", value: "goals" },
+      { label: "Hidden balances", value: "hidden" },
+    ],
+  },
+  {
     slug: "planning-ladder",
     name: "planning-ladder",
     description:
@@ -718,10 +1102,56 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Play", value: "everything" }],
   },
   {
+    slug: "spend-hero-scale",
+    name: "Spend hero type refinement · G186",
+    description:
+      "G186 typography B approved, skill: impeccable · B renders production SpendPaceHero with its quiet label, 30px Out and separate Usual caption · A is the unselected heading-led comparison · Figures, calculations and controls unchanged; G140 evidence also renders its production component · ?variant=b|a&state=phone|normal|early|nobaseline|long&mode=light|dark",
+    variants: [
+      { label: "A · Compact heading", value: "a" },
+      { label: "B · Approved", value: "b" },
+    ],
+    states: [
+      { label: "Phone example", value: "phone" },
+      { label: "Below usual", value: "normal" },
+      { label: "Long figures", value: "long" },
+    ],
+  },
+  {
+    slug: "spend-hero",
+    name: "Spend hero consistency · G186",
+    description:
+      "G186 original hero round, skill: impeccable · A renders the latest production SpendPaceHero, now refined by the approved B typography round at /design/spend-hero-scale · B and C retain the previous SpendJourneySummary for comparison · Evidence sections here remain illustrative; the approved G140 preview renders the production pace ledger · Sticky journey navigation retained · ?variant=a|b|c&state=normal|everything|nothing|nobaseline|early|closed|unplaced|nomoved|empty|loading|error|long&mode=light|dark",
+    variants: [
+      { label: "A · Pace instrument", value: "a" },
+      { label: "B · Existing summary", value: "b" },
+      { label: "C · Canvas control", value: "c" },
+    ],
+    states: [
+      { label: "Below usual", value: "normal" },
+      { label: "Above usual", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+    ],
+  },
+  {
     slug: "spend-live",
     name: "spend-live",
     description: "Spend page · fixtures reference (real components)",
     states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "spend-pace-copy",
+    name: "Spend pace explanation · G140",
+    description:
+      "G140, skill: impeccable clarify · Approved A renders the production SpendPaceEvidence with invented fixtures; B remains an unselected copy proposal · Coordinated with G186: the hero speaks the pace verdict once, the named-category ledger explains the signed difference and calculated remainder · Existing arithmetic and backend unchanged · ?variant=a|b&state=under|over|level|balanced|unplaced|long|none|baseline&mode=light|dark",
+    variants: [
+      { label: "A · Named ledger", value: "a" },
+      { label: "B · Short explanation", value: "b" },
+    ],
+    states: [
+      { label: "Below usual", value: "under" },
+      { label: "Above usual", value: "over" },
+      { label: "Still learning", value: "baseline" },
+    ],
   },
   {
     slug: "spend-charts",

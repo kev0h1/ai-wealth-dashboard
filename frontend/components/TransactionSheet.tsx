@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { X, Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from "lucide-react";
 import { Transaction, api } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
+import { SheetFrame } from "@/components/SheetFrame";
 import { BankBadge, BANK_META, bankLogoSrc } from "@/components/AccountMiniCard";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
@@ -31,10 +29,6 @@ export default function TransactionSheet({
   onUpdated,
   account,
 }: TransactionSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
   const [category, setCategory] = useState(transaction.category ?? "Other");
   const [scope, setScope] = useState<Scope>("single");
   const [similar, setSimilar] = useState<Transaction[] | null>(null);
@@ -101,7 +95,7 @@ export default function TransactionSheet({
     });
   }
 
-  async function handleSave() {
+  async function handleSave(close: () => void) {
     if (saving || savedCount !== null) return;
     setSaving(true);
     try {
@@ -112,11 +106,11 @@ export default function TransactionSheet({
       });
       setSavedCount(res.bulk_count ?? 0);
       onUpdated({ ...transaction, category }, additionalIds.length > 0 ? additionalIds : undefined);
-      setTimeout(onClose, 900);
+      setTimeout(close, 900);
     } catch {
       setSavedCount(0);
       onUpdated({ ...transaction, category });
-      setTimeout(onClose, 900);
+      setTimeout(close, 900);
     } finally {
       setSaving(false);
     }
@@ -134,33 +128,16 @@ export default function TransactionSheet({
 
   const allChecked = similar !== null && similar.length > 0 && selected.size === similar.length;
 
-  if (!mounted) return null;
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-
-      {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-      <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
-                      bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
-                      lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-           style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-        {/* Handle — mobile only */}
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-2 pb-4 lg:pt-5">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate flex-1 mr-4">{name}</h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
-          >
-            <X size={16} color="#64748b" />
-          </button>
-        </div>
+  return (
+    <SheetFrame title={name} onClose={onClose} dismissDisabled={saving} bodyClassName="px-0 py-5" footer={({ close }) => (
+      <button
+        onClick={() => handleSave(close)}
+        disabled={saving || saved}
+        className={`flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white transition-colors disabled:opacity-60 ${saved ? "bg-emerald-600" : "bg-indigo-600 hover:bg-indigo-700"}`}
+      >
+        {saved ? <><Check size={18} />{savedCount && savedCount > 0 ? `Saved · ${savedCount + 1} updated` : "Saved"}</> : saving ? "Saving…" : scope === "single" ? "Save category" : selected.size === 0 ? "Save (this transaction only)" : `Save for ${selected.size + 1} transaction${selected.size > 0 ? "s" : ""}`}
+      </button>
+    )}>
 
         {/* Amount + date + bank */}
         <div className="flex items-center gap-4 px-5 pb-5 border-b border-slate-100 dark:border-slate-700">
@@ -314,36 +291,6 @@ export default function TransactionSheet({
           </div>
         )}
 
-        {/* Save button */}
-        <div className="px-5 pb-20 lg:pb-6">
-          <button
-            onClick={handleSave}
-            disabled={saving || saved}
-            className="w-full py-4 rounded-2xl font-semibold text-white text-base transition-all active:scale-95 flex items-center justify-center gap-2"
-            style={{
-              background: saved
-                ? "linear-gradient(135deg, #10b981, #059669)"
-                : "linear-gradient(135deg, #4f46e5, #7c3aed)",
-            }}
-          >
-            {saved ? (
-              <>
-                <Check size={18} />
-                {savedCount && savedCount > 0 ? `Saved · ${savedCount + 1} updated` : "Saved"}
-              </>
-            ) : saving ? (
-              "Saving…"
-            ) : scope === "single" ? (
-              "Save Category"
-            ) : selected.size === 0 ? (
-              "Save (this transaction only)"
-            ) : (
-              `Save for ${selected.size + 1} transaction${selected.size > 0 ? "s" : ""}`
-            )}
-          </button>
-        </div>
-      </div>
-    </>,
-    document.body
+    </SheetFrame>
   );
 }

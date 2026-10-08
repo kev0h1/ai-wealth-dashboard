@@ -200,7 +200,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 <div class="report-header-bar">
   <span class="report-id">{report_id} &middot; Confidential, prepared for Finexer</span>
-  <span class="draft-flag">Draft</span>
+  <span class="draft-flag">v1.0.1</span>
 </div>
 <div class="report-body">
 {body}

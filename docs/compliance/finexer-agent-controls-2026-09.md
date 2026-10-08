@@ -96,6 +96,7 @@ Final published versions:
 - Terms and Conditions: https://wealth.auriqltd.co.uk/terms
 - Privacy Policy: https://wealth.auriqltd.co.uk/privacy
 PDF copies attached, exported 2026-09-10 from the live pages: https://wealth.auriqltd.co.uk/TERMS.pdf (7 pages, "Last updated: 2026-09-08", version 1.0) and https://wealth.auriqltd.co.uk/PRIVACY.pdf (7 pages, "Last updated: 2026-09-10", version 1.0). Both confirmed live and downloadable, and checked for content: neither PDF mentions the MCP connector or "connected assistant" feature described in Q2, consistent with that feature being planned but not enabled in production.
+Update 2026-10-05 (A142): the PDF copies were regenerated on 2026-10-05 from the A109 sources ("Last updated: 2026-09-23", periodic reconfirmation to Finexer wording) and will match the live pages once released to production.
 
 We confirm they accurately reflect the Sorted service:
 - Finexer's role and the AIS arrangement: Terms sections 2 and 5; Privacy sections 1, 4 and 6 (Finexer listed as the open banking sub-processor).
@@ -167,11 +168,10 @@ Status: needs-kevin
 Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES/Fernet), key held only in platform secrets outside source control; signed, time-limited session tokens on every request; sign-in only via verified Google/Apple identities, registration allow-listed until launch; TLS in transit; restricted CORS; rate limiting on auth/webhook routes; HMAC verification on Finexer webhooks; API docs disabled; MongoDB Atlas access controls; encrypted nightly backups, 30-day retention; platform logging on Vercel, Railway, Atlas.
 
 Testing completed:
-- Automated backend test suite (2,700+ tests) on every change; internal review of auth, session and logout hygiene, webhook receiver (Aug/Sep 2026); CI-automated dependency scanning (SECURITY.md 2).
-- Internal security testing, 2026-09, under signed rules of engagement (2026-09-20), covering the web shell, API, tenant isolation, deletion, input handling, OAuth 2.1, MCP, Android (static), Finexer/TrueLayer, Stripe and OpenRouter/Penny. No Critical findings. Four High: three form one deletion-lifecycle issue (deletion did not revoke the Finexer consent, the connections list omitted it, deleted sessions stayed valid up to 7 days); the fourth is an MCP prompt-injection gap; MCP is not enabled in production. All four are fixed and regression-tested on our pre-production build (2026-09-22); production release and retest are due before 1 October. Remaining findings are Medium/Low/Info. Detail: SECURITY.md, docs/security/pentest-runs/.
-- An independent CREST-accredited penetration test will be commissioned ahead of public launch.
+- Automated backend test suite (2,700+ tests) on every change; internal review of auth, session and logout hygiene, webhook receiver; CI-automated dependency scanning (SECURITY.md 2).
+- Security assessment carried out 20 September to 4 October 2026 by AURIQ LTD, under signed rules of engagement, covering the web shell, API, deletion, OAuth 2.1, MCP, Android, iOS, Finexer, Stripe and OpenRouter. No Critical findings. Four High: three form one deletion-lifecycle issue (deletion did not revoke the Finexer consent, the connections list omitted it, deleted sessions stayed valid 7 days); the fourth is an MCP prompt-injection gap. All four are fixed in production (27 September) and retested, including a live deletion test on 4 October. Device testing on Android and iPhone (27 September) raised five findings and confirmed a known Android backup gap. The two High items, an iOS lock bypass and that backup gap, are fixed in production and were checked on 4 October (backup by package flags only), as were two Low findings.
 
-Outstanding: production release and retest of the four High fixes, due before 1 October; findings summary and retest evidence to follow on release. MCP stays disabled in production, not enabled without Finexer's written sign-off. Two earlier Medium items (legacy PIN login, reconnect-cache data) remain closed, unchanged since last submission.
+No Critical or High issue is open; the remaining Medium and Low items are tracked. MCP stays disabled in production until Finexer gives written sign-off. Two earlier Medium items (legacy PIN login, reconnect-cache data) remain closed, unchanged since last submission.
 ```
 
 ## Q12 Insurance

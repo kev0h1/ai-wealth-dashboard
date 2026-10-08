@@ -6,6 +6,8 @@ from typing import Optional
 
 import httpx
 
+from app.services.sync_freshness import sync_error_code, sync_in_progress
+
 logger = logging.getLogger(__name__)
 
 from app.core.config import (
@@ -707,38 +709,60 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             "last_synced": datetime.utcnow(),
             "last_sync_requests": counter["requests"],
             "last_sync_429s": counter["429s"],
-        }},
+        }, "$unset": {"last_sync_error": "", "last_sync_error_at": ""}},
     )
 
     return fetched_account_ids, len(all_new_txns)
 
 
-async def finexer_sync_pipeline(consent_id: str, user_id: str) -> dict:
+async def finexer_sync_pipeline(
+    consent_id: str,
+    user_id: str,
+    *,
+    trigger: str = "auto",
+    recompute: bool = True,
+) -> dict:
     """
     Full sync pipeline: sync consent → post-sync rules → notifications.
-    Called from both the callback (asyncio.create_task) and the arq worker.
+    Called from the OAuth callback (asyncio.create_task), the arq worker,
+    and POST /accounts/sync.
+
+    `trigger` is the G159 distinction (see app.services.derived_caches):
+    "auto" (default: callback, worker reconcile, webhook) recomputes the
+    derived caches only when this pull found new transactions or the cache
+    doc is stale for a cheaper reason; "user" always recomputes.
+    `recompute=False` leaves the recompute to the caller entirely, which is
+    how POST /accounts/sync runs ONE recompute after every source has
+    pulled rather than one per Finexer consent racing its own.
     """
     from app.services.categorisation import apply_rules_bulk, categorise_others_bg
     from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 
     try:
-        fetched_ids, new_count = await sync_finexer_consent(consent_id, user_id)
-    except Exception:
+        async with sync_in_progress(finexer_consents_col, consent_id):
+            fetched_ids, new_count = await sync_finexer_consent(consent_id, user_id)
+    except Exception as exc:
         logger.exception("finexer_sync_pipeline failed for consent %s user %s", consent_id, user_id)
+        try:
+            await finexer_consents_col.update_one(
+                {"_id": consent_id},
+                {"$set": {
+                    "last_sync_error": sync_error_code(exc),
+                    "last_sync_error_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                }},
+            )
+        except Exception:
+            logger.exception("could not stamp last_sync_error for consent %s", consent_id)
         return {"ok": False, "error": "sync_failed"}
 
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
 
+    if recompute:
+        from app.services.derived_caches import recompute_derived_caches
+        await recompute_derived_caches(user_id, new_count=new_count, trigger=trigger)
     if new_count > 0:
-        from app.routers.analytics import compute_and_cache_cashflow
-        await compute_and_cache_cashflow(user_id)
-        try:
-            from app.services.money_shape import compute_and_cache_money_shape
-            await compute_and_cache_money_shape(user_id)
-        except Exception:
-            logger.exception("money_shape compute failed for %s", user_id)
         asyncio.create_task(notify_after_sync(user_id, []))
 
     return {"ok": True, "accounts": len(fetched_ids), "new_transactions": new_count}

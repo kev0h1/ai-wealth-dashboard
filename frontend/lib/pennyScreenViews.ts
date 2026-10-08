@@ -38,7 +38,23 @@ export type SafeToSpendHeadline = {
   isCardsUnconfirmedShort: boolean;
   heroAmount: number;
   paydayLabel: string;
+  /** G218: short only because of plans and envelopes; reads amber, calm. */
+  plansOnly: boolean;
 };
+
+/** G218: a shortfall that exists only because plans and envelopes were set
+ * aside (cash after bills, less the buffer, is still at or above zero).
+ * Reads the server's `plans_only_short` when present (one source of truth,
+ * net_position.plans_only_short_for) and otherwise derives the same rule
+ * from the payload, for responses cached before the field existed. */
+export function isPlansOnlyShort(data: Extract<SafeToSpend, { status: "ok" }>): boolean {
+  if (data.state !== "short" || data.short_reason === "cards_unconfirmed") return false;
+  if (typeof data.plans_only_short === "boolean") return data.plans_only_short;
+  const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
+  if (cash >= 0 || data.lowest_projected_balance == null) return false;
+  const setAside = (data.commitments_reserved ?? 0) + (data.allocations_reserved ?? 0);
+  return setAside > 0 && data.lowest_projected_balance - data.buffer >= 0;
+}
 
 /** Home's Safe-to-Spend hero figure/status word/payday label — the exact
  * maths SafeToSpendCard.tsx's own render uses for its hero figure and
@@ -61,7 +77,7 @@ export function deriveSafeToSpendHeadline(data: Extract<SafeToSpend, { status: "
     ? new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "long" })
     : new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
-  return { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel };
+  return { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly: state === "short" && isPlansOnlyShort(data) };
 }
 
 /** Home's published `PennyScreenView` for the Safe-to-Spend card. `hidden`
@@ -75,6 +91,10 @@ export function buildSafeToSpendView(
   data: Extract<SafeToSpend, { status: "ok" }>,
   opts: { hidden: boolean },
 ): PennyScreenView {
+  // G210: a first sync still running means there is no verdict to quote.
+  if (data.calculation_status === "syncing") {
+    return { route: "/", scope: "Safe to Spend", figures: [], asOf: new Date().toISOString() };
+  }
   const headline = deriveSafeToSpendHeadline(data);
   return {
     route: "/",
@@ -82,7 +102,9 @@ export function buildSafeToSpendView(
     verdict: headline.stateLabel,
     figures: opts.hidden ? [] : [{
       key: "safe_to_spend",
-      label: headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Safe to spend",
+      label: headline.plansOnly
+        ? "Short after plans and envelopes"
+        : headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Safe to spend",
       value: fmtGbp(headline.heroAmount),
     }],
     asOf: data.last_synced ?? new Date().toISOString(),
@@ -123,6 +145,8 @@ export type UpcomingRunwayInput = {
   runway: number;
   runwayStatus: "short" | "left" | "even";
   isCalendarMonth: boolean;
+  /** Goal plans could not be loaded, so the runway may be too high. */
+  plansUnavailable?: boolean;
 };
 
 /** Upcoming's runway hero — mirrors PlanningPage.tsx's own
@@ -132,7 +156,7 @@ export type UpcomingRunwayInput = {
  * simulation itself depends on a lot of page-only state — see that file's
  * own comment on its Penny-view publish ref for why). */
 export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreenView {
-  const { runway, runwayStatus, isCalendarMonth } = input;
+  const { runway, runwayStatus, isCalendarMonth, plansUnavailable } = input;
   const label = runwayStatus === "short" ? "Short" : runwayStatus === "even" ? "Exactly covered" : "Left over";
   return {
     route: "/upcoming",
@@ -140,7 +164,7 @@ export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreen
     verdict: label,
     figures: [{
       key: "runway",
-      label: isCalendarMonth ? "Projected at month end" : "Projected at payday",
+      label: (isCalendarMonth ? "Projected at month end" : "Projected at payday") + (plansUnavailable ? " (estimated, goal plans not loaded so it may be too high)" : ""),
       value: `${runwayStatus === "short" ? "−" : ""}${fmtGbp(runway)}`,
     }],
     asOf: new Date().toISOString(),

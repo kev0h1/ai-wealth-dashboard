@@ -103,7 +103,29 @@ def _make_board_root(tmp_path: Path, fixture: str = GUARD_FIXTURE) -> Path:
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    _init_board_git_repo(board_root)
     return board_root
+
+
+def _init_board_git_repo(board_root: Path) -> None:
+    """Wires `board_root` (BACKLOG_ROOT) as a real, pushable git repo,
+    the same way `_make_fake_shared_tree` below does for the session's own
+    shared tree: a local bare repo one directory over stands in for
+    `origin`. H93 makes `scripts/backlog.py` exit non-zero when the
+    board's git commit or push fails; before that, `board_root` here was
+    never a real git repo at all, so `cmd_start`'s real `git add`/`commit`
+    genuinely failed (exit 128, not a git repo) on every call that
+    reached it, just silently, since nothing asserted on the outcome."""
+    origin = board_root.parent / (board_root.name + "-origin.git")
+    _git("init", "--bare", "-q", "-b", "main", str(origin), cwd=board_root.parent)
+    _git("init", "-q", "-b", "main", cwd=board_root)
+    _git("-c", "user.email=test@example.com", "-c", "user.name=Test", "add", "-A", cwd=board_root)
+    _git(
+        "-c", "user.email=test@example.com", "-c", "user.name=Test",
+        "commit", "-q", "-m", "init", cwd=board_root,
+    )
+    _git("remote", "add", "origin", str(origin), cwd=board_root)
+    _git("push", "-q", "-u", "origin", "main", cwd=board_root)
 
 
 def _git(*args: str, cwd: Path) -> None:

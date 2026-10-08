@@ -108,6 +108,17 @@ Redis unavailability as a page, not a shrug. With this in place, E2
   TOKEN_KEY, TrueLayer creds, OpenRouter, etc.). No `$PORT` needed.
 - The 4-hourly reconcile and daily digest are in-process arq crons; the worker
   just needs to stay running. No external scheduler.
+- On every start the worker also runs a background pass that recomputes the
+  cashflow forecast for any user whose cache doc was written by a different
+  engine build (G159, `app/services/derived_caches.py`). The build identity
+  is a content hash of the backend's own `.py` files (`app/core/build.py`),
+  the same on Railway and on UAT, so a restart without a deploy — for any
+  reason, not just an intentional one — genuinely does nothing there
+  either; a deploy costs roughly 1.5 s plus one Haiku call per user with a
+  stale doc, sequentially, off the API's event loop. (An earlier version of
+  this identity preferred `git rev-parse HEAD` on UAT, which moved on every
+  board commit whether or not `backend/` changed and was dropped for that
+  reason — see the module docstring.)
 
 ## Step 6: Vercel: frontend
 
@@ -332,13 +343,18 @@ route-table and middleware assertions. The design previews
 of the flag, since they use fixtures, not the gated surfaces.
 
 **Before the connector actually launches on production:** turn both vars on
-in Railway and Vercel, then regenerate `frontend/public/TERMS.pdf` and
-`PRIVACY.pdf` with the flag on (see the Verify step above, plus the PDF
-recipe used for the current, flag-off PDFs: `npx next build --webpack`,
-then `npx next start -p <free-port>`, then `google-chrome --headless=new
---no-sandbox --disable-gpu --print-to-pdf=... --no-pdf-header-footer
-<url>`, then stop the server and delete `.next`/`out`/any stray
-`ai-wealth-dashboard/` dir that `next build --webpack` can leave behind).
+in Railway and Vercel, then regenerate the legal PDFs with the flag on:
+`MCP_CONNECTOR=on bash frontend/scripts/export-legal-pdfs.sh` (run it in a
+worktree, never the shared tree; it builds, prints `/terms` and `/privacy` with
+headless Chrome, rewrites `frontend/public/TERMS.pdf`, `PRIVACY.pdf`, the root
+`TERMS.pdf`/`PRIVACY.pdf`/`SECURITY.pdf` and `frontend/public/legal-pdf-manifest.json`,
+and cleans up `.next`, `out` and any stray `ai-wealth-dashboard/` dir). The
+default run (flag unset) matches today's production. `npm run
+check:legal-pdfs-fresh` fails when a legal markdown source changed after its PDF
+was exported, or a PDF carries the pre-A109 90-day wording (A142). The root
+`TERMS.pdf`/`PRIVACY.pdf`/`SECURITY.pdf` are the unstripped full-text copies
+(connector sections included), while the public ones match production with the
+connector off.
 
 **Mobile builds (F17, 2026-09-10):** `frontend/.env.local` never reaches a
 mobile bundle (Android APK or Codemagic TestFlight build) at all, so until
@@ -795,6 +811,13 @@ and neither `capacitor-spike/android` nor `capacitor-spike` exists inside
 that directory (review finding P3/FIX4, 2026-09-17 round 3 — an earlier
 version applied this fix to only the third snippet, so reading top to
 bottom the second one still failed the same way the third used to):
+
+Before any build from a freshly generated `android/` project, run
+`bash capacitor-spike/scripts/setup-android-push.sh`; its final step runs
+`setup-android-privacy.sh` (A122), which installs the `PrivacyScreen` plugin
+that keeps live figures out of the recents thumbnail while the biometric lock
+is on. Skipping it ships an APK without the plugin (the app logs a
+`console.warn` naming A122, nothing else fails).
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"

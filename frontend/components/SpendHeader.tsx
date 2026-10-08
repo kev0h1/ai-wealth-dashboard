@@ -28,9 +28,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info, X } from "lucide-react";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetA11y } from "@/lib/useSheetA11y";
+import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info } from "lucide-react";
+import { SheetFrame } from "@/components/SheetFrame";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
 import type { SpendVerdict, Transaction } from "@/lib/api";
@@ -180,36 +180,16 @@ function PeriodSheet({
   onOpenRules: () => void;
   onClose: () => void;
 }) {
-  useLockBodyScroll();
-  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
+  const router = useRouter();
   return (
-    <>
-      <button type="button" tabIndex={-1} aria-label="Close pay periods" className="fixed inset-0 z-[65] cursor-default bg-black/40" onClick={onClose} />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pay periods"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] glass-sheet rounded-t-3xl z-[70] overflow-y-auto max-h-[80dvh]"
-        style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom, 0px))" }}
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Pay periods</p>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="-mr-2 flex size-11 items-center justify-center rounded-full transition-colors hover:bg-slate-100 active:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-700/40 dark:active:bg-slate-700/70"
-          >
-            <X size={18} aria-hidden="true" className="text-slate-500 dark:text-slate-400" />
-          </button>
-        </div>
+    <SheetFrame title="Pay periods" onClose={onClose} bodyClassName="px-2 py-2">
+      {({ closeThen }) => <>
         <div className="px-2 pb-2" data-tutorial-id="tutorial-spend-periods">
           {recentPeriods.map((p) => (
             <button
               key={p.offset}
               type="button"
-              onClick={() => { onSelectOffset(p.offset); onClose(); }}
+              onClick={() => closeThen(() => onSelectOffset(p.offset))}
               className="flex min-h-[44px] w-full items-center justify-between rounded-xl px-3 transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
             >
               <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{p.label}</span>
@@ -222,7 +202,7 @@ function PeriodSheet({
         <div className="border-t border-slate-100 dark:border-slate-700 px-2 pt-2">
           <Link
             href="/transactions"
-            onClick={onClose}
+            onNavigate={event => { event.preventDefault(); closeThen(() => router.push("/transactions")); }}
             className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium text-slate-800 transition-colors active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 dark:active:bg-slate-700/40"
           >
             <Search size={15} aria-hidden="true" className="shrink-0 text-slate-500 dark:text-slate-400" />
@@ -230,7 +210,7 @@ function PeriodSheet({
           </Link>
           <button
             type="button"
-            onClick={() => { onOpenSettings(); onClose(); }}
+            onClick={() => closeThen(onOpenSettings)}
             className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
           >
             <Settings2 size={15} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
@@ -238,7 +218,7 @@ function PeriodSheet({
           </button>
           <button
             type="button"
-            onClick={() => { onOpenRules(); onClose(); }}
+            onClick={() => closeThen(onOpenRules)}
             className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
             data-tutorial-id="tutorial-spend-manage"
           >
@@ -246,8 +226,8 @@ function PeriodSheet({
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">How we categorise your money</span>
           </button>
         </div>
-      </div>
-    </>
+      </>}
+    </SheetFrame>
   );
 }
 

@@ -133,6 +133,16 @@ body {
   animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* G192: the shared SheetFrame keeps the bottom-sheet entrance every hand-rolled
+   sheet had (CardTerms, Commitment and the rest). Phones only: from lg the frame
+   is a centred dialog, which fades in with its backdrop. Reduced motion is
+   handled by the global rule below. */
+@media (max-width: 1023.98px) {
+  [data-sheet-frame] {
+    animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
 /* Backdrop fade */
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -332,20 +342,6 @@ a:focus-visible,
   [style*="slideUpSheet"] { animation: none !important; }
 }
 
-/* iOS Safari renders type=date as a UA value chip that ignores width/background.
-   Normalise so it fills its container and inherits the themed field styling. */
-input[type="date"] {
-  -webkit-appearance: none;
-  appearance: none;
-}
-input[type="date"]::-webkit-date-and-time-value {
-  text-align: left;
-  margin: 0;
-}
-input[type="date"]::-webkit-calendar-picker-indicator {
-  opacity: 0.6;
-}
-
 /* iOS Safari auto-zooms the whole page when a focused form field's computed
    font-size is below 16px, and never restores the previous scale on blur
    (Kevin, G81, 2026-09-14 — reported on the Penny composer, but it is a
@@ -355,7 +351,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    audit, WCAG anti-pattern) and that must not be reinstated. So this is
    scoped to coarse-pointer (touch) devices only — desktop keeps the
    existing type scale from each field's own text-size class. Written
-   outside any @layer, same as the input[type=date] reset above, so it
+   outside any @layer, so it
    wins over Tailwind's utility-layer font-size classes (text-sm etc.)
    regardless of class order or specificity: un-layered CSS always beats
    `@layer utilities` in the cascade. See DESIGN.md 3. Typography for the
@@ -881,4 +877,31 @@ html.legal-page #app-shell {
   max-width: none;
   margin-left: 0;
   margin-right: 0;
+}
+
+/* G196: while a software keyboard is up and Penny's composer is focused, the
+   mobile navigation and the raised Penny button step aside. Visibility only,
+   so no layout moves. Set by PennySheetPanel and the full-page PennyConversation. */
+html[data-penny-typing="true"] [data-penny-navigation] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* interactive-widget=resizes-content (app/layout.tsx) makes Chrome on Android
+   shrink the layout viewport, so a fixed bottom edge is the keyboard top and
+   the bottom navigation would ride up above the keyboard on every text field.
+   G198: step it aside only while a software keyboard is MEASURED up
+   (useSoftKeyboardAttribute), never on focus alone: focus can outlive a
+   dismissed keyboard and a hardware keyboard shows none. */
+@media (max-width: 1023px) and (pointer: coarse) {
+  html[data-soft-keyboard="true"] [data-penny-navigation] {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+/* A142: print-only. The legal pages use min-h-screen, which can spill a
+   blank trailing page when printed to PDF. No on-screen effect. */
+@media print {
+  main.legal-doc { min-height: 0; padding-top: 0; padding-bottom: 0; }
 }

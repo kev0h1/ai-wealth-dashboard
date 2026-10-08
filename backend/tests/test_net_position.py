@@ -25,6 +25,7 @@ from app.services.net_position import (
     card_growth_unpaid,
     period_net,
     short_reason_for,
+    plans_only_short_for,
 )
 
 KIND_MAP = dict(BUILTIN_CATEGORY_KINDS)
@@ -319,6 +320,28 @@ def test_short_reason_cards_unconfirmed_when_fallback_reserve_makes_it_short():
 
 def test_short_reason_defensive_none_for_contradictory_short_state():
     assert short_reason_for("short", 40.0, 0.0) is None
+
+
+# ── plans_only_short_for (G218) ───────────────────────────────────────────
+
+def test_plans_only_short_kevins_screenshot():
+    # cash 0, 50 plans + 200 envelopes -> 250 short; cash itself is fine.
+    assert plans_only_short_for("short", "bills", -250.0, 0.0, 0.0, 50, 200.0) is True
+
+
+def test_plans_only_short_false_when_bills_or_buffer_cause_it():
+    assert plans_only_short_for("short", "bills", -86.0, -86.0, 0.0, 0, 0.0) is False
+    assert plans_only_short_for("short", "bills", -250.0, -1.0, 0.0, 50, 200.0) is False
+    assert plans_only_short_for("short", "bills", -250.0, 0.0, 40.0, 50, 200.0) is False
+    assert plans_only_short_for("short", "bills", -250.0, 40.0, 40.0, 50, 200.0) is True
+
+
+def test_plans_only_short_false_for_other_states_and_unknowns():
+    assert plans_only_short_for("tight", None, 20.0, 0.0, 0.0, 50, 0.0) is False
+    assert plans_only_short_for("comfortable", None, 500.0, 600.0, 0.0, 50, 0.0) is False
+    assert plans_only_short_for("short", "cards_unconfirmed", 40.0, 0.0, 0.0, 50, 0.0) is False
+    assert plans_only_short_for("short", "bills", -250.0, None, 0.0, 50, 200.0) is False
+    assert plans_only_short_for("short", "bills", -250.0, 0.0, 0.0, 0, 0.0) is False
 
 
 # ── period_net ────────────────────────────────────────────────────────────

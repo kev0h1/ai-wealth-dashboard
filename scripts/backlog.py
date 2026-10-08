@@ -182,7 +182,15 @@ Commands:
                                         first rather than completing work
                                         Kevin decided should not happen.
     reopen <id>                         Untick a done item.
-    note <id> "<text>"                  Add a dated note under an item.
+    note <id> "<text>" [--strict]        Add a dated note under an item. Notes
+                                        over NOTE_CAP (1500 chars) are still
+                                        truncated on write, but a truncation
+                                        now warns on stderr with the original
+                                        and truncated lengths and the last 40
+                                        characters dropped (H64); --strict
+                                        additionally exits non-zero when that
+                                        happens (the note is still written
+                                        either way).
     owner <id> kevin|claude|codex       Change who owns an item.
     priority <id> p1|p2|p3             Set an item's priority (defaults to
                                         p3 when the tag is absent).
@@ -236,10 +244,38 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 from app.services import backlog  # noqa: E402
 
 
+class BoardCommitFailed(backlog.BacklogError):
+    """H93: the board file itself was written, but the matching git
+    commit/push failed. Before this, that outcome was a footnote printed
+    alongside a 0 exit code — exactly how the 2026-09-27 incident's writes
+    went invisible: `/ops/go-live` reads the deployed `main`, not a
+    session's local, uncommitted `TODO.md`, so nobody saw anything was
+    wrong until someone went looking for it by hand. Raising this turns
+    it into a non-zero exit with a clear message instead, so a caller
+    under `set -euo pipefail` (`scripts/session.sh`) aborts right here
+    rather than carrying on believing the board is current."""
+
+
+def _require_committed(description: str) -> None:
+    """Called after printing the existing "(saved to file; ...)" footnote
+    so the diagnostic text is never lost, then raises `BoardCommitFailed`
+    (a `backlog.BacklogError` subclass `main()` already turns into exit
+    code 1 with the message on stderr) so this is a loud failure rather
+    than a silently-continuing one."""
+    raise BoardCommitFailed(
+        f"{description} was written to TODO.md but the git commit/push failed; the board file and "
+        f"origin/main now disagree until this is retried or fixed by hand. Check the logs on this host "
+        f"(this process's own stderr, or journalctl -u wealth-api if it came from /ops/go-live) for the "
+        f"underlying git error, then 'git status' and 'git log -- TODO.md' in the shared tree before "
+        f"writing to the board again."
+    )
+
+
 def _print_result(item_id: str, result: dict, committed: bool) -> None:
     print(f"{item_id}: {result}")
     if not committed:
         print("  (saved to file; git commit or push failed — see logs)")
+        _require_committed(item_id)
 
 
 def _refuse_if_done(item_id: str, command: str, force: bool) -> None:
@@ -359,10 +395,13 @@ def cmd_show(args: argparse.Namespace) -> None:
 def cmd_add(args: argparse.Namespace) -> None:
     result, committed = backlog.add_item(args.section, args.title, owner=args.owner, actor=args.actor)
     # Print just the new id on stdout so callers (scripts/session.sh) can
-    # capture it directly; everything else goes to stderr.
+    # capture it directly; everything else goes to stderr. Printed before
+    # the commit check below so a caller still learns the id it must deal
+    # with even though this command then exits non-zero.
     print(result["id"])
     if not committed:
         print("(saved to file; git commit or push failed — see logs)", file=sys.stderr)
+        _require_committed(f"{result['id']} (add)")
 
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -461,8 +500,22 @@ def cmd_reopen(args: argparse.Namespace) -> None:
 
 
 def cmd_note(args: argparse.Namespace) -> None:
-    result, committed = backlog.add_note(args.item_id, args.text, actor=args.actor)
+    result, committed, truncation = backlog.add_note(args.item_id, args.text, actor=args.actor)
     _print_result(args.item_id, result, committed)
+    if truncation["truncated"]:
+        # H64: _collapse_note_text used to truncate at NOTE_CAP and say
+        # nothing, so a caller believed it recorded content it did not.
+        # Warn on stderr with enough to act on -- both lengths and the
+        # tail that got cut off -- every time; --strict additionally exits
+        # non-zero so a script that checks the exit code notices too.
+        print(
+            f"warning: note for {args.item_id} truncated from {truncation['original_length']} to "
+            f"{truncation['cap']} characters ({truncation['dropped_length']} characters dropped); "
+            f"last 40 characters dropped: {truncation['dropped_tail']!r}",
+            file=sys.stderr,
+        )
+        if args.strict:
+            sys.exit(1)
 
 
 def cmd_owner(args: argparse.Namespace) -> None:
@@ -510,6 +563,7 @@ def cmd_lint(args: argparse.Namespace) -> None:
     print(f"\n{len(findings)} finding(s){' fixed' if args.apply else ' (dry run, pass --apply to fix)'}.")
     if args.apply and not committed:
         print("  (saved to file; git commit or push failed — see logs)")
+        _require_committed("lint --apply repair")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -667,6 +721,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_note = sub.add_parser("note", help="Add a dated note under an item.")
     p_note.add_argument("item_id")
     p_note.add_argument("text")
+    p_note.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero if the note is truncated at NOTE_CAP (H64); the warning still "
+        "prints to stderr either way.",
+    )
     add_actor(p_note)
     p_note.set_defaults(func=cmd_note)
 

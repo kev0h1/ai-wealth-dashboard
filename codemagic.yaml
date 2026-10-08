@@ -374,6 +374,26 @@ workflows:
           else
             echo "AppDelegate push token forwarding patch SKIPPED (IOS_PUSH_ENABLED != true), building a no-push TestFlight build"
           fi
+      - &step_ios_privacy_patch
+        name: Patch AppDelegate for app-switcher privacy (A122)
+        script: |
+          # Not gated on IOS_PUSH_ENABLED: this is independent of push. Adds a
+          # UIView cover on didEnterBackground so the iOS app-switcher card
+          # never shows live figures. The Swift lives in
+          # capacitor-spike/ios-privacy/AppDelegate.privacy.swift.txt. The cover
+          # is unconditional (native code cannot read the JS-side lock pref
+          # synchronously); the web layer's cover is the lock-gated one.
+          APPDELEGATE="$CM_BUILD_DIR/capacitor-spike/ios/App/App/AppDelegate.swift"
+          SNIPPET="$CM_BUILD_DIR/capacitor-spike/ios-privacy/AppDelegate.privacy.swift.txt"
+          if ! grep -q "sortedInstallPrivacyCover" "$APPDELEGATE"; then
+            # 1. call the installer at the top of didFinishLaunchingWithOptions
+            perl -0777 -pi -e 's/(didFinishLaunchingWithOptions[^\{]*\{\n)/$1        sortedInstallPrivacyCover()\n/' "$APPDELEGATE"
+            # 2. add the methods before the class's closing brace (last `}`)
+            SNIPPET_BODY="$(cat "$SNIPPET")" perl -0777 -pi -e 'BEGIN { $b = $ENV{SNIPPET_BODY} } s/\n\}\s*\z/\n$b\n}\n/' "$APPDELEGATE"
+          fi
+          # Fail loud if Capacitor's template shape changed and either edit no-opped.
+          grep -q "sortedInstallPrivacyCover()$" "$APPDELEGATE" || { echo "ERROR: privacy installer call not wired into AppDelegate.swift"; exit 1; }
+          grep -q "func sortedInstallPrivacyCover" "$APPDELEGATE" || { echo "ERROR: privacy cover methods not added to AppDelegate.swift"; exit 1; }
       - &step_build_number
         name: Set unique build number
         script: |
@@ -534,6 +554,7 @@ workflows:
       - *step_apple_signin
       - *step_push_entitlement
       - *step_appdelegate_patch
+      - *step_ios_privacy_patch
       - *step_build_number
       - *step_provisioning
       - *step_build_ipa

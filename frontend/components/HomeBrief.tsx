@@ -2,12 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle } from "lucide-react";
-import type { CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank, CalendarClock } from "lucide-react";
+import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
+import type { AllocationEditServices } from "@/components/AllocationEditForm";
+import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
+import type { PlanEasingServices } from "@/components/PlanEasingSheet";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
-import { useAuth } from "@/components/AuthProvider";
+import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/coverPlanDue";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -21,6 +25,12 @@ import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
+import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
+import { initialsOf } from "@/lib/displayName";
+
+const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
+const PlanEasingSheet = dynamic(() => import("@/components/PlanEasingSheet").then((m) => m.PlanEasingSheet));
+const AllocationPeriodReduceSheet = dynamic(() => import("@/components/AllocationPeriodReduceSheet").then((m) => m.AllocationPeriodReduceSheet));
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
 // teaser, not the live PaydayPlanCard, which already dismisses itself
@@ -55,6 +65,13 @@ function writeDismissedPaydayEntry(nextPayday: string): void {
 interface HomeBriefProps {
   items: CompanionItem[];
   firstName?: string;
+  /** D7: the full resolved name (profile.full_name preferred, session name
+   * as fallback, never an email or its local part — see lib/displayName.ts)
+   * used for the avatar's initials below. `firstName` above is already
+   * derived from this same resolution by the caller (HomePage.tsx); this
+   * is passed separately only because the avatar wants up to two initials,
+   * not just the first word. */
+  displayName?: string;
   safeToSpend: SafeToSpend | null;
   loading: boolean;
   syncing: boolean;
@@ -187,7 +204,7 @@ function moveMoney(value: number, hideNetWorth: boolean) {
   return hideNetWorth ? "£••••" : `£${Math.round(value).toLocaleString("en-GB")}`;
 }
 
-function MoveAccountIcon({ account, size = 28 }: { account: { provider: string; name: string }; size?: number }) {
+export function MoveAccountIcon({ account, size = 28 }: { account: { provider: string; name: string }; size?: number }) {
   const chip = resolveBankChip(account.provider);
   return (
     <BankBadge
@@ -310,12 +327,14 @@ function MoveSourcesDisclosure({
 function MovePaymentEvidence({
   bills,
   due,
+  dueRange,
   hideNetWorth,
   onSkip,
   skippingKey,
 }: {
   bills: readonly (PlanDestBill & { due?: string; overdue?: boolean })[];
   due: string;
+  dueRange?: DueRange;
   hideNetWorth: boolean;
   onSkip?: (bill: PlanDestBill) => void;
   skippingKey?: string | null;
@@ -357,7 +376,7 @@ function MovePaymentEvidence({
         <span className="min-w-0">
           <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {bills.length} payments</span>
           <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">
-            {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : `Due by ${due}`}
+            {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : coverPlanProtectsHeader(dueRange ?? { needs_by: due }, bills.length)}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
@@ -413,7 +432,7 @@ function MovePaymentEvidence({
 // carries each call site's OWN positioning (flex-in-row offset vs absolute
 // top-right), defaulting to the five sites that share the flex layout;
 // PaydayPlanSection's entry-row dismiss passes its own absolute positioning.
-function DismissChip({
+export function DismissChip({
   label,
   onClick,
   className = "flex-shrink-0 -mt-2 -mr-2",
@@ -440,22 +459,23 @@ function DismissChip({
 // reserves a consistent final band for decisions.  Keeping these classes
 // local means the eight existing card behaviours can share the grammar
 // without introducing another production component/API.
-const BRIEF_CARD = "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800";
+// G217: exported (no change to any value) so design previews build on the shipped tokens.
+export const BRIEF_CARD = "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800";
 const ACTION_DOCK = "-mx-4 -mb-4 mt-4 border-t border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/25";
-const ACTION_BASE = "inline-flex min-h-11 flex-1 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800";
+export const ACTION_BASE = "inline-flex min-h-11 flex-1 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800";
 const PRIMARY_ACTION = `${ACTION_BASE} bg-indigo-600 text-white [@media(hover:hover)]:hover:bg-indigo-700`;
-const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white text-slate-700 [@media(hover:hover)]:hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700`;
-const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
+export const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white text-slate-700 [@media(hover:hover)]:hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700`;
+export const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
 const EVIDENCE_BLOCK = "divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700/70 dark:border-slate-700/70";
 
-function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "penny" }) {
+export function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "penny" }) {
   const surface = tone === "penny"
     ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"
     : "bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300";
   return <span aria-hidden="true" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${surface}`}>{children}</span>;
 }
 
-function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
+export function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
   const labelClass = "text-[10px] font-semibold uppercase tracking-[0.05em]";
   if (tone === "positive") {
     return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{children}</span>;
@@ -646,7 +666,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
       <div className="flex items-start gap-3">
         <BriefIcon tone="penny"><CreditCard size={16} /></BriefIcon>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution}>Card detail</PennyKindLabel>
+          <PennyKindLabel hideAttribution={hideAttribution}>{item.kind_label ?? "Card detail"}</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             {item.headline}
           </p>
@@ -1209,7 +1229,7 @@ function overduePaymentCountCopy(count: number): string {
 
 /**
  * One source of truth for payment timing on both MoveCard render paths.
- * `plan_dest.needs_by` is the account's earliest event, so a mixed card
+ * `plan_dest.needs_by` is the account's earliest event (`needs_by_last` the latest), so a mixed card
  * must derive its upcoming deadline from the non-overdue bill rows instead.
  */
 function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[], covered: boolean) {
@@ -1244,7 +1264,7 @@ function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[
       : bills.length === 1
         ? `Payment due ${destination.needs_by}`
         : bills.length > 1
-          ? `${bills.length} payments due by ${destination.needs_by}`
+          ? coverPlanSummary(destination, bills.length)
           : "Move ready to review";
 
   const clearClause = !covered
@@ -1372,6 +1392,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         <MovePaymentEvidence
           bills={paymentBills}
           due={destination.needs_by}
+          dueRange={destination}
           hideNetWorth={hideNetWorth}
           onSkip={handleSkip}
           skippingKey={skippingKey}
@@ -1462,6 +1483,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
           <MovePaymentEvidence
             bills={paymentBills}
             due={item.plan_dest.needs_by}
+            dueRange={item.plan_dest}
             hideNetWorth={hideNetWorth}
             onSkip={handleSkip}
             skippingKey={skippingKey}
@@ -1761,6 +1783,265 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
   );
 }
 
+// ── G228: goal plan easing card ────────────────────────────────────────────
+// Kevin's pick 2026-10-07: variant A, its own "Goal plan" card below the
+// set-aside card, lighter again than the payment card: no shadow, neutral icon,
+// no Penny pill, never red, amber or a gradient. A plan is a goal the user set,
+// and easing it for one pay period changes the plan, not a bank payment, so the
+// card never offers a move and the item carries no action route. One action,
+// "Ease <plan> this period", opens the sheet. There is no undo: editing the
+// plan on Planning is the way back. A capped plan shows the server's reason and
+// no action; an eased plan shows one quiet line with the new figures and an
+// "Edit plan" link. Set-asides and plans never trade cash.
+export type PlanEasingCardServices = Pick<typeof api, "dismissTodayItem"> & PlanEasingServices;
+
+export interface PlanEasingCardProps {
+  item: CompanionItem;
+  hideNetWorth?: boolean;
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
+  onRefresh?: () => void | Promise<void>;
+  /** Injected by design previews; production uses the real api. */
+  services?: PlanEasingCardServices;
+  /** Design previews only: open the sheet on first render. */
+  initialSheetOpen?: boolean;
+}
+
+const PLAN_EASING_ACTION = `${SECONDARY_ACTION} text-center leading-tight`;
+const PLAN_EASING_LINK = "inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center rounded-lg px-3 text-sm font-semibold text-slate-700 underline underline-offset-4 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200 [@media(hover:hover)]:hover:bg-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700";
+
+function planTargetLabel(iso: string) {
+  return new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${iso.slice(0, 10)}T00:00:00Z`));
+}
+
+export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHomeDismiss, onRefresh, services = api, initialSheetOpen = false }: PlanEasingCardProps) {
+  const [hidden, setHidden] = useState(false);
+  const [open, setOpen] = useState(initialSheetOpen);
+  const data = item.plan_easing;
+  if (hidden || !data) return null;
+
+  const money = (v: number) => setAsideMoney(v, hideNetWorth);
+  const name = data.plan.name;
+  const target = planTargetLabel(data.target_date);
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      services.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
+  }
+
+  if (data.state === "deferred") {
+    const eased = data.eased_this_period ?? 0;
+    const later = data.later_slice;
+    const detail = data.eased_mode === "keep_amount"
+      ? `Later periods stay about ${later != null ? money(later) : "as they were"} and it should now land in ${target}.`
+      : `Later periods are about ${later != null ? money(later) : "a little higher"} and it should still land in ${target}.`;
+    return (
+      <div data-plan-easing="deferred" className="relative px-1 pr-12">
+        <div className="min-w-0 py-1">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money">{money(eased)}</span> this period.</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{detail}</p>
+        </div>
+        <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
+        <DismissChip label={`Dismiss ${name} note`} onClick={handleDismiss} className="absolute top-1 right-0 z-10" />
+      </div>
+    );
+  }
+
+  const capped = data.state === "capped";
+
+  return (
+    <div data-plan-easing={capped ? "capped" : "eligible"} className={`${BRIEF_CARD} !shadow-none p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><CalendarClock size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel>Goal plan</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+            {capped ? `Easing is held back for ${name}` : "Cash looks short this period"}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2">
+        {capped ? (
+          <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+            {data.cap_reason} To stop a plan drifting, further easing is held back for now. Its usual amount or date can be changed on Planning.
+          </p>
+        ) : (
+          <>
+            <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+              Easing {name} by up to <span className="money">{money(data.max_easing)}</span> for this pay period could help, and the plan catches up later. You choose whether to keep the date or the usual amount.
+            </p>
+            <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+              No other account looks able to spare it. This changes the plan. No money is moved.
+            </p>
+          </>
+        )}
+      </div>
+      {!capped && (
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          <button type="button" onClick={() => setOpen(true)} className={PLAN_EASING_ACTION}>Ease {name} this period</button>
+        </div>
+      )}
+      <DismissChip label={`Dismiss ${name} suggestion`} onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      {open && (
+        <PlanEasingSheet
+          planId={data.plan.id}
+          planName={name}
+          usualSlice={data.usual_slice}
+          targetDate={data.target_date}
+          easedCount12m={data.eased_count_12m}
+          suggestedReduce={Math.min(data.max_easing, Math.max(5, Math.ceil(data.gap / 5) * 5))}
+          services={services}
+          onClose={() => setOpen(false)}
+          onSaved={async () => { setOpen(false); await onRefresh?.(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── G217: set-aside (allocation) shortfall card ────────────────────────────
+// Kevin's pick 2026-10-06: variant A, the move card's anatomy but lighter. A
+// set-aside the user chose is not a payment at risk, so: neutral icon, an ink
+// figure in mono, no shadow and no Penny pill. No red, no amber, no gradient.
+// The app never moves money, so a possible move is a recommendation sentence
+// built from data.moves ("You could move £X from <account>, which looks able
+// to spare it"), never a button, and the item carries no action route. The one
+// action is Adjust set-aside, full width, which opens the sheet that reduces it
+// for THIS pay period only, prefilled with the amount that clears the gap; the
+// recurring amount stays behind "Change every period". With no safe source the
+// card says so instead of making the recommendation.
+export type AllocationShortfallServices = Pick<typeof api, "listAllocations" | "accounts" | "dismissTodayItem"> & AllocationEditServices & AllocationPeriodReduceServices;
+
+function setAsideMoney(value: number, hideNetWorth: boolean) {
+  if (hideNetWorth) return "£••••";
+  const whole = Number.isInteger(value);
+  return `£${value.toLocaleString("en-GB", { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
+export interface AllocationShortfallCardProps {
+  item: CompanionItem;
+  hideNetWorth?: boolean;
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
+  onRefresh?: () => void | Promise<void>;
+  /** Injected by design previews; production uses the real api. */
+  services?: AllocationShortfallServices;
+}
+
+const SET_ASIDE_ACTION = `${SECONDARY_ACTION} text-center leading-tight`;
+
+export function AllocationShortfallCard({ item, hideNetWorth = false, dismissible, onHomeDismiss, onRefresh, services = api }: AllocationShortfallCardProps) {
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [editing, setEditing] = useState<{ allocation: Allocation; accounts: Account[]; mode: "period" | "every" } | null>(null);
+  const data = item.allocation_shortfall;
+  if (hidden || !data) return null;
+
+  const { allocation, paying_account: paying } = data;
+  const hasSource = data.moves.length > 0;
+  const moveNames = data.moves.map(m => m.move_map.from.name);
+  const moveTotal = data.moves.reduce((sum, m) => sum + m.amount, 0);
+  const moveWho = moveNames.length <= 1 ? moveNames[0] : moveNames.length === 2 ? `${moveNames[0]} and ${moveNames[1]}` : `${moveNames.length} accounts`;
+  const money = (v: number) => setAsideMoney(v, hideNetWorth);
+  const payer = data.estimated ? `Paid from ${paying.name}, based on recent transfers.` : `Paid from ${paying.name}.`;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      services.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
+  }
+
+  async function openReduce() {
+    if (busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      const [allocations, accounts] = await Promise.all([services.listAllocations(), services.accounts()]);
+      const found = allocations.find(a => a.id === allocation.id);
+      if (!found) throw new Error("allocation not found");
+      setEditing({ allocation: found, accounts, mode: "period" });
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div data-allocation-card="shortfall" data-move-source={hasSource ? "available" : "none"} className={`${BRIEF_CARD} !shadow-none p-4`}>
+      <div className="flex items-start gap-3 pr-9">
+        <BriefIcon><PiggyBank size={16} /></BriefIcon>
+        <div className="min-w-0 flex-1">
+          <KindLabel>Set-aside</KindLabel>
+          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{item.headline}</p>
+        </div>
+      </div>
+      <div className="mt-3">
+        <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white">{money(data.shortfall)}</p>
+        <p className="text-[12px] text-slate-500 dark:text-slate-400">short this period</p>
+      </div>
+      <div className="mt-2">
+        <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+          {data.other_allocation_count === 0 && <><span className="money">{money(allocation.period_amount)}</span> set aside this period. </>}
+          {payer}
+        </p>
+        <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+          {hasSource ? (
+            <>You could move <span className="money">{money(moveTotal)}</span> from {moveWho}, which {moveNames.length > 1 ? "look" : "looks"} able to spare it.</>
+          ) : (
+            <>No other account can safely spare <span className="money">{money(data.shortfall)}</span> right now.</>
+          )}
+        </p>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-2">
+        <button type="button" onClick={openReduce} disabled={busy} className={SET_ASIDE_ACTION}>Adjust set-aside</button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+          Couldn&apos;t open that set-aside. Try again.
+        </p>
+      )}
+      <DismissChip label={`Dismiss ${allocation.name} set-aside note`} onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      {editing?.mode === "period" && (
+        <AllocationPeriodReduceSheet
+          allocation={editing.allocation}
+          suggestedAmount={allocation.suggested_amount}
+          services={services}
+          onClose={() => setEditing(null)}
+          onSaved={async () => { setEditing(null); setHidden(true); await onRefresh?.(); }}
+          onChangeEvery={() => setEditing({ ...editing, mode: "every" })}
+        />
+      )}
+      {editing?.mode === "every" && (
+        <AllocationSheet
+          allocation={editing.allocation}
+          accounts={editing.accounts}
+          periodStart={new Date(`${editing.allocation.period_start}T00:00:00`)}
+          services={services}
+          suggestedSourceId={data.estimated ? paying.account_id : null}
+          onClose={() => setEditing(null)}
+          onSaved={async () => { setEditing(null); await onRefresh?.(); }}
+          onDeleted={async () => { setEditing(null); await onRefresh?.(); }}
+        />
+      )}
+    </div>
+  );
+}
+
 /**
  * Home-only dismissal — hydrates the localStorage store (lib/homeDismissedAdvice.ts)
  * on mount, prunes stale/expired entries against the live (unfiltered) feed
@@ -1981,7 +2262,10 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
     }
 
     let fallbackText: string;
-    if (!safeToSpend || safeToSpend.status === "insufficient_data") {
+    if (safeToSpend && safeToSpend.status === "ok" && safeToSpend.calculation_status === "syncing") {
+      // G210: no verdict while a first sync runs, so no headroom claim.
+      fallbackText = "Your first sync is still running. I will have a read on your money once it lands.";
+    } else if (!safeToSpend || safeToSpend.status === "insufficient_data") {
       fallbackText = "Your Safe to Spend figure isn't ready yet. I'm still mapping the bills, so check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
       fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";
@@ -1998,6 +2282,8 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
       // instead of sending the user hunting for a card that doesn't exist.
       fallbackText = safeToSpend.short_reason === "cards_unconfirmed"
         ? "Nothing new needs you. A card repayment still needs confirming in Safe to Spend below."
+        : isPlansOnlyShort(safeToSpend)
+        ? "Nothing new needs you. Your bills are covered, you're only short after the plans and envelopes you set aside, shown in Safe to Spend below."
         : "Nothing new needs you. You're short this pay period, the gap is shown in Safe to Spend below.";
     } else {
       fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills, enjoy it.";
@@ -2035,7 +2321,11 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   // list/skip affordance never falls into otherItems' bare-paragraph
   // rendering (owner, 2026-08-27).
   const unfundedMoveItems = items.filter(i => i.type === "unfunded_move");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
+  // G217: set-aside shortfalls render AFTER every payment move card (below).
+  const allocationShortfallItems = items.filter(i => i.type === "allocation_shortfall");
+  // G228: a goal plan the user may ease renders after the set-aside card.
+  const planEasingItems = items.filter(i => i.type === "plan_easing");
+  const otherItems = items.filter(i => i.type !== "allocation_shortfall" && i.type !== "plan_easing" && i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -2132,6 +2422,18 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {moveItems.map(item => (
           <MoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
         ))}
+
+        {/* G217: a set-aside that leaves an account short. Ranks below every
+            payment move card and carries less weight (see its docstring). */}
+        {allocationShortfallItems.map(item => (
+          <AllocationShortfallCard key={item.id} item={item} hideNetWorth={hideNetWorth} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
+        ))}
+
+        {/* G228: a goal plan that may be eased this period. Ranks below the
+            set-aside card and every payment card. */}
+        {planEasingItems.map(item => (
+          <PlanEasingCard key={item.id} item={item} hideNetWorth={hideNetWorth} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
+        ))}
     </div>
   );
 }
@@ -2171,6 +2473,8 @@ const CLEARED_TYPE_LABEL: Record<string, string> = {
   needle: "last month's review",
   payday_plan: "your payday plan",
   unfunded_move: "a planned move",
+  allocation_shortfall: "a set-aside",
+  plan_easing: "a goal plan"
 };
 
 // The "everything's hidden, but not actually done" pointer — see the
@@ -2216,24 +2520,18 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
-  const { user } = useAuth();
   const name = firstName || "there";
 
-  // Avatar initials — derived from the full account name (not just firstName),
-  // up to two initials from the first two words. Falls back to a generic
-  // person icon when there's no name to work with yet.
-  const avatarInitials = (() => {
-    const full = user?.name?.trim();
-    if (!full) return null;
-    const words = full.split(/\s+/).filter(Boolean);
-    const initials = words
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? "")
-      .join("");
-    return initials || null;
-  })();
+  // Avatar initials — derived from the full resolved name (not just
+  // firstName), up to two initials from the first two words. Falls back to
+  // a generic person icon when there's no real name to work with yet.
+  // D7: this used to read the raw session name (`user?.name`) directly,
+  // which is not reliable — see lib/displayName.ts for why — so it now
+  // reads the same profile-preferred `displayName` the caller already
+  // resolved for the greeting above.
+  const avatarInitials = initialsOf(displayName) ?? null;
 
   // Hydration guard: render a neutral greeting on first paint to avoid SSR/client
   // mismatch from new Date().getHours(), then swap to the time-aware version after mount.

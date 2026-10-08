@@ -5,7 +5,7 @@ import logging
 import re
 from calendar import monthrange
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from datetime import date as _date
 from typing import List
 
@@ -20,7 +20,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY
+from app.core.build import engine_build
+from app.core.config import OPENROUTER_API_KEY, mask_email
 from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
 from app.core import timeutil
@@ -35,7 +36,7 @@ from app.db.collections import (
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
-from app.services.sync_freshness import last_bank_sync
+from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.categorisation import (
     series_key, has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
@@ -46,6 +47,15 @@ from app.services.categories import get_category_kinds, is_non_spend, is_spend, 
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
 from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
+from app.services.income_payer import (
+    payer_key as _payer_key,
+    resolve_confirmed_alias as _resolve_confirmed_alias,
+    payer_tokens as _payer_tokens,
+    deterministic_match as _income_deterministic_match,
+    stable_stream_id as _stable_stream_id,
+    is_lapsed as _income_is_lapsed,
+    missed_cycles as _income_missed_cycles,
+)
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -134,7 +144,27 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # before this exists has no such field on any entry, so `income_credit_ok`
 # can't recognise a detected series as standing in for a confirmed one under
 # a changed payroll reference until the doc is recomputed under this version.
-PATTERNS_VERSION = 10
+# v11 (G157): income is now grouped by payer identity (`key` on a
+# recurring_income entry is a payer_key, not a raw series_key), and
+# `confirmed_alias` is now stamped by payer-identity token match rather
+# than date/amount proximity, replacing G174's dedupe heuristic. Entries
+# also carry `lapsed`/`missed_cycles`. A cache doc computed before this
+# version still has the OLD raw-key-shaped `key`s and no `lapsed` field, so
+# it must be recomputed rather than read as-is.
+# v12 (G157 review fix, blocker 2): recurring_income entries also carry
+# `account_changed_from_usual` (True when a deterministically-attached
+# credit landed in a different account than the confirmed stream's usual
+# one). A cache doc computed before this version has no such field.
+# v13 (G157 review fix, account-moved ask): recurring_income entries also
+# carry `usual_account_id` (only set alongside `account_changed_from_usual:
+# True`) so the companion ask pipeline can name both accounts by display
+# name without re-deriving the hint itself. A cache doc computed before
+# this version has no such field, so a moved salary shows no "usual"
+# account until recomputed. v14 adds `display_name` to recurring-income
+# patterns. Unlike `key`, that field is presentation-only and is derived
+# from an original transaction descriptor before payer-key normalisation;
+# older cache docs have no safe way to recover it from a collapsed payer key.
+PATTERNS_VERSION = 14
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -146,6 +176,32 @@ from app.services.income import (
     schedule_label as _schedule_label_svc,
     income_merchant_label,
 )
+
+
+def _income_display_name(items: list[dict], fallback: str | None = None) -> str | None:
+    """Return a display label from original bank text, never a payer key.
+
+    Income `key` values are opaque payer identities and must remain that way
+    for overrides, dismissals and confirmed-stream aliases. Pick the newest
+    original merchant/description instead. A confirmed fallback can have no
+    matching in-window transaction; its stored raw stream key is the only
+    original descriptor available in that case, so callers may supply it as
+    `fallback`. Returning None is intentional when neither exists: do not
+    pretend a collapsed payer key can be humanised back into a merchant.
+    """
+    def _source_date(txn: dict) -> datetime:
+        value = txn.get("date")
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, _date):
+            return datetime.combine(value, datetime.min.time())
+        return datetime.min
+
+    for txn in reversed(sorted(items, key=_source_date)):
+        raw = str(txn.get("merchant_name") or txn.get("description") or "").strip()
+        if raw:
+            return income_merchant_label(raw)
+    return income_merchant_label(fallback) if fallback else None
 
 # Friendly display labels for upstream bank provider codes (uppercase keys).
 # Any code not in the map is title-cased by default (e.g. "MONZO" → "Monzo").
@@ -737,7 +793,12 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
     buckets: dict[str, list] = defaultdict(list)
     date_merged_keys: set[str] = set()
     for t in txns:
-        key = series_key(t)
+        # G157: income groups by PAYER identity, not the raw statement key
+        # -- a payroll reference change must never fork one salary into two
+        # series (see app/services/income_payer.py's module docstring).
+        # `series_key` is untouched and still used for every non-income
+        # bucket (bills/spend), unaffected by this branch.
+        key = _payer_key(t) if is_income else series_key(t)
         if not key:
             continue
         buckets[key].append(t)
@@ -913,8 +974,17 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         # since only the monthly branch of `_occurrences` ever reads it.
         monthly_anchor_desc = None
 
-        # Confirmed income stream: use stored schedule directly (wins over all interval logic)
-        _confirmed_sched = (confirmed_income or {}).get(key, {}).get("schedule") if is_income else None
+        # Confirmed income stream: use stored schedule directly (wins over
+        # all interval logic). `confirmed_income` is still keyed on the OLD
+        # raw `series_key`-shaped text stored in preferences (this module
+        # never rewrites it -- see income_payer.py's module docstring), so
+        # a payer_key-bucketed `key` needs `resolve_confirmed_alias` to find
+        # it by token identity rather than a literal dict hit.
+        _confirmed_sched = None
+        if is_income and confirmed_income:
+            _resolved_conf = _resolve_confirmed_alias(confirmed_income, key)
+            if _resolved_conf:
+                _confirmed_sched = _resolved_conf[1].get("schedule")
         if _confirmed_sched:
             from app.services.income import next_occurrence as _next_occ
             next_date = _next_occ(_confirmed_sched, _today)
@@ -1002,6 +1072,10 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         attributed_acct = _majority_landing_account(items)
         results.append({
             "key":          key,
+            # `key` is the opaque payer identity. Preserve it for every
+            # action contract, but retain a label from the original bank
+            # descriptor for UI consumers before the identity is serialised.
+            "display_name": _income_display_name(items) if is_income else None,
             "avg_interval": round(avg_interval, 1),
             "avg_amount":   round(avg_amount, 2),
             "last_date":    last_date,
@@ -1081,28 +1155,71 @@ def _confirmed_income_fallback(
     today: _date,
     credits_by_key: dict[str, list] | None = None,
     latest_credit_by_key: dict[str, dict] | None = None,
+    unattributed_credits: list[dict] | None = None,
+    attachments_log: list[dict] | None = None,
 ) -> list[dict]:
     """G158: a stream the user explicitly confirmed must keep forecasting even
     when `_detect_recurring`'s own window/floor loses it -- e.g. the flat
     90-day income window sliding past an older occurrence the day before
-    payday, or a payroll reference change splitting one salary across two
-    series keys, each alone under the 2-occurrence floor (see line 709). Pure
-    and Mongo-free so it is unit-testable on its own: takes the ALREADY
-    dismissed-filtered `recurring_income` list, the confirmed-stream map
-    keyed the same way `_detect_recurring`'s `confirmed_income` param is
-    (see the `_confirmed_income_map` build above), the dismissed-key set, and
-    `today`. `credits_by_key` (series_key -> matching credit txns, same
-    grouping `_detect_recurring` itself buckets by) is optional and only
-    feeds the synthesised `occurrences`/`amounts_recent` fields; omit it (as
-    the unit tests below do) and those come back empty/zero.
+    payday, or a payroll reference change so different from the confirmed
+    stream's own raw key that even `resolve_confirmed_alias`'s token-set
+    match can't bridge it. Pure and Mongo-free so it is unit-testable on its
+    own: takes the ALREADY dismissed-filtered `recurring_income` list, the
+    confirmed-stream map keyed the same way `_detect_recurring`'s
+    `confirmed_income` param is (see the `_confirmed_income_map` build
+    above), the dismissed-key set, and `today`. `credits_by_key` (series_key
+    -> matching credit txns, same grouping `_detect_recurring` itself
+    buckets by) is optional and only feeds the synthesised `occurrences`/
+    `amounts_recent` fields; omit it (as the unit tests below do) and those
+    come back empty/zero.
 
     `latest_credit_by_key` (series_key -> the single newest credit txn under
     that key, from whatever wider window the caller already has loaded, e.g.
-    the 180-day `credits_180`) backs up `account_id` attribution (below) when
-    `credits_by_key` holds nothing for a key -- a confirmed stream can be
-    real and current while still having no credit inside the narrower
-    matching window (G160). Optional; omit it and that fallback step is
-    simply unavailable, same as `credits_by_key`.
+    the 180-day `credits_180`) is a CANDIDATE for `account_id` attribution
+    (below) when `credits_by_key` holds nothing for a key -- a confirmed
+    stream can be real and current while still having no credit inside the
+    narrower matching window. G157 review fix (blocker 2, independent
+    review of a165200d): this candidate is no longer trusted on key
+    equality alone (the original G160 shape) -- it is offered to the SAME
+    evidence-gated `deterministic_match` step build step 2/3 uses, so
+    attribution is always per matched credit, never inferred merely because
+    the key matches. Its own account is kept as a hint so a genuine account
+    CHANGE (the final attribution lands somewhere else) can be flagged via
+    `account_changed_from_usual` rather than silently accepted. Optional;
+    omit it and that candidate is simply unavailable, same as
+    `credits_by_key`.
+
+    G157 replaces the old G174 heuristic (a detected entry landing within 3
+    days AND within 15% of amount was treated as the same payer and
+    suppressed) with a PAYER-IDENTITY alias pass: any `recurring_income`
+    entry `resolve_confirmed_alias` recognises as this stream by token
+    identity gets `confirmed_alias` stamped on it (in place, so the caller's
+    own `recurring_income` list carries the stamp too) and the stream is
+    skipped here rather than double-synthesised. Date/amount proximity alone
+    is no longer evidence of a shared payer -- see `deterministic_match`'s
+    docstring for why (the G174 couple-on-similar-paydays failure).
+
+    G157 build step 2/3: when a confirmed stream has NO evidence at all (no
+    in-window match, no wider-window credit, no payer-identity alias),
+    `unattributed_credits` (income-sized credits the caller has already
+    established are not part of any OTHER detected/confirmed series) is
+    scanned via `deterministic_match` for one that plausibly belongs to this
+    stream's payer. A CONFIDENT match attaches the credit (recorded onto
+    `attachments_log`, which the caller persists to
+    `income_payer_attachments_col`); an AMBIGUOUS one is recorded on
+    `attachments_log` too but never attached here -- the caller routes it to
+    the judge model as a suggestion the user confirms, exactly like every
+    other evidence-gated engine suggestion in this codebase (never an
+    unexplained auto-decision). Both params are optional; omit them and this
+    step is simply unavailable, same as `credits_by_key`.
+
+    G157 build step 4: every synthesised entry carries `missed_cycles`
+    (float) and `lapsed` (bool, `missed_cycles` at least 2 full expected
+    cycles for a monthly stream, scaled for other cadences -- see
+    `app/services.income_payer.is_lapsed`) instead of ever dropping to zero.
+    A lapsed stream still forecasts at its confirmed cadence/amount; callers
+    (the companion ask pipeline) use `lapsed` to raise the payday-
+    confirmation ask, not to hide the forecast.
 
     Returns entries in the SAME dict shape `_detect_recurring` produces for
     an income series (see its `results.append` above), so a synthesised
@@ -1115,7 +1232,67 @@ def _confirmed_income_fallback(
     """
     credits_by_key = credits_by_key or {}
     latest_credit_by_key = latest_credit_by_key or {}
-    detected_keys = {r["key"] for r in recurring_income}
+    unattributed_credits = list(unattributed_credits or [])
+
+    # G157: payer-identity alias pass, replacing the old date/amount dedupe
+    # heuristic. Mutates the `recurring_income` dicts in place (stamping
+    # `confirmed_alias`) exactly as the old heuristic did, so every existing
+    # caller/consumer of that field (`income_credit_ok`, `_late_reliable_income`)
+    # is unaffected by this rewrite.
+    #
+    # Two sets: `aliased_raw_keys` is first-wins -- only the raw key that
+    # actually won the `confirmed_alias` STAMP on a given detected entry
+    # (one entry, one stamp). `covered_raw_keys` is broader: every raw key
+    # that token-matches SOME detected entry, including a second confirmed
+    # stream whose own raw text happens to tokenise identically to the
+    # winner's (a pathological duplicate-confirm case, G174 finding 2) --
+    # that second stream is still the SAME real-world payer, already
+    # accounted for by the winner's synthesis-or-detection, so its own
+    # synthesis must be suppressed too even though it holds no stamp.
+    aliased_raw_keys: set[str] = set()
+    covered_raw_keys: set[str] = set()
+    for r in recurring_income:
+        _existing_alias = r.get("confirmed_alias")
+        if _existing_alias:
+            aliased_raw_keys.add(_existing_alias)
+            covered_raw_keys.add(_existing_alias)
+            continue
+        _resolved = _resolve_confirmed_alias(confirmed_income_map, r.get("key", ""))
+        if _resolved is None:
+            continue
+        raw_key, _stream = _resolved
+        covered_raw_keys.add(raw_key)
+        # First-wins, same rule the old heuristic used (G174 finding 2):
+        # once a raw key is claimed by one detected entry, a second entry
+        # that also happens to alias-match logs a collision rather than
+        # re-stamping (astronomically unlikely with exact token-set
+        # matching, kept as a defensive guard, not a load-bearing path).
+        if raw_key in aliased_raw_keys:
+            logger.warning(
+                "G157 confirmed-income alias collision: stream %s already "
+                "claimed by another detected entry, leaving entry %s unaliased",
+                _stable_stream_id(raw_key), _stable_stream_id(r.get("key", "")),
+            )
+            continue
+        r["confirmed_alias"] = raw_key
+        aliased_raw_keys.add(raw_key)
+        logger.info(
+            "G157 confirmed-income alias: detected entry (series %s) recognised "
+            "as confirmed stream %s by payer identity, not date/amount proximity",
+            _stable_stream_id(r.get("key", "")), _stable_stream_id(raw_key),
+        )
+
+    # Pathological duplicate-confirm case (G174 finding 2): a second raw key
+    # not itself resolved above, but whose tokens match a COVERED key's
+    # tokens, is the same payer already accounted for -- cover it too.
+    for _key, _ in confirmed_income_map.items():
+        if _key == "manual" or _key in covered_raw_keys:
+            continue
+        _key_tokens = _payer_tokens(_key)
+        if _key_tokens and any(_payer_tokens(_ck) == _key_tokens for _ck in covered_raw_keys):
+            covered_raw_keys.add(_key)
+
+    used_candidate_ids: set = set()
     fallback: list[dict] = []
     for key, stream in confirmed_income_map.items():
         # `manual` has no transaction history to key off and today's
@@ -1123,7 +1300,7 @@ def _confirmed_income_fallback(
         # out of scope here, see G158's own note.
         if key == "manual" or stream.get("status") != "confirmed":
             continue
-        if key in detected_keys or key in dismissed:
+        if key in covered_raw_keys or key in dismissed:
             continue
         schedule = stream.get("schedule")
         if not schedule:
@@ -1138,9 +1315,9 @@ def _confirmed_income_fallback(
         avg_amount = stream.get("avg_amount")
         if avg_amount is None:
             continue
-        # G160: attribute the synthesised entry to a landing account with
-        # the same precedence `income_credit_ok`'s per-account check needs
-        # to actually see it -- otherwise it fails attribution on the very
+        # Attribute the synthesised entry to a landing account with the
+        # same precedence `income_credit_ok`'s per-account check needs to
+        # actually see it -- otherwise it fails attribution on the very
         # first line, before it ever reaches the confirmed-stream clause,
         # and a confirmed salary is silently invisible to every per-account
         # simulation (cover plan, at-risk badge, source walks) even though
@@ -1149,103 +1326,79 @@ def _confirmed_income_fallback(
         #      same rule `_majority_landing_account` gives a detected
         #      series -- the strongest evidence, real transactions inside
         #      the window this fallback is actually forecasting from.
-        #   2. No in-window match: the most recent credit under this key
-        #      from the wider window the caller loaded anyway (see
-        #      `latest_credit_by_key`'s docstring) -- still real evidence,
-        #      just older than the window `credits_by_key` was built from.
-        #   3. Neither: None, same as before this fix -- a per-account
-        #      simulation correctly refuses to credit an account it has no
-        #      evidence for.
-        #
-        # Computed BEFORE the dedupe/alias decision below (moved there by
-        # the G174 review) so the alias guard can compare against the exact
-        # same account the synthesis path would otherwise attribute this
-        # confirmed stream to -- the two must never disagree about which
-        # account this confirmed stream belongs to.
+        #   2. No in-window match: fall through to the G157 deterministic-
+        #      attach step below (payer identity, evidence-gated) -- which
+        #      now ALSO considers the wider-window "latest credit under this
+        #      exact key" candidate (`latest_credit_by_key`) as just one
+        #      more candidate to run through the SAME evidence gate, not a
+        #      blindly-trusted attribution (G157 review fix, blocker 2: the
+        #      original G160 shape set `attributed_acct` from this
+        #      candidate's account with no amount/cadence/account check at
+        #      all, which meant this branch was already non-None by the
+        #      time the deterministic-attach step below ran, so that step
+        #      never even fired for a stream with a stale credit under its
+        #      old key).
         matching = sorted(credits_by_key.get(key, []), key=lambda t: t["date"])
         attributed_acct = _majority_landing_account(matching)
-        if attributed_acct is None:
-            _latest = latest_credit_by_key.get(key)
-            if _latest is not None:
-                attributed_acct = str(_latest.get("account_id", "") or "") or None
 
-        # G158 2026-09-24 review: a payroll reference change means the SAME
-        # payer can accrue enough fresh occurrences under the NEW key to
-        # clear `_detect_recurring`'s own floor before the confirmed
-        # stream's owner ever re-confirms under it (see G157). Without this
-        # guard, the confirmed key (old reference) and the newly-detected
-        # key (new reference) both end up in `recurring_income`, doubling
-        # the same salary in `upcoming_income`/`payday_income`. Suppress the
-        # synthesis when an already-detected entry lands within 3 days AND
-        # within 15% of amount -- close enough to be the same payer, not a
-        # coincidence -- and leave the DETECTED entry (real transaction
-        # evidence) in place rather than the synthesised one.
-        _dup = next(
-            (
-                r for r in recurring_income
-                if r.get("next_date") is not None
-                and abs((r["next_date"] - next_date).days) <= 3
-                and _within_pct_tolerance(float(r.get("avg_amount") or 0), float(avg_amount))
-            ),
-            None,
+        # Real evidence of where this stream's payer has USUALLY landed --
+        # kept only as a HINT for the account-change check below, never
+        # used to set `attributed_acct` directly.
+        _latest_under_key = latest_credit_by_key.get(key)
+        _usual_account_hint = (
+            str(_latest_under_key.get("account_id", "") or "") or None
+            if _latest_under_key is not None else None
         )
-        if _dup is not None:
-            _dup_acct = str(_dup.get("account_id") or "") or None
-            # G174 review, finding 1: date+amount closeness alone is not
-            # enough to call this the SAME payer -- a partner's similarly-
-            # sized salary landing on a similar date, but into a DIFFERENT
-            # account, must never be aliased or suppressed as a duplicate.
-            # None-permissive: when either side has no known account (no
-            # matched credits to attribute from), there is no account
-            # evidence to contradict, so the date/amount closeness stands
-            # alone, same as before this guard.
-            if attributed_acct is not None and _dup_acct is not None and _dup_acct != attributed_acct:
-                logger.info(
-                    "G174 confirmed-income alias skipped for %r: detected entry %r "
-                    "matches on date/amount but landed in a different account "
-                    "(%r vs %r) -- not the same payer, synthesising both",
-                    key, _dup.get("key"), _dup_acct, attributed_acct,
-                )
-                # Fall through: NOT a duplicate, so the confirmed stream is
-                # synthesised normally below rather than suppressed.
-            else:
-                # G174: stamp the confirmed key onto the detected entry it
-                # defers to, so `income_credit_ok` (and everything
-                # downstream that reads its output -- `_serialise_pattern`,
-                # `upcoming_income`, `payday_income`) can recognise this
-                # detected series as the SAME payer as the confirmed stream,
-                # under its new reference, and accept it as confirmed rather
-                # than requiring it to independently clear
-                # `_income_pattern_reliable`'s 3-occurrence floor. Without
-                # this, a fresh payroll-reference change leaves the
-                # confirmed salary invisible to income_credit_ok for its
-                # first two occurrences, and a per-account plan can pick an
-                # unrelated, merely-reliable candidate (e.g. a small
-                # standing order) as "the pay" instead. See G174's board
-                # note for the exact failure.
-                #
-                # G174 review, finding 2: a pathological doc where TWO
-                # confirmed streams both land within tolerance of the SAME
-                # detected entry must not let the second overwrite the
-                # first's alias -- keep the first, log both keys so the
-                # collision is visible rather than silently losing one.
-                _existing_alias = _dup.get("confirmed_alias")
-                if _existing_alias is not None and _existing_alias != key:
-                    logger.warning(
-                        "G174 confirmed-income alias collision for detected entry %r: "
-                        "already aliased to %r, leaving that in place rather than "
-                        "overwriting with second matching confirmed key %r",
-                        _dup.get("key"), _existing_alias, key,
+
+        # G157 build step 2/3: still no in-window evidence -- scan the
+        # wider-window candidate (if any) plus whatever unattributed
+        # income-sized credits the caller found, for a deterministic payer
+        # match. Only ever attaches on "confident"; an "ambiguous" verdict
+        # is logged for the caller's judge step and left unattached.
+        account_changed_from_usual = False
+        if not matching and attributed_acct is None:
+            _candidate_pool = list(unattributed_credits)
+            if _latest_under_key is not None:
+                _candidate_pool = [_latest_under_key] + _candidate_pool
+            for cand in _candidate_pool:
+                cand_id = str(cand.get("_id") or id(cand))
+                if cand_id in used_candidate_ids:
+                    continue
+                verdict = _income_deterministic_match(key, stream, cand, today, stream_account_id=None)
+                if verdict is None:
+                    continue
+                if attachments_log is not None:
+                    attachments_log.append({
+                        "stream_id": _stable_stream_id(key),
+                        "credit_id": cand_id,
+                        "decision": verdict["decision"],
+                        "evidence": verdict["evidence"],
+                    })
+                if verdict["decision"] == "confident":
+                    matching = [cand]
+                    attributed_acct = str(cand.get("account_id") or "") or None
+                    used_candidate_ids.add(cand_id)
+                    logger.info(
+                        "G157 deterministic payer attach: stream %s <- credit %s "
+                        "(confident, evidence %r)",
+                        _stable_stream_id(key), cand_id, verdict["evidence"],
                     )
-                else:
-                    _dup["confirmed_alias"] = key
-                logger.info(
-                    "G158 confirmed-income fallback suppressed for %r: already detected "
-                    "as %r (next_date within 3 days, amount within 15%%) -- not "
-                    "double-counting the same payer under two series keys",
-                    key, _dup.get("key"),
-                )
-                continue
+                    break
+            # G157 review fix (blocker 2): the credit that ends up attached
+            # (via ANY candidate that cleared the evidence gate, including
+            # `_latest_under_key` itself) may land in a DIFFERENT account
+            # than this stream has usually been seen in -- that is exactly
+            # "your pay seems to land somewhere new", never something to
+            # silently infer. When the same credit IS the usual-account
+            # hint (the ordinary case: the stale credit under the exact old
+            # key clears the gate on its own evidence), the two trivially
+            # agree and nothing is flagged.
+            if (
+                attributed_acct is not None
+                and _usual_account_hint is not None
+                and attributed_acct != _usual_account_hint
+            ):
+                account_changed_from_usual = True
         last_date = None
         last_seen = stream.get("last_seen")
         if last_seen:
@@ -1253,11 +1406,29 @@ def _confirmed_income_fallback(
                 last_date = _date.fromisoformat(str(last_seen)[:10])
             except ValueError:
                 last_date = None
+        # G157 build step 4: missed-cycles lapse marker, replacing any fixed
+        # day-count cutoff. `last_date` here is the best evidence of "when
+        # did a credit last land" this function has -- the most recent
+        # in-window/wider-window/deterministically-attached match's date if
+        # any, else the stream's own stored `last_seen`.
+        _last_credit_date = (matching[-1]["date"] if matching else None)
+        if _last_credit_date is not None and hasattr(_last_credit_date, "date"):
+            _last_credit_date = _last_credit_date.date()
+        if _last_credit_date is None:
+            _last_credit_date = last_date
+        lapsed = _income_is_lapsed(schedule, _last_credit_date, today)
+        cycles_missed = _income_missed_cycles(schedule, _last_credit_date, today)
         amounts_recent = [
             round(abs(float(_t.get("amount", 0))), 2) for _t in matching[-3:]
         ]
         fallback.append({
             "key":          key,
+            # A legacy confirmed key is original bank text and can be a
+            # last-resort label. A newly-confirmed payer key contains `::`;
+            # never present that collapsed identity as if it were a merchant.
+            "display_name": _income_display_name(
+                matching, fallback=key if "::" not in key else None,
+            ),
             "avg_interval": None,
             "avg_amount":   round(float(avg_amount), 2),
             "last_date":    last_date,
@@ -1276,8 +1447,104 @@ def _confirmed_income_fallback(
                 for _t in matching
             ],
             "source": "confirmed",
+            "lapsed": lapsed,
+            "missed_cycles": round(cycles_missed, 2),
+            # G157 review fix (blocker 2): True when the credit actually
+            # attached (build step 2's deterministic match) landed in a
+            # DIFFERENT account than this stream's own usual one -- the
+            # companion ask pipeline raises "your pay seems to land
+            # somewhere new" for this, rather than the old G160 shape's
+            # silent account inference.
+            "account_changed_from_usual": account_changed_from_usual,
+            # The usual account itself, ONLY when `account_changed_from_
+            # usual` is True (None otherwise -- nothing to compare) -- lets
+            # the companion ask name both accounts by display name without
+            # re-deriving this hint itself.
+            "usual_account_id": _usual_account_hint if account_changed_from_usual else None,
         })
     return fallback
+
+
+async def _process_income_payer_attachments(
+    uid: str, attachments: list[dict], today: _date,
+) -> None:
+    """Persist every payer-match evidence record `_confirmed_income_fallback`'s
+    deterministic-attach step produced (G157 build step 2), and route each
+    "ambiguous" one to the judge model as a suggestion (build step 3) --
+    never auto-attached, the SAME evidence-gated shape
+    app/services/recurring_judge.py already uses for its own trusted-
+    category scrutiny pass. Logs the STABLE stream id only (never the raw
+    key/reference -- see `income_payer.stable_stream_id`'s docstring)."""
+    from app.db.collections import income_payer_attachments_col
+    for att in attachments:
+        doc = {**att, "user_id": uid, "logged_at": datetime.now(timezone.utc)}  # naive-ok: audit instant, not a calendar day
+        try:
+            await income_payer_attachments_col.update_one(
+                {"user_id": uid, "stream_id": att["stream_id"], "credit_id": att["credit_id"]},
+                {"$set": doc},
+                upsert=True,
+            )
+        except Exception:
+            logger.warning(
+                "income_payer_attachments write failed for %s (non-fatal)", uid, exc_info=True,
+            )
+        if att.get("decision") == "ambiguous":
+            await _judge_income_payer_match(uid, att)
+
+
+async def _judge_income_payer_match(uid: str, attachment: dict) -> None:
+    """G157 build step 3: 'same payer or a new one', with the deterministic
+    evidence in the prompt. Fails open (no verdict written) on any error,
+    missing key, non-200, or unparsable reply -- the deterministic-match
+    step already refused to auto-attach on this evidence, so failing open
+    here simply leaves the suggestion unresolved, it never regresses to an
+    unexplained auto-attach. Recorded under its own pipeline name in
+    `llm_usage` via `openrouter_chat`'s own accounting -- see
+    app/core/llm.py's `record_llm_usage`."""
+    if not OPENROUTER_API_KEY:
+        return
+    try:
+        prompt = (
+            "You are a UK personal finance analyst. A detected bank credit MIGHT "
+            "belong to the same payer as a user's confirmed income stream (e.g. a "
+            "salary whose payment reference changed), but the deterministic "
+            "evidence alone is not conclusive. Decide: same payer, or a new, "
+            "different one?\n\n"
+            f"Evidence:\n{json.dumps(attachment.get('evidence', {}), indent=2, default=str)}\n\n"
+            "Reply with STRICT JSON only, no other text: "
+            '{"same_payer": true or false, "confidence": 0 to 1, "reason": "<one plain '
+            'sentence, no em-dashes, safe to show the user>"}'
+        )
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await openrouter_chat(
+                {"model": "anthropic/claude-haiku-4-5", "max_tokens": 200,
+                 "messages": [{"role": "user", "content": prompt}]},
+                user_id=uid, pipeline="income_payer_judge", client=client,
+            )
+        if r.status_code != 200:
+            return
+        content = r.json()["choices"][0]["message"]["content"].strip()
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        if not m:
+            return
+        verdict = json.loads(m.group(0))
+        if "same_payer" not in verdict:
+            return
+        from app.db.collections import income_payer_attachments_col
+        await income_payer_attachments_col.update_one(
+            {"user_id": uid, "stream_id": attachment["stream_id"], "credit_id": attachment["credit_id"]},
+            {"$set": {
+                "judge_same_payer": bool(verdict["same_payer"]),
+                "judge_confidence": float(verdict.get("confidence", 0.5)),
+                "judge_reason": str(verdict.get("reason", "")).strip(),
+                "judged_at": datetime.now(timezone.utc),  # naive-ok: audit instant, not a calendar day
+            }},
+        )
+    except Exception:
+        logger.info(
+            "income_payer_judge call failed for %s, leaving suggestion unresolved "
+            "(non-fatal, fails open)", uid, exc_info=True,
+        )
 
 
 def _prev_scheduled_occurrence(schedule: dict, today: _date, lookback_days: int = 45) -> _date | None:
@@ -1624,6 +1891,9 @@ def _account_pool_kind(acc: dict) -> str | None:
     concern specific to `_split_balances`'s totals, not a question of which
     pool the account is structurally a member of.
     """
+    if acc.get("include_in_safe_to_spend") is False:
+        # G231: the user chose not to count this account towards Safe to Spend.
+        return None
     if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
         return None
     subtype = (acc.get("subtype") or "").lower()
@@ -1661,6 +1931,37 @@ def _split_balances(accs: list[dict]) -> tuple[float, float]:
         else:
             spendable += bal
     return round(spendable, 2), round(savings, 2)
+
+
+def _live_pool_balances(accs: list[dict]) -> dict:
+    """The ONE live spendable/savings figure pair (G188).
+
+    Home's Safe-to-Spend seeds its walk from it and `GET /cashflow` overlays
+    it onto the cached response, so Home and Upcoming's runway start from the
+    same live cash. `cashflow_cache_col` holds a balance SNAPSHOT from the
+    last recompute; money that left an account after it would otherwise still
+    count on Upcoming while the bill that took it has already dropped out of
+    the upcoming list, so the runway double-counted.
+    """
+    spendable, savings = _split_balances(accs)
+    return {"spendable_balance": spendable, "savings_balance": savings}
+
+
+def _overlay_live_account_balances(resp: dict, accs: list[dict]) -> None:
+    """Replace each item's snapshot `account_balance` with its account's live
+    balance (G188), in one pass over the already-fetched account rows.
+
+    Upcoming's per-account walk seeds from these. An item whose account is
+    not in the live pool (e.g. a Yapily account whose consent was revoked, or
+    an item with no account) keeps its snapshot value: there is no live
+    figure to prefer, and dropping it would change the walk's inputs.
+    """
+    live = {str(a["_id"]): float(a.get("balance") or 0) for a in accs if a.get("_id") is not None}
+    for key in ("upcoming_bills", "upcoming_income", "observed_pending_bills"):
+        for item in resp.get(key) or []:
+            aid = item.get("account_id")
+            if aid is not None and str(aid) in live:
+                item["account_balance"] = live[str(aid)]
 
 
 def _safe_to_spend_lowest_projected_balance(
@@ -1763,7 +2064,8 @@ async def _safe_to_spend_accounts(uid: str) -> list[dict]:
     account belongs in a balance calculation only when its own consent is
     still AUTHORIZED; a different active consent must not revive stale cash.
     """
-    projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
+    projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1, "name": 1,
+                  "include_in_safe_to_spend": 1}
     native_task = accounts_col.find({"user_id": uid}, projection).to_list(None)
     active_consents_task = yapily_consents_col.find(
         {"user_id": uid, "status": "AUTHORIZED"}, {"_id": 1}
@@ -2375,7 +2677,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # is_credit_card_account's dual lookup (mirrors companion.py/behaviour.py/
     # needle.py) in case a future writer uses the longer key names.
     acct_proj_map = {"name": 1, "balance": 1, "currency": 1, "provider": 1,
-                      "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1}
+                      "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1,
+                      "include_in_safe_to_spend": 1}
     acct_docs = (
         await accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
@@ -2513,10 +2816,24 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         _prev = latest_income_credit_by_key.get(_k)
         if _prev is None or _t["date"] > _prev["date"]:
             latest_income_credit_by_key[_k] = _t
+    # G157 build step 2/3: credits already accounted for -- either inside an
+    # already-detected payer_key series, or under a raw key a confirmed
+    # stream already claims via `income_credits_by_key`/`latest_income_
+    # credit_by_key` above -- are excluded, so `_confirmed_income_fallback`'s
+    # deterministic-attach step only ever considers credits with no home yet.
+    _detected_payer_keys = {r["key"] for r in recurring_income}
+    _unattributed_income_credits = [
+        t for t in income_credits_180
+        if _payer_key(t) not in _detected_payer_keys and series_key(t) not in _confirmed_income_map
+    ]
+    _income_attachments_log: list[dict] = []
     recurring_income = recurring_income + _confirmed_income_fallback(
         recurring_income, _confirmed_income_map, dismissed, _today,
         income_credits_by_key, latest_income_credit_by_key,
+        _unattributed_income_credits, _income_attachments_log,
     )
+    if _income_attachments_log:
+        await _process_income_payer_attachments(uid, _income_attachments_log, _today)
 
     # G163/G167 interim lapse signal (until G157's payer matcher replaces
     # it): has each confirmed stream's, or each reliable DETECTED pattern's,
@@ -2603,7 +2920,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     ]
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
 
-    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1}
+    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1, "include_in_safe_to_spend": 1}
     all_accounts = (
         await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
@@ -2646,6 +2963,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
+            "display_name":    r.get("display_name"),
             # G174: set only on a DETECTED entry `_confirmed_income_fallback`
             # deferred to instead of synthesising a duplicate (see its
             # dedupe-guard comment) -- the confirmed stream's own key, so
@@ -2735,7 +3053,27 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         "recurring_spend":  [_serialise_pattern(r) for r in recurring_spend],
         "bnpl_commitments": bnpl_commitments,
         "recurring_income": [
-            {**_serialise_pattern(r), "occurrences": r.get("occurrences"), "amounts_recent": r.get("amounts_recent")}
+            {
+                **_serialise_pattern(r),
+                "occurrences": r.get("occurrences"),
+                "amounts_recent": r.get("amounts_recent"),
+                # G157 build step 4: missed-cycles lapse marker, carried
+                # through to the cache doc so the companion ask pipeline can
+                # raise the payday-confirmation ask without recomputing it.
+                # None/False for a detected (non-synthesised) entry, which
+                # never lapses by construction (it only exists because a
+                # credit landed recently enough to detect it).
+                "lapsed": r.get("lapsed", False),
+                "missed_cycles": r.get("missed_cycles"),
+                "source": r.get("source"),
+                # G157 review fix (blocker 2): True when the credit
+                # deterministically attached to a confirmed stream landed
+                # in a different account than the stream's own usual one --
+                # the companion ask pipeline raises "your pay seems to
+                # land somewhere new" for this rather than inferring.
+                "account_changed_from_usual": r.get("account_changed_from_usual", False),
+                "usual_account_id": r.get("usual_account_id"),
+            }
             for r in recurring_income
         ],
         # The engine's own vetoes (app/services/recurring_judge.py) — kept
@@ -2763,6 +3101,12 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
+        # Which build of the engine produced this doc (G159): the reconcile
+        # and the worker's deploy-time pass compare it with the running
+        # build (app.services.derived_caches) so an engine change reaches
+        # every user's forecast without waiting for a new transaction or a
+        # hand-bumped PATTERNS_VERSION.
+        data["engine_build"] = engine_build()
         # Refresh the memoised monthly cash-flow alongside the patterns so
         # per-request callers (safe-to-spend, debt, savings) read it for free.
         try:
@@ -3745,7 +4089,19 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     def _occurrences(r: dict, include_past_due: bool = False) -> list[datetime]:
         interval = float(r.get("avg_interval") or 30)
         key = r.get("key", "")
-        confirmed_sched = confirmed_income.get(key, {}).get("schedule") if confirmed_income else None
+        # G157: `confirmed_income` is still keyed on the OLD raw
+        # `series_key`-shaped text stored in preferences; an income
+        # pattern's own key is now a payer_key. Prefer the `confirmed_alias`
+        # already stamped by `_confirmed_income_fallback` (cheap, no
+        # re-tokenising), falling back to `_resolve_confirmed_alias` for a
+        # pattern this function sees that step never touched (e.g. a bill,
+        # or an income pattern from a cache doc predating this stamp).
+        confirmed_sched = None
+        if confirmed_income:
+            _alias_key = r.get("confirmed_alias") or key
+            _resolved = _resolve_confirmed_alias(confirmed_income, _alias_key)
+            if _resolved:
+                confirmed_sched = _resolved[1].get("schedule")
 
         # User rule takes TOP precedence — generate directly from the rule schedule
         if rule := rules.get(key):
@@ -4159,6 +4515,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             raw_income.append({
                 "name":          r["key"],
+                "display_name":  r.get("display_name"),
                 # G174: carried from `_serialise_pattern` so `income_credit_ok`
                 # can see it on the built `upcoming_income`/`payday_income`
                 # item, not just the internal `recurring_income` list.
@@ -4192,7 +4549,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             "projected_bills":  round(projected_bills, 2),
         })
 
-    return {
+    _cf_resp = {
         "weekly_projection": weeks,
         "upcoming_bills":    upcoming_bills,
         "upcoming_income":   upcoming_income,
@@ -4231,6 +4588,20 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # `[]` default for a cache doc computed before this field existed.
         "late_income":       cached.get("late_income", []),
     }
+    # G231: items on an account the user does not count towards Safe to Spend
+    # leave every cashflow walk and list. One choke point, so Home, Upcoming,
+    # the cover engine and Penny cannot disagree.
+    if uid:
+        from app.services.counted_accounts import excluded_account_ids, drop_excluded_items
+        try:
+            drop_excluded_items(_cf_resp, await excluded_account_ids(uid))
+        except Exception:
+            # Fail closed, loudly: the lookup failed, so say the exclusions are
+            # unverified. Safe to Spend re-applies them from its own account
+            # rows; other callers can see the flag.
+            logger.exception("excluded account lookup failed for %s", mask_email(uid))
+            _cf_resp["exclusions_unverified"] = True
+    return _cf_resp
 
 
 _CACHE_TTL_HOURS = 6
@@ -4283,8 +4654,32 @@ async def get_cashflow(user: dict = Depends(current_user)):
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
+        # G159 review fix #5: this is the other writer of a cashflow_cache
+        # doc besides compute_and_cache_cashflow itself (a cache miss on a
+        # plain GET), and it must carry the same stamp — an unstamped doc
+        # reads as `engine_build() != None`, so cache_needs_recompute's
+        # "auto" self-heal branch would treat it as stale forever and
+        # recompute it on the very next reconcile tick regardless of
+        # engine build.
+        data["engine_build"] = engine_build()
         await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         resp = await _build_cashflow_response(data, uid=uid)
+
+    # G188: overlay LIVE pool balances onto the cached snapshot, through the
+    # same helper Safe-to-Spend seeds from. Read per request (never cached
+    # here), so no outer cache can serve a stale overlay. Failure-tolerant:
+    # on error the cached snapshot stands, as before.
+    try:
+        _live_accs = await _safe_to_spend_accounts(uid)
+        resp.update(_live_pool_balances(_live_accs))
+        _overlay_live_account_balances(resp, _live_accs)
+        resp["balances_live"] = True
+    except Exception as _e:
+        resp["balances_live"] = False
+        logger.error(
+            "live balance overlay failed for %s (%s); serving cached snapshot",
+            mask_email(uid), type(_e).__name__,
+        )
 
     # Augment with payday info
     from app.services.income import get_confirmed_payday as _gcp, derive_schedule as _ds, schedule_label as _sl, next_occurrence as _no
@@ -4348,6 +4743,24 @@ async def get_cashflow(user: dict = Depends(current_user)):
     except Exception:
         logger.exception("allocations attach failed for %s — omitting", uid)
         resp["allocations"] = []
+
+    # G227: the period's goal plan contributions, from the SAME function
+    # Safe-to-Spend reads for commitments_reserved (total_reserved_slices), so
+    # Home's "Plans reserved" and Upcoming's "Plans this period" are one
+    # number. Read live, never cached. On failure the figure is 0 and
+    # `plans_available` is false so the client can say so rather than imply
+    # there are no plans.
+    try:
+        from app.routers.commitments import total_reserved_slices
+        _plans, _plans_n = await total_reserved_slices(uid)
+        resp["plans_reserved"] = int(_plans)
+        resp["plans_count"] = int(_plans_n)
+        resp["plans_available"] = True
+    except Exception:
+        logger.exception("plans reserve attach failed for %s", uid)
+        resp["plans_reserved"] = 0
+        resp["plans_count"] = 0
+        resp["plans_available"] = False
 
     return resp
 
@@ -4477,10 +4890,28 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # Shared with the Planning runway (_split_balances) so the two surfaces
     # can never diverge; savings_total is unused here — the hero shows a
     # single spendable figure, not a savings breakout.
-    spendable_cash, _ = _split_balances(all_accs_raw)
+    spendable_cash = _live_pool_balances(all_accs_raw)["spendable_balance"]
+    # G231: accounts the user chose not to count (named on the response so the
+    # hero can say "Not counting N accounts" and link to Accounts).
+    # Read from the pool rows themselves, so no extra query is needed. The same
+    # set is re-applied to the cashflow lists here (idempotent), so a failed
+    # lookup inside the builder can never leave an excluded account's items in
+    # the walk: this path never depends on that second query.
+    _excluded_accounts = [
+        {"id": str(a["_id"]), "name": a.get("name") or "Account"}
+        for a in all_accs_raw
+        if a.get("include_in_safe_to_spend") is False and a.get("_id") is not None
+        and "credit" not in f"{a.get('type') or ''} {a.get('subtype') or ''}".lower()
+    ]
+    from app.services.counted_accounts import drop_excluded_items as _drop_excluded
+    _walk_lists = {"upcoming_bills": upcoming_bills, "upcoming_income": upcoming_income}
+    _drop_excluded(_walk_lists, {a["id"] for a in _excluded_accounts})
+    upcoming_bills, upcoming_income = _walk_lists["upcoming_bills"], _walk_lists["upcoming_income"]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
+        if acc.get("include_in_safe_to_spend") is False:
+            continue
         # GBP only
         if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
             continue
@@ -4726,10 +5157,40 @@ async def compute_safe_to_spend(uid: str) -> dict:
         state, safe_to_spend_cash, card_growth_reserved,
     )
 
+    # G218: a shortfall caused only by set-asides (plans, envelopes) reads
+    # amber, not red, on every surface; derived once, here.
+    from app.services.net_position import plans_only_short_for
+    plans_only_short = (not unavailable_components) and plans_only_short_for(
+        state, short_reason, safe_to_spend_cash, round(min_running, 2), buffer,
+        commitments_reserved, allocations_reserved,
+    )
+
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
 
     _sync_ts = await last_bank_sync(uid)
+
+    # G210: a first bank sync that is still running (or stuck) means every
+    # figure above is computed from partial data. Report "syncing" with the
+    # figures clamped to 0 so no verdict, least of all a red "short", reaches
+    # the client; a FAILED first sync deliberately falls through to the
+    # normal computation over whatever data exists.
+    try:
+        _first_sync = await first_sync_state(uid)
+    except Exception:
+        logger.exception("first_sync_state failed for %s", uid)
+        _first_sync = {"state": "idle", "first_sync": False, "connections": []}
+    # Only a GENUINE first sync (no connection has ever synced) withholds the
+    # verdict. An established user adding a second bank keeps a normal
+    # verdict, and a degraded calculation wins over syncing.
+    _syncing = (
+        bool(_first_sync.get("first_sync"))
+        and _first_sync["state"] in ("syncing", "stalled")
+        and not unavailable_components
+    )
+    if _syncing:
+        safe_to_spend = 0
+        safe_to_spend_cash = 0
 
     # `net_position` (period_net's income/outflow/card-growth flow frame) is
     # deliberately NOT computed here. compute_safe_to_spend is called
@@ -4742,10 +5203,14 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # perf regression. It's attached to the result in get_safe_to_spend
     # below instead, so only the cached GET /safe-to-spend response pays
     # for it, once per 90s per user.
-    return {
+    _out = {
         "status":              "ok",
         "calculation_version": SAFE_TO_SPEND_CALCULATION_VERSION,
-        "calculation_status":  "degraded" if unavailable_components else "complete",
+        "calculation_status":  (
+            "syncing" if _syncing
+            else "degraded" if unavailable_components else "complete"
+        ),
+        "sync_state":          _first_sync["state"],
         "unavailable_components": unavailable_components,
         "safe_to_spend":       safe_to_spend,
         "safe_to_spend_cash":  safe_to_spend_cash,
@@ -4765,6 +5230,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "buffer":              buffer,
         "state":               state,
         "short_reason":        short_reason,
+        "plans_only_short":    bool(plans_only_short),
         "estimated":           estimated,
         "spendable_now":       round(spendable_cash, 2),
         # The actual floor reached by the date-ordered bill/income walk.
@@ -4785,8 +5251,20 @@ async def compute_safe_to_spend(uid: str) -> dict:
         ),
         "allocations_reserved": allocations_reserved,
         "allocations_count":   allocations_count,
+        "excluded_accounts_count": len(_excluded_accounts),
+        "excluded_accounts":   _excluded_accounts,
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
+    if _syncing:
+        # Direct callers (history snapshot, Penny chips, Can I, planned) all
+        # treat a non-"ok" status as "no verdict", so a clamped syncing payload
+        # never reads as a real £0 "short". build_safe_to_spend_response turns
+        # it back into "ok" for the client, which renders the syncing state.
+        _out["status"] = "insufficient_data"
+        _out["state"] = "syncing"
+        _out["short_reason"] = None
+        _out["plans_only_short"] = False
+    return _out
 
 
 async def get_cached_safe_to_spend(uid: str) -> dict:
@@ -4834,6 +5312,9 @@ async def build_safe_to_spend_response(uid: str, include_series: bool = False) -
     aputs the result itself, so the two call sites can never drift on what
     this endpoint's shape actually is."""
     result = await compute_safe_to_spend(uid)
+    if result.get("calculation_status") == "syncing":
+        # G210: the client renders this as the syncing card; no pace either.
+        return {**result, "status": "ok"}
     if result.get("status") == "ok":
         try:
             from app.services.pace import compute_pace
@@ -4858,7 +5339,9 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
 
     v = await response_cache.snapshot(uid)
     result = await build_safe_to_spend_response(uid, include_series=want_series)
-    if result.get("status") == "ok":
+    # G210: never persist a "syncing" payload, so the verdict returns the
+    # moment the sync lands instead of waiting out the cache.
+    if result.get("status") == "ok" and result.get("calculation_status") != "syncing":
         await response_cache.aput(cache_name, uid, result, version=v)
         # grow.py's cached "/grow" payload embeds a period gate derived from
         # THIS endpoint's figure (via get_cached_safe_to_spend below); retire

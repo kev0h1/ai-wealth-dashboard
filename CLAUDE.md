@@ -62,6 +62,8 @@ Each agent only works items owned by its own model type. A Claude session only s
 
 Picking up a backlog item is branch-per-item, not "edit the shared tree directly": a session must run `scripts/session.sh start <ID>` **before touching any code**, then do all its work inside the worktree that command prints (never in `/root/ai-wealth-dashboard` itself), and never restart `wealth-api` / `wealth-worker` / `wealth-frontend` from that worktree; UAT only changes when an integrate pass merges the branch into `main`. Feature branches are named `feature-<ID>[-slug]` (the slug is appended only when one is given or can be derived from the item's title, e.g. `feature-A2` or `feature-A2-pin-login`); `scripts/session.sh start` derives the branch and worktree name (`/root/worktrees/feature-<ID>[-slug]`) from this convention, and `scripts/session.sh list`/`abandon` also still recognise the older `item/<ID>-<slug>` names for worktrees created before this convention. Run `scripts/session.sh finish <ID>` once tests are green to push the branch and mark the item in review; `scripts/integrate.py` (run by the coordinator session, or the `integrate.timer` unit if installed, see `docs/ops/BACKLOG.md`) is what actually merges it, rebuilds/restarts UAT, and ticks the board; it merges whatever branch is recorded on the item regardless of prefix, but warns if that branch doesn't start with `feature-<ID>` for the item's own id. The board itself (`TODO.md`, `docs/compliance/...`) is still only ever edited from the shared tree via `scripts/backlog.py`, never from inside a worktree:
 
+**Developer vs reviewer sessions.** By default a Claude session is a developer (worker): it only starts `[owner: claude]` items, builds them on their feature branch, has an independent reviewer agent audit the branch while the item is still `in-progress`, then runs `scripts/session.sh finish <ID>` (or `--uat-review` for design rounds), which leaves the item in `review`. That is the end of a developer session's line. A developer session never merges to `main`, never pushes to `main`, never ticks an item done, never runs `scripts/integrate.py`, never resolves conflicts on `main`, and never restarts the `wealth-*` services after a rebuild; it does not get around this by dispatching a subagent, since a delegated merge is still that session merging. Merging belongs to the dedicated Claude reviewer agent/session Kevin runs for that role (or the integrate timer): it reviews `review` items and runs integrate, still executing through agents. If a developer session finds a defect in an item already in `review`, it runs `scripts/backlog.py reject <ID> "<reason>"` immediately and verifies the state stuck.
+
 `npm run build` (Turbopack) in a worktree now works unmodified: `frontend/next.config.ts` widens `turbopack.root` to `/root` whenever it detects `frontend/node_modules` is a symlink pointing outside the project, which only happens in the worktree layout, so the shared tree and every other build environment are unaffected.
 
 ```bash
@@ -95,12 +97,21 @@ Restart only the relevant service(s) using systemctl:
 ```bash
 systemctl restart wealth-api        # after backend changes
 systemctl restart wealth-worker     # after app/workers changes
-systemctl restart wealth-frontend   # after `npm run build` in frontend/
+backend/.venv/bin/python scripts/frontend_build.py   # after frontend changes: atomic build + swap + restart wealth-frontend
 sleep 5 && curl -s http://localhost:8000/health
 ```
 
-Frontend runs `next start` on a production build; changes require
-`cd frontend && npm run build` before restarting wealth-frontend.
+Frontend runs `next start` on a production build. Never run `npm run build`
+in the shared tree's `frontend/`: that builds in place into the `.next` the
+live service is serving from, which is how the 2026-09-17 blank-page outage
+happened (H51). `scripts/frontend_build.py` builds in a scratch mirror of
+`frontend/` at `.frontend-staging/`, verifies the result, swaps it into
+`frontend/.next` with one atomic rename, keeps the old build at
+`frontend/.next-prev`, and restarts `wealth-frontend`; a failed or
+interrupted build leaves `.next` untouched. `--revert` swaps the previous
+build back without rebuilding, `--status` shows the live and previous build
+ids. It holds a non-blocking lock, so a second build while one is running
+fails loudly rather than queuing. `scripts/integrate.py` uses the same path.
 
 Check logs with:
 ```bash

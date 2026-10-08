@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { RadioDot } from "@/components/PlanOneOffSheet";
+import { DateField } from "@/components/DatePicker";
 import { AccountRadioPicker as SharedAccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, FillCandidate } from "@/lib/api";
 
@@ -113,10 +114,13 @@ export function FillRulePicker({
   accountId,
   value,
   onChange,
+  loadCandidates = api.allocationFillCandidates,
 }: {
   accountId: string;
   value: FillRuleValue;
   onChange: (v: FillRuleValue) => void;
+  /** Injectable for unauthenticated previews; defaults to the live API. */
+  loadCandidates?: (accountId: string) => ReturnType<typeof api.allocationFillCandidates>;
 }) {
   const [candidates, setCandidates] = useState<FillCandidate[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -132,12 +136,12 @@ export function FillRulePicker({
     setCandidates(null);
     setError(false);
     setLoading(true);
-    api.allocationFillCandidates(accountId)
+    loadCandidates(accountId)
       .then((items) => { if (!cancelled) setCandidates(items); })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [accountId]);
+  }, [accountId, loadCandidates]);
 
   // Once candidates load, a value that cleanly matches one of them reads
   // best in prefill mode (its row shows selected); anything else (hand-
@@ -320,13 +324,7 @@ export function EffectiveDateField({
         </button>
       </div>
       {value !== null && (
-        <input
-          type="date"
-          value={value}
-          min={todayIso}
-          onChange={(e) => onChange(e.target.value)}
-          className="mt-2 w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm appearance-none text-left [&::-webkit-date-and-time-value]:text-left"
-        />
+        <DateField mode="day" label="From a date I choose" title="Start date" value={value} min={todayIso} onChange={onChange} className="mt-2" />
       )}
     </div>
   );

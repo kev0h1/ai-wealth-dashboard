@@ -29,6 +29,7 @@ import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvide
 import YourPlanCard from "@/components/YourPlanCard";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
+import { resolveFullName, initialsOf } from "@/lib/displayName";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
@@ -43,6 +44,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { useRouter } from "next/navigation";
+import { clearOnboarded } from "@/lib/onboardingGate";
 
 const INDIGO = "#4f46e5";
 const EMERALD = "#10b981";
@@ -93,14 +95,6 @@ function SectionHeader({
       </div>
     </div>
   );
-}
-
-function deriveInitials(name: string | undefined): string {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) return "";
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length === 1) return words[0].charAt(0).toUpperCase();
-  return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
 }
 
 type CoverPlanView = {
@@ -173,7 +167,7 @@ function coverPlanView(
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, clearLocalSession } = useAuth();
   const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady } = usePreferences();
   const { startFlow } = useTutorial();
 
@@ -647,7 +641,10 @@ export default function SettingsPage() {
     setDeleting(true);
     try {
       await api.deleteUserAccount();
-      logout();
+      // Account deletion already revoked every session server-side, so a
+      // second /auth/logout would just 401: clear locally only.
+      clearOnboarded(localStorage, user?.email); // D12: a re-signup must onboard again
+      clearLocalSession();
     } catch {
       setDeleting(false);
       setProfileMsg({ text: "Deletion failed, try again", ok: false });
@@ -1058,7 +1055,18 @@ export default function SettingsPage() {
     </div>
   );
 
-  const initials = deriveInitials(user?.name);
+  // D7: prefer the persisted profile name (profileLoaded.name — set on load
+  // and after a successful save, so it stays put while the user is
+  // mid-edit in the form below) over the session name, and never fall
+  // back to an email or its local part — see lib/displayName.ts. Uses the
+  // full-name resolver (not resolveDisplayName, which truncates to a
+  // first name for greetings) because the header shows the whole name.
+  const settingsDisplayName = resolveFullName({
+    fullName: profileLoaded?.name,
+    sessionName: user?.name,
+    email: user?.email,
+  });
+  const initials = initialsOf(settingsDisplayName) ?? "";
   const bioLabel = bioState?.enabled ? "Face ID on" : "Face ID off";
 
   return (
@@ -1078,7 +1086,7 @@ export default function SettingsPage() {
               {initials || <UserRound size={20} />}
             </span>
             <div className="min-w-0">
-              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{user?.name || "—"}</p>
+              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{settingsDisplayName || "—"}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
             </div>
           </div>
@@ -1191,7 +1199,7 @@ export default function SettingsPage() {
               </>
             )}
             {appleLinkMsg && (
-              <p className={`text-xs mt-2 ${appleLinkMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}>
+              <p className={`text-xs mt-2 ${appleLinkMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-200"}`}>
                 {appleLinkMsg.text}
               </p>
             )}
@@ -1551,7 +1559,7 @@ export default function SettingsPage() {
                   <p
                     role="status"
                     aria-live="polite"
-                    className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-red-500"}`}
+                    className={`mt-2 text-xs font-medium ${financeMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}
                   >
                     {financeMsg.text}
                   </p>
@@ -1652,7 +1660,7 @@ export default function SettingsPage() {
               {syncingHistory ? "Syncing…" : "Sync history (90 days)"}
             </button>
             {syncHistoryMsg && (
-              <p className={`mt-2 text-xs font-medium ${syncHistoryMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{syncHistoryMsg.text}</p>
+              <p className={`mt-2 text-xs font-medium ${syncHistoryMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}>{syncHistoryMsg.text}</p>
             )}
           </div>
           <button
@@ -1713,11 +1721,11 @@ export default function SettingsPage() {
                 {profileSaving ? "Saving…" : "Save profile"}
               </button>
             )}
-            {profileMsg && <p className={`text-xs font-medium ${profileMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{profileMsg.text}</p>}
+            {profileMsg && <p className={`text-xs font-medium ${profileMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}>{profileMsg.text}</p>}
           </div>
 
           <button
-            onClick={logout}
+            onClick={() => void logout()}
             className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
           >
             <LogOut size={16} />

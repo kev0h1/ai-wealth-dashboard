@@ -62,6 +62,15 @@ export default function SwipeToDelete({ onDelete, label = "Delete", className = 
     axis.current = "none";
   }
 
+  // G207: the browser can cancel a touch (it takes over for a scroll, a
+  // system gesture or a call). Without this the row kept its last dx.
+  function onTouchCancel() {
+    start.current = null;
+    axis.current = "none";
+    setDragging(false);
+    setDx(0);
+  }
+
   // Opacity ramps from 0 → 1 over the first 80 px of swipe distance,
   // mirroring the SpendPage SwipeDismissRow opacity curve.
   const backdropOpacity = Math.min(1, Math.abs(dx) / 80);
@@ -87,6 +96,7 @@ export default function SwipeToDelete({ onDelete, label = "Delete", className = 
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {children}
       </div>

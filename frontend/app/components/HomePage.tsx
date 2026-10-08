@@ -3,11 +3,11 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
+import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
-import AccountLedgerRow from "@/components/AccountLedgerRow";
-import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
+import FirstSyncCard from "@/components/FirstSyncCard";
+import { heroSyncingInfo, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -30,11 +30,13 @@ import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
+import { APP_LOCK_UNLOCKED_EVENT } from "@/components/BiometricLock";
 import { fetchVerdictData } from "@/lib/verdictCache";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+import { resolveDisplayName, resolveFullName } from "@/lib/displayName";
 // A67: a STATIC import, deliberately, after measuring the alternative.
 // Lazy-loading this the way PinnedWidgetCard below is lazy-loaded was tried
 // and reverted: it does not remove anything from Home's first load, because
@@ -50,6 +52,9 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 // shared chunk, which is a change to another screen's primary action for an
 // unproven gain. Not worth it; recorded here so nobody re-tries it blind.
 import BankPickerSheet from "@/components/BankPickerSheet";
+import FirstAccountCard from "@/components/FirstAccountCard";
+import HomeEstateSection from "@/components/HomeEstateSection";
+import { noticeSheet } from "@/components/ConfirmSheet";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -92,18 +97,18 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
     >
       {/* Left column */}
       <div>
-        <div className="px-4 pt-6 lg:px-0 lg:pt-0">
+        <div className="px-4 pt-5 lg:px-0 lg:pt-0">
           <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
             {firstName ? `Hi, ${firstName}` : "Welcome back"}
           </h1>
         </div>
 
-        <div className="px-4 lg:px-0 mt-8">
+        <div className="px-4 lg:px-0 mt-5">
           <SafeToSpendCard data={null} loading />
         </div>
 
-        <div className="mt-8">
-          <div className="px-4 lg:px-0 mb-3">
+        <div className="mt-5">
+          <div className="px-4 lg:px-0 mb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               Your money
             </p>
@@ -121,8 +126,8 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
           </div>
         </div>
 
-        <div className="px-4 lg:px-0 mt-8">
-          <div className="flex items-center justify-between mb-3">
+        <div className="px-4 lg:px-0 mt-5">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
           </div>
           <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
@@ -142,8 +147,8 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
 
       {/* Right column */}
       <div>
-        <div className="px-4 mb-4 lg:px-0 mt-8 lg:mt-0">
-          <div className="flex items-center justify-between mb-3">
+        <div className="px-4 pb-5 lg:px-0 mt-5 lg:mt-0">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
           </div>
           <div className="glass-card rounded-2xl overflow-hidden">
@@ -166,94 +171,25 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
   );
 }
 
-/** The "nothing connected yet" card. One component, two call sites (the
- *  fresh-user hero and the "Your estate" empty state), because those two had
- *  drifted into near-identical copies of the same markup and only one of
- *  them was ever going to get fixed.
- *
- *  A67 — tier: `canConnect` decides whether Connect a bank is offered at
- *  all. The Statements plan has no open banking (the server answers those
- *  connect endpoints with a 402), so offering the button there was an
- *  invitation to a dead end. While the plan is still resolving the card
- *  shows the upload route, which every plan has, and Connect appears once it
- *  is known to be available — additive, so no control ever flashes up and
- *  disappears. See lib/openBankingAccess.ts.
- *
- *  A67 — provider: `onConnect` opens the Finexer bank picker rather than
- *  requesting a connect link directly. The direct call would have gone to
- *  `api.finexerConnectLink(undefined)`, i.e. `create_consent(provider=None)`,
- *  which POSTs /consents with no provider at all — a shape no previously
- *  live caller ever used (the picker passes `bank.id`, ReconnectStrip passes
- *  `provider_id`, and the only zero-argument caller before A67 went to
- *  TrueLayer). Choosing the bank first keeps this button on the exact path
- *  Accounts already uses, instead of betting the single most important
- *  button in the app on an unverified Finexer API shape.
- *
- *  G135 — route: every path out of this card used to be the bank-connect
- *  OAuth flow, and Home suppresses the whole "Your estate" block (with its
- *  "Manage" link) for a fresh user, so a user who could not or did not want
- *  to connect a bank had no way to reach /accounts at all, which is where
- *  statement upload and offline accounts live. The secondary link below is
- *  that missing door.
- *
- *  G135, the rest of the audit, recorded so nobody repeats it: Planning's
- *  own dead-end was fixed too (app/planning/GrowPanel.tsx's empty ladder was
- *  a paragraph telling the user to connect an account, with no link). Spend
- *  (app/components/SpendPage.tsx) and Upcoming (app/planning/PlanningPage.tsx)
- *  were checked and deliberately left alone: neither has any notion of a
- *  fresh user at all — both fetch accounts but never test `.length`, and
- *  their empty states are about a pay period having no data, not about
- *  having nothing connected. Giving them one is a new empty state needing a
- *  design round, not a route fix. Outside Home, /accounts is also absent
- *  from BottomNav and Sidebar, Settings only scroll-anchors to an in-page
- *  section, and lib/pennyScreenConfig.tsx carries its "Your accounts" link
- *  in the `home` config only — all IA decisions for Kevin, not this item. */
-function FirstAccountCard({
-  canConnect,
-  onConnect,
-  onUploadStatement,
-  onOtherWays,
-  tutorialId,
-  ctaTutorialId,
-}: {
-  canConnect: boolean;
-  onConnect: () => void;
-  onUploadStatement: () => void;
-  onOtherWays: () => void;
-  tutorialId?: string;
-  ctaTutorialId?: string;
-}) {
-  return (
-    <div data-tutorial-id={tutorialId} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
-      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
-        {canConnect ? "Connect your first bank" : "Add your first account"}
-      </p>
-      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
-        {canConnect
-          ? "Read-only access through open banking, we can never move your money."
-          : "Your plan works from statements you upload. Add one to get started, or track an account yourself."}
-      </p>
-      <button
-        onClick={canConnect ? onConnect : onUploadStatement}
-        data-tutorial-id={ctaTutorialId}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
-      >
-        {canConnect ? "Connect a bank" : "Upload a statement"}
-      </button>
-      <button
-        onClick={onOtherWays}
-        className="w-full min-h-[44px] mt-1 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
-      >
-        Other ways to add accounts
-      </button>
-    </div>
-  );
-}
 
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const firstName = user?.name?.split(" ")[0]?.trim();
+  // D7: the session name alone is not reliable (empty, or an Apple relay
+  // address's local part on a repeat sign-in — see lib/displayName.ts) —
+  // read the profile's own full_name fresh here and prefer it, so the
+  // greeting is right immediately after onboarding without waiting on a
+  // session refresh. Read once per mount; onboarding itself already runs
+  // before Home ever renders (AuthProvider renders it instead of the app
+  // shell), so there is no "just finished onboarding this render" case to
+  // race here.
+  const [profileFullName, setProfileFullName] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    api.getProfile().then((p) => setProfileFullName(p.full_name || undefined)).catch(() => {});
+  }, []);
+  const nameSources = { fullName: profileFullName, sessionName: user?.name, email: user?.email };
+  const displayName = resolveFullName(nameSources) ?? undefined;
+  const firstName = resolveDisplayName(nameSources) ?? undefined;
   const { hideNetWorth, preferencesReady, payPeriodConfig, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same
@@ -288,7 +224,17 @@ export default function HomePage() {
   const [txLoading, setTxLoading] = useState(!homeCache);
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // G210: the server's first-sync state (idle / syncing / stalled / failed).
+  // null until the first answer; a failed read is treated as idle so a
+  // broken status call can never hide Home.
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncRetrying, setSyncRetrying] = useState(false);
   const [syncError, setSyncError] = useState(false);
+  // G214: a manual refresh that failed stays marked on the hero (the 6s
+  // `syncError` flag above only drives the brief's own line), and the figure
+  // time we dim to is captured when the refresh starts, before it moves.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [refreshAsOf, setRefreshAsOf] = useState<string | null>(null);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   // Shared store (lib/homePinnedAccounts.ts) — replaces this page's own
   // dedicated api.getPreferences() re-fetch (see that file's doc comment
@@ -431,6 +377,11 @@ export default function HomePage() {
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
+      // Awaited with the rest below so the page never settles (and
+      // isFreshUser is never computed) against a stale "idle".
+      const syncP = api.getSyncStatus()
+        .then((v) => { if (requestId === loadRequestRef.current) setSyncStatus(v); })
+        .catch(() => {});
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
       // (round-ups, penny transfers) can drop rows, and asking the server
       // for exactly 6 could leave fewer than 6 on screen after filtering.
@@ -518,7 +469,7 @@ export default function HomePage() {
       // Let the remaining fast calls settle, then clear the page-level
       // skeletons. recentTxP and safeP each clear their own skeleton
       // (txLoading, stsLoading) independently as they settle, above.
-      await Promise.allSettled([invP, safeP, todayP, recentTxP]);
+      await Promise.allSettled([invP, safeP, todayP, recentTxP, syncP]);
       if (requestId !== loadRequestRef.current) return;
       setLoading(false);
     } catch {}
@@ -533,7 +484,57 @@ export default function HomePage() {
     }
   }, []);
 
+  // G146 review fix 3 (2026-09-28): handleTxUpdated below used to call the
+  // whole loadData() to pick up a correction — 5 requests (accounts,
+  // investments, safeToSpend, today, recentTxns) fired for a write that
+  // touches none of the first three. This refetches ONLY GET /today, the
+  // one call a category correction can actually move: companionItems (the
+  // Home brief) and accountEligibility both come off it. Deliberately
+  // does NOT set `todayStatus("loading")` first the way loadData()'s own
+  // today branch does on mount/retry/sync (loadData DOES set loading
+  // states — todayStatus and accountsStatus both go to "loading" at its
+  // top; an earlier version of this comment claimed otherwise, which was
+  // wrong) — that reset exists so a RETRY after a failure visibly goes
+  // back to "checking" instead of leaving a stale "we could not check"
+  // line on screen, which does not apply here: this is a routine
+  // background refresh after an unrelated write succeeded, not a retry,
+  // so it should be invisible unless it actually changes something.
+  // Reuses loadRequestRef, the same "last request wins" guard loadData's
+  // own today branch uses, so a loadData() or another refetchToday() call
+  // landing after this one makes this one's response a no-op instead of a
+  // stale overwrite.
+  const refetchToday = useCallback(() => {
+    const requestId = ++loadRequestRef.current;
+    api.getToday()
+      .then((v) => {
+        if (requestId !== loadRequestRef.current) return;
+        setCompanionItems(v.items);
+        setAccountEligibility(v.account_eligibility);
+        setTodayStatus("ready");
+      })
+      .catch(() => {
+        if (requestId === loadRequestRef.current) setTodayStatus("failed");
+      });
+  }, []);
+
   useEffect(() => { loadData(); }, [loadData]);
+
+  // A121: the app-lock request gate (lib/api.ts) refuses any of the fetches
+  // above while the biometric lock is engaged. Nothing here currently
+  // refetches on a background/foreground cycle by itself (this data simply
+  // survives backgrounding, since BiometricLock never unmounts `{children}`)
+  // — but a call that DID happen to fire while locked (this effect re-running
+  // for an unrelated reason, a manual sync mid-lock) would otherwise be
+  // refused and never retried. Reload once biometric unlock actually
+  // succeeds, so Home is never left showing stale or failed data past that
+  // point.
+  useEffect(() => {
+    function onUnlocked() {
+      loadData();
+    }
+    window.addEventListener(APP_LOCK_UNLOCKED_EVENT, onUnlocked);
+    return () => window.removeEventListener(APP_LOCK_UNLOCKED_EVENT, onUnlocked);
+  }, [loadData]);
 
   // Tour readiness: `loading` only clears once accsP (estate section) and
   // safeP (hero) have both settled (see loadData above), so it already
@@ -605,6 +606,8 @@ export default function HomePage() {
   const syncErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function handleSync() {
+    setRefreshAsOf(safeToSpend && safeToSpend.status === "ok" ? safeToSpend.last_synced ?? null : null);
+    setRefreshFailed(false);
     setSyncing(true);
     setSyncError(false);
     if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
@@ -621,6 +624,7 @@ export default function HomePage() {
       invalidateAllAccountData();
       await loadData();
     } catch {
+      setRefreshFailed(true);
       setSyncError(true);
       syncErrorTimerRef.current = setTimeout(() => setSyncError(false), 6000);
     } finally {
@@ -631,6 +635,78 @@ export default function HomePage() {
   useEffect(() => {
     return () => { if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current); };
   }, []);
+
+  // G210/G214: one poll for every sync Home can show. While the server says a
+  // sync is running or stalled, ask every 3s (15s once stalled); paused while
+  // the tab is hidden and never overlapping a request still in flight. When
+  // it turns idle the data has landed: drop every account-derived cache and
+  // reload Home once. Failed does not poll (nothing is running); Try again
+  // restarts it.
+  const syncPollDelay = pollDelayMs(syncStatus?.state);
+  const syncInFlightRef = useRef(false);
+  const syncStatusRef = useRef<SyncStatus | null>(null);
+  syncStatusRef.current = syncStatus;
+  useEffect(() => {
+    if (syncPollDelay == null) return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      if (!shouldPollTick({ visible: document.visibilityState === "visible", inFlight: syncInFlightRef.current, cancelled })) return;
+      syncInFlightRef.current = true;
+      try {
+        const next = await api.getSyncStatus();
+        if (cancelled) return;
+        setSyncStatus(next);
+        if (next.state === "idle") {
+          cancelled = true;
+          invalidateAllAccountData();
+          await loadData();
+        }
+      } catch {} finally {
+        syncInFlightRef.current = false;
+      }
+    }, syncPollDelay);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [syncPollDelay, loadData]);
+
+  // G214: coming back to the tab re-asks once, so a background sync that
+  // started (or finished) while Home was hidden shows without waiting for the
+  // next interval.
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible" || syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+      try {
+        const next = await api.getSyncStatus();
+        const wasRunning = syncStatusRef.current != null && syncStatusRef.current.state !== "idle";
+        setSyncStatus(next);
+        if (wasRunning && next.state === "idle") {
+          invalidateAllAccountData();
+          await loadData();
+        }
+      } catch {} finally {
+        syncInFlightRef.current = false;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadData]);
+
+  async function handleSyncRetry() {
+    setSyncRetrying(true);
+    setRefreshFailed(false);
+    try {
+      await api.syncAccounts();
+    } catch {}
+    try {
+      const next = await api.getSyncStatus();
+      setSyncStatus(next);
+      if (next.state === "idle") {
+        invalidateAllAccountData();
+        await loadData();
+      }
+    } catch {}
+    setSyncRetrying(false);
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -656,6 +732,19 @@ export default function HomePage() {
     // both need the correction so it's visible immediately, wherever it's read.
     setTransactions(patch);
     setRecentTxns(patch);
+    // G146: TeachingSheet.tsx's notifyUpdated already cleared lib/
+    // homeCache.ts's module-scope snapshot before calling this (the shared
+    // invalidator in lib/cacheInvalidation.ts), so the NEXT mount of this
+    // page reads a cold cache and refetches — but this mount is already
+    // live and its own `companionItems`/`accountEligibility` state (the
+    // Home brief) is not one of the two lists patched above, so it would
+    // otherwise keep painting the pre-correction cards until the user
+    // navigates away and back. `refetchToday()` (declared above, next to
+    // loadData) is the narrow fix (2026-09-28 review): it refetches only
+    // GET /today, not the full loadData() this used to call, which also
+    // re-requested accounts/investments/safeToSpend for no reason a
+    // category correction ever changes those.
+    refetchToday();
   }
 
   // Spending totals are home-currency only; the recent list still shows
@@ -704,10 +793,6 @@ export default function HomePage() {
     () => investmentAccounts.find((inv) => pinnedIds.includes(inv.id)) ?? investmentAccounts[0],
     [investmentAccounts, pinnedIds],
   );
-
-  const hiddenAccountCount =
-    Math.max(0, accounts.length - topPickAccounts.length) +
-    Math.max(0, investmentAccounts.length - 1);
 
   // G110 — surfaced, not computed: joins the per-account headroom snapshot
   // (accountEligibility, off the same GET /today the companion brief
@@ -788,7 +873,7 @@ export default function HomePage() {
       // navigation semantics.
       window.location.assign(auth_url);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
+      void noticeSheet({ title: "Couldn’t start reconnection", body: err instanceof ApiError ? err.message : "Please try again." });
     }
   }
 
@@ -800,7 +885,34 @@ export default function HomePage() {
   // account/Safe-to-Spend shells. Without the !loadError guard, a real
   // user whose /accounts fetch simply failed would see the "Connect your
   // first bank" hero and a blanked brief instead of the load-error retry UI.
-  const isFreshUser = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  const hasNoAccounts = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  // G210: a first bank sync that is running, stuck or failed. While it is,
+  // "no accounts yet" is not a fresh user, it is a user whose data is on its
+  // way, so Home shows the sync ledger instead of the connect hero.
+  const syncState = syncStatus?.state ?? "idle";
+  const firstSyncActive = syncState === "syncing" || syncState === "stalled" || syncState === "failed";
+  // Only a genuine first sync (nothing has ever synced) replaces the verdict.
+  // An established user adding a second bank sees the ledger ABOVE a normal
+  // verdict, never instead of it.
+  const verdictWithheld =
+    syncStatus?.first_sync === true && (syncState === "syncing" || syncState === "stalled");
+  const isFreshUser = hasNoAccounts && !firstSyncActive;
+
+  // User-pinned insight cards render once accounts exist and loading is done,
+  // load error or not (unchanged from before G221 moved them into Your money).
+  const showPinnedCards =
+    !hasNoAccounts && !loading &&
+    (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || Boolean(homePinnedWidget && homeTxns.length > 0));
+  // G214 (approved B): every other sync marks the hero's last known figure.
+  // A genuine first sync has no figure yet and keeps FirstSyncCard instead.
+  const heroSync = heroSyncingInfo({
+    status: syncStatus,
+    refreshing: syncing,
+    refreshFailed,
+    asOf: syncing || refreshFailed
+      ? refreshAsOf
+      : safeToSpend && safeToSpend.status === "ok" ? safeToSpend.last_synced ?? null : null,
+  });
   // A67: does this plan include connecting a bank at all? Resolved off to
   // the side, never blocking the page — see lib/openBankingAccess.ts for why
   // the pending state shows Upload Statement rather than Connect.
@@ -879,10 +991,11 @@ export default function HomePage() {
         <div>
 
           {/* ── THE BRIEF ── */}
-          <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
+          <div className="px-4 pt-5 lg:px-0 lg:pt-0" ref={greetingRef}>
             <HomeBrief
-              items={isFreshUser ? [] : companionItems}
+              items={hasNoAccounts ? [] : companionItems}
               firstName={firstName}
+              displayName={displayName}
               safeToSpend={safeToSpend}
               loading={loading}
               syncing={syncing}
@@ -906,7 +1019,7 @@ export default function HomePage() {
               section below is suppressed entirely in this state so it never
               duplicates. */}
           {isFreshUser && (
-            <div className="px-4 lg:px-0 mt-6">
+            <div className="px-4 lg:px-0 mt-5">
               <FirstAccountCard
                 canConnect={canConnectBank}
                 onConnect={() => setShowBankPicker(true)}
@@ -918,9 +1031,24 @@ export default function HomePage() {
             </div>
           )}
 
+          {/* G210: first sync running / stuck / failed. With no accounts yet it
+              replaces the connect hero; with accounts, a syncing or stalled sync
+              takes the verdict slot (below), and a failed one sits above it. */}
+          {!loadError && !loading && firstSyncActive && syncStatus?.first_sync === true && (
+            <div className="px-4 lg:px-0 mt-5" data-tutorial-id={hasNoAccounts ? "tutorial-home-fresh" : undefined}>
+              <FirstSyncCard
+                state={syncState as "syncing" | "stalled" | "failed"}
+                connections={syncStatus?.connections ?? []}
+                retrying={syncRetrying}
+                onRetry={handleSyncRetry}
+                onConnect={() => setShowBankPicker(true)}
+              />
+            </div>
+          )}
+
           {/* Load error fallback */}
           {loadError && (
-            <div className="px-4 lg:px-0 mt-4">
+            <div className="px-4 lg:px-0 mt-5">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">
                   Couldn&apos;t load your data, check your connection.
@@ -938,10 +1066,10 @@ export default function HomePage() {
           {/* ── WHERE YOU STAND ── suppressed for a fresh user: no accounts
               means no real Safe-to-Spend data, and it must never render a
               "£0" shell — the onboarding hero above is the whole story. */}
-          {!loadError && !isFreshUser && (
-            <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
+          {!loadError && !hasNoAccounts && (
+            <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-5" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
-              {(stsLoading || safeToSpend != null || stsError) && (
+              {!verdictWithheld && (stsLoading || safeToSpend != null || stsError) && (
                 <SafeToSpendCard
                   data={safeToSpend}
                   loading={stsLoading}
@@ -949,6 +1077,8 @@ export default function HomePage() {
                   onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
                   spendFrom={spendFrom}
                   coverMoveVisible={coverMoveVisible}
+                  syncing={heroSync ?? undefined}
+                  onSyncRetry={() => { void (refreshFailed ? handleSync() : handleSyncRetry()); }}
                 />
               )}
 
@@ -972,47 +1102,48 @@ export default function HomePage() {
 
           {/* ── YOUR MONEY ── suppressed for a fresh user (bills/spend
               strips have nothing to show without connected accounts). */}
-          {!loadError && !isFreshUser && (
-            <div className="rise-in mt-8" style={{ "--rise-index": 2 } as React.CSSProperties}>
-              <div className="px-4 lg:px-0 mb-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  Your money
-                </p>
-              </div>
+          {!hasNoAccounts && (!loadError || showPinnedCards) && (
+            <div className="rise-in mt-5" style={{ "--rise-index": 2 } as React.CSSProperties}>
+              {!loadError && (
+                <div className="px-4 lg:px-0 mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Your money
+                  </p>
+                </div>
+              )}
               <div className="space-y-3">
-                <UpcomingBillsStrip onReady={onBillsReady} />
-                <HomeInsightSpotlight onReady={onSpotlightReady} />
+                {!loadError && <UpcomingBillsStrip onReady={onBillsReady} />}
+                {!loadError && <HomeInsightSpotlight onReady={onSpotlightReady} />}
                 {/* B20: admin-sent offer, if any is unread. Self-fetching,
                     renders nothing when there's nothing to show — same
                     convention as the strips above. */}
-                <OfferCard />
+                {!loadError && <OfferCard />}
+                {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) join this group (G221). Not gated by loadError: they rendered on a load error before the move. */}
+                {showPinnedCards && (
+                  <div className="space-y-3 px-4 lg:px-0">
+                    {pinnedCards.includes("fuel") && <FuelSavingsCard />}
+                    {pinnedCards.includes("groceries") && <GroceryBasketCard />}
+                    {homePinnedWidget && homeTxns.length > 0 && (() => {
+                      const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+                      return (
+                        <PinnedWidgetCard
+                          id={homePinnedWidget}
+                          transactions={homeTxns}
+                          periodStart={ps}
+                          periodEnd={pe}
+                          payPeriodConfig={payPeriodConfig}
+                          colours={colours}
+                          onOpen={() => router.push("/spend?view=trends")}
+                        />
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* ── Below zones: demoted supporting content ── */}
-
-          {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) */}
-          {!isFreshUser && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
-            <div className="mt-8 space-y-3 px-4 lg:px-0">
-              {pinnedCards.includes("fuel") && <FuelSavingsCard />}
-              {pinnedCards.includes("groceries") && <GroceryBasketCard />}
-              {homePinnedWidget && homeTxns.length > 0 && (() => {
-                const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-                return (
-                  <PinnedWidgetCard
-                    id={homePinnedWidget}
-                    transactions={homeTxns}
-                    periodStart={ps}
-                    periodEnd={pe}
-                    payPeriodConfig={payPeriodConfig}
-                    colours={colours}
-                    onOpen={() => router.push("/spend?view=trends")}
-                  />
-                );
-              })()}
-            </div>
-          )}
 
           {/* Accounts — pinned/expired top picks in a grid, rest behind
               "+N more". Suppressed entirely for a fresh user: the single
@@ -1020,79 +1151,36 @@ export default function HomePage() {
               the page owns that job, so this section (which would otherwise
               render its own copy of the same empty state) is skipped rather
               than duplicated. */}
-          {!isFreshUser && (
-            <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 3 } as React.CSSProperties}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
-                <div className="flex items-center gap-2">
-                  <button
-                    data-tutorial-id="tutorial-manage-link"
-                    onClick={() => router.push("/accounts")}
-                    className="min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-                  >
-                    Manage <ChevronRight size={13} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-              {loading ? (
-                <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-[60px] px-4 py-2.5 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" />
-                      <div className="flex-1 space-y-1.5">
-                        <div className="h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                        <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                      </div>
-                      <div className="h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                    </div>
-                  ))}
-                </div>
-              ) : accounts.length === 0 ? (
+          {!hasNoAccounts && (
+            <HomeEstateSection
+              className="rise-in px-4 lg:px-0 mt-5"
+              style={{ "--rise-index": 3 } as React.CSSProperties}
+              loading={loading}
+              accountCount={accounts.length}
+              topPickAccounts={topPickAccounts}
+              topPickInvestment={topPickInvestment}
+              totalAccountCount={accounts.length + investmentAccounts.length}
+              pinnedIds={pinnedIds}
+              onOpenAccount={(id) => router.push(`/accounts?id=${id}`)}
+              onOpenInvestments={() => router.push("/accounts?tab=Investments")}
+              onViewAll={() => router.push("/accounts")}
+              emptyState={
                 <FirstAccountCard
                   canConnect={canConnectBank}
                   onConnect={() => setShowBankPicker(true)}
                   onUploadStatement={() => router.push("/accounts?add=statement")}
                   onOtherWays={() => router.push("/accounts")}
                 />
-              ) : (
-                <div className="glass-card rounded-2xl overflow-hidden">
-                  {topPickAccounts.map((acc, i) => (
-                    <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                      <AccountLedgerRow
-                        row={bankToRow(acc, pinnedIds)}
-                        onClick={() => router.push(`/accounts?id=${acc.id}`)}
-                      />
-                    </div>
-                  ))}
-                  {topPickInvestment && (
-                    <div key={topPickInvestment.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                      <AccountLedgerRow
-                        row={investmentToRow(topPickInvestment, pinnedIds)}
-                        onClick={() => router.push("/accounts?tab=Investments")}
-                      />
-                    </div>
-                  )}
-                  {hiddenAccountCount > 0 && (
-                    <button
-                      onClick={() => router.push("/accounts")}
-                      className={`w-full min-h-[52px] flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-400 dark:text-slate-500 active:bg-slate-50 dark:active:bg-white/5 transition-colors ${
-                        topPickAccounts.length + Math.min(investmentAccounts.length, 1) > 0 ? "border-t border-slate-100 dark:border-white/5" : ""
-                      }`}
-                    >
-                      +{hiddenAccountCount} more accounts <ChevronRight size={13} aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+              }
+            />
           )}
 
         </div>
 
         {/* ── Right column: recent transactions ── */}
         <div className="rise-in" style={{ "--rise-index": 4 } as React.CSSProperties}>
-          <div className="px-4 mb-4 lg:px-0 mt-8 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
-            <div className="flex items-center justify-between mb-3">
+          <div className="px-4 pb-5 lg:px-0 mt-5 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
+            <div className="flex items-center justify-between mb-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
               <button
                 onClick={() => router.push("/transactions")}

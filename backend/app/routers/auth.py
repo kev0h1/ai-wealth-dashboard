@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import jwt
+from pydantic import BaseModel
 from jwt.algorithms import RSAAlgorithm
 
 from app.core.auth import current_user
@@ -19,12 +20,21 @@ from app.core.config import (
 from app.core.allowlist import resolve_allowed_signup
 from app.core.identity import resolve_signin_email
 from app.core.link_prompts import APPLE_RELAY_LINK_EXISTING_ACCOUNT_PROMPT
-from app.core.pending_login import _pop_pending, _store_pending
 from app.core.relay_claim import (
     ClaimOutcome, load_claim_token, mark_allowlist_claimed, mint_claim_token,
     send_relay_claim_code, verify_relay_code,
 )
-from app.core.session_revocation import is_revoked
+from app.core.pending_login import (
+    _store_pending,
+    has_challenge,
+    is_legacy_mobile_state,
+    is_valid_mobile_state,
+    redeem_pending,
+    store_challenge,
+)
+from app.core.signin_handoff import signin_error_response, signin_handoff_csp, signin_handoff_html
+from app.core.push import drop_user_push_registrations
+from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
 from itsdangerous import SignatureExpired, BadSignature
@@ -89,6 +99,63 @@ async def validate_session(request: Request):
     # "Sorted is an app" shell when NEXT_PUBLIC_WEB_PRODUCT=off.
     owner = email.strip().lower() == PRIMARY_EMAIL
     return {"valid": True, "name": name, "email": email, "owner": owner}
+
+
+@router.post("/auth/logout")
+async def logout(user: dict = Depends(current_user)):
+    """A118 (pentest AND-02): explicit in-app logout only ever cleared the
+    token client-side (frontend/lib/auth.ts's clearToken), so a token
+    recovered from disk after logout (the WebView's leveldb log is
+    append-only, so removeItem's old value survives it) kept authenticating
+    for its full SESSION_MAX_AGE (7 days) — there was no server-side
+    logout at all.
+
+    Reuses A84's revoke_sessions() verbatim (the same tombstone
+    delete_account and the dormant sweep already write), rather than a
+    new mechanism: session tokens are stateless itsdangerous signatures
+    with no id of their own, so per-token blocklisting isn't possible —
+    only a per-identity cutoff is. That means this signs out EVERY device
+    holding a session for this email, not just the one that tapped
+    logout: there is no per-device session list in this app, so "log out"
+    means "every session for this identity, from now", the same meaning
+    delete_account's revoke already carries.
+
+    Scope of the revoke (revoke_sessions, A84): every app session for the
+    email, AND every active OAuth/MCP access and refresh token, AND every
+    pending OAuth authorization code for that identity. So logging out
+    also disconnects Claude/MCP connectors; they must re-authorise.
+
+    Bot principals (`email` is None, see current_user) are refused: a bot
+    credential is never in bot_credentials.ROUTE_SCOPES for this route, so
+    current_user already 401/403s it, and the explicit check below is a
+    second line of defence so a revoke for email None can never be written.
+
+    Idempotent: revoke_sessions' `$max` on `not_before` only ever moves a
+    tombstone later, never earlier, so calling this twice is harmless. A
+    second call presenting the SAME (now-revoked) token never reaches this
+    body at all — the `current_user` dependency above rejects it with 401
+    first, which is the correct outcome (not a 500), before revoke_sessions
+    runs again.
+
+    A120 (pentest AND-07 / IOS-07): also deletes EVERY web-push, APNs and
+    FCM registration for the email (not just the calling device's), matching
+    the sign-out-everywhere meaning above, so a signed-out device stops
+    receiving pushes even if the client-side unregister never ran. Fail-safe:
+    a cleanup error is logged (masked email only) and the revoke still runs.
+    A device that signs in again re-registers itself.
+    """
+    if not user.get("email"):
+        raise HTTPException(403, "Bot credentials cannot log out")
+    try:
+        await drop_user_push_registrations(user["email"])
+    except Exception as exc:
+        logging.warning(
+            "Logout push cleanup failed for %s (%s); revoking anyway",
+            mask_email(user["email"]), type(exc).__name__,
+        )
+    await revoke_sessions(user["email"])
+    logging.info("Logged out %s (all sessions revoked)", mask_email(user["email"]))
+    return {"ok": True}
 
 
 @router.post("/auth/google/native")
@@ -195,7 +262,15 @@ async def apple_native(body: dict):
     Apple only includes the user's name in the *first* authorization ever
     performed with this app, so the client passes it through as `fullName`
     on that first call; every call after that has no name in the token or
-    from the client, so we fall back to the email's local-part.
+    from the client. D7: this used to fall back to the email's local-part
+    (e.g. "jjdk4" for a Hide My Email relay address), which then showed up
+    verbatim as a greeting on Home ("Good evening, jjdk4..."). The session
+    `name` is left empty in that case instead, the same as the Google
+    sign-in routes below already do when their provider hands over no
+    display name — callers (see frontend/lib/displayName.ts) prefer the
+    user's own profile.full_name over this session name anyway, and an
+    empty string is something they can safely fall back past, unlike an
+    email fragment that reads as a real name.
 
     Hide My Email caveat: when a user chooses to relay their email, Apple
     issues a stable, per-app, *verified* @privaterelay.appleid.com address.
@@ -247,7 +322,7 @@ async def apple_native(body: dict):
             })
         raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
-    name = body.get("fullName") or email.split("@")[0]
+    name = body.get("fullName") or ""
     session_token = serializer.dumps({"email": email, "name": name})
     return {"session_token": session_token, "ok": True}
 
@@ -472,7 +547,8 @@ async def unlink_apple_identity(user: dict = Depends(current_user)):
 @router.get("/auth/google")
 async def google_auth():
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(500, "Google OAuth not configured")
+        # G215: top-level navigation, so land on the login screen's own error state.
+        return RedirectResponse(f"{APP_URL}/?error=auth_failed")
     redirect_uri = f"{APP_URL}/api/auth/google/callback"
     params = urllib.parse.urlencode({
         "client_id":     GOOGLE_CLIENT_ID,
@@ -486,9 +562,14 @@ async def google_auth():
 
 
 @router.get("/auth/google/mobile")
-async def google_auth_mobile(state: str = ""):
+async def google_auth_mobile(state: str = "", challenge: str = ""):
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(500, "Google OAuth not configured")
+        return signin_error_response(status_code=503)
+    # A133: `challenge` is sha256(poll_secret), hex. The secret itself never
+    # leaves the app and is never in a URL. Without a valid challenge a
+    # new-format state is simply never redeemable (legacy states need none).
+    if challenge:
+        await store_challenge(state, challenge)
     redirect_uri = f"{APP_URL}/api/auth/google/mobile-callback"
     params = urllib.parse.urlencode({
         "client_id":     GOOGLE_CLIENT_ID,
@@ -502,54 +583,48 @@ async def google_auth_mobile(state: str = ""):
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 
-@router.get("/auth/mobile/poll")
-async def mobile_poll(state: str):
-    value = await _pop_pending(state)
+def _poll_reply(value: str | None) -> dict:
     if value is None:
         return {"status": "pending"}
     kind, _, payload = value.partition(":")
     return {"status": kind, **({"token": payload} if kind == "token" else {"error": payload})}
 
 
+class MobilePollBody(BaseModel):
+    state: str = ""
+    poll_secret: str | None = None
+
+
+@router.post("/auth/mobile/poll")
+async def mobile_poll_secret(body: MobilePollBody):
+    # A133: new builds. The poll_secret rides in the body, never a URL. A
+    # malformed state, an unknown state and a wrong or missing secret all get
+    # exactly {"status": "pending"}.
+    return _poll_reply(await redeem_pending(body.state, body.poll_secret))
+
+
+@router.get("/auth/mobile/poll")
+async def mobile_poll(state: str):
+    # Legacy (pre-A133 installed builds): single-read, legacy states only.
+    # A new-format state has no secret here, so it always gets "pending".
+    return _poll_reply(await redeem_pending(state, None))
+
+
 @router.get("/auth/google/mobile-callback")
 async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
     async def finish(value: str) -> HTMLResponse:
-        if state:
-            await _store_pending(state, value)
+        if is_valid_mobile_state(state):
+            if is_legacy_mobile_state(state):
+                # TODO(A133): drop with the legacy state format. Never logs the state.
+                logging.getLogger(__name__).info("mobile login: legacy state format used (pre-A133 app build), single-read")
+                await _store_pending(state, value)
+            elif await has_challenge(state):
+                # New format: only stored when the app registered a challenge
+                # at login start, otherwise nobody could ever redeem it.
+                await _store_pending(state, value)
         ok = value.startswith("token:")
-        if ok:
-            heading = "Signed in"
-            message = "Taking you back to Sorted."
-            icon = "&#10003;"
-            heading_color = "#34d399"
-        else:
-            heading = "Sign-in didn&#39;t complete"
-            message = "Close this window and try again in Sorted."
-            icon = "&#10007;"
-            heading_color = "#f87171"
-        return HTMLResponse(f"""<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}}
-  .icon{{font-size:56px;margin-bottom:16px}}
-  h1{{color:{heading_color};font-size:24px;margin:0 0 12px}}
-  p{{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}}
-  .btn{{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
-       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}}
-</style></head>
-<body>
-  <div class="icon">{icon}</div>
-  <h1>{heading}</h1>
-  <p>{message}</p>
-  <button class="btn" onclick="returnToApp()">Return to Sorted</button>
-  <script>
-    function returnToApp(){{window.location.href='wealthdash://auth-done';}}
-    setTimeout(returnToApp, 600);
-  </script>
-</body></html>
-""")
+        page = signin_handoff_html(ok, auto_return=ok)
+        return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
 
     if error or not code:
         return await finish("error:auth_failed")

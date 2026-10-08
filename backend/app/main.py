@@ -12,7 +12,7 @@ import os
 from app.core.config import (
     APP_URL, API_PUBLIC_URL, BOT_CREDENTIAL_UNKNOWN_TTL_DAYS, MCP_AUDIT_TTL_DAYS,
     MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
-    SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID, TRUELAYER_ENABLED,
+    SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID, TRUELAYER_ENABLED, UAT_ADMIN_ENABLED,
 )
 from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
@@ -35,6 +35,7 @@ from app.db.collections import (
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
     session_tombstones_col,
+    orphaned_revocations_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -50,7 +51,7 @@ from app.routers import (
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
     penny_chip, ops, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
-    diagnostics,
+    diagnostics, uat_trial_reset,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -61,7 +62,11 @@ _slow_request_logger = logging.getLogger("app.perf")
 _SLOW_REQUEST_MS = 400
 
 
-def _routers(mcp_connector_enabled: bool, truelayer_enabled: bool = TRUELAYER_ENABLED) -> list:
+def _routers(
+    mcp_connector_enabled: bool,
+    truelayer_enabled: bool = TRUELAYER_ENABLED,
+    uat_admin_enabled: bool = UAT_ADMIN_ENABLED,
+) -> list:
     """The app's full router table. A17: `mcp_router` (F3, the /mcp
     Streamable HTTP connector) and `oauth_router` (F2, its OAuth 2.1
     authorisation server) are only included when the connector is turned on,
@@ -120,6 +125,8 @@ def _routers(mcp_connector_enabled: bool, truelayer_enabled: bool = TRUELAYER_EN
         routers += [mcp_router.router, oauth_router.router]
     if truelayer_enabled:
         routers += [truelayer.router, webhooks.truelayer_router]
+    if uat_admin_enabled:
+        routers += [uat_trial_reset.router]  # B47
     return routers
 
 
@@ -127,6 +134,7 @@ def build_app(
     mcp_connector_enabled: bool,
     mcp_only: bool = False,
     truelayer_enabled: bool = TRUELAYER_ENABLED,
+    uat_admin_enabled: bool = UAT_ADMIN_ENABLED,
 ) -> FastAPI:
     """Construct a fresh FastAPI app with the full middleware/router stack,
     parameterized by the MCP connector flag (A17). The module-level `app`
@@ -247,7 +255,7 @@ def build_app(
     routers = (
         [mcp_router.router, oauth_router.router]
         if mcp_only
-        else _routers(mcp_connector_enabled, truelayer_enabled)
+        else _routers(mcp_connector_enabled, truelayer_enabled, uat_admin_enabled)
     )
     for router in routers:
         built.include_router(router)
@@ -460,6 +468,13 @@ async def _create_indexes():
     # A84: session-revocation tombstones self-reap once no token they could
     # still be catching is unexpired (app.core.session_revocation).
     await _ensure_index(session_tombstones_col, "expires_at", expireAfterSeconds=0)
+    # A106: orphaned-revocation markers — retry_orphaned_revocations walks
+    # every live marker (no filter, so no query index is needed for that),
+    # but a plain index on `failed_at` lets an ops query/alert sort by how
+    # long a marker has been pending without a collection scan. Idempotency
+    # is `_id == consent_id` itself (Mongo's automatic primary-key index),
+    # not this index — one marker per consent, never one per attempt.
+    await _ensure_index(orphaned_revocations_col, "failed_at")
     # D5 in-app sign-up allow list (app/core/allowlist.py) — `key` is the
     # Gmail-dot-insensitive lookup every sign-in queries by, unique so a
     # re-invite is always an update, never a duplicate doc.
@@ -692,7 +707,15 @@ async def _cleanup_stale_connections():
 
 
 async def _seed_cashflow_cache():
-    """Populate cashflow cache for any user who has none yet."""
+    """Populate cashflow cache for any user who has none yet.
+
+    Deliberately ONLY users with no doc at all: this runs on the API's
+    single event loop, and a recompute blocks it for over a second per
+    user. The deploy-time refresh of docs written by an older engine build
+    (G159) lives in the worker instead, `app.workers.sync_worker._on_startup`
+    calling `app.services.derived_caches.refresh_stale_cashflow_caches`,
+    which also covers the no-doc case; this seed stays for an environment
+    running the API without a worker."""
     from app.routers.analytics import compute_and_cache_cashflow
     user_ids = await transactions_col.distinct("user_id")
     for uid in user_ids:

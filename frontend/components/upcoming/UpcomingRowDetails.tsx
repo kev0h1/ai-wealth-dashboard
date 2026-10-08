@@ -1,0 +1,32 @@
+"use client";
+
+import { Check, ChevronDown } from "lucide-react";
+import type { UpcomingRowModel } from "./UpcomingRow";
+import { getUpcomingStatus } from "@/lib/upcomingAttention";
+import { DetailLedgerLine, detailFocus, detailInk, detailMuted, dateLabel, money } from "./detailPrimitives";
+
+function upcomingMoney(amount: number, positive = false) { return money(Math.round(amount * 100), positive); }
+
+export function upcomingDate(iso: string) { return dateLabel(iso); }
+
+export default function UpcomingRowDetails({ model, ruleLabel }: { model: UpcomingRowModel; ruleLabel?: string | null }) {
+  const status = getUpcomingStatus(model);
+  const account = model.accountLabel || "the paying account";
+  const coverage = model.coverage;
+  const hasAccountWorking = !model.isSettling && !model.isCreditCard && model.assessment !== "future" && model.assessment !== "unverified" && coverage?.before !== undefined && coverage.after !== undefined;
+  const amount = model.type === "income" ? model.amount : -model.amount;
+  const pendingDate = model.originalDate ?? model.expectedDate;
+  return <div className="space-y-6 text-slate-950 dark:text-slate-50">
+    <div><p className={`text-xs ${detailMuted}`}>{model.type === "income" ? "Expected income" : model.isCreditCard ? "Expected card charge" : model.isMovement ? "Planned move" : "Expected payment"}</p><p className={`mt-1 break-words text-4xl font-bold tracking-tight ${detailInk}`}>{upcomingMoney(amount, model.type === "income")}</p>{model.amountBasis === "balance_estimate" && <p className={`mt-1 text-xs ${detailMuted}`}>Estimated amount</p>}</div>
+    <section className="space-y-2" aria-labelledby={`payment-state-${model.rowKey}`}><h3 id={`payment-state-${model.rowKey}`} className="flex items-start gap-2 text-sm font-semibold">{status.tone !== "neutral" ? <span aria-hidden="true" className={`mt-1.5 size-1.5 shrink-0 rounded-full ${status.tone === "risk" ? "bg-red-600 dark:bg-red-400" : "bg-amber-500"}`} /> : status.kind === "covered" ? <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0" /> : null}<span>{status.shortfall !== undefined && <><span className={detailInk}>{upcomingMoney(status.shortfall)}</span> </>}{status.label}{status.shortfall !== undefined && model.accountLabel ? ` in ${model.accountLabel}` : ""}</span></h3>
+      {model.isSettling ? <p className={`text-sm leading-6 ${detailMuted}`}>The bank has already included this payment in your balance. It is still settling, so it is not deducted again.</p> : model.type === "income" ? <p className={`text-sm leading-6 ${detailMuted}`}>This is expected income{model.accountLabel ? ` into ${model.accountLabel}` : ""}, not money already received.</p> : model.assessment === "future" ? <p className={`text-sm leading-6 ${detailMuted}`}>This is in the next pay period, outside the current account-coverage check.</p> : model.isCreditCard ? <p className={`text-sm leading-6 ${detailMuted}`}>This is a charge on your card, not cash leaving a bank account. Your card repayment is assessed separately.</p> : hasAccountWorking ? <p className={`text-sm leading-6 ${detailMuted}`}>The forecast includes earlier payments and money expected into {account}. It is a projection, not a live balance.</p> : <p className={`text-sm leading-6 ${detailMuted}`}>Coverage in the paying account cannot be verified from the available information. The overall cash forecast alone does not confirm this payment is covered.</p>}
+      {!model.isSettling && model.isMovement && <p className={`text-sm leading-6 ${detailMuted}`}>An unfunded move to your own account may stay put. There is no fee, and moving money does not reduce what you own.</p>}
+    </section>
+    <dl className="grid grid-cols-2 gap-x-5 gap-y-5 border-t border-slate-200 pt-5 text-sm dark:border-slate-700"><div><dt className={`text-xs ${detailMuted}`}>{model.type === "income" ? "Paid into" : model.isCreditCard ? "Charged to" : "Paid from"}</dt><dd className="mt-1 break-words font-semibold">{model.accountLabel ?? "Not confirmed"}</dd></div><div><dt className={`text-xs ${detailMuted}`}>Expected</dt><dd className="mt-1 font-semibold">{upcomingDate(model.expectedDate)}</dd></div>{ruleLabel && <div><dt className={`text-xs ${detailMuted}`}>Repeats</dt><dd className="mt-1 font-semibold">{ruleLabel}</dd></div>}{model.category && <div><dt className={`text-xs ${detailMuted}`}>Category</dt><dd className="mt-1 font-semibold">{model.category}</dd></div>}{model.isCreditCard && <div><dt className={`text-xs ${detailMuted}`}>Account calculation</dt><dd className="mt-1">Repayment counted separately</dd></div>}</dl>
+    {hasAccountWorking && <dl className="text-sm"><DetailLedgerLine label={`Before, in ${account}`} pence={Math.round(coverage!.before! * 100)} /><DetailLedgerLine label={model.isMovement ? "Planned move" : "This payment"} pence={-Math.round(model.amount * 100)} /><DetailLedgerLine label={`After, in ${account}`} pence={Math.round(coverage!.after! * 100)} total /></dl>}
+    {model.after.kind === "balance" && <dl className="text-sm"><DetailLedgerLine label="Projected cash overall after this" pence={Math.round(model.after.value * 100)} /></dl>}
+    {model.after.kind === "pooled-transfer" && <p className={`text-xs leading-5 ${detailMuted}`}>This transfer stays within your spendable accounts, so it does not reduce your overall cash forecast.</p>}
+    {!model.isSettling && (model.pending || (model.daysPastDue ?? 0) > 0 || model.why?.culprit) && <details className="group border-t border-slate-200 dark:border-slate-700"><summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-sm font-medium [&::-webkit-details-marker]:hidden ${detailFocus}`}>Why is this still here?<ChevronDown size={16} className="group-open:rotate-180" aria-hidden="true" /></summary><div className={`space-y-2 pb-3 text-sm leading-6 ${detailMuted}`}>{(model.pending || (model.daysPastDue ?? 0) > 0) && <p>{model.isMovement ? "Planned" : "Expected"} for {upcomingDate(pendingDate)}, but {model.type === "income" ? "we have not seen it arrive" : "we have not seen it leave"}.{!model.isMovement && model.type === "bill" ? " Check with the provider if it is overdue." : ""}</p>}{model.why?.culprit && <p>This forecast includes a <span className={detailInk}>{upcomingMoney(model.why.culprit.amount)}</span> move on {upcomingDate(model.why.culprit.expectedDate)} before this payment.</p>}</div></details>}
+    {model.createdViaPenny && <p className={`text-xs ${detailMuted}`}>Set up with Penny.</p>}
+  </div>;
+}

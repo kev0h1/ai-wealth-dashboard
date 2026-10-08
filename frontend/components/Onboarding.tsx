@@ -37,12 +37,12 @@ const STEP_DOTS: Step[] = ["profile", "payday", "plan", "income", "bank", "secur
 
 // Defined outside Onboarding so its identity is stable across renders —
 // an inner component would remount on every state change and steal focus.
-function Shell({ dotIndex, children }: { dotIndex: number; children: React.ReactNode }) {
+function Shell({ dotIndex, dotCount = STEP_DOTS.length, children }: { dotIndex: number; dotCount?: number; children: React.ReactNode }) {
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-6 py-10">
       {dotIndex >= 0 && (
         <div className="flex gap-2 mb-8">
-          {STEP_DOTS.map((_, i) => (
+          {Array.from({ length: dotCount }, (_, i) => (
             <div
               key={i}
               className={`h-1.5 rounded-full transition-[width] duration-200 ${
@@ -119,11 +119,23 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // below are one request between them, not two. PlanPicker invalidates that
   // cache when a plan is selected, so the bank step sees the new plan.
   useEffect(() => {
-    if (step !== "plan" || planInfo !== undefined) return;
+    if (planInfo !== undefined) return;
     getSubscriptionCached()
       .then(setPlanInfo)
       .catch(() => setPlanInfo(null));
-  }, [planInfo, step]);
+  }, [planInfo]);
+
+  // D12: while billing is not live nobody is on a purchasable plan, and every
+  // user sits on the server's default tier. The plan step used to preselect
+  // Statements and POST /subscription/select-free, which wrote a Statements
+  // document over that default and removed Add bank. Skip the step entirely so
+  // onboarding never writes a subscription while billing is off.
+  const billingOff = !!planInfo && planInfo.billing_live !== true;
+  useEffect(() => {
+    if (step !== "plan" || !billingOff) return;
+    localStorage.removeItem("wealth_onboarding_resume");
+    setStep("income");
+  }, [step, billingOff]);
 
   function setBiometrics(enabled: boolean) {
     if (isNativePlatform()) {
@@ -163,12 +175,31 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     else finish();
   }
 
-  const dotIndex = STEP_DOTS.indexOf(step);
+  // Billing off skips the plan step, so its dot goes too (known from mount: the
+  // subscription is fetched up front, through the shared cache).
+  const dots = billingOff ? STEP_DOTS.filter((d) => d !== "plan") : STEP_DOTS;
+  const dotIndex = dots.indexOf(step);
 
   async function finish() {
     // Mark onboarding complete only here — at the very end — so refreshing
     // mid-flow doesn't skip the pay-period and bank steps.
-    try { await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim()); } catch {}
+    //
+    // D7: this used to also re-issue the session token (a since-removed
+    // POST /auth/session/refresh) so its `name` field caught up with the
+    // profile save. That endpoint only required a valid bearer and
+    // resigned with the current timestamp, so calling it reset the
+    // session's SESSION_MAX_AGE expiry from now — a stolen token could be
+    // kept alive indefinitely just by hitting it. Removed rather than
+    // fixed: nothing needs it. Home's greeting reads profile.full_name
+    // directly (lib/displayName.ts) via its own api.getProfile() call on
+    // mount, and HomePage only ever mounts after onboarding completes
+    // (AuthProvider renders this component instead of the app shell while
+    // onboarding is pending), so the fresh name is there with no race and
+    // no session re-issue needed. A name refresh must never double as a
+    // session-lifetime refresh.
+    try {
+      await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim());
+    } catch {}
     localStorage.removeItem("wealth_onboarding_resume");
     localStorage.setItem("wealth_tutorial_pending", "1");
     onComplete();
@@ -301,7 +332,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── welcome ────────────────────────────────────────────────────────────────
   if (step === "welcome") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl shadow-xl mb-6 overflow-hidden">
             {/* Plain <img>, not next/image: the mobile Capacitor build is a
@@ -347,7 +378,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── profile ────────────────────────────────────────────────────────────────
   if (step === "profile") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">What&apos;s your name?</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -414,7 +445,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── payday ─────────────────────────────────────────────────────────────────
   if (step === "payday") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">When do you get paid?</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -478,7 +509,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── plan ───────────────────────────────────────────────────────────────────
   if (step === "plan") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Choose your plan</h2>
           <p className="mt-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
@@ -492,7 +523,10 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Could not load the plans</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Check your connection, then try again. No plan has been selected.</p>
             <button type="button" onClick={() => setPlanInfo(undefined)} className="mt-3 min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:text-slate-200">Try again</button>
+            <button type="button" onClick={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} className="ml-2 mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-slate-600 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">Continue without choosing</button>
           </div>
+        ) : billingOff ? (
+          <div className="rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm dark:bg-slate-800 dark:text-slate-400">Checking plan availability…</div>
         ) : (
           <PlanPicker info={planInfo} context="onboarding" onContinue={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} />
         )}
@@ -503,7 +537,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── income ─────────────────────────────────────────────────────────────────
   if (step === "income") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="mb-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">What do you earn?</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -558,7 +592,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // ── secure (app shell with biometrics only) ─────────────────────────────────
   if (step === "secure") {
     return (
-      <Shell dotIndex={dotIndex}>
+      <Shell dotIndex={dotIndex} dotCount={dots.length}>
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 bg-indigo-50 dark:bg-indigo-900/30">
             <ShieldCheck size={28} className="text-indigo-500" />
@@ -599,7 +633,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // bank-grade encryption and revoke-anytime are all claims about a consent
   // this user is not being asked for.
   return (
-    <Shell dotIndex={dotIndex}>
+    <Shell dotIndex={dotIndex} dotCount={dots.length}>
       <div className="text-center mb-6">
         <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 ${bankAdded ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-blue-50 dark:bg-blue-900/30"}`}>
           {bankAdded
@@ -660,6 +694,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       {showSheet && (
         <BankPickerSheet
           onClose={() => setShowSheet(false)}
+          stayOnReturn
           onConnecting={() => { setShowSheet(false); setBankAdded(true); }}
         />
       )}

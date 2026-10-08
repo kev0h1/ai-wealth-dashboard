@@ -1,16 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { X, ArrowLeftRight, ChevronRight } from "lucide-react";
+import { ArrowLeftRight, ChevronRight } from "lucide-react";
 import { Account, Transaction, TransferPairSuggestion, api } from "@/lib/api";
-import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useSheetOpen } from "@/lib/useSheetOpen";
+import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 import { formatDate, dateToUTCDay } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import Spinner from "@/components/Spinner";
@@ -115,10 +114,6 @@ export default function MiscategorisedReviewSheet({
   initialPairs,
   periodStart,
 }: MiscategorisedReviewSheetProps) {
-  useLockBodyScroll();
-  useSheetOpen();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   // initialItems (preview-only, see prop doc above) short-circuits the fetch
   // below — undefined in every production call site, so loading/items start
@@ -209,7 +204,21 @@ export default function MiscategorisedReviewSheet({
     setPairs((prev) => prev.filter((p) => p.pair_key !== pair.pair_key));
     api
       .confirmTransferPair(pair.credit.id, pair.debit.id)
-      .then(() => onChanged?.())
+      .then((res) => {
+        // G146: confirm writes BOTH legs' categories server-side (see
+        // routers/analytics.py's confirm_transfer_pair) exactly like a
+        // TeachingSheet correction does, but this sheet never went through
+        // TeachingSheet's notifyUpdated, so lib/homeCache.ts's Home brief
+        // and lib/signalsCache.ts's category multiples never heard about
+        // it. One call covers both legs — every cache this clears is a
+        // whole-payload cache with no per-transaction key, so a single
+        // call is exactly as effective as two.
+        invalidateAfterTransactionCorrection(pair.debit.id, {
+          oldCategory: pair.debit.category ?? undefined,
+          newCategory: res.debit_category,
+        });
+        onChanged?.();
+      })
       .catch(() => {
         setPairs((prev) => (prev.some((p) => p.pair_key === pair.pair_key) ? prev : [pair, ...prev]));
         setPairErrors((prev) => new Set(prev).add(pair.pair_key));
@@ -565,40 +574,11 @@ export default function MiscategorisedReviewSheet({
     );
   }
 
-  if (!mounted) return null;
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
-
-      {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-      <div
-        className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
-                    bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
-                    lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        {/* Handle — mobile only */}
-        <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-2 pb-4 lg:pt-5">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 truncate flex-1 mr-4">
-            Review these transfers
-          </h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
-          >
-            <X size={16} color="#64748b" />
-          </button>
-        </div>
+  return (
+    <SheetFrame title="Review these transfers" onClose={onClose}>
 
         {/* Penny explainer */}
-        <div className="mx-5 mb-4 glass-card rounded-2xl p-4">
+        <div className="mb-4 glass-card rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <span
               className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
@@ -623,7 +603,7 @@ export default function MiscategorisedReviewSheet({
             or every item falls in the same group), grouped into "This
             period"/"Earlier periods" only when the split actually explains
             something (see showSplit above). */}
-        <div className="px-5 pb-20 lg:pb-6">
+        <div className="pb-2">
           {/* Cross-account transfer-pair suggestions — a fresher, more
               actionable signal than the miscategorised groups below (a
               possible pair still has both legs unresolved), so it renders
@@ -675,8 +655,6 @@ export default function MiscategorisedReviewSheet({
             </div>
           )}
         </div>
-      </div>
-    </>,
-    document.body
+    </SheetFrame>
   );
 }

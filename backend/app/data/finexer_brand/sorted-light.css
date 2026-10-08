@@ -1,0 +1,18 @@
+/* Contrast (WCAG): muted #334155 on #f0f2f7 about 9.6:1, on #fff about 10.8:1; ink #0f172a on #f0f2f7 15.9:1.
+   This template is unconditionally light, whatever the phone is set to. The
+   dark template (sorted-dark.css) is chosen by Sorted's dark preference via
+   the template parameter, never by prefers-color-scheme. */
+/* Sorted light token set (DESIGN.md). Indigo is the brand; the indigo to
+   violet gradient is Penny's and is never used here. */
+:root {
+  --s-primary: #4f46e5;
+  --s-primary-hover: #4338ca;
+  --s-link: #4f46e5;
+  --s-link-hover: #4338ca;
+  --s-canvas: #f0f2f7;
+  --s-card: #ffffff;
+  --s-border: #e2e8f0;
+  --s-ink: #0f172a;
+  --s-muted: #334155;
+  color-scheme: light;
+}

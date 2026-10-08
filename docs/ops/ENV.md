@@ -36,6 +36,7 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | Variable | Read in | UAT (VPS backend/.env) | Production (Railway, both services) | Notes |
 |---|---|---|---|---|
 | `MONGO_URI` | `core/config.py` | present | present | required everywhere, but not the same value or even the same kind of database: production's is an Atlas SRV string, UAT's is a local `mongod` on this VPS (`mongodb://localhost:27017`, no authentication configured). UAT and production do not share a database. |
+| `MONGO_DB` | `core/config.py`, `db/collections.py` | present (`wealth`) | absent (defaults to `wealth`) | optional; the database NAME within whatever `MONGO_URI` points at. H90 (2026-09-28) wired this up — it used to sit in `backend/.env` unread (see `git log` before H90 for the old "vestigial" note), coincidentally already set to the same value the code hardcoded. `backend/tests/conftest.py` is the one thing that actually relies on this now: it defaults the whole backend suite to `MONGO_DB=wealth_test` before any test can create a collection handle, so the suite runs against a disposable database in the SAME deployment rather than the real one. Do not remove `MONGO_DB=wealth` from UAT's `backend/.env` (no longer vestigial); leaving production unset is fine, its Atlas database is also named `wealth`. |
 | `OPENROUTER_API_KEY` | `core/config.py` | present | present | required; Penny + categorisation + savings insights all call OpenRouter. |
 | `LLM_GLOBAL_MONTHLY_CALL_CEILING` | `core/config.py` | absent (0, disabled) | absent (0, disabled) — recommend `200000` once enabled | optional, default `0` (disabled). A80 (pentest LLM-07): a service-wide monthly ceiling on OpenRouter calls, on top of (not instead of) the per-user allowances in `core/subscription.py`'s `TIER_LIMITS`; enforced in `core/llm.py`'s `openrouter_chat`, the one shared call path every pipeline uses, so it bounds total spend regardless of which pipeline drives it. Counts calls, not dollars, because calls are what's already metered per user. Recommended production value `200000`: the highest per-user allowance is Max tier's 400 Penny messages/month; at a plausible ~250 paying users that is 250 × 400 = 100,000 baseline Penny-message calls/month, doubled to 200,000 to leave headroom for a Penny message spanning several tool-calling rounds (each its own OpenRouter call) and for the non-Penny pipelines sharing this same counter (categorisation, savings-insight research, receipts, recurring-series judging, ...) that have no per-user message cap at all. This is meant as a circuit breaker for a bug or a bot running up many accounts, not a routine throttle, so it is set well above realistic legitimate volume rather than tight to it; revisit once real production usage data exists. |
 | `TAVILY_API_KEY` | `core/config.py` | present | present | required for savings-insight web lookups. |
@@ -46,6 +47,7 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `ALLOWED_EMAILS` | `core/config.py` | present | present | required; comma-separated sign-in allow-list, the seed list checked first by every sign-in. D5: day-to-day invites go through the in-app `allowed_signups` Mongo collection instead (managed from `/ops/go-live`'s Allowlist section, `app/routers/admin_allowlist.py`) — this env var stays for the owner's own account and anything else that needs to work even if Mongo is unreachable, and only changing it still needs an env edit + redeploy. |
 | `DEFAULT_TIER` | `core/config.py` | absent (default `max`) | absent (default `max`) | optional; deliberately top-tier pre-launch. |
 | `REDIS_URL` | `core/config.py` | present | present | required; queue + cache. |
+| `ENGINE_BUILD_ID` | `core/build.py` | absent (falls back to a content hash of `app/**/*.py`) | absent (falls back to the same content hash) | optional; G159, chain revised by the same item's review. An explicit override for the running forecast-engine build identity that `compute_and_cache_cashflow` stamps on every `cashflow_cache` doc and that the worker's startup pass and the reconcile compare against to recompute docs an older build produced. Never needed on UAT or Railway: the fallback is a hash of this package's own `.py` bytes, deterministic across processes and immune to a commit that never touches `backend/` (a board commit, a frontend-only integrate), unlike the `git rev-parse HEAD` this used to prefer on UAT — see `core/build.py`'s module docstring for the incident that dropped it. `RAILWAY_GIT_COMMIT_SHA` was in this fallback chain too until the same review; it was never actually confirmed present on Railway (no one had checked), and would have shared `git rev-parse HEAD`'s failure shape if Railway ever redeploys on a change outside `backend/`, so it was removed rather than kept as an unverified middle rung. Set `ENGINE_BUILD_ID` only where the source hash itself is not wanted. |
 | `TRUSTED_PROXY_HOPS` | `core/config.py` | absent (default `0` is safe but coarse today; Kevin should set `1`, see note) | present, `1` | optional (default `0`); A92, hop count revised by A110. The number of trusted reverse-proxy hops in front of this app that themselves append the real client address to `X-Forwarded-For`; `core/ratelimit.py`'s `client_ip()` reads exactly that many entries from the right-hand end of the header instead of trusting a caller-supplied value (`X-Real-IP` is no longer read at all). Default `0` means "trust no forwarded header, use the raw socket peer", the safe fallback: it can only under-differentiate clients sharing one proxy (one shared rate-limit bucket), never let a caller pick its own bucket. **UAT = `1`, confirmed**: this host's nginx site config (`/etc/nginx/sites-enabled/uat.wealth.auriqltd.co.uk`) unconditionally overwrites `X-Real-IP` with `$remote_addr` and sets `X-Forwarded-For` via `$proxy_add_x_forwarded_for`, which appends nginx's own observed address after anything a client sent rather than replacing it, so the rightmost entry is always nginx's own, one hop. **Production = `1`**: A110 established that production has TWO ingress paths with different real hop counts (see `TRUSTED_PROXY_HOPS_WEB` below), which a single `TRUSTED_PROXY_HOPS` value can never serve correctly on its own, so this variable is now the fallback used for every request that does NOT carry a verified `X-Sorted-Proxy-Auth` header, which in practice is the mobile apps calling `api.wealth.auriqltd.co.uk` (Railway) directly, one real hop, same shape as UAT's nginx. **The two misconfiguration directions are not equally safe, unlike REDIS_URL-style "just imprecise" settings: setting the hop count LOWER than the true number of appending hops is always safe** (it reads an entry an upstream proxy itself wrote, at worst the outer proxy's own address shared by everyone behind it, i.e. a coarser but still caller-proof bucket); **setting it HIGHER than the true number reopens the exact spoofing bypass this fix exists to close**, because it walks past the hops that actually append and reads an entry the caller supplied itself. If in doubt, set it one lower than the count observed, not higher. Verify with `GET /diagnostics/proxy` from the mobile app after release (expect `via_web_proxy: false`, `hops_applied: 1`), see `RELEASE.md`. |
 | `TRUSTED_PROXY_HOPS_WEB` | `core/config.py` | absent (`0`, disabled, UAT's single nginx hop never needs this second path) | present, `2` | optional (default `0`, disabled); A110. The trusted hop count used ONLY for a request that carries a valid `X-Sorted-Proxy-Auth` header matching `TRUSTED_PROXY_SECRET` (see that row), i.e. one that genuinely came through `frontend/proxy.ts`'s `/api/*` rewrite, not a caller that merely guessed the header name. **Production = `2`**: the chain is client → Vercel's `/api/*` rewrite (`frontend/next.config.ts`) → Railway's own edge → this app, both hops appending to `X-Forwarded-For`. `0` (the default) means "never trust the web path specially", so a request whose header check fails, or on any environment that leaves this and `TRUSTED_PROXY_SECRET` unset (UAT), always falls back to plain `TRUSTED_PROXY_HOPS`; this variable can only ever add a second, narrower trust path on top of that fallback, never widen it. Verify with `GET /diagnostics/proxy` from the web app after release (expect `via_web_proxy: true`, `hops_applied: 2`), see `RELEASE.md`. |
 | `TRUSTED_PROXY_SECRET` | `core/config.py` | absent | present (Railway, both services) | optional (default `""`, disabled); A110. Shared secret `frontend/proxy.ts` (Vercel, `API_PROXY_SECRET` below) sends as the `X-Sorted-Proxy-Auth` request header on every request its own `/api/*` rewrite forwards to the backend, so `core/ratelimit.py`'s `client_ip()` can tell "this genuinely came through my own Vercel rewrite" apart from any other caller (including one that spoofs the header name) before it trusts `TRUSTED_PROXY_HOPS_WEB` for that request. Compared with `hmac.compare_digest`, never logged, never echoed in any response (see `GET /diagnostics/proxy`). Must be the same value as Vercel's `API_PROXY_SECRET`; generate with `openssl rand -hex 32`. Leave absent on UAT and anywhere else this two-path split does not apply: an unset secret makes the whole web-path check a no-op, never a wider trust. |
@@ -78,6 +80,8 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `YAPILY_BASE_URL` | `core/config.py` | present | absent (default `https://api.yapily.com` is correct) | optional; UAT pins it explicitly, production relies on the default. |
 | `FINEXER_API_KEY` | `core/config.py` | present | present | required; primary bank-connect provider. |
 | `FINEXER_RETURN_URL` | `core/config.py` | present | absent (default matches production URL) | optional; UAT pins it explicitly. |
+| `FINEXER_APP_ID` | `core/config.py` | absent | absent | optional; A143, the app id from the Finexer app settings. Needed by `backend/scripts/finexer_template.py` (or its `--app-id`) and by the dark-template check. Per environment: UAT = the sandbox app (acc_GA5guMoUxCWpDfSy6ShPbiHZ), Railway/production = the production app (acc_DqPCRpHskkjNy7uYa1wv7mSv). Finexer scopes templates by API key, not by the app id in the URL, so each environment needs the key that belongs to its own app. |
+| `FINEXER_TEMPLATE_DARK` | `core/config.py` | absent | absent | optional; A143, the 12-character id of the "Sorted dark" consent template. When set and it validates against `GET /apps/{app_id}/templates/{id}`, `finexer_link` appends `&template=<id>` for users whose dark_mode preference is on. Unset or invalid means the default template, never a bad id (an invalid id stops the consent page opening). Differs per environment (each Finexer app has its own "Sorted dark" id). |
 | `FINEXER_WEBHOOK_SECRET` | `core/config.py` | absent (falls back to `backend/.finexer_webhook_secret`) | absent | optional; falls back to a generated per-environment file if unset. Railway has no persistent filesystem, so a fresh secret is generated on every deploy unless set explicitly, worth pinning as an env var to keep the webhook URL stable. |
 | `FINEXER_WEBHOOK_SIGNING_SECRET` | `core/config.py` | absent | absent | optional until Finexer's dashboard issues one; empty means "not registered yet", the receiver skips signature verification and logs a warning. |
 | `FINEXER_PROVIDERS_TTL_HOURS` | `core/config.py` | absent (default `24`) | absent (default `24`) | optional; H19 — how long `list_providers()`'s Mongo-backed cache of GET /providers is trusted before a consent sync re-walks the full paginated list. |
@@ -94,6 +98,8 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `TOKEN_ENCRYPTION_KEY` | `core/crypto.py` | absent (falls back to `backend/.token_key`) | present | optional on UAT (file fallback), present on Railway (no persistent filesystem), encrypts stored bank tokens at rest. |
 | `REPO_ROOT` | `routers/ops.py` | absent (defaults to this repo) | absent | optional; test/override only, not meant to be set in either real environment. |
 | `BACKLOG_ROOT` | `services/backlog.py` | absent (defaults to `/root/ai-wealth-dashboard`) | absent | optional; test override only, never meant to be set outside pytest. |
+
+**Finexer consent revocation (A157).** Every revoke (disconnect, account erasure, last-account delete, B45 downgrade, nightly orphan sweep) goes through `retention.revoke_finexer_consent_remote`, which calls Finexer's documented `POST /consents/{id}/revoke` (Basic auth, `FINEXER_API_KEY` as username); `DELETE /consents/{id}` is not a Finexer endpoint and must not be used. A revoke counts as success only when the response is 2xx and the returned consent `status` is `canceled`, or on a 404 that a follow-up `GET /consents/{id}` confirms is gone or canceled; anything else leaves an `orphaned_revocations` retry marker.
 
 ### Bot/service credentials (A28, replaces `BOT_SECRET`)
 
@@ -168,7 +174,6 @@ forever.
 |---|---|---|---|---|
 | `FUEL_FINDER_CLIENT_ID` | `backend/fuel_finder_collector.py`, `backend/spike_fuel_finder*.py` | present | present | optional; standalone fuel-price collector script, not part of the API process. |
 | `FUEL_FINDER_CLIENT_SECRET` | same as above | present | present | optional; see above. |
-| `MONGO_DB` | not read anywhere under `backend/` (`backend/tests/conftest.py` notes there is no such env var, the database name is hardcoded to `"wealth"`) | present | absent | vestigial; safe to remove from `backend/.env`, harmless if left. |
 | `TOKEN_KEY` | not read anywhere under `backend/` (the real name is `TOKEN_ENCRYPTION_KEY`, see above) | absent | present | orphaned; likely a naming slip when `TOKEN_ENCRYPTION_KEY` was first set on Railway. Safe to remove once confirmed `TOKEN_ENCRYPTION_KEY` is the one actually in use (it is: `core/crypto.py` only ever reads `TOKEN_ENCRYPTION_KEY`). |
 
 ## Frontend
@@ -333,9 +338,11 @@ A27 backlog note.
   with these unset, and GET /subscription's `billing_live` follows it, so
   the frontend keeps showing "Available soon". See DEPLOY.md's "Stripe
   setup checklist" for what to do once the account exists.
-- **`TOKEN_KEY`** (Railway only) and **`MONGO_DB`** (UAT only) are
-  orphaned names nothing in `backend/app` reads; see the legacy-scripts
-  table above.
+- **`TOKEN_KEY`** (Railway only) is an orphaned name nothing in
+  `backend/app` reads; see the legacy-scripts table above. `MONGO_DB` used
+  to sit alongside it (nothing read it either) but H90 (2026-09-28) wired
+  it up — see its own row in the Backend table above — so it is no longer
+  in this bucket.
 - **`TRUELAYER_CLIENT_ID`, `TRUELAYER_CLIENT_SECRET`,
   `TRUELAYER_REDIRECT_URI`, `TRUELAYER_WEBHOOK_SECRET`** are still set on
   both Railway services and are now expected `absent` there (A67,
@@ -411,11 +418,41 @@ tables above is either a non-sensitive config value (`APP_URL`,
 `RECONCILE_MIN_GAP_SECONDS`, `SENTRY_ENV`, `APNS_BUNDLE_ID`,
 `APNS_AUTH_KEY_PATH`, `APNS_USE_SANDBOX`, `FCM_PROJECT_ID`,
 `FCM_SERVICE_ACCOUNT_PATH`, `VAPID_SUBJECT`, `REPO_ROOT`, `BACKLOG_ROOT`,
-`STRIPE_PRICE_IDS`), a boolean/flag switching behaviour on or off rather
-than authenticating anything (`OPEN_SIGNUP`, `MCP_CONNECTOR_ENABLED`,
-`MCP_ONLY`, `ENABLE_API_DOCS`, `DEV_MODE`, and every `NEXT_PUBLIC_*` flag —
-these ship to the browser by definition, so they were never secret), or
-already documented above as orphaned/vestigial (`MONGO_DB`, the stray
-`TOKEN_KEY` name on Railway). `BACKEND_URL` and `NEXT_PUBLIC_API_URL` are
+`STRIPE_PRICE_IDS`, `MONGO_DB` — a database NAME, not a credential), a
+boolean/flag switching behaviour on or off rather than authenticating
+anything (`OPEN_SIGNUP`, `MCP_CONNECTOR_ENABLED`, `MCP_ONLY`,
+`ENABLE_API_DOCS`, `DEV_MODE`, and every `NEXT_PUBLIC_*` flag — these ship
+to the browser by definition, so they were never secret), or already
+documented above as orphaned/vestigial (the stray `TOKEN_KEY` name on
+Railway). `BACKEND_URL` and `NEXT_PUBLIC_API_URL` are
 routing configuration, not credentials, changing them is a redeploy, not a
 rotation.
+
+## UAT-only: reset the introductory trial (B47)
+
+`POST /subscription/admin/uat-trial-reset` exists only on UAT (the route is
+mounted when `APP_URL` is a non-production host, the same derivation as
+TrueLayer, and it also refuses at call time otherwise), so production can
+never be reset. Owner session only (no bot scope). In one update it `$unset`s
+`trial_used_at` and `trial_ends_at` and `$set`s `trial_reset_at` (aware now) on
+the subscription document, nothing else; Stripe fields are never touched, and
+live Stripe-backed subscriptions (active/trialing/past_due) are skipped.
+`billing._validate_subscription_checkout` treats a non-live Stripe-backed doc
+carrying `trial_reset_at` as trial-eligible again (unless a trial was used
+after the reset). Only this UAT-only endpoint writes `trial_reset_at`, so it
+is inert in production. Only the 22 users on the
+frozen snapshot `backend/app/data/uat_trial_reset_allowlist.json` (SHA-256 of
+lower-cased email, captured 2026-10-05) can be reset; anyone else gets 403.
+
+```bash
+# one user (TOKEN is Kevin's own session token)
+curl -sS -X POST https://uat.wealth.auriqltd.co.uk/api/subscription/admin/uat-trial-reset \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user_id": "someone@example.com"}'
+# every allow-listed user
+curl -sS -X POST https://uat.wealth.auriqltd.co.uk/api/subscription/admin/uat-trial-reset \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"all": true}'
+```
+
+Response: `{"ok": true, "modified": N, "skipped_live_stripe": M}`.

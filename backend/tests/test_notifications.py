@@ -259,6 +259,30 @@ def test_bill_shortfall_suppressed_for_account_with_active_move(monkeypatch):
     assert "Council Tax" in new_bills[0]["body"]
 
 
+def test_bill_shortfall_silent_during_first_sync_but_not_for_established_user(monkeypatch):
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+    bills = [_bill("Council Tax", 2, 50.0, 10.0, "acc-other")]
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": bills}
+
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    async def first(_uid):
+        return {"state": "syncing", "first_sync": True, "connections": []}
+
+    async def established(_uid):
+        return {"state": "syncing", "first_sync": False, "connections": []}
+
+    monkeypatch.setattr(notifications, "first_sync_state", first)
+    assert asyncio.run(notifications._maybe_bill_shortfall("kevin")) == []
+    assert sent == []
+
+    monkeypatch.setattr(notifications, "first_sync_state", established)
+    assert [b["name"] for b in asyncio.run(notifications._maybe_bill_shortfall("kevin"))] == ["Council Tax"]
+
+
 # ── _maybe_money_movement: the merge/send layer ──────────────────────────────
 
 def test_money_movement_merges_when_both_fire(monkeypatch):
