@@ -117,7 +117,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import PennyStarterState from "@/components/PennyStarterState";
-import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal } from "@/lib/api";
+import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLimitError, PennyProposal } from "@/lib/api";
+import type { PennyChatSession } from "@/lib/usePennyChatSession";
+import { PENNY_FULL_ACTION, PENNY_FULL_NOTICE, PENNY_MAX_TURNS } from "@/lib/pennyConversationSession";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import PennyComposer from "@/components/PennyComposer";
@@ -258,8 +260,13 @@ function newBucket(): ThreadBucket {
  * (not derived/looped over the type) so that adding a new screen to that
  * union without adding a matching entry here is a compile error, not a
  * silent runtime `undefined` the first time that screen opens Penny. */
-function newBuckets(): Record<PennyAskContext["screen"], ThreadBucket> {
+type BucketKey = PennyAskContext["screen"] | "chat";
+
+function newBuckets(): Record<BucketKey, ThreadBucket> {
   return {
+    // G248: while a stored chat session drives the sheet, ONE bucket owns the
+    // thread whatever screen Penny is opened over (see `chat` below).
+    chat: newBucket(),
     home: newBucket(),
     spend: newBucket(),
     upcoming: newBucket(),
@@ -795,6 +802,7 @@ export default function PennyConversation({
   inSheet,
   askContext,
   askSeq,
+  chat,
 }: {
   /** Submitted once on mount (e.g. from ?ask=<question>). */
   initialQuestion?: string | null;
@@ -828,6 +836,13 @@ export default function PennyConversation({
    * `askSeq` gives each open a distinct token so "already handled" can
    * mean "already handled THIS open" instead of "ever handled at all". */
   askSeq?: number;
+  /** G248: the stored-chat session (PennySheet owns it, because the header
+   * actions and the history sheet share it). Sheet mode only. While present,
+   * a single "chat" bucket owns the thread regardless of the screen Penny is
+   * opened over, questions carry the stored conversation id, and New chat,
+   * resume and load-latest replace the thread through `chat.restore`. Absent
+   * (the full /penny page), the per-screen buckets behave exactly as before. */
+  chat?: PennyChatSession;
 }) {
   const router = useRouter();
   // Only used by config `link` chips below (navigate + close, see
@@ -855,13 +870,17 @@ export default function PennyConversation({
   // `sendChip()` below read straight off this object at call time, same
   // pattern this file already uses for `askContext?.screen` itself.
   const screenViews = usePennyScreenViews();
-  const [buckets, setBuckets] = useState<Record<PennyAskContext["screen"], ThreadBucket>>(newBuckets);
+  const [buckets, setBuckets] = useState<Record<BucketKey, ThreadBucket>>(newBuckets);
   // `messages`/`askedLabels` below name exactly the two fields the rest of
   // this component already reads by these names (rendering, chip
   // filtering, the scroll-on-new-message effect) — deriving them from the
   // current bucket here means none of that downstream code needs to know
   // buckets exist at all.
-  const { messages, askedLabels } = buckets[currentScreen];
+  // G248: with a stored chat session, the stored conversation owns the thread.
+  const bucketKey: BucketKey = chat ? "chat" : currentScreen;
+  const { messages, askedLabels } = buckets[bucketKey];
+  const chatRef = useRef(chat);
+  useEffect(() => { chatRef.current = chat; });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [offer, setOffer] = useState<CanIOffer | null>(null);
@@ -959,12 +978,12 @@ export default function PennyConversation({
   // staleness entirely. Kept in lockstep with `buckets` through `setBucket`
   // below — every mutation goes through that one function, never a bare
   // `setBuckets` call, so the two can never drift apart.
-  const bucketsRef = useRef<Record<PennyAskContext["screen"], ThreadBucket>>(newBuckets());
+  const bucketsRef = useRef<Record<BucketKey, ThreadBucket>>(newBuckets());
   /** Updates ONE bucket, leaving every other screen's thread untouched.
    * `updater` receives that bucket's value from `bucketsRef` (not the
    * `buckets` state variable — see that ref's own comment above) so a
    * caller building on `prev` never reads a stale pre-commit snapshot. */
-  function setBucket(screen: PennyAskContext["screen"], updater: (prev: ThreadBucket) => ThreadBucket) {
+  function setBucket(screen: BucketKey, updater: (prev: ThreadBucket) => ThreadBucket) {
     const next = { ...bucketsRef.current, [screen]: updater(bucketsRef.current[screen]) };
     bucketsRef.current = next;
     setBuckets(next);
@@ -1013,7 +1032,9 @@ export default function PennyConversation({
    * (see this file's header comment, "PER-SCREEN THREADS"), so this is a
    * plain slice with nothing left to skip. */
   function capMessages(msgs: Msg[]): Msg[] {
-    return msgs.slice(-HISTORY_CAP);
+    // G248: a stored chat shows up to its server cap; the model window stays
+    // HISTORY_CAP because buildHistory slices on its own.
+    return msgs.slice(chat ? -PENNY_MAX_TURNS : -HISTORY_CAP);
   }
 
   function buildHistory(msgs: Msg[]): Array<{ role: "user" | "assistant"; content: string }> {
@@ -1066,7 +1087,7 @@ export default function PennyConversation({
     // the bucket that actually asked, not whichever bucket is on screen
     // when the response arrives.
     const sendScreen = askContext?.screen;
-    const bucketScreen: PennyAskContext["screen"] = sendScreen ?? "other";
+    const bucketScreen: BucketKey = chat ? "chat" : sendScreen ?? "other";
     // `view` (B39): read from `screenViews` at this exact same moment, for
     // the same closure reason as `sendScreen` just above — this
     // component's render-time snapshot of the live store, not a fresh read
@@ -1076,8 +1097,19 @@ export default function PennyConversation({
     const sendView = sendScreen ? screenViews[sendScreen] ?? undefined : undefined;
     setError(false);
     setLoading(true);
+    // G248: the stored conversation this question belongs to. Created on the
+    // first question; if that fails the question still gets answered, just
+    // not stored. A New chat, resume or delete while the answer is in flight
+    // changes the active id, and the late answer is then dropped rather than
+    // landing in the wrong thread.
+    let conversationId: string | undefined;
+    if (chat) {
+      try { conversationId = await chat.ensureConversationId(); } catch { conversationId = undefined; }
+    }
     try {
-      const res = await api.canI(question, history, context, sendScreen, sendView);
+      const res = await api.canI(question, history, context, sendScreen, sendView, conversationId);
+      if (chat && conversationId && chat.getActiveId() !== conversationId) return;
+      if (chat && res.conversation?.at_cap) chat.markFull();
       // One id per answer turn, shared across whichever branch below fires
       // (see the Msg union's `id` comment for why every message needs one).
       const id = newMsgId();
@@ -1122,7 +1154,17 @@ export default function PennyConversation({
       // rather than local state.
       refreshPennyUsage();
     } catch (e) {
-      if (e instanceof PennyLimitError) {
+      if (chat && conversationId && chat.getActiveId() !== conversationId) return;
+      if (e instanceof PennyConversationFullError) {
+        // G248: the stored chat reached its cap (409, before any model call).
+        // Not an error: the composer swaps to "This chat is full" with a
+        // New chat action, and the unsent question leaves the thread.
+        chat?.markFull();
+        setBucket(bucketScreen, (prev) => {
+          const last = prev.messages[prev.messages.length - 1];
+          return last && last.role === "user" ? { ...prev, messages: prev.messages.slice(0, -1) } : prev;
+        });
+      } else if (e instanceof PennyLimitError) {
         // The monthly cap — flip the composer to resting immediately (see
         // markPennyLimitReached's own comment) rather than the generic
         // ErrorRetry bubble a plain network/server error gets; a "try
@@ -1164,7 +1206,7 @@ export default function PennyConversation({
     // actually runs, specifically when the TTL-expiry effect below clears
     // this bucket in the SAME commit that also fires the `askContext.ask`
     // effect that calls this).
-    const priorMessages = bucketsRef.current[currentScreen].messages;
+    const priorMessages = bucketsRef.current[bucketKey].messages;
     const history = buildHistory(priorMessages);
     // Appends the user's turn AND marks it asked, in ONE bucket update —
     // `currentScreen`'s own thread, never any other screen's (see this
@@ -1173,7 +1215,7 @@ export default function PennyConversation({
     // `dismissedChips` does — see that state's own comment above) is the
     // point of a chip asked on Spend staying offered on Home: this only
     // ever touches Spend's bucket.
-    setBucket(currentScreen, (prev) => ({
+    setBucket(bucketKey, (prev) => ({
       messages: capMessages([...prev.messages, { id: newMsgId(), role: "user" as const, content: trimmed }]),
       askedLabels: new Set(prev.askedLabels).add(trimmed),
       lastActivityAt: Date.now(),
@@ -1200,7 +1242,7 @@ export default function PennyConversation({
     // `bucketsRef.current`, not `buckets` state — see that ref's comment.
     // Retries the last user turn in the CURRENTLY VIEWED bucket — the same
     // thread the error/retry bubble is rendered in.
-    const current = bucketsRef.current[currentScreen].messages;
+    const current = bucketsRef.current[bucketKey].messages;
     const last = current[current.length - 1];
     if (!last || last.role !== "user") return;
     const history = buildHistory(current.slice(0, -1));
@@ -1229,7 +1271,7 @@ export default function PennyConversation({
   function sendChip(chipId: string, label: string, params?: Record<string, unknown>) {
     if (loading) return;
     const sendScreen = askContext?.screen;
-    const bucketScreen: PennyAskContext["screen"] = sendScreen ?? "other";
+    const bucketScreen: BucketKey = chat ? "chat" : sendScreen ?? "other";
     // Captured BEFORE the user turn below is appended, same reasoning as
     // `send()`'s own `history` — `ask()` (the fallback path) only ever
     // appends the ANSWER, never the question, so its history must exclude
@@ -1245,11 +1287,26 @@ export default function PennyConversation({
     setOffer(null);
     setError(false);
     setLoading(true);
+    // G248: the chat this chip belongs to, as of now (null before the first
+    // question). If New chat or a resume happens before the answer, drop it.
+    const startedIn = chat ? chat.getActiveId() : null;
     api.pennyChip(chipId, params, sendScreen)
       .then((res) => {
+        if (chat && chat.getActiveId() !== startedIn) { setLoading(false); return; }
         if (!res || res.kind === "llm") {
           ask(label, history);
           return;
+        }
+        if (chat) {
+          // Engine answers never pass through /can-i, so store the exchange
+          // here, text only. Best effort: the answer shows either way.
+          chat.ensureConversationId()
+            .then((cid) => api.appendPennyTurns(cid, [
+              { role: "user", text: label.slice(0, 2000) },
+              { role: "assistant", text: (res.answer ?? "").slice(0, 8000) },
+            ]))
+            .then((stored) => { if (stored.at_cap) chat.markFull(); })
+            .catch(() => undefined);
         }
         setBucket(bucketScreen, (prev) => ({
           ...prev,
@@ -1284,7 +1341,7 @@ export default function PennyConversation({
    * second tap in the same event loop turn as the first already sees
    * "executing" and no-ops. The button itself is also `disabled` while
    * busy (ProposalConfirmCard), belt-and-braces on top of this. */
-  function confirmProposal(screen: PennyAskContext["screen"], msgId: number, proposalId: string) {
+  function confirmProposal(screen: BucketKey, msgId: number, proposalId: string) {
     const current = bucketsRef.current[screen].messages.find(
       (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
     );
@@ -1326,7 +1383,7 @@ export default function PennyConversation({
    * fail from the user's point of view), so a failed DELETE-equivalent on
    * the server is swallowed rather than surfaced — same treatment
    * CommitmentSheet's own offer hand-off gives a fire-and-forget follow-up. */
-  function cancelProposal(screen: PennyAskContext["screen"], msgId: number, proposalId: string) {
+  function cancelProposal(screen: BucketKey, msgId: number, proposalId: string) {
     const current = bucketsRef.current[screen].messages.find(
       (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
     );
@@ -1346,7 +1403,7 @@ export default function PennyConversation({
    * grant so the same tap can be retried — there's no separate error copy
    * for this path, the card just stays exactly as it was. */
   function acceptConsent(msgId: number) {
-    const screen = currentScreen;
+    const screen = bucketKey;
     api.grantPennyAgentConsent()
       .then(() => {
         setBucket(screen, (prev) => ({
@@ -1361,7 +1418,7 @@ export default function PennyConversation({
   }
 
   function declineConsent(msgId: number) {
-    const screen = currentScreen;
+    const screen = bucketKey;
     setBucket(screen, (prev) => ({
       ...prev,
       messages: prev.messages.map((m) =>
@@ -1387,7 +1444,7 @@ export default function PennyConversation({
    * `retry()` (same `buildHistory`/`ask()` primitives, same "read
    * `bucketsRef.current`, not the `buckets` state variable" reasoning). */
   function resendAfterConsent(consentMsgId: number) {
-    const current = bucketsRef.current[currentScreen].messages;
+    const current = bucketsRef.current[bucketKey].messages;
     const consentIdx = current.findIndex((m) => m.role === "assistant" && m.kind === "consent" && m.id === consentMsgId);
     const before = consentIdx >= 0 ? current.slice(0, consentIdx) : current;
     for (let i = before.length - 1; i >= 0; i--) {
@@ -1407,6 +1464,31 @@ export default function PennyConversation({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion]);
+
+  // G248: the thread changes from OUTSIDE this component only through
+  // `chat.restore` (resume from History, load-latest at start, New chat).
+  // Creating a stored chat on the first question never bumps it. Restored
+  // turns are plain text, so they render as plain assistant text (like an
+  // engine chip answer); cards and proposals are not rebuilt.
+  const restoreSeenRef = useRef(0);
+  const restoreSeq = chat?.restore.seq ?? 0;
+  useEffect(() => {
+    if (!chat || restoreSeq === restoreSeenRef.current) return;
+    restoreSeenRef.current = restoreSeq;
+    const turns = chat.restore.turns;
+    const restored: Msg[] = turns.map((t) => t.role === "user"
+      ? { id: newMsgId(), role: "user" as const, content: t.text }
+      : { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: t.text, degraded: true });
+    setBucket("chat", () => ({
+      messages: restored,
+      askedLabels: new Set(turns.filter((t) => t.role === "user").map((t) => t.text)),
+      lastActivityAt: Date.now(),
+    }));
+    setOffer(null);
+    setError(false);
+    setInput("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreSeq]);
 
   // Inactivity TTL (`PENNY_THREAD_TTL_MS`, 30 minutes) — checked once per
   // bucket becoming VISIBLE (`askSeq` territory), not on a background
@@ -1445,6 +1527,11 @@ export default function PennyConversation({
   // should announce its own death on the way out.
   useEffect(() => {
     if (askSeq == null) return;
+    // G248: a stored chat is not idle-cleared here. The stored conversation
+    // owns the thread until New chat, a cold start, or the server's own
+    // retention ends it; clearing only the screen copy would leave a blank
+    // thread attached to a conversation that still has history.
+    if (chatRef.current) return;
     const bucket = bucketsRef.current[currentScreen];
     const idleFor = Date.now() - bucket.lastActivityAt;
     if (idleFor > PENNY_THREAD_TTL_MS && bucket.messages.length > 0) {
@@ -1694,6 +1781,7 @@ export default function PennyConversation({
     inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
     placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
     onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
+    chatFull={chat?.full ? { notice: PENNY_FULL_NOTICE, actionLabel: PENNY_FULL_ACTION, onAction: chat.newChat } : undefined}
   />;
   // Full-page mode's own floating surface (see the comment above for why it
   // still needs one) — sheet mode never uses this, it mounts
@@ -1945,8 +2033,8 @@ export default function PennyConversation({
               <ProposalConfirmCard
                 key={m.id}
                 msg={m}
-                onConfirm={() => confirmProposal(currentScreen, m.id, m.proposal.proposal_id)}
-                onCancel={() => cancelProposal(currentScreen, m.id, m.proposal.proposal_id)}
+                onConfirm={() => confirmProposal(bucketKey, m.id, m.proposal.proposal_id)}
+                onCancel={() => cancelProposal(bucketKey, m.id, m.proposal.proposal_id)}
                 onOpenDone={() => closePennySheetThen(() => router.push("/planning"))}
               />
             );
@@ -2118,7 +2206,7 @@ export default function PennyConversation({
             // confirmation belongs there too. Also counts as an answer
             // landing for TTL purposes, same bookkeeping as `ask()`'s own
             // `lastActivityAt` touch.
-            setBucket(currentScreen, (prev) => ({
+            setBucket(bucketKey, (prev) => ({
               ...prev,
               messages: capMessages([
                 ...prev.messages,

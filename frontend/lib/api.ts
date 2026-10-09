@@ -1040,6 +1040,14 @@ export class PennyLimitError extends Error {
   }
 }
 
+/** G248: POST /can-i answers 409 PENNY_CONVERSATION_FULL before any model call
+ * when the stored chat has reached its turn cap. Callers show the composer's
+ * "chat is full" state, never a generic error. */
+export class PennyConversationFullError extends Error {
+  readonly code = "PENNY_CONVERSATION_FULL" as const;
+  constructor() { super("This chat is full. Start a new chat to carry on."); }
+}
+
 /** POST /can-i response. `headline`/`facts`/`out_of_scope` are additive —
  * an older backend returns only `reply`/`offer`, and callers must degrade
  * gracefully (render `reply` as plain body text) when they're absent.
@@ -2863,12 +2871,18 @@ export const api = {
       }
       throw new Error("402 Payment Required");
     }
+    if (res.status === 409) {
+      let detail: unknown = null;
+      try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+      if (detail && typeof detail === "object" && (detail as { code?: string }).code === "PENNY_CONVERSATION_FULL") {
+        throw new PennyConversationFullError();
+      }
+    }
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
   },
-  // G248: Penny chat history. The 409 PENNY_CONVERSATION_FULL on canI and
-  // appendPennyTurns surfaces as an ordinary error; callers read the chat's
-  // at_cap from the response (or the list) instead.
+  // G248: Penny chat history. canI turns a 409 PENNY_CONVERSATION_FULL into
+  // PennyConversationFullError; appendPennyTurns reports at_cap in its body.
   listPennyConversations: () => get<{ conversations: PennyConversationSummary[]; max_conversations: number; max_turns: number }>("/penny/conversations"),
   getPennyConversation: (id: string) => get<PennyConversation>(`/penny/conversations/${encodeURIComponent(id)}`),
   createPennyConversation: () => post<PennyConversation>("/penny/conversations", {}),
