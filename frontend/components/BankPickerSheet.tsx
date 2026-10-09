@@ -12,9 +12,17 @@ import { isNativePlatform } from "@/lib/nativeAuth";
 import { DEEP_LINK_EVENT, type DeepLinkDetail } from "@/lib/deepLinks";
 import { registerBankSheet } from "@/lib/bankConnectReturn";
 import { useBankReturnReset } from "@/lib/useBankReturnReset";
+import { CONSENT_MERGED_STEP } from "@/lib/featureFlags";
+import type { MergedStep } from "@/components/bank-connect/BankConnectionParts";
 import { launchMode, buildLinkQuery } from "@/lib/bankConsentLaunch";
 
 const BANK_FAILED = "The bank connection didn’t complete. Try again.";
+
+/** A159: the merged consent step is on only behind NEXT_PUBLIC_CONSENT_MERGED_STEP.
+ *  Off (the default) leaves the approved G review step exactly as shipped. */
+export function pickerMergedStep(flagOn: boolean = CONSENT_MERGED_STEP): MergedStep | undefined {
+  return flagOn ? "pinned-line" : undefined;
+}
 
 export interface Bank {
   id: string;
@@ -219,7 +227,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
 
   if (provider === "finexer" && !banksOverride) return <BankConnectionFlow
     banks={banks} loading={loading} loadError={loadError} connectionError={error} connecting={connecting}
-    onRetry={retryBanks} onConnect={handleSelect} onClose={onClose} />;
+    onRetry={retryBanks} onConnect={handleSelect} onClose={onClose} mergedStep={pickerMergedStep()} />;
 
   return <SheetFrame
     title="Add a Bank"

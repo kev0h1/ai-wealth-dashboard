@@ -86,12 +86,11 @@ export function BankResults({ banks, query, setQuery, searchRef, onChoose, selec
   </div>;
 }
 
-/** A159: how the review step merges into the bank list. Undefined keeps the
- *  approved G flow (choose, then review, then Continue to Finexer).
- *  "footer": the summary and the full sentence stay pinned under the list.
+/** A159 (approved B): the review step merges into the bank list. Undefined keeps
+ *  the approved G flow (choose, then review, then Continue to Finexer).
  *  "pinned-line": one pinned line that opens in place to the full sentence.
- *  "header": the summary and the full sentence sit above the search field. */
-export type MergedStep = "footer" | "pinned-line" | "header";
+ *  The earlier "footer" and "header" variants were not chosen and are removed. */
+export type MergedStep = "pinned-line";
 
 export const MERGED_SUMMARY = "Read-only access, no payments. Tap a bank to review permissions and terms with Finexer, then approve with your bank.";
 const SENTENCE_INK = "text-sm leading-[22px] text-slate-700 dark:text-slate-200";
@@ -102,25 +101,20 @@ export function MergedStatus({ pending, error }: { pending: boolean; error: stri
   return null;
 }
 
-/** The merged step's notice. The sentence is rendered from AGENT_DISCLOSURE, never retyped. */
-export function MergedNotice({ mode, pending = false, error = null, defaultOpen = false }: {
-  mode: MergedStep; pending?: boolean; error?: string | null; defaultOpen?: boolean;
+/** The merged step's notice. The sentence is rendered from AGENT_DISCLOSURE, never
+ *  retyped. The expanded state is local and never persisted. */
+export function MergedNotice({ pending = false, error = null, defaultOpen = false }: {
+  pending?: boolean; error?: string | null; defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  if (mode === "header") return <div data-merged-notice="header" className="border-b border-slate-200 px-5 py-3 dark:border-slate-700">
-    <p className="text-sm font-semibold leading-5 text-slate-900 dark:text-slate-100">{MERGED_SUMMARY}</p>
-    <p data-agent-disclosure className={`mt-2 ${SENTENCE_INK}`}>{AGENT_DISCLOSURE}</p>
-  </div>;
-  return <div data-merged-notice={mode}>
+  return <div data-merged-notice="pinned-line">
     <MergedStatus pending={pending} error={error} />
     <p className="text-sm leading-5 text-slate-700 dark:text-slate-200">{MERGED_SUMMARY}</p>
-    {mode === "footer" ? <p data-agent-disclosure className={`mt-2 border-t border-slate-200 pt-2 dark:border-slate-700 ${SENTENCE_INK}`}>{AGENT_DISCLOSURE}</p> : <>
-      <button type="button" aria-expanded={open} aria-controls="merged-notice-region" onClick={() => setOpen(o => !o)}
-        className="mt-1 flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left text-sm font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">
-        <span>AURIQ LTD acts as an agent of Finexer LTD, FCA authorised</span>
-        <ChevronDown size={16} aria-hidden="true" className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
-      </button>
-      <div id="merged-notice-region" hidden={!open}><p data-agent-disclosure className={`pb-1 ${SENTENCE_INK}`}>{AGENT_DISCLOSURE}</p></div>
-    </>}
+    <button type="button" aria-expanded={open} aria-controls="merged-notice-region" onClick={() => setOpen(o => !o)}
+      className="mt-1 flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left text-sm font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">
+      <span>AURIQ LTD acts as an agent of Finexer LTD, FCA authorised</span>
+      <ChevronDown size={16} aria-hidden="true" className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
+    </button>
+    <div id="merged-notice-region" hidden={!open}><p data-agent-disclosure className={`pb-1 ${SENTENCE_INK}`}>{AGENT_DISCLOSURE}</p></div>
   </div>;
 }
