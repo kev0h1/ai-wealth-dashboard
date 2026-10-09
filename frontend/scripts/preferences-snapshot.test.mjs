@@ -458,6 +458,7 @@ function extractCallbackBody(src, fnName) {
 const FIELD_SAVER_PAIRS = [
   { key: "hide_net_worth", saverVar: "hideNetWorthSaver", skipKey: "hideNetWorth" },
   { key: "dark_mode", saverVar: "darkModeSaver", skipKey: "darkMode" },
+  { key: "show_tips", saverVar: "showTipsSaver", skipKey: "showTips" },
   { key: "pay_period_config", saverVar: "payPeriodConfigSaver", skipKey: "payPeriodConfig" },
   { key: "debt_target_months", saverVar: "debtTargetMonthsSaver", skipKey: "debtTargetMonths" },
   { key: "debt_tracking_start", saverVar: "debtTrackingStartSaver", skipKey: "debtTrackingStart" },
@@ -475,9 +476,9 @@ function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const reconcileLines = [
     ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
   ].map((m) => m[1]);
-  check("components/PreferencesContext.tsx wires exactly six fields through makeFieldReconcile", reconcileLines.length === 6);
+  check("components/PreferencesContext.tsx wires exactly seven fields through makeFieldReconcile", reconcileLines.length === 7);
   check(
-    "the six fields wired are exactly the expected set",
+    "the seven fields wired are exactly the expected set",
     JSON.stringify([...reconcileLines].sort()) === JSON.stringify(FIELD_SAVER_PAIRS.map((f) => f.key).sort())
   );
   check(
