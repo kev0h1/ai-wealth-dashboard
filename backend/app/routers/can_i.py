@@ -35,6 +35,7 @@ from app.core.config import OPENROUTER_API_KEY
 from app.core.subscription import penny_allowance
 from app.core import timeutil
 from app.db.collections import commitments_col, penny_proposals_col, preferences_col
+from app.services import penny_conversations
 from app.routers.analytics import get_cached_safe_to_spend
 from app.services.affordability import _nothing_spare_line
 from app.services.categories import get_category_kinds, is_discretionary
@@ -281,8 +282,58 @@ def _sanitize_view(raw) -> dict | None:
 _OUT_OF_SCOPE_SCREEN_HINT = " You can also ask what this page shows."
 
 
+# G248: how many of the most recent turns the MODEL sees. Chat history stored
+# server-side (app.services.penny_conversations, up to 30 turns) is for
+# readability only; the model context stays this window to control cost.
+MODEL_HISTORY_TURNS = 6
+
+
 @router.post("/can-i")
 async def can_i(body: dict, user: dict = Depends(current_user)):
+    """G248: wraps the answer path so a question asked inside a stored Penny
+    conversation (`conversation_id` in the body) is appended to it, question
+    and reply text only. A full chat refuses before any model call."""
+    raw_cid = body.get("conversation_id")
+    cid = raw_cid if isinstance(raw_cid, str) and 0 < len(raw_cid) <= 64 else None
+    uid = user["email"]
+    if cid:
+        state = await penny_conversations.conversation_state(uid, cid)
+        if state and state["at_cap"]:
+            raise HTTPException(409, detail={
+                "code": "PENNY_CONVERSATION_FULL",
+                "message": "This chat is full. Start a new chat to carry on.",
+                "at_cap": True,
+            })
+    result = await _can_i_answer(body, user)
+    if cid and isinstance(result, dict):
+        result = dict(result)
+        result["conversation"] = await _record_exchange(uid, cid, str(body.get("question") or ""), result)
+    return result
+
+
+async def _record_exchange(uid: str, cid: str, question: str, result: dict) -> dict:
+    """Append the question and the reply text to the chat. Never raises: a
+    storage failure must not turn a good answer into an error."""
+    try:
+        proposal_id = result.get("proposal", {}).get("proposal_id") if isinstance(result.get("proposal"), dict) else None
+        turns = [
+            penny_conversations.clean_turn("user", question.strip()),
+            penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id),
+        ]
+        stored = await penny_conversations.append_turns(uid, cid, turns)
+        if proposal_id:
+            await penny_conversations.link_proposal(uid, cid, proposal_id)
+        return {"id": cid, **stored}
+    except penny_conversations.ConversationNotFound:
+        return {"id": cid, "missing": True}
+    except penny_conversations.ConversationFull:
+        return {"id": cid, "at_cap": True}
+    except Exception:
+        logger.exception("can_i: could not record the exchange for %s", uid)
+        return {"id": cid, "error": True}
+
+
+async def _can_i_answer(body: dict, user: dict) -> dict:
     question = (body.get("question") or "").strip()
 
     # ── 1. Greeting short-circuit — deterministic, no LLM, no quota. Checked
@@ -315,7 +366,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     raw_history = body.get("history") or []
     history: list[dict] = []
     if isinstance(raw_history, list):
-        for entry in raw_history[-6:]:
+        for entry in raw_history[-MODEL_HISTORY_TURNS:]:
             if not isinstance(entry, dict):
                 continue
             role = entry.get("role")

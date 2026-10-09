@@ -254,6 +254,10 @@ income_payer_attachments_col = db["income_payer_attachments"]
 # once `expires_at` has passed with nothing else set.
 penny_proposals_col     = db["penny_proposals"]
 
+# G248: Penny chat history, the user's last 10 conversations (30 turns each),
+# text only. See app/services/penny_conversations.py.
+penny_conversations_col = db["penny_conversations"]
+
 # Per-user data-version counter (see app/services/data_version.py) —
 # `{_id: uid, version, updated_at}`. Bumped by every write path that changes
 # something a cached response depends on; app/services/response_cache.py
@@ -536,7 +540,7 @@ ERASURE_MANIFEST = frozenset({
     "needle_history_col", "cycle_story_col", "companion_items_col",
     "planned_expenses_col", "checkpoints_col", "category_intent_col",
     "commitments_col", "allocations_col", "teaching_events_col",
-    "recurring_judge_col", "penny_proposals_col", "user_data_version_col",
+    "recurring_judge_col", "penny_proposals_col", "penny_conversations_col", "user_data_version_col",
     "linked_identities_col", "allowed_signups_col", "bot_credentials_col",
     "bot_credential_uses_col", "bot_credential_unknown_col", "response_cache_col",
     "llm_usage_col", "llm_global_usage_col", "mcp_calls_col",
