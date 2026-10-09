@@ -112,7 +112,7 @@ export function MergedNotice({ pending = false, error = null, defaultOpen = fals
     <p className="text-sm leading-5 text-slate-700 dark:text-slate-200">{MERGED_SUMMARY}</p>
     <button type="button" aria-expanded={open} aria-controls="merged-notice-region" onClick={() => setOpen(o => !o)}
       className="mt-1 flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left text-sm font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">
-      <span>AURIQ LTD acts as an agent of Finexer LTD, FCA authorised</span>
+      <span>AURIQ LTD acts as an agent of Finexer LTD, which is FCA authorised</span>
       <ChevronDown size={16} aria-hidden="true" className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
     </button>
     <div id="merged-notice-region" hidden={!open}><p data-agent-disclosure className={`pb-1 ${SENTENCE_INK}`}>{AGENT_DISCLOSURE}</p></div>

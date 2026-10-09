@@ -27,7 +27,8 @@ const parts = v => `${html(h("div", null, v.bodyHeader))}${html(h("div", null, v
 // The flag: default off, on only for the pinned line.
 assert.equal(pickerMergedStep(false), undefined);
 assert.equal(pickerMergedStep(true), "pinned-line");
-assert.equal(pickerMergedStep(), undefined, "the flag defaults off with no env var set");
+if (process.env.NEXT_PUBLIC_CONSENT_MERGED_STEP === undefined) assert.equal(pickerMergedStep(), undefined, "the flag defaults off with no env var set");
+else assert.equal(pickerMergedStep(), process.env.NEXT_PUBLIC_CONSENT_MERGED_STEP === "on" ? "pinned-line" : undefined);
 const picker = readFileSync(new URL("../components/BankPickerSheet.tsx", import.meta.url), "utf8");
 assert.match(picker, /mergedStep=\{pickerMergedStep\(\)\}/, "BankPickerSheet passes the flag-derived step to BankConnectionFlow");
 assert.match(readFileSync(new URL("../lib/featureFlags.ts", import.meta.url), "utf8"), /NEXT_PUBLIC_CONSENT_MERGED_STEP === "on"/);
@@ -54,7 +55,7 @@ const on = capture({ mergedStep: pickerMergedStep(true), onConnect: (b, c) => ca
 const onChoose = on("choose", nav2);
 const onHtml = parts(onChoose);
 assert.match(onHtml, /data-merged-notice="pinned-line"/);
-assert.ok(onHtml.includes("AURIQ LTD acts as an agent of Finexer LTD, FCA authorised"));
+assert.ok(onHtml.includes("AURIQ LTD acts as an agent of Finexer LTD, which is FCA authorised"));
 assert.match(onHtml, /aria-expanded="false"/);
 assert.match(onHtml, /id="merged-notice-region" hidden/);
 assert.ok(onHtml.includes(AGENT_DISCLOSURE), "on: the full sentence is in the expander, verbatim");

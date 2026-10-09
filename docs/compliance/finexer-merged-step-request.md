@@ -12,7 +12,7 @@ Today a user who adds a bank in Sorted taps a bank, then reaches a Sorted screen
 We propose to remove Sorted's own review screen. Instead:
 
 - The bank list shows one summary line: "Read-only access, no payments. Tap a bank to review permissions and terms with Finexer, then approve with your bank."
-- Under it sits one pinned line, "AURIQ LTD acts as an agent of Finexer LTD, FCA authorised". Tapping it expands it in place (it is a real button with a 44px target) to the A4.1 sentence, verbatim and in full: "AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services."
+- Under it sits one pinned line, "AURIQ LTD acts as an agent of Finexer LTD, which is FCA authorised". Tapping it expands it in place (it is a real button with a 44px target) to the A4.1 sentence, verbatim and in full: "AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services."
 - Tapping a bank hands the user straight to Finexer.
 - Finexer's hosted permissions page and End User Terms are unchanged. Nothing in the hosted pages is skipped or altered.
 
@@ -22,6 +22,8 @@ The user therefore has three taps before their bank's own page instead of four. 
 
 1. Clause A4.2 requires the A4.1 disclosure "in the consent journey". Does a collapsed line that the user can expand in place to the verbatim A4.1 sentence satisfy A4.2, given that the full sentence is not displayed by default? If not, what would you accept (for example, the full sentence shown by default under the list)?
 2. Does this change to our pre-consent screen need your written approval under clause 7.5 or A6.2 before it goes live?
+
+3. Please confirm the wording of the pinned line itself, "AURIQ LTD acts as an agent of Finexer LTD, which is FCA authorised", and tell us if you want it changed. The "FCA authorised" refers to Finexer LTD only.
 
 ## 3. Screenshots (390 by 844, production component, flag forced on for the capture)
 
