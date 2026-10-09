@@ -552,13 +552,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Ready", value: "ready" }, { label: "Needs attention", value: "attention" }, { label: "New account", value: "empty" }],
   },
   {
-    slug: "settings-usage-row",
-    name: "settings-usage-row",
-    description:
-      "Backlog B4: \"Penny messages\" usage row as the first row of Settings' Penny card, real components/PennyUsageRow.tsx (shared with the live SettingsPage.tsx) against three fixtures stacked in a light block and a dark block, no data fetching · normal (37/150), amber (131/150, >=80% used), unlimited (Max plan, no pill)",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
     slug: "penny-usage-ring",
     name: "penny-usage-ring",
     description:
@@ -605,13 +598,6 @@ const ROUTES: PreviewRoute[] = [
     name: "invite-only",
     description:
       "D5: the real components/LoginScreen.tsx rendered with error=\"invite_only\" — the calm 'Sorted is invite-only right now' screen a refused sign-in shows instead of a bare 403, reached from the web callback's ?error=invite_only redirect or a native sign-in's INVITE_ONLY result",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "spend-shape",
-    name: "spend-shape",
-    description:
-      "Shape card on the Spend period view + the /spend/shape destination (owner decisions 2026-09-05: Insights page retired, shape hero left Patterns) · variant B, the instrument, is the SHIPPED design — renders the live components/SpendShapeCard.tsx; A (sentence) and C (change-led) kept as reference forks · G7 (2026-09-08): each cell now carries a JOB_COLOR dot and a one-line legend explains what Fixed and Moved mean, matched word for word in the destination hero · the shape view renders the live app/spend/shape/ShapePage.tsx fed this route's fixture — hero, what works, reference shapes, nothing else, no tips index · ?variant=a|b|c&mode=light|dark&view=list|shape",
     states: [{ label: "Everything", value: "everything" }],
   },
   {
@@ -684,52 +670,10 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "spend-verdict-b",
-    name: "spend-verdict-b",
-    description: "Spend B, weighted instrument: keeps the bordered panel, Out is hero, others grouped",
-    states: [
-      { label: "Normal", value: "normal" },
-      { label: "Nothing", value: "nothing" },
-      { label: "Everything", value: "everything" },
-      { label: "No baseline", value: "nobaseline" },
-      { label: "Early", value: "early" },
-    ],
-  },
-  {
-    slug: "spend-verdict-c",
-    name: "spend-verdict-c",
-    description: "Spend C, quiet ledger: no boxes, hairline figures, dense ledger rows",
-    states: [
-      { label: "Normal", value: "normal" },
-      { label: "Nothing", value: "nothing" },
-      { label: "Everything", value: "everything" },
-      { label: "No baseline", value: "nobaseline" },
-      { label: "Early", value: "early" },
-    ],
-  },
-  {
     slug: "insights-live",
     name: "insights-live",
     description: "STANDING design twin for Insights, kept even after the Insights page itself retired 2026-09-05 (owner phone report 2026-09-01, \"still empty cards\"; updated same-day for the cost-driven TTL reversal; extended 2026-09-02 for the money-shape redesign, then again same-day for Kevin's phone feedback — job rows link to real transactions not Planning, and (after a short-lived separate \"Over time\" block was retired the same day per Kevin's redirect) a period/average PICKER built into the hero itself) · renders the REAL exported components/InsightCard.tsx components (InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero) against fixture payloads shaped field-for-field like the live GET /savings-insights serializer output · one fixture per insight.state (fresh with the weekly-default expiry line, fresh with a dated-claim expiry line, quiet never-researched, quiet expired-since-last-pass, substituted, verified) plus the is_new invariant case · ALSO renders the real MoneyShapeHero/WhatWorksCard/ReferenceShapesRow (now app/spend/shape/) against MONEY_SHAPE_FIXTURES (GET /money-shape shaped fixtures, copy mirrors backend/app/services/money_shape.py's deterministic templates) independently selectable via its own `shape` param: ok_change (live Penny proposal, carries 8 periods + 3/6-month averages exercising the hero's own period/average picker sheet), ok_keep (trait kept, celebration chip), ok_nochoice (undecided trait, \"choose in your Mirror\" link), no_pattern (headline-only, no rows), thin (both cards fall back to their one-line placeholder), overspent (\"Beyond take-home\" row, no red, calm_start proposal) · closes the verification blind spot that let three prior fix rounds ship on code-trace alone, before this twin existed nobody ever rendered the pixels · ?mode=light|dark&state=all|fresh_weekly|fresh_claim|quiet_never_researched|quiet_expired|substituted|verified|is_new&shape=ok_change|ok_keep|ok_nochoice|no_pattern|thin|overspent",
     states: [{ label: "Everything", value: "all" }],
-  },
-  {
-    slug: "penny-chat",
-    name: "penny-chat",
-    description: "One Penny · prompt bar + verdict answers",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "penny-thread",
-    name: "penny-thread",
-    description: "Penny thread · question/answer contrast, 3 variants (quiet label / anchored / inset)",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "penny-sheet",
-    name: "penny-sheet",
-    description: "Penny sheet · bottom sheet over the nav vs full-page, cards vs bubbles grammar (?g=cards|bubbles)",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "month-story",
@@ -789,21 +733,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "Still learning", value: "baseline" },
     ],
   },
-  {
-    slug: "spend-charts",
-    name: "spend-charts",
-    description: "SpendTrends.tsx's two new Charts widgets (pace_curve, debt_burndown), never screenshotted before this build · renders the real PaceCurveWidget/DebtBurndownWidget against fixtures (debt_burndown's /debt-plan/summary fetch swapped for a previewState seam, auth would 401 here) · pace: below usual / above usual (stays neutral, not red) / thin history (no usual line) / partially-null usual / very short (1-2 days) · debt: reaches zero / never clears (clipped to 24 months) / empty (good news) / fetch failed · ?widget=pace|debt&state=<slug>&compact=0|1",
-    states: [
-      { label: "Pace: below usual", value: "below-usual" },
-      { label: "Debt: reaches zero", value: "reaches-zero" },
-    ],
-  },
-  {
-    slug: "miscategorised",
-    name: "miscategorised",
-    description: "Miscategorised-transfers review sheet · range/single/unresolved-account/capped-members/long-name fixtures (real component)",
-    states: [{ label: "Everything", value: "everything" }],
-  },
 
   // ── Earlier rounds (2026-08-05 to 2026-09-02) ──────────────────────────
   // Older preview directories that still render but predate the current
@@ -816,45 +745,6 @@ const ROUTES: PreviewRoute[] = [
       "Redesigned account-detail view as a mini statement, balance-forward header, no dead space, Transactions and Categories tabs. See accounts-preview for the index (2026-08-16)",
     states: [{ label: "Everything", value: "everything" }],
     group: "earlier",
-  },
-  {
-    slug: "v1",
-    name: "v1",
-    description:
-      "Home page variant, verdict rendered as a typographic statement with a state icon, no bordered card (2026-08-05)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "v2",
-    name: "v2",
-    description:
-      "Home page variant, verdict inside a bordered gradient hero instrument card with a whisper label above it (2026-08-05)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "v3",
-    name: "v3",
-    description:
-      "Home page variant, verdict folded into flowing prose paragraphs alongside the greeting, no card at all (2026-08-05)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "payday-plan-executed",
-    name: "Payday plan lifecycle",
-    description:
-      "G164, skill: impeccable · Kevin 2026-09-26, decided after the earlier executed/already-split round (A/B/C) landed on UAT: none of them shipped. The payday plan is purely advisory — a forward-looking suggestion for the period that starts on payday, an alternative to fixed standing orders — and once the pay lands there is nothing left to validate, so there is NO executed/'already split' state on either surface. Home shows the suggestion from five days before payday, dismissible for the window, and it leaves on its own once the period's salary is observed. Penny always shows the plan for the NEXT payday, minimise only (a chevron, never an X), never dismissible, rolling to the following payday's forecast the moment the salary is observed. A plan whose every genuinely-funded destination already clears on its own the moment it would first be proposed (the user's own standing orders got there first) is never persisted or surfaced at all, decided before persistence rather than reactively afterwards; the Sorted celebration is reserved for a plan the user acted on by hand. Review fix: a live plan on Penny previously rendered with no control at all (neither dismissible nor onClose); it now gets the same minimise chevron as the expanded preview. Seven states: home-t5 (dismissible entry row), home-live (dismissible full plan card), home-paid (renders nothing — shown as an empty, explained state), penny-entry (the always-visible entry row, no gate), penny-live (a live plan with the minimise chevron, real interactive component), penny-expanded (the expanded card reached via the entry row's preview toggle, same minimise chevron), penny-next (entry row subline naming the next payday). Renders the production PaydayPlanSection and PaydayPlanCard (from components/HomeBrief.tsx and components/PaydayPlanCard.tsx) with fixture items/safeToSpend through their real props; penny-expanded renders PaydayPlanCard directly since the section's own toggle fetches its preview live, which this static preview can't do. Fixture data only, no API calls · ?state=home-t5|home-live|home-paid|penny-entry|penny-live|penny-expanded|penny-next&mode=light|dark",
-    states: [
-      { label: "Home · T-5 entry", value: "home-t5" },
-      { label: "Home · live plan", value: "home-live" },
-      { label: "Home · after payday", value: "home-paid" },
-      { label: "Penny · entry (mid-period)", value: "penny-entry" },
-      { label: "Penny · live plan", value: "penny-live" },
-      { label: "Penny · expanded", value: "penny-expanded" },
-      { label: "Penny · after payday", value: "penny-next" },
-    ],
   },
 ];
 
