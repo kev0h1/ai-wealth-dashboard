@@ -443,7 +443,7 @@ export function CoverPlanBlock() {
             Open the G200 preview
           </Link>
           <span className={`text-xs ${SOFT}`}>(available once G200&apos;s round is on UAT)</span>
-          <Link href="/design/cover-plan-sources" className="inline-flex min-h-11 items-center text-xs font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
+          <Link href="/design/cover-plan-sources-scale" className="inline-flex min-h-11 items-center text-xs font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
             or the earlier cover plan preview
           </Link>
         </p>

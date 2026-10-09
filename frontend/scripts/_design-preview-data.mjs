@@ -159,8 +159,8 @@ export function scanFacts(slugs) {
     // A real import has the slug path on an import/from/require/dynamic-import line;
     // anything else (comments, docs strings) is only a mention.
     const impRe = new RegExp(`^.*(\\bfrom\\s|\\bimport\\s*\\(|\\bimport\\s+["']|require\\().*design/${escapeRe(slug)}(?![\\w-]).*$`, "m");
-    const importers = outsideText.filter((x) => impRe.test(x.t)).map((x) => path.relative(repoRoot, x.f));
-    const mentions = outsideText.filter((x) => re.test(x.t) && !impRe.test(x.t)).map((x) => path.relative(repoRoot, x.f));
+    const importers = outsideText.filter((x) => impRe.test(stripComments(x.t))).map((x) => path.relative(repoRoot, x.f));
+    const mentions = outsideText.filter((x) => re.test(x.t) && !impRe.test(stripComments(x.t))).map((x) => path.relative(repoRoot, x.f));
     const compliance = complianceText.filter((x) => slugRegex(slug).test(x.t)).map((x) => path.relative(repoRoot, x.f));
     const media = [
       ...mediaFiles.filter((f) => f.includes(`/${slug}/`) || f.includes(`/${slug}.`)).map((f) => path.relative(repoRoot, f)),
@@ -172,6 +172,17 @@ export function scanFacts(slugs) {
 }
 
 // Marketing items whose output lives under /design (G222 to G224, C22).
+// Drop block comments, whole-line // comments and trailing // comments so an import
+// regex cannot match the word `from` inside prose. Import lines never carry `//`.
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !/^\s*\/\//.test(l))
+    .map((l) => l.replace(/(^|\s)\/\/.*$/, "$1"))
+    .join("\n");
+}
+
 export const MARKETING_IDS = new Set(["G222", "G223", "G224", "C22"]);
 
 // Housekeeping items that merely list previews while sweeping them (this prune,

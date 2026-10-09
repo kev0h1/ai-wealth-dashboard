@@ -32,6 +32,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-tips",
+    name: "spend-tips",
+    description:
+      "Spend tips integration round (owner brief 2026-09-04: 'Penny noticed' rows wedged under category rows break the list grammar, truncate the fact and contradict 'Looking normal'; corrected 2026-09-05: a category tap routes to the transactions page, not a sheet) · A tip count + estimate folded into the category subline, tip waits behind a one-line row under the filter chips on the transactions page, above the payments / B one 'Ways to save' card under the list with a reconciled total and a door to Patterns / C both · real InsightCard over the owner's live tips · ?variant=a|b|c&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
     description: "C Real life retained; D Payday path now gathers real payment cards from different accounts outside the phone; E Money movement replaces Penny bubbles with a suggested transfer route. Generated 3D scenes and production components. Sorted suggests, the user transfers with their bank. Creative review, not approved advertising.",
@@ -408,7 +415,6 @@ const ROUTES: PreviewRoute[] = [
   },
   { slug: "g99-month-story-canvas", name: "g99-month-story-canvas", description: "G99 Canvas Before Cards review for the Month story · A anchored spotlight / B quiet centre / C close focus · the real production StoryPlayer renders fixture data through its supported design-review props, retaining its immersive dark canvas, playback controls, reduced-motion treatment and return path · no API calls or mutations · ?variant=a|b|c&state=interactive", states: [{ label: "Interactive story", value: "interactive" }], variants: [{ label: "A · Anchored spotlight", value: "a" }, { label: "B · Quiet centre", value: "b" }, { label: "C · Close focus", value: "c" }] },
   { slug: "g98-month-canvas", name: "g98-month-canvas", description: "G98 Canvas Before Cards review for Month · A reading / B evidence rail / C editorial ledger · monthly verdict and explanation live on the canvas, with reconciled evidence earning its boundary and a preserved path to the month story · static fixtures, no API calls or mutations · ?variant=a|b|c&state=ahead|steady|short|empty|loading|error&mode=light|dark", states: [{ label: "Ahead", value: "ahead" }, { label: "Steady", value: "steady" }, { label: "Short", value: "short" }, { label: "History building", value: "empty" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }], variants: [{ label: "A · Reading", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Editorial ledger", value: "c" }] },
-  {slug:"mcp-activity-canvas-before-cards",name:"mcp-activity-canvas-before-cards",description:"G101 Canvas Before Cards review for MCP activity · A private log / B grouped audit view / C focused filters · activity context and filters live on canvas, with date-grouped audit logs and pagination in earned containers · fixture-only, no API calls or production edits · state axis matches the actual MCP activity page: ready with rows, ready empty, loading and error. Tier availability is handled in Connected assistants by hiding the route link, not by rendering an activity-page upsell · ?variant=a|b|c&state=enabled|empty|loading|error&mode=light|dark",states:[{label:"Enabled",value:"enabled"},{label:"Empty",value:"empty"},{label:"Loading",value:"loading"},{label:"Error",value:"error"}],variants:[{label:"A · Private log",value:"a"},{label:"B · Grouped",value:"b"},{label:"C · Focused",value:"c"}]},
   {slug:"mirror-canvas-before-cards",name:"mirror-canvas-before-cards",description:"G97 Canvas Before Cards review for Mirror · A editorial reading / B paired traits / C progressive evidence · behavioural reading stays on the canvas, while selectable aims and bounded transaction evidence earn a card · fixture-only, no API calls or production edits · ?variant=a|b|c&state=portrait|aim|empty&mode=light|dark",states:[{label:"Portrait",value:"portrait"},{label:"Active aim",value:"aim"},{label:"Not enough data",value:"empty"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Paired",value:"b"},{label:"C · Evidence",value:"c"}]},
   {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
@@ -552,18 +558,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Ready", value: "ready" }, { label: "Needs attention", value: "attention" }, { label: "New account", value: "empty" }],
   },
   {
-    slug: "penny-usage-ring",
-    name: "penny-usage-ring",
-    description:
-      "Penny message-allowance meter against static mocks of the sheet header, bottom nav and composer (copied markup, not imported) · A2 avatar ring RECOMMENDED (revised 2026-09-06 after Kevin's phone review of the first pass, fixing square caps, a ring geometrically concentric with the avatar via a shared SVG, and no caption row): tap the avatar to crossfade the header TITLE itself to the usage line for ~2.5s, then back; at Cap the composer disables (borrows C's placeholder) and adds a 'Get more messages' link on the disclaimer's own row, opening a More Messages sheet mock (section D, B11 2026-09-07: three top-up packs, 20 for £0.99 / 100 for £2.99 'Most popular' / 200 for £4.99 'Best value', then Move to Max, no 'upgrade' wording, packs lead below Move to Max once a second pack is bought that month) / B nav button ring: the same ring as a halo on the raised centre Penny button, visible without opening the sheet, sheet header stays unchanged (kept for comparison, unchanged from the first round) / C composer meter: no ring, hairline bar + count above the composer input, placeholder and send disable at Cap (kept for comparison, unchanged) · ring reads Penny's indigo→violet gradient below 80% used, crossfades to Watch Amber at 80%+ and at Cap, never red · ?mode=light|dark&state=low|high|cap|unlimited, plus three combinable flags (not states): ?tapped=1 pre-crossfades A2's title, ?sheet=1 opens the More Messages overlay on A2 (also opens automatically at state=cap), ?packs=2 previews the Move-to-Max-leads reorder on both the A2 overlay and section D",
-    states: [
-      { label: "Low (37/150)", value: "low" },
-      { label: "High (128/150)", value: "high" },
-      { label: "Cap (150/150)", value: "cap" },
-      { label: "Unlimited", value: "unlimited" },
-    ],
-  },
-  {
     slug: "g91-cards-canvas",
     name: "g91-cards-canvas",
     description:
@@ -601,13 +595,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
-    slug: "spend-tips",
-    name: "spend-tips",
-    description:
-      "Spend tips integration round (owner brief 2026-09-04: 'Penny noticed' rows wedged under category rows break the list grammar, truncate the fact and contradict 'Looking normal'; corrected 2026-09-05: a category tap routes to the transactions page, not a sheet) · A tip count + estimate folded into the category subline, tip waits behind a one-line row under the filter chips on the transactions page, above the payments / B one 'Ways to save' card under the list with a reconciled total and a door to Patterns / C both · real InsightCard over the owner's live tips · ?variant=a|b|c&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
     slug: "planning-ladder-timeline",
     name: "Planning checkpoint timeline · G187",
     description:
@@ -624,37 +611,12 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "account-picker",
-    name: "account-picker",
-    description: "\"Which account?\" declutter for the envelope flow (AllocationFields.tsx AccountRadioPicker) · owner feedback: 15 real accounts (banks + Monzo/Chase pots) render as one cluttered flat list · 3 variants (A grouped-by-bank accordion + Suggested pin / B search-first + recency shortlist / C horizontal bank chips filtering one list) embedded in a replica of the envelope sheet step, ?variant=a|b|c&state=few|many",
-    states: [
-      { label: "Many (15)", value: "many" },
-      { label: "Few (3)", value: "few" },
-    ],
-  },
-  {
-    slug: "planning-create",
-    name: "planning-create",
-    description: "Consolidating Planning's three creation doors (\"+ Plan a big expense\", \"+ Allocation\", \"+ Plan a one-off\") into fewer, taste + impeccable pass · 3 variants (A one door, kind chosen inside as three shape cards / B one door, shape derived from a plain-English \"by when?\" follow-up, taxonomy never shown / C two doors, goal+allocation merge into one inline-toggle sheet, one-off stays separate and unchanged) · in-page control bar switches A/B/C, entry + create flow + resulting cards + design-note annotation all on one page per variant",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
     slug: "planning",
     name: "planning",
     description: "Planning page revamp (taste + impeccable pass) · 3 art-direction variants (A ledger: banner merges into the TO LAST hero card, repeated culprit collapses to a per-row Why? toggle / B timeline: shortfall compresses to account chips + one footnote explanation / C brief: verdict as one sentence, disclaimer behind an info tap, list chunked into This week / Next two weeks / Next pay period) against the real Barclays £231.30 shortfall + repeated-culprit case",
     states: [
       { label: "Shortfall", value: "short" },
       { label: "Healthy", value: "healthy" },
-    ],
-  },
-  {
-    slug: "dismissed",
-    name: "dismissed",
-    description: "Set aside page · 3 variants (quiet ledger / two sections / undo log) for resurfacing dismissed payments + engine vetoes; plus a Planning-header entry-point round (?view=entry: bin glyph / recovery lockup / section chip) against a faithful header + shortfall-banner replica",
-    states: [
-      { label: "Mixed", value: "mixed" },
-      { label: "Single", value: "single" },
-      { label: "Empty", value: "empty" },
     ],
   },
   {

@@ -338,9 +338,8 @@ Privacy/Terms "AI assistants" sections are stripped out of the rendered
 legal pages (`lib/legalContent.ts`'s `stripMcpSections`, driven by the
 `<!-- mcp-connector:start/end -->` markers in `content/privacy.md` and
 `content/terms.md`). See `tests/test_mcp_connector_flag.py` for the
-route-table and middleware assertions. The design previews
-(`/design/connected-assistants`, `/design/oauth-consent`) render regardless
-of the flag, since they use fixtures, not the gated surfaces.
+route-table and middleware assertions. (The connected-assistants and consent design previews that once rendered
+regardless of the flag were deleted under H113.)
 
 **Before the connector actually launches on production:** turn both vars on
 in Railway and Vercel, then regenerate the legal PDFs with the flag on:
