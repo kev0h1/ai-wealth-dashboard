@@ -57,14 +57,14 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | --- | --- | --- |
 | `get_safe_to_spend` | `compute_safe_to_spend` (`analytics.py`) | cash-led Safe to Spend after bills and set-asides, plus card growth as a separate fact with repayment wording/due date and a fallback reserve only when no repayment series is learned |
 | `get_upcoming_bills` | the cashflow engine, `_compute_cashflow_patterns` LIVE on a cache miss (mirrors `GET /cashflow`, audit fix 2026-08-26) | hedged, dated bill and income events, each with account name/bank/balance, kind, pending/edited/days-past-due/original-date/rule_label state (enrichment pass, 2026-08-27); `insufficient_data` only when the user has no connected accounts at all |
-| `search_transactions(q, category, merchants, from, to, txn_type)` | the same query builder as `GET /transactions/search` | at most 20 compact rows |
+| `search_transactions(q, category, merchants, from, to, txn_type)` | the same query builder as `GET /transactions/search` | at most 20 compact rows plus `matched_*` totals; G243: `match_kind` (`text`, `category` or `filters`) says how the rows matched, and a text that matches no merchant but names one of the user's own categories (built-in or custom) falls back to that category (`matched_category`, `match_note`) |
 | `get_accounts` | account service, plus a twin of `accountKind.ts`'s substring classifier (kind/dormant have no backend field), `preferences.home_pinned_accounts`, `sync_freshness.last_bank_sync` | balances, names, providers, types, kind label, status, dormant flag, pinned, last_synced; never credentials or tokens |
 | `get_spend_verdict(period_offset)` | the spend verdict service | reading (with "move" jargon translated to plain prose), pills, pace, quiet_flags, unresolved (count/materiality/largest), moved breakdown by kind, notables' cause lists and consequence lines, period.closed/days_left (enrichment pass, 2026-08-27) |
 | `get_savings_position` | savings cashflow | current savings, Savings-tab surplus semantics |
 | `get_debt_position` | debt plan engine | balances, plan state, terms asked never assumed; per-card rate_schedule/classification/classification_evidence/movement.monthly-basis-periods_used/potential_monthly_interest/usage(_conflict), plus top-level scenario_b, extra_to_clear, transfer_routes (refinance_options) (enrichment pass, 2026-08-27) |
 | `get_goals` | `app.routers.commitments.list_commitments` (the same route Planning's Commitments block calls, replacing a thin `commitments_col` read, 2026-08-27) | active/done goals with progress, per_period_slice (this period, eased if so), usual_slice, eased_this_period (G228), paid_from and paid_from_inferred (G230: the current account the contribution leaves, and whether that is a guess from recent transfers, so hedge it), periods_left, on_track, feasibility(_note), pace_note, shared_pot_goals, funding_pots |
 | `check_affordability(amount, timeframe?)` | `app.services.affordability` (extracted from the deleted ladder's own what-if arithmetic) | a final, quote-verbatim `verdict` sentence, the £ figures raw+formatted, nearest-yes/savings-pace facts; `ask_when: true` + `timeframe_assumed: "current_period"` when a large amount was judged against the current period for lack of a timeframe (restored ladder behaviour, audit fix 2026-08-26) |
-| `get_category_spend(category?, months?)` | `compute_spend_verdict` (this period) + raw transaction rows (top merchants / N-month total), home-currency filtered the same way `_load_period_txns` is (audit fix 2026-08-26) | per-category totals, payment counts, top 3 merchants — server-aggregated, never summed by the model |
+| `get_category_spend(category?, months?)` | `compute_spend_verdict` (this period) + raw transaction rows (top merchants / N-month total), home-currency filtered the same way `_load_period_txns` is (audit fix 2026-08-26) | per-category totals, payment counts, top 3 merchants — server-aggregated, never summed by the model; G243: `category` accepts any of the user's categories, custom included, case-insensitively (`categories.resolve_category_name`), and a name that is no category returns `category_recognised: false` with `available_categories` |
 | `get_insights` | `savings_insights_col`, ranked the same way GET /savings-insights ranks it, plus `GET /value-delivered` | title/summary/estimated-saving per insight, rank 1 = best; triggered_by, verified_savings/merchant, deadline_at, is_new, return_reason, plus a value_delivered summary with breakdown[] (enrichment pass, 2026-08-27) |
 | `explain(topic)` | one flat registry in `penny_tools.py`: fixed screen/topic copy moved verbatim from the deleted ladder, PLUS four new registries (2026-08-27) | (a) per-screen/topic copy (isa_capability/saving_vs_investing/categorisation), (b) 14 jargon-term definitions grounded in code, (c) 8 headline-number reconciliations (what a figure includes/excludes and which sibling it disagrees with), (d) 13 how-do-I action walkthroughs, (e) 16 UK money-basics explainers (isa-allowance, cash-vs-ss-isa, lisa, personal-savings-allowance, emergency-fund, high-interest-debt-first, pension-match, pension-tax-relief, compound-interest, investment-fees, diversification, dividend-allowance, cgt-allowance, tax-year-dates, premium-bonds, marriage-allowance), imported from `app.content.money_basics.MONEY_BASICS` (the retired "Money basics" rotating Home card's own content, now grounding here instead) rather than copy-pasted, so the two can never drift; unknown topic returns the full valid-key list. 63 keys total (`checkpoint` is a second key aliasing `aim`'s own entry, same concept named both ways in the app, so 62 distinct pieces of copy). Replaces `get_page_explainer`. F16 (2026-09-10, reworked same day after rejection in review) added `mcp_connector` — what the MCP connector is, that it's read-only with no raw transactions, where to get the URL (Settings' Connected assistants card), that sign-in is required, and the Connect/Max tiers it ships on. `MCP_CONNECTOR_ENABLED` (A17) gates the topic's EXISTENCE, not its copy: on a deployment where the flag is off (production, pending the Finexer compliance answers), `mcp_connector` is not a valid topic at all — absent from this tool's own description (`_explain_tool_description`, read at call time so a test can monkeypatch the flag), absent from `_exec_explain`'s unknown-topic valid-key list, and unreachable by any path. The first pass instead wrote a second not-yet-available copy variant for the flag-off case; rejected, because A17 exists specifically so a connector-off deployment ships with the connector entirely absent (hidden from Settings, stripped from the legal pages), and describing it at all, even to say it isn't live yet, puts it back into production through a different door and promises timing Kevin has not committed to. There is exactly one reply string, `_MCP_CONNECTOR_REPLY`, used only when the flag is genuinely on. |
 | `get_tax_position` | `app.routers.chat.build_tax_fact_pack` (shared with `answer_tax_question`, extracted 2026-08-26) | the user's OWN income, pension, adjusted net income, personal allowance remaining, Child Benefit status |
@@ -72,10 +72,10 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | `get_recurring_payments` | the same cashflow-cache patterns (`recurring_spend`) behind `GET /cashflow`'s upcoming bills, cadence labelled from the detector's own weekly/fortnightly/monthly day-count bands | per-series name, cadence, typical amount, next expected date, billing account/bank, kind, pending/edited/days-past-due state |
 | `get_account_activity(account_id_or_name?, days?=30)` | server-side aggregation over the same 5-collection union `search_transactions` reads, home-currency filtered, spend-vs-movement split via `app.services.categories.is_non_spend` | money in/out (spend vs movement), net, top 5 transactions, current balance, per account or every account; a NAME matching more than one account returns `{ambiguous: true, matches: [...]}` (never guesses, audit fix 2026-08-27), an `id` from `get_accounts` always resolves precisely |
 | `get_mirror` | `app.services.behaviour.compute_portrait` (`GET /mirror`'s engine) plus `app.services.checkpoints.list_active` (`GET /checkpoints`'s engine); merges the user's persisted keep/change choice onto a fresh in-memory compute without writing back | traits (title, narrative, evidence, kind, choice), computed_at, window_days, active aims (category, aim_amount, spent_so_far, days_left, on_track) |
-| `calculate(expression)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working |
+| `calculate(expression, inputs?, unit?, project_from?, period?)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`, plus from G241 `sum`/`avg`/`shortfall(target, current)`/`periods_to_reach(target, current, rate)`/`per_week(total, days)`/`pct_change(old, new)`/`share(part, whole)`, and names that resolve ONLY from the caller's `inputs`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working. **G241 (2026-10-08) extended it** (see "G241" below): optional `inputs` (named figures, `£` strings and `{raw}` money values accepted), `unit` -> `result_formatted`, `inputs_used`, and an optional hedged date projection (`project_from` + `period` -> `projected_date`, `projected_text`) |
 | `preview_trend_intent(category, answer)` | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`'s own engine), added B17, 2026-09-08 (B12 stage 5) | for `answer='new_normal'`: `{title, lines}` pricing what filing the category's current overspend as the new normal actually changes (usual figure, payday move, horizon), requires the category to be currently notable (a tool error otherwise, same as the route); for `answer='one_off'`: a static note that nothing recalculates, no engine call, no notability required (one-off has nothing to preview, the real UI never shows a preview for that choice either) |
 
-All 20 of the above are read-only.
+All 20 of the above are read-only (and `calculate` still has no side effect).
 
 ## Write tools (propose-only)
 
@@ -499,6 +499,60 @@ carries a final, deterministic summary/consequence) and `run_penny_agent`
 returns `{"proposal": {...}}`. `app.routers.can_i`'s `/can-i` response gains
 a `proposal`/`consent_required` branch parallel to its existing `scenario`
 branch, both additive on the wire.
+
+## G241 (2026-10-08): Penny could not do basic arithmetic
+
+Kevin reported Penny failing simple arithmetic. The audit
+(`docs/penny/G241-arithmetic-audit.md`) found the calculator already existed;
+the dominant cause was system-prompt rule 5, which sent any question that
+was not visibly about the user's own money (a bare "what is 1,250 minus
+380", a split, a percentage) to the `OUT_OF_SCOPE` sentinel and so to the
+generic refusal, before `calculate` was ever considered. Fixes, all in the
+existing architecture (no second calculator, still no `eval`, still
+read-only):
+
+- **Rule 5 narrowed, rule 1 tightened** (`app/services/penny_agent.py`):
+  basic arithmetic is never out of scope; any arithmetic, even one
+  subtraction over figures a tool just returned, goes through `calculate`;
+  a date projection quotes `projected_text`, which is already hedged ("At the
+  same rate, roughly March 2027. That is an estimate, not a promise"). The
+  off-topic sentinel, the "facts, never advice" rule and the advice-shaped
+  rule are unchanged (a control row pins that weather and "which ISA
+  provider" are still declined).
+- **`calculate` extended** (`app/services/safe_calc.py`,
+  `_exec_calculate` in `penny_tools.py`): named `inputs` so the model passes
+  fetched figures by name instead of retyping digits, `£`/thousands-comma/
+  Unicode-minus normalisation, `sum`/`avg`/`shortfall`/`periods_to_reach`/
+  `per_week`/`pct_change`/`share`, `result_formatted` for a `unit`, the
+  working in `inputs_used`, and a hedged date projection. Names resolve only
+  from `inputs`; a name that is a function name, an attribute, a subscript or
+  anything else not on the whitelist is rejected exactly as before.
+- **Two small read-tool fixes** that arithmetic depended on:
+  `get_category_spend.last_n_months.window.days` (a weekly average needs the
+  real day count: 90 days is 12.86 weeks, not 12), and `search_transactions`
+  now returns `matched_count` / `matched_spent` / `matched_received` /
+  `truncated` summed in Mongo over EVERY match (it used to return at most 20
+  rows with `count: len(rows)`, so any "total at X" was a sum of a truncated
+  list). `get_goals` gained a server-derived `remaining`, so "how much more do
+  I need" is a lookup.
+- **Token cost.** The tool catalogue is part of the cached prefix. Measured
+  on the live eval, the prefix grew from 18,087 to 18,411 prompt tokens per
+  round (+324 tokens, +1.8%), almost all of it cached (17,993 cached): the
+  `calculate` schema now has an `inputs` object and three more parameters
+  (though it is shorter in characters), plus the two prompt-rule edits. That
+  is a one-off cache write per prefix change and about +1% cost on a warm
+  cached round. Measured per-question cost and the eval are in the audit.
+- **Eval.** `backend/tests/penny_arithmetic_corpus.py` is the shared corpus;
+  `tests/test_penny_calculator_corpus.py` is the deterministic half (100%
+  bar) and routes each row through the B38 fake-model harness;
+  `scripts/penny_live_eval.py` is the manual live half. The full question
+  matrix (85 rows, every screen key and every read tool) is
+  `docs/penny/question-matrix.md`.
+
+Coverage checklist entry: a new question shape needs (1) a tool or a
+prompt rule, (2) a row in `docs/penny/question-matrix.md`, and (3) if it is
+arithmetic, a row in `penny_arithmetic_corpus.py` with a deterministic
+`reference`. Known follow-ups are listed at the end of the audit.
 
 ## Coverage checklist
 

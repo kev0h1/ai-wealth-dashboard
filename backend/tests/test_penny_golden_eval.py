@@ -250,14 +250,14 @@ def _canonical_variant_hash(builder):
 # `_canonical_variant_hash`, not a single-description hash — see the
 # ENV_VARIANT_TOOLS block above for why, and B42.
 PINNED_TOOL_DESCRIPTION_HASHES = {
-    "calculate": "5cc43cf069e72da75ac0c00009a45e4fd89714c56d245d3a297931f9696ae2d0",
+    "calculate": "87457eeaf284dc7ec5738c23e01c7a846bcc00f775c7ad9a687f06e5dd3bfe06",
     "check_affordability": "96f7e3bc9eab7718e3c8382f10b4a8396da740931003787c9b87afeabe55b7f8",
     "explain": "a9c9de9075e1f2b0b57bbdc875e0e216a5ea8269ea39b13b1c0990c2b198a91e",
     "get_account_activity": "a177a9327880d3e518b6164b375da8926fb345a9ac20b3675904c6ed1e20e3f7",
     "get_accounts": "635f1a49e599affcc455cba594ddffdd6e69d5ec17d29aa41e701a1bbba83c9b",
-    "get_category_spend": "e96c666d2f3b75b3fca8fcd200c352eb680f237bc117e89a01577c497e2fa179",
+    "get_category_spend": "ba49e39ccbe465eb629398196f5901f953ff747dc4f1f6d7bda527000b84a3af",
     "get_debt_position": "4384fc55409fa7e83abb58d1edd609406ee2d36085f5fe3839e36da194480fbf",
-    "get_goals": "d504516898d9a2b0cbc4fec716a7d88b89d4b2160a50265ee55226f37a27a2ec",
+    "get_goals": "7b86b15a50184eee52984f959b3b71c4816dc03235e0ec8e28fe9c1b89140605",
     "get_insights": "3a6f2039c14cae734953e189a4328f17d54111b25cfdfed1b17acbdc03763796",
     "get_mirror": "62c640cc13425dff91c281793ad8570f1ec4f0858d82ccfed6ca421781cce73e",
     "get_recurring_payments": "e4caca1797c55e0241e0c70d74a473c5ece947dd2c1e51875b00ecfb18117156",
@@ -267,7 +267,7 @@ PINNED_TOOL_DESCRIPTION_HASHES = {
     "get_tax_position": "2cb73ca7b40a8670724cd6014cb33e60b0c03d09a536976fef57bfaddc1e67f7",
     "get_today_brief": "c1b006e6ee70be2d273bfea5582f4a7ae72fe41411f36370726ee6a4325cacc6",
     "get_upcoming_bills": "924033842d2e0d1cc61b44cc97c3a8fc7864fee85752d3790ea1b7ed12c3bce4",
-    "search_transactions": "e011209a2b1d5d7878f3e38fa22a2789451780f36f458899340d05175050bfaa",
+    "search_transactions": "15281839adc9b1e30411f6677202213e272747db44614c1963e7454861e90693",
 }
 
 
@@ -543,6 +543,15 @@ GOLDEN_CASES = [
         why="The exact motivating bug this rebuild fixed (an advice-shaped spend question) must still ground on get_category_spend's own facts, never a prescriptive answer with no tool call.",
     ),
     dict(
+        id="spend-09-custom-category-total",
+        source="spend.md",
+        question="How much did I spend on Padel this last month?",
+        screen="spend",
+        expected=["get_category_spend"],
+        source_quote="custom category",
+        why="G243 (Kevin 2026-10-08): a custom category named in a spend question is a category total, never a merchant search. Executed with a synthetic 11-transaction Padel category in test_penny_category_routing.py (total 225.00).",
+    ),
+    dict(
         id="spend-07-prior-period",
         source="spend.md",
         question="Was I over usual on Groceries last pay period?",
@@ -701,7 +710,7 @@ for _case in GOLDEN_CASES:
     assert _case.get("source_quote"), f"{_case['id']}: missing source_quote"
 
 _SOURCE_COUNTS = {
-    "home-and-penny.md": 8, "spend.md": 9, "planning-grow-debt.md": 7,
+    "home-and-penny.md": 8, "spend.md": 10, "planning-grow-debt.md": 7,
     "insights-accounts-mirror.md": 6,
 }
 

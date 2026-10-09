@@ -272,6 +272,34 @@ async def get_category_kinds(uid: str) -> CategoryKinds:
     return CategoryKinds(kinds)
 
 
+def _stem(norm: str) -> str:
+    return norm[:-1] if len(norm) > 3 and norm.endswith("s") else norm
+
+
+def resolve_category_name(names, text: str | None) -> str | None:
+    """Canonical category name for free text, or None. Pure, no I/O.
+
+    G243: how a name a person typed ("padel", "eating out", "Groceries ")
+    is matched to a category the user actually has, built-in or custom. The
+    stored casing wins. Exact match after `normalise_name` first, then a
+    trailing-s tolerant match ("golfs" never matters, "subscription" finds
+    "Subscriptions"). Never a substring match: "Golf" must not resolve a
+    merchant called "Golf Club Bar".
+    """
+    norm = normalise_name(text or "")
+    if not norm:
+        return None
+    names = list(names)
+    for name in names:
+        if normalise_name(name) == norm:
+            return name
+    stem = _stem(norm)
+    for name in names:
+        if _stem(normalise_name(name)) == stem:
+            return name
+    return None
+
+
 # ── Predicates (kind map first — the efficient shape) ────────────────────────
 def kind_of(kind_map: dict[str, str], category: str | None) -> str:
     """Kind for ``category``, falling back to ``DEFAULT_KIND`` if unknown."""

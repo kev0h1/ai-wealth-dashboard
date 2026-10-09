@@ -3,7 +3,25 @@
 Mode: Persuade for campaign exports; Operate for the private review workbench.
 Audience: UK people who worry about money until payday. Continue the G222 and G223 campaign world, not a new brand. All examples are fictional. No paid publication or store submission is authorised by this item.
 
-## Campaign rework, 8 October 2026
+## Connected payments and money movement, 8 October 2026
+
+Kevin's latest direction: D must show upcoming payments gathered from different accounts outside the phone, not squeezed into its screen. E's Penny bubbles do not fit; replace them with money movement and less mental load. C remains unchanged. Skills: impeccable, frontend-design, built-in imagegen. This is another coded creative-review round, not an app redesign or finished film rollout.
+
+THESIS: Bring scattered payment information together, then make the suggested move obvious.
+
+OWN-WORLD: Keep Sorted's Figtree, mono money, slate, indigo and authentic component grammar. Physical banks and paper trails replace generic conversation bubbles. D uses the dark calendar world; E uses a bright, tangible left-to-right route.
+
+STORY: D gathers two dated payments from Monzo and Barclays around one forecast. E names the suggested amount, source and destination, with the bank transfer explicitly left to the user.
+
+FIRST VIEWPORT: One large campaign poster. D has two enlarged real payment rows outside the phone; E has exterior From/To bank labels and a sculpted directional path carrying the suggested amount. The phone contains the real forecast or cover-plan component, not invented controls.
+
+FORM: Refine the pinned 3D campaign world; no new identity seed or global DESIGN.md changes. Signature: account information comes in, a proposed move is explained, never automatically executed. No autoplay. Context launcher remains unavailable; use manual project context and fresh independent review.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
+Product boundary verified against the actual feature and published product copy: Sorted provides account information and suggestions, not payment initiation. No in-app authorisation/automatic-transfer/success claim. C22's current D/E fictional fixture is Monzo £580 plus Barclays £30; mobile £38 plus energy £150; pooled balance £422, Safe to Spend £312 after £110 buffer, proposed £120 from Monzo to Barclays. The earlier reference library keeps its separately valid £542/£68 example.
+
+## Earlier campaign-world round, 8 October 2026
 
 Kevin rejected the gallery-led creative approach: this must feel like advertising, with 3D phones, physical icons and app elements coming out of the screen. Impeccable, frontend-design and built-in image generation guide this round. The brand system remains Sorted's; this is a campaign extension, not a replacement app identity. Three coded campaign concepts are proposed before a full asset rollout. Earlier A/B exports remain supporting product-proof material, not approved campaign creative.
 

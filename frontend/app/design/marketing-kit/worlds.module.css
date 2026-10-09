@@ -33,7 +33,7 @@
 .headline { position:absolute; left:64px; top:140px; z-index:3; }
 .headline h2 { font-size:100px; font-weight:800; line-height:.99; letter-spacing:-.04em; }
 .headline h2 span { display:block; }
-.headline p { font-size:28px; margin-top:24px; font-weight:500; }
+.headline p { font-size:28px; margin-top:24px; font-weight:500; white-space:pre-line; }
 .scene { position:absolute; width:1080px; height:1080px; top:336px; left:0; }
 .scene>img { display:block; width:100%; height:100%; object-fit:contain; mask-image:linear-gradient(to bottom,transparent,#000 4%,#000 94%,transparent); }
 .screen { position:absolute; left:33.4%; top:17.8%; width:32%; height:64%; color:#0f172a; background:#f0f2f7; overflow:hidden; }
@@ -51,21 +51,45 @@
 .artFooter>span { font-size:24px; font-weight:700; white-space:nowrap; }
 .d { background:#0f172a; color:#f8fafc; }
 .d .scene { top:350px; }
-.d .screen { left:35.9%; top:15%; width:30.2%; height:49.5%; }
-.d .screenInner { transform:scale(.8363); }
+.d .screen { left:36.7%; top:21%; width:26.7%; height:29%; background:transparent; }
+.d .screenInner { transform:scale(.73938); }
 .d .headline h2 { font-size:98px; }
 .d .artFooter { background:#0f172a; padding:12px 16px; border-radius:8px; }
-.e { background:#e9edf5; }
+.forecastContext { position:absolute; top:422px; left:64px; right:64px; z-index:3; font-size:22px; line-height:1.45; color:#cbd5e1; }
+.forecastContext span, .existingBalance span { font-family:var(--font-jbmono),monospace; font-variant-numeric:tabular-nums; }
+.e { background:#f0f2f7; }
 .e .scene { top:350px; }
-.e .screen { left:40.2%; top:18.3%; width:29%; height:27.8%; }
-.e .screenInner { transform:scale(.803); }
+.e .screen { left:37.2%; top:21%; width:26.8%; height:47%; background:transparent; }
+.e .screenInner { transform:scale(.74215); }
 .e .screenTitle { margin-bottom:8px; }
-.e .screen :global([data-marketing-proof])>p:first-child { display:none; }
-.pennySculpture { position:absolute; left:19%; top:17%; transform:rotate(-17deg); }
-.pennySculpture svg { color:white; }
+.proofCaption { font-size:12px; color:#64748b; margin-bottom:12px; }
+.d .proofCaption { color:#94a3b8; }
+.paymentGraphic { position:absolute; width:430px; height:210px; border-radius:22px; background:#1e293b; color:#f1f5f9; border:1px solid #64748b; box-shadow:0 22px 32px #02061755; z-index:2; }
+.paymentLeft { left:24px; top:51%; transform:rotate(-5deg); }
+.paymentRight { right:24px; top:60%; transform:rotate(5deg); }
+.paymentInner { width:430px; }
+.bankHeading { display:flex; align-items:center; gap:9px; padding:14px 16px 4px; }
+.bankHeading strong { font-size:28px; }
+.bankHeading>span:last-child { margin-left:auto; font-size:16px; color:#cbd5e1; }
+.paymentDate { font-size:18px; padding:0 16px; color:#cbd5e1; }
+.paymentGraphic :global([data-bill-key]) p { font-size:16px; line-height:22px; }
+.paymentGraphic :global([data-bill-key]) p:global(.font-semibold) { font-size:22px; line-height:28px; }
+.paymentGraphic :global([data-bill-key]) p:global(.font-mono) { font-size:30px; line-height:38px; }
+.movementAccount { position:absolute; width:300px; padding:18px 22px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; border-radius:20px; box-shadow:0 16px 30px #0f172a15; }
+.moveFrom { left:24px; top:43%; transform:rotate(-4deg); }
+.moveTo { right:24px; top:51%; transform:rotate(4deg); }
+.movementAccount>p { font-size:20px; color:#475569; margin-bottom:6px; }
+.movementAccount>div { display:flex; gap:12px; align-items:center; }
+.movementAccount strong { font-size:29px; }
+.movementAccount>span { display:block; font-size:20px; margin-top:6px; color:#475569; }
+.movementAccount .existingBalance { margin:12px 0 0; font-size:17px; }
+.moveAmount { position:absolute; left:39%; top:72%; width:240px; text-align:center; }
+.moveAmount strong { display:block; font-family:var(--font-jbmono),monospace; font-variant-numeric:tabular-nums; font-size:48px; font-weight:750; }
+.moveAmount span { display:block; font-size:18px; font-weight:600; }
 .story { height:1920px; }
 .story .brand { top:158px; right:140px; }
 .story .headline { top:280px; }
+.story .forecastContext { top:562px; }
 .story .scene { top:630px; }
 .story .artFooter { bottom:330px; right:140px; }
 .story .artFooter p { max-width:510px; }
