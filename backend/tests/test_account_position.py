@@ -21,6 +21,7 @@ CASES = json.loads(
 def test_fixture_positions_and_spend_from(case):
     positions = compute_account_positions(
         case["plans"], case["closing"], movements=case["movements"], credit_account_ids=set(case.get("credit_account_ids", [])),
+        low_point_by_account=case["low_point"],
     )
     elig = {}
     for sid, pos in positions.items():
@@ -28,14 +29,14 @@ def test_fixture_positions_and_spend_from(case):
     cap_spend_from_to_pool(elig, case["pool"])
     for sid, want in case["expected"].items():
         got = positions[sid]
-        for key in ("after_payments", "plans_reserved", "after_payments_and_plans", "uncertain", "estimated"):
+        for key in ("after_payments", "plans_reserved", "after_payments_and_plans", "uncertain", "estimated", "low_point", "low_point_and_plans"):
             assert got[key] == want[key], (case["name"], sid, key)
         assert elig[sid]["spend_from_headroom"] == want["spend_from"], (case["name"], sid)
 
 
 def test_kevins_barclays_is_61_04_not_108():
     case = next(c for c in CASES if c["name"] == "kevin_barclays_japan")
-    positions = compute_account_positions(case["plans"], case["closing"], movements=case["movements"])
+    positions = compute_account_positions(case["plans"], case["closing"], movements=case["movements"], low_point_by_account=case["low_point"])
     elig = {"barclays": {"headroom": 124.0, "spend_from_headroom": seed_spend_from(positions["barclays"])}}
     cap_spend_from_to_pool(elig, 108)
     assert elig["barclays"]["spend_from_headroom"] == 61.04

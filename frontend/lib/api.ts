@@ -1694,6 +1694,9 @@ export type AccountEligibility = {
   after_payments?: number | null;
   plans_reserved?: number;
   after_payments_and_plans?: number | null;
+  // Mid-period minimum running balance, and that minus plans (null when uncertain).
+  low_point?: number | null;
+  low_point_and_plans?: number | null;
   uncertain?: boolean;
   estimated?: boolean;
 };

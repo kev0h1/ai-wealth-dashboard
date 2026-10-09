@@ -16,17 +16,20 @@ for (const c of fixture.cases) {
   const plans = assessPlanOverlap(plansFromApi(c.plans), { upcoming_bills: bills }, end, creditAccounts);
   for (const [id, want] of Object.entries(c.expected)) {
     // Client fallback (old API): same answer as the server for the same fixture.
-    const fallback = accountPlan(summary(id, c.closing[id]), plans);
+    const fallback = accountPlan(summary(id, c.closing[id], { opening: c.low_point[id] }), plans);
     assert.equal(fallback.uncertain, want.uncertain, `${c.name}: fallback uncertain`);
     assert.equal(fallback.afterPlans, pence(want.after_payments_and_plans), `${c.name}: fallback afterPlans`);
+    const wantPre = want.uncertain ? null : pence(Math.min(want.after_payments_and_plans, want.low_point_and_plans));
+    assert.equal(fallback.spendFromPence, wantPre, `${c.name}: fallback Spend from (pre pool cap)`);
     assert.equal(fallback.reservedPence, pence(want.plans_reserved) , `${c.name}: fallback reserved`);
 
     // Server field present: the sheet shows it and ignores contradictory client inputs.
-    const position = positionsFromToday({ [id]: { short: false, headroom: 0, after_payments: want.after_payments, plans_reserved: want.plans_reserved, after_payments_and_plans: want.after_payments_and_plans, uncertain: want.uncertain, estimated: want.estimated } })[id];
+    const position = positionsFromToday({ [id]: { short: false, headroom: 0, after_payments: want.after_payments, plans_reserved: want.plans_reserved, after_payments_and_plans: want.after_payments_and_plans, uncertain: want.uncertain, estimated: want.estimated, low_point: want.low_point, low_point_and_plans: want.low_point_and_plans, spend_from_headroom: want.spend_from } })[id];
     const server = accountPlan({ ...summary(id, 999999), position }, []);
     assert.equal(server.afterPlans, pence(want.after_payments_and_plans), `${c.name}: server afterPlans wins`);
     assert.equal(server.afterPayments, pence(want.after_payments), `${c.name}: server afterPayments wins`);
     assert.equal(server.uncertain, want.uncertain, `${c.name}: server uncertain wins`);
+    assert.equal(server.spendFromPence, want.uncertain ? null : pence(want.spend_from), `${c.name}: server Spend from wins`);
   }
 }
 
@@ -38,6 +41,9 @@ assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, [])
 const contradictory = plansFromApi([{ ...kevin.plans[0], remaining: 500, period_amount: 500 }]);
 assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, contradictory).afterPlans, 6104);
 assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, contradictory).reservedPence, 8000);
+// Dip case: the clamp holds Spend from at the low point (50), not the closing balance (1050).
+const dip = fixture.cases.find((c) => c.name.startsWith("dip_lower"));
+assert.equal(dip.expected.acc.spend_from, 50);
 // An old API (no position fields) is skipped, not blanked.
 assert.deepEqual(positionsFromToday({ barclays: { short: false, headroom: 10 } }), {});
 console.log("g238-account-position ok");

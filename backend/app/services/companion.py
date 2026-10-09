@@ -2681,6 +2681,7 @@ async def compute_today_items(
             }
             _gp_positions = compute_account_positions(
                 _gp_plans, _gp_closing, movements=_gp_moves, credit_account_ids=_gp_credit,
+                low_point_by_account={_s: source_min_run.get(_s) for _s in _gp_closing},
             )
             _gp_failed = False
         except Exception:

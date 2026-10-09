@@ -1,5 +1,5 @@
 {
-  "_comment": "G238: shared by backend/tests/test_account_position.py and frontend/scripts/g238-account-position.test.mjs so the server and client arithmetic cannot drift. Amounts in pounds. spend_from is the shown Spend from after the pooled cap (0 = not shown).",
+  "_comment": "G238: shared by backend/tests/test_account_position.py and frontend/scripts/g238-account-position.test.mjs so the server and client arithmetic cannot drift. Amounts in pounds. spend_from is the shown Spend from after the pooled cap (0 = not shown). low_point is the account's mid-period minimum running balance (source_min_run); spend_from = min(after_payments_and_plans, low_point_and_plans), then the pool cap.",
   "cases": [
     {
       "name": "kevin_barclays_japan",
@@ -55,8 +55,13 @@
           "after_payments_and_plans": 61.04,
           "uncertain": false,
           "estimated": true,
-          "spend_from": 61.04
+          "spend_from": 61.04,
+          "low_point": 141.04,
+          "low_point_and_plans": 61.04
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -74,8 +79,13 @@
           "after_payments_and_plans": 90.5,
           "uncertain": false,
           "estimated": false,
-          "spend_from": 90.5
+          "spend_from": 90.5,
+          "low_point": 90.5,
+          "low_point_and_plans": 90.5
         }
+      },
+      "low_point": {
+        "barclays": 90.5
       }
     },
     {
@@ -110,8 +120,13 @@
           "after_payments_and_plans": 61.04,
           "uncertain": false,
           "estimated": true,
-          "spend_from": 40
+          "spend_from": 40,
+          "low_point": 141.04,
+          "low_point_and_plans": 61.04
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -146,8 +161,13 @@
           "after_payments_and_plans": 270,
           "uncertain": false,
           "estimated": false,
-          "spend_from": 270
+          "spend_from": 270,
+          "low_point": 300,
+          "low_point_and_plans": 270
         }
+      },
+      "low_point": {
+        "barclays": 300
       }
     },
     {
@@ -182,8 +202,13 @@
           "after_payments_and_plans": 141.04,
           "uncertain": false,
           "estimated": false,
-          "spend_from": 108
+          "spend_from": 108,
+          "low_point": 141.04,
+          "low_point_and_plans": 141.04
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -218,8 +243,13 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0
+          "spend_from": 0,
+          "low_point": 141.04,
+          "low_point_and_plans": null
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -262,8 +292,13 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0
+          "spend_from": 0,
+          "low_point": 141.04,
+          "low_point_and_plans": null
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -306,8 +341,13 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0
+          "spend_from": 0,
+          "low_point": 141.04,
+          "low_point_and_plans": null
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -358,8 +398,13 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0
+          "spend_from": 0,
+          "low_point": 400,
+          "low_point_and_plans": null
         }
+      },
+      "low_point": {
+        "barclays": 400
       }
     },
     {
@@ -403,8 +448,13 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": true,
-          "spend_from": 0
+          "spend_from": 0,
+          "low_point": 141.04,
+          "low_point_and_plans": null
         }
+      },
+      "low_point": {
+        "barclays": 141.04
       }
     },
     {
@@ -450,7 +500,78 @@
           "after_payments_and_plans": 61.04,
           "uncertain": false,
           "estimated": true,
-          "spend_from": 61.04
+          "spend_from": 61.04,
+          "low_point": 141.04,
+          "low_point_and_plans": 61.04
+        }
+      },
+      "low_point": {
+        "barclays": 141.04
+      }
+    },
+    {
+      "name": "kevin_barclays_dips_before_income",
+      "pool": 108,
+      "closing": {
+        "barclays": 141.04
+      },
+      "low_point": {
+        "barclays": 134.54
+      },
+      "plans": [
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "recent-transfers",
+          "period_amount": 80,
+          "filled_amount": null,
+          "remaining": 80,
+          "active": true
+        }
+      ],
+      "movements": [],
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 80,
+          "after_payments_and_plans": 61.04,
+          "uncertain": false,
+          "estimated": true,
+          "low_point": 134.54,
+          "low_point_and_plans": 54.54,
+          "spend_from": 54.54
+        }
+      }
+    },
+    {
+      "name": "dip_lower_than_closing_150_bill_100_salary_1000",
+      "pool": 500,
+      "closing": {
+        "acc": 1050
+      },
+      "low_point": {
+        "acc": 50
+      },
+      "plans": [],
+      "movements": [],
+      "_why": "live 150, bill 100 on day 3 (running 50), salary 1000 on day 8 (running 1050): min running 50, closing 1050. The old figure was 50 - 10 = 40; Spend from is now min(1050, 50) = 50 with no buffer.",
+      "expected": {
+        "acc": {
+          "after_payments": 1050,
+          "plans_reserved": 0,
+          "after_payments_and_plans": 1050,
+          "uncertain": false,
+          "estimated": false,
+          "low_point": 50,
+          "low_point_and_plans": 50,
+          "spend_from": 50
         }
       }
     }

@@ -19,6 +19,10 @@ export type UpcomingAccountPosition = {
   afterPayments: number | null;
   plansReserved: number;
   afterPaymentsAndPlans: number | null;
+  /** Mid-period minimum running balance minus plans (null when uncertain). */
+  lowPointAndPlans: number | null;
+  /** The Spend from figure Home shows: min(after payments and plans, low point and plans), live-move reserve and pool cap applied. Null when uncertain or not shown. */
+  spendFrom: number | null;
   uncertain: boolean;
 };
 
@@ -71,6 +75,8 @@ export function positionsFromToday(
       afterPayments: typeof entry.after_payments === "number" ? entry.after_payments : null,
       plansReserved: entry.plans_reserved,
       afterPaymentsAndPlans: typeof entry.after_payments_and_plans === "number" ? entry.after_payments_and_plans : null,
+      lowPointAndPlans: typeof entry.low_point_and_plans === "number" ? entry.low_point_and_plans : null,
+      spendFrom: !entry.uncertain && typeof entry.spend_from_headroom === "number" ? entry.spend_from_headroom : null,
       uncertain: entry.uncertain,
     };
   }

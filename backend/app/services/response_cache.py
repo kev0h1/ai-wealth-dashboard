@@ -93,7 +93,9 @@ _MAX_TIME_MS = 500
 # 3: G238 re-bases spend_from_headroom on the shared per-account position and
 # adds after_payments / plans_reserved / after_payments_and_plans / uncertain /
 # estimated to each account_eligibility entry.
-SHAPE_VERSION = 3
+# 4: G238 clamp: entries gain low_point / low_point_and_plans and spend_from_headroom
+# is min(after payments and plans, low point and plans) before the pool cap.
+SHAPE_VERSION = 4
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their
