@@ -10,7 +10,7 @@ type Mode = "light" | "dark";
 export default function AccountsHeaderClient() {
   const params = useSearchParams();
   const raw = params.get("variant");
-  const variant: Variant = raw === "a" || raw === "b" || raw === "c" ? raw : "today";
+  const variant: Variant = raw === "today" || raw === "a" || raw === "b" || raw === "c" || raw === "d" || raw === "e" || raw === "f" ? raw : "d";
   const count: AccountsCount = (params.get("accounts") ?? params.get("state")) === "20" ? "20" : "6";
   const hidden = params.get("balances") === "hidden";
   const menuOpen = params.get("menu") === "open";

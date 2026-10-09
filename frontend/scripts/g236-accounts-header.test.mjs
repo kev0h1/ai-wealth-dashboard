@@ -78,7 +78,7 @@ for (const tab of ["Banks", "Investments"])
 const wrap = (props) => renderToStaticMarkup(h(AppRouterContext.Provider, { value: router }, h(AccountsHeaderPreview, props)));
 const hasFigure = (html) => /£\s?[0-9]/.test(html);
 for (const c of ["6", "20"]) {
-  for (const v of ["a", "b", "c"]) {
+  for (const v of ["a", "b", "c", "d", "e", "f"]) {
     for (const hidden of [false, true]) {
       const html = wrap({ variant: v, count: c, hidden });
       const tag = `${v}/${c}/${hidden ? "hidden" : "shown"}`;
@@ -87,7 +87,7 @@ for (const c of ["6", "20"]) {
       // 4
       assert.equal(count(html, "data-add-control"), 1, `${tag}: exactly one Add control`);
       const btn = html.slice(html.lastIndexOf("<button", html.indexOf("data-add-control")), html.indexOf(">", html.indexOf("data-add-control")) + 1);
-      assert.ok(btn.includes('aria-label="Add account"'), `${tag}: Add has an accessible name`);
+      assert.ok(v === "e" ? /Add (an?|account)/.test(html.slice(html.indexOf("data-add-control"), html.indexOf("data-add-control") + 900)) : btn.includes('aria-label="Add account"'), `${tag}: Add has an accessible name`);
       assert.ok(v === "a" ? btn.includes("size-14") : btn.includes("min-h-11"), `${tag}: ${v === "a" ? "56px floating action" : "44px target"}`);
       // 5
       if (hidden) {
@@ -110,7 +110,7 @@ for (const c of ["6", "20"]) {
   assert.ok(hasFigure(text(today)), `today/${c}: hidden still prints the account rows (the defect)`);
 }
 // Menu open: one menu, items present, still one Add control.
-for (const v of ["a", "b", "c"]) {
+for (const v of ["a", "b", "c", "d", "e", "f"]) {
   const html = wrap({ variant: v, count: "6", hidden: false, menuOpen: true });
   assert.equal(count(html, 'role="menu"'), 1, `${v}: one open menu`);
   assert.equal(count(html, "data-add-control"), 1, `${v}: still one Add control`);

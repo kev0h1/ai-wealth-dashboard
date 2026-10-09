@@ -1,7 +1,8 @@
 "use client";
 
-// G236 Accounts header round (eye, header balance, one-handed Add). Design
-// skill: impeccable. Directions drafted with openai/gpt-6-astra, rewritten to
+// G236 Accounts header round (eye, header balance, one-handed Add). Round 1
+// (A, B, C) skill: impeccable. Round 2 (D, E, F) skills: impeccable and
+// design-taste-frontend, audited with web-design-guidelines. Directions drafted with openai/gpt-6-astra, rewritten to
 // DESIGN.md (tokens, sizes and the offsets below are DESIGN.md's and
 // BottomNav's, not Astra's).
 //
@@ -12,7 +13,7 @@
 // "Balances hidden" chip and the Settings switch. The list chrome (find bar,
 // lens chips, group cards) is inline in AccountsPage and mirrored here.
 
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, EyeOff, Plus, Search, Upload, TrendingUp } from "lucide-react";
 import AccountsHeader from "@/components/AccountsHeader";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
@@ -21,15 +22,33 @@ import { filterEstate, type Estate, type EstateGroup, type EstateLens, type Esta
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { ADD_CHOICES, estateFor, type AccountsCount } from "./fixtures";
 
-export type Variant = "today" | "a" | "b" | "c";
+export type Variant = "today" | "a" | "b" | "c" | "d" | "e" | "f";
 export const VARIANTS: { id: Variant; label: string }[] = [
   { id: "today", label: "Today" },
   { id: "a", label: "A" },
   { id: "b", label: "B" },
   { id: "c", label: "C" },
+  { id: "d", label: "D" },
+  { id: "e", label: "E" },
+  { id: "f", label: "F" },
 ];
 
 const NOTES: Record<Variant, { title: string; body: string; weak: string }> = {
+  d: {
+    title: "D · Canvas ledger · Proposal · round 2",
+    body: "The page is canvas and account cards, nothing else. Net worth is the one Display reading with its whispered stats line, no eye. Add is a left-aligned pill that is the last thing in the list and travels with you: it rests at the end of the list and, while there is list below, pins just above the nav, left of Penny.",
+    weak: "A pinned pill can read as a permanent toolbar if the pin is too eager, and it covers the left edge of one row at a time while it travels. It is hidden by design on the final screen of a long list only because it has arrived.",
+  },
+  e: {
+    title: "E · Segments · Proposal · round 2",
+    body: "Net worth drops to a caption line. The page is divided into segments (All, Current, Savings, Credit, Invested), and each segment leads with its own total. Add is the last row of the segment's card and is named for it, so a long list becomes four short ones and Add is never far from the thumb.",
+    weak: "One more layer to learn, and an account can be hard to find if you pick the wrong segment, which the find bar still searches across. Add is at the end of the segment, so on a long segment it is a scroll away.",
+  },
+  f: {
+    title: "F · Summary bar and find-and-act row · Proposal · round 2",
+    body: "A compact header (title and Net worth) on the canvas, the filter chips, then one utility row that pairs the find field with Add, placed in the lower half of the first screen. Scroll and the header collapses into a slim sticky summary so Net worth never leaves the screen. No floating control, no bar over the nav.",
+    weak: "Add scrolls away with the row, so deep in a long list you scroll back up for it. The sticky summary is read-only: it is a context bar, not a control.",
+  },
   today: {
     title: "Today · production header",
     body: "The shipped header, rendered by AccountsHeader. The eye masks Net worth and the group subtotals but not the account rows (AccountLedgerRow has no hide prop today), so with the eye on every balance in the list still shows. Hide it and see.",
@@ -73,18 +92,38 @@ function groupsOf(estate: Estate): EstateGroup[] {
 
 /* ───────────── list chrome (mirrors AccountsPage) ───────────── */
 
-function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens }: { estate: Estate; hidden: boolean; maskRows: boolean; showLens: boolean; lens: EstateLens; onLens: (l: EstateLens) => void }) {
+function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens, lensFirst = false, findAccessory = null, segment = "All", lastRowFooter = null, showFind = true }: { estate: Estate; hidden: boolean; maskRows: boolean; showLens: boolean; lens: EstateLens; onLens: (l: EstateLens) => void; lensFirst?: boolean; findAccessory?: ReactNode; segment?: EstateLens; lastRowFooter?: ReactNode; showFind?: boolean }) {
   const [query, setQuery] = useState("");
   const filtering = query.trim() !== "" || lens !== "All";
+  const visibleGroups = groupsOf(estate).filter((g) => segment === "All" || g.kind === segment);
   const filtered = filterEstate(estate.rows, { query, lens });
   const LENSES: EstateLens[] = ["All", "Current", "Savings", "Credit", "Investment", "Owed"];
   const noop = () => {};
   const row = (r: EstateRow) => <AccountLedgerRow key={r.id} row={r} onClick={noop} hideAmount={maskRows && hidden} />;
   return (
     <div className="space-y-3">
-      <div className="relative">
+      {lensFirst ? (<>
+      {showLens && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {LENSES.map((l) => (
+            <button key={l} type="button" onClick={() => onLens(l)} aria-pressed={lens === l} className={`shrink-0 min-h-[44px] px-3.5 rounded-full text-[13px] font-semibold transition-colors motion-reduce:transition-none ${lens === l ? "bg-indigo-500 text-white" : "glass-tile text-slate-500 dark:text-slate-400"}`}>{l}</button>
+          ))}
+        </div>
+      )}
+      <div className={showFind ? "flex items-center gap-2" : "hidden"}>
+        <div className="relative min-w-0 flex-1">
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" aria-hidden="true" />
         <input type="text" name="account-search" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account…" aria-label="Find an account" className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        {findAccessory}
+      </div>
+      </>) : (<>
+      <div className={showFind ? "flex items-center gap-2" : "hidden"}>
+        <div className="relative min-w-0 flex-1">
+        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+        <input type="text" name="account-search" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account…" aria-label="Find an account" className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        {findAccessory}
       </div>
       {showLens && (
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -93,17 +132,18 @@ function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens }: { esta
           ))}
         </div>
       )}
+      </>)}
       {filtering ? (
         <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">{filtered.length === 0 ? <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No accounts match</p> : filtered.map(row)}</div>
       ) : (
         <>
-          {estate.pinned.length > 0 && (
+          {segment === "All" && estate.pinned.length > 0 && (
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
               <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pinned</p>
               <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">{estate.pinned.map(row)}</div>
             </section>
           )}
-          {groupsOf(estate).map((g) => (
+          {visibleGroups.map((g, gi) => (
             <section key={g.label} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label={`${g.label} accounts`}>
               <div className="flex min-h-16 items-center justify-between gap-3 px-4">
                 <span>
@@ -112,7 +152,7 @@ function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens }: { esta
                 </span>
                 <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">{money(g.subtotal, hidden)}</span>
               </div>
-              <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">{g.rows.map(row)}</div>
+              <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">{g.rows.map(row)}{gi === visibleGroups.length - 1 && lastRowFooter}</div>
             </section>
           ))}
         </>
@@ -192,6 +232,17 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
   const [menuOpen, setMenuOpen] = useState(menuIn);
   const [lens, setLens] = useState<EstateLens>("All");
   const addRef = useRef<HTMLDivElement>(null);
+  const [segment, setSegment] = useState<EstateLens>("All");
+  const [stuck, setStuck] = useState(false);
+  const sentinel = useRef<HTMLDivElement>(null);
+  // F: the slim summary appears once the header has scrolled away.
+  useEffect(() => {
+    const el = sentinel.current;
+    if (variant !== "f" || !el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setStuck(!e.isIntersecting && e.boundingClientRect.top < 0));
+    io.observe(el);
+    return () => io.disconnect();
+  }, [variant]);
   const note = NOTES[variant];
   const total = estate.rows.length;
   const nwText = money(estate.netWorth, hidden);
@@ -203,6 +254,11 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
     investmentCount: estate.rows.filter((r) => r.source === "investment").length,
     offlineCount: estate.rows.filter((r) => r.kind === "Offline").length,
   };
+  const segGroup = groupsOf(estate).find((g) => g.kind === segment);
+  const segTotal = segment === "All" ? estate.netWorth : segGroup?.subtotal ?? 0;
+  const segCount = segment === "All" ? total : segGroup?.count ?? 0;
+  const SEG_NAME: Record<string, string> = { All: "Net worth", Current: "Current accounts", Savings: "Savings", Credit: "Credit cards", Investment: "Investments" };
+  const SEG_ADD: Record<string, string> = { All: "Add account", Current: "Add a current account", Savings: "Add a savings account", Credit: "Add a credit card", Investment: "Add an investment" };
   const close = () => setMenuOpen(false);
   // Escape closes the menu and returns focus to the Add control (guidelines: keyboard parity).
   const onEscape = (e: ReactKeyboardEvent) => {
@@ -292,8 +348,101 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
           </header>
         )}
 
+        {variant === "d" && (
+          <header className="px-4 pt-5 pb-5">
+            <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
+            <div className="mt-5" data-tutorial-id="tutorial-networth">
+              <Label>Net worth</Label>
+              <p className="money mt-1 text-[36px] font-bold leading-[1.15] tracking-[-0.03em] text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Balance hidden" : nwText}</span></p>
+              <p className="mt-1.5 text-[12px] text-slate-600 dark:text-slate-400">
+                {cardTotal > 0 && <span className="font-mono tabular-nums">{money(-cardTotal, hidden)}</span>}
+                {cardTotal > 0 && " across cards, "}{total} accounts
+              </p>
+              {hidden && <HiddenChip onShow={() => setHidden(false)} />}
+            </div>
+          </header>
+        )}
+
+        {variant === "e" && (
+          <header className="px-4 pt-5 pb-4">
+            <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
+            {segment !== "All" && (
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400" data-tutorial-id="tutorial-networth">
+                Net worth <span aria-hidden="true" className="money text-slate-950 dark:text-white">{nwText}</span><span className="sr-only">{hidden ? "hidden" : nwText}</span>
+              </p>
+            )}
+            <SegmentedControl
+              ariaLabel="Show accounts"
+              className="mt-4"
+              options={[{ value: "All", label: "All" }, { value: "Current", label: "Current" }, { value: "Savings", label: "Savings" }, { value: "Credit", label: "Credit" }, { value: "Investment", label: "Invested" }]}
+              value={segment}
+              onChange={(v) => { setSegment(v as EstateLens); setMenuOpen(false); }}
+            />
+            <div className="mt-5" {...(segment === "All" ? { "data-tutorial-id": "tutorial-networth" } : {})}>
+              <Label>{SEG_NAME[segment]}</Label>
+              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white"><span aria-hidden="true">{money(segTotal, hidden)}</span><span className="sr-only">{hidden ? "Balance hidden" : money(segTotal, false)}</span></p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{segCount} {segCount === 1 ? "account" : "accounts"}</p>
+              {hidden && <HiddenChip onShow={() => setHidden(false)} />}
+            </div>
+          </header>
+        )}
+
+        {variant === "f" && (
+          <header className="px-4 pt-5 pb-4">
+            <div className="flex items-end justify-between gap-3">
+              <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
+              <div className="min-w-0 text-right" data-tutorial-id="tutorial-networth">
+                {hidden ? <HiddenChip onShow={() => setHidden(false)} /> : (
+                  <>
+                    <Label>Net worth</Label>
+                    <p className="money mt-0.5 text-[26px] font-bold leading-[1.15] tracking-[-0.025em] text-slate-950 dark:text-white">{nwText}</p>
+                  </>
+                )}
+              </div>
+            </div>
+            <div ref={sentinel} aria-hidden="true" className="h-px" />
+          </header>
+        )}
+
         <div className={`px-4 ${variant === "today" ? "" : variant === "b" ? "pt-5" : ""}`}>
-          <ListChrome estate={estate} hidden={hidden} maskRows={variant !== "today"} showLens={variant !== "c"} lens={lens} onLens={setLens} />
+          <ListChrome
+            estate={estate}
+            hidden={hidden}
+            maskRows={variant !== "today"}
+            showLens={variant !== "c" && variant !== "e"}
+            lens={lens}
+            onLens={setLens}
+            lensFirst={variant === "f"}
+            segment={variant === "e" ? segment : "All"}
+            findAccessory={variant === "f" ? (
+              <div className="relative shrink-0" ref={addRef} onKeyDown={onEscape}>
+                <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Add account" className={`${addButtonBase} min-h-11 rounded-xl px-3.5`}>
+                  <Plus size={16} aria-hidden="true" />
+                  Add
+                </button>
+                {menuOpen && <ChoiceList onChoose={close} className={`absolute right-0 top-[calc(100%+6px)] z-[44] ${MENU_BOX}`} />}
+              </div>
+            ) : null}
+            lastRowFooter={variant === "e" ? (
+              <div ref={addRef} onKeyDown={onEscape}>
+                <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} className="flex min-h-11 w-full items-center gap-2 px-4 text-left text-sm font-semibold text-indigo-700 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-white/5">
+                  <Plus size={16} aria-hidden="true" />
+                  {SEG_ADD[segment]}
+                  <ChevronDown size={14} aria-hidden="true" className={`opacity-70 transition-transform motion-reduce:transition-none ${menuOpen ? "rotate-180" : ""}`} />
+                </button>
+                {menuOpen && <ChoiceList onChoose={close} className={`fixed inset-x-4 z-[50] mx-auto max-w-[398px] ${OFFSET_BAR} overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 shadow-xl divide-y divide-slate-100 dark:border-white/10 dark:bg-slate-800 dark:divide-white/5`} />}
+              </div>
+            ) : null}
+          />
+          {variant === "d" && (
+            <div ref={addRef} onKeyDown={onEscape} className={`sticky z-[45] mt-4 w-fit ${OFFSET_BAR}`}>
+              {menuOpen && <ChoiceList onChoose={close} className={`absolute bottom-[calc(100%+8px)] left-0 ${MENU_BOX}`} />}
+              <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Add account" className={`${addButtonBase} min-h-11 rounded-full px-4 shadow-xl`}>
+                <Plus size={16} aria-hidden="true" />
+                Add account
+              </button>
+            </div>
+          )}
           {variant !== "today" && <SettingsProposal hidden={hidden} onToggle={() => setHidden((v) => !v)} />}
         </div>
       </div>
@@ -322,6 +471,15 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
               <Plus size={16} aria-hidden="true" />
               Add
             </button>
+          </div>
+        </div>
+      )}
+
+      {variant === "f" && stuck && (
+        <div className="fixed inset-x-0 top-0 z-[44]">
+          <div className="mx-auto flex max-w-[430px] items-center justify-between gap-3 border-b border-slate-200 bg-[#f0f2f7] px-4 py-2 dark:border-slate-700 dark:bg-[#0f172a]">
+            <span className="text-sm font-bold text-slate-950 dark:text-white">Accounts</span>
+            <span className="money text-sm font-semibold text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Net worth hidden" : `Net worth ${nwText}`}</span></span>
           </div>
         </div>
       )}
