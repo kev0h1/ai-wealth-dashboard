@@ -18,6 +18,7 @@
     "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
     "check:apk-single": "node scripts/check-apk-single.mjs",
     "check:b44-stale-tips": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b44-stale-tips.test.mjs",
+    "check:g248-penny-history": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g248-penny-history.test.mjs",
     "check:g248-penny-session": "node --no-warnings --experimental-strip-types scripts/g248-penny-session.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:design-stale": "node scripts/check-design-stale.mjs --strict",
