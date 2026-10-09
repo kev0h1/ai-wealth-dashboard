@@ -118,7 +118,7 @@
 // (65/70), so when CommitmentSheet opens from inside this sheet, it wins
 // by actual z-index — a real ordering guarantee, not a DOM-order one.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -334,7 +334,7 @@ function CrossfadeTitle({ base, alt, revealed }: { base: string; alt: string; re
 
 
 /** Shared header for the live window and fixture-safe keyboard previews. */
-export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleAvatarTap, close, headerLinks, onNavigate }: {
+export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleAvatarTap, close, headerLinks, onNavigate, toolbar, trailingActions }: {
   pennyUsed: number;
   pennyLimit: number | null;
   usageRevealed: boolean;
@@ -344,7 +344,23 @@ export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleA
   /** G244: close through the sheet's history entry, then go to `href`. Absent
    * (previews), the link closes and navigates on its own as before. */
   onNavigate?: (href: string) => void;
+  /** G248 design round: a row of chat actions under the title row. Absent
+   * (the default), the header renders exactly as before. */
+  toolbar?: ReactNode;
+  /** G248 design round: actions placed beside the close button. Absent, the
+   * header renders exactly as before. */
+  trailingActions?: ReactNode;
 }) {
+  const closeButton = (
+              <button
+                type="button"
+                onClick={close}
+                aria-label="Close"
+                className="w-9 h-9 min-w-[44px] min-h-[44px] -m-2.5 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-90 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                <X size={15} className="text-slate-500 dark:text-slate-400" />
+              </button>
+  );
   return (
           <div data-penny-header className="flex-shrink-0 pt-3 touch-none">
             <div className="flex items-center justify-between gap-2 px-5">
@@ -362,15 +378,9 @@ export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleA
                   />
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={close}
-                aria-label="Close"
-                className="w-9 h-9 min-w-[44px] min-h-[44px] -m-2.5 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-90 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                <X size={15} className="text-slate-500 dark:text-slate-400" />
-              </button>
+              {trailingActions ? <div className="flex items-center gap-1">{trailingActions}{closeButton}</div> : closeButton}
             </div>
+            {toolbar}
             {/* Subordinate doors out of the sheet — quiet, no gradient (the
                 indigo-to-violet gradient belongs to Penny's brand mark
                 alone). Screen-aware (lib/pennyScreenConfig.tsx): every

@@ -223,6 +223,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
   },
   {
+    slug: "penny-history",
+    name: "Penny chat history · G248",
+    description: "G248 design round, skill: impeccable (variants drafted by openai/gpt-6-astra, rewritten to DESIGN.md). Penny keeps the last 10 chats, 30 turns each. Three packages: A Quiet toolbar (labelled New chat and History row, flat list with a bin on every row, Open my last chat in the history footer) / B Single menu (one options button, roomier rows with an options button, switch in Settings only) / C Compact icons (icons beside Close, rows under TODAY and EARLIER, switch in both). Renders the production full-screen sheet, header, composer (chat-full state), history sheet and switch row with fixture data; the conversation bubbles are hand-authored. ?variant=a|b|c&state=chat|list|empty|cap|setting&mode=light|dark",
+    states: [{ label: "Chat", value: "chat" }, { label: "History", value: "list" }, { label: "No history", value: "empty" }, { label: "Chat full", value: "cap" }, { label: "Setting", value: "setting" }],
+    variants: [{ label: "A Quiet toolbar", value: "a" }, { label: "B Single menu", value: "b" }, { label: "C Compact icons", value: "c" }],
+  },
+  {
     slug: "penny-fullscreen",
     name: "Ask Penny full screen · G240",
     description: "G240, approved variant A (Clear runway), Kevin 2026-10-08. Gate preview: the Ask Penny sheet as a phone takeover from the top safe area to the bottom safe area (or the keyboard edge) on a solid surface. Renders the production Penny panel, header, composer, empty-state layout and chip; the chip labels and replies are fixtures because the live conversation fetches its own data. Type into it on your phone, light and dark. ?mode=light|dark&thread=empty|long&open=1 (state= also works)",

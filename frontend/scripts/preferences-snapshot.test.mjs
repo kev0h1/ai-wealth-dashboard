@@ -461,6 +461,7 @@ const FIELD_SAVER_PAIRS = [
   { key: "pay_period_config", saverVar: "payPeriodConfigSaver", skipKey: "payPeriodConfig" },
   { key: "debt_target_months", saverVar: "debtTargetMonthsSaver", skipKey: "debtTargetMonths" },
   { key: "debt_tracking_start", saverVar: "debtTrackingStartSaver", skipKey: "debtTrackingStart" },
+  { key: "open_last_chat", saverVar: "openLastChatSaver", skipKey: "openLastChat" },
 ];
 
 function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
@@ -474,9 +475,9 @@ function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const reconcileLines = [
     ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
   ].map((m) => m[1]);
-  check("components/PreferencesContext.tsx wires exactly five fields through makeFieldReconcile", reconcileLines.length === 5);
+  check("components/PreferencesContext.tsx wires exactly six fields through makeFieldReconcile", reconcileLines.length === 6);
   check(
-    "the five fields wired are exactly the expected set",
+    "the six fields wired are exactly the expected set",
     JSON.stringify([...reconcileLines].sort()) === JSON.stringify(FIELD_SAVER_PAIRS.map((f) => f.key).sort())
   );
   check(

@@ -26,7 +26,7 @@ from app.db.collections import (
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
-    teaching_events_col, allocations_col, penny_proposals_col,
+    teaching_events_col, allocations_col, penny_proposals_col, penny_conversations_col,
     response_cache_col, mcp_calls_col, mcp_call_counters_col,
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
@@ -37,6 +37,7 @@ from app.db.collections import (
     session_tombstones_col,
     orphaned_revocations_col,
 )
+from app.services.penny_conversations import PENNY_CONVERSATION_RETENTION_SECONDS
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
 
@@ -49,7 +50,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, allocations, money_shape,
-    penny_chip, ops, admin_usage, admin_allowlist, billing as billing_router,
+    penny_chip, penny_conversations, ops, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
     diagnostics, uat_trial_reset,
 )
@@ -113,6 +114,7 @@ def _routers(
         allocations.router,
         money_shape.router,
         penny_chip.router,
+        penny_conversations.router,
         ops.router,
         admin_usage.router,
         admin_allowlist.router,
@@ -413,6 +415,13 @@ async def _create_indexes():
     # itself once it's past that instant, no separate sweep job needed.
     await _ensure_index(penny_proposals_col, [("user_id", 1), ("_id", 1)])
     await _ensure_index(penny_proposals_col, "expires_at", expireAfterSeconds=0)
+    # G248: Penny chat history. Newest-first list per user, and a TTL on the
+    # last message time that matches PRIVACY.md's chat-session retention.
+    await _ensure_index(penny_conversations_col, [("user_id", 1), ("updated_at", -1)])
+    await _ensure_index(
+        penny_conversations_col, "updated_at",
+        expireAfterSeconds=PENNY_CONVERSATION_RETENTION_SECONDS,
+    )
     # ENGINE.md "The One Stream Rule" — the uniform teaching-event feed.
     await _ensure_index(teaching_events_col, [("user_id", 1), ("created_at", -1)])
     # Append-only event log with no consumer/rollup yet — TTL bounds growth

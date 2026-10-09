@@ -39,6 +39,11 @@ interface Prefs {
   payPeriodConfig: PayPeriodConfig;
   debtTargetMonths: number;
   debtTrackingStart: string;
+  /** G248: default false. True reopens the latest Penny conversation on a
+   * cold start or refresh (when under the turn cap); false starts a new chat.
+   * Mirrored in localStorage as wd_open_last_chat; wait for
+   * preferencesReady before acting on it. */
+  openLastChat: boolean;
   spendWidgets: string[] | null;
   homePinnedWidget: string | null;
   // "What-if" overrides for the debt_burndown Spend widget — local
@@ -55,6 +60,7 @@ interface PrefsCtx extends Prefs {
   setPayPeriodConfig: (c: PayPeriodConfig) => void;
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
+  setOpenLastChat: (v: boolean) => void;
   setSpendWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
   setDebtBurndownOverrides: (v: DebtBurndownOverrides | null) => void;
@@ -101,6 +107,7 @@ const Ctx = createContext<PrefsCtx>({
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
+  openLastChat: false,
   spendWidgets: null,
   homePinnedWidget: null,
   debtBurndownOverrides: null,
@@ -111,6 +118,7 @@ const Ctx = createContext<PrefsCtx>({
   setPayPeriodConfig: () => {},
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
+  setOpenLastChat: () => {},
   setSpendWidgets: () => {},
   setHomePinnedWidget: () => {},
   setDebtBurndownOverrides: () => {},
@@ -137,6 +145,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [payPeriodConfig, setPayPeriodConfigState] = useState<PayPeriodConfig>(DEFAULT_PAY_PERIOD_CONFIG);
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
+  const [openLastChat, setOpenLastChatState] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("wd_open_last_chat") === "1"; } catch { return false; }
+  });
   const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
   const [homePinnedWidget, setHomePinnedWidgetState] = useState<string | null>(null);
   const [debtBurndownOverrides, setDebtBurndownOverridesState] = useState<DebtBurndownOverrides | null>(null);
@@ -181,6 +193,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const applyDebtTrackingStart = useCallback((v: string) => {
     debtTrackingStartRef.current = v;
     setDebtTrackingStartState(v);
+  }, []);
+
+  const openLastChatRef = useRef(openLastChat);
+  const applyOpenLastChat = useCallback((v: boolean) => {
+    openLastChatRef.current = v;
+    setOpenLastChatState(v);
+    try { localStorage.setItem("wd_open_last_chat", v ? "1" : "0"); } catch {}
   }, []);
 
   // G45 (second re-review): the highest preferences `version` this context
@@ -367,6 +386,16 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     onSuccess: invalidateSpendCaches,
   })).current;
 
+  const openLastChatSaver = useRef(createPreferenceSaver<boolean>({
+    queue: createSerialQueue(),
+    getCurrent: () => openLastChatRef.current,
+    apply: applyOpenLastChat,
+    save: (v) => api.updatePreferences({ open_last_chat: v }),
+    reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "open_last_chat"),
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("open_last_chat"),
+  })).current;
+
   const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
     return fetchPreferencesSnapshot().then(p => {
       if (!p) return null;
@@ -378,6 +407,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           applyPayPeriodConfig,
           applyDebtTargetMonths,
           applyDebtTrackingStart,
+          applyOpenLastChat,
           setSpendWidgets: setSpendWidgetsState,
           setHomePinnedWidget: setHomePinnedWidgetState,
           setDebtBurndownOverrides: setDebtBurndownOverridesState,
@@ -396,6 +426,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           payPeriodConfig: () => payPeriodConfigSaver.isSaving.current,
           debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
           debtTrackingStart: () => debtTrackingStartSaver.isSaving.current,
+          openLastChat: () => openLastChatSaver.isSaving.current,
         }
       );
       return p;
@@ -404,6 +435,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     fetchPreferencesSnapshot,
     applyHideNetWorth, applyDarkMode, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
     hideNetWorthSaver, darkModeSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
+    applyOpenLastChat, openLastChatSaver,
   ]);
 
   useEffect(() => {
@@ -425,6 +457,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const setPayPeriodConfig = useCallback((c: PayPeriodConfig) => { void payPeriodConfigSaver.run(c); }, [payPeriodConfigSaver]);
   const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
   const setDebtTrackingStart = useCallback((s: string) => { void debtTrackingStartSaver.run(s); }, [debtTrackingStartSaver]);
+  const setOpenLastChat = useCallback((v: boolean) => { void openLastChatSaver.run(v); }, [openLastChatSaver]);
 
   // spend_widgets and home_pinned_widget are NOT persisted from here — the
   // one caller (components/SpendTrends.tsx) owns the api.updatePreferences
@@ -446,9 +479,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       hideNetWorth, preferencesReady, darkMode, payPeriodConfig, debtTargetMonths, debtTrackingStart,
-      spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
+      openLastChat, spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
       setHideNetWorth, setDarkMode, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
-      setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
+      setOpenLastChat, setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
     }}>
       {children}

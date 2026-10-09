@@ -251,6 +251,7 @@ def test_every_allowlisted_field_is_accepted_and_written(monkeypatch):
         "debt_target_months": 24,
         "debt_tracking_start": "2026-01-01",
         "notification_prefs": {**NOTIF_DEFAULTS, "transactions": True},
+        "open_last_chat": True,
     }
 
     # Every field this test knows a sample value for must be exactly the

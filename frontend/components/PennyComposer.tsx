@@ -9,7 +9,7 @@ import { BRAND_GRADIENT } from "@/lib/brand";
  * keyboard when a focused input turns readOnly or disabled), and the send
  * button never takes focus, so sending keeps the keyboard up like any chat
  * app. Duplicate sends are blocked in the handlers, not on the input. */
-export default function PennyComposer({ inputRef, value, onChange, onSend, placeholder, loading, atCap, onMoreMessages }: {
+export default function PennyComposer({ inputRef, value, onChange, onSend, placeholder, loading, atCap, onMoreMessages, chatFull }: {
   inputRef: RefObject<HTMLInputElement | null>;
   value: string;
   onChange: (value: string) => void;
@@ -18,9 +18,19 @@ export default function PennyComposer({ inputRef, value, onChange, onSend, place
   loading: boolean;
   atCap: boolean;
   onMoreMessages?: () => void;
+  /** G248: this conversation has reached its turn cap. Replaces the input row
+   * with the notice and a New chat action. Absent (the default), the composer
+   * renders exactly as before. */
+  chatFull?: { notice: string; actionLabel: string; onAction: () => void };
 }) {
   return <>
-    <div className="flex items-center gap-2">
+    {chatFull ? <div data-penny-chat-full className="flex items-center justify-between gap-3">
+      <p role="status" className="min-w-0 text-sm leading-5 text-slate-700 dark:text-slate-200">{chatFull.notice}</p>
+      <button type="button" onClick={chatFull.onAction}
+        className="flex-shrink-0 min-h-[44px] rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:scale-95 transition-transform hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900">
+        {chatFull.actionLabel}
+      </button>
+    </div> : <div className="flex items-center gap-2">
       <input
         ref={inputRef} data-penny-input type="text" value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -38,7 +48,7 @@ export default function PennyComposer({ inputRef, value, onChange, onSend, place
         className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 text-white active:scale-95 transition-transform"
         style={{ background: BRAND_GRADIENT }}
       >{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</button>
-    </div>
+    </div>}
     <div className="flex items-center justify-between gap-2 mt-1.5">
       <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 min-w-0">General information, not regulated financial advice.</p>
       {atCap && onMoreMessages && <button type="button" onClick={onMoreMessages}
