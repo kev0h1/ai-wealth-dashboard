@@ -15,7 +15,7 @@ export function formatHistoryDate(iso: string | null | undefined, now: Date = ne
   const sameYear = londonYmd(d).slice(0, 4) === londonYmd(now).slice(0, 4);
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: ZONE, day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }),
-  }).format(d);
+  }).format(d).replace("Sept", "Sep"); // newer ICU spells September "Sept"; UK style is "Sep"
 }
 
 export function isHistoryToday(iso: string | null | undefined, now: Date = new Date()): boolean {
