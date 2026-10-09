@@ -616,3 +616,49 @@ def test_unreadable_plans_fail_closed(monkeypatch):
          account_eligibility_out=eligibility, plans_fail=True)
     e = eligibility["barclays"]
     assert e["uncertain"] is True and e["spend_from_headroom"] == 0.0
+
+
+# ── G238 clamp: source_min_run feeds Spend from through the real engine ──────
+# Live 150, bill 100 on day 3 (running 50), confirmed salary 1000 on day 8
+# (running 1050). Closing is 1050 but the low point is 50, so Spend from is 50.
+
+def _salary(account_id):
+    return {
+        "name": "Salary", "key": "Salary", "account_id": account_id, "amount": 1000.0,
+        "days_away": 8, "expected_date": (TODAY + timedelta(days=8)).isoformat(),
+    }
+
+
+def _dip_run(monkeypatch, *, extra_accounts=(), plans=None):
+    accounts = [_account("A", 150.0), *extra_accounts]
+    bills = [_bill("Rent", 3, 100.0, "A", 150.0)]
+    eligibility = {}
+    _run(
+        monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility,
+        income_streams=[{"key": "Salary", "status": "confirmed"}],
+        window_income=[_salary("A")], plans=plans,
+    )
+    return eligibility
+
+
+def test_clamp_holds_spend_from_at_the_low_point(monkeypatch):
+    e = _dip_run(monkeypatch)["A"]
+    assert e["after_payments"] == 1050.0
+    assert e["low_point"] == 50.0
+    assert e["spend_from_headroom"] == 50.0
+
+
+def test_clamp_survives_a_pool_cap_above_it(monkeypatch):
+    from app.services.companion import cap_spend_from_to_pool
+    elig = _dip_run(monkeypatch, extra_accounts=[_account("B", 2000.0, provider="monzo")])
+    cap_spend_from_to_pool(elig, 2500.0)
+    assert elig["A"]["spend_from_headroom"] == 50.0
+    assert elig["B"]["spend_from_headroom"] == 2000.0
+
+
+def test_clamp_subtracts_a_chosen_goal_from_the_low_point(monkeypatch):
+    goal = dict(_JAPAN, source_account_id="A", source_basis="chosen", remaining=30, period_amount=30)
+    e = _dip_run(monkeypatch, plans=[goal])["A"]
+    assert e["low_point_and_plans"] == 20.0
+    assert e["after_payments_and_plans"] == 1020.0
+    assert e["spend_from_headroom"] == 20.0

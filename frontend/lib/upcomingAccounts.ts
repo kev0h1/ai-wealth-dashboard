@@ -1,4 +1,5 @@
-import type { AccountEligibility, CashflowData } from "./api";
+import type { Account, AccountEligibility, CashflowData } from "./api";
+import { sourceClass } from "./coverPlanSourceClass";
 import { walkUpcomingAccounts } from "./upcomingAccountWalk";
 
 export type UpcomingAccountEvent = {
@@ -66,9 +67,14 @@ export function buildUpcomingAccountSummaries(
  * its own arithmetic. */
 export function positionsFromToday(
   eligibility: Record<string, AccountEligibility> | null | undefined,
+  accounts: Pick<Account, "id" | "type" | "subtype">[],
 ): Record<string, UpcomingAccountPosition> | null {
   if (!eligibility) return null;
   const out: Record<string, UpcomingAccountPosition> = {};
+  const isCurrent = (id: string) => {
+    const account = accounts.find((a) => a.id === id);
+    return Boolean(account) && sourceClass(account as Account) === "current";
+  };
   for (const [id, entry] of Object.entries(eligibility)) {
     if (typeof entry.uncertain !== "boolean" || typeof entry.plans_reserved !== "number") continue;
     out[id] = {
@@ -76,7 +82,10 @@ export function positionsFromToday(
       plansReserved: entry.plans_reserved,
       afterPaymentsAndPlans: typeof entry.after_payments_and_plans === "number" ? entry.after_payments_and_plans : null,
       lowPointAndPlans: typeof entry.low_point_and_plans === "number" ? entry.low_point_and_plans : null,
-      spendFrom: !entry.uncertain && typeof entry.spend_from_headroom === "number" ? entry.spend_from_headroom : null,
+      // Home's Spend from (G111) is current accounts only, using sourceClass.
+      // Same predicate here, so a savings pot or ISA (or an account not yet
+      // loaded) never gets a Spend from line on the sheet.
+      spendFrom: isCurrent(id) && !entry.uncertain && typeof entry.spend_from_headroom === "number" ? entry.spend_from_headroom : null,
       uncertain: entry.uncertain,
     };
   }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
-import { api, Account, Allocation, CashflowData, type AccountPlanData } from "@/lib/api";
+import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -25,7 +25,7 @@ import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import type { PaymentDetail, UpcomingDetailView } from "@/components/upcoming/UpcomingDetailFlow";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
-import { positionsFromToday, upcomingAccountWindow, type UpcomingAccountPosition } from "@/lib/upcomingAccounts";
+import { positionsFromToday, upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
@@ -232,7 +232,7 @@ export default function PlanningPage() {
   // G238: the server's per-account position (the same figure Home's Spend from
   // is built on). Absent on an old API or a failed read: accountPlan falls back
   // to its own arithmetic.
-  const [accountPositions, setAccountPositions] = useState<Record<string, UpcomingAccountPosition> | null>(null);
+  const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | null>(null);
   // Edit-only now — creation moved into SetAsideSheet's envelope step
   // (owner consolidation, 2026-08-29).
   const [allocationSheet, setAllocationSheet] = useState<Allocation | null>(null);
@@ -283,7 +283,7 @@ export default function PlanningPage() {
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
       api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true));
-      api.getToday().then((today) => setAccountPositions(positionsFromToday(today.account_eligibility))).catch(() => {});
+      api.getToday().then((today) => setAccountEligibility(today.account_eligibility ?? null)).catch(() => {});
       api.dismissedSeries()
         .then((d) => setDismissedCount(d.user.length + d.engine.length))
         .catch(() => {});
@@ -306,8 +306,8 @@ export default function PlanningPage() {
   // G238: a plan edit makes the server position stale. Drop it (the sheet falls
   // back to its own arithmetic meanwhile) and read the fresh one.
   function reloadAccountPositions() {
-    setAccountPositions(null);
-    api.getToday().then((today) => setAccountPositions(positionsFromToday(today.account_eligibility))).catch(() => {});
+    setAccountEligibility(null);
+    api.getToday().then((today) => setAccountEligibility(today.account_eligibility ?? null)).catch(() => {});
   }
 
   function refreshAllocations() {
@@ -360,7 +360,8 @@ export default function PlanningPage() {
   const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
-  const accountSummaries = (accountWalk?.accounts ?? []).map((account) => accountPositions?.[account.id] ? { ...account, position: accountPositions[account.id] } : account);
+  const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
+  const accountSummaries = (accountWalk?.accounts ?? []).map((account) => accountPositions[account.id] ? { ...account, position: accountPositions[account.id] } : account);
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
   const paymentDetails: PaymentDetail[] = [];
 

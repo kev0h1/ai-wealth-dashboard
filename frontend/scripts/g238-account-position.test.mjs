@@ -24,7 +24,7 @@ for (const c of fixture.cases) {
     assert.equal(fallback.reservedPence, pence(want.plans_reserved) , `${c.name}: fallback reserved`);
 
     // Server field present: the sheet shows it and ignores contradictory client inputs.
-    const position = positionsFromToday({ [id]: { short: false, headroom: 0, after_payments: want.after_payments, plans_reserved: want.plans_reserved, after_payments_and_plans: want.after_payments_and_plans, uncertain: want.uncertain, estimated: want.estimated, low_point: want.low_point, low_point_and_plans: want.low_point_and_plans, spend_from_headroom: want.spend_from } })[id];
+    const position = positionsFromToday({ [id]: { short: false, headroom: 0, after_payments: want.after_payments, plans_reserved: want.plans_reserved, after_payments_and_plans: want.after_payments_and_plans, uncertain: want.uncertain, estimated: want.estimated, low_point: want.low_point, low_point_and_plans: want.low_point_and_plans, spend_from_headroom: want.spend_from } }, [{ id, type: "bank", subtype: "TRANSACTION" }])[id];
     const server = accountPlan({ ...summary(id, 999999), position }, []);
     assert.equal(server.afterPlans, pence(want.after_payments_and_plans), `${c.name}: server afterPlans wins`);
     assert.equal(server.afterPayments, pence(want.after_payments), `${c.name}: server afterPayments wins`);
@@ -35,7 +35,7 @@ for (const c of fixture.cases) {
 
 // Kevin's case: the sheet shows 6104 pence.
 const kevin = fixture.cases.find((c) => c.name === "kevin_barclays_japan");
-const kPos = positionsFromToday({ barclays: { short: false, headroom: 0, ...kevin.expected.barclays } }).barclays;
+const kPos = positionsFromToday({ barclays: { short: false, headroom: 0, ...kevin.expected.barclays } }, [{ id: "barclays", type: "bank", subtype: "TRANSACTION" }]).barclays;
 assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, []).afterPlans, 6104);
 // Contradictory client plans (a 500 pound goal) do not change the server figure.
 const contradictory = plansFromApi([{ ...kevin.plans[0], remaining: 500, period_amount: 500 }]);
@@ -44,6 +44,15 @@ assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, con
 // Dip case: the clamp holds Spend from at the low point (50), not the closing balance (1050).
 const dip = fixture.cases.find((c) => c.name.startsWith("dip_lower"));
 assert.equal(dip.expected.acc.spend_from, 50);
+// Savings pots and ISAs get no Spend from (same sourceClass as Home, G111); unknown accounts neither.
+const savingsEntry = { short: false, headroom: 0, ...kevin.expected.barclays };
+for (const [label, account] of [["savings", { id: "pot", type: "savings", subtype: "SAVINGS" }], ["isa", { id: "pot", type: "bank", subtype: "CASH_ISA" }]]) {
+  const pos = positionsFromToday({ pot: savingsEntry }, [account]).pot;
+  assert.equal(pos.spendFrom, null, `${label}: no Spend from`);
+  assert.equal(accountPlan({ ...summary("pot", 141.04), position: pos }, []).spendFromPence, null);
+  assert.equal(pos.afterPaymentsAndPlans, 61.04, `${label}: the position itself is still shared`);
+}
+assert.equal(positionsFromToday({ pot: savingsEntry }, []).pot.spendFrom, null, "unknown account: not shown");
 // An old API (no position fields) is skipped, not blanked.
-assert.deepEqual(positionsFromToday({ barclays: { short: false, headroom: 10 } }), {});
+assert.deepEqual(positionsFromToday({ barclays: { short: false, headroom: 10 } }, []), {});
 console.log("g238-account-position ok");
