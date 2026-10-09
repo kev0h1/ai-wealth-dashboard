@@ -57,6 +57,13 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
+    slug: "a159-merge-review",
+    name: "Fewer taps before the bank · A159",
+    description: "A159, skills: impeccable, web-design-guidelines (final audit) · Finexer's Next and Connect stay; Sorted's own Review your connection step merges into the bank list so one tap on a bank opens Finexer. A pins the summary and the full A4.1 sentence under the list, B pins one line that opens to the sentence (needs Finexer to confirm A4.2), C sets both above the search. Each renders the production BankConnectionFlow with fixture banks and ends in a mocked Finexer page and return, with a tap counter. No live connection starts.",
+    states: [{ label: "Start", value: "start" }, { label: "Details open (B)", value: "expanded" }, { label: "Handoff problem", value: "error" }, { label: "No results", value: "noresults" }],
+    variants: [{ label: "Today (G, 4 taps)", value: "today" }, { label: "A · Notice under the list", value: "a" }, { label: "B · One pinned line", value: "b" }, { label: "C · Notice above search", value: "c" }],
+  },
+  {
     slug: "bank-consent-journeys",
     name: "Bank connection journeys · A155 · approved G",
     description: "Approved G renders the production BankConnectionFlow with fixture banks and inert operations. The search is fixed below the header, outside the scrolling results. Full unchanged notice before Continue to Finexer. H and I are earlier alternatives, not production; I still needs Finexer approval. No live connection starts.",

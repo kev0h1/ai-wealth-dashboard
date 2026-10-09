@@ -53,6 +53,7 @@
     "check:g225-card-terms": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g225-card-terms.test.mjs",
     "check:a155-bank-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a155-bank-picker.test.mjs",
     "check:a155-consent-journeys": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a155-consent-journeys.test.mjs",
+    "check:a159-merged-step": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a159-merged-step.test.mjs",
     "check:g192-sheet-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g192-sheet-anatomy.test.mjs",
     "check:spend-from-account": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/spend-from-account.test.mjs",
     "check:verdict-cache": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/verdict-cache.test.mjs",
