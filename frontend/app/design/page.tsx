@@ -48,17 +48,20 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "accounts-header",
-    name: "Accounts header, eye and Add · G236",
+    name: "Accounts header, eye and Add · G236 · round 2",
     description:
-      "G236, skill: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md · Three points only: the eye toggle, the header balance and a one-handed Add · Today renders the production header (extracted unchanged) and shows the defect: the eye leaves the account rows unmasked · A Verdict header, Net worth as the one Display figure, no eye, a 56px floating Add · B Quiet header, Net worth as a Caption line, no eye, a full-width Add row at the top of the list · C Toolbar, no eye, the group filter and Add in a bar above the nav · A Balances hidden chip replaces the eye, and a proposed Settings switch holds the one global control · Invented accounts · ?variant=today|a|b|c&accounts=6|20&balances=shown|hidden&mode=light|dark&menu=open",
+      "G236 round 2, skills: impeccable, design-taste-frontend, web-design-guidelines audit, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md · Round 2 is D, E and F, three new directions after no pick from A, B or C (still here to compare) · D Canvas ledger: Net worth on the canvas, account cards only, Add a left-aligned pill that rests at the end of the list and travels above the nav while there is list below · E Segments: All, Current, Savings, Credit, Invested, each leading with its own total and ending in a named Add row · F Summary and find-and-act: title and Net worth on one line, filter chips, then find beside Add in the lower half of the first screen, with a slim sticky summary on scroll · None has an eye: a Balances hidden chip returns the figures and a proposed Settings switch holds the one global control, every row masked · Today shows the shipped header · Invented accounts · ?variant=today|a|b|c|d|e|f&accounts=6|20&balances=shown|hidden&mode=light|dark&menu=open",
     states: [
       { label: "6 accounts", value: "6" },
       { label: "20 accounts", value: "20" },
     ],
     variants: [
-      { label: "A · Verdict header", value: "a" },
-      { label: "B · Quiet header", value: "b" },
-      { label: "C · Toolbar", value: "c" },
+      { label: "D · Canvas ledger", value: "d" },
+      { label: "E · Segments", value: "e" },
+      { label: "F · Summary and find-and-act", value: "f" },
+      { label: "A · Verdict header (round 1)", value: "a" },
+      { label: "B · Quiet header (round 1)", value: "b" },
+      { label: "C · Toolbar (round 1)", value: "c" },
       { label: "Today", value: "today" },
     ],
     group: "current",
