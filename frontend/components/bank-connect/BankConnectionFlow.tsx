@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
 import UpcomingFlowSheet from "@/components/UpcomingFlowSheet";
-import { BankSearch, BankResults, ChosenBank, ConnectionNotice, ContinueAction, MergedNotice, MergedStatus, type MergedStep } from "./BankConnectionParts";
+import { BankSearch, BankResults, ChosenBank, ConnectionNotice, ContinueAction, MergedNotice, type MergedStep } from "./BankConnectionParts";
 
 export interface BankConnectionFlowProps {
   banks: Bank[];
@@ -15,10 +15,11 @@ export interface BankConnectionFlowProps {
   onConnect(bank: Bank, close: () => void): void;
   onClose(): void;
   initialQuery?: string;
-  /** A159 design round only. Merges the review step into the bank list so one tap
-   *  on a bank hands off. Omitted keeps the approved G flow exactly as shipped. */
+  /** A159 (approved B). Merges the review step into the bank list so one tap on a
+   *  bank hands off. Omitted keeps the approved G flow exactly as shipped. The
+   *  product sets it only behind the CONSENT_MERGED_STEP flag. */
   mergedStep?: MergedStep;
-  /** A159: open the pinned-line notice on first render (design previews). */
+  /** A159: open the pinned-line notice on first render (screenshots and checks only). */
   mergedNoticeOpen?: boolean;
 }
 
@@ -35,15 +36,13 @@ export default function BankConnectionFlow({ banks, loading, loadError, connecti
       const search = <BankSearch query={query} setQuery={setQuery} searchRef={searchRef} />;
       return {
         title: "Choose your bank",
-        subtitle: mergedStep === "header" ? undefined : "Tap your bank to start connecting it to Sorted.",
-        bodyHeader: mergedStep === "header" ? <><MergedNotice mode="header" />{search}</> : search,
+        subtitle: "Tap your bank to start connecting it to Sorted.",
+        bodyHeader: search,
         bodyClassName: "px-5 py-0",
         body: <BankResults banks={banks} query={query} setQuery={setQuery} searchRef={searchRef}
           selected={selected} disabled={pending} loading={loading} error={loadError} onRetry={onRetry}
           onChoose={bank => { setSelected(bank); onConnect(bank, navigation.close); }} />,
-        footer: mergedStep === "header"
-          ? ((pending || connectionError) ? <MergedStatus pending={pending} error={connectionError} /> : undefined)
-          : <MergedNotice mode={mergedStep} pending={pending} error={connectionError} defaultOpen={mergedNoticeOpen} />,
+        footer: <MergedNotice pending={pending} error={connectionError} defaultOpen={mergedNoticeOpen} />,
       };
     }
     if (view === "choose" || !selected) return {

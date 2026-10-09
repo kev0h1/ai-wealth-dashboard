@@ -37,3 +37,13 @@ export const MCP_CONNECTOR = process.env.NEXT_PUBLIC_MCP_CONNECTOR === "on";
 // mcp.wealth.auriqltd.co.uk) exists, so UAT never shows the prod host to a
 // UAT user (see DEPLOY.md's MCP connector section).
 export const MCP_URL = process.env.NEXT_PUBLIC_MCP_URL || "https://api.wealth.auriqltd.co.uk/mcp";
+
+// A159 (approved variant B): merge Sorted's "Review your connection" step into
+// the bank list. A bank tap hands off to Finexer at once, and the agency
+// disclosure becomes one pinned line that expands in place to the full A4.1
+// sentence. DEFAULT OFF: the shipped A155 G flow (choose, review, Continue to
+// Finexer) stays until Finexer confirms in writing that a collapsed line meets
+// Client Terms A4.2 and that the change is approved under clause 7.5 / A6.2
+// (docs/compliance/finexer-merged-step-request.md). Set
+// `NEXT_PUBLIC_CONSENT_MERGED_STEP=on` at build time to enable it.
+export const CONSENT_MERGED_STEP = process.env.NEXT_PUBLIC_CONSENT_MERGED_STEP === "on";
