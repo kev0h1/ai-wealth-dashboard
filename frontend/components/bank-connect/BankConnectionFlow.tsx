@@ -35,7 +35,7 @@ export default function BankConnectionFlow({ banks, loading, loadError, connecti
       const search = <BankSearch query={query} setQuery={setQuery} searchRef={searchRef} />;
       return {
         title: "Choose your bank",
-        subtitle: mergedStep === "header" ? undefined : "Tap your bank to connect it to Sorted.",
+        subtitle: mergedStep === "header" ? undefined : "Tap your bank to start connecting it to Sorted.",
         bodyHeader: mergedStep === "header" ? <><MergedNotice mode="header" />{search}</> : search,
         bodyClassName: "px-5 py-0",
         body: <BankResults banks={banks} query={query} setQuery={setQuery} searchRef={searchRef}

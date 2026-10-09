@@ -15,7 +15,7 @@ type VariantId = "today" | "a" | "b" | "c";
 const VARIANTS: { id: VariantId; label: string; merged?: MergedStep; taps: number; blurb: string; note: string }[] = [
   { id: "today", label: "Today (G)", taps: 4, blurb: "Choose a bank, then Sorted's Review your connection step, then Finexer.", note: "Shipped in A155. Four taps before the bank." },
   { id: "a", label: "A · Notice under the list", merged: "footer", taps: 3, blurb: "A short summary and the full sentence stay pinned under the list. One tap on a bank opens Finexer.", note: "Sentence visible by default. Smallest interpretive risk, less room for the list." },
-  { id: "b", label: "B · One pinned line", merged: "pinned-line", taps: 3, blurb: "One pinned line opens in place to the full sentence. One tap on a bank opens Finexer.", note: "Sentence is behind a tap the user is not made to take. Needs Finexer to confirm it meets A4.2." },
+  { id: "b", label: "B · One pinned line", merged: "pinned-line", taps: 3, blurb: "One pinned line, naming AURIQ LTD as Finexer's agent, opens in place to the full sentence. One tap on a bank opens Finexer.", note: "Sentence is behind a tap the user is not made to take. Needs Finexer to confirm it meets A4.2." },
   { id: "c", label: "C · Notice above the search", merged: "header", taps: 3, blurb: "The summary and the full sentence sit above the search field. One tap on a bank opens Finexer.", note: "Sentence visible by default. Tallest fixed header, least room for the list." },
 ];
 
