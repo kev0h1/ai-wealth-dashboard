@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import { ArrowLeft } from "lucide-react";
 import type { Bank } from "@/components/BankPickerSheet";
 import BankConnectionFlow from "@/components/bank-connect/BankConnectionFlow";
@@ -52,7 +53,8 @@ function Run({ variant, banks, state, dark, onStart }: { variant: (typeof VARIAN
   }, [stage]);
 
   const restart = () => { handoff.current = false; failedOnce.current = false; setConnecting(null); setError(null); setTaps(0); setBank(null); setRun(r => r + 1); setStage("sorted"); onStart(); };
-  const counter = <p data-tap-counter role="status" className="pointer-events-none fixed inset-x-0 top-2 z-[80] mx-auto w-fit rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">Taps before the bank: {taps}</p>;
+  // Portalled to the body so it stays above the sheet's own overlay stacking context.
+  const counter = createPortal(<p data-tap-counter role="status" className="pointer-events-none fixed left-2 top-1 z-[80] rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-xs font-semibold leading-5 text-slate-900 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">Taps before the bank: {taps}</p>, document.body);
 
   if (stage === "wait" || stage === "next" || stage === "connect") return <>
     {counter}
