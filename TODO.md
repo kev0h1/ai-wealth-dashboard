@@ -1996,7 +1996,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-09, claude): Coordinator review PASS 2026-10-09 on 09bd2fa1: scenario router, service, gate, page, card and client removed; debt_plan scenario_b kept (different concept); no stored scenario data existed; golden rows protect the what-if questions. G100 (uat) lost its preview: recommend Kevin cancels it.
   - note (2026-10-09, claude): branch origin/feature-G246-remove-life-simulator not found on remote
   - note (2026-10-09, claude): Coordinator 2026-10-09: G246 shares its branch with G245; integrate merged that branch for G245 (c6edf1f8) and then reported G246 blocked because the remote branch was already deleted. 09bd2fa1 is on main, so G246 is done with the same merge commit.
-- [ ] **G247. Penny opens to a blank white screen after it has been swiped down and opened again (Kevin 2026-10-09, UAT): after G244 added swipe-down and Back-to-close, reopening the full-screen sheet renders nothing, neither the conversation nor the starter chips nor the composer; fix the reopen path so the sheet always renders its thread or starter state** [owner: claude]
+- [ ] **G247. Penny opens to a blank white screen after it has been swiped down and opened again (Kevin 2026-10-09, UAT): after G244 added swipe-down and Back-to-close, reopening the full-screen sheet renders nothing, neither the conversation nor the starter chips nor the composer; fix the reopen path so the sheet always renders its thread or starter state** [owner: claude] [priority: p1]
 
 ## H. Repo hygiene
 
