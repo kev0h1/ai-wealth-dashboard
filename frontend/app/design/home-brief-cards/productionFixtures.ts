@@ -103,11 +103,11 @@ export const PRODUCTION_CARD_FIXTURES: readonly ProductionCardFixture[] = [
     item: {
       id: "celebrate:rent",
       type: "celebration",
-      headline: "Sorted: your rent is covered",
-      body: "The money is already held aside for 28 Sept.",
+      headline: "Premier Current has enough for what's due",
+      body: "This account has enough, so the £925 rent payment should go through.",
       action: null,
       estimated: false,
-      brief_lead: { value: "£925", companion: "held aside" },
+      brief_lead: { value: "£925", companion: "due before 30 Sep" },
     },
   },
   {

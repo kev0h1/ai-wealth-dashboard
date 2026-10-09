@@ -720,7 +720,7 @@ interface CelebrationCardProps {
 
 // "Sorted" reward card — a proper card, not a pill. Emerald lives only on
 // the compact verified signifier (colour is information); the headline stays
-// ink. This is a resolution state ("Sorted: X is covered"), not Penny
+// ink. This is a resolution state ("X has enough for what's due"), not Penny
 // speaking, so it uses a check treatment rather than PennyMark. Tapping the card
 // opens Planning, not the Mirror: this celebrates upcoming bills being
 // covered, and Planning is where upcoming bills live. The ✕ only renders when
@@ -2101,7 +2101,7 @@ function useHomeDismissedAdvice(items: CompanionItem[], enabled: boolean) {
 // cash-move recs, payday plans, and the payday-detection ask are "primary"
 // on Penny, backed by a "cleared from Home" archive for everything else a
 // user dismissed on Home) is RETIRED (owner rule, 2026-09-01): that archive
-// is exactly what let purely informational cards ("X is covered", "£X/mo
+// is exactly what let purely informational cards ("X has enough for what's due", "£X/mo
 // staying in your pocket") linger on the Penny hub after a Home dismissal,
 // which is the incoherence the owner flagged. It's replaced by
 // `isActionableCompanionItem` (lib/companionItems.ts), the actionable/
