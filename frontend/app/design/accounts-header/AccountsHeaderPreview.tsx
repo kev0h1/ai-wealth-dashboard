@@ -37,7 +37,7 @@ const NOTES: Record<Variant, { title: string; body: string; weak: string }> = {
   d: {
     title: "D · Canvas ledger · Proposal · round 2",
     body: "The page is canvas and account cards, nothing else. Net worth is the one Display reading with its whispered stats line, no eye. Add is a left-aligned pill that is the last thing in the list and travels with you: it rests at the end of the list and, while there is list below, pins just above the nav, left of Penny.",
-    weak: "A pinned pill can read as a permanent toolbar if the pin is too eager, and it covers the left edge of one row at a time while it travels. It is hidden by design on the final screen of a long list only because it has arrived.",
+    weak: "It can read as a permanent toolbar while it floats, and it covers the left edge of one row at a time. The app shell is an overflow container below the desktop width, so a sticky pill does not work there today (H61): the fold-in uses a fixed pill that swaps with the in-flow one, as here.",
   },
   e: {
     title: "E · Segments · Proposal · round 2",
@@ -92,7 +92,7 @@ function groupsOf(estate: Estate): EstateGroup[] {
 
 /* ───────────── list chrome (mirrors AccountsPage) ───────────── */
 
-function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens, lensFirst = false, findAccessory = null, segment = "All", lastRowFooter = null, showFind = true }: { estate: Estate; hidden: boolean; maskRows: boolean; showLens: boolean; lens: EstateLens; onLens: (l: EstateLens) => void; lensFirst?: boolean; findAccessory?: ReactNode; segment?: EstateLens; lastRowFooter?: ReactNode; showFind?: boolean }) {
+function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens, lensFirst = false, findAccessory = null, segment = "All", lastRowFooter = null }: { estate: Estate; hidden: boolean; maskRows: boolean; showLens: boolean; lens: EstateLens; onLens: (l: EstateLens) => void; lensFirst?: boolean; findAccessory?: ReactNode; segment?: EstateLens; lastRowFooter?: ReactNode }) {
   const [query, setQuery] = useState("");
   const filtering = query.trim() !== "" || lens !== "All";
   const visibleGroups = groupsOf(estate).filter((g) => segment === "All" || g.kind === segment);
@@ -110,7 +110,7 @@ function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens, lensFirs
           ))}
         </div>
       )}
-      <div className={showFind ? "flex items-center gap-2" : "hidden"}>
+      <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" aria-hidden="true" />
         <input type="text" name="account-search" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account…" aria-label="Find an account" className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -118,7 +118,7 @@ function ListChrome({ estate, hidden, maskRows, showLens, lens, onLens, lensFirs
         {findAccessory}
       </div>
       </>) : (<>
-      <div className={showFind ? "flex items-center gap-2" : "hidden"}>
+      <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" aria-hidden="true" />
         <input type="text" name="account-search" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find an account…" aria-label="Find an account" className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -193,6 +193,8 @@ function ChoiceList({ onChoose, className }: { onChoose: () => void; className: 
   );
 }
 
+// The phone-width menu for Add rows that sit mid-screen: a panel above the nav, clear of Penny.
+const SHEET_MENU = `fixed inset-x-4 z-[50] mx-auto max-w-[398px] ${OFFSET_BAR} overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 shadow-xl divide-y divide-slate-100 dark:border-white/10 dark:bg-slate-800 dark:divide-white/5`;
 const MENU_BOX = "z-30 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 shadow-xl divide-y divide-slate-100 dark:border-white/10 dark:bg-slate-800 dark:divide-white/5";
 
 function Proposal() {
@@ -235,6 +237,16 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
   const [segment, setSegment] = useState<EstateLens>("All");
   const [stuck, setStuck] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
+  const slot = useRef<HTMLDivElement>(null);
+  const [floating, setFloating] = useState(false);
+  // D: the pill floats above the nav while its resting place (end of the list) is below the fold.
+  useEffect(() => {
+    const el = slot.current;
+    if (variant !== "d" || !el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setFloating(!e.isIntersecting && e.boundingClientRect.top > 0), { rootMargin: "0px 0px -170px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [variant]);
   // F: the slim summary appears once the header has scrolled away.
   useEffect(() => {
     const el = sentinel.current;
@@ -420,7 +432,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
                   <Plus size={16} aria-hidden="true" />
                   Add
                 </button>
-                {menuOpen && <ChoiceList onChoose={close} className={`absolute right-0 top-[calc(100%+6px)] z-[44] ${MENU_BOX}`} />}
+                {menuOpen && <ChoiceList onChoose={close} className={SHEET_MENU} />}
               </div>
             ) : null}
             lastRowFooter={variant === "e" ? (
@@ -430,17 +442,23 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
                   {SEG_ADD[segment]}
                   <ChevronDown size={14} aria-hidden="true" className={`opacity-70 transition-transform motion-reduce:transition-none ${menuOpen ? "rotate-180" : ""}`} />
                 </button>
-                {menuOpen && <ChoiceList onChoose={close} className={`fixed inset-x-4 z-[50] mx-auto max-w-[398px] ${OFFSET_BAR} overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 shadow-xl divide-y divide-slate-100 dark:border-white/10 dark:bg-slate-800 dark:divide-white/5`} />}
+                {menuOpen && <ChoiceList onChoose={close} className={SHEET_MENU} />}
               </div>
             ) : null}
           />
           {variant === "d" && (
-            <div ref={addRef} onKeyDown={onEscape} className={`sticky z-[45] mt-4 w-fit ${OFFSET_BAR}`}>
-              {menuOpen && <ChoiceList onChoose={close} className={`absolute bottom-[calc(100%+8px)] left-0 ${MENU_BOX}`} />}
-              <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Add account" className={`${addButtonBase} min-h-11 rounded-full px-4 shadow-xl`}>
-                <Plus size={16} aria-hidden="true" />
-                Add account
-              </button>
+            // The shell below lg is an overflow container, which breaks position: sticky
+            // app-wide (globals.css, H61), so the pill travels by a fixed/in-flow swap: it
+            // rests in the flow at the end of the list and goes fixed above the nav while
+            // that resting place is still below the fold.
+            <div ref={slot} className="mt-4 min-h-11">
+              <div ref={addRef} onKeyDown={onEscape} className={floating ? `fixed left-[max(1rem,calc(50%-199px))] z-[45] ${OFFSET_BAR}` : "relative w-fit"}>
+                {menuOpen && <ChoiceList onChoose={close} className={`absolute bottom-[calc(100%+8px)] left-0 ${MENU_BOX}`} />}
+                <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Add account" className={`${addButtonBase} min-h-11 rounded-full px-4 shadow-xl`}>
+                  <Plus size={16} aria-hidden="true" />
+                  Add account
+                </button>
+              </div>
             </div>
           )}
           {variant !== "today" && <SettingsProposal hidden={hidden} onToggle={() => setHidden((v) => !v)} />}
