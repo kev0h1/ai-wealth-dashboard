@@ -73,12 +73,12 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
     try { if (next) sessionStorage.setItem(FINE_FOLD_KEY, "1"); else sessionStorage.removeItem(FINE_FOLD_KEY); } catch {}
   };
   const { attention, fine } = useMemo(() => {
-    const rows = accounts.map((account) => ({ account, result: statusFor(account, readyPlans) }));
+    const rows = accounts.map((account) => ({ account, result: statusFor(plansStatus === "ready" ? account : { ...account, position: undefined }, readyPlans) })); // G238: payments-only until plans are ready
     return {
       attention: rows.filter((row) => row.result.signal !== null).sort((a, b) => TIER[a.result.signal!] - TIER[b.result.signal!]),
       fine: rows.filter((row) => row.result.signal === null),
     };
-  }, [accounts, readyPlans]);
+  }, [accounts, readyPlans, plansStatus]);
   const allClear = accounts.length > 0 && attention.length === 0;
   const foldLabel = allClear ? (fine.length === 1 ? "1 account" : `All ${fine.length} accounts`) : `${fine.length} ${fine.length === 1 ? "account is" : "accounts are"} fine${plansStatus === "ready" ? "" : " for payments"}`;
 

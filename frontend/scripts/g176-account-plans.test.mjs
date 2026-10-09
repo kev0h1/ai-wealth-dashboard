@@ -24,7 +24,7 @@ const plans = plansFor("gap");
 const gap = forecastFor("gap").accounts[0];
 const renderDetails = (account, input = plans, status = "ready") => renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, plans: input, plansStatus: status, periodLabel: "Through Thu 29 Oct", onPlan() {} }));
 
-assert.deepEqual(accountPlan(gap, plans), { assigned: plans, unassigned: [], estimated: false, uncertain: false, allocationPence: 30000, goalPence: 6500, scheduledPence: 0, reservedPence: 36500, afterPayments: 33600, afterPlans: -2900, planGap: 2900 });
+assert.deepEqual(accountPlan(gap, plans), { assigned: plans, unassigned: [], estimated: false, uncertain: false, allocationPence: 30000, goalPence: 6500, scheduledPence: 0, reservedPence: 36500, afterPayments: 33600, afterPlans: -2900, spendFromPence: -2900, planGap: 2900 });
 assert.equal(remaining(plans[0]), 30000, "Server remainder wins over display target and filled amount");
 assert.equal(remaining({ ...plans[0], filledPence: 40000 }), 30000);
 assert.equal(remaining({ ...plans[0], active: false }), 0);

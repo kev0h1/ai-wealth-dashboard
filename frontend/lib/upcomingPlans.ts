@@ -110,15 +110,38 @@ export function accountPlan(account: UpcomingAccountSummary, plans: Plan[]) {
   const assigned = plans.filter((plan) => plan.active && plan.sourceId === account.id && hasPlanSource(plan));
   const unassigned = plans.filter((plan) => plan.active && (plan.amountUnavailable || remaining(plan) > 0) && !hasPlanSource(plan));
   const estimated = assigned.some((plan) => plan.evidence === "recent-transfers" && (plan.amountUnavailable || remaining(plan) > 0));
-  const uncertain = assigned.some((plan) => plan.amountUnavailable || plan.overlapUncertain);
+  const clientUncertain = assigned.some((plan) => plan.amountUnavailable || plan.overlapUncertain);
   const allocationPence = assigned.filter((plan) => plan.kind === "allocation" && !plan.amountUnavailable).reduce((sum, plan) => sum + remaining(plan), 0);
   const goalPence = assigned.filter((plan) => plan.kind === "goal" && !plan.amountUnavailable).reduce((sum, plan) => sum + remaining(plan), 0);
   // Reserved for an explicit future transfer-to-plan identity contract. No
   // production payload currently has that evidence, so no credit is invented.
   const scheduledPence = 0;
-  const reservedPence = allocationPence + goalPence;
-  const afterPayments = account.closing === null ? null : Math.round(account.closing * 100);
-  const afterPlans = afterPayments === null || uncertain ? null : afterPayments - reservedPence;
+  const clientReservedPence = allocationPence + goalPence;
+  // G238: the server's per-account position is the single source of truth, so
+  // Upcoming and Home's Spend from can never disagree. The arithmetic below is
+  // only the fallback for an old API that does not send it yet.
+  // TODO(G238): delete the fallback arithmetic after the release that ships the server field.
+  const server = account.position;
+  const toPence = (pounds: number | null) => (pounds === null ? null : Math.round(pounds * 100));
+  const afterPayments = server ? toPence(server.afterPayments) : account.closing === null ? null : Math.round(account.closing * 100);
+  const uncertain = server ? server.uncertain : clientUncertain;
+  const reservedPence = server ? Math.round(server.plansReserved * 100) : clientReservedPence;
+  const afterPlans = server
+    ? (uncertain ? null : toPence(server.afterPaymentsAndPlans))
+    : afterPayments === null || uncertain ? null : afterPayments - reservedPence;
+  // Spend from: never more than the account's lowest point this period minus
+  // plans. Server value when present (the figure Home shows, pool-capped);
+  // otherwise the same min computed from the walk (no pool known here).
+  // TODO(G238): delete the fallback with the one above.
+  const walkLowPence = (() => {
+    if (account.opening === null || account.opening === undefined) return null;
+    const afters = (account.events ?? []).map((event) => event.after);
+    if (afters.some((after) => after === null)) return null;
+    return Math.round(Math.min(account.opening, ...(afters as number[])) * 100);
+  })();
+  const spendFromPence = server
+    ? (uncertain || server.spendFrom === null ? null : toPence(server.spendFrom))
+    : afterPlans === null || walkLowPence === null ? null : Math.min(afterPlans, walkLowPence - reservedPence);
   const planGap = afterPlans === null || afterPayments === null ? null : Math.max(0, -afterPlans) - Math.max(0, -afterPayments);
-  return { assigned, unassigned, estimated, uncertain, allocationPence, goalPence, scheduledPence, reservedPence, afterPayments, afterPlans, planGap };
+  return { assigned, unassigned, estimated, uncertain, allocationPence, goalPence, scheduledPence, reservedPence, afterPayments, afterPlans, spendFromPence, planGap };
 }

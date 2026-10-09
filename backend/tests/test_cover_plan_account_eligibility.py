@@ -187,9 +187,18 @@ def _account(acct_id, balance, *, provider="barclays", name=None,
     }
 
 
+def _core(entry):
+    """The pre-G238 trio. G238 adds the shared position fields
+    (after_payments, plans_reserved, after_payments_and_plans, uncertain,
+    estimated, tested in test_account_position.py) and re-bases
+    spend_from_headroom on after_payments_and_plans (no £10 buffer, plans
+    deducted), while `headroom` stays the finder's standing figure."""
+    return {k: entry[k] for k in ("short", "headroom", "spend_from_headroom")}
+
+
 def _run(monkeypatch, bills, *, accounts=None, income_streams=None,
          window_income=None, account_eligibility_out=None,
-         reserved_by_source=None):
+         reserved_by_source=None, plans=None, plans_fail=False):
     """Full-stack harness for `companion.compute_today_items`, following
     test_overdraft_bills.py's `_run` pattern verbatim, extended to pass
     `account_eligibility_out` through.
@@ -221,6 +230,11 @@ def _run(monkeypatch, bills, *, accounts=None, income_streams=None,
             return dict(reserved_by_source)
         monkeypatch.setattr(companion, "_reserved_for_allocations", _fake_reserved)
 
+    async def _no_plans(uid, *, goals=False, strict=False):
+        if plans_fail:
+            raise RuntimeError("plans unavailable")
+        return list(plans or [])  # G238: no plans attributed unless a test says otherwise
+    monkeypatch.setattr(companion, "_load_account_plans", _no_plans)
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts or []))
     monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
@@ -269,8 +283,8 @@ def test_account_at_exactly_zero_headroom_is_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_zero"] == {
-        "short": True, "headroom": 0.0, "spend_from_headroom": 0.0,
+    assert _core(eligibility["src_zero"]) == {
+        "short": True, "headroom": 0.0, "spend_from_headroom": 10.0,
     }
 
 
@@ -284,8 +298,8 @@ def test_account_headroom_just_under_five_is_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_just_under"] == {
-        "short": True, "headroom": 4.99, "spend_from_headroom": 4.99,
+    assert _core(eligibility["src_just_under"]) == {
+        "short": True, "headroom": 4.99, "spend_from_headroom": 14.99,
     }
 
 
@@ -296,8 +310,8 @@ def test_account_headroom_of_exactly_five_is_not_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_exactly_five"] == {
-        "short": False, "headroom": 5.0, "spend_from_headroom": 5.0,
+    assert _core(eligibility["src_exactly_five"]) == {
+        "short": False, "headroom": 5.0, "spend_from_headroom": 15.0,
     }
 
 
@@ -315,8 +329,8 @@ def test_account_with_ample_headroom_is_not_short(monkeypatch):
     eligibility = {}
     _run(monkeypatch, [], accounts=accounts, account_eligibility_out=eligibility)
 
-    assert eligibility["src_ample"] == {
-        "short": False, "headroom": 190.0, "spend_from_headroom": 190.0,
+    assert _core(eligibility["src_ample"]) == {
+        "short": False, "headroom": 190.0, "spend_from_headroom": 200.0,
     }
 
 
@@ -455,11 +469,11 @@ def test_real_engine_never_picks_a_leg_at_4_99_headroom_but_does_at_5_00(monkeyp
     # small bill needs — G114 must reserve that £5 out of its spend-from
     # figure, dropping it from 5.0 to 0.0, while `headroom` (the standing
     # figure Settings reads) stays exactly 5.0.
-    assert eligibility["cand_4_99"] == {
-        "short": True, "headroom": 4.99, "spend_from_headroom": 4.99,
+    assert _core(eligibility["cand_4_99"]) == {
+        "short": True, "headroom": 4.99, "spend_from_headroom": 14.99,
     }
-    assert eligibility["cand_5_00"] == {
-        "short": False, "headroom": 5.0, "spend_from_headroom": 0.0,
+    assert _core(eligibility["cand_5_00"]) == {
+        "short": False, "headroom": 5.0, "spend_from_headroom": 10.0,
     }
 
 
@@ -487,8 +501,8 @@ def test_eligibility_snapshot_unaffected_by_which_destination_gets_funded_first(
     # key's job. `spend_from_headroom` (G114) is the opposite: it DOES
     # reserve that £60, since this is the live move's only source and the
     # card funding `premier` will actually be shown.
-    assert eligibility["src_ample"] == {
-        "short": False, "headroom": 190.0, "spend_from_headroom": 130.0,
+    assert _core(eligibility["src_ample"]) == {
+        "short": False, "headroom": 190.0, "spend_from_headroom": 140.0,
     }
 
 
@@ -536,7 +550,8 @@ def test_spend_from_headroom_drops_by_the_live_move_leg_sourced_from_it(monkeypa
 
     standing_headroom = eligibility["monzo"]["headroom"]
     assert "spend_from_headroom" in eligibility["monzo"]
-    assert eligibility["monzo"]["spend_from_headroom"] == round(standing_headroom - leg_amount, 2)
+    # G238: the base is the shared "after payments and plans" figure, less the leg.
+    assert eligibility["monzo"]["spend_from_headroom"] == round(eligibility["monzo"]["after_payments_and_plans"] - leg_amount, 2)
     # The exact bug this closes: spending `standing_headroom` (what the
     # pre-fix spend-from line offered) would make this account's own live
     # move card impossible.
@@ -571,4 +586,79 @@ def test_spend_from_headroom_unreserved_once_its_move_card_is_dismissed(monkeypa
     items = _run(monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility)
 
     assert _find(items, "move") is None  # dismissed, nothing live
-    assert eligibility["src"]["spend_from_headroom"] == eligibility["src"]["headroom"]
+    # G238: back to the full shared figure (after payments and plans).
+    assert eligibility["src"]["spend_from_headroom"] == eligibility["src"]["after_payments_and_plans"]
+
+
+# ── G238: the shared per-account position inside the real engine ─────────────
+
+_JAPAN = {
+    "id": "goal:japan", "record_id": "japan", "kind": "goal", "name": "Japan",
+    "destination": "Japan pot", "destination_account_ids": ["japan-pot"],
+    "source_account_id": "barclays", "source_basis": "recent-transfers",
+    "period_amount": 80, "filled_amount": None, "remaining": 80, "active": True,
+}
+
+
+def test_attributed_plan_is_deducted_from_spend_from(monkeypatch):
+    eligibility = {}
+    _run(monkeypatch, [], accounts=[_account("barclays", 141.04)],
+         account_eligibility_out=eligibility, plans=[_JAPAN])
+    e = eligibility["barclays"]
+    assert (e["after_payments"], e["plans_reserved"], e["after_payments_and_plans"]) == (141.04, 80.0, 61.04)
+    assert e["spend_from_headroom"] == 61.04
+    assert e["estimated"] is True and e["uncertain"] is False
+
+
+def test_unreadable_plans_fail_closed(monkeypatch):
+    eligibility = {}
+    _run(monkeypatch, [], accounts=[_account("barclays", 141.04)],
+         account_eligibility_out=eligibility, plans_fail=True)
+    e = eligibility["barclays"]
+    assert e["uncertain"] is True and e["spend_from_headroom"] == 0.0
+
+
+# ── G238 clamp: source_min_run feeds Spend from through the real engine ──────
+# Live 150, bill 100 on day 3 (running 50), confirmed salary 1000 on day 8
+# (running 1050). Closing is 1050 but the low point is 50, so Spend from is 50.
+
+def _salary(account_id):
+    return {
+        "name": "Salary", "key": "Salary", "account_id": account_id, "amount": 1000.0,
+        "days_away": 8, "expected_date": (TODAY + timedelta(days=8)).isoformat(),
+    }
+
+
+def _dip_run(monkeypatch, *, extra_accounts=(), plans=None):
+    accounts = [_account("A", 150.0), *extra_accounts]
+    bills = [_bill("Rent", 3, 100.0, "A", 150.0)]
+    eligibility = {}
+    _run(
+        monkeypatch, bills, accounts=accounts, account_eligibility_out=eligibility,
+        income_streams=[{"key": "Salary", "status": "confirmed"}],
+        window_income=[_salary("A")], plans=plans,
+    )
+    return eligibility
+
+
+def test_clamp_holds_spend_from_at_the_low_point(monkeypatch):
+    e = _dip_run(monkeypatch)["A"]
+    assert e["after_payments"] == 1050.0
+    assert e["low_point"] == 50.0
+    assert e["spend_from_headroom"] == 50.0
+
+
+def test_clamp_survives_a_pool_cap_above_it(monkeypatch):
+    from app.services.companion import cap_spend_from_to_pool
+    elig = _dip_run(monkeypatch, extra_accounts=[_account("B", 2000.0, provider="monzo")])
+    cap_spend_from_to_pool(elig, 2500.0)
+    assert elig["A"]["spend_from_headroom"] == 50.0
+    assert elig["B"]["spend_from_headroom"] == 2000.0
+
+
+def test_clamp_subtracts_a_chosen_goal_from_the_low_point(monkeypatch):
+    goal = dict(_JAPAN, source_account_id="A", source_basis="chosen", remaining=30, period_amount=30)
+    e = _dip_run(monkeypatch, plans=[goal])["A"]
+    assert e["low_point_and_plans"] == 20.0
+    assert e["after_payments_and_plans"] == 1020.0
+    assert e["spend_from_headroom"] == 20.0

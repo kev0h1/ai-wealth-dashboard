@@ -46,12 +46,13 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
 
 export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan, onEvent, editableEventIds }: UpcomingAccountDetailsProps) {
   const id = useId();
-  const result = accountPlan(account, plansStatus === "ready" ? plans : []);
+  // G238: while plans are loading or failed the sheet says "payments only", so the server position (which includes plans) is withheld too.
+  const result = accountPlan(plansStatus === "ready" ? account : { ...account, position: undefined }, plansStatus === "ready" ? plans : []);
   const hasPlans = result.reservedPence > 0 || result.uncertain;
   const figure = hasPlans ? result.afterPlans : result.afterPayments;
   return <div className="space-y-6 text-slate-950 dark:text-slate-50">
     <section className="space-y-3" aria-label="Account plan result">
-      <div><p className={"text-xs font-medium " + detailMuted}>{hasPlans ? "After payments and plans" : "After payments"}{result.estimated && figure !== null ? " · estimated" : ""}</p><p data-account-plan-figure className={"mt-1 break-words text-4xl font-bold leading-tight tracking-tight " + detailInk}>{figure === null ? "Unavailable" : money(figure)}</p>{hasPlans && <p className={"mt-1 text-xs leading-5 " + detailMuted}>{result.estimated ? "Includes set-asides and plans from this account based on recent transfers." : "If you complete the linked plans below"}</p>}</div>
+      <div><p className={"text-xs font-medium " + detailMuted}>{hasPlans ? "After payments and plans" : "After payments"}{result.estimated && figure !== null ? " · estimated" : ""}</p><p data-account-plan-figure className={"mt-1 break-words text-4xl font-bold leading-tight tracking-tight " + detailInk}>{figure === null ? "Unavailable" : money(figure)}</p>{hasPlans && <p className={"mt-1 text-xs leading-5 " + detailMuted}>{result.estimated ? "Includes set-asides and plans from this account based on recent transfers." : "If you complete the linked plans below"}</p>}{plansStatus === "ready" && account.position && result.spendFromPence !== null && result.spendFromPence > 0 && <p data-account-spend-from className={"mt-2 text-sm font-medium " + detailInk}>Spend from <span className="font-semibold">{money(result.spendFromPence)}</span></p>}</div>
       <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     </section>
     <details className="group border-y border-slate-200 dark:border-slate-700">
