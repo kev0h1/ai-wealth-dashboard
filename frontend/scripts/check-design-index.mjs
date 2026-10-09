@@ -44,6 +44,37 @@ const slugSet = new Set(slugs);
 const missingFromIndex = dirs.filter((d) => !slugSet.has(d));
 const missingDirectory = slugs.filter((s) => !dirSet.has(s));
 
+// Dead-link guard (H113): a string literal that starts with /design/<slug> in
+// app/design or components must name a slug that still has a directory.
+// Literals only (quote immediately before the path), so prose in comments is ignored.
+const linkRe = /["'`]\/design\/([a-z0-9][a-z0-9-]*)/g;
+const deadLinks = [];
+function scan(dir) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === "node_modules" || e.name === ".next") continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) scan(full);
+    else if (/\.(ts|tsx|mjs|js)$/.test(e.name)) {
+      const lines = readFileSync(full, "utf8").split("\n");
+      lines.forEach((line, i) => {
+        if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+        for (const m of line.matchAll(linkRe)) {
+          if (!dirSet.has(m[1])) deadLinks.push(`${path.relative(frontendRoot, full)}:${i + 1} -> /design/${m[1]}`);
+        }
+      });
+    }
+  }
+}
+scan(designDir);
+scan(path.join(frontendRoot, "components"));
+
+if (deadLinks.length > 0) {
+  console.error("Links to /design/<slug> where the preview directory no longer exists:");
+  for (const l of deadLinks) console.error(`  - ${l}`);
+  console.error("Remove or retarget the link.");
+  process.exit(1);
+}
+
 if (missingFromIndex.length === 0 && missingDirectory.length === 0) {
   console.log(`check:design-index OK (${dirs.length} preview directories, ${slugs.length} indexed slugs)`);
   process.exit(0);

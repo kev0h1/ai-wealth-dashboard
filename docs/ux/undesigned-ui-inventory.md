@@ -51,7 +51,7 @@ The guard `check:no-native-dialogs` has an empty allowlist.
 | app/not-found.tsx | missing, Next default black-and-white 404 | designed page | done |
 | app/error.tsx | missing, Next default | designed page with retry | done |
 | app/global-error.tsx | missing | self-contained designed page (inline tokens) | done |
-| app/design/error-states | missing | preview rendering not-found, error and the notice sheet (global-error replaces the whole document, so it is checked as static HTML) | done |
+| app/design/error-states (deleted, H113) | missing | preview rendering not-found, error and the notice sheet (global-error replaces the whole document, so it is checked as static HTML) | done |
 | Suspense `fallback={null}` / blank canvas | blank canvas while loading | token canvas, acceptable | no change |
 | ErrorBoundary / componentDidCatch | none exist in app, components or lib | n/a (covered by app/error.tsx) | no change |
 

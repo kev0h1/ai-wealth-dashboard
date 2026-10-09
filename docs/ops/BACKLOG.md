@@ -104,7 +104,13 @@ A TODO.md item line looks like this:
   literally true: it is the one `in-progress` case `scripts/session.sh
   start` accepts besides `todo` (H31 "start after approve" — see "Branch
   per item" below), so nothing has to be done by hand to open the next
-  worktree. Landing in `uat` also pushes Kevin a notification
+  worktree. The fold-in session also finishes the round (H113, Kevin
+  2026-10-09): it deletes the whole preview directory (all variants, no
+  gate preview kept) and its `page.tsx` entry, unless another open item,
+  a compliance pack or marketing output still references it or code
+  outside `app/design` imports it, and runs `npm run check:design-index`
+  and `npm run check:design-stale` (strict, exits 1 on a stale preview)
+  before `finish`. Landing in `uat` also pushes Kevin a notification
   (FCM/APNs/webpush, same path as every other push) with the preview link
   in the body, gated by his own notification preference and sent only to
   him, never broadcast — see "Notification" below.

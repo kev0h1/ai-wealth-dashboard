@@ -51,7 +51,6 @@ const ALLOW = [
       "Next.js server-side Route Handler (runs on the server, never in the browser, so the client biometric lock does not exist here). It forwards the provider's OAuth redirect params to the backend callback, which authenticates via the signed state param, not a session token, and returns no financial data to the caller.",
   })),
   ...[
-    ["g115-spend-from-accounts/G115SpendFromAccountsClient.tsx"],
     ["g88-home-real/G88HomeRealClient.tsx"],
     ["g134-home-inventory/HomeInventoryClient.tsx"],
     ["sync-loading/SyncLoadingClient.tsx"],

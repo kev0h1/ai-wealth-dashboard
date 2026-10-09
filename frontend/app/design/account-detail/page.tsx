@@ -3,7 +3,7 @@
 // Design preview — redesigned account-detail view as a mini statement:
 // balance-forward header, no dead/empty zones, Transactions + Categories
 // tabs. Standalone, auth-exempt (/design/* — see components/AuthProvider.tsx),
-// static mock data only. See app/design/accounts-preview for the index.
+// static mock data only.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -14,23 +14,6 @@ import SegmentedControl from "@/components/SegmentedControl";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { detailAccount, detailCategories, detailTransactions } from "../_mockAccounts";
-
-function PreviewNav() {
-  return (
-    <div className="glass-tile rounded-xl p-1 flex items-center gap-1 mb-4 text-[11px]">
-      <Link href="/design/accounts-rows" className="flex-1 min-w-0 text-center py-1.5 rounded-lg text-indigo-400 font-semibold active:bg-white/10 transition-colors truncate">
-        Rows
-      </Link>
-      <Link href="/design/accounts-tiles" className="flex-1 min-w-0 text-center py-1.5 rounded-lg text-indigo-400 font-semibold active:bg-white/10 transition-colors truncate">
-        Tiles
-      </Link>
-      <span className="flex-1 min-w-0 text-center py-1.5 rounded-lg text-slate-500 font-medium truncate">Detail</span>
-      <Link href="/design/accounts-preview" className="flex-1 min-w-0 text-center py-1.5 rounded-lg text-slate-400 font-medium active:bg-white/10 transition-colors truncate">
-        Index
-      </Link>
-    </div>
-  );
-}
 
 const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
@@ -91,11 +74,9 @@ export default function AccountDetailPreview() {
 
   return (
     <div className="dark mx-auto w-full max-w-[430px] min-h-screen overflow-x-hidden bg-[#0f172a] px-4 pt-6 pb-10">
-      <PreviewNav />
-
       {/* Header */}
       <div className="flex items-center justify-between gap-2 mb-3">
-        <Link href="/design/accounts-rows" className="flex items-center gap-1 text-slate-300 text-sm font-medium active:opacity-70 transition-opacity shrink-0">
+        <Link href="/design" className="flex items-center gap-1 text-slate-300 text-sm font-medium active:opacity-70 transition-opacity shrink-0">
           <ChevronLeft size={16} aria-hidden="true" />
           Accounts
         </Link>
