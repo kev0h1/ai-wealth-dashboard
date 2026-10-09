@@ -1894,7 +1894,7 @@ async def get_debt_plan_cached(uid: str, *, persist: bool = True) -> dict:
     own uid, from unmerged code (see H90's board item). Every OTHER caller
     (`app/routers/debt_plan.py`, `commitments.py`, `cards.py`,
     `spend_impact.py`, `penny_tools.py`'s own direct call, `grow.py`,
-    `scenario.py`) keeps calling this with no `persist` argument, so they
+    and the debt planner's alternative plan) keeps calling this with no `persist` argument, so they
     are unaffected: default is still `True`, still write-through, byte
     identical to before."""
     cached = await response_cache.aget(_CACHE_NAME, uid)

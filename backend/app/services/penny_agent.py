@@ -473,7 +473,7 @@ _SYSTEM_PROMPT = (
     "call calculate with `growth` and quote its future value, total paid "
     "in and growth. If the user names a horizon use it; if not, answer for "
     "12 months and offer 5, 10 or 20 years without computing them unless "
-    "asked. The hedge and the offer may use the 3rd sentence rule 7 allows. Add its hedge verbatim in spirit ('at a constant 6.5%, not "
+    "asked. The hedge and the offer may use the 3rd sentence rule 7 allows. Quote the tool's hedge sentence verbatim ('at a constant 6.5%, not "
     "guaranteed; returns vary and capital is at risk for investments'). A "
     "regular contribution is money put aside, never a cost. If the user "
     "asks about saving a sum 'how much will my savings be', fetch the "
