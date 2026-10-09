@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type DOMAttributes, type ReactNode, type Ref } from "react";
 import { pennyDeviceLandscape, pennyFillTop } from "@/lib/pennyKeyboardViewport";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { usePennyIosPanGuard } from "@/lib/usePennyIosPanGuard";
@@ -17,7 +17,7 @@ import { PENNY_PANEL_CSS } from "./PennySheetPanel.styles";
  * viewport pan or page scroll until the keyboard height genuinely changes, and
  * it returns to its resting geometry, chips back, when the keyboard goes.
  * Parent owns the body portal, backdrop, focus trap and thread lifetime. */
-export default function PennySheetPanel({ children, isOpen, panelRef, presentation = "floating" }: {
+export default function PennySheetPanel({ children, isOpen, panelRef, presentation = "floating", panelProps }: {
   children: ReactNode;
   isOpen: boolean;
   panelRef?: Ref<HTMLDivElement>;
@@ -27,6 +27,8 @@ export default function PennySheetPanel({ children, isOpen, panelRef, presentati
    * Desktop (lg) keeps the floating window either way. No production caller
    * passes "fullscreen" until Kevin approves a variant. */
   presentation?: "floating" | "fullscreen";
+  /** G244: pointer handlers for swipe-down to close, spread on the dialog. */
+  panelProps?: Pick<DOMAttributes<HTMLDivElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture">;
 }) {
   const fullscreen = presentation === "fullscreen";
   const [composerEngaged, setComposerEngaged] = useState(false);
@@ -93,6 +95,7 @@ export default function PennySheetPanel({ children, isOpen, panelRef, presentati
       aria-modal="true"
       aria-label="Ask Penny"
       className="penny-keyboard-panel glass-sheet"
+      {...panelProps}
       onPointerDownCapture={(event) => {
         // A control tap must complete before the keyboard can dismiss and
         // move that control. Keyboard navigation retains its usual focus.

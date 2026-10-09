@@ -1073,7 +1073,7 @@ export default function PennyConversation({
   // so this component is always inside it whether or not `inSheet` is set.
   // Full-page mode's own composer/close affordances are unaffected; a link
   // chip closing an already-closed sheet is a harmless no-op.
-  const { close: closePennySheet } = usePennySheet();
+  const { closeThen: closePennySheetThen } = usePennySheet();
   // One conversation per screen (see `ThreadBucket`'s own comment above,
   // "PER-SCREEN THREADS"). `currentScreen` falls back to "other" both for
   // full-page mode (no `askContext` at all) and for a sheet opened from an
@@ -2095,7 +2095,7 @@ export default function PennyConversation({
                   <LinkChip
                     key={`top-config-link-${c.label}`}
                     label={c.label}
-                    onTap={() => { closePennySheet(); router.push(c.href); }}
+                    onTap={() => closePennySheetThen(() => router.push(c.href))}
                   />
                 );
               }
@@ -2128,6 +2128,9 @@ export default function PennyConversation({
         </div>
       )}
 
+      {/* G244: `pt-3` is the same 12px (DESIGN.md spacing md) as the
+          `space-y-3` gap between messages, so the first bubble or the starter
+          block never sits on the divider under the chip row. */}
       {/* Thread. Full-page mode: in-flow, page-scrolled (no inner scroll
           container; the docked composer below is fixed to the viewport
           independent of this). Sheet mode: this IS the scroll container
@@ -2147,7 +2150,7 @@ export default function PennyConversation({
         role="log"
         data-penny-scroll={inSheet ? "" : undefined}
         onScroll={inSheet ? onThreadScroll : undefined}
-        className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5" : "space-y-3"}
+        className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5 pt-3" : "space-y-3"}
       >
         {/* A deterministic "Payday is close..." lead bubble used to render
             here, ahead of `messages`, built from api.safeToSpend() to
@@ -2172,7 +2175,7 @@ export default function PennyConversation({
               }
               if (c.kind === "link") {
                 return <LinkChip key={`start-link-${c.label}`} label={c.label}
-                  onTap={() => { closePennySheet(); router.push(c.href); }} />;
+                  onTap={() => closePennySheetThen(() => router.push(c.href))} />;
               }
               return <SuggestionChip key={`start-ask-${c.q}`} label={c.label}
                 onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : setInput(c.q))} />;
@@ -2206,7 +2209,7 @@ export default function PennyConversation({
                 msg={m}
                 onConfirm={() => confirmProposal(currentScreen, m.id, m.proposal.proposal_id)}
                 onCancel={() => cancelProposal(currentScreen, m.id, m.proposal.proposal_id)}
-                onOpenDone={() => { closePennySheet(); router.push("/planning"); }}
+                onOpenDone={() => closePennySheetThen(() => router.push("/planning"))}
               />
             );
           }
@@ -2273,7 +2276,7 @@ export default function PennyConversation({
                 <LinkChip
                   key={`config-link-${c.label}`}
                   label={c.label}
-                  onTap={() => { closePennySheet(); router.push(c.href); }}
+                  onTap={() => closePennySheetThen(() => router.push(c.href))}
                 />
               );
             }

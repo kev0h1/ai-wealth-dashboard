@@ -259,6 +259,21 @@ function close() {
   notify();
 }
 
+// G244: on phones the sheet owns one history entry (Back closes it). PennySheet
+// registers the function that closes through that entry while it is open, so a
+// close that is followed by navigation can wait for the pop to land first
+// instead of racing it. Absent (closed, or desktop) it degrades to close-then-run.
+let closeHandler: ((next?: () => void) => void) | null = null;
+export function registerPennyCloseHandler(handler: (next?: () => void) => void): () => void {
+  closeHandler = handler;
+  return () => { if (closeHandler === handler) closeHandler = null; };
+}
+/** Close the sheet, then run `next` (a route push) once it has fully closed. */
+function closeThen(next: () => void) {
+  if (closeHandler && sheetState.isOpen) closeHandler(next);
+  else { close(); next(); }
+}
+
 /** Public API — the only thing other components should import from this
  * file besides the provider itself and the PennyAskContext type. Safe to
  * call from anywhere in the tree (see this file's header comment) — no
@@ -267,9 +282,10 @@ export function usePennySheet(): {
   isOpen: boolean;
   open: (ctx?: PennyAskContext) => void;
   close: () => void;
+  closeThen: (next: () => void) => void;
 } {
   const { isOpen } = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return { isOpen, open, close };
+  return { isOpen, open, close, closeThen };
 }
 
 /** Internal — PennySheet.tsx also needs the current ask context (not just

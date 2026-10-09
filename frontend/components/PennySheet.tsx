@@ -118,13 +118,17 @@
 // (65/70), so when CommitmentSheet opens from inside this sheet, it wins
 // by actual z-index — a real ordering guarantee, not a DOM-order one.
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
+import { shouldBlockPan } from "@/lib/sheetSwipe";
+import { PENNY_PHONE_QUERY, pennySwipeGate } from "@/lib/pennySheetClose";
+import type { SwipeNode } from "@/lib/sheetSwipe";
 import PennyMark from "@/components/PennyMark";
 import PennyConversation from "@/components/PennyConversation";
 import PennySheetPanel from "@/components/PennySheetPanel";
@@ -138,6 +142,7 @@ import {
   useMoreMessagesSheet,
   openMoreMessagesSheet,
   closeMoreMessagesSheet,
+  registerPennyCloseHandler,
 } from "./PennySheetProvider";
 import MoreMessagesSheet from "@/components/MoreMessagesSheet";
 // `screenForPathname` — the same route -> screen mapping BottomNav.tsx's
@@ -157,6 +162,13 @@ import MoreMessagesSheet from "@/components/MoreMessagesSheet";
 // from there — a file outside this change's ownership — so reusing it
 // in place, rather than relocating it, is the smaller and safer change.
 import { screenForPathname } from "./BottomNav";
+
+const subscribePhone = (cb: () => void) => {
+  const mq = window.matchMedia(PENNY_PHONE_QUERY);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+const readPhone = () => window.matchMedia(PENNY_PHONE_QUERY).matches;
 
 /** Zero-output component whose only job is to start/stop useLockBodyScroll
  * on the same cadence a real mount/unmount would, by actually
@@ -322,16 +334,19 @@ function CrossfadeTitle({ base, alt, revealed }: { base: string; alt: string; re
 
 
 /** Shared header for the live window and fixture-safe keyboard previews. */
-export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleAvatarTap, close, headerLinks }: {
+export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleAvatarTap, close, headerLinks, onNavigate }: {
   pennyUsed: number;
   pennyLimit: number | null;
   usageRevealed: boolean;
   handleAvatarTap: () => void;
   close: () => void;
   headerLinks: { label: string; href: string }[];
+  /** G244: close through the sheet's history entry, then go to `href`. Absent
+   * (previews), the link closes and navigates on its own as before. */
+  onNavigate?: (href: string) => void;
 }) {
   return (
-          <div className="flex-shrink-0 pt-3">
+          <div data-penny-header className="flex-shrink-0 pt-3 touch-none">
             <div className="flex items-center justify-between gap-2 px-5">
               <div className="flex items-center gap-2 min-w-0">
                 {/* Avatar + usage ring (2026-09-06, /design/penny-usage-ring
@@ -375,7 +390,11 @@ export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleA
                 <Link
                   key={l.href}
                   href={l.href}
-                  onClick={close}
+                  onClick={(e) => {
+                    if (!onNavigate || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) { close(); return; }
+                    e.preventDefault();
+                    onNavigate(l.href);
+                  }}
                   className="inline-flex items-center gap-0.5 min-w-0 min-h-[44px] text-[12px] font-medium text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                 >
                   <span className="truncate">{l.label}</span>
@@ -410,6 +429,7 @@ export function PennySheetHeader({ pennyUsed, pennyLimit, usageRevealed, handleA
 export default function PennySheet() {
   const { isOpen, ctx, openSeq, open, close } = usePennySheetState();
   const pathname = usePathname();
+  const router = useRouter();
 
   // LIVE THREAD SWITCH ON NAVIGATION (2026-08-26, owner-authorised): with
   // PennyConversation's per-screen thread buckets (see that file's header
@@ -484,11 +504,66 @@ export default function PennySheet() {
   const [hasOpened, setHasOpened] = useState(false);
   if (isOpen && !hasOpened) setHasOpened(true);
 
-  const panelRef = useSheetA11y<HTMLDivElement>(close);
+  // G244: on phones the open sheet owns one history entry (useSheetA11y's
+  // backToClose, the H71/H72 capability): Back, the X, Escape and a swipe all
+  // end in the same popstate, which runs `finishClose`. Android's hardware
+  // Back is that same traversal (Capacitor falls back to WebView history when
+  // no App backButton listener is registered, and none is), so there is no
+  // second native path. Desktop keeps the floating window with no entry.
+  const phone = useSyncExternalStore(subscribePhone, readPhone, () => false);
+  const nextRef = useRef<(() => void) | null>(null);
+  const finishClose = useCallback(() => {
+    const next = nextRef.current;
+    nextRef.current = null;
+    close();
+    if (next) queueMicrotask(next);
+  }, [close]);
+  const { ref: a11yRef, close: requestClose } = useSheetA11y<HTMLDivElement>(finishClose, { backToClose: phone });
+  useEffect(() => {
+    if (!isOpen) return;
+    return registerPennyCloseHandler((next) => { nextRef.current = next ?? null; requestClose(); });
+  }, [isOpen, requestClose]);
+
+  // G244: swipe down to close, G205's controller. Starts on the header, or on
+  // the conversation only at scrollTop 0 (lib/pennySheetClose.ts).
+  const moreOpenRef = useRef(false);
+  const panelEl = useRef<HTMLDivElement | null>(null);
+  const swipe = useSwipeDismiss<HTMLDivElement>(() => requestClose(), {
+    axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4, fade: false, restoreAfterMs: 400,
+    canStart: (e) => {
+      const panel = panelEl.current;
+      if (!panel) return false;
+      return pennySwipeGate({
+        target: e.target as unknown as SwipeNode,
+        header: panel.querySelector("[data-penny-header]") as unknown as SwipeNode | null,
+        scroller: panel.querySelector("[data-penny-scroll]") as unknown as SwipeNode | null,
+        pointerType: e.pointerType ?? "touch",
+        viewportWidth: window.innerWidth,
+        keyboardUp: panel.closest("[data-penny-window]")?.getAttribute("data-penny-typing") === "true",
+        overlayOpen: moreOpenRef.current,
+      });
+    },
+  });
+  // eslint-disable-next-line react-hooks/immutability
+  const panelRef = useCallback((node: HTMLDivElement | null) => {
+    a11yRef(node);
+    panelEl.current = node;
+    // The swipe controller reads its element from swipe.ref (same as SheetFrame).
+    // eslint-disable-next-line react-hooks/immutability
+    swipe.ref.current = node;
+  }, [a11yRef, swipe.ref]);
+  useEffect(() => {
+    const panel = swipe.ref.current;
+    if (!isOpen || !panel) return;
+    const block = (e: TouchEvent) => { if (shouldBlockPan(e.cancelable, swipe.gestureActive())) e.preventDefault(); };
+    panel.addEventListener("touchmove", block, { passive: false });
+    return () => panel.removeEventListener("touchmove", block);
+  }, [isOpen, swipe]);
 
   // ── PENNY USAGE RING state (2026-09-06) ───────────────────────────────
   const usage = usePennyUsage();
   const moreMessagesOpen = useMoreMessagesSheet();
+  useEffect(() => { moreOpenRef.current = moreMessagesOpen; }, [moreMessagesOpen]);
   const [usageRevealed, setUsageRevealed] = useState(false);
   // Auto-revert ~2.5s after the title crossfades to the usage line, same
   // duration as the approved design preview. Re-tapping cancels the pending
@@ -576,10 +651,10 @@ export default function PennySheet() {
           didn't need to move. */}
       <div
         className={`fixed inset-0 z-[56] touch-none bg-transparent ${isOpen ? "" : "hidden"}`}
-        onClick={close}
+        onClick={requestClose}
         aria-hidden="true"
       />
-      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined} presentation="fullscreen">
+      <PennySheetPanel isOpen={isOpen} panelRef={isOpen ? panelRef : undefined} presentation="fullscreen" panelProps={swipe.handlers}>
           {/* Header — shrink-0, stays put while the thread (rendered by
               PennyConversation below) scrolls independently. No drag-handle
               bar: that signalled "sheet", and this isn't one anymore.
@@ -587,7 +662,8 @@ export default function PennySheet() {
               the two rows below individually (`px-5` each) so the divider
               two comments down can run full-bleed — see that comment. */}
           <PennySheetHeader pennyUsed={pennyUsed} pennyLimit={pennyLimit} usageRevealed={usageRevealed}
-            handleAvatarTap={handleAvatarTap} close={close} headerLinks={headerLinks} />
+            handleAvatarTap={handleAvatarTap} close={requestClose} headerLinks={headerLinks}
+            onNavigate={(href) => { nextRef.current = () => router.push(href); requestClose(); }} />
 
           {/* Body — PennyConversation owns its own internally-scrolling
               thread and its non-fixed, flow-docked composer when `inSheet`
