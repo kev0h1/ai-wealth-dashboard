@@ -8,14 +8,6 @@
 
 import type { SavingsInsight } from "@/lib/api";
 
-/** G189: the one gate for the `show_tips` display preference. Every surface
- *  that feeds tips to the UI passes its insights through this, so an
- *  opted-out user gets an empty list and nothing downstream (sublines,
- *  Transactions tip rows) can render a tip. */
-export function insightsForDisplay(showTips: boolean, insights: SavingsInsight[]): SavingsInsight[] {
-  return showTips ? insights : [];
-}
-
 /** Every READABLE tip for a given Spend category — state "fresh" (or "stale",
  *  B44: the last good tip kept visible while research is failing, which the
  *  card labels "Tips may be out of date"), matched

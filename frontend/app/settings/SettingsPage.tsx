@@ -168,7 +168,7 @@ function coverPlanView(
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout, clearLocalSession } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady, showTips, setShowTips } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -1221,9 +1221,9 @@ export default function SettingsPage() {
             />
           </div>
           {/* G60: PreferencesContext's setDarkMode now reverts and reconciles
-              on a failed save (see lib/preferenceSave.ts); darkMode's error
-              line sits directly under its own row, and G189's showTips row
-              (below) carries its own. H69 added a second wired consumer of
+              on a failed save (see lib/preferenceSave.ts); darkMode is the
+              only one of the context's six server-backed fields with a
+              control on THIS page, but H69 added a second wired consumer of
               this same slot, the board toggle in
               app/ops/go-live/HeaderHero.tsx, which renders the identical
               message with the identical pattern when dark_mode fails —
@@ -1233,30 +1233,6 @@ export default function SettingsPage() {
               pattern as notifSaveMsg/childBenefitSaveMsg below, not a whole
               coloured sentence (DESIGN.md:142). */}
           {preferencesSaveError?.field === "dark_mode" && (
-            <p
-              role="status"
-              aria-live="polite"
-              className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
-            >
-              <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
-              <span>{preferencesSaveError.message}</span>
-            </p>
-          )}
-          {/* G189: display preference, distinct from the "Tips and insights
-              notifications" push switch further down. Off hides the tip
-              lines on Spend and Transactions and the Home tip card. */}
-          <div className="flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700/70">
-            <div className="pr-3">
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Show tips on Spend and Transactions</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Ways to save, shown next to your categories and payments</p>
-            </div>
-            <Toggle
-              checked={showTips}
-              onChange={() => setShowTips(!showTips)}
-              label="Show tips on Spend and Transactions"
-            />
-          </div>
-          {preferencesSaveError?.field === "show_tips" && (
             <p
               role="status"
               aria-live="polite"
@@ -1487,7 +1463,7 @@ export default function SettingsPage() {
                 <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notify me about</p>
               </div>
               {([
-                { key: "insights", title: "Tips and insights notifications", desc: "Alerts about ways to save money we spot for you" },
+                { key: "insights", title: "Tips & insights", desc: "Ways to save money we spot for you" },
                 { key: "category_pace", title: "Category running hot", desc: "When a category is well above your usual pace" },
                 { key: "classification_attention", title: "Payments needing a look", desc: "Unplaced or possibly miscategorised payments" },
                 { key: "bill_alerts", title: "Bill alerts", desc: "When an upcoming bill may not clear" },

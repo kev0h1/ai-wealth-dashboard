@@ -1957,9 +1957,6 @@ MAX_RESEARCHED_PER_PASS = 5
 
 
 async def _refresh_savings_insights_for_user(user_id: str) -> None:
-    if not await _tips_enabled(user_id):
-        # G189: opted out of tips, so no detection, Tavily or OpenRouter spend.
-        return
     applicable = await _detect_insight_categories(user_id)
     for cat in ("energy", "groceries"):
         if cat not in applicable:
@@ -3075,23 +3072,9 @@ def _spotlight_candidates(docs: list[dict]) -> list[dict]:
     return cands
 
 
-async def _tips_enabled(uid: str) -> bool:
-    """G189: the user's `show_tips` display preference (default true). An
-    opted-out user is served no tips and costs no research calls. Fails open
-    (True) if the preference cannot be read, so a lookup error never hides
-    tips the user wants."""
-    try:
-        prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    except Exception:
-        return True
-    return bool(prefs.get("show_tips", True))
-
-
 @router.get("/savings-insights")
 async def get_savings_insights(user: dict = Depends(current_user)):
     uid  = user["email"]
-    if not await _tips_enabled(uid):
-        return []
     # Evidence-gone retirement (`retired_at`) excludes a doc from every
     # surface, not just this one — see `_evidence_is_gone` and the
     # retirement block in `_refresh_savings_insights_for_user`. Distinct
@@ -3143,8 +3126,6 @@ async def get_spotlight_insight(user: dict = Depends(current_user)):
     different top insight, the old one is retired permanently so it never returns.
     """
     uid  = user["email"]
-    if not await _tips_enabled(uid):
-        return None
     # Same evidence-gone exclusion as GET /savings-insights above — an
     # evidence-gone card must never win the home spotlight either.
     docs = await savings_insights_col.find(
@@ -3255,8 +3236,6 @@ async def new_insight_count(user: dict = Depends(current_user)):
     """Badge count: new-content insights the user hasn't looked at since they
     refreshed. Viewing the list clears it (mark-viewed); the per-card "New"
     chip keeps its own lifecycle."""
-    if not await _tips_enabled(user["email"]):
-        return {"count": 0}
     n = await savings_insights_col.count_documents({
         "user_id": user["email"],
         "is_new": True,

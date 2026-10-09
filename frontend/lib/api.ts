@@ -3156,7 +3156,6 @@ export const api = {
   getPreferences: () => get<{
     hide_net_worth: boolean;
     open_last_chat?: boolean;
-    show_tips?: boolean;
     dark_mode?: boolean;
     notification_prefs?: NotificationPrefs;
     income_bracket?: string;
@@ -3189,7 +3188,6 @@ export const api = {
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
     open_last_chat: boolean;
-    show_tips: boolean;
     dark_mode: boolean;
     pay_period_config: unknown;
     notification_prefs: NotificationPrefs;
@@ -3224,7 +3222,7 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then((r) => toJson<{ hide_net_worth: boolean; show_tips?: boolean; open_last_chat?: boolean; dark_mode?: boolean; version?: number }>(r)),
+    }).then((r) => toJson<{ hide_net_worth: boolean; open_last_chat?: boolean; dark_mode?: boolean; version?: number }>(r)),
   getCategories: () => get<CategoriesResponse>("/categories"),
   addCategory: (name: string, kind: CategoryKind = "discretionary") =>
     post<CategoriesResponse>("/categories", { name, kind }),
