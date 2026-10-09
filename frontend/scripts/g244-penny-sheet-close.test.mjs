@@ -226,6 +226,79 @@ const gate = (target, over = {}, parts = {}) => pennySwipeGate({ ...base, target
   assert.equal(gate(mk(nested), {}, { scroller: s0 }), false, "a nested scroller mid-scroll under the finger blocks it");
 }
 
+// ---- G247: reopen after a swipe-dismiss must not leave the panel displaced ----
+// The panel node stays mounted while closed; only its ref is nulled. Drives
+// the REAL swipe controller (G205/G207) with PennySheet's wiring.
+const { createSwipeController } = await import("../lib/swipeController.ts");
+const { createPennyPanelRef, resetPennyPanelStyle } = await import("../lib/pennySheetClose.ts");
+const { createSwipeGesture } = await import("../lib/swipeGesture.ts");
+void createSwipeGesture;
+const mkPanel = () => ({ style: { transform: "", opacity: "", transition: "" }, offsetWidth: 390, offsetHeight: 800, setPointerCapture() {} });
+const clean = p => p.style.transform === "" && p.style.opacity === "" && p.style.transition === "";
+function harness(useFactory) {
+  const panel = mkPanel();
+  const slot = { current: null }; // swipe.ref
+  let open = false; let closes = 0; let t = 0;
+  const attach = useFactory
+    ? createPennyPanelRef(n => { slot.current = n; })
+    : n => { slot.current = n; };
+  const ctl = createSwipeController({
+    getEl: () => slot.current,
+    onDismiss: () => { closes += 1; open = false; attach(null); }, // requestClose -> popstate -> close
+    options: { axis: "y", sign: 1, dismissFraction: 0.2, flickVelocity: 0.4, fade: false, restoreAfterMs: 400 },
+    reducedMotion: () => false,
+    now: () => t,
+  });
+  const ev = (y) => ({ pointerId: 1, pointerType: "touch", clientX: 100, clientY: y, buttons: 1, button: 0, target: panel, currentTarget: panel });
+  return {
+    panel, ctl, get closes() { return closes; },
+    openSheet() { open = true; attach(panel); },
+    get isOpen() { return open; },
+    drag(to) { t = 0; ctl.onPointerDown(ev(100)); for (let y = 100; y <= to; y += 20) { t += 16; ctl.onPointerMove(ev(y)); } t += 16; ctl.onPointerUp(ev(to)); },
+  };
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+{ // the bug: legacy wiring (ref nulled on close) strands the dismiss transform
+  const h = harness(false);
+  h.openSheet(); h.drag(500);
+  await sleep(500); // dismiss animation, onDismiss, then the 400ms restore finds no element
+  assert.equal(h.closes, 1);
+  assert.equal(h.isOpen, false);
+  assert.ok(!clean(h.panel), "legacy wiring reproduces the stray translateY/opacity left on the closed panel");
+  assert.match(h.panel.style.transform, /translateY\(/);
+}
+{ // swipe-dismiss then reopen: clean panel, on attach and after the late restore timer
+  const h = harness(true);
+  h.openSheet(); h.drag(500);
+  await sleep(500);
+  assert.equal(h.closes, 1);
+  assert.ok(clean(h.panel), "closed panel carries no transform or opacity after a swipe-dismiss");
+  h.openSheet();
+  assert.ok(clean(h.panel), "reopened panel renders in place, not translated off-screen");
+  h.drag(500); await sleep(500); h.openSheet();
+  assert.ok(clean(h.panel), "second swipe-dismiss then reopen is clean too");
+}
+{ // reopen before the 400ms restore fires: the late timer resets a clean node, harmless
+  const h = harness(true);
+  h.openSheet(); h.drag(500);
+  await sleep(250); h.openSheet();
+  assert.ok(clean(h.panel), "reopen inside the restore window is clean");
+  await sleep(300);
+  assert.ok(clean(h.panel), "and stays clean after the late restore timer");
+}
+{ // Back then reopen, X then reopen: nothing inline to strand
+  const h = harness(true);
+  h.openSheet(); h.ctl.onPointerDown({ pointerId: 2, pointerType: "touch", clientX: 1, clientY: 1, target: h.panel, currentTarget: h.panel });
+  h.ctl.onPointerCancel({ pointerId: 2, currentTarget: h.panel });
+  h.panel.style.transform = "translateY(3px)"; // any residue at all
+  h.openSheet();
+  assert.ok(clean(h.panel), "attach clears residue left by any earlier path");
+  const orphan = mkPanel(); orphan.style.transform = "translateY(9px)"; resetPennyPanelStyle(orphan);
+  assert.ok(clean(orphan));
+  resetPennyPanelStyle(null);
+}
+
 // ---- source guards ----------------------------------------------------------
 const src = p => readFileSync(new URL(p, import.meta.url), "utf8");
 const sheetSrc = src("../components/PennySheet.tsx");
@@ -238,5 +311,8 @@ assert.match(sheetSrc, /close=\{requestClose\}/, "the X goes through the history
 assert.match(sheetSrc, /onClick=\{requestClose\}/, "the click-catcher uses the history-aware close");
 assert.match(convo, /overflow-y-auto space-y-3 px-5 pt-3/, "thread top padding equals the space-y-3 message gap");
 assert.doesNotMatch(convo, /closePennySheet\(\); router\.push/, "navigation closes wait for the pop");
+assert.match(sheetSrc, /createPennyPanelRef<HTMLDivElement>/, "G247: panel ref clears swipe residue on attach and detach");
+assert.match(sheetSrc, /\{hasOpened && <PennyConversation /, "G247: the conversation (thread or starter) renders whenever the panel has opened, independent of the swipe");
+assert.doesNotMatch(sheetSrc, /presentation="fullscreen"[^>]*opacity/, "no opacity gate on the panel");
 assert.ok(pkg.scripts["check:g244-penny-sheet-close"], "registered in package.json");
 console.log("g244-penny-sheet-close: all checks passed");

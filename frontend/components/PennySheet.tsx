@@ -118,7 +118,7 @@
 // (65/70), so when CommitmentSheet opens from inside this sheet, it wins
 // by actual z-index — a real ordering guarantee, not a DOM-order one.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -127,7 +127,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
 import { shouldBlockPan } from "@/lib/sheetSwipe";
-import { PENNY_PHONE_QUERY, pennySwipeGate } from "@/lib/pennySheetClose";
+import { PENNY_PHONE_QUERY, createPennyPanelRef, pennySwipeGate } from "@/lib/pennySheetClose";
 import type { SwipeNode } from "@/lib/sheetSwipe";
 import PennyMark from "@/components/PennyMark";
 import PennyConversation from "@/components/PennyConversation";
@@ -544,14 +544,16 @@ export default function PennySheet() {
       });
     },
   });
-  // eslint-disable-next-line react-hooks/immutability
-  const panelRef = useCallback((node: HTMLDivElement | null) => {
+  // G247: createPennyPanelRef clears the swipe-dismiss transform on every
+  // attach and detach (the panel stays mounted while closed, so the controller
+  // cannot restore it itself once this ref is nulled).
+  const panelRef = useMemo(() => createPennyPanelRef<HTMLDivElement>((node) => {
     a11yRef(node);
     panelEl.current = node;
     // The swipe controller reads its element from swipe.ref (same as SheetFrame).
     // eslint-disable-next-line react-hooks/immutability
     swipe.ref.current = node;
-  }, [a11yRef, swipe.ref]);
+  }), [a11yRef, swipe.ref]);
   useEffect(() => {
     const panel = swipe.ref.current;
     if (!isOpen || !panel) return;
