@@ -64,17 +64,6 @@ const ROUTES: PreviewRoute[] = [
     variants: [{ label: "G · Bank first", value: "g" }, { label: "H · One continuous page", value: "h" }, { label: "I · Notice at consent", value: "i" }],
   },
   {
-    slug: "plan-source-account",
-    name: "Edit plan, Paid from · G230",
-    description:
-      "G230, skill: impeccable · Alignment, not a variant round: the production Edit plan sheet gains a quiet Paid from field (counted current accounts only; cards and accounts left out of Safe to Spend are never offered), prefilled with the account seen in recent transfers and hedged 'Based on recent transfers', with Not set keeping the plan pooled-only · Nothing is saved unless the user picks · Invented accounts, no API calls · ?state=inferred|chosen|unset&mode=light|dark",
-    states: [
-      { label: "Inferred from transfers", value: "inferred" },
-      { label: "Chosen", value: "chosen" },
-      { label: "Not set", value: "unset" },
-    ],
-  },
-  {
     slug: "upcoming-by-account",
     name: "Upcoming By account, attention first · G229",
     description:
@@ -180,34 +169,11 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "error-states",
-    name: "Error states · G215",
-    description:
-      "G215: the designed replacements for Next's default 404 and error pages and for the browser's native pop-ups · not-found (That page isn't here), route error (Something went wrong, Back to Home, Try again) and the one-button notice sheet used instead of the browser pop-up · same anatomy as the sign-in hand-off page (brand line, verdict heading, one sentence, action low), no red, no gradient · renders the production ErrorState and ConfirmSheetView with fixture props · ?state=not-found|error|notice&mode=light|dark",
-    states: [{ label: "Not found", value: "not-found" }, { label: "Error", value: "error" }, { label: "Notice sheet", value: "notice" }],
-  },
-  {
     slug: "first-sync",
     name: "First bank sync state · G210",
     description:
       "G210: what Home shows while a first bank sync is running, stuck or failed, instead of the connect hero and a red verdict computed from partial data · a calm ledger (bank connected, fetching transactions, working out your figures) reusing the G202 sign-in ledger, a stalled state after 10 minutes with Try again, a failed state with Try again and Connect a different bank, and Safe to Spend's own syncing branch with no figure and no verdict · no red, no gradient · renders the production FirstSyncCard and SafeToSpendCard with fixture props, an established user adding a second bank sees the ledger above a normal verdict · nothing syncs · ?state=syncing|stalled|failed|second-bank|sts-syncing&mode=light|dark",
     states: [{ label: "Syncing", value: "syncing" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "Second bank", value: "second-bank" }, { label: "Safe to Spend, syncing", value: "sts-syncing" }],
-  },
-  {
-    slug: "date-picker",
-    name: "Date and month picker · G136 · approved A, folded in",
-    description:
-      "G136 · approved A, folded in (Kevin 2026-10-05; skill: impeccable): the in-design date and month picker that replaces the browser's native date and month controls at every site · this page renders ONLY the production components/DatePicker (DateField and DatePickerSheet) with fixture props, inside the production SheetFrame on a 'Plan a big expense' style form, so it cannot drift from the app · calendar grid with 44px day cells, solid indigo selected pill, ringed today, past days muted never red, Today chip and a Cancel / Done footer · month selector and year selector in the header (Kevin 2026-10-05): tap the month name to pick a month, tap the year to pick a year (12 years a page with previous and next page), alongside the previous and next month chevrons · month mode is the same component: a year header over a 3 x 4 month grid, with the year selector behind it · keyboard (arrows, Home, End, PageUp, PageDown, Escape closes the picker only, focus returns to the field), grid semantics, aria-live heading · fixtures only, today fixed at 5 Oct 2026 · ?kind=day|month&state=closed|open|selected&variant=days|months|years&mode=light|dark",
-    states: [
-      { label: "Closed, empty field", value: "closed" },
-      { label: "Open, editing a value", value: "open" },
-      { label: "Value chosen", value: "selected" },
-    ],
-    variants: [
-      { label: "Day grid", value: "days" },
-      { label: "Month selector", value: "months" },
-      { label: "Year selector", value: "years" },
-    ],
   },
   {
     slug: "app-lock",
@@ -227,12 +193,6 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G202 · approved A, folded in (Kevin picked Two stages on 2026-10-04): the calm 'signing you in' state shown from the moment the in-app browser returns until the session is ready or the attempt fails · a two-row ledger of the two real stages (browser hand-back, then session check), 'Still signing you in' after 20s with Cancel on screen, a focused role=alert notice on failure or timeout, and tap-to-retry when Sorted cannot be reached · renders the production LoginScreen and SignInProgress through the phase and nowMs props with a fake clock, fixtures only, nothing signs in · ?state=waiting|waiting-slow|checking|resume|failed|timeout|unreachable&mode=light|dark&t=<seconds>&live=1&chrome=0",
     states: [{ label: "Signing in 0s", value: "waiting" }, { label: "Signing in 25s", value: "waiting-slow" }, { label: "Checking session", value: "checking" }, { label: "Resumed", value: "resume" }, { label: "Failed", value: "failed" }, { label: "Timed out", value: "timeout" }, { label: "Unreachable", value: "unreachable" }],
-  },
-  {
-    slug: "home-tip-gesture",
-    name: "Home tip card gesture · G207",
-    description: "G207 gesture check, not a design round: the production HomeInsightSpotlight (previewInsight prop, no API calls) among neighbour cards, to exercise vertical scroll starting on the card (must leave no offset) and swipe-left dismiss · static fixture",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "settings-overhaul",
@@ -282,13 +242,6 @@ const ROUTES: PreviewRoute[] = [
     variants: [
       { label: "B · Approved warning & info", value: "b" },
     ],
-  },
-  {
-    slug: "goal-link-sheet",
-    name: "goal-link-sheet",
-    description:
-      "G204 bug-fix check, not a design round · the production Link goal to an account sheet (real GoalSourceForm and AccountRadioPicker) with raw upper-case providers, very long account and goal names and large balances, to confirm radios stay inside the sheet at 360px and 390px · invented data only · ?mode=light|dark&view=plan|edit-plan",
-    states: [{ label: "Long names", value: "long" }],
   },
   {
     slug: "g176-account-plans",
@@ -460,28 +413,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "g115-spend-from-accounts",
-    name: "g115-spend-from-accounts",
-    description:
-      "G115 round on showing up to two current accounts without creating a second hero inside Safe to Spend · A is Kevin's approved top-right bank rail and now renders SafeToSpendCard's production default with no visual override, while B's compact inline pair and C's quiet two-row ledger remain as design history · every direction renders the real production SafeToSpendCard through its data and spendFrom props, plus the real MoveCard in coexistence states, rather than copying either component · fixtures pass through production bestSpendAccount(), include three current accounts, a savings pot and a credit card, and use G114's spend_from_headroom so a live £20 cover move reduces Everyday from £45 standing room to £25 spendable room before ranking · savings and credit are structurally excluded, the savings-only state points to the move above, and every treatment says account figures are not the pooled Safe to Spend · A uses local bundled logos only and falls back to named rows when a bank has no bundled mark · G165 (2026-09-25) fixed the bank rail's icon column, which used to drift sideways with the amount's own width, to a fixed grid column with the figure right-aligned in tabular-nums beside it; the wide-figure-range state stress-tests a 1-digit and a 5-digit headroom in the same two-row rail · static typed fixtures, no live API data or mutations · ?variant=a|b|c&state=reserved|clear|one|unbundled|savings|hidden|missing|failed|wideDigits&mode=light|dark",
-    states: [
-      { label: "Cover move reserved", value: "reserved" },
-      { label: "No cover move", value: "clear" },
-      { label: "One account", value: "one" },
-      { label: "Bank has no logo", value: "unbundled" },
-      { label: "Savings move needed", value: "savings" },
-      { label: "Eligibility absent", value: "missing" },
-      { label: "Check failed", value: "failed" },
-      { label: "Balances hidden", value: "hidden" },
-      { label: "Wide figure range", value: "wideDigits" },
-    ],
-    variants: [
-      { label: "A · Bank rail", value: "a" },
-      { label: "B · Inline pair", value: "b" },
-      { label: "C · Quiet rows", value: "c" },
-    ],
-  },
-  {
     slug: "ops-board-mobile",
     name: "ops-board-mobile",
     description:
@@ -523,7 +454,6 @@ const ROUTES: PreviewRoute[] = [
   {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
   { slug: "g119-transactions-live", name: "g119-transactions-live", description: "G119 Transactions round two, on real data · A day-groups + page pager + bottom sheet / B day-groups + infinite scroll + inline row expand / C day-groups + load-more + full-screen detail · reads the signed-in viewer's own GET /transactions/search (page/page_size), read-only, falls back to synthetic fixtures when signed out · row tap opens that transaction's real detail with the ability to change it (non-mutating port of TeachingSheet's fork logic, never a group-level popup) · ?variant=a|b|c&state=auto|populated|long|empty|loading&mode=light|dark", states: [{label:"Live/fixture",value:"auto"},{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Empty",value:"empty"},{label:"Loading",value:"loading"}], variants: [{label:"A · Sheet",value:"a"},{label:"B · Inline",value:"b"},{label:"C · Full screen",value:"c"}] },
-  { slug: "g119-filter-pill", name: "g119-filter-pill", description: "G119 follow-up: Kevin approved variant A's category icons on g119-transactions-live but rejected the active-filter pill, bg-slate-100 (#f1f5f9) measures ~1.02:1 against the #f0f2f7 canvas so it reads as invisible, and the solid indigo-600 round trigger borrows Penny's FAB silhouette · A selected-state tint (Sidebar.tsx's own active-nav indigo-50 + an indigo-500/400 hairline, since the fill alone measures no better than the bug) / B surface + hairline (white / #1e293b card material, shadow-sm, the pattern every other object on this canvas already uses) / C a filter bar (trigger, chips and Clear all become one bounded strip, solving the two-places-saying-one-thing problem structurally) · every trigger demoted from a solid puck to a hairline ghost control · renders the REAL g119-transactions-live VariantA, FilterSheet and dataSource through a shared FilterChips.tsx/FilterBar (g119-transactions-live itself now imports the same file at treatment=\"legacy\", unchanged, since that's the reference Kevin is comparing against) · all chips ≥44px tall, whole chip is the tap target, Clear all appears once more than one chip is active · read-only, GET-only, session-scoped, fixture fallback when signed out · ?variant=a|b|c&state=zero|one|three&mode=light|dark", states: [{label:"0 active",value:"zero"},{label:"1 active",value:"one"},{label:"3 active",value:"three"}], variants: [{label:"A · Tint",value:"a"},{label:"B · Surface",value:"b"},{label:"C · Bar",value:"c"}] },
   {
     slug: "g93-penny-canvas",
     name: "g93-penny-canvas",
@@ -575,28 +505,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "g88-home-canvas",
-    name: "g88-home-canvas",
-    description:
-      "G88 Canvas Before Cards review for Home · A Reading line / B Today board / C Rhythm · Safe to Spend remains the sole hero, while every reachable supporting-card permutation is rendered with real production cards and typed local fixtures · calm with no card, payday question, cover or money move, pace advice, details needed, good news, full mixed family, connection error and balances hidden · no API calls, preference changes or production edits · ?variant=a|b|c&state=calm|payday|cover|pace|details|good-news|mixed|error|hidden&mode=light|dark",
-    states: [
-      { label: "Calm, no cards", value: "calm" },
-      { label: "Payday question", value: "payday" },
-      { label: "Cover a move", value: "cover" },
-      { label: "Pace advice", value: "pace" },
-      { label: "Details needed", value: "details" },
-      { label: "Good news", value: "good-news" },
-      { label: "Full mixed family", value: "mixed" },
-      { label: "Connection error", value: "error" },
-      { label: "Balances hidden", value: "hidden" },
-    ],
-    variants: [
-      { label: "A · Reading line", value: "a" },
-      { label: "B · Today board", value: "b" },
-      { label: "C · Rhythm", value: "c" },
-    ],
-  },
-  {
     slug: "g88-home-real",
     name: "g88-home-real",
     description:
@@ -626,23 +534,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Projected: left", value: "positive" }, { label: "Projected: short", value: "negative" }],
   },
   {
-    slug: "g128-payday-reconcile",
-    name: "g128-payday-reconcile",
-    description:
-      "G128: Kevin read the Payday plan card as an arithmetic error against his real 2026-09-18 payload. Verified root cause: the hero total (£3,075, money moving between his own accounts) and the payday-split line (£4,105 across 7 bill line items debiting the salary account itself on payday) come from two completely disjoint datasets, both described as \"moves\", with a coincidental collision (7 destination accounts total, 7 payday bill line items). Kevin's hypothesis that the gap is explained by the three settled accounts is FALSE (they sum to £120 habitual, £0 need) and neither variant presents that as a reconciliation. Baseline \"Today\" renders the real, unmodified PaydayPlanCard.tsx fed Kevin's exact payload, so the round is honest about what's live. A · Grammar fix keeps the card's shape: each destination row states needs / has / moving inline instead of leaving the reader to subtract, the payday-split line is renamed with different nouns and states plainly it excludes the hero total, settled accounts show an amount, and the trimmed notice names buffers AND spending allowances. B · Labelled blocks restructures into three named, independently subtotalled blocks (money moving between accounts / payments leaving on payday / accounts already set) with the payments/spending/buffer row composition A drops for brevity. Both variants keep the payday risk row amber (a timing risk, not red per DESIGN.md) and add every fixture state (Kevin's real payload, a covered/not-trimmed case, the isSet nothing-to-move case, and a payload with no payday_split at all) so the fix is proven beyond one payload. No API calls, no production edits · ?variant=baseline|a|b&state=kevin|covered|set|nosplit&mode=light|dark",
-    states: [
-      { label: "Kevin's real payload", value: "kevin" },
-      { label: "Covered, not trimmed", value: "covered" },
-      { label: "Nothing to move", value: "set" },
-      { label: "No payday split", value: "nosplit" },
-    ],
-    variants: [
-      { label: "Today · production", value: "baseline" },
-      { label: "A · Grammar fix", value: "a" },
-      { label: "B · Labelled blocks", value: "b" },
-    ],
-  },
-  {
     slug: "tax-canvas-before-cards",
     name: "tax-canvas-before-cards",
     description:
@@ -668,52 +559,11 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Normal pay period", value: "normal" }],
   },
   {
-    slug: "payday-plan-grammar",
-    name: "payday-plan-grammar",
-    description:
-      "G69 Payday Plan decision · B Allocation ledger selected and folded into the real PaydayPlanCard · one expected salary account distributes money to either five destinations or the production cap of ten · both fixtures reconcile exactly: ~£3,450 expected pay becomes £2,360 moved plus £1,090 staying in Premier Current, or £2,820 moved plus £630 staying · the selected B preview renders the production component with production-shaped fixture data, keeping the expected salary, every destination account, each purpose breakdown, the remainder and the full-plan action in one visible ledger · A Fan-out summary and C Ranked handoff remain as design references · no API calls · ?variant=a|b|c&state=five|ten&mode=light|dark",
-    states: [
-      { label: "Five destinations", value: "five" },
-      { label: "Ten destinations", value: "ten" },
-    ],
-  },
-  {
     slug: "spend-page-refurbishment",
     name: "spend-page-refurbishment",
     description:
       "G57 final chart-placement comparison after Kevin selected A Pay-period journey. Both treatments keep its explicit £1,730 less £144 = £1,586 pace reconciliation, evidence and action separation, and four-destination jump strip while preserving the existing add, remove, reorder and single Home-pin chart model. A1 Charts here renders the selected, reorderable collection at the end of the journey. A2 Own page keeps a compact summary in the journey and opens the same chart manager in a dedicated workspace. Spending pace and Period comparison are selected from the outset, with Period comparison pinned to Home. Preview-only fixture data, no API calls or production edits · ?variant=a&charts=here|page&surface=journey|charts&mode=light|dark",
     states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "spend-containment",
-    name: "spend-containment",
-    description:
-      "G78/G82: Spend root containment and narrow-phone header round against the typed normal-period fixture and real SpendJourneySummary, SpendVerdictView, SpendJourneyNav and SpendTrends components · A full cockpit verdict card with a deliberate two-row phone header (recommended) / B one unified top deck with a compact single-row header / C editorial narrative with its reconciled ledger carded and controls in one dock · summary precedes the jump map in every variant · ?variant=a|b|c&mode=light|dark&state=normal|nothing|everything|nobaseline|early",
-    states: [
-      { label: "Normal pay period", value: "normal" },
-      { label: "Nothing to allocate", value: "nothing" },
-      { label: "Everything allocated", value: "everything" },
-      { label: "No baseline", value: "nobaseline" },
-      { label: "Early pay period", value: "early" },
-    ],
-    variants: [
-      { label: "A · Cockpit card", value: "a" },
-      { label: "B · Unified deck", value: "b" },
-      { label: "C · Editorial ledger", value: "c" },
-    ],
-  },
-  {
-    slug: "move-card-grammar",
-    name: "move-card-grammar",
-    description:
-      "G69 move-card decision · C Compact handoff selected and folded into the real MoveCard and UnfundedMoveCard · the selected preview covers one, three and five funding sources as well as three protected payments using the production components · one to three sources show every real bank icon in front-to-back reading order; four or more show the first two real icons plus a third +N tile in the rear position, with every source still named in the disclosure · source and destination accounts keep bank icons while payments remain deliberately icon-free · A Money route and B Transfer ledger remain as design references · no API calls · ?variant=a|b|c&state=pair|single|multiple|many|payments&mode=light|dark",
-    states: [
-      { label: "Compare both", value: "pair" },
-      { label: "One source", value: "single" },
-      { label: "Three sources", value: "multiple" },
-      { label: "Five sources", value: "many" },
-      { label: "Three payments", value: "payments" },
-    ],
   },
   {
     slug: "home-brief-cards",
@@ -759,17 +609,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "cover-plan-sources",
-    name: "cover-plan-sources",
-    description:
-      "G46 cover-plan source settings round · A approved safeguard ladder: the active transfer route and exclusion consequence update live, connected Current then connected Savings makes the present engine order explicit, and manually managed accounts keep their real class with a Manual transfer badge and checked-after-connected note / B ranked register: movable headroom, engine rank and exclusion impact share each row / C safeguard map: consequence leads, then one source class is inspected at a time · Variant A renders the production component with presentation-only fixtures and no API or preference writes · ?variant=a|b|c&state=all|savings|short&mode=light|dark",
-    states: [
-      { label: "Current accounts cover it", value: "all" },
-      { label: "Savings enters", value: "savings" },
-      { label: "Partly uncovered", value: "short" },
-    ],
-  },
-  {
     slug: "spend-period-round",
     name: "spend-period-round",
     description:
@@ -781,13 +620,6 @@ const ROUTES: PreviewRoute[] = [
     name: "g29-reconnect-rows",
     description:
       "G29 fixed-height reconnect round across Home and Accounts, using 8 stale accounts grouped into 3 provider connections · A provider-level disclosure band with quiet row dots (recommended after outside-critic pass) / B visible provider repair queue / C fixed-height split row actions retained as a repetition and focus-order contrast · static fixtures, no account data or OAuth calls · ?variant=a|b|c&surface=accounts|home&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "oauth-consent",
-    name: "oauth-consent",
-    description:
-      "F2: the OAuth 2.1 consent page's real card (app/oauth/consent/OAuthConsentCard.tsx) against a Claude fixture requesting all three v1 scopes, no fetching, no session, Approve/Deny just log to the console · plain indigo (Penny Gradient Rule reserves the gradient for the AI adviser, this is a plain authorisation screen) · ?mode=light|dark",
     states: [{ label: "Everything", value: "everything" }],
   },
   {
@@ -969,16 +801,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "Active debt", value: "debt" },
       { label: "Investing stage", value: "goals" },
       { label: "Hidden balances", value: "hidden" },
-    ],
-  },
-  {
-    slug: "planning-ladder",
-    name: "planning-ladder",
-    description:
-      "Planning tab ladder-vs-immediate round (owner brief 2026-09-04: locked rungs push the 0% cliff and off-pace goal below the fold) · A collapsed ladder + jump strip (owner pick 2026-09-04) / B \"Needs you this month\" card above a collapsed ladder / C immediate sections first, full ladder last · real GrowHero/LadderRung/DebtPosition/GoalRow over the owner's live figures · ?variant=a|b|c&state=short|calm&mode=light|dark",
-    states: [
-      { label: "Short period", value: "short" },
-      { label: "Calm period", value: "calm" },
     ],
   },
   {
@@ -1248,14 +1070,6 @@ const ROUTES: PreviewRoute[] = [
     name: "cards-check",
     description:
       "Visual check for account-card Fix 1, spine removal, investment-card unification, equal heights across the 2-col grid (2026-08-15)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "category-kind",
-    name: "category-kind",
-    description:
-      "Category-kind chooser preview mirroring TeachingSheet's naming step, same exported CategoryKindChooser component over realistic names (2026-08-15)",
     states: [{ label: "Everything", value: "everything" }],
     group: "earlier",
   },
