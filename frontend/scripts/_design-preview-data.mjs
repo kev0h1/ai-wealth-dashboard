@@ -68,7 +68,7 @@ export function loadBoardStates(blocks) {
     const out = sh(py, ["scripts/backlog.py", "list"]);
     for (const line of out.split("\n").slice(1)) {
       const m = line.match(/^([A-Z]\d+)\s+(\S+)\s+(p\d)\s+(\S+)/);
-      if (m) states.set(m[1], m[4]);
+      if (m) states.set(m[1], m[4].split(":")[0]);
     }
     if (states.size === 0) throw new Error("empty list");
   } catch {
@@ -178,7 +178,7 @@ export const MARKETING_IDS = new Set(["G222", "G223", "G224", "C22"]);
 // its predecessor H43, and the G126 em-dash sweep). They are shown in the table
 // but do not by themselves keep a preview alive: deleting a preview is the
 // outcome those items are about, not work that depends on it.
-export const HOUSEKEEPING_IDS = new Set(["H113", "H43", "G126"]);
+export const HOUSEKEEPING_IDS = new Set(["H113", "H43", "H44", "G126"]);
 
 function proposeCore({ items, ageD, rendersProd, importers, compliance, media }) {
   items = items.filter((i) => !HOUSEKEEPING_IDS.has(i.id) || DONE_STATES.has(i.state));
