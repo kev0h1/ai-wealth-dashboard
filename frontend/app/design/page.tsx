@@ -262,13 +262,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "upcoming-account-edit",
-    name: "upcoming-account-edit",
-    description:
-      "G216 · skills: impeccable · Production UpcomingDetailFlow with invented data: open Monzo, tap EE LIMITED or the salary row to open the payment detail, edit or dismiss it, and Back returns to the account with live figures · Transfers in stay read-only · ?mode=light|dark&view=account",
-    states: [{ label: "Account open", value: "account" }],
-  },
-  {
     slug: "g176-upcoming-rows",
     name: "g176-upcoming-rows",
     description:
@@ -534,36 +527,11 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Projected: left", value: "positive" }, { label: "Projected: short", value: "negative" }],
   },
   {
-    slug: "tax-canvas-before-cards",
-    name: "tax-canvas-before-cards",
-    description:
-      "G86 Canvas Before Cards review for Tax · A guided reading (recommended) / B sticky decision rail / C deadline path · every variant moves orientation, the personalised verdict and explanation onto the canvas, while the pension calculation, action groups and dates keep earned boundaries · the global navigation remains present and Tax's four quick questions live inside Penny's fixture-only chat instead of a separate page-level chip row · fixture-only preservation of the live taper, higher-rate, basic-rate and no-income branches, including child benefit, EIS/SEIS, self-assessment and adviser-risk wording · no API calls or production changes · ?variant=a|b|c&state=trap|lost|higher|basic|empty&mode=light|dark",
-    states: [
-      { label: "60% tax trap", value: "trap" },
-      { label: "Allowance fully tapered", value: "lost" },
-      { label: "Higher rate", value: "higher" },
-      { label: "Basic rate", value: "basic" },
-      { label: "Income not set", value: "empty" },
-    ],
-    variants: [
-      { label: "A · Guided reading", value: "a" },
-      { label: "B · Decision rail", value: "b" },
-      { label: "C · Deadline path", value: "c" },
-    ],
-  },
-  {
     slug: "spend-header-rules",
     name: "spend-header-rules",
     description:
       "G75 approved C production gate using the real SpendPeriodBar, SpendJourneyNav and SpendJourneySummary through the Spend Live preview · no rule under the controls or around the mobile jump strip · one low-alpha shared hairline above the In, Out and Moved figures · no API calls · ?mode=light|dark&state=normal",
     states: [{ label: "Normal pay period", value: "normal" }],
-  },
-  {
-    slug: "spend-page-refurbishment",
-    name: "spend-page-refurbishment",
-    description:
-      "G57 final chart-placement comparison after Kevin selected A Pay-period journey. Both treatments keep its explicit £1,730 less £144 = £1,586 pace reconciliation, evidence and action separation, and four-destination jump strip while preserving the existing add, remove, reorder and single Home-pin chart model. A1 Charts here renders the selected, reorderable collection at the end of the journey. A2 Own page keeps a compact summary in the journey and opens the same chart manager in a dedicated workspace. Spending pace and Period comparison are selected from the outset, with Period comparison pinned to Home. Preview-only fixture data, no API calls or production edits · ?variant=a&charts=here|page&surface=journey|charts&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "home-brief-cards",
@@ -607,13 +575,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "No account has headroom right now", value: "no-headroom" },
       { label: "Savings would be checked first", value: "savings-only" },
     ],
-  },
-  {
-    slug: "spend-period-round",
-    name: "spend-period-round",
-    description:
-      "G38 Spend period-view design round (Kevin 2026-09-11): the 'Also running warm' mini-row keeps its pace chip inline with the amount while the hero 'Needs a look' card stacks the chip under the amount in a two-row grid (components/SpendVerdictView.tsx) — asked as a round on the WHOLE period view, not a chip patch · Current renders the real, unmodified SpendHeader/SpendVerdictView/SpendShapeCard against this route's own dense fixture, showing the inconsistency exactly as shipped / A 'One ledger, ranked': hero and grouped-tile split removed, every notable is one row in one ranked list, one row template throughout / B 'Tiered dashboard, unified row': keeps today's three-tier IA (hero card, grouped tile, calm list) but the hero's header row and a mini-row's header row are the SAME component at two sizes, so figure+badge can never diverge again / C 'The sentence leads': the reading gets its own headline line with no card chrome, notables become a horizontally-scrolling strip of attention cards with one shared detail panel, calm categories compress into a 2-column tile grid · every variant places a notable's figure and pace badge on ONE line, never stacked, resolving the named inconsistency at its root · fixture data only, no API calls, live Spend components untouched except Baseline's read-only import of the real header/verdict-view/shape-card · ?variant=current|a|b|c&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "g29-reconnect-rows",
@@ -660,17 +621,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
-    slug: "your-plan",
-    name: "your-plan",
-    description:
-      "B19/B21: five-tier plan-picker · approved A capability ladder now uses the production PlanPicker with monthly, 6-month and yearly renewal choices plus a 14-day annual trial · B full plan cards and C needs-first rows retained for comparison · Settings and onboarding contexts · light/dark modes · billing off/on states · G74 sheet=1 renders the production YourPlanCard and opens its real portalled sheet for scrolled-header verification · preview-only fixtures, no plan or payment changes",
-    states: [
-      { label: "A · capability ladder", value: "a" },
-      { label: "B · full cards", value: "b" },
-      { label: "C · needs first", value: "c" },
-    ],
-  },
-  {
     slug: "app-only",
     name: "app-only",
     description:
@@ -708,20 +658,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
-    slug: "planning-plans",
-    name: "planning-plans",
-    description:
-      "Planning plans-density round: 3 variants for the priority ladder's plan list (A register / B priority / C dashboard) · ?variant=a|b|c&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "spend-penny-flow",
-    name: "spend-penny-flow",
-    description:
-      "Spend (This period / Patterns) to Penny interaction prototype, fictional figures, no API calls or production navigation changes · ?view=period|patterns|penny&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
     slug: "upcoming-plan",
     name: "upcoming-plan",
     description:
@@ -738,17 +674,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "Cards short", value: "cards-short" },
       { label: "Comfortable", value: "comfortable" },
       { label: "Tight", value: "tight" },
-    ],
-  },
-  {
-    slug: "g16-safe-to-spend",
-    name: "g16-safe-to-spend",
-    description:
-      "G16 revised Safe to Spend proposal: the hero explicitly says what is available in cash, net card-balance growth sits in a separate fact strip rather than the arithmetic, and the dynamic 'How we got £X' disclosure reconciles the cash figure. The unconfirmed-bill state keeps the £0 floor but also exposes the underlying negative safety position · static fixtures only, no production data or calculation changes · ?case=carried|cleared|unconfirmed&mode=light|dark&open=1",
-    states: [
-      { label: "Carried balance", value: "carried" },
-      { label: "Cleared monthly", value: "cleared" },
-      { label: "Unconfirmed bill", value: "unconfirmed" },
     ],
   },
   {
@@ -890,39 +815,9 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "all" }],
   },
   {
-    slug: "app-icon",
-    name: "app-icon",
-    description: "Launcher icon glow · 3 variants (lit panel / halo / ember) vs current, circle-masked 72/48px sims",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
     slug: "dismiss-x",
     name: "dismiss-x",
     description: "Home dismiss × · 3 variants (whisper ghost / glass chip / anchored puck) vs brief + spotlight cards",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "scenario-a",
-    name: "scenario-a",
-    description: "What-if verdict · Delta-led comparison (now vs with this)",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "scenario-b",
-    name: "scenario-b",
-    description: "What-if verdict · Verdict-led, quietest, one sentence + one fact",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "scenario-c",
-    name: "scenario-c",
-    description: "What-if verdict · Baseline-led (standing position leads)",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "coming-up",
-    name: "coming-up",
-    description: "Coming up card · 3 variants (ledger / timeline / next three)",
     states: [{ label: "Everything", value: "everything" }],
   },
   {
@@ -941,12 +836,6 @@ const ROUTES: PreviewRoute[] = [
     slug: "penny-sheet",
     name: "penny-sheet",
     description: "Penny sheet · bottom sheet over the nav vs full-page, cards vs bubbles grammar (?g=cards|bubbles)",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
-    slug: "penny-glyph",
-    name: "penny-glyph",
-    description: "Sparkle replacement · 3 settle-mark-derived glyph candidates",
     states: [{ label: "Everything", value: "everything" }],
   },
   {
@@ -1058,33 +947,11 @@ const ROUTES: PreviewRoute[] = [
     group: "earlier",
   },
   {
-    slug: "accounts-preview",
-    name: "accounts-preview",
-    description:
-      "Index page linking the three accounts-redesign explorations, accounts-rows, accounts-tiles and account-detail (2026-08-16)",
-    states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
     slug: "cards-check",
     name: "cards-check",
     description:
       "Visual check for account-card Fix 1, spine removal, investment-card unification, equal heights across the 2-col grid (2026-08-15)",
     states: [{ label: "Everything", value: "everything" }],
-    group: "earlier",
-  },
-  {
-    slug: "spend-a",
-    name: "spend-a",
-    description:
-      "Spend to Categories redesign, Variant A: Dossier. Hardcoded figures, includes the engine-teaching correction sheet in move and spend modes (2026-08-13)",
-    states: [
-      { label: "Normal", value: "normal" },
-      { label: "Nothing", value: "nothing" },
-      { label: "Everything", value: "everything" },
-      { label: "No baseline", value: "nobaseline" },
-      { label: "Early", value: "early" },
-    ],
     group: "earlier",
   },
   {
