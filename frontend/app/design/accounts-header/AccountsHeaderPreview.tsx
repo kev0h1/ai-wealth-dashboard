@@ -239,6 +239,16 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
   const sentinel = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLDivElement>(null);
   const [floating, setFloating] = useState(false);
+  const [findFocused, setFindFocused] = useState(false);
+  // D: the floating pill steps aside while the Find field has focus (keyboard up) and returns on blur.
+  useEffect(() => {
+    const isFind = (t: EventTarget | null) => t instanceof HTMLInputElement && t.name === "account-search";
+    const on = (e: FocusEvent) => { if (isFind(e.target)) setFindFocused(true); };
+    const off = (e: FocusEvent) => { if (isFind(e.target)) setFindFocused(false); };
+    document.addEventListener("focusin", on);
+    document.addEventListener("focusout", off);
+    return () => { document.removeEventListener("focusin", on); document.removeEventListener("focusout", off); };
+  }, []);
   // D: the pill floats above the nav while its resting place (end of the list) is below the fold.
   useEffect(() => {
     const el = slot.current;
@@ -280,6 +290,13 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
     }
   };
   const toggleMenu = () => setMenuOpen((v) => !v);
+  // Outside pointerdown closes an open Add menu (Escape already does).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const down = (e: PointerEvent) => { if (!addRef.current?.contains(e.target as Node)) setMenuOpen(false); };
+    document.addEventListener("pointerdown", down);
+    return () => document.removeEventListener("pointerdown", down);
+  }, [menuOpen]);
   const items = (
     <>
       {ADD_CHOICES.map((c) => (
@@ -365,7 +382,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
             <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
             <div className="mt-5" data-tutorial-id="tutorial-networth">
               <Label>Net worth</Label>
-              <p className="money mt-1 text-[36px] font-bold leading-[1.15] tracking-[-0.03em] text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Balance hidden" : nwText}</span></p>
+              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Balance hidden" : nwText}</span></p>
               <p className="mt-1.5 text-[12px] text-slate-600 dark:text-slate-400">
                 {cardTotal > 0 && <span className="font-mono tabular-nums">{money(-cardTotal, hidden)}</span>}
                 {cardTotal > 0 && " across cards, "}{total} accounts
@@ -452,7 +469,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
             // rests in the flow at the end of the list and goes fixed above the nav while
             // that resting place is still below the fold.
             <div ref={slot} className="mt-4 min-h-11">
-              <div ref={addRef} onKeyDown={onEscape} className={floating ? `fixed left-[max(1rem,calc(50%-199px))] z-[45] ${OFFSET_BAR}` : "relative w-fit"}>
+              <div ref={addRef} onKeyDown={onEscape} className={floating ? `fixed left-[max(1rem,calc(50%-199px))] z-[45] ${OFFSET_BAR}${findFocused ? " hidden" : ""}` : "relative w-fit"}>
                 {menuOpen && <ChoiceList onChoose={close} className={`absolute bottom-[calc(100%+8px)] left-0 ${MENU_BOX}`} />}
                 <button type="button" data-add-control onClick={toggleMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Add account" className={`${addButtonBase} min-h-11 rounded-full px-4 shadow-xl`}>
                   <Plus size={16} aria-hidden="true" />
@@ -494,7 +511,7 @@ export default function AccountsHeaderPreview({ variant, count, hidden: hiddenIn
       )}
 
       {variant === "f" && stuck && (
-        <div className="fixed inset-x-0 top-0 z-[44]">
+        <div className="fixed inset-x-0 top-0 z-[44] bg-[#f0f2f7] pt-[env(safe-area-inset-top,0px)] dark:bg-[#0f172a]">
           <div className="mx-auto flex max-w-[430px] items-center justify-between gap-3 border-b border-slate-200 bg-[#f0f2f7] px-4 py-2 dark:border-slate-700 dark:bg-[#0f172a]">
             <span className="text-sm font-bold text-slate-950 dark:text-white">Accounts</span>
             <span className="money text-sm font-semibold text-slate-950 dark:text-white"><span aria-hidden="true">{nwText}</span><span className="sr-only">{hidden ? "Net worth hidden" : `Net worth ${nwText}`}</span></span>
