@@ -21,6 +21,7 @@ import {
   DEFAULT_PAY_PERIOD_CONFIG,
 } from "@/lib/payPeriod";
 import { usePreferences } from "@/components/PreferencesContext";
+import { insightsForDisplay } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { isHomeCurrency } from "@/lib/currency";
@@ -229,7 +230,7 @@ function SpendSkeleton() {
 }
 
 export default function SpendPage() {
-  const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, spendWidgets } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, spendWidgets, showTips } = usePreferences();
   // Keep the journey's mobile strip attached to the viewport. This is
   // scoped to Spend's mounted lifetime, not an app-wide overflow change.
   useEffect(() => {
@@ -265,7 +266,11 @@ export default function SpendPage() {
   );
   // Load after the verdict has had a chance to paint. This request only adds
   // contextual annotations; a failure leaves the category UI unchanged.
+  // G189: with tips switched off in Settings nothing is fetched and the
+  // category UI gets an empty list, so a cached list from before the switch
+  // can never flash a tip subline.
   useEffect(() => {
+    if (!showTips) return;
     let active = true;
     const timer = window.setTimeout(() => {
       loadCategoryInsights()
@@ -273,7 +278,7 @@ export default function SpendPage() {
         .catch(() => {});
     }, 300);
     return () => { active = false; window.clearTimeout(timer); };
-  }, []);
+  }, [showTips]);
   const [transactionsRequested, setTransactionsRequested] = useState(false);
   const transactionsEnabled = chartsRequested || transactionsRequested;
   const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions(transactionsEnabled);
@@ -1131,7 +1136,7 @@ export default function SpendPage() {
                 colours={colours}
                 hideReading
                 journey
-                categoryInsights={categoryInsights}
+                categoryInsights={insightsForDisplay(showTips, categoryInsights)}
                 expandMajoritySignal={expandSignal}
                 miscategorisedCount={miscategorisedCount}
                 pairCount={pairCount}

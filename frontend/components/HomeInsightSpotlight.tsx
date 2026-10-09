@@ -7,6 +7,7 @@ import { api, SavingsInsight } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
+import { usePreferences } from "@/components/PreferencesContext";
 import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
 
 // Where tapping the spotlight card body lands — the transactions hub, with
@@ -51,6 +52,7 @@ interface HomeInsightSpotlightProps {
 
 export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
+  const { showTips } = usePreferences();
   const [insight, setInsight] = useState<SavingsInsight | null>(previewInsight ?? null);
   const [loaded, setLoaded] = useState(Boolean(previewInsight));
 
@@ -87,6 +89,10 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
   // While the very first fetch is in flight, show a skeleton so the zone
   // reserves space and doesn't cause layout shift when the card arrives.
   // Once loaded, dismissed/no-insight still returns null exactly as before.
+  // G189: tips switched off in Settings. The server already serves null;
+  // this keeps a cached card from showing before that resolves.
+  if (!showTips) return null;
+
   if (!loaded) {
     return (
       <div className="px-4 lg:px-0">

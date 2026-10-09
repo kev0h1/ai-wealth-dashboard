@@ -758,7 +758,7 @@ function UnresolvedAskCard({
   );
 }
 
-function MajorityRowView({
+export function MajorityRowView({
   row,
   colours,
   quietTag,
