@@ -31,3 +31,32 @@ export function pennySwipeGate(input: PennySwipeInput, overflowY?: (node: SwipeN
   if (!sheetSwipeAllowed(input.pointerType, input.viewportWidth)) return false;
   return canStartSheetSwipe(input.target, { handle: null, header: input.header, body: input.scroller }, overflowY);
 }
+
+// G247: the sheet panel is mounted for the whole session and only its ref is
+// toggled (`ref={isOpen ? panelRef : undefined}`). A swipe-dismiss leaves
+// translateY(height+20px) inline on that node (swipeController.ts), and the
+// controller's own restoreAfterMs reset finds no element once the ref has been
+// nulled by the close, so the next open slid in off-screen: a blank sheet. The
+// style is reset whenever the node attaches (open) or detaches (close, hidden
+// by then so nothing flashes).
+export interface PennyPanelStyleNode {
+  style: { transform: string; opacity: string; transition: string };
+}
+
+export function resetPennyPanelStyle(node: PennyPanelStyleNode | null | undefined): void {
+  if (!node) return;
+  node.style.transform = "";
+  node.style.opacity = "";
+  node.style.transition = "";
+}
+
+/** Ref callback factory: tracks the last node and clears swipe residue on
+ * every attach and detach, then hands the node on. */
+export function createPennyPanelRef<T extends PennyPanelStyleNode>(onNode: (node: T | null) => void) {
+  let last: T | null = null;
+  return (node: T | null) => {
+    resetPennyPanelStyle(node ?? last);
+    last = node;
+    onNode(node);
+  };
+}
