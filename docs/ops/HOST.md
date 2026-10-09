@@ -78,3 +78,27 @@ code fault: free memory and re-run, do not "fix" the branch.
 guard hashes after a deliberate change to a database-drop guard, and the
 re-pin must land in the same commit as that change (and any weakening needs
 Kevin's agreement), see `docs/ops/INCIDENTS.md`.
+
+## Finexer consent reconciliation (A156)
+
+Before A157 revokes silently did nothing, and before A106 a failed revoke lost
+its record, so Finexer may hold authorized consents we no longer know about.
+`backend/scripts/finexer_reconcile_consents.py` lists every consent
+(`GET /consents`, following `paging.next`) and compares it with the local
+`finexer_consents` collection. UAT and production share one Finexer account, so
+a customer unknown to the database being checked is reported as "other
+environment" and never touched; each environment's run only acts on its own
+users.
+
+1. Dry run (default, read-only GETs): `cd backend && .venv/bin/python scripts/finexer_reconcile_consents.py --env-file .env`.
+   Production: add `--mongo-uri <production Atlas URI> --db wealth`.
+2. Review `/tmp/finexer-reconcile-<date>.json`: orphans (authorized at Finexer,
+   no local doc), stale local, matched, other environment (count only), pending
+   (ages; Finexer auto-cancels after 7 days). Users appear as sha256 hashes.
+3. Apply only after Kevin says so: add `--apply --yes [--limit N]`. Orphans are
+   revoked through `revoke_finexer_consent` (rate limited, failures leave an A106
+   marker, each confirmed by a GET); stale local docs are flipped to revoked and
+   stale local pending docs to canceled. Nothing is cancelled at Finexer. The
+   production run needs the production Mongo URI with write access for the local
+   flips and is run by Kevin or the coordinator.
+4. Repeat monthly until the A106 pending count (admin sync stats) stays at 0.
