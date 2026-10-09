@@ -2128,6 +2128,9 @@ export default function PennyConversation({
         </div>
       )}
 
+      {/* G244: `pt-3` is the same 12px (DESIGN.md spacing md) as the
+          `space-y-3` gap between messages, so the first bubble or the starter
+          block never sits on the divider under the chip row. */}
       {/* Thread. Full-page mode: in-flow, page-scrolled (no inner scroll
           container; the docked composer below is fixed to the viewport
           independent of this). Sheet mode: this IS the scroll container
@@ -2147,7 +2150,7 @@ export default function PennyConversation({
         role="log"
         data-penny-scroll={inSheet ? "" : undefined}
         onScroll={inSheet ? onThreadScroll : undefined}
-        className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5" : "space-y-3"}
+        className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5 pt-3" : "space-y-3"}
       >
         {/* A deterministic "Payday is close..." lead bubble used to render
             here, ahead of `messages`, built from api.safeToSpend() to
