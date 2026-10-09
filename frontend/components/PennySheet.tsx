@@ -131,6 +131,11 @@ import { PENNY_PHONE_QUERY, createPennyPanelRef, pennySwipeGate } from "@/lib/pe
 import type { SwipeNode } from "@/lib/sheetSwipe";
 import PennyMark from "@/components/PennyMark";
 import PennyConversation from "@/components/PennyConversation";
+import { PennyChatToolbar } from "@/components/PennyChatActions";
+import PennyHistorySheet from "@/components/PennyHistorySheet";
+import PennyOpenLastChatRow from "@/components/PennyOpenLastChatRow";
+import { usePreferences } from "@/components/PreferencesContext";
+import { usePennyChatSession } from "@/lib/usePennyChatSession";
 import PennySheetPanel from "@/components/PennySheetPanel";
 export { default as PennySheetPanel } from "@/components/PennySheetPanel";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -514,6 +519,21 @@ export default function PennySheet() {
   const [hasOpened, setHasOpened] = useState(false);
   if (isOpen && !hasOpened) setHasOpened(true);
 
+  // G248: the stored chat session and the History view. Owned here (not in
+  // PennyConversation) because the header's New chat / History actions, the
+  // history sheet and the thread all share it. Started on the first open.
+  const chat = usePennyChatSession(hasOpened);
+  const { openLastChat, setOpenLastChat, preferencesSaveError } = usePreferences();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  if (!isOpen && historyOpen) setHistoryOpen(false);
+  const refreshChatHistory = chat.refreshHistory;
+  const openHistory = useCallback(() => { setHistoryOpen(true); void refreshChatHistory().catch(() => undefined); }, [refreshChatHistory]);
+  const closeHistory = useCallback(() => {
+    setHistoryOpen(false);
+    // The header was hidden, not unmounted: hand focus back to the action.
+    requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-penny-chat-toolbar] button:last-child")?.focus());
+  }, []);
+
   // G244: on phones the open sheet owns one history entry (useSheetA11y's
   // backToClose, the H71/H72 capability): Back, the X, Escape and a swipe all
   // end in the same popstate, which runs `finishClose`. Android's hardware
@@ -674,9 +694,22 @@ export default function PennySheet() {
               Horizontal inset moved off this wrapper (was `px-4`) and onto
               the two rows below individually (`px-5` each) so the divider
               two comments down can run full-bleed — see that comment. */}
+          {historyOpen && <PennyHistorySheet
+            conversations={chat.history} activeId={chat.activeId}
+            onResume={(id) => { chat.resume(id).then(closeHistory).catch(() => undefined); }}
+            onDelete={(id) => { void chat.remove(id).catch(() => undefined); }}
+            onClose={closeHistory}
+            footer={<PennyOpenLastChatRow checked={openLastChat} onChange={setOpenLastChat}
+              saveError={preferencesSaveError?.field === "open_last_chat" ? preferencesSaveError.message : null} />}
+          />}
+          {/* G248: History replaces the header and thread inside the same
+              panel, hidden rather than unmounted, so the dialog, its focus
+              trap, the G244 close path and the thread all stay as they are. */}
+          <div className={historyOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
           <PennySheetHeader pennyUsed={pennyUsed} pennyLimit={pennyLimit} usageRevealed={usageRevealed}
             handleAvatarTap={handleAvatarTap} close={requestClose} headerLinks={headerLinks}
-            onNavigate={(href) => { nextRef.current = () => router.push(href); requestClose(); }} />
+            onNavigate={(href) => { nextRef.current = () => router.push(href); requestClose(); }}
+            toolbar={<PennyChatToolbar onNewChat={chat.newChat} onHistory={openHistory} />} />
 
           {/* Body — PennyConversation owns its own internally-scrolling
               thread and its non-fixed, flow-docked composer when `inSheet`
@@ -698,7 +731,8 @@ export default function PennySheet() {
               of, and letting its own internal thread pane do the
               `overflow-y-auto` scrolling instead of the whole sheet
               growing without bound. */}
-          {hasOpened && <PennyConversation inSheet askContext={ctx} askSeq={openSeq} className="flex-1 min-h-0" />}
+          {hasOpened && <PennyConversation inSheet askContext={ctx} askSeq={openSeq} chat={chat} className="flex-1 min-h-0" />}
+          </div>
 
           {/* More Messages sheet (2026-09-06) — an overlay ON this same
               panel (not a second portal/sheet), opened from the avatar-ring

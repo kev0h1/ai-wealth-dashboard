@@ -7,6 +7,10 @@ import { ArrowLeft } from "lucide-react";
 import { PennySheetHeader, PennySheetPanel } from "@/components/PennySheet";
 import PennyComposer from "@/components/PennyComposer";
 import PennyStarterState from "@/components/PennyStarterState";
+import { PennyChatToolbar } from "@/components/PennyChatActions";
+import PennyHistorySheet from "@/components/PennyHistorySheet";
+import PennyOpenLastChatRow from "@/components/PennyOpenLastChatRow";
+import type { PennyConversationSummary } from "@/lib/api";
 import { SuggestionChip } from "@/components/PennyConversation";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
@@ -21,6 +25,22 @@ import FixtureBottomNav from "../_components/FixtureBottomNav";
 // exercised here; the chip labels below are fixtures and the replies are
 // local. The empty-state gate is therefore a partial copy of the data source
 // only (CLAUDE.md exception), not of the markup. No Penny call is made.
+//
+// G248 (variant A, Quiet toolbar, approved by Kevin 2026-10-09): the header
+// toolbar row (PennyChatToolbar through PennySheetHeader's `toolbar` prop) and
+// the history sheet (PennyHistorySheet with the PennyOpenLastChatRow footer)
+// are the production components with fixture rows. The stored-chat session
+// (create on first send, resume, load-latest, cap) lives in PennyConversation
+// and lib/pennyChatController.ts, covered by check:g248-penny-history, not
+// by this page. ?history=1 opens the history sheet.
+
+const NOW = new Date("2026-10-09T12:00:00Z");
+const HISTORY: PennyConversationSummary[] = [
+  { id: "c1", title: "Can I afford a weekend away?", created_at: "2026-10-09T08:12:00Z", updated_at: "2026-10-09T08:20:00Z", preview: "You have £84 free until payday, so a cheap weekend is possible.", turn_count: 6, at_cap: false },
+  { id: "c2", title: "Why is my food spending up?", created_at: "2026-10-08T17:02:00Z", updated_at: "2026-10-08T17:09:00Z", preview: "Two big shops landed in the same week.", turn_count: 4, at_cap: false },
+  { id: "c3", title: "What is coming out before payday?", created_at: "2026-10-05T07:30:00Z", updated_at: "2026-10-05T07:34:00Z", preview: "Three bills, £212 in total, the largest on the 12th.", turn_count: 4, at_cap: false },
+  { id: "c4", title: "How is my card balance changing?", created_at: "2026-09-28T19:40:00Z", updated_at: "2026-09-28T19:55:00Z", preview: "It grew by £46 this pay period.", turn_count: 8, at_cap: false },
+];
 
 type Turn = { id: number; role: "user" | "assistant"; text: string };
 
@@ -34,11 +54,14 @@ const subscribeToMount = () => () => {};
 const clientMounted = () => true;
 const serverMounted = () => false;
 
-function PreviewWindow({ open, onClose, seed }: { open: boolean; onClose: () => void; seed: string }) {
+function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; onClose: () => void; seed: string; startHistory: boolean }) {
   const mounted = useSyncExternalStore(subscribeToMount, clientMounted, serverMounted);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Turn[]>(seed === "long" ? LONG : []);
   const [loading, setLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(startHistory);
+  const [chats, setChats] = useState<PennyConversationSummary[]>(HISTORY);
+  const [openLast, setOpenLast] = useState(false);
   const [usageShown, setUsageShown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const thread = useRef<HTMLDivElement>(null);
@@ -67,12 +90,21 @@ function PreviewWindow({ open, onClose, seed }: { open: boolean; onClose: () => 
   return createPortal(<>
     {open && <div aria-hidden="true" className="fixed inset-0 z-[56] touch-none" onClick={close} />}
     <PennySheetPanel isOpen={open} panelRef={open ? ref : undefined} presentation="fullscreen">
+      {historyOpen && <PennyHistorySheet
+        conversations={chats} activeId="c1" now={NOW}
+        onResume={() => { setMessages(LONG); setHistoryOpen(false); }}
+        onDelete={id => setChats(list => list.filter(c => c.id !== id))}
+        onClose={() => setHistoryOpen(false)}
+        footer={<PennyOpenLastChatRow checked={openLast} onChange={setOpenLast} />}
+      />}
+      <div className={historyOpen ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
       <div className="shrink-0" onClickCapture={event => {
         if ((event.target as HTMLElement).closest('a[href="#preview-info"]')) event.preventDefault();
       }}>
         <PennySheetHeader pennyUsed={3} pennyLimit={20} usageRevealed={usageShown}
           handleAvatarTap={() => setUsageShown(v => !v)} close={close}
-          headerLinks={[{ label: "Your plan and updates", href: "#preview-info" }]} />
+          headerLinks={[{ label: "Your plan and updates", href: "#preview-info" }]}
+          toolbar={<PennyChatToolbar onNewChat={() => { setMessages([]); setInput(""); }} onHistory={() => setHistoryOpen(true)} />} />
       </div>
 
       <div ref={thread} data-penny-scroll role="log" aria-label="Preview conversation" aria-live="polite" aria-relevant="additions text"
@@ -91,6 +123,7 @@ function PreviewWindow({ open, onClose, seed }: { open: boolean; onClose: () => 
         <PennyComposer inputRef={inputRef} value={input} onChange={setInput} onSend={() => ask(input)}
           placeholder="Ask Penny a question…" loading={loading} atCap={false} />
       </div>
+      </div>
     </PennySheetPanel>
   </>, document.body);
 }
@@ -99,7 +132,8 @@ export default function PennyFullscreenClient() {
   const params = useSearchParams();
   const seed = (params.get("thread") ?? params.get("state")) === "long" ? "long" : "empty";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
-  const [open, setOpen] = useState(params.get("open") === "1");
+  const startHistory = params.get("history") === "1";
+  const [open, setOpen] = useState(params.get("open") === "1" || startHistory);
   useEffect(() => {
     const wasDark = document.documentElement.classList.contains("dark");
     const previousScheme = document.documentElement.style.colorScheme;
@@ -126,6 +160,6 @@ export default function PennyFullscreenClient() {
       <section className="mt-6 border-t border-slate-300 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300"><h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Try on both phones</h2><p className="mt-1">Open Penny and check the header clears the clock and notch. Tap the input: the page behind must not show above or beside the sheet, the composer sits on the keyboard, and the starter content steps aside. Dismiss the keyboard and it returns. Rotate, send a message, close. A hardware or headless browser cannot show a real software keyboard.</p></section>
     </div>
     <div data-penny-navigation><FixtureBottomNav active="Home" onPennyClick={() => setOpen(v => !v)} pennyExpanded={open} /></div>
-    <PreviewWindow key={seed} open={open} onClose={() => setOpen(false)} seed={seed} />
+    <PreviewWindow key={seed} open={open} onClose={() => setOpen(false)} seed={seed} startHistory={startHistory} />
   </main>;
 }
