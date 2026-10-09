@@ -255,8 +255,25 @@ async def admin_sync_stats(user: dict = Depends(current_user)):
 
     orphaned_pending = await orphaned_revocations_col.count_documents({})
 
+    # B44: savings-insights research health. `line` is null while healthy.
+    from app.services import tips_research_health
+    research_doc = await tips_research_health.load()
+
     return {
         "last_reconcile": last_reconcile,
+        "tips_research": {
+            "status": (research_doc or {}).get("research_status") or "unknown",
+            "line": tips_research_health.status_line(research_doc),
+            "last_error_code": (research_doc or {}).get("last_error_code"),
+            "last_error_at": (
+                research_doc["last_error_at"].isoformat() + "Z"
+                if (research_doc or {}).get("last_error_at") else None
+            ),
+            "skip_until": (
+                research_doc["skip_until"].isoformat() + "Z"
+                if (research_doc or {}).get("skip_until") else None
+            ),
+        },
         "finexer_requests": finexer_requests,
         # A106: markers app.services.retention.disconnect_connection writes
         # when a Finexer consent revoke fails remotely (a raised exception

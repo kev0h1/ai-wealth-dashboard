@@ -506,7 +506,7 @@ export function InsightCard({
   // furniture, not even a resolved-state placeholder or a "between
   // refreshes" caption). "quiet" is only reachable here at all when a
   // compact row has been manually expanded (isCompactPullInsight, above).
-  const contentLive = insight.state === "fresh";
+  const contentLive = insight.state === "fresh" || insight.state === "stale";
   // Resolved = verified or substituted — Zone 1's banner already states the
   // fact permanently (see `_derive_insight_state`'s first-write-wins
   // precedence: once resolved, a doc never returns to "fresh" on its own).
@@ -694,6 +694,16 @@ export function InsightCard({
               {insight.expiry_line && (
                 <span className="text-[11px] text-slate-400 dark:text-slate-500 self-end">
                   {insight.expiry_line}
+                </span>
+              )}
+              {/* B44: research is failing, so this is the last good tip kept
+                  past its TTL. Server-composed note, rendered verbatim. */}
+              {insight.state === "stale" && insight.stale_note && (
+                <span
+                  data-testid="insight-stale-note"
+                  className="text-[11px] text-slate-500 dark:text-slate-400 self-end"
+                >
+                  {insight.stale_note}
                 </span>
               )}
 

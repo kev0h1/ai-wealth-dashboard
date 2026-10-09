@@ -208,6 +208,10 @@ export interface SavingsInsight {
    *  "Refreshes weekly, researched 2d ago" for generic content on the
    *  default TTL. Render verbatim. null unless `state` is "fresh". */
   expiry_line?: string | null;
+  /** B44: "Tips may be out of date". Set only while `state` is "stale"
+   *  (research is failing and the previous tip is being kept). Render
+   *  verbatim, quietly. */
+  stale_note?: string | null;
   /** When the title/body/savings_estimate above were last actually
    *  researched (web search + LLM), for the always-visible research-age
    *  stamp. null once content has aged past `content_valid_until` or was
@@ -227,13 +231,17 @@ export interface SavingsInsight {
    *                  current (now < content_valid_until) and safe to
    *                  render, every category alike (owner decision
    *                  2026-09-01 retired the push/pull cadence split)
+   *    stale       - B44: the research provider is failing, so the last
+   *                  good title/body is kept visible past its TTL with
+   *                  `stale_note` instead of blanking (never for a dated
+   *                  deal whose own deadline has passed)
    *    quiet       - no current research, compact row, no tap affordance.
    *                  The normal between-weekly-refresh state now, not a
    *                  first-run-only or pull-only case (folds the old
    *                  `push_stale` state into this one)
    *  Optional so a client running against an older backend that doesn't
    *  send this field degrades gracefully. */
-  state?: "verified" | "substituted" | "fresh" | "quiet";
+  state?: "verified" | "substituted" | "fresh" | "stale" | "quiet";
   /** Which "money shape" job (see MoneyShape below) this insight's category
    *  lives under, for the Insights tab's job-grouped tip list. "moved" and
    *  "left" are never assigned to an insight (nothing to save on money

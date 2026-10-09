@@ -1,5 +1,6 @@
 """Savings insights endpoints."""
 import asyncio
+import contextvars
 import hashlib
 import json
 import logging
@@ -17,6 +18,7 @@ from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
 from app.core import timeutil
+from app.services import tips_research_health
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
@@ -1447,12 +1449,24 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
     return result
 
 
+_RESEARCH_OUTCOME: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "savings_insights_research_outcome", default=None,
+)
+
+
 async def _generate_savings_insight_content(
     category_key: str,
     user_id: str,
     user_context: Optional[dict] = None,
     triggered_by: Optional[list[dict]] = None,
 ) -> Optional[dict]:
+    # B44: `outcome`, when the weekly pass has set one (a ContextVar, so the
+    # function signature stays stable for its many callers and stubs), is filled with {"failure": <static code>}
+    # whenever the research provider (Tavily) is the reason nothing came
+    # back, so the weekly pass can tell an outage from an ordinary empty
+    # result. Codes: quota, auth, rate, server, timeout, client, error,
+    # backoff (a recent quota/auth/rate failure is still suppressing calls).
+    outcome      = _RESEARCH_OUTCOME.get()
     cfg          = INSIGHT_CATEGORIES[category_key]
     now          = datetime.utcnow()
     today_label  = now.strftime("%B %Y")
@@ -1468,6 +1482,16 @@ async def _generate_savings_insight_content(
     # never be confirmed. Every branch below that can lead to a failed
     # research pass now logs its own specific cause at WARNING, which is the
     # level actually visible under that prod flag.
+    if TAVILY_API_KEY and tips_research_health.backoff_active(
+        await tips_research_health.load(), datetime.utcnow()  # naive-ok: persisted provider-health audit timestamp
+    ):
+        log.info(
+            "savings_insights research: backing off after a recent provider failure, "
+            "skipping search for category=%s", category_key,
+        )
+        if outcome is not None:
+            outcome["failure"] = "backoff"
+        return None
     if TAVILY_API_KEY:
         async with httpx.AsyncClient(timeout=20) as client:
             try:
@@ -1484,19 +1508,36 @@ async def _generate_savings_insight_content(
                         snippet = res.get("content", "")[:250]
                         if snippet:
                             web_snippets.append(snippet)
+                    await tips_research_health.record_success(datetime.utcnow())  # naive-ok: persisted provider-health audit timestamp
                 else:
+                    code = tips_research_health.classify_http_status(r.status_code)
                     log.warning(
-                        "savings_insights research: tavily HTTP %s for category=%s",
-                        r.status_code, category_key,
+                        "savings_insights research: tavily HTTP %s (%s) for category=%s",
+                        r.status_code, code, category_key,
                     )
-            except httpx.TimeoutException:
+                    if outcome is not None:
+                        outcome["failure"] = code
+                    await tips_research_health.record_failure(
+                        code, r.status_code, datetime.utcnow(),  # naive-ok: persisted provider-health audit timestamp
+                    )
+            except httpx.TimeoutException as e:
                 log.warning(
                     "savings_insights research: tavily timeout for category=%s", category_key,
+                )
+                if outcome is not None:
+                    outcome["failure"] = "timeout"
+                await tips_research_health.record_failure(
+                    tips_research_health.classify_exception(e), None, datetime.utcnow(),  # naive-ok: persisted provider-health audit timestamp
                 )
             except Exception as e:
                 log.warning(
                     "savings_insights research: tavily request error for category=%s: %r",
                     category_key, e,
+                )
+                if outcome is not None:
+                    outcome["failure"] = "error"
+                await tips_research_health.record_failure(
+                    tips_research_health.classify_exception(e), None, datetime.utcnow(),  # naive-ok: persisted provider-health audit timestamp
                 )
     else:
         log.warning(
@@ -1930,6 +1971,10 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
     researched: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
+    # B44: once a quota/auth/rate failure (or an active backoff) is seen,
+    # stop spending research calls for the rest of this pass.
+    research_halted: Optional[str] = None
+    stale_marked: list[str] = []
 
     for cat_key in applicable:
         cfg = INSIGHT_CATEGORIES.get(cat_key)
@@ -2080,7 +2125,23 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             continue
 
         stored_context = existing.get("user_context") if existing else None
-        content        = await _generate_savings_insight_content(cat_key, user_id, stored_context, triggered_by)
+        outcome: dict = {}
+        if research_halted:
+            content = None
+            outcome["failure"] = research_halted
+        else:
+            _tok = _RESEARCH_OUTCOME.set(outcome)
+            try:
+                content = await _generate_savings_insight_content(
+                    cat_key, user_id, stored_context, triggered_by,
+                )
+            finally:
+                _RESEARCH_OUTCOME.reset(_tok)
+        provider_failure = outcome.get("failure")
+        if provider_failure and not research_halted and (
+            provider_failure in tips_research_health.BACKOFF_CODES or provider_failure == "backoff"
+        ):
+            research_halted = provider_failure
         if not content or not content.get("body"):
             # Generation failed (e.g. Tavily quota exhausted) but the fresh
             # triggered_by is still correct and free — persist it so stored
@@ -2094,9 +2155,15 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             # corrupt evidence in the meantime. Nothing to update for a brand
             # new document; just move on.
             if existing:
+                fail_set: dict = {"triggered_by": triggered_by, "is_new": False}
+                if provider_failure:
+                    # B44: research is down, so keep the last good tip
+                    # visible past its TTL with an out-of-date note rather
+                    # than blanking it (see `_derive_insight_state`).
+                    fail_set["research_stale_at"] = datetime.utcnow()  # naive-ok: persisted provider-health audit timestamp
+                    stale_marked.append(cat_key)
                 await savings_insights_col.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": {"triggered_by": triggered_by, "is_new": False}},
+                    {"_id": existing["_id"]}, {"$set": fail_set},
                 )
             failed.append(cat_key)
             continue
@@ -2123,6 +2190,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 # "last real content generation" marker for all of them.
                 "researched_at": now,
                 "content_valid_until": content_valid_until,
+                "research_stale_at": None,
             }
             if not existing.get("pinned"):
                 update["expires_at"] = now + timedelta(days=30)
@@ -2154,6 +2222,13 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         _uid_hash(user_id), len(researched), len(skipped), len(failed),
         ",".join(researched) or "none", ",".join(failed) or "none",
     )
+    if research_halted or stale_marked:
+        # B44: one loud line per pass when the research provider is down.
+        log.warning(
+            "savings_insights research outage user=%s reason=%s kept_previous_tips=%d "
+            "(research paused for this pass)",
+            _uid_hash(user_id), research_halted or "provider_failure", len(stale_marked),
+        )
 
 
 def _merchant_scoped_route(category: str, triggered_by: list[dict]) -> Optional[str]:
@@ -2290,7 +2365,20 @@ def _derive_insight_state(d: dict) -> str:
         has_content and bool(content_valid_until)
         and timeutil.user_today() <= timeutil.to_user_date(content_valid_until)
     )
-    return "fresh" if fresh else "quiet"
+    if fresh:
+        return "fresh"
+    # B44: research is failing (the weekly pass stamped `research_stale_at`),
+    # so keep the last good tip visible past its TTL with an out-of-date
+    # note instead of blanking it. Never for a dated deal whose own deadline
+    # has passed: an expired offer must not be shown as current.
+    if has_content and d.get("research_stale_at"):
+        claim = d.get("claim_valid_until")
+        if not (claim and timeutil.to_user_date(claim) < timeutil.user_today()):
+            return "stale"
+    return "quiet"
+
+
+STALE_NOTE = "Tips may be out of date"
 
 
 def _relative_age(dt: datetime, now: datetime) -> str:
@@ -2392,12 +2480,14 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     # re-pitching researched copy the user has already acted on (or that
     # turned out not to be a real saving); `quiet` has no current content by
     # construction.
-    content_live = state == "fresh"
+    content_live = state in {"fresh", "stale"}
     savings_estimate = d.get("savings_estimate") if content_live else None
     title_raw = d.get("title", "") if content_live else ""
     body_raw = d.get("body", "") if content_live else ""
-    claim_valid_until_raw = d.get("claim_valid_until") if content_live else None
-    content_valid_until_raw = d.get("content_valid_until") if content_live else None
+    # A stale tip shows its text but never an expiry or deadline stamp: its
+    # TTL has already passed, so those dates would read as current.
+    claim_valid_until_raw = d.get("claim_valid_until") if state == "fresh" else None
+    content_valid_until_raw = d.get("content_valid_until") if state == "fresh" else None
 
     # Unsupported-savings-claim repair (incoherence C): belt-and-braces,
     # same pattern as the em/en-dash and decimal-space repairs above — runs
@@ -2473,7 +2563,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         f"invariant violated: state=fresh with empty content (insight_id="
         f"{d.get('insight_id')!r}, category={cat!r})"
     )
-    assert state in {"fresh", "verified", "substituted"} or not (title_raw.strip() and body_raw.strip()), (
+    assert state in {"fresh", "stale", "verified", "substituted"} or not (title_raw.strip() and body_raw.strip()), (
         f"invariant violated: state={state!r} carries non-empty researched "
         f"content (insight_id={d.get('insight_id')!r}, category={cat!r})"
     )
@@ -2582,11 +2672,13 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         # content_live.
         "expiry_line": (
             _expiry_line(researched_at, content_valid_until_raw, claim_valid_until_raw, timeutil.user_now())
-            if content_live else None
+            if state == "fresh" else None
         ),
+        # B44: set only for state == "stale"; the client shows it verbatim.
+        "stale_note":      STALE_NOTE if state == "stale" else None,
         # STRUCTURAL FIX — the single source of truth every consumer should
         # switch on now (see the comment above `_derive_insight_state`):
-        # "verified" | "substituted" | "fresh" | "quiet".
+        # "verified" | "substituted" | "fresh" | "stale" | "quiet".
         # ("retired" is never returned here — every caller already excludes
         # `retired_at` docs from its own query before this function runs.)
         "state":           state,
