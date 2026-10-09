@@ -1073,7 +1073,23 @@ export type CanIResponse = {
    * ConsentMsg for how each renders. */
   proposal?: PennyProposal | null;
   consent_required?: boolean;
+  /** G248: present when the question was sent with a conversation id. */
+  conversation?: { id: string; turn_count?: number; at_cap?: boolean; missing?: boolean; error?: boolean };
 };
+
+/** G248: Penny chat history, see backend/app/services/penny_conversations.py. */
+export type PennyConversationSummary = {
+  id: string;
+  title: string;
+  created_at: string | null;
+  updated_at: string | null;
+  /** One line: the last Penny reply. */
+  preview: string;
+  turn_count: number;
+  at_cap: boolean;
+};
+export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string };
+export type PennyConversation = PennyConversationSummary & { turns: PennyConversationTurn[] };
 
 /** Agent mode v1's confirm card (owner decisions locked: confirm-as-is, no
  * inline edits, one-time consent, origin badges, 15-min server-enforced
@@ -2826,12 +2842,13 @@ export const api = {
     history?: Array<{ role: "user" | "assistant"; content: string }>,
     context?: string,
     screen?: string,
-    view?: PennyScreenView
+    view?: PennyScreenView,
+    conversationId?: string
   ): Promise<CanIResponse> => {
     const res = await fetch(`${API_BASE}/can-i`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ question, history, context, screen, view }),
+      body: JSON.stringify({ question, history, context, screen, view, ...(conversationId ? { conversation_id: conversationId } : {}) }),
     });
     reportIfUnauthorized(res);
     if (res.status === 402) {
@@ -2849,6 +2866,15 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
   },
+  // G248: Penny chat history. The 409 PENNY_CONVERSATION_FULL on canI and
+  // appendPennyTurns surfaces as an ordinary error; callers read the chat's
+  // at_cap from the response (or the list) instead.
+  listPennyConversations: () => get<{ conversations: PennyConversationSummary[]; max_conversations: number; max_turns: number }>("/penny/conversations"),
+  getPennyConversation: (id: string) => get<PennyConversation>(`/penny/conversations/${encodeURIComponent(id)}`),
+  createPennyConversation: () => post<PennyConversation>("/penny/conversations", {}),
+  appendPennyTurns: (id: string, turns: Array<{ role: "user" | "assistant"; text: string; proposal_id?: string }>) =>
+    post<{ turn_count: number; at_cap: boolean }>(`/penny/conversations/${encodeURIComponent(id)}/turns`, { turns }),
+  deletePennyConversation: (id: string) => del<{ deleted: boolean }>(`/penny/conversations/${encodeURIComponent(id)}`),
   // POST /penny/chip — cheap, engine-answered chip questions (see
   // lib/pennyScreenConfig.tsx's `chipId` and CanISuggestionChip's `chip_id`
   // above). Never counts against the Penny message allowance. Returns
@@ -3129,6 +3155,7 @@ export const api = {
     }).then((r) => toJson<SavingsInsights>(r)),
   getPreferences: () => get<{
     hide_net_worth: boolean;
+    open_last_chat?: boolean;
     dark_mode?: boolean;
     notification_prefs?: NotificationPrefs;
     income_bracket?: string;
@@ -3160,6 +3187,7 @@ export const api = {
   getTaxAnnualisedIncome: () => get<{ annualised_income: number | null }>("/tax/annualised-income"),
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
+    open_last_chat: boolean;
     dark_mode: boolean;
     pay_period_config: unknown;
     notification_prefs: NotificationPrefs;
@@ -3194,7 +3222,7 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then((r) => toJson<{ hide_net_worth: boolean; dark_mode?: boolean; version?: number }>(r)),
+    }).then((r) => toJson<{ hide_net_worth: boolean; open_last_chat?: boolean; dark_mode?: boolean; version?: number }>(r)),
   getCategories: () => get<CategoriesResponse>("/categories"),
   addCategory: (name: string, kind: CategoryKind = "discretionary") =>
     post<CategoriesResponse>("/categories", { name, kind }),

@@ -154,6 +154,8 @@ export interface WholeDocumentApplyCallbacks {
   applyPayPeriodConfig: (v: PayPeriodConfig) => void;
   applyDebtTargetMonths: (v: number) => void;
   applyDebtTrackingStart: (v: string) => void;
+  /** G248: optional so older callers and tests need not supply it. */
+  applyOpenLastChat?: (v: boolean) => void;
   setSpendWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
   setDebtBurndownOverrides: (v: any) => void;
@@ -175,6 +177,7 @@ export interface WholeDocumentApplySkip {
   payPeriodConfig?: () => boolean;
   debtTargetMonths?: () => boolean;
   debtTrackingStart?: () => boolean;
+  openLastChat?: () => boolean;
 }
 
 /**
@@ -201,6 +204,7 @@ export function applyWholeDocument(
   if (p.pay_period_config && !skip.payPeriodConfig?.()) cb.applyPayPeriodConfig(p.pay_period_config as PayPeriodConfig);
   if (p.debt_target_months && !skip.debtTargetMonths?.()) cb.applyDebtTargetMonths(p.debt_target_months as number);
   if (p.debt_tracking_start && !skip.debtTrackingStart?.()) cb.applyDebtTrackingStart(p.debt_tracking_start as string);
+  if (p.open_last_chat !== undefined && !skip.openLastChat?.()) cb.applyOpenLastChat?.(p.open_last_chat);
   if (Array.isArray(p.spend_widgets)) cb.setSpendWidgets(p.spend_widgets as string[]);
   if (p.home_pinned_widget !== undefined) cb.setHomePinnedWidget(p.home_pinned_widget ?? null);
   if (p.debt_burndown_overrides !== undefined) cb.setDebtBurndownOverrides(p.debt_burndown_overrides ?? null);

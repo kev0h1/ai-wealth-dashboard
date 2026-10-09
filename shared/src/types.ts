@@ -593,6 +593,7 @@ export interface DebtBurndown {
 
 export interface UserPreferences {
   hide_net_worth: boolean;
+  open_last_chat?: boolean;
   dark_mode?: boolean;
   pay_period_config?: unknown;
 }
