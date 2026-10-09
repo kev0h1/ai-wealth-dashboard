@@ -87,8 +87,8 @@ check(
   privacyOff.includes("Section 4 and Section 9")
 );
 check(
-  'privacy.md disabled output renumbers the retention cross-reference "Section 9" (AI processing) to "Section 8"',
-  / short period \(see Section 8\)/.test(privacyOff)
+  "privacy.md disabled output keeps the G248 Penny conversation retention sentence and no stale 'see Section 9' cross-reference after it",
+  privacyOff.includes("for 7 days after the last message. You can delete any of them in the app.") && !/ short period \(see Section 9\)/.test(privacyOff)
 );
 check(
   'privacy.md disabled output renumbers "Section 5 and Section 7" (international transfers) to "Section 5 and Section 6"',

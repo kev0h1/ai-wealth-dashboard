@@ -18,13 +18,7 @@ export function formatHistoryDate(iso: string | null | undefined, now: Date = ne
   }).format(d).replace("Sept", "Sep"); // newer ICU spells September "Sept"; UK style is "Sep"
 }
 
-export function isHistoryToday(iso: string | null | undefined, now: Date = new Date()): boolean {
-  if (!iso) return false;
-  const d = new Date(iso);
-  return !Number.isNaN(d.getTime()) && londonYmd(d) === londonYmd(now);
-}
-
-export const HISTORY_RETENTION_NOTE = "Only your last 10 chats are kept. Starting an eleventh deletes the oldest.";
+export const HISTORY_RETENTION_NOTE = "Only your last 10 chats are kept, for 7 days after the last message.";
 export const HISTORY_EMPTY = "No earlier chats yet.";
 export const OPEN_LAST_CHAT_LABEL = "Open my last chat";
 export const OPEN_LAST_CHAT_HELPER = "When on, resume your last chat after restarting or refreshing.";

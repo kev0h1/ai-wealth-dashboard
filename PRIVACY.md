@@ -61,7 +61,7 @@ We use AI to categorise your transactions and generate insights (for example, sp
 - **What we send.** For categorisation, we send the merchant name, a truncated transaction description, the transaction amount and direction (in/out), and your name. Your name is included only so that transfers between your own accounts are not mistaken for income.
 - **What we never send.** We do not send account numbers, sort codes, IBANs or card numbers to any AI provider.
 - **No training on your data.** Our AI requests are routed through an AI gateway (OpenRouter) to underlying model providers (which may include Amazon Bedrock, Google, Anthropic or Microsoft Azure). Requests are sent with a data-collection "deny" preference, and neither our gateway nor the underlying providers train their models on your inputs or outputs.
-- **Chat.** If you use the in-app AI assistant, the content of your conversation is processed to generate a response, and is retained only for a short period (see Section 9).
+- **Chat.** If you use the in-app AI assistant, the content of your conversation is processed to generate a response. We keep the text of your last 10 conversations so you can resume them, for 7 days after the last message. You can delete any of them in the app.
 
 <!-- mcp-connector:start -->
 ## 6. AI assistants you connect
@@ -123,6 +123,7 @@ We keep data only as long as necessary for the purposes described in this policy
 | Dormant accounts (no activity) | Deleted after 12 months of inactivity |
 | Consent records | Kept for 12 months after the connection ends, for audit purposes |
 | Chat sessions | 7 days |
+| Penny conversations (last 10, text only) | 7 days after the last message, or when you delete them or your account |
 | Webhook logs | 30 days |
 | Insight caches | 30 days |
 <!-- mcp-connector:start -->
