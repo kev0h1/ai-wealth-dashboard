@@ -1073,7 +1073,7 @@ export default function PennyConversation({
   // so this component is always inside it whether or not `inSheet` is set.
   // Full-page mode's own composer/close affordances are unaffected; a link
   // chip closing an already-closed sheet is a harmless no-op.
-  const { close: closePennySheet } = usePennySheet();
+  const { closeThen: closePennySheetThen } = usePennySheet();
   // One conversation per screen (see `ThreadBucket`'s own comment above,
   // "PER-SCREEN THREADS"). `currentScreen` falls back to "other" both for
   // full-page mode (no `askContext` at all) and for a sheet opened from an
@@ -2095,7 +2095,7 @@ export default function PennyConversation({
                   <LinkChip
                     key={`top-config-link-${c.label}`}
                     label={c.label}
-                    onTap={() => { closePennySheet(); router.push(c.href); }}
+                    onTap={() => closePennySheetThen(() => router.push(c.href))}
                   />
                 );
               }
@@ -2175,7 +2175,7 @@ export default function PennyConversation({
               }
               if (c.kind === "link") {
                 return <LinkChip key={`start-link-${c.label}`} label={c.label}
-                  onTap={() => { closePennySheet(); router.push(c.href); }} />;
+                  onTap={() => closePennySheetThen(() => router.push(c.href))} />;
               }
               return <SuggestionChip key={`start-ask-${c.q}`} label={c.label}
                 onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : setInput(c.q))} />;
@@ -2209,7 +2209,7 @@ export default function PennyConversation({
                 msg={m}
                 onConfirm={() => confirmProposal(currentScreen, m.id, m.proposal.proposal_id)}
                 onCancel={() => cancelProposal(currentScreen, m.id, m.proposal.proposal_id)}
-                onOpenDone={() => { closePennySheet(); router.push("/planning"); }}
+                onOpenDone={() => closePennySheetThen(() => router.push("/planning"))}
               />
             );
           }
@@ -2276,7 +2276,7 @@ export default function PennyConversation({
                 <LinkChip
                   key={`config-link-${c.label}`}
                   label={c.label}
-                  onTap={() => { closePennySheet(); router.push(c.href); }}
+                  onTap={() => closePennySheetThen(() => router.push(c.href))}
                 />
               );
             }
