@@ -92,6 +92,7 @@ EXPECTED_KEYS = {
     "cover_plan_excluded_accounts",
     "payday_buffer",
     "penny_agent_consent",
+    "open_last_chat",
     "version",
 }
 

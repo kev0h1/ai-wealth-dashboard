@@ -74,6 +74,7 @@ ALLOWED_PREFERENCE_FIELDS = frozenset({
     "debt_target_months",
     "debt_tracking_start",
     "notification_prefs",
+    "open_last_chat",
 })
 
 # A85: a protocol-level key, not a preference field itself -- carries the
@@ -147,6 +148,9 @@ async def get_preferences(user: dict = Depends(current_user)):
         "cover_plan_excluded_accounts": doc.get("cover_plan_excluded_accounts", []),
         "payday_buffer": doc.get("payday_buffer", 50),
         "penny_agent_consent": doc.get("penny_agent_consent"),
+        # G248: display preference, default off. On reopens the latest Penny
+        # conversation on a cold start or refresh (if under the turn cap).
+        "open_last_chat": doc.get("open_last_chat", False),
         "version": doc.get("version", 0),
     }
     if "debt_tracking_start" in doc:
@@ -413,6 +417,9 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
             detail=f"Unknown preference field(s): {', '.join(sorted(unknown_fields))}",
         )
 
+    if "open_last_chat" in body and not isinstance(body["open_last_chat"], bool):
+        raise HTTPException(status_code=422, detail="open_last_chat must be true or false")
+
     # A85 optimistic-concurrency fix: an optional `expected_version` in the
     # JSON body -- the same body-carried convention the frontend already
     # uses for the `version` counter on every GET/PATCH response (see
@@ -563,5 +570,6 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
     return {
         "hide_net_worth": doc.get("hide_net_worth", False),
         "dark_mode": doc.get("dark_mode", False),
+        "open_last_chat": doc.get("open_last_chat", False),
         "version": doc.get("version", 1),
     }
