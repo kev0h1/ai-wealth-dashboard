@@ -497,8 +497,8 @@ question. When a propose tool DOES return a proposal (consented path), the
 loop stops immediately (no further model call, the tool result already
 carries a final, deterministic summary/consequence) and `run_penny_agent`
 returns `{"proposal": {...}}`. `app.routers.can_i`'s `/can-i` response gains
-a `proposal`/`consent_required` branch parallel to its existing `scenario`
-branch, both additive on the wire.
+a `proposal`/`consent_required` branch, both additive on the wire (it was
+parallel to a `scenario` branch, removed by G246).
 
 ## G241 (2026-10-08): Penny could not do basic arithmetic
 
@@ -578,6 +578,28 @@ adds it. Capability boundary, Kevin's words: Penny may give factual
 information and calculations, but never "invest in this" or "do this";
 nothing here recommends a product, provider or action.
 
+## G246 (2026-10-09): the life simulator was removed
+
+Kevin: the "what if" simulator no longer makes sense; Penny answers what-if
+questions inline. There was never a scenario TOOL in this catalogue: the
+simulator ran as a deterministic gate in `/can-i` BEFORE the loop
+(`looks_like_scenario`, then a slot-confirm card with "Run it" that opened
+`/scenario`). All of it is deleted: `app/routers/scenario.py`,
+`app/services/scenario.py`, `POST /scenario/parse` and `/scenario/run`, the
+`/scenario` page, the "Here's what I understood" card, the `scenario` fields on
+the `/can-i` response, the `g100-scenario-canvas` preview, and the `explain`
+topic `month_end_cash` (it described only the simulator's figure). The debt
+planner's `scenario_b` is a different concept and stays.
+
+What replaces it, all in the loop and all inline, no card: arithmetic and cash
+what-ifs ("if I move £825 from Monzo", "if I spend £40 today", "what if my rent
+goes up by £100") fetch live figures with `get_accounts`, `get_safe_to_spend`
+or `get_upcoming_bills` and run `calculate` over them (system-prompt rule 13);
+growth and interest what-ifs use `calculate` with `growth` (G245, above). These
+questions are pinned in `backend/tests/penny_arithmetic_corpus.py`. A
+contribution is money put aside, never a cost. Full inventory and the
+keep/delete decision per use: `docs/penny/G246-scenario-removal.md`.
+
 ## Coverage checklist
 
 The screen-by-screen question inventory driving this catalog lives in
@@ -597,9 +619,8 @@ convention.
 ## What stays deterministic
 
 Short-circuits before the loop, unchanged and in this order: greeting,
-length gate, the `OPENROUTER_API_KEY` guard, and scenario detection
-(`looks_like_scenario` into the slot-confirm card, never simulated without
-confirmation). Everything else — every affordability question, every tax
+length gate and the `OPENROUTER_API_KEY` guard (scenario detection into a
+slot-confirm card was a fourth gate until G246 removed it). Everything else — every affordability question, every tax
 question, every spend/planning/debt/insights question, every page-explainer
 ask — now goes through the loop. The honesty guards shipped 2026-08-26 (the
 cannot-answer-subject rule, explicit zero-interest facts in debt grounding,
@@ -645,7 +666,7 @@ shrank from 5,409 lines to ~525.
 
 ### What survives
 
-- The greeting/length/API-key/scenario gates, byte-identical.
+- The greeting/length/API-key gates, byte-identical (the scenario gate was removed by G246).
 - The deterministic refusal fallback (now reached when the loop itself
   returns `None`, not after a ladder miss).
 - `GET /can-i/suggestions` (the chip-seeding endpoint) — untouched, it never
@@ -713,7 +734,7 @@ retired along with the ladder it pinned — there is no ladder left to
 protect a question-by-question route against. The surviving suite (three
 test files, 85 tests total — 23 in `test_can_i.py`, 30 in
 `test_penny_agent.py`, 32 in the new `test_penny_tools.py`) covers: the
-gates that still run before the loop (greeting, length, scenario), the
+gates that still run before the loop (greeting, length; scenario was removed by G246), the
 `/can-i` wire shape and usage-quota discipline, the deterministic refusal
 fallback, `GET /can-i/suggestions`, the loop's own mechanics (rounds, tool
 dispatch, the wall-clock ceiling, the OUT_OF_SCOPE sentinel),
