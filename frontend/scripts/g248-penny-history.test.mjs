@@ -128,6 +128,35 @@ const seed = () => [
   assert.equal(store.has(PENNY_CONVERSATION_KEY), false);
 }
 
+// 5b. Per-send token: unchanged by creating a chat, changed by New chat and by
+//     resume, so a late answer is dropped even when creation failed (no id) or
+//     the chat was still empty (null before and after).
+{
+  store.clear(); resetPennyBootForTests();
+  const api = fakeApi(seed());
+  const c = createPennyChatController(api, storage);
+  await c.start({ preferencesReady: true, openLastChat: false });
+  const t0 = c.getRestoreSeq();
+  await c.ensureConversationId();
+  assert.equal(c.getRestoreSeq(), t0, "creating a chat keeps the token");
+  const failing = createPennyChatController({ ...fakeApi(), createPennyConversation: async () => { throw new Error("down"); } }, storage);
+  const t1 = failing.getRestoreSeq();
+  await assert.rejects(() => failing.ensureConversationId());
+  assert.equal(failing.getActiveId(), null);
+  failing.newChat();
+  assert.notEqual(failing.getRestoreSeq(), t1, "New chat after a failed create still changes the token");
+  store.clear(); resetPennyBootForTests();
+  const e = createPennyChatController(fakeApi(seed()), storage);
+  await e.start({ preferencesReady: true, openLastChat: false });
+  const t2 = e.getRestoreSeq();
+  assert.equal(e.getActiveId(), null);
+  e.newChat(); // New chat on a still-empty chat: null before and after
+  assert.notEqual(e.getRestoreSeq(), t2, "New chat on an empty chat changes the token");
+  const t3 = e.getRestoreSeq();
+  await e.resume("old");
+  assert.notEqual(e.getRestoreSeq(), t3, "resume changes the token");
+}
+
 // 6. Cap state: the composer shows the notice and New chat, and /can-i's 409 is a
 //    typed full error (no generic error path, so no error bubble).
 {
@@ -246,6 +275,10 @@ const seed = () => [
   const conv = readFileSync(new URL("../components/PennyConversation.tsx", import.meta.url), "utf8");
   assert.match(conv, /const bucketKey: BucketKey = chat \? "chat" : currentScreen;/);
   assert.match(conv, /chat\.ensureConversationId\(\)/);
+  assert.match(conv, /const sendToken = chat\?\.getRestoreSeq\(\);/);
+  assert.match(conv, /chat\.getRestoreSeq\(\) !== sendToken/);
+  assert.match(conv, /chat\.getRestoreSeq\(\) !== startedIn/);
+  assert.doesNotMatch(conv, /getActiveId\(\) !== (conversationId|startedIn)/, "no id-based late-answer guard left");
   assert.match(conv, /api\.canI\(question, history, context, sendScreen, sendView, conversationId\)/);
   assert.match(conv, /e instanceof PennyConversationFullError/);
   assert.match(conv, /if \(chatRef\.current\) return;/, "a stored chat is not idle-cleared");

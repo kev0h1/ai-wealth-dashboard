@@ -27,6 +27,7 @@ export function usePennyChatSession(enabled: boolean) {
   return useMemo(() => ({
     ...snapshot,
     getActiveId: controller.getActiveId,
+    getRestoreSeq: controller.getRestoreSeq,
     ensureConversationId: controller.ensureConversationId,
     newChat: controller.newChat,
     resume: controller.resume,

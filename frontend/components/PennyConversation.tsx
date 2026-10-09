@@ -1102,13 +1102,14 @@ export default function PennyConversation({
     // not stored. A New chat, resume or delete while the answer is in flight
     // changes the active id, and the late answer is then dropped rather than
     // landing in the wrong thread.
+    const sendToken = chat?.getRestoreSeq();
     let conversationId: string | undefined;
     if (chat) {
       try { conversationId = await chat.ensureConversationId(); } catch { conversationId = undefined; }
     }
     try {
       const res = await api.canI(question, history, context, sendScreen, sendView, conversationId);
-      if (chat && conversationId && chat.getActiveId() !== conversationId) return;
+      if (chat && chat.getRestoreSeq() !== sendToken) return;
       if (chat && res.conversation?.at_cap) chat.markFull();
       // One id per answer turn, shared across whichever branch below fires
       // (see the Msg union's `id` comment for why every message needs one).
@@ -1154,7 +1155,7 @@ export default function PennyConversation({
       // rather than local state.
       refreshPennyUsage();
     } catch (e) {
-      if (chat && conversationId && chat.getActiveId() !== conversationId) return;
+      if (chat && chat.getRestoreSeq() !== sendToken) return;
       if (e instanceof PennyConversationFullError) {
         // G248: the stored chat reached its cap (409, before any model call).
         // Not an error: the composer swaps to "This chat is full" with a
@@ -1289,10 +1290,10 @@ export default function PennyConversation({
     setLoading(true);
     // G248: the chat this chip belongs to, as of now (null before the first
     // question). If New chat or a resume happens before the answer, drop it.
-    const startedIn = chat ? chat.getActiveId() : null;
+    const startedIn = chat ? chat.getRestoreSeq() : null;
     api.pennyChip(chipId, params, sendScreen)
       .then((res) => {
-        if (chat && chat.getActiveId() !== startedIn) { setLoading(false); return; }
+        if (chat && chat.getRestoreSeq() !== startedIn) { setLoading(false); return; }
         if (!res || res.kind === "llm") {
           ask(label, history);
           return;

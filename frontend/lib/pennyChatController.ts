@@ -73,6 +73,8 @@ export function createPennyChatController(api: PennyChatApi, storage: StorageLik
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     /** The id as of now, for guarding an answer that lands after New chat. */
     getActiveId: () => activeId,
+    /** Per-send token: changes on New chat, resume and load-latest, never on create. */
+    getRestoreSeq: () => restore.seq,
 
     /** Decide how this page load starts. Call when the sheet first opens and
      * again as preferences settle; it acts once. */
