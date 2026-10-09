@@ -6,13 +6,15 @@ inheritance) is gone outright — that acceptance corpus retired along with
 the ladder it pinned, see PENNY_TOOLS.md's own "what was deleted" note.
 
 What survives here: the gates that still run before the Penny tool loop
-(greeting, length, scenario), the wire shape of POST /can-i and GET
+(greeting, length), the wire shape of POST /can-i and GET
 /can-i/suggestions, the deterministic refusal fallback, and usage-quota
 discipline (charged once on a real answer, never on a refusal). The tool
 loop's own mechanics (rounds, tool dispatch, the OUT_OF_SCOPE sentinel, the
 seam wiring into can_i()) are covered in test_penny_agent.py, not here.
 """
 import asyncio
+
+import pytest
 
 import app.routers.can_i as can_i_module
 from app.routers.can_i import (
@@ -268,14 +270,34 @@ def test_can_i_missing_view_passes_none_through(monkeypatch):
     assert captured["view"] is None
 
 
-# ── Scenario gate: covered end-to-end (wiring into /can-i) in
-# test_scenario_routing.py, not duplicated here — this file just confirms
-# that /can-i still exposes `looks_like_scenario` as the module-level name
-# test_scenario_routing.py patches. ───────────────────────────────────────
+# ── G246: the scenario gate is gone. Questions that used to be caught by it
+# (ongoing or future-dated changes, "what if ...") reach the tool loop and come
+# back as an ordinary inline answer, never a slot-confirm card. ─────────────
 
-def test_can_i_module_still_exposes_scenario_gate_hooks():
-    assert hasattr(can_i_module, "looks_like_scenario")
-    assert hasattr(can_i_module, "parse_question")
+@pytest.mark.parametrize("question", [
+    "what if my rent goes up by £100",
+    "what would happen if I contribute £300 a month at an interest of 6.5%",
+    "what if I cancel Netflix from November",
+    "if I get a £200 a month pay rise",
+])
+def test_former_scenario_questions_reach_the_tool_loop_inline(monkeypatch, question):
+    _patch_can_i_common(monkeypatch)
+    seen = []
+
+    async def fake_agent(uid, q, history, screen, context, view=None):
+        seen.append(q)
+        return {"headline": "Worked out", "reply": "That comes to £950 a month.", "tools_used": ["calculate"]}
+
+    monkeypatch.setattr(can_i_module, "run_penny_agent", fake_agent)
+    out = asyncio.run(can_i_module.can_i({"question": question}, {"email": "kevin"}))
+    assert seen == [question]
+    assert "scenario" not in out and "items" not in out
+    assert out["headline"] == "Worked out"
+
+
+def test_can_i_no_longer_imports_the_scenario_module():
+    assert not hasattr(can_i_module, "looks_like_scenario")
+    assert not hasattr(can_i_module, "parse_question")
 
 
 # ── Wire shape: a real answer from the tool loop ─────────────────────────

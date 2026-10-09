@@ -1,7 +1,7 @@
 """Unit tests for app.services.penny_agent (the ground-up loop-first
 rebuild's tool-calling loop, see PENNY_TOOLS.md) plus the seam wiring in
 app.routers.can_i's `can_i()` endpoint, which now runs this loop for every
-question that isn't a greeting, a length/API-key gate, or a scenario ask —
+question that isn't a greeting or a length/API-key gate —
 not as a fallback behind a deterministic ladder, which no longer exists.
 
 Mirrors test_can_i.py's conventions: `httpx` is a true singleton module, so
@@ -689,7 +689,7 @@ def _patch_can_i_common(monkeypatch):
 
 def test_can_i_seam_full_integration_success(monkeypatch):
     # Full integration, no stubbing of run_penny_agent itself: any ordinary
-    # question (not a greeting, not scenario-shaped) reaches the REAL agent
+    # question (not a greeting) reaches the REAL agent
     # loop directly, no ladder in front of it any more, which calls a tool
     # and gets a well-formed, in-scope money answer back from the (scripted)
     # model — this is the scenario the sentinel fix must NOT interfere with.
@@ -1449,12 +1449,7 @@ def test_run_penny_agent_account_move_arithmetic_question_reaches_tool_loop(monk
     figures verbatim - proving the SHAPE of the question was always
     answerable once the loop actually got to run, which is what the widened
     wall-clock budget above now lets happen live."""
-    from app.routers.scenario import looks_like_scenario
-
     question = "If we move 825£ from my Monzo account, how much will be left"
-    # The scenario gate was the prime suspect ("If we...") - confirmed not
-    # the cause, and pinned again here alongside the functional proof.
-    assert not looks_like_scenario(question)
 
     client = _ScriptedAsyncClient([
         _tool_call_payload("get_accounts", {}, call_id="call_1"),

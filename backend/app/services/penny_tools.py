@@ -8,7 +8,7 @@ motivating bug was a confident deterministic route (a category-name synonym
 match) answering "How can I improve my entertainment spending" with a
 current-period total when the actual question was advice-shaped and never
 reached the loop at all. Loop-first means every question but a greeting,
-the length gate, or a scenario-simulation ask now goes through this catalog.
+or the length gate now goes through this catalog (the scenario gate was removed by G246).
 
 Catalog expanded 2026-08-27 (screen-by-screen question inventory,
 docs/penny/question-inventory/) from 13 to 17 tools: four new tools
@@ -200,7 +200,7 @@ def _explain_tool_description(connector_enabled: bool | None = None) -> str:
         "it disagrees with and why ('why don't these numbers agree') "
         "— safe_to_spend_free, planning_runway, grow_surplus_monthly, "
         "spend_out, spend_majority_header, over_time_chart, "
-        "month_end_cash, moved_total. "
+        "moved_total. "
         "(d) a HOW-DO-I walkthrough for an app action — change_bill, "
         "stop_prediction, skip_occurrence, set_cancel_aim, "
         "recategorise_and_rule, review_transfers, confirm_payday, "
@@ -3777,8 +3777,7 @@ _TERMS_COPY["checkpoint"] = _TERMS_COPY["aim"]
 # planning/PlanningPage.tsx (runway, isPooledNoOp), app/routers/grow.py +
 # app/routers/savings.py (_cashflow), app/services/spend_verdict.py (Out,
 # majority header, moved_total), frontend/components/SpendTrends.tsx
-# (Over Time's Transfer-only exclusion), app/services/scenario.py
-# (_build_cash_block, the what-if simulator's month-end cash).
+# (Over Time's Transfer-only exclusion).
 _NUMBERS_COPY: dict[str, str] = {
     "safe_to_spend_free": (
         "Safe to Spend's FREE figure is the money that's genuinely yours "
@@ -3839,16 +3838,6 @@ _NUMBERS_COPY: dict[str, str] = {
         "movement, so its totals over a longer window won't match Out "
         "for the same period, it's answering a different question, what "
         "left your accounts at all, not what counts as spending."
-    ),
-    "month_end_cash": (
-        "Month-end cash is a what-if scenario projection: your current "
-        "typical monthly surplus plus whatever change the scenario "
-        "you're testing adds, carried forward month by month. It's a "
-        "hypothetical, not a live account balance or a promise, and it's "
-        "built from the same surplus formula Grow uses (income minus "
-        "everyday spending minus debt repayments), so it moves in step "
-        "with Grow's surplus_monthly rather than with your actual bank "
-        "balance."
     ),
     "moved_total": (
         "Moved total is the sum of everything sent to your pots, credit "

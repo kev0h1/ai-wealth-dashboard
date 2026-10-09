@@ -906,13 +906,6 @@ ALLOWLIST: dict[str, dict[str, dict]] = {
             ),
         },
     },
-    "app/routers/scenario.py": {
-        "cutoff = datetime.now() - timedelta(days=90)": {
-            "reason": (
-                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
-            ),
-        },
-    },
     "app/routers/statements.py": {
         "\"region\": \"UK\", \"status\": \"connected\", \"updated_at\": datetime.now(),": {
             "reason": (
@@ -1553,13 +1546,6 @@ ALLOWLIST: dict[str, dict[str, dict]] = {
                 "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
                 "as a day or day-count); this file's own rendered 'today' already uses "
                 "timeutil.user_today()"
-            ),
-        },
-    },
-    "app/services/scenario.py": {
-        "cutoff = datetime.now() - timedelta(days=90)": {
-            "reason": (
-                "internal N-day transaction lookback window (query cutoff), not user-facing calendar copy"
             ),
         },
     },

@@ -1,7 +1,7 @@
 """Ground-up loop-first rebuild, 2026-08-26 (see PENNY_TOOLS.md) — the
 tool-calling agent loop that is now the PRIMARY path for every /can-i
-question except a greeting, the length/API-key gates, and a scenario-
-simulation ask (all three stay in app.routers.can_i, unchanged). This
+question except a greeting and the length/API-key gates (which stay in
+app.routers.can_i, unchanged; the scenario-simulation gate was removed by G246). This
 supersedes the original Phase 1 plan, where this loop only ran as a
 fallback after a large hand-built deterministic ladder had already had a
 turn. The motivating bug: "How can I improve my entertainment spending" was
@@ -96,10 +96,8 @@ _MAX_TOKENS = 500
 _MAX_MODEL_CALLS = 4
 # Budget history, 2026-08-31 (owner-reported bug: "If we move 825£ from my
 # Monzo account, how much will be left" got the generic out-of-scope
-# refusal). Diagnosis ruled out BOTH suspected gates: `looks_like_scenario`
-# correctly returns False for this phrasing (no cadence/income-change/
-# cancel word, no commitment-verb+month pair — verified directly and pinned
-# in test_scenario_routing.py), and a live trace with a loosened budget
+# refusal). Diagnosis ruled out BOTH suspected gates: the (since removed, G246)
+# scenario gate correctly returned False for this phrasing, and a live trace with a loosened budget
 # proved the model itself correctly calls get_accounts then calculate and
 # answers factually the moment it has enough time — there was never a scope
 # problem either. journalctl correlated the exact incident timestamp

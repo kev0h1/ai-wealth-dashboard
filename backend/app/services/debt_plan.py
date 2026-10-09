@@ -1844,7 +1844,7 @@ async def compute_debt_plan(uid: str) -> dict:
     # `_projection_rate_schedule` is the one exception: it is publicly
     # exposed as `projection_rate_schedule` (additive, alongside the
     # existing `rate_schedule`) before its private copy is popped, so a
-    # consumer of the cached plan (e.g. app.services.scenario) can re-run
+    # consumer of the cached plan can re-run
     # `_amortise` against the SAME schedule this engine actually used —
     # including the "no interest observed, projected without it" doctrine
     # above that empties the schedule out entirely on a silent 0% card —
