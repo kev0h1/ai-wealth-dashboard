@@ -105,6 +105,7 @@ from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
+from app.services.safe_calc import future_value as _safe_calc_future_value
 from app.services.spend_verdict import compute_spend_verdict
 from app.services.sync_freshness import last_bank_sync
 
@@ -674,7 +675,17 @@ TOOL_SCHEMAS = [
                 "to get `result_formatted`. For 'when will I reach X at this rate' "
                 "use periods_to_reach with project_from (today's date) and period; "
                 "quote `projected_text` (it is already hedged), never promise the "
-                "date. The result is exact: quote it verbatim and show the working."
+                "date. The result is exact: quote it verbatim and show the working. "
+                "GROWTH / INTEREST what-ifs ('what if I put £300 a month away at 6.5%', "
+                "'how much would £200 a month be worth in 5 years'): pass `growth` "
+                "{monthly_contribution, annual_rate_pct, months, starting_balance} and "
+                "leave `expression` out. It compounds monthly, contributions at the end "
+                "of each month, a constant rate, no fees or tax, and returns "
+                "future_value, total_contributed, growth and a per-year table, all "
+                "exact. Use months=12 unless the user names a horizon, and offer longer "
+                "periods rather than computing them. Quote the hedge it returns. If the "
+                "user has an existing balance and wants it included, fetch it first and "
+                "pass it as starting_balance."
             ),
             "parameters": {
                 "type": "object",
@@ -691,8 +702,19 @@ TOOL_SCHEMAS = [
                     "unit": {"type": "string", "enum": ["gbp", "percent", "days", "number"]},
                     "project_from": {"type": "string", "description": "YYYY-MM-DD start for a date projection."},
                     "period": {"type": "string", "enum": ["day", "week", "fortnight", "month"]},
+                    "growth": {
+                        "type": "object",
+                        "description": "Compound growth of regular monthly contributions (used instead of expression).",
+                        "properties": {
+                            "monthly_contribution": {"type": ["number", "string"]},
+                            "annual_rate_pct": {"type": "number", "description": "e.g. 6.5 for 6.5% a year."},
+                            "months": {"type": "integer", "description": "Horizon in months, 1 to 600. 12 if the user names none."},
+                            "starting_balance": {"type": ["number", "string"], "description": "Optional, default 0."},
+                        },
+                        "required": ["monthly_contribution", "annual_rate_pct", "months"],
+                    },
                 },
-                "required": ["expression"],
+                "required": [],
             },
         },
     },
@@ -4122,15 +4144,46 @@ def _project_date(result, project_from, period) -> dict:
     }
 
 
+def _growth_outcome(growth) -> dict:
+    """G245: compound-growth branch of `calculate`. All figures come from
+    `safe_calc.future_value`; this only formats and adds the fixed hedge."""
+    if not isinstance(growth, dict):
+        return {"ok": False, "result": None, "error": "growth must be an object", "growth": None}
+    res = _safe_calc_future_value(
+        growth.get("monthly_contribution"), growth.get("annual_rate_pct"),
+        growth.get("months"), growth.get("starting_balance") or 0,
+    )
+    if not res["ok"]:
+        return {"ok": False, "result": None, "error": res["error"], "growth": None}
+    rate = res["assumptions"]["annual_rate_pct"]
+    for key in ("future_value", "total_contributed", "growth"):
+        res[f"{key}_formatted"] = _fmt_gbp(float(res[key]), 2)
+    for yr in res["years"]:
+        for key in ("balance", "contributed", "growth"):
+            yr[f"{key}_formatted"] = _fmt_gbp(float(yr[key]), 2)
+    res["hedge"] = (
+        f"At a constant {rate:g}% a year, not guaranteed. Returns vary and "
+        "capital is at risk for investments."
+    )
+    res["longer_periods"] = "5, 10 and 20 years can be worked out if asked; not computed here."
+    return {"ok": True, "result": res["future_value"], "error": None, "growth": res}
+
+
 async def _exec_calculate(
     uid: str, expression: str | None, inputs=None, unit: str | None = None,
-    project_from: str | None = None, period: str | None = None,
+    project_from: str | None = None, period: str | None = None, growth=None,
 ) -> dict:
     """G241 (2026-10-08): named `inputs`, `result_formatted` for a `unit`,
     `inputs_used` (the working), and an optional hedged date projection.
     The expression is still evaluated by `app.services.safe_calc` (AST
     whitelist, no eval); everything added here is formatting around its
     result and never computes a figure of its own."""
+    if growth is not None and not expression:
+        g = _growth_outcome(growth)
+        return {
+            "expression": None, "ok": g["ok"], "result": g["result"], "error": g["error"],
+            "inputs_used": {}, **({"growth": g["growth"]} if g["ok"] else {}),
+        }
     outcome = _safe_calc_evaluate(expression or "", inputs)
     out = {
         "expression": expression,
@@ -6975,6 +7028,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_calculate(
                 uid, args.get("expression"), inputs=args.get("inputs"), unit=args.get("unit"),
                 project_from=args.get("project_from"), period=args.get("period"),
+                growth=args.get("growth"),
             )
         if name == "preview_trend_intent":
             return await _exec_preview_trend_intent(uid, args.get("category"), args.get("answer"))

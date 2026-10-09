@@ -15,6 +15,8 @@ One corpus, two consumers:
   every row answered (not refused) and containing the expected figure.
 
 `kind` is one of arithmetic / comparison / what-if / projection / control.
+Optional `shape` documents the expected inline answer; optional
+`expect_hedge` (live runner) requires one hedge phrase in the reply.
 `control` rows are NOT arithmetic: they pin that an off-topic question is
 still declined and an advice-shaped one is still facts-only.
 
@@ -93,9 +95,11 @@ CASES = [
     dict(
         id="calc-11-save-over-months", kind="what-if", screen="grow",
         question="If I save £200 a month, how much will my savings be in 6 months?",
-        tools=["get_savings_position"], expect_any=["5,510", "5510"],
-        reference=dict(expression="current + 200 * 6",
-                       inputs={"current": "£4,310.50"}, expected=5510.5),
+        tools=["get_accounts"], expect_any=["5,510", "5510"],
+        shape="inline; savings balance fetched first (G245), then calculate with growth at 0%",
+        reference=dict(growth=dict(monthly_contribution=200, annual_rate_pct=0, months=6,
+                                   starting_balance="£4,310.50"),
+                       expected=5510.5),
     ),
     dict(
         id="calc-12-annual-saving", kind="what-if", screen="spend",
@@ -136,6 +140,49 @@ CASES = [
         tools=[], expect_any=["120"],
         reference=dict(expression="10 * 12", inputs={}, expected=120.0),
     ),
+    # G245 (2026-10-09): compound-growth what-ifs, answered inline by
+    # `calculate` with `growth`. Kevin's own question, then a named horizon.
+    dict(
+        id="grow-01-kevin-300-at-6-5", kind="what-if", screen="grow",
+        question="what would happen if I contribute £300 a month at an interest of 6.5%",
+        tools=[], expect_any=["3,709", "3709"],
+        expect_hedge=["not guaranteed", "capital is at risk", "constant"],
+        shape="inline; 12 months by default; future value, £3,600 paid in, growth; hedged; offers 5, 10, 20 years; no card",
+        reference=dict(growth=dict(monthly_contribution=300, annual_rate_pct=6.5, months=12),
+                       expected=3709.21),
+    ),
+    dict(
+        id="grow-02-named-horizon", kind="what-if", screen="grow",
+        question="how much would £200 a month at 5% a year be worth after 10 years",
+        tools=[], expect_any=["31,056", "31056"],
+        expect_hedge=["not guaranteed", "capital is at risk", "constant"],
+        shape="inline; the named 10 year horizon is used; hedged; no card",
+        reference=dict(growth=dict(monthly_contribution=200, annual_rate_pct=5, months=120),
+                       expected=31056.46),
+    ),
+    # The questions the life simulator used to catch (G246). Each must be
+    # answered inline from live figures through calculate, never a card.
+    dict(
+        id="sim-01-move-from-monzo", kind="what-if", screen="accounts",
+        question="if I move £825 from Monzo, how much will be left",
+        tools=["get_accounts"], expect_any=["425"],
+        shape="inline; balance fetched with get_accounts, calculate subtracts, working shown; no card",
+        reference=dict(expression="balance - 825", inputs={"balance": "£1,250.00"}, expected=425.0),
+    ),
+    dict(
+        id="sim-02-spend-today", kind="what-if", screen="home",
+        question="if I spend £40 today what is left",
+        tools=["get_safe_to_spend"], expect_any=["372"],
+        shape="inline; safe to spend fetched, calculate subtracts, working shown; no card",
+        reference=dict(expression="safe - 40", inputs={"safe": "£412"}, expected=372.0),
+    ),
+    dict(
+        id="sim-03-rent-goes-up", kind="what-if", screen="upcoming",
+        question="what if my rent goes up by £100",
+        tools=["get_upcoming_bills"], expect_any=["950"],
+        shape="inline; rent fetched from upcoming bills, calculate adds £100 a month, hedged as an estimate; no card",
+        reference=dict(expression="rent + 100", inputs={"rent": "£850"}, expected=950.0),
+    ),
     # Controls: pinned so the scope narrowing does not swing too far.
     dict(
         id="ctl-01-weather-still-declined", kind="control", screen="home",
@@ -170,7 +217,7 @@ FIXTURES = {
         "periods_left": 5, "on_track": True, "status": "active",
     }]},
     "get_accounts": {"accounts": [
-        {"id": "a1", "name": "Everyday", "kind": "Current", "balance": _m(1250.00)},
+        {"id": "a1", "name": "Monzo", "kind": "Current", "balance": _m(1250.00)},
         {"id": "a2", "name": "Rainy day", "kind": "Savings", "balance": _m(4310.50)},
         {"id": "a3", "name": "Visa", "kind": "Credit", "balance": _m(-380.00)},
     ]},

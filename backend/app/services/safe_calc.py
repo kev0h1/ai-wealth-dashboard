@@ -112,6 +112,14 @@ G241 (2026-10-08) additions, same AST-whitelist architecture, still no eval:
   is not positive), `per_week(total, days)`, `pct_change(old, new)`,
   `share(part, whole)` (percent). All closed-form, all bounded by the same
   caps.
+
+G245 (2026-10-09) growth calculator: `future_value(...)` (module function,
+also whitelisted in expressions as `future_value(monthly, rate_pct, months
+[, starting])` returning the final value only). CONVENTION, stated once and
+quoted back to the user: interest is compounded MONTHLY at annual_rate / 12;
+each contribution is paid at the END of its month, so the first contribution
+earns nothing until month two; a starting balance compounds from month one.
+No fees, no tax, constant rate: an illustration, not a forecast.
 """
 import ast
 import math
@@ -123,10 +131,14 @@ MAX_AST_NODES = 150
 MAX_EXPONENT_ABS = 12
 MAX_SERIES_COUNT = 5000
 MAX_RESULT_ABS = 1e12
+MAX_GROWTH_MONTHS = 600  # 50 years
+MAX_GROWTH_RATE_PCT = 100.0
+MAX_GROWTH_AMOUNT = 1e9
 
 _ALLOWED_FUNCS = frozenset({
     "round", "abs", "min", "max", "series_sum", "days_between", "pct",
     "sum", "avg", "shortfall", "periods_to_reach", "per_week", "pct_change", "share",
+    "future_value",
 })
 MAX_INPUTS = 20
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,30}$")
@@ -448,6 +460,13 @@ def _eval(node, names: dict, used: dict):
             if args[1] <= 0:
                 raise _CalcError("per_week needs a number of days above zero")
             return args[0] / (args[1] / 7)
+        if fname == "future_value":
+            if len(args) not in (3, 4):
+                raise _CalcError("future_value needs monthly, annual_rate_pct, months and optionally a starting balance")
+            outcome = future_value(*args)
+            if not outcome["ok"]:
+                raise _CalcError(outcome["error"])
+            return outcome["future_value"]
         if fname == "pct_change":
             if len(args) != 2:
                 raise _CalcError("pct_change needs two arguments: old, new")
@@ -470,3 +489,93 @@ def _parse_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError:
         raise _CalcError(f"'{value}' is not a valid 'YYYY-MM-DD' date")
+
+
+def _growth_number(value, label: str, low: float, high: float) -> float:
+    number = parse_amount(value)
+    if number is None:
+        raise _CalcError(f"{label} must be a number")
+    if number < low or number > high:
+        raise _CalcError(f"{label} must be between {low:g} and {high:g}")
+    return number
+
+
+def _fv_core(monthly: float, rate_pct: float, months: int, start: float) -> float:
+    """Closed form. Balance after n months, contributions at month end:
+    start * (1 + r)^n + monthly * ((1 + r)^n - 1) / r, r = annual / 12."""
+    r = rate_pct / 100.0 / 12.0
+    if r == 0:
+        return start + monthly * months
+    growth_factor = (1.0 + r) ** months
+    return start * growth_factor + monthly * (growth_factor - 1.0) / r
+
+
+def _growth_args(monthly_contribution, annual_rate_pct, months, starting_balance):
+    monthly = _growth_number(monthly_contribution, "the monthly contribution", 0, MAX_GROWTH_AMOUNT)
+    rate = _growth_number(annual_rate_pct, "the annual rate", 0, MAX_GROWTH_RATE_PCT)
+    start = _growth_number(starting_balance, "the starting balance", 0, MAX_GROWTH_AMOUNT)
+    n_raw = _growth_number(months, "the number of months", 0, MAX_GROWTH_MONTHS)
+    if float(n_raw) != int(n_raw):
+        raise _CalcError("the number of months must be a whole number")
+    n = int(n_raw)
+    if _fv_core(monthly, rate, n, start) >= MAX_RESULT_ABS:
+        raise _CalcError("that result is too large to be a real answer here")
+    return monthly, rate, n, start
+
+
+def future_value(monthly_contribution, annual_rate_pct, months, starting_balance=0) -> dict:
+    """Compound growth of regular monthly contributions. Never raises.
+
+    Convention (see module docstring): monthly compounding at annual/12,
+    contributions at the END of each month, starting balance compounds from
+    month one. Returns `{"ok": True, "future_value", "total_contributed"
+    (starting balance plus every contribution), "growth", "years": [{"year",
+    "months", "balance", "contributed", "growth"}], "assumptions": {...}}`
+    with one row per completed year plus a final row for any part year, or
+    `{"ok": False, "error": ...}`. Money is rounded to pence only at the
+    edge; the year rows come from the same closed form, not a running sum.
+    """
+    try:
+        monthly, rate, n, start = _growth_args(
+            monthly_contribution, annual_rate_pct, months, starting_balance)
+    except _CalcError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception:
+        return {"ok": False, "error": "that could not be computed"}
+
+    def row(m: int) -> dict:
+        balance = _fv_core(monthly, rate, m, start)
+        contributed = start + monthly * m
+        return {
+            "months": m,
+            "balance": round(balance, 2),
+            "contributed": round(contributed, 2),
+            "growth": round(balance - contributed, 2),
+        }
+
+    marks = list(range(12, n + 1, 12))
+    if n and (not marks or marks[-1] != n):
+        marks.append(n)
+    years = []
+    for m in marks:
+        entry = row(m)
+        entry["year"] = round(m / 12, 2) if m % 12 else m // 12
+        years.append(entry)
+    final = row(n)
+    return {
+        "ok": True,
+        "future_value": final["balance"],
+        "total_contributed": final["contributed"],
+        "growth": final["growth"],
+        "months": n,
+        "years": years,
+        "assumptions": {
+            "monthly_contribution": monthly,
+            "annual_rate_pct": rate,
+            "starting_balance": start,
+            "compounding": "monthly, at the annual rate divided by 12",
+            "contribution_timing": "end of each month",
+            "constant_rate": True,
+            "excludes": "fees, tax and inflation",
+        },
+    }

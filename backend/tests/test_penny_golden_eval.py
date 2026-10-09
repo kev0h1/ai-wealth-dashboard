@@ -250,7 +250,7 @@ def _canonical_variant_hash(builder):
 # `_canonical_variant_hash`, not a single-description hash — see the
 # ENV_VARIANT_TOOLS block above for why, and B42.
 PINNED_TOOL_DESCRIPTION_HASHES = {
-    "calculate": "87457eeaf284dc7ec5738c23e01c7a846bcc00f775c7ad9a687f06e5dd3bfe06",
+    "calculate": "8881c346a8f1b09e30ee01fe1da3165e10853c8ec0a31fbf60efc74470ad86ad",
     "check_affordability": "96f7e3bc9eab7718e3c8382f10b4a8396da740931003787c9b87afeabe55b7f8",
     "explain": "a9c9de9075e1f2b0b57bbdc875e0e216a5ea8269ea39b13b1c0990c2b198a91e",
     "get_account_activity": "a177a9327880d3e518b6164b375da8926fb345a9ac20b3675904c6ed1e20e3f7",
