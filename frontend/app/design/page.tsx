@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "marketing-kit",
+    name: "Sorted marketing kit · C22",
+    description: "C Real life retained; D Payday path now gathers real payment cards from different accounts outside the phone; E Money movement replaces Penny bubbles with a suggested transfer route. Generated 3D scenes and production components. Sorted suggests, the user transfers with their bank. Creative review, not approved advertising.",
+    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
+    variants: [{ label: "C · Real life", value: "c" }, { label: "D · Payday path", value: "d" }, { label: "E · Money movement", value: "e" }],
+    group: "current",
+  },
+  {
     slug: "accounts-header",
     name: "Accounts header, eye and Add · G236",
     description:
@@ -246,6 +254,12 @@ const ROUTES: PreviewRoute[] = [
     name: "Penny keyboard · G197",
     description: "G197, approved B restored (Kevin 2026-10-02): Codex's conversation-first layout from G191 (02c22ef4) over the G196 keyboard mechanics. Tapping the input changes nothing. Once a software keyboard is up the Penny window takes over the visible height in one move, with a compact header (a clear gap between its line and the close button), the links and question chips hidden, the conversation filling the space and the composer and its note on the keyboard edge. Nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
     states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
+  },
+  {
+    slug: "penny-fullscreen",
+    name: "Ask Penny full screen · G240",
+    description: "G240, approved variant A (Clear runway), Kevin 2026-10-08. Gate preview: the Ask Penny sheet as a phone takeover from the top safe area to the bottom safe area (or the keyboard edge) on a solid surface. Renders the production Penny panel, header, composer, empty-state layout and chip; the chip labels and replies are fixtures because the live conversation fetches its own data. Type into it on your phone, light and dark. ?mode=light|dark&thread=empty|long&open=1 (state= also works)",
+    states: [{ label: "Empty", value: "empty" }, { label: "Long thread", value: "long" }],
   },
   {
     slug: "g176-account-status",

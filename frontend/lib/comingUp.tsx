@@ -12,7 +12,6 @@
 // port was meant to close off).
 
 import { Fragment, type ReactNode } from "react";
-import { shortDateWithOrdinal } from "./dates";
 
 export type ComingUpBill = {
   name: string;
@@ -75,7 +74,7 @@ export function settleClusters(bills: ComingUpBill[]): [Cluster, Cluster, Cluste
 
 // G170: same day-label convention as weekdayLabel below (today/tomorrow
 // keep their word with the date after; any other day is short-weekday +
-// ordinal day + short month) — delegates to it so the two can't drift.
+// day + short month, no ordinal, G208) — delegates to it so the two can't drift.
 export function nextPaymentWhen(bill: ComingUpBill): string {
   return weekdayLabel(bill);
 }
@@ -336,9 +335,9 @@ export function humaniseBillName(name: string): string {
 // instances of every weekday, so a bare "Thursday" there would misread as
 // this week's Thursday when the money in fact lands on the window's SECOND
 // Thursday (G152, Kevin 2026-09-23).
-// G170 superseded the bare-weekday form entirely, for every branch: Kevin's
-// decided form is short weekday + day WITH ordinal suffix + short month
-// ("Wed 19th Aug") always, and today/tomorrow keep their word with the date
+// G170 superseded the bare-weekday form entirely, for every branch; G208
+// (Kevin 2026-10-04) then dropped the ordinal to match the other Home
+// dates: short weekday + day + short month ("Wed 19 Aug") always, and today/tomorrow keep their word with the date
 // after ("tomorrow, Sat 27th Sep") rather than standing alone or expanding
 // to the full weekday name. Because weekdayLabel now always carries the
 // date, not just within the first week, the G152 ambiguity in heavyWhen
@@ -351,9 +350,9 @@ export function humaniseBillName(name: string): string {
 // shortDateWithOrdinal for why that's the safer source of truth than
 // re-parsing into a Date.
 function weekdayLabel(bill: ComingUpBill): string {
-  if (bill.daysAway === 0) return `today, ${shortDateWithOrdinal(bill.date)}`;
-  if (bill.daysAway === 1) return `tomorrow, ${shortDateWithOrdinal(bill.date)}`;
-  return shortDateWithOrdinal(bill.date);
+  if (bill.daysAway === 0) return `today, ${bill.date}`;
+  if (bill.daysAway === 1) return `tomorrow, ${bill.date}`;
+  return bill.date;
 }
 
 export type DropInsight =
@@ -396,7 +395,7 @@ export type DropInsight =
   // instead, same as `calm` leads with the runway.
   | {
       kind: "landing";
-      when: string; // G170: weekdayLabel(landingBill) — "today, Sat 26th Sep" or "tomorrow, Sat 27th Sep"
+      when: string; // G170: weekdayLabel(landingBill) — "today, Sat 26 Sep" or "tomorrow, Sat 27 Sep"
       landingAmount: number; // the landing day's own total, already a sum
       sameDay: boolean; // the landing day IS the heaviest day in the window
       heavyExtra: number; // other bills sharing heavyWhen's date
@@ -504,6 +503,15 @@ function paymentCount(n: number): string {
 // merchant name here (see the DropInsight comment above for why) — dates,
 // totals and counts only, so the sentence's length never depends on how
 // long a merchant's name happens to be.
+//
+// G208 (Kevin-approved copy, 2026-10-04): future bills are predictions, so
+// every amount is "expected" rather than stated as fact, the busiest day
+// replaces "heaviest day", dates read "Mon 5 Oct" (no ordinal) and a figure
+// is never said twice. Amounts stay in mono.
+function Amt({ value, sym }: { value: number; sym: string }): ReactNode {
+  return <span className="font-mono tabular-nums">{fmtSum(value, sym)}</span>;
+}
+
 export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym?: string }): ReactNode {
   const insight = computeDrop(bills);
   if (insight.kind === "empty") {
@@ -511,72 +519,66 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
   }
   if (insight.kind === "concentrated") {
     if (insight.singleDay) {
-      // The front-loaded window is exactly one day (today) — throughAmount
-      // and leadDayTotal are the same figure, so state it once rather than
-      // as "X of Y, Y of it today". Mirrors landing's sameDay fold below.
+      // The front-loaded window is exactly today, so throughAmount and
+      // leadDayTotal are the same figure: state it once.
       return (
         <Fragment>
-          <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span> of the{" "}
-          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands{" "}
-          {insight.crossDayLabel}, across {paymentCount(insight.leadExtra + 1)}.
+          <Amt value={insight.leadDayTotal} sym={sym} /> of this fortnight&apos;s <Amt value={insight.total} sym={sym} /> is
+          expected today, across {paymentCount(insight.leadExtra + 1)}.
         </Fragment>
       );
     }
     if (insight.sameDay) {
-      // The crossing day and the heaviest day are the same calendar day —
-      // don't name that day twice ("by Monday... on Monday itself"), fold
-      // it into one clean clause instead.
+      // The crossing day and the busiest day are the same calendar day.
+      if (Math.abs(insight.throughAmount - insight.leadDayTotal) < 0.005) {
+        // The through-amount IS the day's total (Kevin's case): no repeat.
+        return (
+          <Fragment>
+            <Amt value={insight.throughAmount} sym={sym} /> of this fortnight&apos;s <Amt value={insight.total} sym={sym} /> is
+            expected {insight.crossDayLabel}, across {paymentCount(insight.leadExtra + 1)}.
+          </Fragment>
+        );
+      }
       return (
         <Fragment>
-          <span className="font-mono tabular-nums">{fmtSum(insight.throughAmount, sym)}</span> of the{" "}
-          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands by{" "}
-          {insight.crossDayLabel}, <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span>{" "}
-          of it on the same day, across {paymentCount(insight.leadExtra + 1)}.
+          <Amt value={insight.throughAmount} sym={sym} /> of this fortnight&apos;s <Amt value={insight.total} sym={sym} /> is
+          expected by {insight.crossDayLabel}, including <Amt value={insight.leadDayTotal} sym={sym} /> across{" "}
+          {paymentCount(insight.leadExtra + 1)} that day.
         </Fragment>
       );
     }
     return (
       <Fragment>
-        <span className="font-mono tabular-nums">{fmtSum(insight.throughAmount, sym)}</span> of the{" "}
-        <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands by{" "}
-        {insight.crossDayLabel}. The heaviest day is {insight.leadWhen},{" "}
-        <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span> across{" "}
-        {paymentCount(insight.leadExtra + 1)}.
+        <Amt value={insight.throughAmount} sym={sym} /> of this fortnight&apos;s <Amt value={insight.total} sym={sym} /> is
+        expected by {insight.crossDayLabel}. The busiest day is {insight.leadWhen}:{" "}
+        <Amt value={insight.leadDayTotal} sym={sym} /> across {paymentCount(insight.leadExtra + 1)}.
       </Fragment>
     );
   }
   if (insight.kind === "landing") {
     if (insight.sameDay) {
-      // The day something lands is also the fortnight's heaviest day —
-      // don't restate the same total twice, just fold it into one clause.
       return (
         <Fragment>
-          <span className="font-mono tabular-nums">{fmtSum(insight.landingAmount, sym)}</span> due {insight.when},{" "}
-          across {paymentCount(insight.heavyExtra + 1)}, the heaviest hit of the{" "}
-          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight.
+          <Amt value={insight.landingAmount} sym={sym} /> is expected {insight.when}, across{" "}
+          {paymentCount(insight.heavyExtra + 1)}, the busiest day of this fortnight&apos;s <Amt value={insight.total} sym={sym} />.
         </Fragment>
       );
     }
     return (
       <Fragment>
-        <span className="font-mono tabular-nums">{fmtSum(insight.landingAmount, sym)}</span> due {insight.when}. The
-        heaviest day is {insight.heavyWhen},{" "}
-        <span className="font-mono tabular-nums">{fmtSum(insight.heavyDayTotal, sym)}</span> of the{" "}
-        <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight, across{" "}
-        {paymentCount(insight.heavyExtra + 1)}.
+        <Amt value={insight.landingAmount} sym={sym} /> is expected {insight.when}. The busiest day is {insight.heavyWhen}:{" "}
+        <Amt value={insight.heavyDayTotal} sym={sym} /> across {paymentCount(insight.heavyExtra + 1)}, out of{" "}
+        <Amt value={insight.total} sym={sym} /> this fortnight.
       </Fragment>
     );
   }
   // insight.kind === "calm" — gapDays is guaranteed >= MIN_RUNWAY_DAYS (2)
-  // here, so the "day"/"days" split is defensive, not reachable at 1 today,
-  // but kept in case that guard ever changes.
+  // here, so the "day"/"days" split is defensive.
   return (
     <Fragment>
-      Nothing&apos;s due for {insight.gapDays} day{insight.gapDays === 1 ? "" : "s"}. Then the heaviest day is{" "}
-      {insight.heavyWhen},{" "}
-      <span className="font-mono tabular-nums">{fmtSum(insight.heavyDayTotal, sym)}</span> of the{" "}
-      <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight, across{" "}
-      {paymentCount(insight.heavyExtra + 1)}.
+      Nothing is expected for {insight.gapDays} day{insight.gapDays === 1 ? "" : "s"}. Then the busiest day is{" "}
+      {insight.heavyWhen}: <Amt value={insight.heavyDayTotal} sym={sym} /> across {paymentCount(insight.heavyExtra + 1)}, out of{" "}
+      <Amt value={insight.total} sym={sym} /> this fortnight.
     </Fragment>
   );
 }

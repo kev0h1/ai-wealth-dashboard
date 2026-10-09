@@ -1,0 +1,63 @@
+# C22 marketing-kit campaign worlds
+
+This private review surface contains the current C22 creative-direction round. Kevin rejected the earlier gallery-led campaign treatment and asked for advertising that makes the money question tangible: 3D-style phones, physical objects and app elements appearing to come out of the screen. This is an ordinary campaign extension, not an app-identity change: `DESIGN.md` remains governing.
+
+The default route, `/design/marketing-kit`, presents three still concepts:
+
+- **C · Real life**: coffee, groceries and plans around Safe to Spend.
+- **D · Payday path**: actual upcoming payments from different banks gathered outside a forecast phone screen.
+- **E · Money movement**: an explained, proposed move between accounts that leaves the bank transfer with the customer.
+
+The former A/B work remains available only as the product-proof and copy library at `/design/marketing-kit?library=1`. It is supporting material, not the current campaign choice and not approved campaign creative.
+
+## What is real, what is generated
+
+Each concept combines two deliberately separate layers:
+
+- The scene asset is generated 3D-style advertising artwork with a blank phone screen. Its checked-in prompt sidecar records the tool, prompt, synthetic status and review status in `frontend/public/design-media/c22/worlds/*.prompt.json`.
+- The visible phone screen is composed in the browser from actual fixture-driven production components. C uses `ProductionProof.tsx`; D uses `UpcomingHeroCard`; E uses `MoveCard`. D's two exterior cards use `UpcomingRow`; E's exterior account labels use the real bank identity data. It is not generated interface lettering or a dashboard lookalike. Controls are inert: no bank connects, no money moves and no consent is given.
+
+The fictional D/E fixture is deliberately reconciled: Monzo Everyday £580 plus Barclays Bills £30 gives £610; Mobile £38 plus Energy £150 gives £188 in upcoming payments; £610 less £188 gives a £422 forecast; after the £110 buffer, Safe to Spend is £312. E proposes £120 from Monzo to Barclays, helping cover Barclays' £150 Energy payment. It is a suggestion only, not an instruction or completed transfer.
+
+Sorted is an account-information-service-only product. It reads information from accounts the customer connects; it never initiates payments, holds money or moves money between accounts. The customer makes any transfer with their bank. This is the product boundary in [`frontend/content/terms.md`](../../../content/terms.md) and [`frontend/content/privacy.md`](../../../content/privacy.md), and it applies to campaign copy, art and any future film.
+
+The generated scene assets are synthetic and unapproved creative-direction material. They do not alter the Sorted app identity or `DESIGN.md`. Figtree, JetBrains Mono for money, slate grounds, solid indigo actions and Penny's reserved indigo-to-violet treatment remain the governing visual system.
+
+## Current status and provenance
+
+The current revised round has two new generated blank-phone scene assets: `connected-payments` for D and `money-movement` for E. Their prompt sidecars are the provenance record for the generated scenery. The former D `payday-path` and E `penny` source assets are being retired; Git history remains the recovery record. C is unchanged.
+
+The six current feed/story exports for C, D and E have regenerated. Dev-browser QA passed: the exports carry `Source` provenance for the ticket, concept, canvas, browser composition, real production props, separately generated scene and synthetic/draft status; `exports.json` records their dimensions, byte size and SHA-256; and the RGB dimensions-and-hashes validator passed. The local check also passed at 320px, 390px and 1440px, covering C/D/E views, controls, invalid-query fallback, keyboard focus and the unexpected-API guard. Generated source PNGs retain their exact prompt-sidecar data in `Source` metadata without changing their pixel data.
+
+The 216 PNGs and ten silent MP4s in `frontend/public/design-media/c22/` belong to the **previous A/B product-proof library**. Those earlier assets passed their recorded asset checks and browser QA on 8 October 2026. They are not verification evidence for this revised C/D/E round, and the new round has no finished 3D films. The motion descriptions in the concepts are direction notes only.
+
+## Review and export commands
+
+Start a local preview from `frontend`, then run the bounded worlds check against that local server:
+
+```bash
+npm run dev -- --port 3134
+/usr/bin/python3 app/design/marketing-kit/check_worlds.py --base-url http://127.0.0.1:3134
+node app/design/marketing-kit/check_worlds.mjs
+```
+
+The Python check is restricted to `localhost` or `127.0.0.1`. It captures the six exact-size exports, writes their browser-PNG `Source` metadata and manifest, and checks responsive C/D/E views, controls, invalid-query fallback, keyboard focus, no horizontal overflow and blocked unexpected API calls. Shared design-shell reads are stubbed. Use `--captures-only` only when interaction assertions are intentionally out of scope for a capture pass.
+
+The final checker validates that all six expected feed/story exports exist, have their required dimensions, are RGB without alpha, and match their manifest hashes and provenance fields. Do not use the older `export_stills.py`, `check_assets.mjs` or `export_films.mjs` results as a pass for this campaign-world round: they verify the previous library.
+
+## Incumbent-design comparison and review evidence
+
+**Verdict: ordinary campaign extension, not an identity redesign.** The C/D/E artboards retain the incumbent Figtree display and body treatment, JetBrains Mono for money, Mist and Midnight canvases, solid indigo controls and Penny's exclusive indigo-to-violet treatment. The money evidence is actual fixture-driven production proof, not generated or recreated interface copy. C's grocery teal and coffee orange belong to physical campaign objects; D's dark, solid footer backing keeps its disclosure readable. D brings account-level upcoming-payment evidence out of the phone. E replaces Penny's bubbles with a source-to-destination suggestion and does not use Penny's gradient as a money-transfer signal. No token, production interaction or global `DESIGN.md` rule changes with this round.
+
+The revised campaign's production build passed. Its current production-browser world checker passed all six RGB exports and responsive views, controls, invalid-query fallback, keyboard focus and unexpected-API guard; the Node validator also passed. The retained A/B library's production-browser regression passed across four viewport/theme combinations, controls, film open/close, URL handling, malformed-query fallback, focus and unexpected-API checks. Those retained-library checks do not replace the revised D/E evidence.
+
+An independent review requested a more visible reconciliation, which is now corrected in the artwork: D shows £610 starting cash less £188 payments equals a £422 forecast before the £110 buffer; E shows Barclays' £30 existing balance plus the proposed £120, covering its £150 payment. Root reviewed the freshly corrected exports, and the independent targeted re-review passed with no remaining issue. QA is complete. This frontend campaign evidence does not claim a full backend test gate. The Impeccable launcher and specialised skill roles were unavailable; a fresh independent implementation reviewer and documentation agent provided the manual fallback instead. `DESIGN.md` is unchanged, and this remains an ordinary campaign extension. This evidence is not an approval to publish.
+
+## Limitations and approvals
+
+- These are fictional examples and private review drafts, not publication-ready advertisements.
+- Kevin must choose C, D or E before a wider seven-story rollout, light/dark executions, social films or landing-page artwork is made. No current A/B choice is requested.
+- No new 3D film has been produced. Motion concepts must be separately designed, rendered, reviewed and approved.
+- Compliance must review financial-promotion status, claims, provider disclosure, audience and channels before publication. The stills make no approved savings, availability, investment-return or FCA-authorisation claim.
+- Store screenshots and the existing App Store editorial preview remain a separate, literal product treatment. They still require native-build parity and platform review before any submission.
+- Generated artwork is advertising illustration, not a photograph of a device. Prompt sidecars and exported browser-PNG metadata provide provenance, but do not replace creative, legal, accessibility or platform approval.

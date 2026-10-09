@@ -358,10 +358,15 @@ _SYSTEM_PROMPT = (
     "1. Every £ figure you write MUST come verbatim from a tool result — "
     "prefer its pre-formatted string. NEVER compute, derive, sum, round or "
     "estimate a number yourself; if you need a figure, call a tool for it. "
-    "Penny never computes multi-step arithmetic herself, even when she "
-    "already has every number in hand: she uses calculate and shows the "
-    "working in her reply ('£8.96 first payment plus 4p a day for 27 days "
-    "comes to £258.66').\n"
+    "Penny never does arithmetic herself, not even a single subtraction "
+    "when she already has every number in hand: she uses calculate, passing "
+    "fetched figures by name in its inputs, and shows the working in her "
+    "reply ('£8.96 first payment plus 4p a day for 27 days comes to "
+    "£258.66'). 'How much more to reach a goal' is calculate with "
+    "shortfall(target, saved) even though a tool gave you both figures, "
+    "never a subtraction you do yourself. For a date projection ('when will I reach X') she quotes "
+    "calculate's projected_text, which is already hedged ('at the same "
+    "rate, roughly'), and never states the date as a promise.\n"
     "2. Any state, verdict, reading, or classification string in a tool "
     "result (for example a safe-to-spend state of 'comfortable'/'tight'/"
     "'short', a card's 0%/interest-bearing classification, "
@@ -379,10 +384,14 @@ _SYSTEM_PROMPT = (
     "4. Future-dated events (expected income, upcoming bills) are always "
     "hedged: 'expected', 'usually', 'around' — never a promise that money "
     "will move.\n"
-    "5. If the question is not about the user's own money (weather, "
-    "general trivia, anything with no financial angle), do not call a "
-    "tool and do not write a HEADLINE/REPLY at all — respond with EXACTLY "
-    "one line and nothing else: OUT_OF_SCOPE\n"
+    "5. Basic arithmetic is NEVER out of scope: a sum, difference, "
+    "percentage, split, average, 'what is left after' or a projection is "
+    "answered with calculate, even when every number is one the user typed "
+    "themselves and no other tool is needed. Otherwise, if the question is "
+    "not about the user's own money (weather, general trivia, anything with "
+    "no financial angle), do not call a tool and do not write a "
+    "HEADLINE/REPLY at all — respond with EXACTLY one line and nothing "
+    "else: OUT_OF_SCOPE\n"
     "6. Never repeat what the user's current screen already shows them "
     "(the screen name, when known, is given in the user message) — add "
     "only what is new. When the user message includes a VIEW block, its "
@@ -664,6 +673,46 @@ def _build_user_content(question: str, screen: str | None, context: str, view: d
         parts.append(_format_view_block(view))
     return "\n\n".join(parts)
 
+# G243 (Kevin 2026-10-08): "How much did I spend on Padel" went to
+# search_transactions (a merchant text match) although Padel is one of his
+# own custom categories. The model cannot know a user's custom categories
+# unless told, so the list rides in the UNCACHED system block next to the
+# date, never in the cached static prefix (it differs per user). Capped so
+# a user with many custom categories cannot inflate every request.
+_CATEGORY_CONTEXT_CAP = 40
+_CATEGORY_NAME_MAX = 30
+_CATEGORY_CONTEXT_TEMPLATE = (
+    "\n\n17. The user's own spend categories ({n} listed): {names}. "
+    "'(custom)' marks one the user created. A question about spend on, or "
+    "comparing, one of these names ('how much did I spend on Padel') is a "
+    "CATEGORY question: call get_category_spend with that name, never "
+    "search_transactions. A name not in this list is probably a merchant: "
+    "use search_transactions."
+)
+
+
+async def _category_context_block(uid: str) -> str:
+    """The per-user category list for the system prompt, or "" on any
+    failure (the tools still resolve names themselves, so this is a hint)."""
+    try:
+        from app.services.categories import BUILTIN_CATEGORIES, get_category_kinds
+
+        kinds = await get_category_kinds(uid)
+    except Exception:
+        logger.exception("penny_agent: category list lookup failed for %s", uid)
+        return ""
+    builtin = set(BUILTIN_CATEGORIES)
+    custom = [c for c in kinds if c not in builtin]
+    ordered = custom + [c for c in kinds if c in builtin]
+    shown = []
+    for name in ordered[:_CATEGORY_CONTEXT_CAP]:
+        clean = re.sub(r"[^\w &'/+.-]", "", str(name))[:_CATEGORY_NAME_MAX].strip()
+        if clean:
+            shown.append(clean + (" (custom)" if name not in builtin else ""))
+    if not shown:
+        return ""
+    return _CATEGORY_CONTEXT_TEMPLATE.format(n=len(shown), names=", ".join(shown))
+
 
 async def run_penny_agent(
     uid: str, question: str, history: list[dict], screen: str | None, context: str,
@@ -735,6 +784,7 @@ async def run_penny_agent(
     tools = TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
     today = timeutil.user_today()
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
+    date_grounding += await _category_context_block(uid)
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools
     # addendum, ~8,500 tokens together with the tool schemas above — comfortably

@@ -7,6 +7,7 @@ import {
   handleBankConnectReturn, resetBankReturnDedupe, registerBankSheet,
   stashPendingReturn, takePendingReturn, PENDING_BANK_RETURN_KEY, PENDING_BANK_RETURN_TTL_MS, bankSheetState,
 } from "../lib/bankConnectReturn.ts";
+import { consentToolbarColor, isDarkPreferenceOn, CONSENT_TOOLBAR_DARK, CONSENT_TOOLBAR_LIGHT } from "../lib/consentToolbar.ts";
 import { launchMode, buildLinkQuery } from "../lib/bankConsentLaunch.ts";
 import { findLandedAccount, SYNC_POLL_TIMEOUT_MS } from "../lib/syncLanding.ts";
 
@@ -138,7 +139,21 @@ assert.equal(SYNC_POLL_TIMEOUT_MS, 180000);
 
 // Source guards.
 const sheet = read("components/BankPickerSheet.tsx");
-assert.ok(sheet.includes("Browser.open({ url: auth_url })"), "native consent opens in the in-app browser");
+assert.ok(sheet.includes("Browser.open({ url: auth_url, toolbarColor: consentToolbarColor(isDarkPreferenceOn()) })"), "native consent opens in the in-app browser with a theme toolbar (A150)");
+assert.ok(!/return\s+Browser\b/.test(sheet), "A139: plugin proxy never returned");
+// A150: toolbar colour follows the dark preference, with a fake Browser and document.
+assert.equal(consentToolbarColor(true), "#0f172a");
+assert.equal(consentToolbarColor(false), "#f0f2f7");
+assert.equal(CONSENT_TOOLBAR_DARK, "#0f172a");
+assert.equal(CONSENT_TOOLBAR_LIGHT, "#f0f2f7");
+for (const dark of [true, false]) {
+  globalThis.document = { documentElement: { classList: { contains: (c) => c === "dark" && dark } } };
+  const opened = [];
+  const Browser = { open: async (o) => { opened.push(o); } };
+  await Browser.open({ url: "https://x", toolbarColor: consentToolbarColor(isDarkPreferenceOn()) });
+  assert.equal(opened[0].toolbarColor, dark ? "#0f172a" : "#f0f2f7");
+}
+delete globalThis.document;
 assert.ok(sheet.includes("launchMode(") && sheet.includes("buildLinkQuery(") && sheet.includes("stayOnReturn"));
 assert.ok(/finexerConnectLink\(bank\.id, native\)/.test(sheet) && /legacyBankConnectLink\(bank\.id, native\)/.test(sheet));
 assert.ok(sheet.includes("isNativePlatform()"));

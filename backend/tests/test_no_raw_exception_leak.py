@@ -72,7 +72,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.safe_calc._CalcError — "Internal only" per its own
     # docstring, every raise site in that module is a static, authored,
     # already-calm string written for this exact Penny-facing surface.
-    ("app/services/safe_calc.py", 136),
+    ("app/services/safe_calc.py", 225),  # G241: _clean_inputs rejection, same authored _CalcError sentences
+    ("app/services/safe_calc.py", 238),
     # app.routers.mcp.McpError — the MCP JSON-RPC error contract IS
     # (code, message, data); every raise site is a static, authored string.
     # A90 (2026-09-22) added version-negotiation and top-level JSON-RPC
@@ -104,21 +105,21 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 3912),
-    ("app/services/penny_tools.py", 3977),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 4486),
-    ("app/services/penny_tools.py", 4506),
-    ("app/services/penny_tools.py", 4542),
-    ("app/services/penny_tools.py", 4565),
+    ("app/services/penny_tools.py", 4044),
+    ("app/services/penny_tools.py", 4178),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 4687),
     ("app/services/penny_tools.py", 4707),
-    ("app/services/penny_tools.py", 4712),
-    ("app/services/penny_tools.py", 4717),
-    ("app/services/penny_tools.py", 4815),
-    ("app/services/penny_tools.py", 4820),
-    ("app/services/penny_tools.py", 4825),
-    ("app/services/penny_tools.py", 5766),
-    ("app/services/penny_tools.py", 6421),
-    ("app/services/penny_tools.py", 6435),
+    ("app/services/penny_tools.py", 4743),
+    ("app/services/penny_tools.py", 4766),
+    ("app/services/penny_tools.py", 4908),
+    ("app/services/penny_tools.py", 4913),
+    ("app/services/penny_tools.py", 4918),
+    ("app/services/penny_tools.py", 5016),
+    ("app/services/penny_tools.py", 5021),
+    ("app/services/penny_tools.py", 5026),
+    ("app/services/penny_tools.py", 5967),
+    ("app/services/penny_tools.py", 6622),
+    ("app/services/penny_tools.py", 6636),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
