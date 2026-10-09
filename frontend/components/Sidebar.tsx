@@ -24,7 +24,7 @@ export default function Sidebar() {
   // rail with the raised gradient button that opens it there) is
   // `lg:hidden`, so without this, in-page callers that still fire
   // usePennySheet().open() on wide viewports (PennyPromptBar on Planning,
-  // the /penny hub and ScenarioPage) had a panel with
+  // and the /penny hub) had a panel with
   // nothing to visually anchor to or trigger from. `screenForPathname` is
   // the exact function BottomNav.tsx uses to turn the current route into
   // the sheet's screen context (lib/pennyScreenConfig.tsx) — reused here,

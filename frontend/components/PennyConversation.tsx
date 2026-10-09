@@ -117,13 +117,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import PennyStarterState from "@/components/PennyStarterState";
-import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal, ScenarioItem } from "@/lib/api";
+import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import PennyComposer from "@/components/PennyComposer";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import CommitmentSheet from "@/components/CommitmentSheet";
-import { DateField } from "@/components/DatePicker";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
@@ -157,10 +156,8 @@ const PENNY_THREAD_TTL_MS = 30 * 60 * 1000;
 // SLIDING WINDOW (every append goes through `capMessages`, which ends in
 // `.slice(-HISTORY_CAP)`) — once a bucket's thread exceeds the cap,
 // index-keyed nodes have content shift under them instead of nodes being
-// added/removed, and `ScenarioConfirmCard`'s lazy `useState(() =>
-// items.map(toDraft))` initialiser only runs on mount, so a reused instance
-// under a shifted index kept a STALE draft from a different scenario
-// message.
+// added/removed, and a card holding lazily initialised local state would
+// keep a STALE draft from a different message under a reused instance.
 type UserMsg = { id: number; role: "user"; content: string };
 type VerdictMsg = {
   id: number;
@@ -181,21 +178,6 @@ type VerdictMsg = {
    * yet — `headline` here is actually the raw `reply` string, rendered as
    * plain body text rather than a bold verdict headline. */
   degraded: boolean;
-};
-/** The slot-confirm gate for a "what if" scenario question — the deliberate
- * anti-chatbot step in this feature. POST /can-i's deterministic classifier
- * (backend/app/routers/scenario.py's `looks_like_scenario`) routes an
- * ongoing/future-dated money question here instead of a normal verdict; the
- * user must see and be able to correct exactly what will be simulated
- * before any numbers are produced. Rendered by ScenarioConfirmCard below;
- * "Run it" pushes the (possibly edited) items straight to /scenario. */
-type ScenarioMsg = {
-  id: number;
-  role: "assistant";
-  kind: "scenario";
-  items: ScenarioItem[];
-  rejected: string[];
-  prefilled: boolean;
 };
 /** A general-knowledge answer (tax, currently the only topic) that isn't
  * grounded in the user's own balances — the fold-in of the retired TaxChat
@@ -243,7 +225,7 @@ export type ConsentMsg = {
   kind: "consent";
   status: "pending" | "accepted" | "declined";
 };
-type AssistantMsg = VerdictMsg | ScenarioMsg | ExplainerMsg | ProposalMsg | ConsentMsg;
+type AssistantMsg = VerdictMsg | ExplainerMsg | ProposalMsg | ConsentMsg;
 // MarkerMsg — a page-seam divider inserted between turns from different
 // screens — died with the one-thread model it belonged to (see this file's
 // header comment, "PER-SCREEN THREADS", 2026-08-26). A per-screen bucket
@@ -352,9 +334,8 @@ function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () =>
           // 16px, not the previously-used 15px (design review, 2026-08-25:
           // 15px wasn't on DESIGN.md's type ramp). This is the same
           // Card/section-title token already used elsewhere for a verdict
-          // line (e.g. ScenarioConfirmCard's "Here's what I understood"
-          // heading and PennySheet.tsx's own header title, both
-          // `text-[16px] font-bold` below) — reusing it here rather than
+          // line (e.g. PennySheet.tsx's own header title,
+          // `text-[16px] font-bold`) — reusing it here rather than
           // inventing a new size.
           <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words"><MoneyText text={msg.headline} /></p>
         )}
@@ -440,232 +421,15 @@ function ExplainerBubble({ msg }: { msg: ExplainerMsg }) {
   );
 }
 
-const CADENCE_OPTIONS: { value: ScenarioItem["cadence"]; label: string }[] = [
-  { value: "monthly", label: "Monthly" },
-  { value: "weekly", label: "Weekly" },
-  { value: "annual", label: "Annual" },
-  { value: "one_off", label: "One off" },
-];
-
-/** "2026-10-01" -> "2026-10", the value DateField takes in month mode. */
-function toMonthValue(iso: string | null | undefined): string {
-  return iso ? iso.slice(0, 7) : "";
-}
-/** "2026-10" -> "2026-10-01" — the backend always deals in first-of-month
- * ISO dates for `starts`/`ends` (see parse_question's own resolved-start
- * output), so editing keeps that shape. */
-function fromMonthValue(month: string): string {
-  return month ? `${month}-01` : "";
-}
-
-/** A single confirmable scenario item, editable in place. Amount is kept as
- * a draft string (not a controlled number) while typing — same convention
- * as SavingsGoalSheet's amount fields — parsed back to a number only when
- * the parent reads it out for "Run it" or a remove/reorder re-render. */
-type DraftItem = Omit<ScenarioItem, "amount"> & { amountText: string };
-
-function toDraft(item: ScenarioItem): DraftItem {
-  const { amount, ...rest } = item;
-  return { ...rest, amountText: String(amount) };
-}
-function fromDraft(draft: DraftItem): ScenarioItem {
-  const { amountText, ...rest } = draft;
-  const n = Number(amountText);
-  return { ...rest, amount: Number.isFinite(n) ? n : 0 };
-}
-
-const FIELD_CLASS =
-  "mt-1 w-full min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300 focus-visible:ring-2 focus-visible:ring-indigo-500";
-const FIELD_LABEL_CLASS = "text-[11px] font-medium text-slate-500 dark:text-slate-400";
-
-/** The slot-confirm card — the deliberate anti-chatbot gate for a "what if"
- * question. Shows every extracted item as editable fields (label, amount,
- * cadence, start month, ongoing-or-end-month) so the user can see and
- * correct exactly what will be simulated before any numbers are produced.
- * Holds its own draft state seeded from the backend's extraction; nothing
- * is sent anywhere until "Run it". `rejected` (items the backend dropped,
- * e.g. over the 3-item cap) is surfaced quietly underneath rather than
- * silently giving the user less than they asked for.
- *
- * CARVE-OUT from the bubbles conversion (2026-08-25, do not "fix" this
- * later): this stays a full-width `glass-card`, never a bubble. It's an
- * editable FORM — text/amount/select inputs and a submit button — and a
- * form squeezed into an 85-90%-wide bubble with a speech-bubble tail is bad
- * on every axis: cramped fields, a tail pointing at nothing meaningful, and
- * a shape that visually promises "read this" when the actual affordance is
- * "fill this in". Every other assistant turn in this thread is a bubble;
- * this one is deliberately not, because it isn't conversation, it's a form. */
-function ScenarioConfirmCard({
-  items,
-  rejected,
-  prefilled,
-  onRun,
-}: {
-  items: ScenarioItem[];
-  rejected: string[];
-  prefilled: boolean;
-  onRun: (items: ScenarioItem[]) => void;
-}) {
-  const [drafts, setDrafts] = useState<DraftItem[]>(() => items.map(toDraft));
-  // DateField has no native validation, so a missing start month is caught here.
-  const [dateError, setDateError] = useState(false);
-
-  function patch(i: number, next: Partial<DraftItem>) {
-    setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...next } : d)));
-  }
-  function remove(i: number) {
-    setDrafts((prev) => prev.filter((_, idx) => idx !== i));
-  }
-
-  return (
-    <div className="glass-card rounded-2xl p-4 w-full">
-      <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100">Here&apos;s what I understood</p>
-      {drafts.length === 0 ? (
-        <p className="mt-2 text-[14px] leading-relaxed text-slate-500 dark:text-slate-400">
-          Everything was removed, nothing left to run.
-        </p>
-      ) : (
-        <form
-          className="mt-3 flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (drafts.some((d) => !d.starts)) { setDateError(true); return; }
-            onRun(drafts.map(fromDraft));
-          }}
-        >
-          {drafts.map((d, i) => {
-            const isAssumption = prefilled && d.kind === "income_change";
-            const hasEnd = !!d.ends;
-            return (
-              <fieldset key={i} className="rounded-xl border border-slate-200 dark:border-slate-600 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 px-0.5">
-                    {d.kind === "removal" ? "Cancel" : d.kind === "income_change" ? "Income change" : "New cost"}
-                  </legend>
-                  <button
-                    type="button"
-                    onClick={() => remove(i)}
-                    aria-label={`Remove ${d.label || "this item"}`}
-                    className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                <label className="block mt-1.5">
-                  <span className={FIELD_LABEL_CLASS}>Label</span>
-                  <input
-                    type="text"
-                    value={d.label}
-                    onChange={(e) => patch(i, { label: e.target.value })}
-                    maxLength={40}
-                    required
-                    className={FIELD_CLASS}
-                  />
-                </label>
-
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <label className="block">
-                    <span className={FIELD_LABEL_CLASS}>
-                      Amount
-                      {isAssumption && (
-                        <span className="ml-1 inline-flex items-center gap-1">
-                          <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
-                          assumption, check this
-                        </span>
-                      )}
-                    </span>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none mt-0.5">£</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={d.amountText}
-                        onChange={(e) => patch(i, { amountText: e.target.value })}
-                        required
-                        className={`${FIELD_CLASS} pl-6 font-mono tabular-nums`}
-                      />
-                    </div>
-                  </label>
-
-                  <label className="block">
-                    <span className={FIELD_LABEL_CLASS}>Cadence</span>
-                    <select
-                      value={d.cadence}
-                      onChange={(e) => patch(i, { cadence: e.target.value as ScenarioItem["cadence"] })}
-                      className={FIELD_CLASS}
-                    >
-                      {CADENCE_OPTIONS.map((c) => (
-                        <option key={c.value} value={c.value}>{c.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                {/* Stacked rows, one field per line. The picker is a sheet (G136), so
-                    the old native-control width constraint no longer applies. */}
-                <label className="block mt-2">
-                  <span className={FIELD_LABEL_CLASS}>Starts</span>
-                  <DateField mode="month" label="Starts" title="Starts" value={toMonthValue(d.starts)} onChange={(v) => { patch(i, { starts: fromMonthValue(v) }); setDateError(false); }} required />
-                </label>
-
-                <label className="block mt-2">
-                  <span className={FIELD_LABEL_CLASS}>Duration</span>
-                  <select
-                    value={hasEnd ? "until" : "ongoing"}
-                    onChange={(e) =>
-                      patch(i, { ends: e.target.value === "ongoing" ? null : d.ends || d.starts })
-                    }
-                    className={FIELD_CLASS}
-                  >
-                    <option value="ongoing">Ongoing</option>
-                    <option value="until">Ends</option>
-                  </select>
-                </label>
-
-                {hasEnd && (
-                  <label className="block mt-2">
-                    <span className={FIELD_LABEL_CLASS}>End month</span>
-                    <DateField mode="month" label="End month" title="End month" value={toMonthValue(d.ends)} min={toMonthValue(d.starts) || undefined} onChange={(v) => patch(i, { ends: fromMonthValue(v) })} required />
-                  </label>
-                )}
-              </fieldset>
-            );
-          })}
-
-          {dateError && <p role="alert" className="text-[12px] leading-snug text-slate-600 dark:text-slate-300">Choose a start month for each item to run it.</p>}
-
-          {rejected.length > 0 && (
-            <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{rejected.join(" ")}</p>
-          )}
-
-          <button
-            type="submit"
-            className="min-h-[44px] rounded-xl text-white text-sm font-semibold active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            style={{ background: BG }}
-          >
-            Run it
-          </button>
-        </form>
-      )}
-      {drafts.length === 0 && rejected.length > 0 && (
-        <p className="mt-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{rejected.join(" ")}</p>
-      )}
-    </div>
-  );
-}
-
 // ── AGENT MODE v1 — ProposalConfirmCard / ConsentCard (owner decisions
 // locked: confirm-as-is cards with NO inline edits, a one-time consent
 // moment, origin badges on created artefacts, a 15-min server-enforced
 // proposal TTL). Both are full-width `glass-card`s, deliberately NOT
-// bubbles — the same CARVE-OUT as ScenarioConfirmCard above: a card with
+// bubbles — a CARVE-OUT: a card with
 // real buttons and a real side effect (creating something, granting an
 // ongoing permission) doesn't belong squeezed into an 85-90%-wide speech
-// bubble with a tail pointing at nothing. Siblings of ScenarioConfirmCard
-// in every other sense: rendered full-width in the thread, keyed on the
-// message's own stable `id`, holding no state ScenarioConfirmCard already
-// solved a different way. ─────────────────────────────────────────────────
+// bubble with a tail pointing at nothing. Rendered full-width in the
+// thread, keyed on the message's own stable `id`. ─────────────────────────────────────────────────
 
 /** Confirm-as-is card for a single Penny-drafted action. Anatomy reuses
  * VerdictBubble's own two-tier hierarchy rather than inventing a new one:
@@ -679,7 +443,7 @@ function ScenarioConfirmCard({
  *
  * Confirm is the app's single PRIMARY INDIGO treatment (`bg-indigo-600`
  * solid fill, DESIGN.md's Buttons section) — deliberately NOT the Penny
- * gradient ScenarioConfirmCard's "Run it" uses: that gradient marks "this
+ * gradient: that gradient marks "this
  * surface gives advice" (DESIGN.md's Penny Gradient Rule), where this
  * button's job is "commit a specific, already-drafted action", the same
  * job every other primary-indigo button in the app does. Cancel is quiet
@@ -795,8 +559,7 @@ export function ProposalConfirmCard({
  * Same CARVE-OUT as ProposalConfirmCard above (real buttons, a real
  * ongoing-permission decision, not conversation).
  *
- * Accept uses the Penny GRADIENT (`BG`, same token ScenarioConfirmCard's
- * "Run it" uses) rather than plain indigo — deliberately the opposite
+ * Accept uses the Penny GRADIENT (`BG`) rather than plain indigo — deliberately the opposite
  * choice from ProposalConfirmCard's Confirm button just above: this button
  * isn't committing one drafted action, it's the literal gate to Penny's
  * advice-plus-action capability turning on at all, inside Penny's own
@@ -1262,9 +1025,7 @@ export default function PennyConversation({
       .slice(-HISTORY_CAP)
       .map((m) => {
         if (m.role === "user") return { role: "user" as const, content: m.content };
-        // A scenario confirm card has no headline of its own — summarise it
-        // by label so a follow-up question still has something sensible to
-        // read as "what Penny said last". An explainer turn contributes its
+        // An explainer turn contributes its
         // markdown `reply` verbatim, so a follow-up tax question keeps the
         // same context a verdict follow-up already gets.
         // Prefer `reply` (the actual reasoning) over the bare headline so a
@@ -1272,9 +1033,7 @@ export default function PennyConversation({
         // deterministic headline like "Yes" carries nothing for the model to
         // build on. Falls back to headline where reply is unset (degraded
         // paths already fold reply into headline; see VerdictMsg's comment).
-        const content = m.kind === "scenario"
-          ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.`
-          : m.kind === "explainer"
+        const content = m.kind === "explainer"
           ? m.reply
           : m.kind === "proposal"
           ? `I proposed: ${m.proposal.summary} (${m.status}).`
@@ -1323,15 +1082,7 @@ export default function PennyConversation({
       // (see the Msg union's `id` comment for why every message needs one).
       const id = newMsgId();
       let assistantMsg: AssistantMsg;
-      if (res.scenario && res.items && res.items.length > 0 && !res.clarify) {
-        // The slot-confirm gate — see ScenarioMsg's doc comment. Never a
-        // verdict card: nothing has been simulated yet.
-        assistantMsg = { id, role: "assistant", kind: "scenario", items: res.items, rejected: res.rejected ?? [], prefilled: res.prefilled ?? false };
-      } else if (res.scenario) {
-        // `clarify` non-null (or no usable items extracted) — nothing to
-        // confirm, render `reply` as an ordinary plain-text message.
-        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, degraded: true };
-      } else if (res.consent_required) {
+      if (res.consent_required) {
         // Agent mode v1's one-time gate — checked BEFORE `res.proposal`
         // (the two are mutually exclusive on the wire, but consent takes
         // priority if a backend ever somehow set both): nothing has been
@@ -1363,7 +1114,7 @@ export default function PennyConversation({
       }));
       setOffer(res.offer ?? null);
       // Every path through this try block is a real model-answered message
-      // (a scenario/consent/proposal/explainer/verdict — the deterministic
+      // (a consent/proposal/explainer/verdict — the deterministic
       // chip path, api.pennyChip, never reaches `ask()` at all except on its
       // own LLM fallback, which lands here same as a typed question). See
       // PennySheetProvider.tsx's refreshPennyUsage for why this is
@@ -1402,14 +1153,6 @@ export default function PennyConversation({
     } finally {
       setLoading(false);
     }
-  }
-
-  /** "Run it" on a scenario confirm card — pushes the (possibly edited)
-   * items straight to /scenario as a JSON-encoded `items` query param,
-   * exactly what ScenarioPage.tsx expects. No re-typing the question:
-   * editing happens entirely in the card, this is a pure navigation. */
-  function runScenario(items: ScenarioItem[]) {
-    router.push(`/scenario?items=${encodeURIComponent(JSON.stringify(items))}`);
   }
 
   function send(text: string) {
@@ -2188,17 +1931,12 @@ export default function PennyConversation({
           // index key would reuse instances across shifted content once
           // the thread exceeds HISTORY_CAP).
           if (m.role === "user") return <UserBubble key={m.id} text={m.content} />;
-          if (m.kind === "scenario") {
-            // Full-width form, deliberately NOT a bubble — see the
-            // CARVE-OUT comment on ScenarioConfirmCard's own doc comment.
-            return <ScenarioConfirmCard key={m.id} items={m.items} rejected={m.rejected} prefilled={m.prefilled} onRun={runScenario} />;
-          }
           if (m.kind === "explainer") {
             return <ExplainerBubble key={m.id} msg={m} />;
           }
           if (m.kind === "proposal") {
             // Full-width card, deliberately NOT a bubble — same CARVE-OUT
-            // as ScenarioConfirmCard/ConsentCard (real buttons, a real
+            // as ConsentCard (real buttons, a real
             // side effect). `screen`/`msgId` captured here from the
             // CURRENTLY VIEWED bucket (`currentScreen`) — only that
             // bucket's messages ever render, so this is always the right
