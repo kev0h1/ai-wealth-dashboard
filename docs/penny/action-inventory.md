@@ -220,7 +220,7 @@ reconciled against that real total.
 | UI action | Surface | Endpoint (api.ts method) | Penny tool | Status |
 |---|---|---|---|---|
 | Record a Mirror trait keep/change choice | `app/mirror/MirrorPage.tsx:45` | `POST /mirror/choice` (`setMirrorChoice`) | `propose_mirror_choice` | covered |
-| Run a "what if" scenario | `app/scenario/ScenarioPage.tsx:420` | `POST /scenario/run` (`scenarioRun`) | `check_affordability` + `calculate`, no multi-item simulate | partial |
+| Run a "what if" scenario | removed by G246 (2026-10-09) | `POST /scenario/run` deleted | answered inline by `calculate` (G241/G245) over live figures, no card | n/a |
 | Grant Penny agent-mode consent | `components/PennyConversation.tsx:1604` | `POST /penny/agent-consent` (`grantPennyAgentConsent`) | n/a, this is the gate | n/a |
 | Confirm a Penny proposal | `components/PennyConversation.tsx:1552` | `POST /penny/proposals/{id}/execute` (`executePennyProposal`) | n/a, Penny's own confirm loop | n/a |
 | Cancel a Penny proposal | `components/PennyConversation.tsx:1594` | `POST /penny/proposals/{id}/cancel` (`cancelPennyProposal`) | n/a | n/a |

@@ -17,7 +17,8 @@ def test_required_tools_exist_and_one_first_tool_each():
 
 
 def test_combined_set_is_about_thirty_questions():
-    assert 28 <= len(g241.CASES) + len(corpus.ROUTING_CASES) <= 36
+    # G245/G246 added 5 rows (2 growth, 3 simulator replacements) to the G241 corpus.
+    assert 28 <= len(g241.CASES) + len(corpus.ROUTING_CASES) <= 41
 
 
 def test_padel_fixture_is_eleven_payments_totalling_225():

@@ -72,7 +72,7 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | `get_recurring_payments` | the same cashflow-cache patterns (`recurring_spend`) behind `GET /cashflow`'s upcoming bills, cadence labelled from the detector's own weekly/fortnightly/monthly day-count bands | per-series name, cadence, typical amount, next expected date, billing account/bank, kind, pending/edited/days-past-due state |
 | `get_account_activity(account_id_or_name?, days?=30)` | server-side aggregation over the same 5-collection union `search_transactions` reads, home-currency filtered, spend-vs-movement split via `app.services.categories.is_non_spend` | money in/out (spend vs movement), net, top 5 transactions, current balance, per account or every account; a NAME matching more than one account returns `{ambiguous: true, matches: [...]}` (never guesses, audit fix 2026-08-27), an `id` from `get_accounts` always resolves precisely |
 | `get_mirror` | `app.services.behaviour.compute_portrait` (`GET /mirror`'s engine) plus `app.services.checkpoints.list_active` (`GET /checkpoints`'s engine); merges the user's persisted keep/change choice onto a fresh in-memory compute without writing back | traits (title, narrative, evidence, kind, choice), computed_at, window_days, active aims (category, aim_amount, spent_so_far, days_left, on_track) |
-| `calculate(expression, inputs?, unit?, project_from?, period?)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`, plus from G241 `sum`/`avg`/`shortfall(target, current)`/`periods_to_reach(target, current, rate)`/`per_week(total, days)`/`pct_change(old, new)`/`share(part, whole)`, and names that resolve ONLY from the caller's `inputs`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working. **G241 (2026-10-08) extended it** (see "G241" below): optional `inputs` (named figures, `£` strings and `{raw}` money values accepted), `unit` -> `result_formatted`, `inputs_used`, and an optional hedged date projection (`project_from` + `period` -> `projected_date`, `projected_text`) |
+| `calculate(expression?, inputs?, unit?, project_from?, period?, growth?)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`, plus from G241 `sum`/`avg`/`shortfall(target, current)`/`periods_to_reach(target, current, rate)`/`per_week(total, days)`/`pct_change(old, new)`/`share(part, whole)`, and names that resolve ONLY from the caller's `inputs`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working. **G241 (2026-10-08) extended it** (see "G241" below): optional `inputs` (named figures, `£` strings and `{raw}` money values accepted), `unit` -> `result_formatted`, `inputs_used`, and an optional hedged date projection (`project_from` + `period` -> `projected_date`, `projected_text`). **G245 (2026-10-09)** added `growth` {monthly_contribution, annual_rate_pct, months, starting_balance?} (instead of `expression`) -> `future_value`, `total_contributed`, `growth`, a per-year table, a fixed `hedge` and the stated assumptions; also whitelisted in expressions as `future_value(monthly, rate_pct, months[, starting])` |
 | `preview_trend_intent(category, answer)` | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`'s own engine), added B17, 2026-09-08 (B12 stage 5) | for `answer='new_normal'`: `{title, lines}` pricing what filing the category's current overspend as the new normal actually changes (usual figure, payday move, horizon), requires the category to be currently notable (a tool error otherwise, same as the route); for `answer='one_off'`: a static note that nothing recalculates, no engine call, no notability required (one-off has nothing to preview, the real UI never shows a preview for that choice either) |
 
 All 20 of the above are read-only (and `calculate` still has no side effect).
@@ -497,8 +497,8 @@ question. When a propose tool DOES return a proposal (consented path), the
 loop stops immediately (no further model call, the tool result already
 carries a final, deterministic summary/consequence) and `run_penny_agent`
 returns `{"proposal": {...}}`. `app.routers.can_i`'s `/can-i` response gains
-a `proposal`/`consent_required` branch parallel to its existing `scenario`
-branch, both additive on the wire.
+a `proposal`/`consent_required` branch, both additive on the wire (it was
+parallel to a `scenario` branch, removed by G246).
 
 ## G241 (2026-10-08): Penny could not do basic arithmetic
 
@@ -554,6 +554,52 @@ prompt rule, (2) a row in `docs/penny/question-matrix.md`, and (3) if it is
 arithmetic, a row in `penny_arithmetic_corpus.py` with a deterministic
 `reference`. Known follow-ups are listed at the end of the audit.
 
+## G245 (2026-10-09): compound-growth what-ifs
+
+Kevin's UAT question "what would happen if I contribute £300 a month at an
+interest of 6.5%" was misrouted to the life simulator, which modelled the
+contribution as a cost and dropped the rate. G245 extends `calculate`
+(no parallel tool) with `safe_calc.future_value`. Convention, stated to the
+user in the tool result: monthly compounding at the annual rate divided by
+12, each contribution paid at the END of its month, a starting balance
+compounding from month one, constant rate, no fees, tax or inflation. Bounds:
+0 to 600 months, rate 0 to 100%, amounts up to 1e9, result under 1e12.
+Kevin's check: £300 a month at 6.5% for 12 months with no starting balance is
+£3,709.21 (£3,600 paid in, £109.21 growth).
+
+Routing and answer shape (system-prompt rule 13): a growth or interest what-if
+goes to `calculate` with `growth`, the answer is INLINE in chat (no card, no
+"Run it"), the horizon is the one the user names, else 12 months with an offer
+of 5, 10 or 20 years that is not computed unless asked, and the answer is
+hedged ("at a constant 6.5%, not guaranteed; returns vary and capital is at
+risk for investments"). "If I save £200 a month, how much will my savings be
+in 6 months" fetches the balance first (`get_accounts` or `get_goals`) and
+adds it. Capability boundary, Kevin's words: Penny may give factual
+information and calculations, but never "invest in this" or "do this";
+nothing here recommends a product, provider or action.
+
+## G246 (2026-10-09): the life simulator was removed
+
+Kevin: the "what if" simulator no longer makes sense; Penny answers what-if
+questions inline. There was never a scenario TOOL in this catalogue: the
+simulator ran as a deterministic gate in `/can-i` BEFORE the loop
+(`looks_like_scenario`, then a slot-confirm card with "Run it" that opened
+`/scenario`). All of it is deleted: `app/routers/scenario.py`,
+`app/services/scenario.py`, `POST /scenario/parse` and `/scenario/run`, the
+`/scenario` page, the "Here's what I understood" card, the `scenario` fields on
+the `/can-i` response, the `g100-scenario-canvas` preview, and the `explain`
+topic `month_end_cash` (it described only the simulator's figure). The debt
+planner's `scenario_b` is a different concept and stays.
+
+What replaces it, all in the loop and all inline, no card: arithmetic and cash
+what-ifs ("if I move £825 from Monzo", "if I spend £40 today", "what if my rent
+goes up by £100") fetch live figures with `get_accounts`, `get_safe_to_spend`
+or `get_upcoming_bills` and run `calculate` over them (system-prompt rule 13);
+growth and interest what-ifs use `calculate` with `growth` (G245, above). These
+questions are pinned in `backend/tests/penny_arithmetic_corpus.py`. A
+contribution is money put aside, never a cost. Full inventory and the
+keep/delete decision per use: `docs/penny/G246-scenario-removal.md`.
+
 ## Coverage checklist
 
 The screen-by-screen question inventory driving this catalog lives in
@@ -573,9 +619,8 @@ convention.
 ## What stays deterministic
 
 Short-circuits before the loop, unchanged and in this order: greeting,
-length gate, the `OPENROUTER_API_KEY` guard, and scenario detection
-(`looks_like_scenario` into the slot-confirm card, never simulated without
-confirmation). Everything else — every affordability question, every tax
+length gate and the `OPENROUTER_API_KEY` guard (scenario detection into a
+slot-confirm card was a fourth gate until G246 removed it). Everything else — every affordability question, every tax
 question, every spend/planning/debt/insights question, every page-explainer
 ask — now goes through the loop. The honesty guards shipped 2026-08-26 (the
 cannot-answer-subject rule, explicit zero-interest facts in debt grounding,
@@ -621,7 +666,7 @@ shrank from 5,409 lines to ~525.
 
 ### What survives
 
-- The greeting/length/API-key/scenario gates, byte-identical.
+- The greeting/length/API-key gates, byte-identical (the scenario gate was removed by G246).
 - The deterministic refusal fallback (now reached when the loop itself
   returns `None`, not after a ladder miss).
 - `GET /can-i/suggestions` (the chip-seeding endpoint) — untouched, it never
@@ -689,7 +734,7 @@ retired along with the ladder it pinned — there is no ladder left to
 protect a question-by-question route against. The surviving suite (three
 test files, 85 tests total — 23 in `test_can_i.py`, 30 in
 `test_penny_agent.py`, 32 in the new `test_penny_tools.py`) covers: the
-gates that still run before the loop (greeting, length, scenario), the
+gates that still run before the loop (greeting, length; scenario was removed by G246), the
 `/can-i` wire shape and usage-quota discipline, the deterministic refusal
 fallback, `GET /can-i/suggestions`, the loop's own mechanics (rounds, tool
 dispatch, the wall-clock ceiling, the OUT_OF_SCOPE sentinel),

@@ -1,7 +1,7 @@
 """Ground-up loop-first rebuild, 2026-08-26 (see PENNY_TOOLS.md) — the
 tool-calling agent loop that is now the PRIMARY path for every /can-i
-question except a greeting, the length/API-key gates, and a scenario-
-simulation ask (all three stay in app.routers.can_i, unchanged). This
+question except a greeting and the length/API-key gates (which stay in
+app.routers.can_i, unchanged; the scenario-simulation gate was removed by G246). This
 supersedes the original Phase 1 plan, where this loop only ran as a
 fallback after a large hand-built deterministic ladder had already had a
 turn. The motivating bug: "How can I improve my entertainment spending" was
@@ -96,10 +96,8 @@ _MAX_TOKENS = 500
 _MAX_MODEL_CALLS = 4
 # Budget history, 2026-08-31 (owner-reported bug: "If we move 825£ from my
 # Monzo account, how much will be left" got the generic out-of-scope
-# refusal). Diagnosis ruled out BOTH suspected gates: `looks_like_scenario`
-# correctly returns False for this phrasing (no cadence/income-change/
-# cancel word, no commitment-verb+month pair — verified directly and pinned
-# in test_scenario_routing.py), and a live trace with a loosened budget
+# refusal). Diagnosis ruled out BOTH suspected gates: the (since removed, G246)
+# scenario gate correctly returned False for this phrasing, and a live trace with a loosened budget
 # proved the model itself correctly calls get_accounts then calculate and
 # answers factually the moment it has enough time — there was never a scope
 # problem either. journalctl correlated the exact incident timestamp
@@ -468,7 +466,25 @@ _SYSTEM_PROMPT = (
     "anyway with your best guess — an unknown topic returns the full list "
     "of valid keys to pick from and re-call with. Never answer any of these "
     "three question shapes from general knowledge or your own "
-    "understanding of the app.\n\n"
+    "understanding of the app.\n"
+    "13. What-if and growth questions are answered INLINE in this chat, "
+    "with no card, no confirmation step and no 'Run it'. (a) Growth or "
+    "interest ('what would happen if I contribute £300 a month at 6.5%'): "
+    "call calculate with `growth` and quote its future value, total paid "
+    "in and growth. If the user names a horizon use it; if not, answer for "
+    "12 months and offer 5, 10 or 20 years without computing them unless "
+    "asked. The hedge and the offer may use the 3rd sentence rule 7 allows. Quote the tool's hedge sentence verbatim ('at a constant 6.5%, not "
+    "guaranteed; returns vary and capital is at risk for investments'). A "
+    "regular contribution is money put aside, never a cost. If the user "
+    "asks about saving a sum 'how much will my savings be', fetch the "
+    "balance (get_accounts or get_goals) and pass it as starting_balance, "
+    "or add it with calculate. (b) A what-if on the user's own cash ('if I "
+    "move £825 from Monzo, how much will be left', 'if I spend £40 today', "
+    "'what if my rent goes up by £100'): fetch the live figure "
+    "(get_accounts, get_safe_to_spend, get_upcoming_bills), run calculate "
+    "over it, and state the result as a fact with the working. Factual "
+    "information and calculations only: never say 'invest in this' or "
+    "'do this', never name or rank a product, provider or action.\n\n"
     "OUTPUT FORMAT: once you have everything you need for an IN-SCOPE "
     "question, respond with EXACTLY two lines, nothing before or after:\n"
     "HEADLINE: <under 8 words>\n"

@@ -895,7 +895,7 @@ _TERM_KEYS = [
 ]
 _NUMBER_KEYS = [
     "safe_to_spend_free", "planning_runway", "grow_surplus_monthly", "spend_out",
-    "spend_majority_header", "over_time_chart", "month_end_cash", "moved_total",
+    "spend_majority_header", "over_time_chart", "moved_total",
 ]
 _ACTION_KEYS = [
     "change_bill", "stop_prediction", "skip_occurrence", "set_cancel_aim",

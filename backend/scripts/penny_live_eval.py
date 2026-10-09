@@ -72,6 +72,10 @@ def _classify(case, result):
         # Right figure or not, rule 1 says arithmetic goes through `calculate`.
         return "mental_maths"
     ok = any(x in reply for x in case.get("expect_any", [])) if case.get("expect_any") else True
+    if case.get("expect_hedge"):
+        ok = ok and any(h.lower() in reply.lower() for h in case["expect_hedge"])
+    if result.get("scenario"):
+        ok = False  # G246: the simulator card path no longer exists
     if case.get("expect_all"):
         ok = ok and all(x in reply for x in case["expect_all"])
     return "answered" if ok else "wrong"

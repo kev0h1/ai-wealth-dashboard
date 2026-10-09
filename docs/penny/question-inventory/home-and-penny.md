@@ -588,16 +588,8 @@ Degraded path (no `headline`): the whole `reply` renders as plain body text. Out
 | HOW | How do I make it specific to me? Where's the official source? |
 | WHEN | When do the rules change / which tax year does this apply to? |
 
-## B8. ScenarioConfirmCard (`:447-614`) — the anti-chatbot gate
-**Shows** — deliberately a full-width `glass-card`, not a bubble. Title **"Here's what I understood"**. Per extracted item (max 3, backend-capped): a fieldset legend of **"Cancel" / "Income change" / "New cost"**, editable **Label**, **Amount** (with an amber "assumption, check this" marker when `prefilled` and kind is `income_change`), **Cadence** (Monthly / Weekly / Annual / One off), **Starts** (month picker), **Duration** (Ongoing / Ends) and conditional **End month**. Remove ✕ per item. `rejected[]` reasons shown quietly. Empty state: "Everything was removed, nothing left to run." Submit: **"Run it"** → `/scenario?items={JSON}`.
-
-| Bucket | Questions |
-|---|---|
-| WHERE | Where did she get that amount from — I never said it? Which of my existing bills does "Cancel" refer to? |
-| WHAT | What is a "scenario"? What does "Income change" mean — gross or net? What does "assumption, check this" mean? Why was an item rejected? Does "Run it" change anything real? |
-| WHY | Why did she extract that and not what I said? Why only 3 items? Why did it guess my income? |
-| HOW | How do I add another item? How do I model a raise AND a new cost together? How do I go back and re-ask instead of editing? |
-| WHEN | What does "Starts" default to? What does "Ongoing" mean — forever? How far ahead does the simulation run? |
+## B8. ScenarioConfirmCard: REMOVED by G246 (2026-10-09)
+The "Here's what I understood" slot-confirm card and its "Run it" button no longer exist. What-if questions ("if I move £825 from Monzo, how much will be left", "what if my rent goes up by £100", "what would happen if I contribute £300 a month at 6.5%") are answered inline in the thread by `calculate` over live figures, with no card. See `docs/penny/G246-scenario-removal.md`.
 
 ## B9. Typing indicator / error-retry (`:624-655`)
 **Shows** — three bouncing dots in a Penny bubble, `sr-only` text **"Penny is checking your numbers"**. On failure: **"Couldn't check that just now, try again in a moment."** + **"Try again"** (re-sends the last user turn with the prior history).

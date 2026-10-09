@@ -1844,7 +1844,7 @@ async def compute_debt_plan(uid: str) -> dict:
     # `_projection_rate_schedule` is the one exception: it is publicly
     # exposed as `projection_rate_schedule` (additive, alongside the
     # existing `rate_schedule`) before its private copy is popped, so a
-    # consumer of the cached plan (e.g. app.services.scenario) can re-run
+    # consumer of the cached plan can re-run
     # `_amortise` against the SAME schedule this engine actually used —
     # including the "no interest observed, projected without it" doctrine
     # above that empties the schedule out entirely on a silent 0% card —
@@ -1894,7 +1894,7 @@ async def get_debt_plan_cached(uid: str, *, persist: bool = True) -> dict:
     own uid, from unmerged code (see H90's board item). Every OTHER caller
     (`app/routers/debt_plan.py`, `commitments.py`, `cards.py`,
     `spend_impact.py`, `penny_tools.py`'s own direct call, `grow.py`,
-    `scenario.py`) keeps calling this with no `persist` argument, so they
+    and the debt planner's alternative plan) keeps calling this with no `persist` argument, so they
     are unaffected: default is still `True`, still write-through, byte
     identical to before."""
     cached = await response_cache.aget(_CACHE_NAME, uid)

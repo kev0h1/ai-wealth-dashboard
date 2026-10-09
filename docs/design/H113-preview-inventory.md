@@ -100,3 +100,5 @@ The importer detection matched the word `from` on comment lines, so account-pick
 | `transactions-canvas-before-cards` | open G118(todo) |
 | `upcoming-by-account` | imported/read by frontend/scripts/g229-by-account.test.mjs |
 | `upcoming-canvas-before-cards` | open G90(uat) |
+
+G246 (2026-10-09): `g100-scenario-canvas` was deleted with the /scenario page it designed (the life simulator was removed).

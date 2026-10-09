@@ -22,7 +22,7 @@ import re
 _DASH_RE = re.compile(r"\s*[—–]\s*")
 _HYPHEN_MINUS_GBP_RE = re.compile(r"-£")
 
-# Currency-symbol guardrail: live testing on scenario.py's headline call
+# Currency-symbol guardrail: live testing on an early LLM headline call
 # showed the model spelling out "300 pounds" / "1,532.95 pounds" instead of
 # using £, inconsistent with every other figure the app ever shows (always
 # the £ symbol, never the word). The system prompt asks for £ explicitly,

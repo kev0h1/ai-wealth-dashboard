@@ -131,3 +131,19 @@ row 68 (see the audit, "Residual").
 | 83 | accounts | Hide my balances | propose_set_hide_balances | propose | A (C) | A | A | action-inv |
 | 84 | accounts | What do my subscriptions add up to each month? | get_recurring_payments, calculate | arithmetic | A (C) | A | A | insights 4 |
 | 85 | accounts | Which recurring payments have gone up in price? | none (no price history) | comparison | P (C) | P | P | insights 4 |
+
+## G245 and G246 additions (2026-10-09)
+
+Rows 86 to 91: growth and what-if questions, answered inline (no card). The
+last three columns keep the same meaning as above; "before" is the state with
+the life simulator and no growth calculator, "after" is this branch (G, the
+offline corpus; the live run is recorded in the G245 board note).
+
+| # | Screen | Question | Tools | Kind | Before | After | Source |
+|---|---|---|---|---|---|---|---|
+| 86 | grow | What would happen if I contribute £300 a month at an interest of 6.5% | calculate (growth) | what-if | W (a NEW COST card, rate dropped) | A (G) | grow-01 |
+| 87 | grow | How much would £200 a month at 5% a year be worth after 10 years | calculate (growth) | what-if | P | A (G) | grow-02 |
+| 88 | grow | If I save £200 a month, how much will my savings be in 6 months | get_accounts, calculate (growth, starting_balance) | what-if | M | A (G) | calc-11 |
+| 89 | accounts | If I move £825 from Monzo, how much will be left | get_accounts, calculate | what-if | A (card or tool loop by phrasing) | A (G) | sim-01 |
+| 90 | home | If I spend £40 today what is left | get_safe_to_spend, calculate | what-if | A | A (G) | sim-02 |
+| 91 | upcoming | What if my rent goes up by £100 | get_upcoming_bills, calculate | what-if | W (a NEW COST card) | A (G) | sim-03 |

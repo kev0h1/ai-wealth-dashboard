@@ -1,4 +1,4 @@
-# Question inventory: Planning, Grow, Debt, Scenario
+# Question inventory: Planning, Grow, Debt (Scenario removed by G246)
 Captured 2026-08-27 from the live components. Source of truth for Penny tool coverage of these surfaces.
 Caveat: notable actionable finds: /budget is an orphaned route; scenario's month-by-month figures are fetched but never rendered; BottomNav.tsx carries a stale comment about /grow.
 
@@ -19,7 +19,7 @@ Files traced: `/root/ai-wealth-dashboard/frontend/app/planning/PlanningPage.tsx`
 | `/planning` | `app/planning/PlanningPage.tsx` | BottomNav tab "Planning" (`components/BottomNav.tsx:148`); deep links `?day=YYYY-MM-DD&bill=<name>` from Home |
 | `/grow` | `app/grow/page.tsx` → `GrowVariant1` | Plans dock row on Planning (`PlanningPage.tsx:1096,1652`); `goalsSummary` savings pillar `url:"/grow"` (`backend/app/routers/goals.py:95`) |
 | `/debt-plan` | `app/debt-plan/DebtPlanPage.tsx` | Plans dock row (`PlanningPage.tsx:1095,1651`); `GoalsStrip` (`components/GoalsStrip.tsx:87`); `CommitmentSheet` consent "debt first" (`components/CommitmentSheet.tsx:438`); `/insights?tab=plan` redirect (`app/insights/InsightsPage.tsx:1222`) |
-| `/scenario?items=<json>` | `app/scenario/ScenarioPage.tsx` | Only from `PennyConversation.runScenario` (`components/PennyConversation.tsx:1056`) — the "life simulator" |
+| `/scenario?items=<json>` | REMOVED by G246 (2026-10-09) | the "life simulator" page and its only entry point are deleted; what-ifs are answered inline by Penny |
 | `/budget` | `app/budget/BudgetPage.tsx` (titled **"Trends"**) | **No in-app link in the frontend.** Only reachable by direct URL or the backend `goalsSummary` budget pillar `url:"/budget"` (`backend/app/routers/goals.py:118`) rendered by `GoalsStrip` |
 | `GrowVariant2/3` | `app/grow/GrowVariant2.tsx`, `GrowVariant3.tsx` | Dead reference files; `app/grow/page.tsx` imports V1 only |
 
@@ -385,31 +385,9 @@ Session is either one card (`startAccountId`) or a walk over all cards ("· {i} 
 
 ---
 
-# G. SCENARIO / WHAT-IF (the life simulator)
+# G. SCENARIO / WHAT-IF (the life simulator): REMOVED by G246 (2026-10-09)
 
-## G1. `ScenarioConfirmCard` (in Penny thread, `components/PennyConversation.tsx:447-608`)
-- **Shows**: "Here's what I understood"; one editable `fieldset` per extracted item, legend **Cancel / Income change / New cost**; fields **Label**, **Amount** (with amber-dot "assumption, check this" when `prefilled && kind==="income_change"`), **Cadence** select, **Starts** (`type="month"`), **Duration** (Ongoing / Ends) and **End month**; quiet `rejected[]` line; **Run it**. Empty case: "Everything was removed, nothing left to run."
-- **Fields**: `CanIResponse.{scenario,items,rejected,prefilled,clarify}` from `POST /can-i` (`api.canI`, `lib/api.ts:1725`); `ScenarioItem` (`lib/api.ts:734-745`).
-- **Do**: edit any slot, remove an item, **Run it** → `router.push('/scenario?items=<json>')`. Nothing is simulated until Run it.
-- **Questions** — WHAT is it going to simulate, over what horizon? WHY did it guess this amount ("assumption, check this")? WHY were some items rejected? HOW do I add a fourth item (3-item backend cap)? WHEN does "starts" mean — the 1st of that month? HOW does the simulator work at all?
-
-## G2. `/scenario` page (`app/scenario/ScenarioPage.tsx`) — `POST /scenario/run`
-- **G2a. "What if" card**: one line per item, "Add/Cancel/Change {label}, £X a month, from {Sep 2026}", plus `rejected` text.
-  - Questions — WHAT exactly did it take from my question? WHY is my wording gone?
-- **G2b. "Month-end cash" hero**: `headline`; **Now** (`baseline.monthly_surplus`) → **With this** (`cash.surplus_after` or "Unclear"); delta pill `±£X a month` (`recurring_delta`); lumpy note "Some of this lands in specific months rather than being spread evenly, see the month-by-month figures for where it actually bites."; null reason (`reasons.cash`, e.g. thin history) or `UNMAPPED_REASON_FALLBACK`.
-  - Fields: `ScenarioCashBlock.{surplus_now,surplus_after,per_month[],first_tight_month,months_negative}` — note `per_month`, `first_tight_month`, `months_negative` are **in the payload but never rendered**, while the lumpy note tells the user to "see the month-by-month figures".
-  - Questions — WHERE are the month-by-month figures it just told me to look at? WHAT is "month-end cash" vs Planning's runway vs Home's safe-to-spend? WHY "Unclear"? WHEN would I first go tight (`first_tight_month` exists, unshown)? HOW many months does this project?
-- **G2c. "Debt" card**: debt-free month **Now → With this** (raw `YYYY-MM` strings, *not* formatted like everywhere else), or "Unclear" + reason.
-  - Fields: `ScenarioDebtBlock.{debt_free_month_now,debt_free_month_after,months_later,extra_interest,movement_exhausted,clears_after}` — `months_later`, `extra_interest`, `movement_exhausted` are **never rendered**.
-  - Questions — WHAT is "debt free" (all cards? carried only?)? HOW MUCH extra interest does this cost me (`extra_interest` is in the payload)? WHY unclear? WHEN — is `2027-04` the month it clears?
-- **G2d. "Plans & goals" card**: per plan, amber dot when `slipped`, "{feasibility_now} → {feasibility_after}"; "At least one plan would become harder to reach under this scenario."
-  - Questions — WHAT do "surplus/savings/stretch/funded" mean as words on a row? WHICH plan slipped and by how long (`target_date` is in the payload, unshown)? WHY did it slip?
-- **G2e. "Grow · emergency fund cover"**: `N.N months` Now → With this, amber dot when worse.
-  - Questions — WHAT counts as cover? WHY does it drop? WHEN do I run out?
-- **G2f. "Where this comes from"**: "£X a month to place. Your surplus covers £Y of it, none right now." + candidate categories with "£Z/mo median"; or "This change frees up money. There is no shortfall to place anywhere."
-  - Questions — WHERE do these categories come from? WHY these? WHAT does "median" mean? HOW do I actually cut one (no link to Spend/budget)? Am I being told to cut them?
-- **G2g. Footer assumptions** (`assumptions[]` minus the lumpy note) + **Try again** on error ("This scenario couldn't be run right now. Nothing has changed, try again.") + empty state "No scenario to show yet. Ask Penny a 'what if' question to see it here." → **Ask Penny** opens the sheet.
-  - Questions — WHAT assumptions is this all resting on? HOW do I save/keep this scenario (there's no save, no share, no re-run with edits — back goes to `/penny`)? HOW do I turn a scenario into a real plan/commitment?
+The slot-confirm card, the `/scenario` page and `POST /scenario/run` are deleted. What-if questions are now answered inline in the Penny thread from live figures: `calculate` over `get_accounts`, `get_safe_to_spend` or `get_upcoming_bills`, and `calculate` with `growth` for interest what-ifs (G245). See `docs/penny/G246-scenario-removal.md`.
 
 ---
 

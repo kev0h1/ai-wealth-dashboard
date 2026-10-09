@@ -12,8 +12,8 @@ questions it wasn't built to understand is worse than a slower path that
 reasons about them properly, so the ~4,900-line hand-built ladder (synonym
 tables, per-domain handlers, per-screen vocabulary, follow-up-route
 inheritance, the out-of-scope gate) is gone outright. What remains here is
-five deterministic short-circuits that cost the user nothing when they fire
-(greeting, length/API-key gates, scenario detection) plus the tool-calling
+a few deterministic short-circuits that cost the user nothing when they fire
+(greeting, length/API-key gates) plus the tool-calling
 agent loop (app.services.penny_agent) for everything else, with the
 loop-failure/off-topic case falling back to a fixed refusal.
 
@@ -36,7 +36,6 @@ from app.core.subscription import penny_allowance
 from app.core import timeutil
 from app.db.collections import commitments_col, penny_proposals_col, preferences_col
 from app.routers.analytics import get_cached_safe_to_spend
-from app.routers.scenario import looks_like_scenario, parse_question
 from app.services.affordability import _nothing_spare_line
 from app.services.categories import get_category_kinds, is_discretionary
 from app.services.penny_agent import run_penny_agent
@@ -327,49 +326,10 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     uid = user["email"]
 
-    # ── 5. Scenario short-circuit — deterministic routing, no LLM
-    # judgement, byte-identical to before this rebuild ──────────────────
-    # looks_like_scenario (app/routers/scenario.py) is a hard rule: an ONGOING
-    # or FUTURE-DATED money change (a new standing cost, a cancellation, an
-    # income change) routes to the scenario simulator's slot extraction
-    # instead of the tool loop below. Runs BEFORE the loop, so a
-    # scenario-shaped question never reaches it. Shares parse_question with
-    # POST /scenario/parse rather than a second copy of extraction. This
-    # never simulates: the user confirms/edits slots via the confirm card
-    # before /scenario/run is ever called.
-    if looks_like_scenario(question):
-        result = await parse_question(uid, question)
-        items = result.get("items") or []
-        clarify = result.get("clarify")
-        if clarify:
-            reply = clarify
-            headline = "Tell me a bit more"
-        elif len(items) == 1:
-            subject = items[0].get("label") or "this change"
-            reply = f"Got it, {subject}. Check the details below and I'll run the numbers."
-            headline = "Here's what I understood"
-        else:
-            subject = f"these {len(items)} changes"
-            reply = f"Got it, {subject}. Check the details below and I'll run the numbers."
-            headline = "Here's what I understood"
-        return {
-            "scenario": True,
-            "items": items,
-            "rejected": result.get("rejected") or [],
-            "prefilled": result.get("prefilled") or False,
-            "clarify": clarify,
-            "reply": _house_style(reply),
-            "headline": _house_style(headline),
-            "facts": [],
-            "explainer": False,
-            "topic": None,
-            "out_of_scope": False,
-        }
-
     # ── 5b. Monthly Penny message cap — the ONE gate on this path that
     # costs the user nothing to CHECK but blocks the model call that would
     # cost them a message: everything above (greeting, length/API-key
-    # gates, the scenario short-circuit just above) is free and stays
+    # gates) is free and stays
     # ungated. `penny_allowance` folds the user's tier limit and this
     # month's top-ups (app.core.subscription) against
     # app.core.llm.monthly_usage's real distinct-message-id count — a
@@ -397,8 +357,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         })
 
     # ── 6. THE TOOL LOOP — loop-first, not a fallback any more. Every
-    # question that isn't a greeting, isn't malformed, and isn't scenario-
-    # shaped reaches app.services.penny_agent.run_penny_agent, which owns
+    # question that isn't a greeting and isn't malformed reaches app.services.penny_agent.run_penny_agent, which owns
     # the OpenRouter tool-calling cycle over the read-only catalog in
     # app.services.penny_tools. Its (B37-revised) failure contract — see
     # that module's own "Failure doctrine" docstring section — is now a

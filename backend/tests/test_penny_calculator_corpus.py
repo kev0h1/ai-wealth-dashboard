@@ -23,6 +23,11 @@ def _run(coro):
 @pytest.mark.parametrize("case", REFERENCE_CASES, ids=[c["id"] for c in REFERENCE_CASES])
 def test_reference_expression_gives_the_expected_value(case):
     ref = case["reference"]
+    if ref.get("growth"):
+        out = _run(execute_tool("corpus-uid", "calculate", {"growth": ref["growth"]}))
+        assert out["ok"], f"{case['id']}: {out['error']}"
+        assert out["result"] == pytest.approx(ref["expected"], abs=0.005)
+        return
     args = {"expression": ref["expression"], "inputs": ref["inputs"]}
     if ref.get("project"):
         args.update(project_from=ref["project"]["from_date"], period=ref["project"]["period"])
@@ -113,8 +118,8 @@ def _schema(name):
 
 def test_calculate_is_registered_read_only_with_the_new_parameters():
     fn = _schema("calculate")
-    assert set(fn["parameters"]["properties"]) == {"expression", "inputs", "unit", "project_from", "period"}
-    assert fn["parameters"]["required"] == ["expression"]
+    assert set(fn["parameters"]["properties"]) == {"expression", "inputs", "unit", "project_from", "period", "growth"}
+    assert fn["parameters"]["required"] == []
     assert "calculate" not in [t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS]
     assert "verbatim" in fn["description"]
 
@@ -133,6 +138,7 @@ def test_penny_tools_md_lists_every_read_tool_and_the_g241_entry():
         name = t["function"]["name"]
         assert f"`{name}" in text, f"{name} is missing from PENNY_TOOLS.md"
     assert "G241" in text and "periods_to_reach" in text
+    assert "G245" in text and "future_value" in text
 
 
 # ── the other small read-tool fixes G241 made ────────────────────────────
@@ -206,8 +212,25 @@ def test_pass_bar_is_every_deterministic_row():
     failures = []
     for case in REFERENCE_CASES:
         ref = case["reference"]
-        out = _run(execute_tool("bar-uid", "calculate", {"expression": ref["expression"], "inputs": ref["inputs"]}))
-        if not out["ok"] or abs(out["result"] - ref["expected"]) > 1e-6:
+        args = ({"growth": ref["growth"]} if ref.get("growth")
+                else {"expression": ref["expression"], "inputs": ref["inputs"]})
+        out = _run(execute_tool("bar-uid", "calculate", args))
+        if not out["ok"] or abs(out["result"] - ref["expected"]) > 0.005:
             failures.append(case["id"])
     assert failures == [], f"deterministic rows failing: {failures}"
     assert len(REFERENCE_CASES) >= 15
+
+
+def test_growth_and_simulator_replacement_rows_are_present_and_inline():
+    ids = {c["id"]: c for c in corpus.CASES}
+    for cid in ("grow-01-kevin-300-at-6-5", "grow-02-named-horizon", "sim-01-move-from-monzo",
+                "sim-02-spend-today", "sim-03-rent-goes-up", "calc-11-save-over-months"):
+        assert cid in ids, cid
+        assert ids[cid]["kind"] == "what-if"
+    for cid in ("grow-01-kevin-300-at-6-5", "grow-02-named-horizon"):
+        assert ids[cid]["expect_hedge"]
+        assert "no card" in ids[cid]["shape"]
+    assert ids["calc-11-save-over-months"]["tools"] == ["get_accounts"]
+    assert ids["grow-01-kevin-300-at-6-5"]["question"] == (
+        "what would happen if I contribute £300 a month at an interest of 6.5%")
+    assert all("no card" in ids[c]["shape"] for c in ("sim-01-move-from-monzo", "sim-02-spend-today", "sim-03-rent-goes-up"))
