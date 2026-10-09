@@ -457,22 +457,28 @@ async def similar_transactions(transaction_id: str, scope: str = "all", user: di
     return [_doc_to_tx(d) for d in docs]
 
 
+def _correction_stamp() -> datetime:
+    """G190: when the user made a category correction (orders conflicting corrections)."""
+    return datetime.utcnow()  # naive-ok: UTC instant compared only against other stamps
+
+
 @router.patch("/transactions/{transaction_id}")
 async def update_transaction(transaction_id: str, body: dict, user: dict = Depends(current_user)):
     if "category" not in body:
         raise HTTPException(400, "Provide 'category' in body")
     category       = body["category"]
     additional_ids = body.get("additional_ids", [])
+    stamp          = _correction_stamp()  # one stamp for the main row and the bulk rows
 
     await transactions_col.update_one(
         {"_id": transaction_id, "user_id": user["email"]},
-        {"$set": {"custom_category": category}},
+        {"$set": {"custom_category": category, "custom_category_at": stamp}},
     )
     bulk_count = 0
     if additional_ids:
         result = await transactions_col.update_many(
             {"_id": {"$in": additional_ids}, "user_id": user["email"]},
-            {"$set": {"custom_category": category}},
+            {"$set": {"custom_category": category, "custom_category_at": stamp}},
         )
         bulk_count = result.modified_count
 
@@ -538,8 +544,13 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     # Category changes move money in/out of the Transfer exclusion and the
     # trusted recurring categories — refresh the upcoming-payments cache in the
     # background (same in-process fire-and-forget pattern the manual sync uses)
+    # G190: stamp the cashflow doc stale first (so any read before the
+    # background recompute lands recomputes), then recompute; the write is the
+    # G177 compare-and-swap, so an older in-flight recompute cannot overwrite.
     from app.routers.analytics import compute_and_cache_cashflow
+    from app.services.derived_caches import mark_stale
     import asyncio as _asyncio
+    await mark_stale(user["email"], reason="category_correction")
     _asyncio.create_task(compute_and_cache_cashflow(user["email"], clear_ai_cache=False))
 
     # Category changes can flip a row in/out of the miscategorised-transfers
@@ -663,7 +674,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         # mine-* branches so a prior goal/offline link doesn't linger.
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
-            {"$set": {"custom_category": _MOVEMENT_CATEGORY},
+            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "custom_category_at": _correction_stamp()},
              "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
         )
         category_changed = True
@@ -683,7 +694,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
             raise HTTPException(404, "Goal not found")
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
-            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "linked_goal_id": str(goal["_id"])}},
+            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "custom_category_at": _correction_stamp(), "linked_goal_id": str(goal["_id"])}},
         )
         category_changed = True
         result["custom_category"] = _MOVEMENT_CATEGORY
@@ -712,7 +723,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
             })
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
-            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "linked_offline_account_id": account_id}},
+            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "custom_category_at": _correction_stamp(), "linked_offline_account_id": account_id}},
         )
         category_changed = True
         result["custom_category"]            = _MOVEMENT_CATEGORY
@@ -743,7 +754,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                 raise HTTPException(400, "Invalid category")
             await transactions_col.update_one(
                 {"_id": transaction_id, "user_id": uid},
-                {"$set": {"custom_category": category},
+                {"$set": {"custom_category": category, "custom_category_at": stamp},
                  "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
             )
             if len(merchant_key) >= 3:
@@ -773,7 +784,9 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
 
     if category_changed:
         from app.routers.analytics import compute_and_cache_cashflow
+        from app.services.derived_caches import mark_stale
         import asyncio as _asyncio
+        await mark_stale(uid, reason="category_correction")
         _asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
         response_cache.invalidate(uid, "miscategorised_count")
         response_cache.invalidate(uid, "miscategorised_list")

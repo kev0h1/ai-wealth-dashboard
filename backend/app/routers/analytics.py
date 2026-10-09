@@ -172,6 +172,7 @@ def _next_working_day(d):  # d: datetime.date -> datetime.date
         d += timedelta(days=1)
     return d
 
+from app.services.recurring_category import series_category  # G190
 from app.services.income import (
     next_occurrence as _next_occ_svc,
     schedule_label as _schedule_label_svc,
@@ -883,8 +884,9 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
 
             # Majority category for the bucket — carried through so the UI can
             # show the real category icon instead of a generic dot.
-            cats = [(t.get("custom_category") or t.get("category") or "Other") for t in items]
-            bucket_cat = max(set(cats), key=cats.count)
+            # G190: a user's explicit correction on any row of the series wins
+            # over the vote (see services/recurring_category.py).
+            bucket_cat = series_category(items, corrected_pool=all_items)
 
             # Two-tier evidence: bill-like categories are trusted at 2 occurrences;
             # everything else must prove a cadence — 3+ hits, regular intervals,
@@ -2664,7 +2666,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     cutoff120 = now - timedelta(days=120)  # BNPL plan-reconstruction window (see build_bnpl_projections below)
 
     proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
-            "transaction_type": 1, "category": 1, "custom_category": 1, "account_id": 1}
+            "transaction_type": 1, "category": 1, "custom_category": 1,
+            "custom_category_at": 1, "account_id": 1}
     raw: list[dict] = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
