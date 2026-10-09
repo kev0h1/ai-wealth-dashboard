@@ -17,7 +17,8 @@ import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
-import { openTipsFor, tipsForMerchants } from "@/lib/spendTips";
+import { usePreferences } from "@/components/PreferencesContext";
+import { insightsForDisplay, openTipsFor, tipsForMerchants } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips";
 import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
@@ -29,6 +30,7 @@ const PAGE_SIZE = 20;
 export default function TransactionsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { showTips } = usePreferences();
 
   const [categoryFilter, setCategoryFilter] = useState<string | null>(() => searchParams.get("category"));
   // Multi-category deep-link (e.g. SpendVerdictView's "money you moved"
@@ -125,6 +127,7 @@ export default function TransactionsPage() {
     // insights list `openTipsFor` draws on, `tipsForMerchants` just filters
     // it down to the one matching insight instead of a whole category.
     const merchantsOnly = Boolean(merchantsFilter && merchantsFilter.length > 0 && tipParam);
+    if (!showTips) return; // G189: tips switched off, so no fetch at all
     if (!categoryFilter && !merchantsOnly) return;
     if (insightsLoadedRef.current) return;
     let active = true;
@@ -132,7 +135,7 @@ export default function TransactionsPage() {
       .then((r) => { if (active) { insightsLoadedRef.current = true; setInsights(r); } })
       .catch(() => {});
     return () => { active = false; };
-  }, [categoryFilter, merchantsFilter, tipParam]);
+  }, [categoryFilter, merchantsFilter, tipParam, showTips]);
 
   // Re-seed every URL-driven filter whenever `searchParams` itself changes
   // (a fresh deep link from Spend's "money you moved" rows, or any other
@@ -387,20 +390,22 @@ export default function TransactionsPage() {
   // above); computing `tips`/`tipsLineCategory` fresh on every render
   // (rather than once at mount) is what makes them reflect that resolution
   // instead of freezing on the empty initial state.
+  // G189: an opted-out user sees no tip line at all (and nothing was fetched).
+  const shownInsights = insightsForDisplay(showTips, insights);
   const { tips, tipsLineCategory } = ((): { tips: SavingsInsight[]; tipsLineCategory: string | null } => {
     if (categoriesFilter && categoriesFilter.length > 0) return { tips: [], tipsLineCategory: null };
     if (searchQuery) return { tips: [], tipsLineCategory: null };
     if (categoryFilter) {
       if (merchantsFilter && merchantsFilter.length > 0) {
         if (!tipParam) return { tips: [], tipsLineCategory: null };
-        const matched = openTipsFor(categoryFilter, insights).filter((t) => t.id === tipParam);
+        const matched = openTipsFor(categoryFilter, shownInsights).filter((t) => t.id === tipParam);
         if (matched.length === 0) return { tips: [], tipsLineCategory: null };
         return { tips: matched, tipsLineCategory: categoryFilter };
       }
-      return { tips: openTipsFor(categoryFilter, insights), tipsLineCategory: categoryFilter };
+      return { tips: openTipsFor(categoryFilter, shownInsights), tipsLineCategory: categoryFilter };
     }
     if (merchantsFilter && merchantsFilter.length > 0) {
-      const matched = tipsForMerchants(merchantsFilter, insights, tipParam);
+      const matched = tipsForMerchants(merchantsFilter, shownInsights, tipParam);
       if (matched.length === 0) return { tips: [], tipsLineCategory: null };
       return { tips: matched, tipsLineCategory: matched[0].triggered_by?.[0]?.display_name ?? merchantsFilter[0] };
     }
