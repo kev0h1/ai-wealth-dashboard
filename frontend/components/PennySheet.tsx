@@ -547,6 +547,7 @@ export default function PennySheet() {
   // G247: createPennyPanelRef clears the swipe-dismiss transform on every
   // attach and detach (the panel stays mounted while closed, so the controller
   // cannot restore it itself once this ref is nulled).
+  // eslint-disable-next-line react-hooks/refs -- swipe.ref is only written inside the ref callback, never read in render
   const panelRef = useMemo(() => createPennyPanelRef<HTMLDivElement>((node) => {
     a11yRef(node);
     panelEl.current = node;
