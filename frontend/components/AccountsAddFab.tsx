@@ -23,8 +23,9 @@ export const ADD_FAB_LIST_CLEARANCE =
   "pb-[calc(max(env(safe-area-inset-bottom,0px),10px)+160px)] lg:pb-28";
 
 // G250: a fixed button over a scrolling list always covers some row's amount, so
-// it steps down out of view (transform only) while the page scrolls or a finger
-// is down, and returns 400ms after the last scroll event. Mobile only: on
+// it steps down out of view (transform only) once the page scrolls, and returns
+// 400ms after the last scroll event. A finger down mid-drag only holds it away
+// (it does not hide it by itself) until the finger lifts. Mobile only: on
 // desktop the list has the gutter and the button stays. Stays put while its menu
 // is open.
 export const ADD_FAB_SCROLL_SETTLE_MS = 400;
