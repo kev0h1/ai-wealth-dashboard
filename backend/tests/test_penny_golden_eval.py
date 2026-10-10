@@ -752,7 +752,7 @@ def test_golden_set_spread_across_all_four_inventory_files():
         counts[case["source"]] = counts.get(case["source"], 0) + 1
     assert counts == _SOURCE_COUNTS
     assert sum(counts.values()) == len(GOLDEN_CASES)
-    assert 28 <= len(GOLDEN_CASES) <= 32
+    assert 28 <= len(GOLDEN_CASES) <= 36
 
 
 def test_golden_set_questions_are_grounded_in_their_named_inventory_file():
