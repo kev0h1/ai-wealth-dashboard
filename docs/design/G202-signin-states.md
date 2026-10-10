@@ -46,4 +46,4 @@ The login form (`components/LoginScreen.tsx:107-189`, the "Continue with Google"
 
 ## What this round adds (preview only)
 
-Optional `LoginScreen` props, all ignored by production (`AuthProvider` passes none of them): `phase` (a discriminated union) and `renderPhase` (a render slot). With them unset nothing changes. The variants under `app/design/signin-loading/` render the production `LoginScreen` shell and form through these props and supply only the signing-in panel and the notices.
+Optional `LoginScreen` props, all ignored by production (`AuthProvider` passes none of them): `phase` (a discriminated union) and `renderPhase` (a render slot). With them unset nothing changes. The variants (the `app/design/signin-loading/` preview, retired under H114) rendered the production `LoginScreen` shell and form through these props and supply only the signing-in panel and the notices.

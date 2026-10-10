@@ -4,10 +4,10 @@
 // belongs to a decided round and should have been deleted whole by the fold-in
 // session (Kevin, 2026-10-09). See CLAUDE.md "Design work".
 //
-// Exempt: a preview that code outside app/design imports, or whose source a
-// frontend/scripts check reads ("read by <script>", deleting it breaks that gate), (production code, a
-// remotion composition or a frontend/scripts check gate), that another preview
-// imports, or that a compliance pack or marketing asset references. Deleting
+// Exempt: a preview that code outside app/design imports (production code, a
+// remotion composition or a frontend/scripts check gate), or whose source a
+// frontend/scripts check reads ("read by <script>", deleting it breaks that
+// gate), that another preview imports, or that a compliance pack or marketing asset references. Deleting
 // those would break a build or a gate; fix the importer first, then delete.
 //
 // Strict (H113 prune landed): `npm run check:design-stale` runs with --strict
@@ -54,7 +54,11 @@ const stale = rows.filter((r) => {
 
 if (stale.length === 0) {
   console.log(`check:design-stale OK: no preview is stale (all items done or cancelled and older than ${STALE_DAYS} days) across ${rows.length} previews.`);
-for (const r of rows) if (r.readBy.length && !r.importers.length && r.items.length && r.items.every((i) => DONE_STATES.has(i.state))) console.log(`  kept, read by ${r.readBy.map((f) => path.basename(f)).join(", ")}: ${r.slug}`);
+for (const r of rows) {
+  if (r.readBy.length && !r.importers.length && r.items.length && r.items.every((i) => DONE_STATES.has(i.state))) {
+    console.log(`  kept, read by ${r.readBy.map((f) => path.basename(f)).join(", ")}: ${r.slug}`);
+  }
+}
   process.exit(0);
 }
 
