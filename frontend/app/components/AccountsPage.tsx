@@ -7,6 +7,7 @@ import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, Inv
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
+import AccountsAddFab from "@/components/AccountsAddFab";
 import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
@@ -297,7 +298,11 @@ export default function AccountsPage() {
   // Set to true for exactly one effect run after we strip ?id= via router.replace
   // so the else-branch (clear selectedAccountId) doesn't fire on our own replace.
   const consumedDeepLink = useRef(false);
-  const { hideNetWorth, setHideNetWorth } = usePreferences();
+  // G236: ONE global hide-balances preference (Settings switch + the page
+  // chip). Masked until the server value has resolved (preferencesReady), like
+  // Home, so a new device never flashes balances from the localStorage default.
+  const { hideNetWorth: hideNetWorthPref, setHideNetWorth, preferencesReady } = usePreferences();
+  const hideNetWorth = hideNetWorthPref || !preferencesReady;
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -327,6 +332,8 @@ export default function AccountsPage() {
   // button that opens this menu — same handlers/routes, just one entry point.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  // G236: the floating Add steps aside while the Find field has focus (keyboard up).
+  const [findFocused, setFindFocused] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [reconnectWarning, setReconnectWarning] = useState<string | null>(null);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
@@ -2593,16 +2600,7 @@ export default function AccountsPage() {
   const headerNetWorth = kpis
     ? {
         value: kpis.net_worth,
-        cardTotal: accounts
-          .filter(a => {
-            const t = (a.type ?? "").toLowerCase();
-            const s = (a.subtype ?? "").toLowerCase();
-            return t.includes("credit") || s.includes("credit");
-          })
-          .reduce((sum, a) => sum + Math.abs(Math.min(a.balance, 0)), 0),
-        bankCount: bankAccounts.length,
-        investmentCount: investmentAccounts.length,
-        offlineCount: manualAccounts.length,
+        accountCount: bankAccounts.length + investmentAccounts.length + manualAccounts.length,
       }
     : null;
 
@@ -2623,60 +2621,13 @@ export default function AccountsPage() {
           DOM order. */}
       {(tab === "Banks" || investmentAccounts.length === 0) && (
       <div
-        className="relative z-30 px-4 pt-4 pb-6"
+        className="px-4 pt-4 pb-6"
       >
         <AccountsHeader
-          showAdd={tab === "Banks"}
-          addMenuOpen={addMenuOpen}
-          onToggleAdd={() => setAddMenuOpen(v => !v)}
-          addMenuRef={addMenuRef}
-          addMenuItems={
-            <>
-            {/* A67: Add Bank is hidden outright on a plan with no
-                open banking (Statements), rather than shown and
-                answered with a 402 when tapped. Hidden, not
-                disabled: a greyed-out row that never explains itself
-                is worse than a menu that only offers what this plan
-                can actually do. Statement, Investment and Offline
-                below are on every plan. */}
-            {canConnectBank && (
-              <AddMenuItem
-                tutorialId="tutorial-add-bank"
-                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                label="Add Bank"
-                onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-              />
-            )}
-            {canConnectBank && LEGACY_BANK_AVAILABLE && (
-              <AddMenuItem
-                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                label={LEGACY_BANK_MENU_LABEL}
-                onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
-              />
-            )}
-            <AddMenuItem
-              tutorialId="tutorial-add-statement"
-              icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-              label="Statement"
-              onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
-            />
-            <AddMenuItem
-              tutorialId="tutorial-add-investment"
-              icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-              label="Investment"
-              onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-            />
-            <AddMenuItem
-              tutorialId="tutorial-add-offline"
-              icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-              label="Offline"
-              onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-            />
-            </>
-          }
           netWorth={headerNetWorth}
           hidden={hideNetWorth}
-          onToggleHidden={() => setHideNetWorth(!hideNetWorth)}
+          showChip={preferencesReady && hideNetWorthPref}
+          onShow={() => setHideNetWorth(false)}
         />
 
         {/* Investments-tab (legacy internal drill-in, reached only via
@@ -2791,6 +2742,68 @@ export default function AccountsPage() {
       </div>
       )}
 
+      {/* G236 (variant A, Kevin 2026-10-10): the Add action is a 56px floating
+          button bottom right, above the nav and clear of Penny (offsets in
+          components/AccountsAddFab.tsx). It opens the same Add menu the header
+          used to carry. Steps aside while any sheet is open or Find has focus. */}
+      {tab === "Banks" && (
+        <AccountsAddFab
+          open={addMenuOpen}
+          onToggle={() => setAddMenuOpen(v => !v)}
+          onClose={() => setAddMenuOpen(false)}
+          menuRef={addMenuRef}
+          suppressed={
+            findFocused || !!showBankPicker || showStatementUpload || showInvestmentUpload ||
+            manualModalOpen || manualTxModalOpen || ruleModalOpen || cardTermsOpen ||
+            !!confirmDialog?.open || !!selectedTx
+          }
+          menuItems={
+            <>
+            {/* A67: Add Bank is hidden outright on a plan with no
+                open banking (Statements), rather than shown and
+                answered with a 402 when tapped. Hidden, not
+                disabled: a greyed-out row that never explains itself
+                is worse than a menu that only offers what this plan
+                can actually do. Statement, Investment and Offline
+                below are on every plan. */}
+            {canConnectBank && (
+              <AddMenuItem
+                tutorialId="tutorial-add-bank"
+                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                label="Add Bank"
+                onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+              />
+            )}
+            {canConnectBank && LEGACY_BANK_AVAILABLE && (
+              <AddMenuItem
+                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                label={LEGACY_BANK_MENU_LABEL}
+                onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
+              />
+            )}
+            <AddMenuItem
+              tutorialId="tutorial-add-statement"
+              icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+              label="Statement"
+              onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
+            />
+            <AddMenuItem
+              tutorialId="tutorial-add-investment"
+              icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+              label="Investment"
+              onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+            />
+            <AddMenuItem
+              tutorialId="tutorial-add-offline"
+              icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+              label="Offline"
+              onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+            />
+            </>
+          }
+        />
+      )}
+
       {/* ── Banks tab ── */}
       {tab === "Banks" && (
         <>
@@ -2900,6 +2913,7 @@ export default function AccountsPage() {
                             raw: { id, name: info.bank ? bankLabel(info.bank) : "Your bank", type: "bank", balance: 0, currency: "GBP", provider: info.bank ?? "", status: "connected" } as Account,
                           }}
                           sync={info}
+                          hideAmount={hideNetWorth}
                         />
                       </div>
                     ))}
@@ -2919,6 +2933,8 @@ export default function AccountsPage() {
                     onChange={(e) => setEstateQuery(e.target.value)}
                     placeholder="Find an account…"
                     aria-label="Find an account"
+                    onFocus={() => setFindFocused(true)}
+                    onBlur={() => setFindFocused(false)}
                     className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -2963,6 +2979,7 @@ export default function AccountsPage() {
                               onClick={handleEstateRowClick}
                               sync={syncFor(row)}
                               {...estateTermsProps(row)}
+                              hideAmount={hideNetWorth}
                             />
                           </div>
                         ))}
@@ -2984,7 +3001,7 @@ export default function AccountsPage() {
                         <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
                         <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
                           {estate.pinned.map((row) => (
-                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} />
+                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} />
                           ))}
                         </div>
                       </section>
@@ -3096,7 +3113,7 @@ export default function AccountsPage() {
                               >
                                 <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                                   {group.rows.map((row) => (
-                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} />
+                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} />
                                   ))}
                                 </div>
                               </div>
@@ -3147,7 +3164,7 @@ export default function AccountsPage() {
                           >
                             <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                               {inactiveRows.map((row) => (
-                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} />
+                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} hideAmount={hideNetWorth} />
                               ))}
                             </div>
                           </div>
@@ -3287,7 +3304,7 @@ export default function AccountsPage() {
                     const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     const noteWord = notesSince === 1 ? "note" : "notes";
                     decomposedLine = (
-                      <span><MoneyText text={`Prices refreshed ${refreshDate} · ${sign}£${absVal} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
+                      <span><MoneyText text={`Prices refreshed ${refreshDate} · ${sign}£${hideNetWorth ? "••••" : absVal} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
                     );
                   } else {
                     decomposedLine = (
