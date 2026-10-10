@@ -23,7 +23,7 @@ const bar = {
 const line = {
   type: "line", title: "Monzo over time", x: { label: "Day", kind: "date" }, y: { label: "Net", unit: "money", currency: "GBP" },
   series: [{ name: "Net", points: m([["2026-10-01", { amount: -10, currency: "GBP" }], ["2026-10-05", { amount: 30, currency: "GBP" }], ["2026-10-08", { amount: 5, currency: "GBP" }]]) }],
-  note: "Net of money in and out, not a balance.", summary: "Monzo over time: from −£10 on 1 Oct to £5 on 8 Oct, highest £30 on 5 Oct.",
+  note: "Net of money in and out, not a balance.", summary: "Monzo over time: Net was −£10 on 1 Oct and £5 on 8 Oct, highest £30 on 5 Oct.",
 };
 const stacked = {
   type: "stacked_bar", title: "Spending by month", x: { label: "Month", kind: "category" }, y: { label: "Spent", unit: "money", currency: "GBP" },
@@ -44,8 +44,11 @@ for (const [name, spec] of Object.entries({ bar, line, stacked, donut })) {
   const out = html(h(PennyChart, { chart: spec }));
   assert.ok(out.includes("data-penny-chart"), `${name}: figure`);
   assert.ok(out.includes(`data-chart-type="${spec.type}"`), `${name}: type attribute`);
-  assert.ok(out.includes(spec.summary), `${name}: server summary is shown above the chart`);
-  assert.ok(out.indexOf(spec.summary) < out.indexOf('role="img"'), `${name}: summary comes before the chart`);
+  const rest = spec.summary.slice(spec.title.length + 2);
+  const shownText = rest.charAt(0).toUpperCase() + rest.slice(1);
+  assert.ok(out.includes(shownText), `${name}: server summary is shown above the chart (title lead dropped, the title captions it)`);
+  assert.ok(out.includes(`aria-label="${spec.summary}"`), `${name}: the full server sentence labels the chart`);
+  assert.ok(out.indexOf(shownText) < out.indexOf('role="img"'), `${name}: summary comes before the chart`);
   assert.ok(out.includes(spec.title), `${name}: title`);
   // recharts 3 draws its svg after the client measures, so the server pass
   // yields its sized wrapper; the svg itself is verified by the browser shots.
@@ -131,6 +134,11 @@ for (const [name, spec] of Object.entries({ bar, line, stacked, donut })) {
   const evil = html(h(PennyChart, { chart: { ...bar, title: "<img src=x onerror=1>", summary: "<script>alert(1)</script>" } }));
   assert.ok(!evil.includes("<script") && !evil.includes("<img"), "strings are drawn as text");
   assert.equal(lib.normalisePennyChart(null), null);
+  // idempotent: the bubble normalises, then PennyChart normalises again
+  const once = lib.normalisePennyChart(bar);
+  assert.deepEqual(lib.normalisePennyChart(once), once);
+  assert.equal(lib.normalisePennyChart({ ...bar, series: [{ name: "x", points: [{ x: "a", y: "12" }] }] }), null, "a string is not a value");
+  assert.ok(html(h(PennyChart, { chart: once })).includes("data-penny-chart"), "an already-normalised spec renders");
 }
 
 // ---- 7. wiring: the bubble draws it under the reply; restored turns carry it -

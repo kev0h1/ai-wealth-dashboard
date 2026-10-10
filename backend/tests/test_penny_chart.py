@@ -153,7 +153,7 @@ def test_line_summary_reads_from_first_to_last():
          "y": {"label": "Net", "unit": "money", "currency": "GBP"},
          "series": [{"name": "Net", "points": [{"x": "2026-10-01", "y": _m(-10.0)}, {"x": "2026-10-05", "y": _m(30.0)},
                                                {"x": "2026-10-08", "y": _m(5.0)}]}]}
-    assert validate_chart(c, TODAY)["summary"] == "Net: from −£10 on 1 Oct to £5 on 8 Oct, highest £30 on 5 Oct."
+    assert validate_chart(c, TODAY)["summary"] == "Net: Net was −£10 on 1 Oct and £5 on 8 Oct, highest £30 on 5 Oct."
 
 
 # ── donut aggregation, type fallback, chart_from_rows ─────────────────────
@@ -246,7 +246,7 @@ def test_search_chart_totals_per_day_and_is_scoped_to_the_user(monkeypatch):
     assert chart["type"] == "line" and chart["series"][0]["name"] == "Spent"
     amounts = [p["y"]["amount"] for p in chart["series"][0]["points"]]
     assert 9999.0 not in amounts and len(amounts) == 12
-    assert chart["summary"].startswith("Monzo over time: from £10 on")
+    assert chart["summary"].startswith("Monzo over time: Spent was £10 on")
 
 
 def test_search_chart_needs_both_the_arg_and_the_loop_flag(monkeypatch):

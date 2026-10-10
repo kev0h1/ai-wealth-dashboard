@@ -53,6 +53,24 @@ function Tip({ spec, active, payload, label }: { spec: PennyChartSpec; active?: 
   );
 }
 
+const MONTH_YEAR = /^([A-Z][a-z]{2}) (\d{4})$/;
+
+/** Axis text: "Aug 2026" labels become "Aug", with the year ("Aug 26") only on
+ * the first tick and where the year changes, so six months fit at 390px. */
+function tickLabels(rows: { label: string }[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const parsed = rows.map((r) => MONTH_YEAR.exec(r.label));
+  const allMonths = parsed.length > 0 && parsed.every(Boolean);
+  let prevYear = "";
+  rows.forEach((r, i) => {
+    const m = parsed[i];
+    if (!allMonths || !m) { out[r.label] = r.label; return; }
+    out[r.label] = m[2] === prevYear ? m[1] : `${m[1]} ${m[2].slice(2)}`;
+    prevYear = m[2];
+  });
+  return out;
+}
+
 function axisWidth(spec: PennyChartSpec, max: number, min: number): number {
   const widest = Math.max(formatChartValue(spec, max, true).length, formatChartValue(spec, min, true).length);
   return Math.max(34, Math.ceil(widest * 5.6) + 10);
@@ -82,13 +100,13 @@ export function PennyChartPlot({ spec, dark, overrides, size }: { spec: PennyCha
   const stackTotals = spec.type === "stacked_bar" ? rows.map((r) => spec.series.reduce((t, _, i) => t + (Number(r[`s${i}`]) || 0), 0)) : [];
   const max = Math.max(0, ...all, ...stackTotals);
   const min = Math.min(0, ...all);
-  const many = rows.length > 12;
+  const ticks = tickLabels(rows);
   const common = { ...size, data: rows, margin: { top: 6, right: 6, bottom: 0, left: 0 } };
   const axes = (
     <>
       <CartesianGrid vertical={false} stroke={grid} strokeWidth={1} />
-      <XAxis dataKey="label" tickLine={false} axisLine={false} interval={many ? "preserveStartEnd" : 0}
-        tick={{ fontSize: 10, fill: tick }} minTickGap={8} />
+      <XAxis dataKey="label" tickLine={false} axisLine={false} interval={rows.length > 6 ? "preserveStartEnd" : 0}
+        tick={{ fontSize: 10, fill: tick }} minTickGap={14} tickFormatter={(l: string) => ticks[l] ?? l} />
       <YAxis tickLine={false} axisLine={false} width={axisWidth(spec, max, min)} domain={[min < 0 ? "auto" : 0, "auto"]}
         tick={{ fontSize: 9, fill: tick, fontFamily: spec.y.unit === "money" ? MONO : undefined }}
         tickFormatter={(v: number) => formatChartValue(spec, v, true)} />
@@ -101,7 +119,7 @@ export function PennyChartPlot({ spec, dark, overrides, size }: { spec: PennyCha
       <LineChart {...common}>
         {axes}
         {spec.series.map((s, i) => (
-          <Line key={s.name} dataKey={`s${i}`} name={s.name} type="monotone" stroke={colours[i]} strokeWidth={2}
+          <Line key={s.name} dataKey={`s${i}`} name={s.name} type="linear" stroke={colours[i]} strokeWidth={2}
             dot={rows.length <= 12 ? { r: 4, fill: colours[i], stroke: surface, strokeWidth: 2 } : false}
             activeDot={{ r: 5, fill: colours[i], stroke: surface, strokeWidth: 2 }} connectNulls isAnimationActive={false} />
         ))}
@@ -154,12 +172,18 @@ export default function PennyChart({ chart }: { chart: PennyChartSpec }) {
   const table = useMemo(() => (spec ? chartToTable(spec) : null), [spec]);
   if (!spec) return null;
   const donut = spec.type === "donut";
+  // The title already captions the figure, so the sentence under it drops the
+  // "Title: " lead the server writes (the full sentence still labels the chart).
+  const lead = `${spec.title}: `;
+  const shown = spec.summary.startsWith(lead) && spec.summary.length > lead.length
+    ? spec.summary.charAt(lead.length).toUpperCase() + spec.summary.slice(lead.length + 1)
+    : spec.summary;
   return (
     <figure className="mt-2.5 mb-0 min-w-0" data-penny-chart data-chart-type={spec.type}>
       <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 break-words">
         {spec.title}
       </p>
-      <p className="mb-1.5 text-[13px] leading-snug text-slate-700 dark:text-slate-200 break-words" data-penny-chart-summary>{spec.summary}</p>
+      <p className="mb-1.5 text-[13px] leading-snug text-slate-700 dark:text-slate-200 break-words" data-penny-chart-summary>{shown}</p>
       {asTable && table ? (
         <PennyTable table={table} />
       ) : (

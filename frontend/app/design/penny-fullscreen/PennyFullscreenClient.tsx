@@ -100,7 +100,7 @@ const CHART_FIXTURES: Record<string, { question: string; headline: string; reply
         ["2026-08-31", 1180], ["2026-09-07", -96.3], ["2026-09-14", -134.9], ["2026-09-21", -58.4], ["2026-09-28", 905.2], ["2026-10-05", -77.5],
       ].map(([x, y]) => ({ x: String(x), y: Number(y) })) }],
       note: "Totalled per week. Net of money in and out, not a balance.",
-      summary: "Monzo over time: from −£84.20 on 20 Jul to −£77.50 on 5 Oct, highest £1,180 on 31 Aug.",
+      summary: "Monzo over time: Net was −£84.20 on 20 Jul and −£77.50 on 5 Oct, highest £1,180 on 31 Aug.",
     },
   },
   stacked: {

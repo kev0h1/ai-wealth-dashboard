@@ -70,8 +70,10 @@ export function normalisePennyChart(raw: unknown): PennyChartSpec | null {
     for (const p of sr.points as unknown[]) {
       const pr = p as Record<string, unknown>;
       const x = typeof pr?.x === "string" ? pr.x : null;
-      const yv = unit === "money"
-        ? ((pr?.y as PennyChartMoney | undefined)?.amount)
+      // Money arrives as {amount, currency}; an already-normalised spec carries
+      // the bare number, so normalising twice is harmless.
+      const yv = unit === "money" && pr?.y && typeof pr.y === "object"
+        ? (pr.y as PennyChartMoney).amount
         : pr?.y;
       if (x === null || typeof yv !== "number" || !Number.isFinite(yv)) return null;
       if (xr.kind === "date" && !ISO_DATE.test(x)) return null;

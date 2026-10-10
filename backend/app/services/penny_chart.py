@@ -35,6 +35,7 @@ import json
 import math
 from datetime import date
 
+from app.core import timeutil
 from app.services import penny_table
 from app.services.penny_table import _CURRENCY_RE, _CTRL_RE, _DATE_RE, _HTML_RE, clean_text
 
@@ -123,7 +124,7 @@ def _fmt_x(x: str, kind: str, today: date | None = None) -> str:
     if kind != "date":
         return x
     d = date.fromisoformat(x)
-    today = today or date.today()
+    today = today or timeutil.user_today()
     base = f"{d.day} {_MONTHS[d.month - 1]}"
     return base if d.year == today.year else f"{base} {d.year}"
 
@@ -162,8 +163,8 @@ def build_summary(chart: dict, today: date | None = None) -> str:
         if len(pts) == 1:
             return f"{title}: {fv(pts[0][1])} on {fx(pts[0][0])}."
         hi = max(pts, key=lambda t: t[1])
-        return (f"{title}: from {fv(pts[0][1])} on {fx(pts[0][0])} to {fv(pts[-1][1])} on {fx(pts[-1][0])}, "
-                f"highest {fv(hi[1])} on {fx(hi[0])}.")
+        return (f"{title}: {series[0]['name']} was {fv(pts[0][1])} on {fx(pts[0][0])} and "
+                f"{fv(pts[-1][1])} on {fx(pts[-1][0])}, highest {fv(hi[1])} on {fx(hi[0])}.")
     hi = max(flat, key=lambda t: t[2])
     lo = min(flat, key=lambda t: t[2])
     who = (lambda n: f" ({n})") if multi else (lambda n: "")

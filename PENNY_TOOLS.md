@@ -646,6 +646,50 @@ as plain text. Fixes, structured path first:
 - Golden rows `spend-10-tabulate-transactions` and `spend-11-tabulate-by-month`
   pin the tool and `as_table: true`; `check:g251-penny-table` covers rendering.
 
+## G252 (2026-10-10): charts from data, not drawings
+
+Kevin asked for "show my eating out by month as a bar chart", "pie of where my
+money went" and "chart my balance". Same structured path as G251 tables:
+
+- **`as_chart: bar|line|stacked_bar|donut`** on `search_transactions` and
+  `get_category_spend` (prompt rule 17). The model picks only the TYPE; the
+  executor builds the points from its own rows, the loop validates the spec
+  (`app/services/penny_chart.py`), takes it OUT of the tool result and attaches it
+  as `chart`. The model gets `chart: {shown, type, series, points, summary,
+  instruction}` and never the points. Built only through Penny's loop (private
+  `_chart_ok`, stripped from MCP calls), so the connector never returns a chart.
+- **Spec**: `{type, title<=80, x:{label, kind: date|category|text}, y:{label,
+  unit: money|number|rate, currency?}, series:[{name, points:[{x, y}]}], note<=200?,
+  summary}`. Caps: 4 series, 36 points per series (bar/line/stacked), 8 slices for
+  a donut with the tail grouped into "Other" and the note "Smaller categories
+  grouped as Other". Money is `{amount, currency}`, one currency per chart;
+  donut and stacked values must be non-negative; HTML or control characters and
+  unknown fields are rejected. `summary` is built server-side from the validated
+  data (any supplied text is discarded), e.g. "Eating Out by month: highest in
+  Aug 2026 at £312, lowest in Sep 2026 at £94.50."
+- **`chart_from_rows(table, type, x_key, y_keys, ...)`** turns any G251 table block
+  into a spec, so any tool that can return rows can return a chart. Over-long
+  series keep the latest 36 points and say so in the note.
+- **Wired**: `get_category_spend` (with a category: one bar per month, series named
+  after the category so it wears the category colour; without one: the top
+  categories this pay period, best as a donut) and `search_transactions` (totals per
+  day, week or month, whichever fits 36 points, commonest currency only; debit-only
+  results chart "Spent", mixed ones chart the net and say "not a balance"; a donut
+  groups by category; up to 200 rows read for a chart).
+- **Fallback rule**: a pie or area is a donut or line; an unsupported type (scatter,
+  radar) gives the G251 table with a one-line note; data that cannot be that type
+  becomes the nearest (a donut over months is a bar, one series stacked is a bar, one
+  point as a line is a bar) with a note.
+- **Balance history**: no tool returns it. The app keeps no balance snapshots
+  (`get_account_activity` returns the current balance and period activity only), so
+  "chart my balance" is a line of money in and out via `search_transactions`, labelled
+  as net and not a balance. Follow-up: a balance-history tool needs stored daily
+  snapshots first.
+- **Storage**: assistant turns keep the validated `chart` next to the text; restored
+  chats redraw it. Client: `components/PennyChart.tsx` (recharts, as on Spend).
+- Golden rows `spend-12-chart-by-month`, `spend-13-pie-of-categories` and
+  `spend-14-chart-account-balance`; `check:g252-penny-chart` covers rendering.
+
 ## Coverage checklist
 
 The screen-by-screen question inventory driving this catalog lives in
