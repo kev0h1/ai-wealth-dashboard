@@ -448,13 +448,6 @@ await t("G202: 'Still signing you in' appears at 20s and not before, and the pan
   assert.ok(/signingCopy\(phase, now\)/.test(spSrc));
 });
 
-await t("G202: the preview renders the production LoginScreen, with no copied variants", () => {
-  const pv = read("app/design/signin-loading/SigninLoadingClient.tsx");
-  assert.ok(/import LoginScreen/.test(pv) && /<LoginScreen phase=\{phase\} nowMs=\{nowMs\} \/>/.test(pv));
-  assert.ok(!/variants/.test(pv) && !/renderPhase/.test(pv));
-  assert.ok(!/renderPhase|hideMarkWhileSigningIn/.test(lsSrc));
-});
-
 await t("G202 review 1: the resume signal is dropped whenever a user is set, and failed is set only when no user resulted", () => {
   assert.ok(/useEffect\(\(\) => \{\s*if \(user\) \{\s*setResuming\(null\);\s*window\.dispatchEvent\(new Event\("wd:session-established"\)\);[^\n]*\s*\}\s*\}, \[user\]\);/.test(apSrc), "any user clears resuming (init, late success, establishSession)");
   assert.ok(/const outcome = await establishSession\(initCtrl\.signal\);/.test(apSrc), "init uses the shared establishSession (A135)");

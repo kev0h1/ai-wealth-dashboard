@@ -198,13 +198,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "signin-loading",
-    name: "Signing-in state · G202 · approved A, folded in",
-    description:
-      "G202 · approved A, folded in (Kevin picked Two stages on 2026-10-04): the calm 'signing you in' state shown from the moment the in-app browser returns until the session is ready or the attempt fails · a two-row ledger of the two real stages (browser hand-back, then session check), 'Still signing you in' after 20s with Cancel on screen, a focused role=alert notice on failure or timeout, and tap-to-retry when Sorted cannot be reached · renders the production LoginScreen and SignInProgress through the phase and nowMs props with a fake clock, fixtures only, nothing signs in · ?state=waiting|waiting-slow|checking|resume|failed|timeout|unreachable&mode=light|dark&t=<seconds>&live=1&chrome=0",
-    states: [{ label: "Signing in 0s", value: "waiting" }, { label: "Signing in 25s", value: "waiting-slow" }, { label: "Checking session", value: "checking" }, { label: "Resumed", value: "resume" }, { label: "Failed", value: "failed" }, { label: "Timed out", value: "timeout" }, { label: "Unreachable", value: "unreachable" }],
-  },
-  {
     slug: "settings-overhaul",
     name: "Settings overhaul · G201",
     description:

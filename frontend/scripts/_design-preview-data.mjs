@@ -159,13 +159,14 @@ export function scanFacts(slugs) {
     // A real import has the slug path on an import/from/require/dynamic-import line;
     // anything else (comments, docs strings) is only a mention.
     const importers = outsideText.filter((x) => isImportOf(x.t, slug)).map((x) => path.relative(repoRoot, x.f));
-    const mentions = outsideText.filter((x) => re.test(x.t) && !isImportOf(x.t, slug)).map((x) => path.relative(repoRoot, x.f));
+    const readBy = outsideText.filter((x) => /[\\/]frontend[\\/]scripts[\\/]/.test(x.f) && isReadBy(x.t, slug)).map((x) => path.relative(repoRoot, x.f));
+    const mentions = outsideText.filter((x) => re.test(x.t) && !isImportOf(x.t, slug) && !isReadBy(x.t, slug)).map((x) => path.relative(repoRoot, x.f));
     const compliance = complianceText.filter((x) => slugRegex(slug).test(x.t)).map((x) => path.relative(repoRoot, x.f));
     const media = [
       ...mediaFiles.filter((f) => f.includes(`/${slug}/`) || f.includes(`/${slug}.`)).map((f) => path.relative(repoRoot, f)),
       ...mediaDocs.filter((x) => slugRegex(slug).test(x.t)).map((x) => path.relative(repoRoot, x.f)),
     ];
-    facts.set(slug, { rendersProd, importers, mentions, compliance, media });
+    facts.set(slug, { rendersProd, importers, readBy, mentions, compliance, media });
   }
   return facts;
 }
@@ -177,6 +178,19 @@ export function scanFacts(slugs) {
 export function isImportOf(src, slug) {
   const re = new RegExp(`^.*(\\bfrom\\s|\\bimport\\s*\\(|\\bimport\\s+["']|require\\().*design/${escapeRe(slug)}(?![\\w-]).*$`, "m");
   return re.test(stripComments(src));
+}
+
+// True when a check script READS the preview's files (readFileSync, readFile,
+// fs.promises.readFile, new URL(...), existsSync, or a local read()/source()
+// helper) by a quoted path under app/design/<slug>/. Deleting such a preview
+// breaks that gate, so it is a real code dependency though not an import.
+// Import lines and comments never count. Only meaningful for files in frontend/scripts.
+export function isReadBy(src, slug) {
+  const pathRe = new RegExp(`["'\`][^"'\`\\n]*design/${escapeRe(slug)}/`);
+  const readRe = /\b(readFileSync|readFile|existsSync|statSync|new URL|read|readSource|source|src)\s*\(|\bnew URL\(/;
+  return stripComments(src)
+    .split("\n")
+    .some((l) => pathRe.test(l) && readRe.test(l) && !/^\s*(import|export)\b[^(]*\bfrom\b/.test(l) && !/\bimport\s*\(/.test(l) && !/^\s*import\s+["']/.test(l));
 }
 
 // Marketing items whose output lives under /design (G222 to G224, C22).
@@ -199,7 +213,7 @@ export const MARKETING_IDS = new Set(["G222", "G223", "G224", "C22"]);
 // outcome those items are about, not work that depends on it.
 export const HOUSEKEEPING_IDS = new Set(["H113", "H43", "H44", "G126"]);
 
-function proposeCore({ items, ageD, rendersProd, importers, compliance, media }) {
+function proposeCore({ items, ageD, rendersProd, importers, readBy = [], compliance, media }) {
   items = items.filter((i) => !HOUSEKEEPING_IDS.has(i.id) || DONE_STATES.has(i.state));
   const open = items.filter((i) => !DONE_STATES.has(i.state));
   if (open.length) {
@@ -209,6 +223,7 @@ function proposeCore({ items, ageD, rendersProd, importers, compliance, media })
   if (compliance.length) return { action: "KEEP", reason: `referenced by compliance docs (${compliance.join(", ")})` };
   if (media.length) return { action: "KEEP", reason: `marketing assets (${media.slice(0, 2).join(", ")})` };
   if (importers.length) return { action: "KEEP", reason: `imported outside app/design (${importers.join(", ")})` };
+  if (readBy.length) return { action: "KEEP", reason: `read by ${readBy.join(", ")}` };
   const allDone = items.length > 0;
   if (rendersProd && allDone) return { action: "GATE-CANDIDATE", reason: "renders production components; items done or cancelled" };
   if (!rendersProd && ageD > STALE_DAYS) {
@@ -232,7 +247,7 @@ export function gather({ full = true } = {}) {
   return slugs.map((slug) => {
     const items = referencingItems(slug, blocks, states);
     const date = lastCommitDate(slug);
-    const f = facts.get(slug) || { rendersProd: false, importers: [], mentions: [], compliance: [], media: [] };
+    const f = facts.get(slug) || { rendersProd: false, importers: [], readBy: [], mentions: [], compliance: [], media: [] };
     const ageD = ageDays(date);
     return { slug, items, date, ageD, ...f, ...(full ? propose({ items, ageD, ...f }) : {}) };
   });
