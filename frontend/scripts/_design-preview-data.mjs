@@ -158,9 +158,8 @@ export function scanFacts(slugs) {
     const re = new RegExp(`design/${escapeRe(slug)}(?![\\w-])`);
     // A real import has the slug path on an import/from/require/dynamic-import line;
     // anything else (comments, docs strings) is only a mention.
-    const impRe = new RegExp(`^.*(\\bfrom\\s|\\bimport\\s*\\(|\\bimport\\s+["']|require\\().*design/${escapeRe(slug)}(?![\\w-]).*$`, "m");
-    const importers = outsideText.filter((x) => impRe.test(stripComments(x.t))).map((x) => path.relative(repoRoot, x.f));
-    const mentions = outsideText.filter((x) => re.test(x.t) && !impRe.test(stripComments(x.t))).map((x) => path.relative(repoRoot, x.f));
+    const importers = outsideText.filter((x) => isImportOf(x.t, slug)).map((x) => path.relative(repoRoot, x.f));
+    const mentions = outsideText.filter((x) => re.test(x.t) && !isImportOf(x.t, slug)).map((x) => path.relative(repoRoot, x.f));
     const compliance = complianceText.filter((x) => slugRegex(slug).test(x.t)).map((x) => path.relative(repoRoot, x.f));
     const media = [
       ...mediaFiles.filter((f) => f.includes(`/${slug}/`) || f.includes(`/${slug}.`)).map((f) => path.relative(repoRoot, f)),
@@ -171,10 +170,19 @@ export function scanFacts(slugs) {
   return facts;
 }
 
+// True when `src` has a real import of the preview `slug`: a static import/export
+// ... from, a bare `import "..."`, a dynamic import(...) or require(...), by a
+// relative path or @/app/design/<slug>. A comment, or a file merely READING the
+// preview (readFileSync(new URL("../app/design/<slug>/x.tsx"))), is only a mention.
+export function isImportOf(src, slug) {
+  const re = new RegExp(`^.*(\\bfrom\\s|\\bimport\\s*\\(|\\bimport\\s+["']|require\\().*design/${escapeRe(slug)}(?![\\w-]).*$`, "m");
+  return re.test(stripComments(src));
+}
+
 // Marketing items whose output lives under /design (G222 to G224, C22).
 // Drop block comments, whole-line // comments and trailing // comments so an import
 // regex cannot match the word `from` inside prose. Import lines never carry `//`.
-function stripComments(src) {
+export function stripComments(src) {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
