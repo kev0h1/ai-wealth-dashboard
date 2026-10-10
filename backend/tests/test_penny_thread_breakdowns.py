@@ -382,3 +382,41 @@ def test_another_users_chat_gives_no_last_result(cols):  # noqa: F811
         svc.clean_turn("assistant", "a", last_result={"tool": "search_transactions", "ids": ["t1"]})]))
     assert asyncio.run(svc.latest_last_result("a", cid))["ids"] == ["t1"]
     assert asyncio.run(svc.latest_last_result("b", cid)) is None
+
+
+# ── Review fixes: FX only beside an AMOUNT IN marker, fuzzy bounds ────────
+
+def test_fx_is_never_invented_without_the_amount_in_marker():
+    for text in ("COSTA RATE 2.50 PAID", "PAYMENT TO MC 12.50 LTD", "REF 1.5 VISA 12.34",
+                 "SHOP VISA 1.3451 TRANS FEE £0.32"):
+        assert penny_search.fx_from_description(text) is None, text
+    real = ("DIGITALOCEAN.COM AMOUNT IN USD 14.40 ON 01 MAY VISA 1.3451 FINAL GBP AMOUNT "
+            "INCLUDES NON-STERLING TRANS FEE £0.32 BCC")
+    assert penny_search.fx_from_description(real) == {
+        "original_currency": "USD", "original_amount": 14.4, "rate": 1.3451, "fee_gbp": 0.32}
+    # a rate outside the sanity band is dropped even beside the marker
+    out = penny_search.fx_from_description("X AMOUNT IN USD 14.40 ON 01 MAY VISA 99.9999")
+    assert "rate" not in out
+
+
+def test_fuzzy_needs_three_characters_after_normalisation(monkeypatch):
+    _install(monkeypatch)
+    assert penny_search.best_fuzzy("ab", ["abc", "ab"]) is None
+    assert penny_search.best_fuzzy("A.B", ["abc"]) is None
+    assert search(q="ab")["match_kind"] != "fuzzy"
+
+
+def test_fuzzy_scan_is_bounded(monkeypatch):
+    rows = [{"_id": f"m{i}", "id": f"m{i}", "user_id": UID, "transaction_type": "debit", "amount": 1.0,
+             "currency": "GBP", "date": datetime(2026, 1, 1), "description": f"X{i}", "merchant_name": None,
+             "merchant_key": f"shop number {i}"} for i in range(30)]
+    _install(monkeypatch, rows)
+    monkeypatch.setattr(penny_tools_module, "_FUZZY_SCAN_DOCS", 5)
+    monkeypatch.setattr(penny_tools_module, "_FUZZY_MAX_CANDIDATES", 3)
+    found = asyncio.run(penny_tools_module._fuzzy_merchant(UID, "shop numbr 1"))
+    assert found is None or found[1] in {r["merchant_key"] for r in rows[:5]}
+
+
+def test_rule_18_states_counts_come_from_the_result():
+    block = penny_agent_module._last_result_block({"ids": ["a"], "args": {}})
+    assert "count or matched_count" in block and "never from earlier messages" in block

@@ -94,6 +94,7 @@ def amount_clause(amount: float) -> dict:
 
 # ── FX details written into the description by some banks ────────────────
 
+FX_RATE_MIN, FX_RATE_MAX = 0.2, 20.0  # sanity band for a plausible GBP exchange rate
 _FX_ORIG_RE = re.compile(r"AMOUNT IN ([A-Z]{3}) ([0-9][0-9,]*\.[0-9]{2})")
 _FX_RATE_RE = re.compile(r"\b(?:VISA|MASTERCARD|MC|RATE)\s+([0-9]+\.[0-9]{2,6})\b")
 _FX_FEE_RE = re.compile(r"TRANS(?:ACTION)? FEE\s*£\s*([0-9]+\.[0-9]{2})")
@@ -109,13 +110,17 @@ def fx_from_description(desc: str | None) -> dict | None:
     if m:
         out["original_currency"] = m.group(1)
         out["original_amount"] = float(m.group(2).replace(",", ""))
+    if not out:
+        # A rate or fee is only read beside the "AMOUNT IN <CCY> <n>" marker,
+        # so "COSTA RATE 2.50 PAID" or "REF 1.5 VISA 12.34" never invent one.
+        return None
     m = _FX_RATE_RE.search(text)
-    if m:
+    if m and FX_RATE_MIN <= float(m.group(1)) <= FX_RATE_MAX:
         out["rate"] = float(m.group(1))
     m = _FX_FEE_RE.search(text)
     if m:
         out["fee_gbp"] = float(m.group(1))
-    return out or None
+    return out
 
 
 # ── Fuzzy merchant match ─────────────────────────────────────────────────
@@ -140,11 +145,14 @@ def similarity(a: str | None, b: str | None) -> float:
 
 
 FUZZY_THRESHOLD = 0.5
+FUZZY_MIN_NEEDLE = 3  # characters after normalisation; "ab" never fuzzy-matches
 
 
 def best_fuzzy(needle: str | None, candidates: list[str]) -> tuple[str, float] | None:
     """The single closest candidate at or above the threshold, else None."""
     best: tuple[str, float] | None = None
+    if len(loose_name(needle)) < FUZZY_MIN_NEEDLE:
+        return None
     for c in candidates:
         if not c:
             continue

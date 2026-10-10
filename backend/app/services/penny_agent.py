@@ -771,7 +771,8 @@ _LAST_RESULT_TEMPLATE = (
     "\"last_result\" (plus as_table or as_chart if they ask for one) instead of searching "
     "again. Report exchange rates and fees only where a row states them (fx, fx_fields); "
     "if none does, say plainly that the data does not include a rate. Never refuse that "
-    "as out of scope."
+    "as out of scope. State counts only from the result's count or matched_count, never "
+    "from earlier messages."
 )
 
 _REPAIR_PROMPT = (

@@ -255,7 +255,8 @@ income_payer_attachments_col = db["income_payer_attachments"]
 penny_proposals_col     = db["penny_proposals"]
 
 # G248: Penny chat history, the user's last 10 conversations (30 turns each),
-# text only. See app/services/penny_conversations.py.
+# text, plus (G254) on an assistant turn a `last_result` of transaction ids (ids
+# only, no payloads, never sent to the client) so "these" resolves. See app/services/penny_conversations.py.
 penny_conversations_col = db["penny_conversations"]
 
 # Per-user data-version counter (see app/services/data_version.py) —

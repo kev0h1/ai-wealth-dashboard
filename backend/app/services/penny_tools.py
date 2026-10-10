@@ -2334,15 +2334,28 @@ def _text_search_query(
     return query
 
 
+# Fuzzy fallback bound: scan at most this many of the user's most recent rows
+# per collection, and compare at most this many distinct merchant names.
+_FUZZY_SCAN_DOCS = 2000
+_FUZZY_MAX_CANDIDATES = 2000
+
+
 async def _fuzzy_merchant(uid: str, needle: str) -> tuple[str, str, str] | None:
     """The user's own merchant closest to `needle` as (field, value, label), or
     None. Candidates are only the user's own merchant keys and names."""
     try:
         found: list[tuple[str, str]] = []
+        # Bounded scan: the user's most recent _FUZZY_SCAN_DOCS rows per
+        # collection, keeping at most _FUZZY_MAX_CANDIDATES distinct names.
+        seen: set[tuple[str, str]] = set()
         for c in _SEARCH_COLLECTIONS:
-            for field in ("merchant_key", "merchant_name"):
-                for v in await c.distinct(field, {"user_id": uid}):
-                    if isinstance(v, str) and v.strip():
+            docs = await c.find({"user_id": uid}, {"merchant_key": 1, "merchant_name": 1}).sort("date", -1).limit(
+                _FUZZY_SCAN_DOCS).to_list(_FUZZY_SCAN_DOCS)
+            for d in docs:
+                for field in ("merchant_key", "merchant_name"):
+                    v = d.get(field)
+                    if isinstance(v, str) and v.strip() and (field, v) not in seen and len(seen) < _FUZZY_MAX_CANDIDATES:
+                        seen.add((field, v))
                         found.append((field, v))
     except Exception:
         logger.exception("penny_tools: fuzzy merchant lookup failed for %s", uid)
