@@ -318,7 +318,8 @@ async def _record_exchange(uid: str, cid: str, question: str, result: dict) -> d
         proposal_id = result.get("proposal", {}).get("proposal_id") if isinstance(result.get("proposal"), dict) else None
         turns = [
             penny_conversations.clean_turn("user", question.strip()),
-            penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id),
+            penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id,
+                                           table=result.get("table")),
         ]
         stored = await penny_conversations.append_turns(uid, cid, turns)
         if proposal_id:
@@ -484,7 +485,7 @@ async def _can_i_answer(body: dict, user: dict) -> dict:
                 "out_of_scope": False,
                 "proposal": proposal,
             }
-        return {
+        answer = {
             "reply": _house_style(agent_result["reply"]),
             "headline": _house_style(agent_result["headline"]),
             "facts": [],
@@ -492,6 +493,10 @@ async def _can_i_answer(body: dict, user: dict) -> dict:
             "topic": None,
             "out_of_scope": False,
         }
+        if agent_result.get("table"):
+            # G251: a typed table block the client renders from data.
+            answer["table"] = agent_result["table"]
+        return answer
 
     # ── 7. Deterministic refusal fallback — the loop returned None (a real
     # failure, or a genuinely off-topic question). Byte-identical shape to

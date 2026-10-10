@@ -133,6 +133,7 @@ pinning.
 """
 import asyncio
 import hashlib
+import json
 import pathlib
 import sys
 
@@ -154,7 +155,7 @@ class _FinalResponse:
 
 
 class _ToolCallResponse:
-    def __init__(self, name: str, call_id: str):
+    def __init__(self, name: str, call_id: str, args: dict | None = None):
         self.status_code = 200
         self._payload = {
             "choices": [{
@@ -163,7 +164,7 @@ class _ToolCallResponse:
                     "tool_calls": [{
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": name, "arguments": "{}"},
+                        "function": {"name": name, "arguments": json.dumps(args or {})},
                     }],
                 },
             }],
@@ -281,8 +282,11 @@ class _GoldenFakeClient:
     human-readable elaboration (naming the tool and, for a hash mismatch,
     the re-pin command) that assertion messages surface."""
 
-    def __init__(self, expected_tools: list[str]):
+    def __init__(self, expected_tools: list[str], expected_args: dict | None = None):
         self._expected = expected_tools
+        # G251: optional {tool_name: {arg: value}} the fake model passes, so a
+        # case can pin "search_transactions with as_table: true".
+        self._expected_args = expected_args or {}
         self.calls: list[dict] = []
         self.attempted: list[str] = []
         self.outcome = "ok"
@@ -361,23 +365,26 @@ class _GoldenFakeClient:
             return _FinalResponse("HEADLINE: n/a\nREPLY: n/a")
 
         self.attempted.append(tool_name)
-        return _ToolCallResponse(tool_name, call_id=f"call_{round_index + 1}")
+        return _ToolCallResponse(tool_name, call_id=f"call_{round_index + 1}",
+                                 args=self._expected_args.get(tool_name))
 
 
-def run_case(monkeypatch, question, screen, expected_tools):
+def run_case(monkeypatch, question, screen, expected_tools, expected_args=None):
     """Drives one golden case through the REAL `run_penny_agent` loop with
     `_GoldenFakeClient` standing in for OpenRouter and a recording stub
     standing in for `execute_tool` (see module docstring's "What this does
     NOT exercise"). Returns the client (for `.outcome`/`.detail`/`.calls`),
     the ordered list of tool names actually dispatched, and the loop's own
     return value."""
-    client = _GoldenFakeClient(expected_tools)
+    client = _GoldenFakeClient(expected_tools, expected_args)
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
 
     dispatched: list[str] = []
+    client.dispatched_args = []
 
     async def fake_execute_tool(uid, name, args):
         dispatched.append(name)
+        client.dispatched_args.append(args)
         return {"ok": True}
 
     monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute_tool)
@@ -552,6 +559,26 @@ GOLDEN_CASES = [
         why="G243 (Kevin 2026-10-08): a custom category named in a spend question is a category total, never a merchant search. Executed with a synthetic 11-transaction Padel category in test_penny_category_routing.py (total 225.00).",
     ),
     dict(
+        id="spend-10-tabulate-transactions",
+        source="spend.md",
+        question="Tabulate my OpenRouter transactions",
+        screen="spend",
+        expected=["search_transactions"],
+        expected_args={"search_transactions": {"as_table": True}},
+        source_quote="custom category",
+        why="G251 (Kevin 2026-10-10): a request to tabulate rows goes to search_transactions with as_table true so the app renders the table from data. Executed with a synthetic FX fixture in test_penny_table.py.",
+    ),
+    dict(
+        id="spend-11-tabulate-by-month",
+        source="spend.md",
+        question="Tabulate my eating out by month",
+        screen="spend",
+        expected=["get_category_spend"],
+        expected_args={"get_category_spend": {"as_table": True, "category": "Eating Out", "months": 6}},
+        source_quote="custom category",
+        why="G251: a by-month tabulation of a category is get_category_spend with as_table true (per-month rows built server-side).",
+    ),
+    dict(
         id="spend-07-prior-period",
         source="spend.md",
         question="Was I over usual on Groceries last pay period?",
@@ -710,7 +737,7 @@ for _case in GOLDEN_CASES:
     assert _case.get("source_quote"), f"{_case['id']}: missing source_quote"
 
 _SOURCE_COUNTS = {
-    "home-and-penny.md": 8, "spend.md": 10, "planning-grow-debt.md": 7,
+    "home-and-penny.md": 8, "spend.md": 12, "planning-grow-debt.md": 7,
     "insights-accounts-mirror.md": 6,
 }
 
@@ -757,7 +784,12 @@ def test_golden_set_questions_are_grounded_in_their_named_inventory_file():
 def test_golden_tool_selection(monkeypatch, case):
     client, dispatched, result = run_case(
         monkeypatch, case["question"], case["screen"], case["expected"],
+        case.get("expected_args"),
     )
+    for tool, want in (case.get("expected_args") or {}).items():
+        got = client.dispatched_args[case["expected"].index(tool)]
+        for k, v in want.items():
+            assert got.get(k) == v, f"{case['id']}: {tool} should be called with {k}={v!r}, got {got}"
     assert client.outcome == "ok", (
         f"{case['id']} ({case['question']!r}): {client.detail or client.outcome}. "
         f"expected tool sequence {case['expected']} to be reachable. {case['why']}"

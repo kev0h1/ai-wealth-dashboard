@@ -83,6 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
+from app.services import penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -484,7 +485,13 @@ _SYSTEM_PROMPT = (
     "(get_accounts, get_safe_to_spend, get_upcoming_bills), run calculate "
     "over it, and state the result as a fact with the working. Factual "
     "information and calculations only: never say 'invest in this' or "
-    "'do this', never name or rank a product, provider or action.\n\n"
+    "'do this', never name or rank a product, provider or action.\n"
+    "16. Tables: when the user asks to tabulate, list or compare rows "
+    "('tabulate my OpenRouter transactions', 'my eating out by month'), call "
+    "search_transactions or get_category_spend with `as_table: true`. The app "
+    "then shows the table itself. Refer to it in ONE sentence with the "
+    "tool's totals and never retype, list or format its rows. Never type a "
+    "markdown table or use pipe characters yourself.\n\n"
     "OUTPUT FORMAT: once you have everything you need for an IN-SCOPE "
     "question, respond with EXACTLY two lines, nothing before or after:\n"
     "HEADLINE: <under 8 words>\n"
@@ -850,6 +857,7 @@ async def run_penny_agent(
         rather than merely skipping the NEXT round the way the soft
         `_WALL_CLOCK_BUDGET_S` check below already does on its own."""
         tools_used: list[str] = []
+        table_block: dict | None = None
         rounds = 0
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
             while True:
@@ -950,8 +958,19 @@ async def run_penny_agent(
                                 m.get("content") for m in messages
                                 if m.get("role") == "user" and isinstance(m.get("content"), str)
                             ]
+                        # G251: only the loop may ask an executor for a table
+                        # block (an executor ignores `as_table` without it).
+                        if isinstance(call_args, dict) and call_args.get("as_table"):
+                            call_args = {**call_args, "_table_ok": True}
                         t0 = time.monotonic()
                         result = await execute_tool(uid, name, call_args)
+                        if isinstance(result, dict) and "_table" in result:
+                            result = dict(result)
+                            block = penny_table.validate_or_none(result.pop("_table"))
+                            if block:
+                                table_block = block
+                                result["table"] = penny_table.marker_for_model(block)
+                                result.pop("transactions", None)
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
                         logger.info(
@@ -1019,7 +1038,10 @@ async def run_penny_agent(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,
                 )
-                return {"headline": headline, "reply": reply, "tools_used": tools_used}
+                done = {"headline": headline, "reply": reply, "tools_used": tools_used}
+                if table_block:
+                    done["table"] = table_block
+                return done
 
     try:
         return await asyncio.wait_for(_loop(), timeout=_WALL_CLOCK_BUDGET_S + _WALL_CLOCK_GRACE_S)
