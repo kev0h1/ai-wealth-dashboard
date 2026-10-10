@@ -57,14 +57,14 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | --- | --- | --- |
 | `get_safe_to_spend` | `compute_safe_to_spend` (`analytics.py`) | cash-led Safe to Spend after bills and set-asides, plus card growth as a separate fact with repayment wording/due date and a fallback reserve only when no repayment series is learned |
 | `get_upcoming_bills` | the cashflow engine, `_compute_cashflow_patterns` LIVE on a cache miss (mirrors `GET /cashflow`, audit fix 2026-08-26) | hedged, dated bill and income events, each with account name/bank/balance, kind, pending/edited/days-past-due/original-date/rule_label state (enrichment pass, 2026-08-27); `insufficient_data` only when the user has no connected accounts at all |
-| `search_transactions(q, category, merchants, from, to, txn_type)` | the same query builder as `GET /transactions/search` | at most 20 compact rows plus `matched_*` totals; G243: `match_kind` (`text`, `category` or `filters`) says how the rows matched, and a text that matches no merchant but names one of the user's own categories (built-in or custom) falls back to that category (`matched_category`, `match_note`) |
+| `search_transactions(q, category, merchants, from, to, txn_type, as_table?)` | the same query builder as `GET /transactions/search` | at most 20 compact rows plus `matched_*` totals; G243: `match_kind` (`text`, `category` or `filters`) says how the rows matched, and a text that matches no merchant but names one of the user's own categories (built-in or custom) falls back to that category (`matched_category`, `match_note`) |
 | `get_accounts` | account service, plus a twin of `accountKind.ts`'s substring classifier (kind/dormant have no backend field), `preferences.home_pinned_accounts`, `sync_freshness.last_bank_sync` | balances, names, providers, types, kind label, status, dormant flag, pinned, last_synced; never credentials or tokens |
 | `get_spend_verdict(period_offset)` | the spend verdict service | reading (with "move" jargon translated to plain prose), pills, pace, quiet_flags, unresolved (count/materiality/largest), moved breakdown by kind, notables' cause lists and consequence lines, period.closed/days_left (enrichment pass, 2026-08-27) |
 | `get_savings_position` | savings cashflow | current savings, Savings-tab surplus semantics |
 | `get_debt_position` | debt plan engine | balances, plan state, terms asked never assumed; per-card rate_schedule/classification/classification_evidence/movement.monthly-basis-periods_used/potential_monthly_interest/usage(_conflict), plus top-level scenario_b, extra_to_clear, transfer_routes (refinance_options) (enrichment pass, 2026-08-27) |
 | `get_goals` | `app.routers.commitments.list_commitments` (the same route Planning's Commitments block calls, replacing a thin `commitments_col` read, 2026-08-27) | active/done goals with progress, per_period_slice (this period, eased if so), usual_slice, eased_this_period (G228), paid_from and paid_from_inferred (G230: the current account the contribution leaves, and whether that is a guess from recent transfers, so hedge it), periods_left, on_track, feasibility(_note), pace_note, shared_pot_goals, funding_pots |
 | `check_affordability(amount, timeframe?)` | `app.services.affordability` (extracted from the deleted ladder's own what-if arithmetic) | a final, quote-verbatim `verdict` sentence, the £ figures raw+formatted, nearest-yes/savings-pace facts; `ask_when: true` + `timeframe_assumed: "current_period"` when a large amount was judged against the current period for lack of a timeframe (restored ladder behaviour, audit fix 2026-08-26) |
-| `get_category_spend(category?, months?)` | `compute_spend_verdict` (this period) + raw transaction rows (top merchants / N-month total), home-currency filtered the same way `_load_period_txns` is (audit fix 2026-08-26) | per-category totals, payment counts, top 3 merchants — server-aggregated, never summed by the model; G243: `category` accepts any of the user's categories, custom included, case-insensitively (`categories.resolve_category_name`), and a name that is no category returns `category_recognised: false` with `available_categories` |
+| `get_category_spend(category?, months?, as_table?)` | `compute_spend_verdict` (this period) + raw transaction rows (top merchants / N-month total), home-currency filtered the same way `_load_period_txns` is (audit fix 2026-08-26) | per-category totals, payment counts, top 3 merchants — server-aggregated, never summed by the model; G243: `category` accepts any of the user's categories, custom included, case-insensitively (`categories.resolve_category_name`), and a name that is no category returns `category_recognised: false` with `available_categories` |
 | `get_insights` | `savings_insights_col`, ranked the same way GET /savings-insights ranks it, plus `GET /value-delivered` | title/summary/estimated-saving per insight, rank 1 = best; triggered_by, verified_savings/merchant, deadline_at, is_new, return_reason, plus a value_delivered summary with breakdown[] (enrichment pass, 2026-08-27) |
 | `explain(topic)` | one flat registry in `penny_tools.py`: fixed screen/topic copy moved verbatim from the deleted ladder, PLUS four new registries (2026-08-27) | (a) per-screen/topic copy (isa_capability/saving_vs_investing/categorisation), (b) 14 jargon-term definitions grounded in code, (c) 8 headline-number reconciliations (what a figure includes/excludes and which sibling it disagrees with), (d) 13 how-do-I action walkthroughs, (e) 16 UK money-basics explainers (isa-allowance, cash-vs-ss-isa, lisa, personal-savings-allowance, emergency-fund, high-interest-debt-first, pension-match, pension-tax-relief, compound-interest, investment-fees, diversification, dividend-allowance, cgt-allowance, tax-year-dates, premium-bonds, marriage-allowance), imported from `app.content.money_basics.MONEY_BASICS` (the retired "Money basics" rotating Home card's own content, now grounding here instead) rather than copy-pasted, so the two can never drift; unknown topic returns the full valid-key list. 63 keys total (`checkpoint` is a second key aliasing `aim`'s own entry, same concept named both ways in the app, so 62 distinct pieces of copy). Replaces `get_page_explainer`. F16 (2026-09-10, reworked same day after rejection in review) added `mcp_connector` — what the MCP connector is, that it's read-only with no raw transactions, where to get the URL (Settings' Connected assistants card), that sign-in is required, and the Connect/Max tiers it ships on. `MCP_CONNECTOR_ENABLED` (A17) gates the topic's EXISTENCE, not its copy: on a deployment where the flag is off (production, pending the Finexer compliance answers), `mcp_connector` is not a valid topic at all — absent from this tool's own description (`_explain_tool_description`, read at call time so a test can monkeypatch the flag), absent from `_exec_explain`'s unknown-topic valid-key list, and unreachable by any path. The first pass instead wrote a second not-yet-available copy variant for the flag-off case; rejected, because A17 exists specifically so a connector-off deployment ships with the connector entirely absent (hidden from Settings, stripped from the legal pages), and describing it at all, even to say it isn't live yet, puts it back into production through a different door and promises timing Kevin has not committed to. There is exactly one reply string, `_MCP_CONNECTOR_REPLY`, used only when the flag is genuinely on. |
 | `get_tax_position` | `app.routers.chat.build_tax_fact_pack` (shared with `answer_tax_question`, extracted 2026-08-26) | the user's OWN income, pension, adjusted net income, personal allowance remaining, Child Benefit status |
@@ -599,6 +599,52 @@ growth and interest what-ifs use `calculate` with `growth` (G245, above). These
 questions are pinned in `backend/tests/penny_arithmetic_corpus.py`. A
 contribution is money put aside, never a cost. Full inventory and the
 keep/delete decision per use: `docs/penny/G246-scenario-removal.md`.
+
+## G251 (2026-10-10): tables from data, not typed markdown
+
+Kevin asked Penny to "tabulate" his OpenRouter transactions and got a pipe
+table as one wrapped paragraph. Two causes: the REPLY parser joined every
+line with a space (so a typed table was flattened), and the client drew replies
+as plain text. Fixes, structured path first:
+
+- **`as_table: true`** on `search_transactions` and `get_category_spend`. The
+  prompt (rule 16) tells the model to set it when the user asks to tabulate,
+  list or compare rows, and never to type a table. The executor builds a typed
+  block, the loop (`run_penny_agent`) validates it, takes it OUT of the tool
+  result, and attaches it to the reply as `table`. The model only gets a
+  `table: {shown, rows, columns, instruction}` marker plus the tool's totals,
+  so it cannot retype or invent a row, and the rows cost no tokens. A table is
+  built only when the call came through Penny's loop (private `_table_ok`
+  flag; `routers/mcp.py` strips underscore keys), so the MCP connector never
+  returns one.
+- **Block shape** (`app/services/penny_table.py`): `{title, columns:[{key,
+  label, kind: text|money|date|number|rate, align}], rows:[{key: cell}], note?}`;
+  max 12 columns, 50 rows, 24 KB; cells typed (money is `{amount, currency}`,
+  signed, so money out is negative; date is `YYYY-MM-DD`); HTML-looking or
+  control-character strings are rejected, undeclared row keys rejected.
+  Builders strip angle brackets from data first.
+- **`search_transactions` rows** (cap 50 with `as_table`, 20 otherwise): date,
+  description, category, amount in the transaction's own currency, then
+  optional columns that exist only when a row really carries the value: In GBP
+  (`amount_gbp`, `gbp_amount`, `home_amount`), FX rate (`fx_rate`,
+  `exchange_rate`), Fee (`fee`, `fee_amount`). Synced bank rows today carry
+  none of those three, so a real transaction shows Amount and its currency
+  only; the columns appear when a provider starts storing them. Missing
+  columns are omitted, never printed as "None shown".
+- **`get_category_spend` rows**: with a category, one row per calendar month
+  over the window (`months`, default 6 with `as_table`), empty months as zero,
+  server-summed; without one, the top 12 categories this pay period.
+- **Storage**: an assistant turn in `penny_conversations` keeps the reply text
+  plus the same validated `table` (user-visible values only, never a tool
+  payload); the restore path renders it.
+- **Fallback**: if the model still types a pipe table, the REPLY parser now
+  keeps line breaks for block markdown (tables, lists) and the client renders
+  it through a whitelist (`components/PennyMarkdown.tsx`: table, thead, tbody,
+  tr, th, td, p, ul, ol, li, strong, em, code, plus br and in-app links; raw
+  HTML skipped, images dropped, external links shown as plain text). remark-gfm
+  is not a dependency, so a small GFM table parser lives in `lib/pennyTable.ts`.
+- Golden rows `spend-10-tabulate-transactions` and `spend-11-tabulate-by-month`
+  pin the tool and `as_table: true`; `check:g251-penny-table` covers rendering.
 
 ## Coverage checklist
 
