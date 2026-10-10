@@ -114,6 +114,18 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "accounts-header-follow-up",
+    name: "Accounts header follow-up · G250 · three options",
+    description:
+      "G250, skill: impeccable · Small follow-up to the G236 header: the top right is empty and Net worth floats, so three options use it, all tightening the header-to-search gap to the Home 20px section rhythm (G221) · A moves the Balances hidden chip beside the title, B adds a Cash, Cards and Investments reading beside Net worth, C adds a last-synced time with a refresh control (KPIs already carry last_updated) · renders the production AccountsHeader, AccountLedgerRow and floating Add through props with invented accounts · the list now carries bottom padding so the last row and amount clear the Add button (scroll to the bottom to see it) · ?option=a|b|c&mode=light|dark&accounts=6|20&state=shown|hidden",
+    states: [{ label: "Shown", value: "shown" }, { label: "Hidden", value: "hidden" }],
+    variants: [
+      { label: "A Chip top right", value: "a" },
+      { label: "B Breakdown", value: "b" },
+      { label: "C Last synced", value: "c" },
+    ],
+  },
+  {
     slug: "sts-accounts-route",
     name: "Safe to Spend route to Accounts · G219 · approved B, folded in",
     description:
