@@ -340,3 +340,15 @@ def test_clean_turn_stores_a_valid_table_on_assistant_turns_only():
     bad["rows"][0]["desc"] = "<b>"
     assert "table" not in penny_conversations.clean_turn("assistant", "Here you go.", table=bad)
     assert "table" not in penny_conversations.clean_turn("assistant", "Here you go.")
+
+
+# ── the parser keeps a typed table's line breaks (the G251 root cause) ────
+def test_reply_parser_keeps_newlines_for_block_markdown_only():
+    parse = penny_agent_module._parse_headline_reply_or_none
+    raw = "HEADLINE: Your payments\nREPLY: Here they are.\n| Date | GBP |\n|------|-----|\n| 1 Oct | £5 |"
+    headline, reply = parse(raw)
+    assert reply.splitlines() == ["Here they are.", "| Date | GBP |", "|------|-----|", "| 1 Oct | £5 |"]
+    headline, reply = parse("HEADLINE: Fine\nREPLY: One sentence.\nAnd a second line.")
+    assert reply == "One sentence. And a second line."
+    _, reply = parse("HEADLINE: List\nREPLY: Three:\n- a\n- b")
+    assert "\n- a\n- b" in reply

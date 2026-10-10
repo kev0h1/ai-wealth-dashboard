@@ -612,7 +612,12 @@ def _parse_headline_reply_or_none(raw: str, *, has_tool_grounding: bool = False)
             continue
         if mode == "reply" and stripped:
             reply_lines.append(stripped)
-    reply = " ".join(l for l in reply_lines if l).strip()
+    # G251: line breaks survive only when the reply is block markdown (a pipe
+    # table or a list); flattening them is what turned a typed table into one
+    # wrapped paragraph of pipes. Ordinary prose still joins with a space.
+    lines = [l for l in reply_lines if l]
+    block_md = any(re.match(r"^(\||[-*] |\d+[.)] )", l) for l in lines)
+    reply = ("\n" if block_md else " ").join(lines).strip()
     if headline and reply:
         return headline, reply
     if not has_tool_grounding:
