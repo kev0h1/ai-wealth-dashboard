@@ -168,7 +168,7 @@ function coverPlanView(
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout, clearLocalSession } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, preferencesReady, showTips, setShowTips } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -1233,6 +1233,31 @@ export default function SettingsPage() {
               pattern as notifSaveMsg/childBenefitSaveMsg below, not a whole
               coloured sentence (DESIGN.md:142). */}
           {preferencesSaveError?.field === "dark_mode" && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
+            >
+              <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span>{preferencesSaveError.message}</span>
+            </p>
+          )}
+          {/* G236: the ONE global hide-balances control (with the "Balances
+              hidden · Show" chip on Accounts, which turns this same
+              preference off). Bound to hide_net_worth via PreferencesContext;
+              defaults to on (hidden) until you turn it off. */}
+          <div className="flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700/70">
+            <div className="pr-3">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Hide balances</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Mask balances across the app until you choose to show them.</p>
+            </div>
+            <Toggle
+              checked={hideNetWorth}
+              onChange={() => setHideNetWorth(!hideNetWorth)}
+              label="Hide balances"
+            />
+          </div>
+          {preferencesSaveError?.field === "hide_net_worth" && (
             <p
               role="status"
               aria-live="polite"
