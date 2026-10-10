@@ -67,7 +67,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
                   const base = `px-3 py-2 align-top ${ri > 0 ? "border-t border-slate-100 dark:border-slate-700" : ""} ${SURFACE}`;
                   const align = col.align === "right" ? "text-right tabular-nums whitespace-nowrap" : "text-left";
                   const first = ci === 0 ? "sticky left-0 z-10 border-r border-r-slate-100 dark:border-r-slate-700" : "";
-                  const wrap = col.kind === "text" ? "min-w-[7rem] max-w-[14rem] break-words" : "whitespace-nowrap";
+                  const wrap = col.kind === "text" ? "min-w-[9rem] max-w-[14rem] break-words" : "whitespace-nowrap";
                   return ci === 0 ? (
                     <th key={col.key} scope="row" className={`${base} ${align} ${first} ${wrap} font-normal`}>
                       <Cell col={col} value={text} />

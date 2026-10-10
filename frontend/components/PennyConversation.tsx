@@ -164,7 +164,7 @@ const PENNY_THREAD_TTL_MS = 30 * 60 * 1000;
 // added/removed, and a card holding lazily initialised local state would
 // keep a STALE draft from a different message under a reused instance.
 type UserMsg = { id: number; role: "user"; content: string };
-type VerdictMsg = {
+export type VerdictMsg = {
   id: number;
   role: "assistant";
   kind: "verdict";
@@ -339,7 +339,7 @@ const PENNY_BUBBLE_TABLE = "w-[96%] min-w-0 bg-slate-100 dark:bg-slate-700 round
  * as plain 14px body text instead of a bold headline. Out-of-scope
  * answers use the exact same bubble anatomy as any other verdict — no
  * separate visual treatment. */
-function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
+export function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
   return (
     <div className="flex justify-start">
       <div className={msg.table ? PENNY_BUBBLE_TABLE : PENNY_BUBBLE}>
