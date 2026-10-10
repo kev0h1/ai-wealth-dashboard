@@ -10,10 +10,25 @@
 // opening upward from the button. Hidden (not unmounted, so the tutorial ref and
 // state survive) while a sheet or the Find keyboard is open.
 
-import type { ReactNode, RefObject, KeyboardEvent } from "react";
+import { useEffect, useState, type ReactNode, type RefObject, type KeyboardEvent } from "react";
 import { Plus } from "lucide-react";
 
 export const ADD_FAB_OFFSET = "bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+80px)] lg:bottom-8";
+
+// G250: the list ends clear of the button. Its top edge is the nav base offset
+// (max(inset, 10px)) + 80px + 56px, so the list's bottom padding is that plus a
+// 24px margin: the last row and its amount stop above the button, never under it.
+// Desktop has no nav: the button is 32px up, so 32 + 56 + 24.
+export const ADD_FAB_LIST_CLEARANCE =
+  "pb-[calc(max(env(safe-area-inset-bottom,0px),10px)+160px)] lg:pb-28";
+
+// G250: a fixed button over a scrolling list always covers some row's amount, so
+// it steps down out of view (transform only) once the page scrolls, and returns
+// 400ms after the last scroll event. A finger down mid-drag only holds it away
+// (it does not hide it by itself) until the finger lifts. Mobile only: on
+// desktop the list has the gutter and the button stays. Stays put while its menu
+// is open.
+export const ADD_FAB_SCROLL_SETTLE_MS = 400;
 
 export interface AccountsAddFabProps {
   open: boolean;
@@ -27,6 +42,30 @@ export interface AccountsAddFabProps {
 }
 
 export default function AccountsAddFab({ open, onToggle, onClose, menuRef, menuItems, suppressed }: AccountsAddFabProps) {
+  const [scrolling, setScrolling] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let touching = false;
+    const settle = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { if (!touching) setScrolling(false); }, ADD_FAB_SCROLL_SETTLE_MS);
+    };
+    const onScroll = () => { setScrolling(true); settle(); };
+    const onTouchStart = () => { touching = true; };
+    const onTouchEnd = () => { touching = false; if (timer) settle(); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
+  const away = scrolling && !open;
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape" && open) {
       onClose();
@@ -37,7 +76,8 @@ export default function AccountsAddFab({ open, onToggle, onClose, menuRef, menuI
     <div
       ref={menuRef}
       onKeyDown={onKeyDown}
-      className={`fixed right-5 z-[45] ${ADD_FAB_OFFSET}${suppressed ? " hidden" : ""}`}
+      data-scroll-hide={away ? "away" : "here"}
+      className={`fixed right-5 z-[45] ${ADD_FAB_OFFSET} transition-transform duration-200 ease-out motion-reduce:transition-none lg:translate-y-0${away ? " translate-y-48 pointer-events-none" : ""}${suppressed ? " hidden" : ""}`}
     >
       {open && (
         <div

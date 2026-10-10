@@ -56,6 +56,22 @@ assert.ok(page.includes("preferencesReady") && /hideNetWorthPref \|\| !preferenc
   assert.ok(renderToStaticMarkup(h(AccountsAddFab, { open: false, onToggle: noop, onClose: noop, menuRef: ref, menuItems: null, suppressed: true })).includes(" hidden"), "hides when a sheet or Find is open");
 }
 
+// 3b. G250: the list clears the floating Add (button top edge + 24px margin).
+{
+  const fab = read("../components/AccountsAddFab.tsx");
+  assert.ok(/ADD_FAB_LIST_CLEARANCE\s*=\s*\n?\s*"pb-\[calc\(max\(env\(safe-area-inset-bottom,0px\),10px\)\+160px\)\] lg:pb-28"/.test(fab), "list bottom padding = 80 + 56 + 24 above the nav base");
+  assert.ok(page.includes("min-h-dvh ${ADD_FAB_LIST_CLEARANCE}"), "the Banks list container applies the clearance");
+}
+
+// 3c. G250: hides while the page scrolls, returns 400ms after the last event.
+{
+  const fab = read("../components/AccountsAddFab.tsx");
+  assert.ok(/ADD_FAB_SCROLL_SETTLE_MS\s*=\s*400\b/.test(fab), "settle timeout is 400ms");
+  assert.ok(/addEventListener\("scroll"/.test(fab) && /addEventListener\("touchstart"/.test(fab) && /addEventListener\("touchend"/.test(fab), "scroll and touch wiring");
+  assert.ok(/translate-y-48/.test(fab) && /lg:translate-y-0/.test(fab) && /motion-reduce:transition-none/.test(fab), "transform-only hide, desktop unchanged, reduced motion instant");
+  assert.ok(fab.includes("suppressed ?"), "existing hide rule kept");
+}
+
 // 4. Settings.
 {
   const s = read("../app/settings/SettingsPage.tsx");
