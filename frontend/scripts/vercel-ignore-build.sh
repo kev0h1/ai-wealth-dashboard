@@ -23,7 +23,7 @@
 # clone, unknown mode) builds rather than skips.
 #
 # Wired from frontend/vercel.json ("ignoreCommand"); the Vercel project root
-# directory is `frontend`, so the path there is ../scripts/...
+# directory is `frontend`, so the command there is `bash scripts/vercel-ignore-build.sh`
 set -u
 
 ref="${VERCEL_GIT_COMMIT_REF:-}"

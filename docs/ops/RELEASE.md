@@ -72,10 +72,11 @@ feature preview, so gating previews does not affect releases. `release`
 always builds in the gate script, in every mode, so a backend-only release
 cannot leave `deploy` waiting for a build that was skipped.
 
-What the repo now does (`frontend/vercel.json`, `scripts/vercel-ignore-build.sh`,
+What the repo now does (`frontend/vercel.json`, `frontend/scripts/vercel-ignore-build.sh`,
 tested by `scripts/test_vercel_ignore_build.sh`):
 
-- `ignoreCommand`: `bash ../scripts/vercel-ignore-build.sh`. Exit 0 skips,
+- `ignoreCommand`: `bash scripts/vercel-ignore-build.sh` (run inside the
+  Vercel root `frontend/`, so it needs no files outside the root). Exit 0 skips,
   exit 1 builds. Default mode `release`: build only when
   `VERCEL_GIT_COMMIT_REF` is `release`. Primary mechanism, because
   `git.deploymentEnabled` takes exact branch names (wildcards such as
@@ -95,10 +96,8 @@ Fast path now: Project, Settings, Git, Ignored Build Step, Custom, enter
 
     bash scripts/vercel-ignore-build.sh
 
-only if the project setting "Include files outside the root directory" is on
-(it is by default); otherwise use `bash ../scripts/vercel-ignore-build.sh`. The
-dashboard command overrides vercel.json, so keep only one of them to avoid
-confusion. Add nothing else; do not change the production branch.
+This is the same command as in vercel.json, in every case. The dashboard
+command overrides vercel.json, so use one or the other, not both. Add nothing else; do not change the production branch.
 
 Verify after a day: Vercel Deployments list should show only `release`
 production builds plus skipped ("Canceled by Ignored Build Step") entries for

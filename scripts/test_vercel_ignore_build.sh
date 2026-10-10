@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/vercel-ignore-build.sh (H115). Run: bash scripts/test_vercel_ignore_build.sh
 set -u
-S="$(cd "$(dirname "$0")" && pwd)/vercel-ignore-build.sh"
+S="$(cd "$(dirname "$0")/../frontend/scripts" && pwd)/vercel-ignore-build.sh"
 fail=0
 check() { # name expected_exit actual_exit
   if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (want $2 got $3)"; fail=1; fi
