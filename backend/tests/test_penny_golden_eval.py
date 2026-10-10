@@ -268,7 +268,7 @@ PINNED_TOOL_DESCRIPTION_HASHES = {
     "get_tax_position": "2cb73ca7b40a8670724cd6014cb33e60b0c03d09a536976fef57bfaddc1e67f7",
     "get_today_brief": "c1b006e6ee70be2d273bfea5582f4a7ae72fe41411f36370726ee6a4325cacc6",
     "get_upcoming_bills": "924033842d2e0d1cc61b44cc97c3a8fc7864fee85752d3790ea1b7ed12c3bce4",
-    "search_transactions": "ab2e3163da99f06a41d80e89f8734bbb209ee1f032b726d51c69a1670d2392ef",
+    "search_transactions": "e7958450b3aec89f8f27d6cbff261bdc5a6fe80a9ac8b188f6ce8428b58727ad",
 }
 
 
@@ -849,6 +849,56 @@ def test_golden_tool_selection(monkeypatch, case):
         f"got {dispatched}. {case['why']}"
     )
     assert result is not None
+
+
+# ── G254: Kevin's DigitalOcean thread as a five-question SEQUENCE ──────────────
+#
+# The single-case harness above cannot test a conversation: turns 4 and 5 only
+# make sense if "these" resolves to rows an earlier turn found. This drives the
+# five questions, in order, through the REAL loop and the REAL
+# search_transactions executor over a synthetic fixture (DIGITALOCEAN.COM rows
+# in USD with no fx fields), carrying `last_result` between turns exactly as the
+# /can-i router does. The fake model's tool choice is still scripted and
+# hash-guarded like every other case; what is real here is the matching, the
+# ids, and what the model is shown about exchange rates.
+
+def test_digitalocean_thread_sequence(monkeypatch):
+    from tests import penny_thread_fixture as fx
+
+    fx.install(penny_tools_module, monkeypatch.setattr)
+    monkeypatch.setattr(penny_agent_module.timeutil, "user_today", lambda: fx.TODAY)
+    last_result = None
+    seen_results: list[dict] = []
+    real_execute = penny_tools_module.execute_tool
+
+    async def recording_execute(uid, name, args):
+        out = await real_execute(uid, name, args)
+        seen_results.append(out)
+        return out
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", recording_execute)
+    for turn in fx.THREAD:
+        client = _GoldenFakeClient(["search_transactions"], {"search_transactions": turn["args"]})
+        monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+        before = len(seen_results)
+        kwargs = {"last_result": last_result} if last_result else {}
+        result = asyncio.run(penny_agent_module.run_penny_agent(fx.UID, turn["q"], [], "spend", "", **kwargs))
+        assert client.outcome == "ok", f"{turn['q']!r}: {client.detail}"
+        assert result is not None and not result.get("loop_failed"), turn["q"]
+        found = seen_results[before]
+        assert sorted(r["id"] for r in found["transactions"]) == sorted(turn["expect_ids"]), turn["q"]
+        assert "other-1" not in {r["id"] for r in found["transactions"]}, "another user's row leaked"
+        if turn.get("honest_no_rate"):
+            # The model is shown that no row states a rate, so the honest answer is available.
+            assert found["fx_fields"]["rows_stating_a_rate"] == 0
+            assert found["fx_fields"]["of"] == len(turn["expect_ids"])
+            assert "does not include a rate" in found["fx_fields"]["note"]
+        if turn["args"].get("transaction_ids"):
+            assert found["match_kind"] == "ids", "'these' resolved to the previous answer's rows"
+            assert "last_result is available" in json.dumps(client.calls[0]["messages"][0])
+        assert result["last_result"]["ids"], "every search answer carries its ids forward"
+        last_result = result["last_result"]
+    assert sorted(last_result["ids"]) == sorted(fx.ALL_DO)
 
 
 # ── Deliberately breaking routing: proves the gate has teeth ──────────────
