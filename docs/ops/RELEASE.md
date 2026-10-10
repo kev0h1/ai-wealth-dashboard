@@ -57,6 +57,68 @@ RED "Railway service deploys from main" item for as long as it's true.
    If either CLI ever needs re-authenticating, that's an interactive
    step outside this script.
 
+## Vercel build gating (H115)
+
+Vercel was building a preview of every push to every branch (about 100
+deployments a day, roughly 80% board-only `backlog:` commits; $58.24 Build
+CPU in one month). UAT runs on the VPS and nothing uses a Vercel preview URL
+(grep of docs and scripts finds none), so only `release` needs to build.
+
+Facts: the Vercel project root directory is `frontend` (DEPLOY.md step 6),
+so the config file is `frontend/vercel.json`. `scripts/release.py deploy`
+pushes `main:release` and polls for a Ready production deployment at that
+sha, and `rollback` force-pushes `release`; neither touches a main or
+feature preview, so gating previews does not affect releases. `release`
+always builds in the gate script, in every mode, so a backend-only release
+cannot leave `deploy` waiting for a build that was skipped.
+
+What the repo now does (`frontend/vercel.json`, `scripts/vercel-ignore-build.sh`,
+tested by `scripts/test_vercel_ignore_build.sh`):
+
+- `ignoreCommand`: `bash ../scripts/vercel-ignore-build.sh`. Exit 0 skips,
+  exit 1 builds. Default mode `release`: build only when
+  `VERCEL_GIT_COMMIT_REF` is `release`. Primary mechanism, because
+  `git.deploymentEnabled` takes exact branch names (wildcards such as
+  `feature-*` are not supported as far as documented), so it cannot cover
+  the many `feature-*` branches.
+- `git.deploymentEnabled: {"main": false}`: belt and braces for main only.
+- Optional `VERCEL_IGNORE_MODE=diff` (a Vercel project env var): non-release
+  branches build only when the last commit touches `frontend/` or `shared/`
+  (`git diff --quiet HEAD^ HEAD`, builds if HEAD^ is missing in a shallow clone).
+
+Kevin, in the dashboard: nothing is required if Vercel honours
+`frontend/vercel.json` once it reaches `release` (vercel.json is read from the
+commit being built, so it takes effect for a branch only after that branch
+contains it; main and feature branches pick it up once merged to main and
+rebased/pushed, and the quickest full cut-off is the dashboard setting).
+Fast path now: Project, Settings, Git, Ignored Build Step, Custom, enter
+
+    bash scripts/vercel-ignore-build.sh
+
+only if the project setting "Include files outside the root directory" is on
+(it is by default); otherwise use `bash ../scripts/vercel-ignore-build.sh`. The
+dashboard command overrides vercel.json, so keep only one of them to avoid
+confusion. Add nothing else; do not change the production branch.
+
+Verify after a day: Vercel Deployments list should show only `release`
+production builds plus skipped ("Canceled by Ignored Build Step") entries for
+other pushes; the count of built deployments should fall from ~100 a day to
+roughly the number of releases. Then watch Usage, Build CPU. First real
+release after this lands: confirm `scripts/release.py deploy` still sees its
+Ready production deployment.
+
+Rollback: delete the `ignoreCommand` field (and the `git` block) from
+`frontend/vercel.json`, or clear the dashboard Ignored Build Step.
+
+Railway: there is no `railway.json`/`railway.toml` in the repo, so build
+triggers live only in the Railway dashboard (the only workflow files are
+`security-scan.yml` and `backup.yml`; H112 gated the former). Until both
+services are switched to `release` (prerequisite b1), Railway rebuilds the
+backend on every push to `main`, board commits included. Once on `release`
+that problem disappears. If you want it before then: each service, Settings,
+Source, Watch Paths, set `/backend/**` (both `ai-wealth-dashboard` and
+`worker`). This is a dashboard-only setting; nothing in the repo changes it.
+
 ## c) The release procedure
 
 Three commands, always from `/root/ai-wealth-dashboard` on `main`, never
