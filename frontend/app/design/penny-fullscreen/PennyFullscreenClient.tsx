@@ -11,7 +11,8 @@ import { PennyChatToolbar } from "@/components/PennyChatActions";
 import PennyHistorySheet from "@/components/PennyHistorySheet";
 import PennyOpenLastChatRow from "@/components/PennyOpenLastChatRow";
 import type { PennyConversationSummary } from "@/lib/api";
-import { SuggestionChip } from "@/components/PennyConversation";
+import { SuggestionChip, VerdictBubble } from "@/components/PennyConversation";
+import type { PennyTableBlock } from "@/lib/pennyTable";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
@@ -42,7 +43,34 @@ const HISTORY: PennyConversationSummary[] = [
   { id: "c4", title: "How is my card balance changing?", created_at: "2026-09-28T19:40:00Z", updated_at: "2026-09-28T19:55:00Z", preview: "It grew by £46 this pay period.", turn_count: 8, at_cap: false },
 ];
 
-type Turn = { id: number; role: "user" | "assistant"; text: string };
+type Turn = { id: number; role: "user" | "assistant"; text: string; table?: boolean };
+
+// G251: ?table=1 seeds a question and a table answer. The bubble is the
+// production VerdictBubble and the table is the production PennyTable, drawn
+// from this fixture block (six columns, so it must scroll at 390px).
+const TABLE_FIXTURE: PennyTableBlock = {
+  title: "OpenRouter transactions",
+  columns: [
+    { key: "date", label: "Date", kind: "date", align: "left" },
+    { key: "description", label: "Description", kind: "text", align: "left" },
+    { key: "amount", label: "Amount", kind: "money", align: "right" },
+    { key: "gbp", label: "In GBP", kind: "money", align: "right" },
+    { key: "rate", label: "FX rate", kind: "rate", align: "right" },
+    { key: "fee", label: "Fee", kind: "money", align: "right" },
+  ],
+  rows: [
+    { date: "2026-10-04", description: "OpenRouter", amount: { amount: -20, currency: "USD" }, gbp: { amount: -15.1, currency: "GBP" }, rate: 1.3245, fee: { amount: -0.45, currency: "USD" } },
+    { date: "2026-09-28", description: "OpenRouter", amount: { amount: -10, currency: "USD" }, gbp: { amount: -7.48, currency: "GBP" }, rate: 1.3369, fee: null },
+    { date: "2026-09-12", description: "OpenRouter top-up", amount: { amount: -5, currency: "GBP" }, gbp: { amount: -5, currency: "GBP" }, rate: null, fee: null },
+    { date: "2026-08-30", description: "OpenRouter", amount: { amount: -42.5, currency: "USD" }, gbp: { amount: -31.9, currency: "GBP" }, rate: 1.3322, fee: { amount: -0.9, currency: "USD" } },
+    { date: "2026-08-02", description: "OpenRouter", amount: { amount: -1234.56, currency: "USD" }, gbp: { amount: -928.4, currency: "GBP" }, rate: 1.3298, fee: { amount: -2.5, currency: "USD" } },
+  ],
+  note: "Showing the 5 most recent of 14 matches.",
+};
+const TABLE_TURNS: Turn[] = [
+  { id: 1, role: "user", text: "Tabulate my OpenRouter transactions" },
+  { id: 2, role: "assistant", text: "", table: true },
+];
 
 const STARTERS = ["What is coming up?", "Explain my forecast", "What should I check before payday?"];
 const LONG: Turn[] = Array.from({ length: 6 }, (_, i) => ({
@@ -57,7 +85,7 @@ const serverMounted = () => false;
 function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; onClose: () => void; seed: string; startHistory: boolean }) {
   const mounted = useSyncExternalStore(subscribeToMount, clientMounted, serverMounted);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Turn[]>(seed === "long" ? LONG : []);
+  const [messages, setMessages] = useState<Turn[]>(seed === "long" ? LONG : seed === "table" ? TABLE_TURNS : []);
   const [loading, setLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(startHistory);
   const [chats, setChats] = useState<PennyConversationSummary[]>(HISTORY);
@@ -113,7 +141,10 @@ function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; o
         {empty && <PennyStarterState>
           {STARTERS.map(label => <SuggestionChip key={label} label={label} onTap={() => setInput(label)} />)}
         </PennyStarterState>}
-        {messages.map(turn => <div key={turn.id} className={turn.role === "user" ? "ml-8 break-words rounded-2xl bg-indigo-50 px-3 py-2 text-slate-900 dark:bg-indigo-950 dark:text-slate-100" : "mr-4 break-words text-slate-700 dark:text-slate-200"}>
+        {messages.map(turn => turn.table ? <VerdictBubble key={turn.id} onOfferTap={() => {}} msg={{
+          id: turn.id, role: "assistant", kind: "verdict", headline: "Your OpenRouter payments",
+          reply: "Here are your 5 most recent OpenRouter payments, 14 in all.", table: TABLE_FIXTURE, degraded: false,
+        }} /> : <div key={turn.id} className={turn.role === "user" ? "ml-8 break-words rounded-2xl bg-indigo-50 px-3 py-2 text-slate-900 dark:bg-indigo-950 dark:text-slate-100" : "mr-4 break-words text-slate-700 dark:text-slate-200"}>
           <span className="sr-only">{turn.role === "user" ? "You" : "Penny"}: </span>{turn.text}
         </div>)}
         {loading && <p role="status" className="text-slate-500 dark:text-slate-400">Preparing preview reply…</p>}
@@ -130,7 +161,7 @@ function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; o
 
 export default function PennyFullscreenClient() {
   const params = useSearchParams();
-  const seed = (params.get("thread") ?? params.get("state")) === "long" ? "long" : "empty";
+  const seed = params.get("table") === "1" ? "table" : (params.get("thread") ?? params.get("state")) === "long" ? "long" : "empty";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const startHistory = params.get("history") === "1";
   const [open, setOpen] = useState(params.get("open") === "1" || startHistory);
@@ -141,7 +172,7 @@ export default function PennyFullscreenClient() {
     document.documentElement.style.colorScheme = mode;
     return () => { document.documentElement.classList.toggle("dark", wasDark); document.documentElement.style.colorScheme = previousScheme; };
   }, [mode]);
-  const href = (m = mode, s = seed) => `?mode=${m}&thread=${s}`;
+  const href = (m = mode, s = seed) => `?mode=${m}&${s === "table" ? "table=1" : `thread=${s}`}`;
 
   return <main className="min-h-dvh bg-slate-100 px-4 pb-36 pt-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 sm:px-6">
     <div className="mx-auto max-w-xl">
@@ -154,6 +185,7 @@ export default function PennyFullscreenClient() {
       </div>
       <nav aria-label="Options" className="mt-4 flex flex-wrap gap-2">
         <a className={button} href={href(mode === "dark" ? "light" : "dark")}>{mode === "dark" ? "Light" : "Dark"} theme</a>
+        <a className={button} href={href(mode, "table")}>Table answer</a>
         <a className={button} href={href(mode, seed === "long" ? "empty" : "long")}>{seed === "long" ? "Start empty" : "Start with a long thread"}</a>
       </nav>
       <button type="button" onClick={() => setOpen(true)} className={`${button} mt-5 bg-indigo-600 px-5 text-white`}>Open Penny</button>
