@@ -17,7 +17,7 @@
 //
 // /design/accounts-header-follow-up?option|variant=a|b|c|d|e|f&mode=light|dark&accounts=6|18|20&state=shown|hidden[&chrome=off][&open=0|1]
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Plus, Search, TrendingUp, Upload } from "lucide-react";
@@ -149,11 +149,38 @@ export default function AccountsHeaderFollowUpClient() {
               onRefresh: option === "c" ? noop : undefined,
             };
 
+  // Theme belongs to the document, not a wrapper: production components read the html
+  // `dark` class (Tailwind dark:, useIsDark). PreferencesProvider re-applies the stored
+  // preference after children mount and the app may start dark from wd_dark or the device,
+  // so enforce the preview mode with an observer and restore the real state on unmount.
+  useEffect(() => {
+    const root = document.documentElement;
+    const meta = document.querySelector('meta[name="color-scheme"]');
+    const wasDark = root.classList.contains("dark");
+    const prevScheme = root.style.colorScheme;
+    const prevMeta = meta?.getAttribute("content") ?? null;
+    const want = mode === "dark";
+    const apply = () => {
+      if (root.classList.contains("dark") !== want) root.classList.toggle("dark", want);
+      root.style.colorScheme = mode;
+      meta?.setAttribute("content", mode);
+    };
+    apply();
+    const obs = new MutationObserver(apply);
+    obs.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => {
+      obs.disconnect();
+      root.classList.toggle("dark", wasDark);
+      root.style.colorScheme = prevScheme;
+      if (meta) { if (prevMeta === null) meta.removeAttribute("content"); else meta.setAttribute("content", prevMeta); }
+    };
+  }, [mode]);
+
   const subtotal = (v: number) => (hidden ? "£••••" : `${v < 0 ? "−" : ""}£${Math.abs(v).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`);
   const lenses = ["All", "Current", "Savings", "Credit", "Investment", "Owed"];
 
   return (
-    <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
+    <div>
       <main className={`min-h-dvh ${mode === "dark" ? "bg-[#0f172a]" : "bg-[#f0f2f7]"}`}>
         {chrome && (
           <div className="px-4 pt-3">
