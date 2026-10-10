@@ -563,6 +563,7 @@ def test_stacked_bar_from_two_categories_by_month(monkeypatch):
     chart = validate_chart(res["_chart"])
     assert chart["type"] == "stacked_bar" and [s["name"] for s in chart["series"]] == ["Eating Out", "Groceries"]
     assert chart["title"] == "Eating Out and Groceries by month"
+    assert "The last 6 months plus this month so far." in chart["note"]
     by = {s["name"]: {p["x"]: p["y"]["amount"] for p in s["points"]} for s in chart["series"]}
     assert by["Eating Out"]["Oct 2026"] == 12.0 and by["Groceries"]["Oct 2026"] == 50.0 and by["Eating Out"]["Aug 2026"] == 30.0
     # five names are capped at four series

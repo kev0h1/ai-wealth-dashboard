@@ -3373,7 +3373,7 @@ async def _stacked_category_chart(uid: str, categories, months, chart: dict) -> 
     }
     built = penny_chart.chart_from_rows(
         merged, "stacked_bar", "month", keys, series_names=names, title=f"{' and '.join([', '.join(names[:-1]), names[-1]]) if len(names) > 2 else ' and '.join(names)} by month",
-        note=penny_chart.join_notes(chart.get("note"), tables[0].get("note")),
+        note=penny_chart.join_notes(chart.get("note"), f"The last {months} months plus this month so far.", tables[0].get("note")),
     )
     return {"categories": names, "last_n_months": {"months": months}, "_chart": built} if built else None
 
