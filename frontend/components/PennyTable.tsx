@@ -30,6 +30,11 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
   const titleId = useId();
   const block = normalisePennyTable(table);
   if (!block) return null;
+  // The held column is the one that names the row: Description, else the first
+  // text column, else the first column.
+  const named = block.columns.findIndex((c) => c.key === "description");
+  const firstText = block.columns.findIndex((c) => c.kind === "text");
+  const stickyIdx = named >= 0 ? named : firstText >= 0 ? firstText : 0;
   return (
     <figure className="mt-2.5 mb-0 min-w-0" data-penny-table>
       {block.title && (
@@ -52,7 +57,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
                 <th
                   key={col.key}
                   scope="col"
-                  className={`whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-600 ${SURFACE} ${col.align === "right" ? "text-right" : "text-left"} ${ci === 0 ? "sticky left-0 z-10" : ""}`}
+                  className={`whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-600 ${SURFACE} ${col.align === "right" ? "text-right" : "text-left"} ${ci === stickyIdx ? "sticky left-0 z-10" : ""}`}
                 >
                   {col.label}
                 </th>
@@ -66,9 +71,9 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
                   const text = formatTableCell(col, row[col.key], now);
                   const base = `px-3 py-2 align-top ${ri > 0 ? "border-t border-slate-100 dark:border-slate-700" : ""} ${SURFACE}`;
                   const align = col.align === "right" ? "text-right tabular-nums whitespace-nowrap" : "text-left";
-                  const first = ci === 0 ? "sticky left-0 z-10 border-r border-r-slate-100 dark:border-r-slate-700" : "";
+                  const first = ci === stickyIdx ? "sticky left-0 z-10 border-r border-r-slate-100 dark:border-r-slate-700" : "";
                   const wrap = col.kind === "text" ? "min-w-[9rem] max-w-[14rem] break-words" : "whitespace-nowrap";
-                  return ci === 0 ? (
+                  return ci === stickyIdx ? (
                     <th key={col.key} scope="row" className={`${base} ${align} ${first} ${wrap} font-normal`}>
                       <Cell col={col} value={text} />
                     </th>

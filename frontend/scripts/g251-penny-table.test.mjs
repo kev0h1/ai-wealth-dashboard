@@ -42,7 +42,11 @@ const html = (el) => renderToStaticMarkup(el);
   assert.equal((out.match(/<th /g) || []).length, 6 + 2, "6 column headers plus a row header per row");
   // first column sticky: its header and every body row header
   assert.equal((out.match(/sticky left-0/g) || []).length, 3, "header cell and both first cells are sticky");
-  assert.ok(!/<td[^>]*sticky/.test(out), "only the first column is sticky");
+  assert.ok(!/<td[^>]*sticky/.test(out), "only the row-naming column is sticky");
+  assert.ok(/<th[^>]*sticky left-0[^>]*>Description<\/th>/.test(out), "Description is the held column when present");
+  assert.ok(!/<th[^>]*sticky[^>]*>Date<\/th>/.test(out), "Date is not held");
+  const noDesc = { ...fixture, columns: fixture.columns.filter((c) => c.key !== "description"), rows: fixture.rows.map(({ description, ...r }) => r) };
+  assert.ok(/<th[^>]*sticky left-0[^>]*>Date<\/th>/.test(html(h(PennyTable, { table: noDesc, now: NOW }))), "falls back to the first column with no text column");
   // header per DESIGN.md Label: 10px, 600, tracked, uppercase, muted
   assert.ok(/<th[^>]*text-\[10px\][^>]*font-semibold[^>]*uppercase[^>]*tracking-\[0\.05em\]/.test(out));
   // numeric columns right-aligned in tabular figures; money is mono
