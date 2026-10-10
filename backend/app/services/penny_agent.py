@@ -758,9 +758,64 @@ async def _category_context_block(uid: str) -> str:
     return _CATEGORY_CONTEXT_TEMPLATE.format(n=len(shown), names=", ".join(shown))
 
 
+# G254 (Kevin 2026-10-10): a follow-up such as "do they have fx rates on all
+# these transactions" must resolve "these" to the rows of the previous answer
+# even when the text window no longer shows them. The server keeps those ids on
+# the stored conversation (ids only) and the model asks for them with the
+# string "last_result"; it never sees or types the ids.
+_LAST_RESULT_ARG_KEYS = ("q", "merchants", "category", "date_from", "date_to", "txn_type", "account", "amount")
+_LAST_RESULT_TEMPLATE = (
+    "\n\n18. last_result is available: your previous answer listed {n} transactions "
+    "(search_transactions with {args}). When the user says 'these', 'those', 'them' or 'all "
+    "of them' about those transactions, call search_transactions with transaction_ids "
+    "\"last_result\" (plus as_table or as_chart if they ask for one) instead of searching "
+    "again. Report exchange rates and fees only where a row states them (fx, fx_fields); "
+    "if none does, say plainly that the data does not include a rate. Never refuse that "
+    "as out of scope."
+)
+
+_REPAIR_PROMPT = (
+    "Your last message was not in the required format. Using the tool results above, "
+    "reply with EXACTLY two lines and nothing else:\nHEADLINE: <under 8 words>\n"
+    "REPLY: <your answer>\nIf you still need data, call a tool first. Only if the "
+    "question is truly unrelated to the user's money, reply OUT_OF_SCOPE."
+)
+_PROSE_MAX = 1200
+
+
+def clean_last_result_args(args: dict | None) -> dict:
+    """The few search arguments worth remembering, as short plain strings."""
+    out: dict = {}
+    for k in _LAST_RESULT_ARG_KEYS:
+        v = (args or {}).get(k)
+        if isinstance(v, (str, int, float)) and not isinstance(v, bool) and str(v).strip():
+            out[k] = re.sub(r"[^\w &'/+.,:$£€-]", "", str(v))[:40]
+    return out
+
+
+def _last_result_block(last_result: dict | None) -> str:
+    ids = (last_result or {}).get("ids") if isinstance(last_result, dict) else None
+    if not isinstance(ids, list) or not ids:
+        return ""
+    args = clean_last_result_args((last_result or {}).get("args"))
+    shown = ", ".join(f"{k}={v}" for k, v in args.items()) or "no filters"
+    return _LAST_RESULT_TEMPLATE.format(n=len(ids), args=shown)
+
+
+def safe_prose(raw: str | None) -> str:
+    """Model prose that is safe to show: labels removed, control characters
+    stripped, capped. Rendered on the client through the whitelisted markdown
+    path, so it can never carry HTML or a link out. "" when nothing usable."""
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", str(raw or ""))
+    text = re.sub(r"(?im)^\s*(HEADLINE|REPLY)\s*:\s*", "", text).strip()
+    if len(text) < 10 or text.upper().startswith(_OUT_OF_SCOPE_SENTINEL):
+        return ""
+    return text[:_PROSE_MAX]
+
+
 async def run_penny_agent(
     uid: str, question: str, history: list[dict], screen: str | None, context: str,
-    view: dict | None = None,
+    view: dict | None = None, last_result: dict | None = None,
 ) -> dict | None:
     """Run the tool-calling loop for one question. See module docstring's
     revised (B37) "Failure doctrine" for the three-way return contract: a
@@ -829,6 +884,8 @@ async def run_penny_agent(
     today = timeutil.user_today()
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
     date_grounding += await _category_context_block(uid)
+    date_grounding += _last_result_block(last_result)
+    last_ids = list((last_result or {}).get("ids") or []) if isinstance(last_result, dict) else []
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools
     # addendum, ~8,500 tokens together with the tool schemas above — comfortably
@@ -880,6 +937,8 @@ async def run_penny_agent(
         tools_used: list[str] = []
         table_block: dict | None = None
         chart_block: dict | None = None
+        new_last_result: dict | None = None
+        repaired = False
         rounds = 0
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
             while True:
@@ -890,7 +949,7 @@ async def run_penny_agent(
                         "penny_agent: round cap (%d) exhausted for %s, giving up",
                         _MAX_MODEL_CALLS, uid,
                     )
-                    return None
+                    return {"loop_failed": True}
                 # Last allowed round, or already over the soft wall-clock
                 # budget: force a final answer (no more tool calls) rather
                 # than either running past the cap or giving up with a tool
@@ -986,8 +1045,22 @@ async def run_penny_agent(
                             call_args = {**call_args, "_table_ok": True}
                         if isinstance(call_args, dict) and call_args.get("as_chart"):
                             call_args = {**call_args, "_chart_ok": True}
+                        if name == "search_transactions" and isinstance(call_args, dict):
+                            call_args = {**call_args, "_ids_ok": True}
+                            if last_ids:
+                                call_args["_last_result_ids"] = last_ids
                         t0 = time.monotonic()
                         result = await execute_tool(uid, name, call_args)
+                        if isinstance(result, dict) and "_result_ids" in result:
+                            result = dict(result)
+                            ids = [str(i) for i in (result.pop("_result_ids") or []) if i][:200]
+                            if ids:
+                                prior = (last_result or {}).get("args") if call_args.get("transaction_ids") == "last_result" else None
+                                new_last_result = {
+                                    "tool": name,
+                                    "args": clean_last_result_args(prior if prior is not None else call_args),
+                                    "ids": ids,
+                                }
                         if isinstance(result, dict) and "_table" in result:
                             result = dict(result)
                             block = penny_table.validate_or_none(result.pop("_table"))
@@ -1007,7 +1080,7 @@ async def run_penny_agent(
                         tools_used.append(name)
                         logger.info(
                             "penny_agent: tool=%s args=%s ms=%d uid=%s",
-                            name, call_args, dt_ms, uid,
+                            name, {k: v for k, v in call_args.items() if k != "_last_result_ids"}, dt_ms, uid,
                         )
                         if isinstance(result, dict) and result.get("proposal") is True:
                             # Penny Agent Mode v1: a propose-only write tool
@@ -1061,10 +1134,26 @@ async def run_penny_agent(
                 total_ms = int((time.monotonic() - started) * 1000)
                 if parsed is None:
                     logger.warning(
-                        "penny_agent: unparseable/empty final answer for %s after %d rounds, %dms",
-                        uid, rounds, total_ms,
+                        "penny_agent: unparseable/empty final answer for %s after %d rounds, %dms "
+                        "(content_chars=%d, repaired=%s)",
+                        uid, rounds, total_ms, len(stripped), repaired,
                     )
-                    return None
+                    # G254: ask ONCE more, restating the expected shape. Never
+                    # a canned out-of-scope refusal for a loop failure.
+                    if not repaired and rounds < _MAX_MODEL_CALLS:
+                        repaired = True
+                        if stripped:
+                            messages.append({"role": "assistant", "content": stripped})
+                        messages.append({"role": "user", "content": _REPAIR_PROMPT})
+                        continue
+                    prose = safe_prose(content)
+                    if prose:
+                        logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
+                        done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
+                        if new_last_result:
+                            done["last_result"] = new_last_result
+                        return done
+                    return {"loop_failed": True}
                 headline, reply = parsed
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
@@ -1075,6 +1164,8 @@ async def run_penny_agent(
                     done["table"] = table_block
                 if chart_block:
                     done["chart"] = chart_block
+                if new_last_result:
+                    done["last_result"] = new_last_result
                 return done
 
     try:
@@ -1085,7 +1176,7 @@ async def run_penny_agent(
             "penny_agent: hard wall-clock ceiling (%.1fs) hit for %s after %dms, giving up",
             _WALL_CLOCK_BUDGET_S + _WALL_CLOCK_GRACE_S, uid, total_ms,
         )
-        return None
+        return {"loop_failed": True}
     except _ProviderFailure as exc:
         # B37 — retries exhausted (or a non-retryable status hit on the
         # first attempt): OpenRouter itself is the problem, not the
@@ -1103,4 +1194,4 @@ async def run_penny_agent(
     except Exception:
         total_ms = int((time.monotonic() - started) * 1000)
         logger.exception("penny_agent: failed for %s after %dms", uid, total_ms)
-        return None
+        return {"loop_failed": True}

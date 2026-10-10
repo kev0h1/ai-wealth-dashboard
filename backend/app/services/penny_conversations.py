@@ -4,6 +4,9 @@ per user, each capped at PENNY_MAX_TURNS turns.
 Storage shape (collection `penny_conversations`, one document per chat):
   {_id: conversation_id (uuid4 str), user_id, title, created_at, updated_at,
    turns: [{role: "user"|"assistant", text, ts, proposal_id?, table?, chart?}]}
+(G254: an assistant turn may carry `last_result` {tool, args, ids}: the ids of the
+transactions its answer listed, so "these" resolves later. Ids only, never sent
+to the client, included in the data export.)
 (G252: `chart` is the validated chart spec, see penny_chart.)
 (G251: `table` is an assistant turn's validated table block, see penny_table.)
 
@@ -18,12 +21,15 @@ Every query is scoped by user_id, including the eviction of the 11th oldest
 chat. Retention matches PRIVACY.md's chat-session row: a TTL index on
 updated_at (app/main.py), see PENNY_CONVERSATION_RETENTION_SECONDS.
 """
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
 
 from app.db.collections import penny_conversations_col, penny_proposals_col
 from app.services import penny_chart, penny_table
+
+logger = logging.getLogger(__name__)
 
 PENNY_MAX_CONVERSATIONS = 10
 PENNY_MAX_TURNS = 30
@@ -74,16 +80,31 @@ def _summary(doc: dict) -> dict:
     }
 
 
-def _full(doc: dict) -> dict:
+def _full(doc: dict, internal: bool = False) -> dict:
     out = _summary(doc)
     out["turns"] = [
-        {k: (_iso(v) if k == "ts" else v) for k, v in t.items()}
+        {k: (_iso(v) if k == "ts" else v) for k, v in t.items() if internal or k != "last_result"}
         for t in (doc.get("turns") or [])
     ]
     return out
 
 
-def clean_turn(role, text, proposal_id=None, table=None, chart=None) -> dict | None:
+def clean_last_result(raw) -> dict | None:
+    """G254: the transaction ids of the answer's result set, plus the tool and
+    the few short arguments that produced it. Ids only, no payloads."""
+    if not isinstance(raw, dict) or raw.get("tool") != "search_transactions":
+        return None
+    ids = [str(i)[:64] for i in (raw.get("ids") or []) if isinstance(i, (str, int)) and str(i).strip()]
+    if not ids:
+        return None
+    args = {}
+    for k, v in (raw.get("args") or {}).items() if isinstance(raw.get("args"), dict) else []:
+        if isinstance(k, str) and len(k) <= 20 and isinstance(v, (str, int, float)) and not isinstance(v, bool):
+            args[k] = str(v)[:40]
+    return {"tool": "search_transactions", "args": args, "ids": ids[:200]}
+
+
+def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None) -> dict | None:
     """One stored turn, or None when it is not storable (bad role, empty
     text). Text only; nothing else from the request is kept, except G251's
     optional validated `table` block on an assistant turn: the same values the
@@ -104,7 +125,25 @@ def clean_turn(role, text, proposal_id=None, table=None, chart=None) -> dict | N
         spec = penny_chart.validate_or_none(chart)
         if spec:
             turn["chart"] = spec
+    if last_result is not None and role == "assistant":
+        cleaned = clean_last_result(last_result)
+        if cleaned:
+            turn["last_result"] = cleaned
     return turn
+
+
+async def latest_last_result(uid: str, cid: str) -> dict | None:
+    """The newest assistant turn's last_result for the user's own chat, or
+    None. Never raises: memory is a convenience, not a dependency."""
+    try:
+        doc = await penny_conversations_col.find_one({"_id": cid, "user_id": uid}, {"turns": 1})
+    except Exception:
+        logger.exception("penny_conversations: last_result lookup failed")
+        return None
+    for t in reversed((doc or {}).get("turns") or []):
+        if t.get("role") == "assistant":
+            return clean_last_result(t.get("last_result"))
+    return None
 
 
 async def list_conversations(uid: str) -> list[dict]:
@@ -185,4 +224,4 @@ async def link_proposal(uid: str, cid: str, proposal_id: str) -> None:
 async def export_conversations(uid: str) -> list[dict]:
     """Everything stored for the user, for the data export."""
     cur = penny_conversations_col.find({"user_id": uid}).sort("updated_at", -1)
-    return [_full(d) async for d in cur]
+    return [_full(d, internal=True) async for d in cur]

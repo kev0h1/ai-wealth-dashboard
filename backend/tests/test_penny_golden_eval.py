@@ -268,7 +268,7 @@ PINNED_TOOL_DESCRIPTION_HASHES = {
     "get_tax_position": "2cb73ca7b40a8670724cd6014cb33e60b0c03d09a536976fef57bfaddc1e67f7",
     "get_today_brief": "c1b006e6ee70be2d273bfea5582f4a7ae72fe41411f36370726ee6a4325cacc6",
     "get_upcoming_bills": "924033842d2e0d1cc61b44cc97c3a8fc7864fee85752d3790ea1b7ed12c3bce4",
-    "search_transactions": "15281839adc9b1e30411f6677202213e272747db44614c1963e7454861e90693",
+    "search_transactions": "ab2e3163da99f06a41d80e89f8734bbb209ee1f032b726d51c69a1670d2392ef",
 }
 
 

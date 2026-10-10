@@ -299,7 +299,7 @@ def test_run_penny_agent_infinite_tool_calls_stops_at_cap(monkeypatch):
 
     result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
 
-    assert result is None
+    assert result == {"loop_failed": True}  # G254: a failure, never an out-of-scope None
     assert len(client.calls) == 4
     # Round 4 (the last one made) was forced to tool_choice="none".
     assert client.calls[-1]["tool_choice"] == "none"
@@ -551,14 +551,18 @@ def test_run_penny_agent_retry_exhaustion_records_zero_usage(monkeypatch):
     assert fake_usage.docs == []
 
 
-# ── 4. Malformed final text (no HEADLINE:/REPLY: lines) -> None ────────────
+# ── 4. Malformed final text (no HEADLINE:/REPLY: lines) ─────────────────────
+# G254: retried once with a repair prompt; if the model still answers in plain
+# prose, that prose is shown (flagged), never the canned refusal.
 
-def test_run_penny_agent_malformed_final_text_returns_none(monkeypatch):
+def test_run_penny_agent_malformed_final_text_retries_once_then_shows_prose(monkeypatch):
     client = _ScriptedAsyncClient([_final_payload("Sure, you can spend £50.")])
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
 
     result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
-    assert result is None
+    assert len(client.calls) == 2
+    assert result is not None and result["prose_fallback"] is True
+    assert result["reply"] == "Sure, you can spend £50." and result["headline"] == ""
 
 
 # ── Off-topic sentinel: the model's OWN decline, not a phrased refusal ──────
@@ -654,7 +658,7 @@ def test_run_penny_agent_wall_clock_ceiling_fires_before_round_cap(monkeypatch):
     result = asyncio.run(run_penny_agent("kevin", "how much can I spend", [], None, ""))
     elapsed = time.monotonic() - started
 
-    assert result is None
+    assert result == {"loop_failed": True}
     # Cut off close to the (monkeypatched) 0.2s ceiling, nowhere near the
     # 5s the hanging call was scripted to take, and nowhere near 4 x 15s.
     assert elapsed < 1.0
@@ -1592,4 +1596,4 @@ def test_run_penny_agent_malformed_json_body_returns_none_not_a_crash(monkeypatc
     # Must never raise — run_penny_agent's contract is dict-or-{"provider_
     # error": True}-or-None, never an exception to the caller.
     result = asyncio.run(run_penny_agent("a59-pentest-uid", "what did I spend on coffee", [], None, ""))
-    assert result is None
+    assert result == {"loop_failed": True}

@@ -104,7 +104,7 @@ from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
-from app.services import penny_chart, penny_table
+from app.services import penny_chart, penny_search, penny_table
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.safe_calc import future_value as _safe_calc_future_value
 from app.services.spend_verdict import compute_spend_verdict
@@ -253,6 +253,17 @@ _ACCOUNT_DESC = (
     "not match an account called that. Use this, never q or merchants, whenever the "
     "user names an account."
 )
+_AMOUNT_DESC = (
+    "Find a transaction by its amount, e.g. 14.40 for '$14.40' or 'USD 14.40'. Matches the "
+    "amount in the account currency, an original-currency amount, or a figure stated in the "
+    "description. Combine with merchants or a date range to narrow it down."
+)
+_TRANSACTION_IDS_DESC = (
+    "Use the string \"last_result\" when the user says 'these', 'those', 'them' or 'all of "
+    "them' about the transactions your previous answer listed: the app then looks up exactly "
+    "those rows again, whatever else was said since. Only when the context says last_result "
+    "is available. Do not pass other values."
+)
 _CATEGORIES_DESC = (
     "With as_chart stacked_bar: two to four category names to stack by month "
     "('stack eating out and groceries by month'). Pass months (6 if not said)."
@@ -320,7 +331,11 @@ TOOL_SCHEMAS = [
                 "payments'). If the name is one of the user's own categories (built-in "
                 "or custom, listed in the context), a total or comparison is a "
                 "get_category_spend question, not a merchant search. The result's "
-                "match_kind says whether rows matched as text or as a category. Returns at "
+                "match_kind says whether rows matched as text, as a category, as the closest merchant "
+                "(fuzzy: say which merchant was matched) or as the previous answer's rows (ids). Merchant "
+                "names are matched ignoring case, spaces, punctuation and suffixes such as LLC or .com, "
+                "so pass the name as the user said it. For a day or month ('the first of June') set "
+                "date_from and date_to; for an amount ('$14.40') pass amount. Returns at "
                 "most 20 rows, most recent first, plus matched_count, "
                 "matched_spent and matched_received: the totals across EVERY "
                 "match, so use those (never a sum of the 20 rows) for any "
@@ -345,6 +360,8 @@ TOOL_SCHEMAS = [
                     "as_table": {"type": "boolean", "description": _AS_TABLE_DESC},
                     "as_chart": {"type": "string", "enum": _AS_CHART_ENUM, "description": _AS_CHART_DESC},
                     "account": {"type": "string", "description": _ACCOUNT_DESC},
+                    "amount": {"type": "number", "description": _AMOUNT_DESC},
+                    "transaction_ids": {"description": _TRANSACTION_IDS_DESC},
                 },
                 "required": [],
             },
@@ -2276,10 +2293,83 @@ _SEARCH_COLLECTIONS = (
 _SEARCH_CAP = 20
 
 
+_IDS_CAP = 200
+
+
+def _id_variants(ids: list) -> list:
+    """Stored `_id`s are strings or ObjectIds depending on the source, so look
+    up both forms of each id. Bounded, user-scoped by the caller."""
+    from bson import ObjectId
+    out: list = []
+    for raw in ids[:_IDS_CAP]:
+        sid = str(raw)[:64]
+        if not sid:
+            continue
+        out.append(sid)
+        if re.fullmatch(r"[0-9a-fA-F]{24}", sid):
+            out.append(ObjectId(sid))
+    return out
+
+
+def _text_search_query(
+    uid: str, q, category, merchants, date_from, date_to, txn_type, amount: float | None = None,
+) -> dict:
+    """The ordinary text match OR the same names matched loosely (spaces,
+    punctuation, case and company suffixes ignored), so "Digital Ocean" and
+    "DigitalOcean LLC" find DIGITALOCEAN.COM. Optionally narrowed to an amount."""
+    exact = _search_query(uid, q, category, None, merchants, date_from, date_to, txn_type)
+    names = [n for n in ([q] if q else []) + [n for n in (merchants or "").split(",")] if n and n.strip()]
+    rxs = [r for r in (penny_search.loose_regex(n) for n in names) if r]
+    query = exact
+    if rxs:
+        base = _search_query(uid, None, category, None, None, date_from, date_to, txn_type)
+        fields = ("description", "merchant_name", "merchant_key")
+        loose = {"$and": [base, {"$or": [{f: {"$regex": r, "$options": "i"}} for r in rxs for f in fields]}]}
+        query = {"user_id": uid, "$or": [exact, loose]}
+    if amount is not None:
+        query = {"$and": [query, penny_search.amount_clause(amount)]}
+    return query
+
+
+async def _fuzzy_merchant(uid: str, needle: str) -> tuple[str, str, str] | None:
+    """The user's own merchant closest to `needle` as (field, value, label), or
+    None. Candidates are only the user's own merchant keys and names."""
+    try:
+        found: list[tuple[str, str]] = []
+        for c in _SEARCH_COLLECTIONS:
+            for field in ("merchant_key", "merchant_name"):
+                for v in await c.distinct(field, {"user_id": uid}):
+                    if isinstance(v, str) and v.strip():
+                        found.append((field, v))
+    except Exception:
+        logger.exception("penny_tools: fuzzy merchant lookup failed for %s", uid)
+        return None
+    best = penny_search.best_fuzzy(needle, sorted({v for _, v in found}))
+    if not best:
+        return None
+    value = best[0]
+    field = next(f for f, v in found if v == value)
+    return field, value, penny_table.clean_text(value, 60)
+
+
+def _fx_for_row(d: dict) -> dict | None:
+    """Foreign-currency details this row really states: stored fields first,
+    then figures the description spells out. None when it states none."""
+    out = dict(penny_search.fx_from_description(d.get("description")) or {})
+    rate = _first_number(d, _RATE_FIELDS)
+    if rate:
+        out["rate"] = rate
+    fee = _first_number(d, _FEE_FIELDS)
+    if fee:
+        out["fee"] = fee
+    return out or None
+
+
 async def _exec_search_transactions(
     uid: str, q: str | None, category: str | None, merchants: str | None,
     date_from: str | None, date_to: str | None, txn_type: str | None,
     as_table: bool = False, chart: dict | None = None, account: str | None = None,
+    amount=None, transaction_ids=None, last_ids: list | None = None, want_ids: bool = False,
 ) -> dict:
     matched_account = None
     if account and str(account).strip():
@@ -2300,14 +2390,42 @@ async def _exec_search_transactions(
     # answer correctly ("your Padel category", not "payments to Padel").
     match_kind = "filters"
     matched_category: str | None = None
+    matched_merchant: str | None = None
+    amount_value = penny_search.parse_amount(amount)
+    # "$14.40" typed as the search text is an amount, not a merchant.
+    if amount_value is None and q and penny_search.parse_amount(q) is not None:
+        amount_value, q = penny_search.parse_amount(q), None
+    if amount_value is None and merchants and "," not in merchants and penny_search.parse_amount(merchants) is not None:
+        amount_value, merchants = penny_search.parse_amount(merchants), None
+    id_list: list | None = None
+    if transaction_ids is not None:
+        raw_ids = last_ids if transaction_ids == "last_result" else transaction_ids
+        id_list = [str(x) for x in raw_ids][:_IDS_CAP] if isinstance(raw_ids, (list, tuple)) else []
+        if not id_list:
+            return {
+                "transactions": [], "count": 0, "match_kind": "ids", "last_result_available": False,
+                "note": "There is no earlier list of transactions to look up. Ask which transactions "
+                        "the user means, or search by merchant.",
+            }
     try:
-        if category:
+        if id_list is not None:
+            match_kind = "ids"
+            query = {"user_id": uid, "_id": {"$in": _id_variants(id_list)}}
+        elif category:
             resolved, _ = await _resolve_user_category(uid, category)
             category = resolved or category
             match_kind, matched_category = "category", category
+            query = _search_query(uid, q, category, None, merchants, date_from, date_to, txn_type)
+            if amount_value is not None:
+                query = {"$and": [query, penny_search.amount_clause(amount_value)]}
         elif q or merchants:
             match_kind = "text"
-        query = _search_query(uid, q, category, None, merchants, date_from, date_to, txn_type)
+            query = _text_search_query(uid, q, None, merchants, date_from, date_to, txn_type, amount_value)
+        else:
+            query = _search_query(uid, None, None, None, None, date_from, date_to, txn_type)
+            if amount_value is not None:
+                match_kind = "amount"
+                query = {"$and": [query, penny_search.amount_clause(amount_value)]}
         if matched_account is not None:
             query["account_id"] = matched_account.id
         if match_kind == "text":
@@ -2318,7 +2436,7 @@ async def _exec_search_transactions(
             candidate = q or (merchants if merchants and "," not in merchants else None)
             cat_name, _ = await _resolve_user_category(uid, candidate) if candidate else (None, [])
             if cat_name:
-                merchant_only = _search_query(uid, None, None, None, candidate, date_from, date_to, txn_type)
+                merchant_only = _text_search_query(uid, None, None, candidate, date_from, date_to, txn_type, amount_value)
                 text_totals = await _search_totals(merchant_only)
                 if text_totals is not None and text_totals["matched_count"] == 0:
                     query = _search_query(uid, None, cat_name, None, None, date_from, date_to, txn_type)
@@ -2330,6 +2448,26 @@ async def _exec_search_transactions(
             for c in _SEARCH_COLLECTIONS
         ))
         items = _merge_paginate(list(per_collection), 1, cap)
+        if not items and match_kind == "text":
+            # Nothing matched even loosely: try the user's own closest merchant
+            # name before saying there is none, and say what was matched.
+            needle = q or (merchants.split(",")[0] if merchants else None)
+            fuzzy = await _fuzzy_merchant(uid, needle) if needle else None
+            if fuzzy:
+                field, value, label = fuzzy
+                fq = _search_query(uid, None, None, None, None, date_from, date_to, txn_type)
+                fq = {"$and": [fq, {field: value}]}
+                if amount_value is not None:
+                    fq = {"$and": [fq, penny_search.amount_clause(amount_value)]}
+                if matched_account is not None:
+                    fq["account_id"] = matched_account.id
+                per_collection = await asyncio.gather(*(
+                    c.find(fq).sort("date", -1).limit(cap).to_list(cap)
+                    for c in _SEARCH_COLLECTIONS
+                ))
+                items = _merge_paginate(list(per_collection), 1, cap)
+                if items:
+                    query, match_kind, matched_merchant = fq, "fuzzy", label
     except Exception:
         logger.exception("penny_tools: search_transactions failed for %s", uid)
         return _tool_error("transaction search failed")
@@ -2343,15 +2481,39 @@ async def _exec_search_transactions(
         tx = _doc_to_tx(d)
         raw_date = getattr(tx, "date", None)
         date_str = raw_date.isoformat() if isinstance(raw_date, (datetime, date)) else str(raw_date or "")
-        rows.append({
+        row = {
             "id": tx.id,
             "date": date_str,
             "description": tx.merchant_name or tx.description,
             "amount": _money(tx.amount),
             "transaction_type": tx.transaction_type,
             "category": tx.category,
-        })
+        }
+        cur = str(d.get("currency") or "GBP").upper()
+        if cur != "GBP":
+            row["currency"] = cur
+        fx = _fx_for_row(d)
+        if fx:
+            row["fx"] = fx
+        rows.append(row)
     result = {"transactions": rows, "count": len(rows), "match_kind": match_kind}
+    if rows:
+        # G254: what the rows really state about exchange rates, so "is there
+        # an fx rate on these" is answered from data, honestly.
+        result["fx_fields"] = {
+            "rows_stating_a_rate": sum(1 for r in rows if (r.get("fx") or {}).get("rate")),
+            "of": len(rows),
+            "note": "A rate or fee is reported only where the row itself states it. Synced rows "
+                    "often carry none: then say the data does not include a rate.",
+        }
+    if matched_merchant:
+        result["matched_merchant"] = matched_merchant
+        result["match_note"] = (
+            f"No exact match, so these are the closest merchant, {matched_merchant}. "
+            "Say which merchant you matched and offer to look again if it is the wrong one."
+        )
+    if match_kind == "ids":
+        result["match_note"] = "These are exactly the transactions from your previous answer."
     if matched_category:
         result["matched_category"] = matched_category
     if matched_account is not None:
@@ -2364,6 +2526,20 @@ async def _exec_search_transactions(
     if totals is not None:
         result.update(totals)
         result["truncated"] = totals["matched_count"] > len(rows)
+    if want_ids and items:
+        ids = [r["id"] for r in rows]
+        if id_list is not None:
+            ids = [i for i in id_list if i]
+        elif totals is not None and totals["matched_count"] > len(rows):
+            try:
+                more = await asyncio.gather(*(
+                    c.find(query, {"_id": 1, "date": 1}).sort("date", -1).limit(_IDS_CAP).to_list(_IDS_CAP)
+                    for c in _SEARCH_COLLECTIONS
+                ))
+                ids = [str(d["_id"]) for d in _merge_paginate(list(more), 1, _IDS_CAP)]
+            except Exception:
+                logger.exception("penny_tools: result id lookup failed for %s", uid)
+        result["_result_ids"] = ids[:_IDS_CAP]
     if chart and chart["type"] and items:
         built = _transactions_chart(items, chart, q, matched_category, totals,
                                     account_label=humanise_account_name(matched_account.name) if matched_account else None)
@@ -2528,7 +2704,13 @@ def _transactions_table(items: list, matched_category: str | None, totals: dict 
         elif cur == "GBP":
             gbp = amount
         fee = _first_number(d, _FEE_FIELDS)
+        fee_cur = cur
         rate = _first_number(d, _RATE_FIELDS, absolute=False)
+        stated = penny_search.fx_from_description(d.get("description")) or {}
+        if not rate and stated.get("rate"):
+            rate = stated["rate"]
+        if not fee and stated.get("fee_gbp"):
+            fee, fee_cur = stated["fee_gbp"], "GBP"
         rows.append({
             "date": penny_table.date_cell(d.get("date")),
             "description": penny_table.clean_text(d.get("merchant_name") or d.get("description") or "Unknown", 80) or "Unknown",
@@ -2536,7 +2718,7 @@ def _transactions_table(items: list, matched_category: str | None, totals: dict 
             "amount": penny_table.money_cell(amount, cur),
             "gbp": penny_table.money_cell(gbp, "GBP"),
             "rate": rate if rate and rate > 0 else None,
-            "fee": penny_table.money_cell(-fee, cur) if fee else None,
+            "fee": penny_table.money_cell(-fee, fee_cur) if fee else None,
         })
     # The GBP column only earns its place when a foreign-currency row has a
     # real GBP figure: otherwise it would repeat Amount for GBP rows.
@@ -7440,6 +7622,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
                 date_from=args.get("date_from"), date_to=args.get("date_to"), txn_type=args.get("txn_type"),
                 as_table=_wants_table(args), chart=_chart_request(args),
                 account=args.get("account"),
+                amount=args.get("amount"), transaction_ids=args.get("transaction_ids"),
+                last_ids=args.get("_last_result_ids"), want_ids=args.get("_ids_ok") is True,
             )
         if name == "get_accounts":
             return await _exec_get_accounts(uid)

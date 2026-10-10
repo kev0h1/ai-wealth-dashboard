@@ -304,14 +304,29 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 "message": "This chat is full. Start a new chat to carry on.",
                 "at_cap": True,
             })
-    result = await _can_i_answer(body, user)
-    if cid and isinstance(result, dict):
+    # G254: the previous answer's transaction ids ride on the stored chat so
+    # "these" still resolves after the text window has moved on.
+    last_result = await penny_conversations.latest_last_result(uid, cid) if cid else None
+    if last_result:
+        result = await _can_i_answer(body, user, last_result=last_result)
+    else:
+        result = await _can_i_answer(body, user)
+    new_last_result = None
+    if isinstance(result, dict):
         result = dict(result)
-        result["conversation"] = await _record_exchange(uid, cid, str(body.get("question") or ""), result)
+        new_last_result = result.pop("_last_result", None)
+    if cid and isinstance(result, dict):
+        if result.get("retry"):
+            # A failed turn is not stored: the user retries the same question.
+            result["conversation"] = {"id": cid, "skipped": True}
+        else:
+            result["conversation"] = await _record_exchange(
+                uid, cid, str(body.get("question") or ""), result, last_result=new_last_result,
+            )
     return result
 
 
-async def _record_exchange(uid: str, cid: str, question: str, result: dict) -> dict:
+async def _record_exchange(uid: str, cid: str, question: str, result: dict, last_result: dict | None = None) -> dict:
     """Append the question and the reply text to the chat. Never raises: a
     storage failure must not turn a good answer into an error."""
     try:
@@ -319,7 +334,8 @@ async def _record_exchange(uid: str, cid: str, question: str, result: dict) -> d
         turns = [
             penny_conversations.clean_turn("user", question.strip()),
             penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id,
-                                           table=result.get("table"), chart=result.get("chart")),
+                                           table=result.get("table"), chart=result.get("chart"),
+                                           last_result=last_result),
         ]
         stored = await penny_conversations.append_turns(uid, cid, turns)
         if proposal_id:
@@ -334,7 +350,7 @@ async def _record_exchange(uid: str, cid: str, question: str, result: dict) -> d
         return {"id": cid, "error": True}
 
 
-async def _can_i_answer(body: dict, user: dict) -> dict:
+async def _can_i_answer(body: dict, user: dict, last_result: dict | None = None) -> dict:
     question = (body.get("question") or "").strip()
 
     # ── 1. Greeting short-circuit — deterministic, no LLM, no quota. Checked
@@ -420,7 +436,23 @@ async def _can_i_answer(body: dict, user: dict) -> dict:
     # error, or a connection failure — see penny_agent._call_openrouter_
     # with_retry), or `None` for a genuine off-topic decline, round/budget
     # cap exhaustion, or unparseable output. Never raises.
-    agent_result = await run_penny_agent(uid, question, history, screen, context, view)
+    if last_result:
+        agent_result = await run_penny_agent(uid, question, history, screen, context, view, last_result=last_result)
+    else:
+        agent_result = await run_penny_agent(uid, question, history, screen, context, view)
+    if agent_result is not None and agent_result.get("loop_failed"):
+        # G254: a loop failure (unparseable or empty answer after one repair,
+        # a timeout, the round cap) is not an out-of-scope question. Say so
+        # honestly and let the client offer a retry.
+        return {
+            "reply": _house_style("Something went wrong on my side. Try asking again."),
+            "headline": _house_style("Something went wrong"),
+            "facts": [],
+            "explainer": False,
+            "topic": None,
+            "out_of_scope": False,
+            "retry": True,
+        }
     if agent_result is not None:
         # B37: an infrastructure failure, not a scope one — checked FIRST,
         # ahead of consent_required/proposal/the ordinary answer shape,
@@ -499,6 +531,9 @@ async def _can_i_answer(body: dict, user: dict) -> dict:
         if agent_result.get("chart"):
             # G252: a typed chart spec the client draws from data.
             answer["chart"] = agent_result["chart"]
+        if agent_result.get("last_result"):
+            # G254: stored on the chat server-side, never sent to the client.
+            answer["_last_result"] = agent_result["last_result"]
         return answer
 
     # ── 7. Deterministic refusal fallback — the loop returned None (a real
