@@ -15,6 +15,13 @@ import { Plus } from "lucide-react";
 
 export const ADD_FAB_OFFSET = "bottom-[calc(max(env(safe-area-inset-bottom,0px),10px)+80px)] lg:bottom-8";
 
+// G250: the list ends clear of the button. Its top edge is the nav base offset
+// (max(inset, 10px)) + 80px + 56px, so the list's bottom padding is that plus a
+// 24px margin: the last row and its amount stop above the button, never under it.
+// Desktop has no nav: the button is 32px up, so 32 + 56 + 24.
+export const ADD_FAB_LIST_CLEARANCE =
+  "pb-[calc(max(env(safe-area-inset-bottom,0px),10px)+160px)] lg:pb-28";
+
 export interface AccountsAddFabProps {
   open: boolean;
   onToggle: () => void;

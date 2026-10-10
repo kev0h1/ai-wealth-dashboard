@@ -56,6 +56,13 @@ assert.ok(page.includes("preferencesReady") && /hideNetWorthPref \|\| !preferenc
   assert.ok(renderToStaticMarkup(h(AccountsAddFab, { open: false, onToggle: noop, onClose: noop, menuRef: ref, menuItems: null, suppressed: true })).includes(" hidden"), "hides when a sheet or Find is open");
 }
 
+// 3b. G250: the list clears the floating Add (button top edge + 24px margin).
+{
+  const fab = read("../components/AccountsAddFab.tsx");
+  assert.ok(/ADD_FAB_LIST_CLEARANCE\s*=\s*\n?\s*"pb-\[calc\(max\(env\(safe-area-inset-bottom,0px\),10px\)\+160px\)\] lg:pb-28"/.test(fab), "list bottom padding = 80 + 56 + 24 above the nav base");
+  assert.ok(page.includes("min-h-dvh ${ADD_FAB_LIST_CLEARANCE}"), "the Banks list container applies the clearance");
+}
+
 // 4. Settings.
 {
   const s = read("../app/settings/SettingsPage.tsx");

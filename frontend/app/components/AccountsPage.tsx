@@ -7,7 +7,7 @@ import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, Inv
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
-import AccountsAddFab from "@/components/AccountsAddFab";
+import AccountsAddFab, { ADD_FAB_LIST_CLEARANCE } from "@/components/AccountsAddFab";
 import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
@@ -2605,7 +2605,7 @@ export default function AccountsPage() {
     : null;
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className={`min-h-dvh ${ADD_FAB_LIST_CLEARANCE}`} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — hidden once actually drilled into an investment (tab ===
           "Investments" with at least one account) so that view owns the
           screen the same way the bank account detail does; the zero-state
