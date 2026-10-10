@@ -85,10 +85,10 @@ export default function AccountsHeaderFollowUpClient() {
           </div>
 
           <div className="space-y-5 px-4">
-            <label className="glass-card flex min-h-11 items-center gap-2 rounded-2xl px-3 text-sm text-slate-600 dark:text-slate-400">
+            <div aria-hidden="true" className="glass-card flex min-h-11 items-center gap-2 rounded-2xl px-3 text-sm text-slate-600 dark:text-slate-400">
               <Search size={15} aria-hidden="true" />
               <span>Find an account</span>
-            </label>
+            </div>
             {estate.groups.map((g) => (
               <section key={g.kind} aria-label={g.label}>
                 <div className="mb-2 flex items-baseline justify-between px-1 text-xs text-slate-600 dark:text-slate-400">
