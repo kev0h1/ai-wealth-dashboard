@@ -499,6 +499,8 @@ async def _handle_tools_call(principal: dict, params: dict) -> dict:
     dropped = 0
     sanitised = 0
     try:
+        # G251: underscore keys are Penny-loop internals (e.g. the table flag).
+        args = {k: v for k, v in (args or {}).items() if not str(k).startswith("_")}
         raw = await execute_tool(principal["uid"], name, args)
         ok = not (isinstance(raw, dict) and "error" in raw)
         masked, dropped, sanitised = mask_output_and_count(name, raw)

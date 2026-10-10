@@ -104,6 +104,7 @@ from app.services.companion import compute_today_items
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
+from app.services import penny_table
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.safe_calc import future_value as _safe_calc_future_value
 from app.services.spend_verdict import compute_spend_verdict
@@ -224,6 +225,23 @@ def _explain_tool_description(connector_enabled: bool | None = None) -> str:
 
 
 # ── Tool catalog ───────────────────────────────────────────────────────────
+# G251: when the user asks to tabulate, list or compare rows, the tool hands
+# the client a typed table to render from data (never model-typed markdown).
+_AS_TABLE_DESC = (
+    "Set true when the user asks to tabulate, list or compare these "
+    "transactions as rows ('tabulate', 'table of', 'list them out'). The app then "
+    "shows the rows itself, up to 50, with the fields each transaction really has; you "
+    "get the totals and a marker, not the rows. Reference the table in one sentence "
+    "and never retype its numbers."
+)
+_AS_TABLE_DESC_PERIOD = (
+    "Set true when the user asks to tabulate, list or compare spend by period or by category "
+    "('tabulate my eating out by month'). With a category the app shows one row per "
+    "month (pass months, 6 if the user did not say); without one it shows the top "
+    "categories. You get the totals and a marker, not the rows. Reference the table "
+    "in one sentence and never retype its numbers."
+)
+
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -291,6 +309,7 @@ TOOL_SCHEMAS = [
                     "date_from": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
                     "date_to": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
                     "txn_type": {"type": "string", "enum": ["debit", "credit"], "description": "Restrict to money out (debit) or money in (credit)."},
+                    "as_table": {"type": "boolean", "description": _AS_TABLE_DESC},
                 },
                 "required": [],
             },
@@ -445,6 +464,7 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "category": {"type": "string", "description": "A category name from the user's list, built-in or custom, e.g. 'Entertainment'. Omit for the top categories this period."},
                     "months": {"type": "integer", "description": "Optional: also total this category over the last N calendar months (rolling window)."},
+                    "as_table": {"type": "boolean", "description": _AS_TABLE_DESC_PERIOD},
                 },
                 "required": [],
             },
@@ -2222,7 +2242,9 @@ _SEARCH_CAP = 20
 async def _exec_search_transactions(
     uid: str, q: str | None, category: str | None, merchants: str | None,
     date_from: str | None, date_to: str | None, txn_type: str | None,
+    as_table: bool = False,
 ) -> dict:
+    cap = _TABLE_ROW_CAP if as_table else _SEARCH_CAP
     # G243: which kind of match produced the rows, so the model phrases the
     # answer correctly ("your Padel category", not "payments to Padel").
     match_kind = "filters"
@@ -2249,10 +2271,10 @@ async def _exec_search_transactions(
                     query = _search_query(uid, None, cat_name, None, None, date_from, date_to, txn_type)
                     match_kind, matched_category = "category", cat_name
         per_collection = await asyncio.gather(*(
-            c.find(query).sort("date", -1).limit(_SEARCH_CAP).to_list(_SEARCH_CAP)
+            c.find(query).sort("date", -1).limit(cap).to_list(cap)
             for c in _SEARCH_COLLECTIONS
         ))
-        items = _merge_paginate(list(per_collection), 1, _SEARCH_CAP)
+        items = _merge_paginate(list(per_collection), 1, cap)
     except Exception:
         logger.exception("penny_tools: search_transactions failed for %s", uid)
         return _tool_error("transaction search failed")
@@ -2284,7 +2306,77 @@ async def _exec_search_transactions(
     if totals is not None:
         result.update(totals)
         result["truncated"] = totals["matched_count"] > len(rows)
+    if as_table and items:
+        table = _transactions_table(items, matched_category, totals)
+        if table:
+            result["_table"] = table
     return result
+
+
+_TABLE_ROW_CAP = 50
+# Optional per-transaction fields some providers carry. A column exists only
+# when at least one row really has the value.
+_GBP_FIELDS = ("amount_gbp", "gbp_amount", "home_amount")
+_RATE_FIELDS = ("fx_rate", "exchange_rate")
+_FEE_FIELDS = ("fee", "fee_amount")
+
+
+def _first_number(doc: dict, fields: tuple[str, ...], absolute: bool = True) -> float | None:
+    for f in fields:
+        v = doc.get(f)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
+            return abs(float(v)) if absolute else float(v)
+    return None
+
+
+def _transactions_table(items: list, matched_category: str | None, totals: dict | None) -> dict | None:
+    """The user's own rows as a validated table block. Amounts are signed
+    (money out is negative) in the transaction's own currency; the GBP, rate
+    and fee columns appear only when a row carries them."""
+    rows = []
+    for d in items:
+        cur = str(d.get("currency") or "GBP").upper()
+        sign = 1 if d.get("transaction_type") == "credit" else -1
+        amount = abs(float(d.get("amount") or 0)) * sign
+        gbp = _first_number(d, _GBP_FIELDS)
+        if gbp is not None:
+            gbp *= sign
+        elif cur == "GBP":
+            gbp = amount
+        fee = _first_number(d, _FEE_FIELDS)
+        rate = _first_number(d, _RATE_FIELDS, absolute=False)
+        rows.append({
+            "date": penny_table.date_cell(d.get("date")),
+            "description": penny_table.clean_text(d.get("merchant_name") or d.get("description") or "Unknown", 80) or "Unknown",
+            "category": penny_table.clean_text(d.get("custom_category") or d.get("category") or "Other", 40) or None,
+            "amount": penny_table.money_cell(amount, cur),
+            "gbp": penny_table.money_cell(gbp, "GBP"),
+            "rate": rate if rate and rate > 0 else None,
+            "fee": penny_table.money_cell(-fee, cur) if fee else None,
+        })
+    # The GBP column only earns its place when a foreign-currency row has a
+    # real GBP figure: otherwise it would repeat Amount for GBP rows.
+    if not any(r["gbp"] is not None and r["amount"] and r["amount"]["currency"] != "GBP" for r in rows):
+        for r in rows:
+            r["gbp"] = None
+    columns = [
+        {"key": "date", "label": "Date", "kind": "date"},
+        {"key": "description", "label": "Description", "kind": "text"},
+        {"key": "category", "label": "Category", "kind": "text", "optional": True},
+        {"key": "amount", "label": "Amount", "kind": "money"},
+        {"key": "gbp", "label": "In GBP", "kind": "money", "optional": True},
+        {"key": "rate", "label": "FX rate", "kind": "rate", "optional": True},
+        {"key": "fee", "label": "Fee", "kind": "money", "optional": True},
+    ]
+    columns, rows = penny_table.pick_columns(columns, rows)
+    note = None
+    if totals and totals["matched_count"] > len(rows):
+        note = f"Showing the {len(rows)} most recent of {totals['matched_count']} matches."
+    title = f"{matched_category} transactions" if matched_category else "Transactions"
+    return penny_table.validate_or_none({
+        "title": penny_table.clean_text(title, 80), "columns": columns, "rows": rows,
+        **({"note": note} if note else {}),
+    })
 
 
 async def _search_totals(query: dict) -> dict | None:
@@ -3002,7 +3094,7 @@ async def _category_txn_rows(uid: str, category: str, start: datetime, end: date
     for col in (transactions_col, yapily_transactions_col):
         async for doc in col.find(
             {"user_id": uid, "transaction_type": "debit", "date": {"$gte": start, "$lte": end}},
-            {"amount": 1, "category": 1, "custom_category": 1, "merchant_name": 1, "description": 1, "currency": 1},
+            {"amount": 1, "category": 1, "custom_category": 1, "merchant_name": 1, "description": 1, "currency": 1, "date": 1},
         ):
             txn_currency = doc.get("currency")
             if txn_currency and txn_currency != home_currency:
@@ -3038,8 +3130,10 @@ async def _resolve_user_category(uid: str, text: str | None) -> tuple[str | None
     return resolve_category_name(names, text), names
 
 
-async def _exec_get_category_spend(uid: str, category: str | None, months) -> dict:
+async def _exec_get_category_spend(uid: str, category: str | None, months, as_table: bool = False) -> dict:
     unrecognised: list[str] | None = None
+    if as_table and category and not months:
+        months = 6
     if category:
         resolved, names = await _resolve_user_category(uid, category)
         if resolved:
@@ -3063,7 +3157,29 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
 
     if not category:
         top = sorted(by_cat.values(), key=lambda r: -(r.get("spent") or 0))[:5]
+        extra: dict = {}
+        if as_table:
+            ranked = sorted(by_cat.values(), key=lambda r: -(r.get("spent") or 0))[:12]
+            table = penny_table.validate_or_none({
+                "title": "Top spending this pay period",
+                "columns": [
+                    {"key": "category", "label": "Category", "kind": "text"},
+                    {"key": "spent", "label": "Spent", "kind": "money"},
+                    {"key": "payments", "label": "Payments", "kind": "number"},
+                ],
+                "rows": [
+                    {
+                        "category": penny_table.clean_text(r["category"], 60),
+                        "spent": penny_table.money_cell(r.get("spent")),
+                        "payments": int(r.get("payments_count") or 0),
+                    }
+                    for r in ranked
+                ],
+            })
+            if table:
+                extra["_table"] = table
         return {
+            **extra,
             "period": {"start": period.get("start"), "end": period.get("end")},
             "top_categories": [
                 {
@@ -3125,6 +3241,10 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
         }
 
     result["top_merchants"] = _top_merchants(rows_raw, 3)
+    if as_table and months and unrecognised is None:
+        table = _category_months_table(category, rows_raw, start_d, end_d)
+        if table:
+            result["_table"] = table
     if unrecognised is not None:
         # G243: the name matched none of the user's categories, so the zero
         # above means "no such category", not "nothing spent".
@@ -3135,6 +3255,44 @@ async def _exec_get_category_spend(uid: str, category: str | None, months) -> di
         )
         result["available_categories"] = unrecognised
     return result
+
+
+def _category_months_table(category: str, rows_raw: list[dict], start_d: date, end_d: date) -> dict | None:
+    """One row per calendar month across the window, months with nothing
+    spent included as zero so a gap is visible. Server-summed, never typed
+    by the model. The window is rolling, so the earliest month can be part."""
+    buckets: dict[tuple[int, int], list[float]] = {}
+    y, m = start_d.year, start_d.month
+    while (y, m) <= (end_d.year, end_d.month):
+        buckets[(y, m)] = [0.0, 0]
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    for d in rows_raw:
+        raw_date = d.get("date")
+        if not isinstance(raw_date, (datetime, date)):
+            continue
+        b = buckets.get((raw_date.year, raw_date.month))
+        if b is not None:
+            b[0] += abs(float(d.get("amount") or 0))
+            b[1] += 1
+    if not buckets or len(buckets) > penny_table.MAX_ROWS:
+        return None
+    return penny_table.validate_or_none({
+        "title": penny_table.clean_text(f"{category} by month", 80),
+        "columns": [
+            {"key": "month", "label": "Month", "kind": "text"},
+            {"key": "spent", "label": "Spent", "kind": "money"},
+            {"key": "payments", "label": "Payments", "kind": "number"},
+        ],
+        "rows": [
+            {
+                "month": date(yy, mm, 1).strftime("%b %Y"),
+                "spent": penny_table.money_cell(v[0]),
+                "payments": v[1],
+            }
+            for (yy, mm), v in buckets.items()
+        ],
+        "note": "Rolling window, so the earliest month may be part of a month.",
+    })
 
 
 # ── get_insights ──────────────────────────────────────────────────────────
@@ -6964,6 +7122,14 @@ async def _exec_propose_remove_merchant_label(uid: str, merchant_key=None) -> di
     return await _create_proposal(uid, "remove_merchant_label", params, summary, consequence)
 
 
+def _wants_table(args: dict) -> bool:
+    """G251: a table is built only when the model asked for one AND the call
+    came through Penny's own loop, which sets the private `_table_ok` flag
+    (the MCP connector strips underscore keys, so a remote client never gets
+    a table block)."""
+    return bool(args.get("as_table")) and args.get("_table_ok") is True
+
+
 async def execute_tool(uid: str, name: str, args: dict) -> dict:
     """Dispatch one tool call to its executor. Never raises — every executor
     above already wraps its own engine call, and any error building the args
@@ -6979,6 +7145,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
                 uid,
                 q=args.get("q"), category=args.get("category"), merchants=args.get("merchants"),
                 date_from=args.get("date_from"), date_to=args.get("date_to"), txn_type=args.get("txn_type"),
+                as_table=_wants_table(args),
             )
         if name == "get_accounts":
             return await _exec_get_accounts(uid)
@@ -6993,7 +7160,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "check_affordability":
             return await _exec_check_affordability(uid, args.get("amount"), args.get("timeframe"))
         if name == "get_category_spend":
-            return await _exec_get_category_spend(uid, args.get("category"), args.get("months"))
+            return await _exec_get_category_spend(uid, args.get("category"), args.get("months"), as_table=_wants_table(args))
         if name == "get_insights":
             return await _exec_get_insights(uid)
         if name == "explain":

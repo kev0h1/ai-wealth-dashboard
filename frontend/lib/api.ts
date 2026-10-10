@@ -1081,6 +1081,8 @@ export type CanIResponse = {
    * ConsentMsg for how each renders. */
   proposal?: PennyProposal | null;
   consent_required?: boolean;
+  /** G251: a typed table the app draws itself (see lib/pennyTable.ts). */
+  table?: import("./pennyTable").PennyTableBlock | null;
   /** G248: present when the question was sent with a conversation id. */
   conversation?: { id: string; turn_count?: number; at_cap?: boolean; missing?: boolean; error?: boolean };
 };
@@ -1096,7 +1098,7 @@ export type PennyConversationSummary = {
   turn_count: number;
   at_cap: boolean;
 };
-export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string };
+export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string; table?: import("./pennyTable").PennyTableBlock | null };
 export type PennyConversation = PennyConversationSummary & { turns: PennyConversationTurn[] };
 
 /** Agent mode v1's confirm card (owner decisions locked: confirm-as-is, no

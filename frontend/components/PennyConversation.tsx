@@ -128,6 +128,9 @@ import CommitmentSheet from "@/components/CommitmentSheet";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
+import PennyReplyText from "@/components/PennyMarkdown";
+import PennyTable from "@/components/PennyTable";
+import { normalisePennyTable, type PennyTableBlock } from "@/lib/pennyTable";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import type { PennyAskContext } from "@/components/PennySheetProvider";
 import {
@@ -161,7 +164,7 @@ const PENNY_THREAD_TTL_MS = 30 * 60 * 1000;
 // added/removed, and a card holding lazily initialised local state would
 // keep a STALE draft from a different message under a reused instance.
 type UserMsg = { id: number; role: "user"; content: string };
-type VerdictMsg = {
+export type VerdictMsg = {
   id: number;
   role: "assistant";
   kind: "verdict";
@@ -176,6 +179,8 @@ type VerdictMsg = {
   facts?: string[];
   offer?: CanIOffer | null;
   outOfScope?: boolean;
+  /** G251: a typed table the answer refers to, drawn under the reply. */
+  table?: PennyTableBlock | null;
   /** True when this came from a backend that doesn't ship headline/facts
    * yet — `headline` here is actually the raw `reply` string, rendered as
    * plain body text rather than a bold verdict headline. */
@@ -318,6 +323,9 @@ function UserBubble({ text }: { text: string }) {
  * UserBubble (90% vs 85%) on purpose: a verdict headline must never wrap
  * into a cramped column just to keep the two bubble widths symmetric. */
 const PENNY_BUBBLE = "max-w-[90%] bg-slate-100 dark:bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-3";
+/** A bubble that carries a table takes the width it can get; the table scrolls
+ * sideways inside its own container (G251). */
+const PENNY_BUBBLE_TABLE = "w-[96%] min-w-0 bg-slate-100 dark:bg-slate-700 rounded-2xl rounded-bl-sm px-3 py-3";
 
 /** Penny's answer bubble. Anatomy is unchanged from the retired full-width
  * the retired full-width VerdictCard, just re-shelled into a bubble — bold headline first and
@@ -331,12 +339,12 @@ const PENNY_BUBBLE = "max-w-[90%] bg-slate-100 dark:bg-slate-700 rounded-2xl rou
  * as plain 14px body text instead of a bold headline. Out-of-scope
  * answers use the exact same bubble anatomy as any other verdict — no
  * separate visual treatment. */
-function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
+export function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
   return (
     <div className="flex justify-start">
-      <div className={PENNY_BUBBLE}>
+      <div className={msg.table ? PENNY_BUBBLE_TABLE : PENNY_BUBBLE}>
         {msg.degraded ? (
-          <p className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200 break-words"><MoneyText text={msg.headline} /></p>
+          <div className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200 break-words"><PennyReplyText text={msg.headline} /></div>
         ) : (
           // 16px, not the previously-used 15px (design review, 2026-08-25:
           // 15px wasn't on DESIGN.md's type ramp). This is the same
@@ -363,10 +371,11 @@ function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () =>
             ONLY place that content can render any more; suppressing it here
             too would show the out-of-scope headline with nothing under it. */}
         {msg.reply && !msg.reply.startsWith(msg.headline) && (
-          <p className="mt-1.5 text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 break-words">
-            <MoneyText text={msg.reply} />
-          </p>
+          <div className="mt-1.5 text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 break-words">
+            <PennyReplyText text={msg.reply} />
+          </div>
         )}
+        {msg.table && <PennyTable table={msg.table} />}
         {/* The muted grey "facts" tier that used to render here is gone —
             owner order, 2026-08-25 (the "duplication war": his own
             screenshot showed a debt reply quoting "£23,587.71 carried
@@ -1131,9 +1140,9 @@ export default function PennyConversation({
         // variant. See ExplainerMsg/ExplainerBubble doc comments.
         assistantMsg = { id, role: "assistant", kind: "explainer", reply: res.reply, topic: res.topic };
       } else if (res.headline) {
-        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.headline, reply: res.reply, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, degraded: false };
+        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.headline, reply: res.reply, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, table: normalisePennyTable(res.table), degraded: false };
       } else {
-        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, degraded: true };
+        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, table: normalisePennyTable(res.table), degraded: true };
       }
       // Appended to the bucket the question was ASKED from (`bucketScreen`,
       // captured above), not necessarily whatever bucket is on screen now.
@@ -1479,7 +1488,7 @@ export default function PennyConversation({
     const turns = chat.restore.turns;
     const restored: Msg[] = turns.map((t) => t.role === "user"
       ? { id: newMsgId(), role: "user" as const, content: t.text }
-      : { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: t.text, degraded: true });
+      : { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: t.text, table: normalisePennyTable(t.table), degraded: true });
     setBucket("chat", () => ({
       messages: restored,
       askedLabels: new Set(turns.filter((t) => t.role === "user").map((t) => t.text)),
