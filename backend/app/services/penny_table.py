@@ -210,7 +210,7 @@ def marker_for_model(table: dict) -> dict:
         "rows": len(table["rows"]),
         "columns": [c["label"] for c in table["columns"]],
         "instruction": (
-            "The user can already see this table on screen. Reference it in one "
-            "sentence and quote the totals. Do not retype, list or format any row."
+            "The user sees this table directly below your reply. Reference it in one "
+            "sentence (it is below, not above) and quote the totals. Do not retype, list or format any row."
         ),
     }
