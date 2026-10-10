@@ -4,9 +4,9 @@ Phase 1 (2026-10-08) listed 132 preview directories, nothing deleted. Phase 2 (2
 
 ## Final state
 
-- Before: 132 directories. Deleted: 66 in total (61 in the first four commits, then 5 more once the importer regex was fixed). After: 66.
+- Before: 132 directories. Deleted: 67 in total (H114 removed penny-keyboard; 61 in the first four commits, then 5 more once the importer regex was fixed). After: 66.
 - Rule applied: delete when every referencing item (ignoring housekeeping H43, H44, H113, G126; a cancelled item counts as finished) is done or cancelled, or when no item references it and it is older than 7 days, including the 24 former GATE-CANDIDATEs and the UNSURE ones that fit. Keep when an item is todo, in-progress, review, uat, rejected or blocked; when code outside `app/design` imports or reads it (production, `frontend/remotion`, `frontend/scripts/*.test.mjs`); when another kept preview imports it; for compliance/approval packs; and for marketing assets.
-- Kept only because something imports or reads it (Kevin may decide later): allocation-shortfall (g217 test), bank-consent-journeys and bank-picker (a155 tests), card-terms-sheet (g225 test), finexer-consent-intro (a155/g226 tests plus compliance README), g176-account-plans/-status/-upcoming-rows (g176/g235 tests), home-cleanup (g221 test), penny-keyboard (g191 test), plan-deferral (g228 test), planning-ladder-timeline (g187 test), signin-loading (mobile-login-loop test), spend-hero and spend-hero-scale (g186 tests), spend-pace-copy (g140 test), sts-accounts-route (g219/g221 tests), upcoming-by-account (g229 test), ad-safe-to-spend (remotion), marketing-kit (remotion).
+- Kept only because something imports or reads it (Kevin may decide later): allocation-shortfall (g217 test), bank-consent-journeys and bank-picker (a155 tests), card-terms-sheet (g225 test), finexer-consent-intro (a155/g226 tests plus compliance README), g176-account-plans/-status/-upcoming-rows (g176/g235 tests), home-cleanup (g221 test), plan-deferral (g228 test), planning-ladder-timeline (g187 test), signin-loading (mobile-login-loop test), spend-hero and spend-hero-scale (g186 tests), spend-pace-copy (g140 test), sts-accounts-route (g219/g221 tests), upcoming-by-account (g229 test), ad-safe-to-spend (remotion), marketing-kit (remotion).
 - Kept because a kept preview imports it: cards-page, g88-home-real, home-brief-cards, insights-live, month-story, planning, safe-to-spend-hero.
 - Not deleted despite the plain rule: g100-scenario-canvas, g99-month-story-canvas (G100, G99 in uat, matched by surface name), month-closed-card (G168 blocked), signin-handoff (hand-off page drift gate, `scripts/check-signin-handoff.mjs`), penny-fullscreen (G240 shipped, G244 polishing).
 - `check:design-stale` is now strict and exempts previews imported by code, by a sibling preview, or referenced by compliance/media.
@@ -77,7 +77,6 @@ The importer detection matched the word `from` on comment lines, so account-pick
 | `ops-board-mobile` | open A97(todo),H65(todo) |
 | `payday-plan-standing-orders` | open G173(uat) |
 | `penny-fullscreen` | G240/G244 round (G244 in-progress polishing it) |
-| `penny-keyboard` | read by frontend/scripts/g191-keyboard.test.mjs |
 | `plan-deferral` | imported/read by frontend/scripts/g228-plan-deferral.test.mjs |
 | `planning` | imported by a kept preview (design-internal import) |
 | `planning-ladder-timeline` | imported/read by frontend/scripts/g187-timeline.test.mjs |
