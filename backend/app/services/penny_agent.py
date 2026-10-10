@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_table
+from app.services import penny_chart, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -491,7 +491,15 @@ _SYSTEM_PROMPT = (
     "search_transactions or get_category_spend with `as_table: true`. The app "
     "then shows the table itself. Refer to it in ONE sentence with the "
     "tool's totals and never retype, list or format its rows. Never type a "
-    "markdown table or use pipe characters yourself.\n\n"
+    "markdown table or use pipe characters yourself.\n"
+    "17. Charts: when the user asks to chart, plot, graph or visualise data, or for a "
+    "pie, bar or line of something ('show my eating out by month as a bar chart', "
+    "'pie of where my money went'), call get_category_spend or search_transactions "
+    "with `as_chart` set to bar, line, stacked_bar or donut (a pie is a donut). The "
+    "app draws the chart itself. Refer to it in ONE sentence using only the summary "
+    "and totals the tool returns, state facts only, and never retype its points. If "
+    "asked for a balance chart, say Sorted keeps no balance history and chart the "
+    "money in and out instead. Never describe a chart you did not request.\n\n"
     "OUTPUT FORMAT: once you have everything you need for an IN-SCOPE "
     "question, respond with EXACTLY two lines, nothing before or after:\n"
     "HEADLINE: <under 8 words>\n"
@@ -863,6 +871,7 @@ async def run_penny_agent(
         `_WALL_CLOCK_BUDGET_S` check below already does on its own."""
         tools_used: list[str] = []
         table_block: dict | None = None
+        chart_block: dict | None = None
         rounds = 0
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
             while True:
@@ -967,6 +976,8 @@ async def run_penny_agent(
                         # block (an executor ignores `as_table` without it).
                         if isinstance(call_args, dict) and call_args.get("as_table"):
                             call_args = {**call_args, "_table_ok": True}
+                        if isinstance(call_args, dict) and call_args.get("as_chart"):
+                            call_args = {**call_args, "_chart_ok": True}
                         t0 = time.monotonic()
                         result = await execute_tool(uid, name, call_args)
                         if isinstance(result, dict) and "_table" in result:
@@ -976,6 +987,14 @@ async def run_penny_agent(
                                 table_block = block
                                 result["table"] = penny_table.marker_for_model(block)
                                 result.pop("transactions", None)
+                        if isinstance(result, dict) and "_chart" in result:
+                            result = dict(result)
+                            block = penny_chart.validate_or_none(result.pop("_chart"))
+                            if block:
+                                chart_block = block
+                                result["chart"] = penny_chart.marker_for_model(block)
+                                result.pop("transactions", None)
+                                result.pop("top_categories", None)
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
                         logger.info(
@@ -1046,6 +1065,8 @@ async def run_penny_agent(
                 done = {"headline": headline, "reply": reply, "tools_used": tools_used}
                 if table_block:
                     done["table"] = table_block
+                if chart_block:
+                    done["chart"] = chart_block
                 return done
 
     try:

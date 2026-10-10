@@ -3,7 +3,8 @@ per user, each capped at PENNY_MAX_TURNS turns.
 
 Storage shape (collection `penny_conversations`, one document per chat):
   {_id: conversation_id (uuid4 str), user_id, title, created_at, updated_at,
-   turns: [{role: "user"|"assistant", text, ts, proposal_id?, table?}]}
+   turns: [{role: "user"|"assistant", text, ts, proposal_id?, table?, chart?}]}
+(G252: `chart` is the validated chart spec, see penny_chart.)
 (G251: `table` is an assistant turn's validated table block, see penny_table.)
 
 A "turn" is one message, so 30 turns is 15 question and answer pairs. Only the
@@ -22,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.db.collections import penny_conversations_col, penny_proposals_col
-from app.services import penny_table
+from app.services import penny_chart, penny_table
 
 PENNY_MAX_CONVERSATIONS = 10
 PENNY_MAX_TURNS = 30
@@ -82,7 +83,7 @@ def _full(doc: dict) -> dict:
     return out
 
 
-def clean_turn(role, text, proposal_id=None, table=None) -> dict | None:
+def clean_turn(role, text, proposal_id=None, table=None, chart=None) -> dict | None:
     """One stored turn, or None when it is not storable (bad role, empty
     text). Text only; nothing else from the request is kept, except G251's
     optional validated `table` block on an assistant turn: the same values the
@@ -99,6 +100,10 @@ def clean_turn(role, text, proposal_id=None, table=None) -> dict | None:
         block = penny_table.validate_or_none(table)
         if block:
             turn["table"] = block
+    if chart is not None and role == "assistant":
+        spec = penny_chart.validate_or_none(chart)
+        if spec:
+            turn["chart"] = spec
     return turn
 
 

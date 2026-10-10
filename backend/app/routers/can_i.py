@@ -319,7 +319,7 @@ async def _record_exchange(uid: str, cid: str, question: str, result: dict) -> d
         turns = [
             penny_conversations.clean_turn("user", question.strip()),
             penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id,
-                                           table=result.get("table")),
+                                           table=result.get("table"), chart=result.get("chart")),
         ]
         stored = await penny_conversations.append_turns(uid, cid, turns)
         if proposal_id:
@@ -496,6 +496,9 @@ async def _can_i_answer(body: dict, user: dict) -> dict:
         if agent_result.get("table"):
             # G251: a typed table block the client renders from data.
             answer["table"] = agent_result["table"]
+        if agent_result.get("chart"):
+            # G252: a typed chart spec the client draws from data.
+            answer["chart"] = agent_result["chart"]
         return answer
 
     # ── 7. Deterministic refusal fallback — the loop returned None (a real
