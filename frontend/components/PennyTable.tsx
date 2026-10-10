@@ -1,4 +1,6 @@
-import { useId } from "react";
+"use client";
+
+import { useId, useState } from "react";
 import MoneyText from "@/components/MoneyText";
 import { formatTableCell, normalisePennyTable, type PennyTableBlock, type PennyTableColumn } from "@/lib/pennyTable";
 
@@ -9,12 +11,22 @@ import { formatTableCell, normalisePennyTable, type PennyTableBlock, type PennyT
  * Body cells are the 13px Body step. Figures right-align in tabular figures,
  * and currency uses the `.money` class so it is JetBrains Mono like every
  * other money figure. The block scrolls sideways inside its own container when
- * it is wider than the bubble, with the first column held in place. The title
+ * it is wider than the bubble, with the naming column held in place. One rule
+ * for lines (G254): row hairlines only, the DESIGN.md ledger style, never a
+ * vertical divider. The held column shows a soft shadow on its trailing edge
+ * only while the table is scrolled sideways (scrollLeft > 0), so it reads as
+ * sitting over the columns that slid under it, and not as a random divider. The title
  * is the table's accessible caption; the summary sentence stays above in the
  * bubble. Every value is React text, never markup. No new colours: slate
  * tokens only, light and dark.
  */
 const SURFACE = "bg-white dark:bg-slate-800";
+
+/** Soft trailing-edge shadow for the held column, only once the table has
+ * been scrolled sideways. Slate-toned, no new colour. */
+export function stickyShadowClass(scrolled: boolean): string {
+  return scrolled ? "shadow-[6px_0_8px_-6px_rgba(15,23,42,0.18)] dark:shadow-[6px_0_8px_-6px_rgba(0,0,0,0.55)]" : "";
+}
 
 function Cell({ col, value }: { col: PennyTableColumn; value: ReturnType<typeof formatTableCell> }) {
   if (value === null) {
@@ -28,6 +40,7 @@ function Cell({ col, value }: { col: PennyTableColumn; value: ReturnType<typeof 
 
 export default function PennyTable({ table, now }: { table: PennyTableBlock; now?: Date }) {
   const titleId = useId();
+  const [scrolled, setScrolled] = useState(false);
   const block = normalisePennyTable(table);
   if (!block) return null;
   // The held column is the one that names the row: Description, else the first
@@ -47,6 +60,11 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
         aria-label={block.title ? undefined : "Table"}
         aria-labelledby={block.title ? titleId : undefined}
         tabIndex={0}
+        data-scrolled={scrolled ? "true" : "false"}
+        onScroll={(e) => {
+          const moved = e.currentTarget.scrollLeft > 0;
+          if (moved !== scrolled) setScrolled(moved);
+        }}
         className={`overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200 dark:border-slate-600 ${SURFACE} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
       >
         <table className="min-w-full border-separate border-spacing-0 text-[13px] text-slate-800 dark:text-slate-100">
@@ -57,7 +75,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
                 <th
                   key={col.key}
                   scope="col"
-                  className={`whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-600 ${SURFACE} ${col.align === "right" ? "text-right" : "text-left"} ${ci === stickyIdx ? "sticky left-0 z-10" : ""}`}
+                  className={`whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-600 ${SURFACE} ${col.align === "right" ? "text-right" : "text-left"} ${ci === stickyIdx ? `sticky left-0 z-10 ${stickyShadowClass(scrolled)}` : ""}`}
                 >
                   {col.label}
                 </th>
@@ -71,7 +89,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
                   const text = formatTableCell(col, row[col.key], now);
                   const base = `px-3 py-2 align-top ${ri > 0 ? "border-t border-slate-100 dark:border-slate-700" : ""} ${SURFACE}`;
                   const align = col.align === "right" ? "text-right tabular-nums whitespace-nowrap" : "text-left";
-                  const first = ci === stickyIdx ? "sticky left-0 z-10 border-r border-r-slate-100 dark:border-r-slate-700" : "";
+                  const first = ci === stickyIdx ? `sticky left-0 z-10 ${stickyShadowClass(scrolled)}` : "";
                   const wrap = col.kind === "text" ? "min-w-[9rem] max-w-[14rem] break-words" : "whitespace-nowrap";
                   return ci === stickyIdx ? (
                     <th key={col.key} scope="row" className={`${base} ${align} ${first} ${wrap} font-normal`}>

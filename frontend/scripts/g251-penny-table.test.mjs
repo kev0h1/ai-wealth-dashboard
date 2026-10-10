@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { default: PennyTable } = await import("../components/PennyTable.tsx");
+const { default: PennyTable, stickyShadowClass } = await import("../components/PennyTable.tsx");
 const { default: PennyReplyText, PENNY_MARKDOWN_ALLOWED } = await import("../components/PennyMarkdown.tsx");
 const lib = await import("../lib/pennyTable.ts");
 const h = React.createElement;
@@ -178,6 +178,41 @@ const html = (el) => renderToStaticMarkup(el);
   assert.ok(api.includes("table?: import(\"./pennyTable\").PennyTableBlock | null"));
   const md = readFileSync(new URL("../components/PennyMarkdown.tsx", import.meta.url), "utf8");
   assert.ok(md.includes("skipHtml") && md.includes("unwrapDisallowed") && !md.includes("rehype-raw") && !md.includes("dangerouslySetInnerHTML"));
+}
+
+// ---- 8. G254: one line rule, shadow only while scrolled ---------------------------
+{
+  const out = html(h(PennyTable, { table: fixture, now: NOW }));
+  assert.ok(!/border-r|border-l|divide-x|border-x/.test(out), "no vertical dividers anywhere: row hairlines only");
+  assert.ok(/border-b border-slate-200/.test(out) && /border-t border-slate-100/.test(out), "header and row hairlines remain");
+  assert.ok(out.includes('data-scrolled="false"'), "unscrolled by default");
+  assert.ok(!out.includes("shadow-["), "no shadow on the held column until the table is scrolled");
+  assert.equal(stickyShadowClass(false), "");
+  assert.ok(stickyShadowClass(true).includes("shadow-[") && stickyShadowClass(true).includes("dark:shadow-["), "soft shadow, light and dark");
+  const src = readFileSync(new URL("../components/PennyTable.tsx", import.meta.url), "utf8");
+  assert.ok(src.includes("scrollLeft > 0") && src.includes("onScroll"), "the shadow follows scrollLeft");
+  assert.ok(src.startsWith('"use client"'));
+
+  // G254 wiring: a loop failure shows the server's plain words with Try again; a
+  // prose fallback (no headline) goes through the whitelisted PennyReplyText.
+  const conv = readFileSync(new URL("../components/PennyConversation.tsx", import.meta.url), "utf8");
+  assert.ok(conv.includes("if (res.retry)") && conv.includes("setErrorMessage(res.reply || null)"));
+  assert.ok(conv.includes("<ErrorRetry onRetry={retry} message={errorMessage} />"));
+  assert.ok(/msg\.degraded \? \(\s*<div[^>]*><PennyReplyText text=\{msg\.headline\} \/>/.test(conv), "prose fallback renders via PennyReplyText");
+
+  // A model-typed 5-column pipe table goes through the same whitelisted renderer
+  // and gets the same line rule.
+  const typed = [
+    "Here are the rates.",
+    "| Date | USD | GBP | Rate | Fee |",
+    "|---|---|---|---|---|",
+    "| 1 Jun | $14.40 | £11.06 | 1.3451 | £0.32 |",
+    "| 1 May | $14.40 | £11.02 | 1.3409 | £0.30 |",
+  ].join("\n");
+  const md = html(h(PennyReplyText, { text: typed }));
+  assert.ok(md.includes("data-penny-table") && (md.match(/<th /g) || []).length === 5 + 2);
+  assert.ok(!/border-r|border-l|divide-x|<script|\|/.test(md), "typed table: no dividers, no raw pipes, no markup");
+  assert.ok(/<th[^>]*sticky left-0[^>]*>Date<\/th>/.test(md) || /<th[^>]*sticky left-0/.test(md), "typed table holds a column too");
 }
 
 console.log("g251-penny-table: all checks passed");
