@@ -63,6 +63,15 @@ assert.ok(page.includes("preferencesReady") && /hideNetWorthPref \|\| !preferenc
   assert.ok(page.includes("min-h-dvh ${ADD_FAB_LIST_CLEARANCE}"), "the Banks list container applies the clearance");
 }
 
+// 3c. G250: hides while the page scrolls, returns 400ms after the last event.
+{
+  const fab = read("../components/AccountsAddFab.tsx");
+  assert.ok(/ADD_FAB_SCROLL_SETTLE_MS\s*=\s*400\b/.test(fab), "settle timeout is 400ms");
+  assert.ok(/addEventListener\("scroll"/.test(fab) && /addEventListener\("touchstart"/.test(fab) && /addEventListener\("touchend"/.test(fab), "scroll and touch wiring");
+  assert.ok(/translate-y-48/.test(fab) && /lg:translate-y-0/.test(fab) && /motion-reduce:transition-none/.test(fab), "transform-only hide, desktop unchanged, reduced motion instant");
+  assert.ok(fab.includes("suppressed ?"), "existing hide rule kept");
+}
+
 // 4. Settings.
 {
   const s = read("../app/settings/SettingsPage.tsx");
