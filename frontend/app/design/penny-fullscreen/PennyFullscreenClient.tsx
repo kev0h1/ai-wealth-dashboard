@@ -94,13 +94,13 @@ const CHART_FIXTURES: Record<string, { question: string; headline: string; reply
     headline: "Money in and out",
     reply: "Sorted keeps no balance history, so this charts the net of money in and out per week instead.",
     spec: {
-      type: "line", title: "Monzo over time", x: { label: "Week starting", kind: "date" }, y: { label: "Net", unit: "money", currency: "GBP" },
+      type: "line", title: "Monzo Current money in and out", x: { label: "Week starting", kind: "date" }, y: { label: "Net", unit: "money", currency: "GBP" },
       series: [{ name: "Net", points: [
         ["2026-07-20", -84.2], ["2026-07-27", 312], ["2026-08-03", -150.75], ["2026-08-10", -62], ["2026-08-17", 40.1], ["2026-08-24", -210.4],
         ["2026-08-31", 1180], ["2026-09-07", -96.3], ["2026-09-14", -134.9], ["2026-09-21", -58.4], ["2026-09-28", 905.2], ["2026-10-05", -77.5],
       ].map(([x, y]) => ({ x: String(x), y: Number(y) })) }],
       note: "Totalled per week. Net of money in and out, not a balance.",
-      summary: "Monzo over time: Net was −£84.20 on 20 Jul and −£77.50 on 5 Oct, highest £1,180 on 31 Aug.",
+      summary: "Monzo Current money in and out: Net was −£84.20 on 20 Jul and −£77.50 on 5 Oct, highest £1,180 on 31 Aug.",
     },
   },
   stacked: {

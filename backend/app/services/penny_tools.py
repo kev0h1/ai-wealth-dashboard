@@ -100,7 +100,7 @@ from app.services.affordability import check_affordability as _check_affordabili
 from app.services.categories import (
     get_category_kinds, is_non_spend, normalise_name, resolve_category_name,
 )
-from app.services.companion import compute_today_items
+from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
@@ -245,6 +245,18 @@ _AS_TABLE_DESC_PERIOD = (
 # G252: the same idea for charts. The model picks only the TYPE; the app draws
 # the points from the tool's own data.
 _AS_CHART_ENUM = ["bar", "line", "stacked_bar", "donut"]
+_ACCOUNT_DESC = (
+    "Restrict to ONE of the user's own accounts by name, as they say it ('Monzo', 'my "
+    "current account'). Resolved whole-word against the account's name and provider, "
+    "never a substring; if it matches none or more than one, the result has "
+    "account_recognised false and the user's account names, and you must say you could "
+    "not match an account called that. Use this, never q or merchants, whenever the "
+    "user names an account."
+)
+_CATEGORIES_DESC = (
+    "With as_chart stacked_bar: two to four category names to stack by month "
+    "('stack eating out and groceries by month'). Pass months (6 if not said)."
+)
 _AS_CHART_DESC = (
     "Set when the user asks to chart, plot, graph or visualise these transactions "
     "('chart', 'plot', 'graph', 'bar chart of', 'line of', 'pie of'). One of bar, "
@@ -332,6 +344,7 @@ TOOL_SCHEMAS = [
                     "txn_type": {"type": "string", "enum": ["debit", "credit"], "description": "Restrict to money out (debit) or money in (credit)."},
                     "as_table": {"type": "boolean", "description": _AS_TABLE_DESC},
                     "as_chart": {"type": "string", "enum": _AS_CHART_ENUM, "description": _AS_CHART_DESC},
+                    "account": {"type": "string", "description": _ACCOUNT_DESC},
                 },
                 "required": [],
             },
@@ -488,6 +501,7 @@ TOOL_SCHEMAS = [
                     "months": {"type": "integer", "description": "Optional: also total this category over the last N calendar months (rolling window)."},
                     "as_table": {"type": "boolean", "description": _AS_TABLE_DESC_PERIOD},
                     "as_chart": {"type": "string", "enum": _AS_CHART_ENUM, "description": _AS_CHART_DESC_PERIOD},
+                    "categories": {"type": "array", "items": {"type": "string"}, "maxItems": 4, "description": _CATEGORIES_DESC},
                 },
                 "required": [],
             },
@@ -2265,8 +2279,19 @@ _SEARCH_CAP = 20
 async def _exec_search_transactions(
     uid: str, q: str | None, category: str | None, merchants: str | None,
     date_from: str | None, date_to: str | None, txn_type: str | None,
-    as_table: bool = False, chart: dict | None = None,
+    as_table: bool = False, chart: dict | None = None, account: str | None = None,
 ) -> dict:
+    matched_account = None
+    if account and str(account).strip():
+        resolved = await _resolve_user_account(uid, str(account))
+        if resolved["status"] != "resolved":
+            return {
+                "account_recognised": False, "account_query": penny_table.clean_text(account, 60),
+                "reason": resolved["status"], "available_accounts": resolved["names"][:10],
+                "note": "Do not search by merchant text instead. Say Sorted could not match an account "
+                        "called that, and offer one of the available accounts.",
+            }
+        matched_account = resolved["account"]
     # A chart request that has no chart form falls back to the table.
     if chart is not None and chart["type"] is None:
         as_table = True
@@ -2283,6 +2308,8 @@ async def _exec_search_transactions(
         elif q or merchants:
             match_kind = "text"
         query = _search_query(uid, q, category, None, merchants, date_from, date_to, txn_type)
+        if matched_account is not None:
+            query["account_id"] = matched_account.id
         if match_kind == "text":
             # The merchant-only text match (description / merchant name) is
             # tried first, as it always was. Only when it finds nothing AND
@@ -2295,6 +2322,8 @@ async def _exec_search_transactions(
                 text_totals = await _search_totals(merchant_only)
                 if text_totals is not None and text_totals["matched_count"] == 0:
                     query = _search_query(uid, None, cat_name, None, None, date_from, date_to, txn_type)
+                    if matched_account is not None:
+                        query["account_id"] = matched_account.id
                     match_kind, matched_category = "category", cat_name
         per_collection = await asyncio.gather(*(
             c.find(query).sort("date", -1).limit(cap).to_list(cap)
@@ -2325,6 +2354,9 @@ async def _exec_search_transactions(
     result = {"transactions": rows, "count": len(rows), "match_kind": match_kind}
     if matched_category:
         result["matched_category"] = matched_category
+    if matched_account is not None:
+        result["account_recognised"] = True
+        result["matched_account"] = humanise_account_name(matched_account.name)
     if match_kind == "category":
         result["match_note"] = (
             "These rows are the user's own category, not payments to a merchant of that name."
@@ -2333,7 +2365,8 @@ async def _exec_search_transactions(
         result.update(totals)
         result["truncated"] = totals["matched_count"] > len(rows)
     if chart and chart["type"] and items:
-        built = _transactions_chart(items, chart, q, matched_category, totals)
+        built = _transactions_chart(items, chart, q, matched_category, totals,
+                                    account_label=humanise_account_name(matched_account.name) if matched_account else None)
         if built:
             result["_chart"] = built
             return result
@@ -2358,7 +2391,40 @@ _TABLE_ROW_CAP = 50
 _CHART_ROW_CAP = 200
 
 
-def _transactions_chart(items: list, chart: dict, q, matched_category, totals) -> dict | None:
+async def _resolve_user_account(uid: str, text: str) -> dict:
+    """Resolve an account NAME to one of the user's own accounts. Whole-word,
+    case-insensitive, never a substring: the words the user typed must all be
+    words of the account's name, its tidied name or its provider. An exact
+    match to one of those strings wins when it is unique; otherwise more than
+    one candidate is `ambiguous` and none is `unresolved`. Never guesses."""
+    try:
+        from app.routers.accounts import get_accounts as _route_get_accounts
+        accs = await _route_get_accounts(user={"email": uid})
+    except Exception:
+        logger.exception("penny_tools: account resolve failed for %s", uid)
+        return {"status": "unresolved", "names": []}
+    names = [humanise_account_name(a.name) for a in accs or []]
+    needle = (text or "").strip().lower()
+    words = set(re.findall(r"[a-z0-9]+", needle))
+    if not words:
+        return {"status": "unresolved", "names": names}
+
+    def candidates(a) -> list[str]:
+        return [str(x).strip().lower() for x in (a.name, humanise_account_name(a.name), getattr(a, "provider", None)) if x]
+
+    exact = [a for a in accs or [] if needle in candidates(a)]
+    if len(exact) == 1:
+        return {"status": "resolved", "account": exact[0], "names": names}
+    hits = [
+        a for a in accs or []
+        if any(words <= set(re.findall(r"[a-z0-9]+", c)) for c in candidates(a))
+    ]
+    if len(hits) == 1:
+        return {"status": "resolved", "account": hits[0], "names": names}
+    return {"status": "ambiguous" if hits else "unresolved", "names": names}
+
+
+def _transactions_chart(items: list, chart: dict, q, matched_category, totals, account_label: str | None = None) -> dict | None:
     """Per-day, per-week or per-month totals (whichever keeps the chart within
     36 points) of the rows the search found, in the commonest currency, or a
     donut by category. Server-summed from the user's own rows, never typed by
@@ -2374,7 +2440,7 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals) -
            and penny_table.date_cell(d.get("date"))]
     if not use:
         return None
-    all_debit = all(d.get("transaction_type") != "credit" for d in use)
+    all_debit = account_label is None and all(d.get("transaction_type") != "credit" for d in use)
 
     def signed(d: dict) -> float:
         amt = abs(float(d.get("amount") or 0))
@@ -2384,6 +2450,10 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals) -
 
     notes = [chart.get("note")]
     label = penny_table.clean_text(matched_category or (q or "").strip().title() or "Transactions", 40)
+    title = f"{label} over time"
+    if account_label:
+        label = penny_table.clean_text(account_label, 40)
+        title = f"{label} money in and out"
     name = "Spent" if all_debit else "Net"
     if len(use) < len(items):
         notes.append("Other currencies left out.")
@@ -2396,7 +2466,7 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals) -
                 continue
             cat = penny_table.clean_text(d.get("custom_category") or d.get("category") or "Other", 40) or "Other"
             by[cat] = by.get(cat, 0.0) + abs(float(d.get("amount") or 0))
-        table = {"title": f"{label} by category", "columns": [
+        table = {"title": f"{label} by category" if not account_label else f"{label} spending by category", "columns": [
             {"key": "category", "label": "Category", "kind": "text"},
             {"key": "spent", "label": "Spent", "kind": "money"}],
             "rows": [{"category": k, "spent": penny_table.money_cell(v, currency)} for k, v in by.items()]}
@@ -2417,7 +2487,7 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals) -
         notes.append(f"Totalled per {unit}.")
     if not all_debit:
         notes.append("Net of money in and out, not a balance.")
-    table = {"title": f"{label} over time", "columns": [
+    table = {"title": title, "columns": [
         {"key": "period", "label": {"day": "Day", "week": "Week starting", "month": "Month"}[unit], "kind": "date"},
         {"key": "amount", "label": name, "kind": "money"}],
         "rows": [{"period": k.isoformat(), "amount": penny_table.money_cell(v, currency)} for k, v in sums.items()]}
@@ -2427,7 +2497,7 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals) -
         coerced = "There is only one series to stack, so this is a bar chart."
     notes.insert(0, coerced)
     return penny_chart.chart_from_rows(table, final, "period", ["amount"], series_names=[name],
-                                       title=f"{label} over time", note=penny_chart.join_notes(*notes))
+                                       title=title, note=penny_chart.join_notes(*notes))
 # Optional per-transaction fields some providers carry. A column exists only
 # when at least one row really has the value.
 _GBP_FIELDS = ("amount_gbp", "gbp_amount", "home_amount")
@@ -3266,8 +3336,56 @@ def _chart_or_table(table: dict | None, chart: dict, x_key: str, y_keys: list[st
     return {"_table": _table_with_note(table, "Could not draw that chart, so this is shown as a table.")}
 
 
+async def _stacked_category_chart(uid: str, categories, months, chart: dict) -> dict | None:
+    """Two to four categories stacked by month, server-summed per category from
+    the user's own rows. None when fewer than two categories resolve (the caller
+    carries on as a single-category chart)."""
+    names: list[str] = []
+    for c in list(categories)[:penny_chart.MAX_SERIES]:
+        resolved, _ = await _resolve_user_category(uid, str(c))
+        if resolved and resolved not in names:
+            names.append(resolved)
+    if len(names) < 2:
+        return None
+    try:
+        months = max(1, min(24, int(months or 6)))
+    except (TypeError, ValueError):
+        months = 6
+    today = timeutil.user_today()
+    start_d, end_d = today - timedelta(days=30 * months), today
+    start_dt = datetime(start_d.year, start_d.month, start_d.day)
+    end_dt = datetime(end_d.year, end_d.month, end_d.day, 23, 59, 59)
+    tables = []
+    for n in names:
+        rows = await _category_txn_rows(uid, n, start_dt, end_dt)
+        tables.append(_category_months_table(n, rows, start_d, end_d))
+    if not all(tables):
+        return None
+    keys = [f"c{i}" for i in range(len(names))]
+    merged = {
+        "title": "Spending by month",
+        "columns": [{"key": "month", "label": "Month", "kind": "text", "align": "left"}] + [
+            {"key": k, "label": n, "kind": "money", "align": "right"} for k, n in zip(keys, names)],
+        "rows": [
+            {"month": r["month"], **{k: t["rows"][i]["spent"] for k, t in zip(keys, tables)}}
+            for i, r in enumerate(tables[0]["rows"])
+        ],
+    }
+    built = penny_chart.chart_from_rows(
+        merged, "stacked_bar", "month", keys, series_names=names, title=f"{' and '.join([', '.join(names[:-1]), names[-1]]) if len(names) > 2 else ' and '.join(names)} by month",
+        note=penny_chart.join_notes(chart.get("note"), tables[0].get("note")),
+    )
+    return {"categories": names, "last_n_months": {"months": months}, "_chart": built} if built else None
+
+
 async def _exec_get_category_spend(uid: str, category: str | None, months, as_table: bool = False,
-                                   chart: dict | None = None) -> dict:
+                                   chart: dict | None = None, categories=None) -> dict:
+    if chart and chart["type"] == "stacked_bar" and isinstance(categories, list) and len(categories) >= 2:
+        stacked = await _stacked_category_chart(uid, categories, months, chart)
+        if stacked:
+            return stacked
+        if not category:
+            category = str(categories[0])
     unrecognised: list[str] | None = None
     if chart is not None and chart["type"] is None:
         as_table = True  # no chart form: the table, with the note
@@ -7321,6 +7439,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
                 q=args.get("q"), category=args.get("category"), merchants=args.get("merchants"),
                 date_from=args.get("date_from"), date_to=args.get("date_to"), txn_type=args.get("txn_type"),
                 as_table=_wants_table(args), chart=_chart_request(args),
+                account=args.get("account"),
             )
         if name == "get_accounts":
             return await _exec_get_accounts(uid)
@@ -7336,7 +7455,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_check_affordability(uid, args.get("amount"), args.get("timeframe"))
         if name == "get_category_spend":
             return await _exec_get_category_spend(uid, args.get("category"), args.get("months"),
-                                                 as_table=_wants_table(args), chart=_chart_request(args))
+                                                 as_table=_wants_table(args), chart=_chart_request(args),
+                                                 categories=args.get("categories"))
         if name == "get_insights":
             return await _exec_get_insights(uid)
         if name == "explain":

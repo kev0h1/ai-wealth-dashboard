@@ -180,9 +180,12 @@ export default function PennyChart({ chart }: { chart: PennyChartSpec }) {
     : spec.summary;
   return (
     <figure className="mt-2.5 mb-0 min-w-0" data-penny-chart data-chart-type={spec.type}>
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 break-words">
-        {spec.title}
-      </p>
+      {/* The table view carries the title as its own label, so show it once. */}
+      {!asTable && (
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 break-words">
+          {spec.title}
+        </p>
+      )}
       <p className="mb-1.5 text-[13px] leading-snug text-slate-700 dark:text-slate-200 break-words" data-penny-chart-summary>{shown}</p>
       {asTable && table ? (
         <PennyTable table={table} />

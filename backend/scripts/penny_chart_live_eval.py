@@ -35,7 +35,7 @@ _env = dotenv_values("/root/ai-wealth-dashboard/backend/.env")
 os.environ["OPENROUTER_API_KEY"] = _env.get("OPENROUTER_API_KEY", "")
 del _env
 
-from app.services import penny_agent, penny_tools  # noqa: E402
+from app.services import penny_agent, penny_chart, penny_tools  # noqa: E402
 from app.db.collections import db, llm_usage_col  # noqa: E402
 
 TODAY = date(2026, 10, 10)
@@ -54,13 +54,22 @@ MONZO = [
     {"amount": 310.0, "currency": "GBP", "date": datetime(2026, 10, 2), "transaction_type": "debit", "merchant_name": "Rent pot", "category": "Bills"},
 ]
 
+from types import SimpleNamespace  # noqa: E402
+
+ACCOUNTS = [SimpleNamespace(id="acc-monzo", name="Monzo Current", provider="monzo"),
+            SimpleNamespace(id="acc-amex", name="AMEX PLATINUM", provider="amex")]
+
 CASES = [
     dict(id="chart-01-eating-out-bar", question="Show my eating out by month as a bar chart", screen="spend",
          tool="get_category_spend", types=("bar",)),
     dict(id="chart-02-pie-of-spend", question="Pie of where my money went this month", screen="spend",
          tool="get_category_spend", types=("donut",)),
     dict(id="chart-03-monzo-balance", question="Chart my Monzo balance over the last 3 months", screen="spend",
-         tool="search_transactions", types=("line", "bar")),
+         tool="search_transactions", types=("line", "bar"), account="Monzo"),
+    dict(id="chart-04-unknown-account", question="Chart my Barclays balance over the last 3 months", screen="spend",
+         tool="search_transactions", types=("line", "bar"), account="Barclays", declines=True),
+    dict(id="chart-05-stack-categories", question="Stack my eating out and groceries by month", screen="spend",
+         tool="get_category_spend", types=("stacked_bar",)),
 ]
 SEEN: dict[str, list] = {}
 
@@ -69,6 +78,18 @@ async def _fake_execute(uid, name, args):
     SEEN.setdefault(uid, []).append((name, dict(args or {})))
     chart = penny_tools._chart_request(args or {})
     if name == "get_category_spend":
+        if chart and chart["type"] == "stacked_bar" and (args or {}).get("categories"):
+            def tbl(n, docs):
+                return penny_tools._category_months_table(n, docs, date(2026, 4, 13), TODAY)
+            groc = [{**d, "amount": d["amount"] * 3} for d in EAT_DOCS]
+            t1, t2 = tbl("Eating Out", EAT_DOCS), tbl("Groceries", groc)
+            merged = {"title": "Spending by month", "columns": [{"key": "month", "label": "Month", "kind": "text", "align": "left"},
+                      {"key": "c0", "label": "Eating Out", "kind": "money", "align": "right"},
+                      {"key": "c1", "label": "Groceries", "kind": "money", "align": "right"}],
+                      "rows": [{"month": r["month"], "c0": r["spent"], "c1": t2["rows"][i]["spent"]} for i, r in enumerate(t1["rows"])]}
+            built = penny_chart.chart_from_rows(merged, "stacked_bar", "month", ["c0", "c1"], series_names=["Eating Out", "Groceries"],
+                                                title="Eating Out and Groceries by month")
+            return {"categories": ["Eating Out", "Groceries"], "_chart": built}
         if (args or {}).get("category"):
             months = int((args or {}).get("months") or 6)
             tot = sum(d["amount"] for d in EAT_DOCS)
@@ -91,11 +112,19 @@ async def _fake_execute(uid, name, args):
                                                    title="Spending by category this pay period"))
         return res
     if name == "search_transactions":
-        res = {"count": len(MONZO), "match_kind": "text", "matched_count": len(MONZO),
+        if (args or {}).get("account"):
+            r = await penny_tools._resolve_user_account("g252-eval", args["account"])
+            if r["status"] != "resolved":
+                return {"account_recognised": False, "account_query": args["account"], "reason": r["status"],
+                        "available_accounts": r["names"],
+                        "note": "Do not search by merchant text instead. Say Sorted could not match an account called that, and offer one of the available accounts."}
+        res = {"count": len(MONZO), "match_kind": "filters", "matched_count": len(MONZO), "account_recognised": True,
+               "matched_account": "Monzo Current",
                "transactions": [{"description": d["merchant_name"], "date": d["date"].date().isoformat(),
                                  "amount": penny_tools._money(d["amount"], 2)} for d in MONZO]}
         if chart and chart["type"]:
-            built = penny_tools._transactions_chart(MONZO, chart, "monzo", None, {"matched_count": len(MONZO)})
+            built = penny_tools._transactions_chart(MONZO, chart, None, None, {"matched_count": len(MONZO)},
+                                                    account_label="Monzo Current")
             if built:
                 res["_chart"] = built
         return res
@@ -110,16 +139,31 @@ def _judge(case, result, seen):
         return "wrong_tool"
     if calls[0].get("as_chart") not in case["types"]:
         return f"wrong_type:{calls[0].get('as_chart')}"
-    if not result.get("chart"):
-        return "no_chart_attached"
+    if case.get("account") and str(calls[0].get("account") or "").lower() != case["account"].lower():
+        return f"wrong_account:{calls[0].get('account')}"
+    if case["tool"] == "search_transactions" and (calls[0].get("q") or calls[0].get("merchants")):
+        return "merchant_text_used"
     reply = f"{result.get('headline', '')} {result.get('reply', '')}"
     if "|" in reply or "\n" in (result.get("reply") or ""):
         return "typed_a_table"
+    if case.get("declines"):
+        if result.get("chart") or result.get("table"):
+            return "charted_unknown_account"
+        low = reply.lower()
+        return "ok_declined" if ("could not match" in low or "couldn't match" in low or "no account" in low) and "barclays" in low else "no_plain_decline"
+    if not result.get("chart"):
+        return "no_chart_attached"
     return "ok"
 
 
 async def _run(out, only=None):
     penny_agent.execute_tool = _fake_execute
+    import app.routers.accounts as _accounts_router
+
+    async def _fake_accounts(user=None):
+        return ACCOUNTS
+
+    _accounts_router.get_accounts = _fake_accounts
     penny_agent.timeutil.user_today = lambda: TODAY
     rows = []
     for case in [c for c in CASES if not only or c["id"] == only]:

@@ -107,6 +107,7 @@ for (const [name, spec] of Object.entries({ bar, line, stacked, donut })) {
   assert.deepEqual(dt.columns.map((c) => c.label), ["Category", "Spent"]);
   // the toggle is wired: the component swaps to PennyTable and back
   const src = readFileSync(new URL("../components/PennyChart.tsx", import.meta.url), "utf8");
+  assert.ok(src.includes("{!asTable && (") , "the title shows once when the table is toggled");
   assert.ok(src.includes("setAsTable") && src.includes("<PennyTable table={table} />") && src.includes('"Show as chart"'), "toggle swaps in the table");
 }
 

@@ -680,6 +680,18 @@ money went" and "chart my balance". Same structured path as G251 tables:
   radar) gives the G251 table with a one-line note; data that cannot be that type
   becomes the nearest (a donut over months is a bar, one series stacked is a bar, one
   point as a line is a bar) with a note.
+- **Named accounts**: `search_transactions` takes `account`, resolved against the
+  user's own accounts (name, tidied name, provider) whole-word and case-insensitively,
+  never a substring; a unique exact name wins, otherwise more than one candidate is
+  `ambiguous` and none is `unresolved`. Either returns `account_recognised: false`
+  with the user's account names (capped at 10) and no rows, and Penny must say
+  "Sorted keeps no balance history and I could not match an account called X". A
+  resolved account filters by `account_id` and titles the chart "<Account> money in
+  and out" with the note "Net of money in and out, not a balance." Never chart a
+  named account via `q` or `merchants`.
+- **Stacked bars**: `get_category_spend` takes `categories` (2 to 4 names, capped at
+  4 series) with `as_chart: stacked_bar`, one series per category by month; one
+  resolvable category falls back to a bar.
 - **Balance history**: no tool returns it. The app keeps no balance snapshots
   (`get_account_activity` returns the current balance and period activity only), so
   "chart my balance" is a line of money in and out via `search_transactions`, labelled

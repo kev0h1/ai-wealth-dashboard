@@ -446,3 +446,128 @@ def test_clean_turn_stores_a_valid_chart_on_assistant_turns_only():
     forged = _bar()
     forged["summary"] = "invented"
     assert penny_conversations.clean_turn("assistant", "x", chart=forged)["chart"]["summary"] != "invented"
+
+
+# ── named accounts: resolved against the user's own accounts, never merchant text
+from types import SimpleNamespace as _NS  # noqa: E402
+
+
+def _accounts(monkeypatch, accs):
+    import app.routers.accounts as accounts_router
+
+    async def fake(user=None):
+        return accs
+
+    monkeypatch.setattr(accounts_router, "get_accounts", fake)
+
+
+MONZO = _NS(id="acc-monzo", name="Monzo Current", provider="monzo")
+AMEX = _NS(id="acc-amex", name="AMEX PLATINUM", provider="amex")
+MONZO_POT = _NS(id="acc-pot", name="Monzo Savings Pot", provider="monzo")
+
+
+def _acct_rows():
+    base = {"user_id": UID, "currency": "GBP", "category": "Bills", "custom_category": "", "description": "x"}
+    return [
+        {**base, "id": "a1", "account_id": "acc-monzo", "transaction_type": "credit", "amount": 1500.0,
+         "date": datetime(2026, 9, 1), "merchant_name": "Salary"},
+        {**base, "id": "a2", "account_id": "acc-monzo", "transaction_type": "debit", "amount": 200.0,
+         "date": datetime(2026, 9, 5), "merchant_name": "Rent"},
+        {**base, "id": "a3", "account_id": "acc-amex", "transaction_type": "debit", "amount": 999.0,
+         "date": datetime(2026, 9, 6), "merchant_name": "Monzo Coffee"},  # merchant text says Monzo, other account
+    ]
+
+
+def test_named_account_chart_filters_by_account_id_not_merchant_text(monkeypatch):
+    _install(monkeypatch, _acct_rows())
+    _accounts(monkeypatch, [MONZO, AMEX])
+    res = _search({"account": "Monzo", "as_chart": "line", "_chart_ok": True})
+    assert res["account_recognised"] is True and res["matched_account"] == "Monzo Current"
+    chart = validate_chart(res["_chart"])
+    assert chart["title"] == "Monzo Current money in and out"
+    assert "Net of money in and out, not a balance." in chart["note"]
+    amounts = {p["x"]: p["y"]["amount"] for p in chart["series"][0]["points"]}
+    assert amounts == {"2026-09-01": 1500.0, "2026-09-05": -200.0}  # the AMEX row never appears
+    assert res["matched_count"] == 2
+
+
+def test_account_resolution_is_whole_word_and_case_insensitive(monkeypatch):
+    _install(monkeypatch, _acct_rows())
+    _accounts(monkeypatch, [MONZO, AMEX])
+    for name in ("monzo", "MONZO current", "my Monzo"[3:], "Amex Platinum", "amex"):
+        assert _search({"account": name})["account_recognised"] is True, name
+    assert _search({"account": "Amex"})["matched_account"] == "AMEX Platinum"
+    for bad in ("mon", "onzo", "zo"):  # substrings never match
+        assert _search({"account": bad})["account_recognised"] is False, bad
+
+
+def test_ambiguous_or_unknown_account_declines_and_never_falls_back_to_merchants(monkeypatch):
+    _install(monkeypatch, _acct_rows())
+    _accounts(monkeypatch, [MONZO, MONZO_POT, AMEX])
+    res = _search({"account": "Monzo", "as_chart": "line", "_chart_ok": True})
+    assert res["account_recognised"] is False and res["reason"] == "ambiguous"
+    assert "_chart" not in res and "transactions" not in res
+    assert "Monzo Current" in res["available_accounts"] and "AMEX Platinum" in res["available_accounts"]
+    exact = _search({"account": "Monzo Current"})
+    assert exact["account_recognised"] is True  # an exact name wins over the shared word
+    unknown = _search({"account": "Barclays", "as_chart": "line", "_chart_ok": True})
+    assert unknown["account_recognised"] is False and unknown["reason"] == "unresolved"
+    assert "_chart" not in unknown and "transactions" not in unknown
+    assert "merchant text" in unknown["note"]
+
+
+def test_account_lookup_is_for_the_calling_user(monkeypatch):
+    import app.routers.accounts as accounts_router
+    seen = []
+
+    async def fake(user=None):
+        seen.append(user)
+        return [MONZO]
+
+    monkeypatch.setattr(accounts_router, "get_accounts", fake)
+    _install(monkeypatch, _acct_rows())
+    _search({"account": "Monzo"})
+    assert seen == [{"email": UID}]
+
+
+def test_system_prompt_and_schema_for_named_accounts():
+    p = penny_agent_module._SYSTEM_PROMPT
+    assert "could not match an account called X" in p and "never q or merchants" in p
+    fn = next(t["function"] for t in penny_tools_module.TOOL_SCHEMAS if t["function"]["name"] == "search_transactions")
+    assert fn["parameters"]["properties"]["account"]["type"] == "string"
+
+
+# ── stacked_bar is reachable: categories list on get_category_spend ──────
+def test_stacked_bar_from_two_categories_by_month(monkeypatch):
+    _category_world(monkeypatch)
+    rows = [
+        {"user_id": UID, "transaction_type": "debit", "amount": 12.0, "currency": "GBP", "date": datetime(2026, 10, 2),
+         "category": "Eating Out", "custom_category": "", "merchant_name": "Pret"},
+        {"user_id": UID, "transaction_type": "debit", "amount": 50.0, "currency": "GBP", "date": datetime(2026, 10, 3),
+         "category": "Groceries", "custom_category": "", "merchant_name": "Tesco"},
+        {"user_id": UID, "transaction_type": "debit", "amount": 30.0, "currency": "GBP", "date": datetime(2026, 8, 15),
+         "category": "Eating Out", "custom_category": "", "merchant_name": "Nando's"},
+    ]
+    monkeypatch.setattr(penny_tools_module, "transactions_col", _Col(rows))
+
+    async def resolve(uid, name):
+        return {"eating out": "Eating Out", "groceries": "Groceries"}.get(str(name).lower()), ["Eating Out", "Groceries"]
+
+    monkeypatch.setattr(penny_tools_module, "_resolve_user_category", resolve)
+
+    async def cat_rows(uid, category, start, end):
+        return [r for r in rows if r["category"] == category]
+
+    monkeypatch.setattr(penny_tools_module, "_category_txn_rows", cat_rows)
+    res = _cat({"as_chart": "stacked_bar", "categories": ["eating out", "groceries"], "_chart_ok": True})
+    chart = validate_chart(res["_chart"])
+    assert chart["type"] == "stacked_bar" and [s["name"] for s in chart["series"]] == ["Eating Out", "Groceries"]
+    assert chart["title"] == "Eating Out and Groceries by month"
+    by = {s["name"]: {p["x"]: p["y"]["amount"] for p in s["points"]} for s in chart["series"]}
+    assert by["Eating Out"]["Oct 2026"] == 12.0 and by["Groceries"]["Oct 2026"] == 50.0 and by["Eating Out"]["Aug 2026"] == 30.0
+    # five names are capped at four series
+    assert len(validate_chart(_cat({"as_chart": "stacked_bar", "categories": ["eating out", "groceries"] * 3,
+                                    "_chart_ok": True})["_chart"])["series"]) == 2
+    # one resolvable category falls back to a single bar
+    one = _cat({"as_chart": "stacked_bar", "categories": ["eating out"], "category": "eating out", "_chart_ok": True})
+    assert one["_chart"]["type"] == "bar"
