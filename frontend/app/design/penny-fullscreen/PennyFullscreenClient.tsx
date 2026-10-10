@@ -13,6 +13,7 @@ import PennyOpenLastChatRow from "@/components/PennyOpenLastChatRow";
 import type { PennyConversationSummary } from "@/lib/api";
 import { SuggestionChip, VerdictBubble } from "@/components/PennyConversation";
 import type { PennyTableBlock } from "@/lib/pennyTable";
+import type { PennyChartSpec } from "@/lib/pennyChart";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
@@ -43,7 +44,7 @@ const HISTORY: PennyConversationSummary[] = [
   { id: "c4", title: "How is my card balance changing?", created_at: "2026-09-28T19:40:00Z", updated_at: "2026-09-28T19:55:00Z", preview: "It grew by £46 this pay period.", turn_count: 8, at_cap: false },
 ];
 
-type Turn = { id: number; role: "user" | "assistant"; text: string; table?: boolean };
+type Turn = { id: number; role: "user" | "assistant"; text: string; table?: boolean; chart?: string };
 
 // G251: ?table=1 seeds a question and a table answer. The bubble is the
 // production VerdictBubble and the table is the production PennyTable, drawn
@@ -72,6 +73,63 @@ const TABLE_TURNS: Turn[] = [
   { id: 2, role: "assistant", text: "", table: true },
 ];
 
+// G252: ?chart=bar|line|stacked|donut seeds a question and a chart answer. The
+// bubble is the production VerdictBubble and the chart is the production
+// PennyChart, drawn from these fixture specs (the same shape the server sends).
+const eatingOut = [["May 2026", 148], ["Jun 2026", 201.4], ["Jul 2026", 176], ["Aug 2026", 312], ["Sep 2026", 94.5], ["Oct 2026", 128.2]] as const;
+const CHART_FIXTURES: Record<string, { question: string; headline: string; reply: string; spec: PennyChartSpec }> = {
+  bar: {
+    question: "Show my eating out by month as a bar chart",
+    headline: "Eating out by month",
+    reply: "Here is your eating out for the last six months, shown below.",
+    spec: {
+      type: "bar", title: "Eating Out by month", x: { label: "Month", kind: "category" }, y: { label: "Spent", unit: "money", currency: "GBP" },
+      series: [{ name: "Eating Out", points: eatingOut.map(([x, y]) => ({ x, y })) }],
+      note: "Rolling window, so the earliest month may be part of a month.",
+      summary: "Eating Out by month: highest in Aug 2026 at £312, lowest in Sep 2026 at £94.50.",
+    },
+  },
+  line: {
+    question: "Chart my Monzo balance over the last 3 months",
+    headline: "Money in and out",
+    reply: "Sorted keeps no balance history, so this charts the net of money in and out per week instead.",
+    spec: {
+      type: "line", title: "Monzo over time", x: { label: "Week starting", kind: "date" }, y: { label: "Net", unit: "money", currency: "GBP" },
+      series: [{ name: "Net", points: [
+        ["2026-07-20", -84.2], ["2026-07-27", 312], ["2026-08-03", -150.75], ["2026-08-10", -62], ["2026-08-17", 40.1], ["2026-08-24", -210.4],
+        ["2026-08-31", 1180], ["2026-09-07", -96.3], ["2026-09-14", -134.9], ["2026-09-21", -58.4], ["2026-09-28", 905.2], ["2026-10-05", -77.5],
+      ].map(([x, y]) => ({ x: String(x), y: Number(y) })) }],
+      note: "Totalled per week. Net of money in and out, not a balance.",
+      summary: "Monzo over time: from −£84.20 on 20 Jul to −£77.50 on 5 Oct, highest £1,180 on 31 Aug.",
+    },
+  },
+  stacked: {
+    question: "Chart my bills, groceries and eating out by month",
+    headline: "Spend by month",
+    reply: "Here are the three categories side by side, shown below.",
+    spec: {
+      type: "stacked_bar", title: "Spending by month", x: { label: "Month", kind: "category" }, y: { label: "Spent", unit: "money", currency: "GBP" },
+      series: [
+        { name: "Bills", points: [["Jul 2026", 820], ["Aug 2026", 835], ["Sep 2026", 812], ["Oct 2026", 840]].map(([x, y]) => ({ x: String(x), y: Number(y) })) },
+        { name: "Groceries", points: [["Jul 2026", 310], ["Aug 2026", 288], ["Sep 2026", 342], ["Oct 2026", 150]].map(([x, y]) => ({ x: String(x), y: Number(y) })) },
+        { name: "Eating Out", points: [["Jul 2026", 176], ["Aug 2026", 312], ["Sep 2026", 94.5], ["Oct 2026", 128.2]].map(([x, y]) => ({ x: String(x), y: Number(y) })) },
+      ],
+      summary: "Spending by month: Bills, Groceries, Eating Out across 4 periods, highest total in Aug 2026 at £1,435.",
+    },
+  },
+  donut: {
+    question: "Pie of where my money went this month",
+    headline: "Where it went",
+    reply: "Here is the split of this pay period's spending, shown below.",
+    spec: {
+      type: "donut", title: "Spending by category this pay period", x: { label: "Category", kind: "category" }, y: { label: "Spent", unit: "money", currency: "GBP" },
+      series: [{ name: "Spent", points: [["Bills", 840], ["Groceries", 342], ["Eating Out", 128.2], ["Transport", 96], ["Shopping", 74.5], ["Subscriptions", 41.97], ["Entertainment", 38], ["Other", 61.3]].map(([x, y]) => ({ x: String(x), y: Number(y) })) }],
+      note: "Smaller categories grouped as Other",
+      summary: "Spending by category this pay period: Bills is the largest at £840, 52% of the £1,621.97 shown.",
+    },
+  },
+};
+
 const STARTERS = ["What is coming up?", "Explain my forecast", "What should I check before payday?"];
 const LONG: Turn[] = Array.from({ length: 6 }, (_, i) => ({
   id: i + 1, role: i % 2 ? "assistant" : "user",
@@ -85,7 +143,10 @@ const serverMounted = () => false;
 function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; onClose: () => void; seed: string; startHistory: boolean }) {
   const mounted = useSyncExternalStore(subscribeToMount, clientMounted, serverMounted);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Turn[]>(seed === "long" ? LONG : seed === "table" ? TABLE_TURNS : []);
+  const [messages, setMessages] = useState<Turn[]>(
+    seed === "long" ? LONG : seed === "table" ? TABLE_TURNS
+      : seed in CHART_FIXTURES ? [{ id: 1, role: "user", text: CHART_FIXTURES[seed].question }, { id: 2, role: "assistant", text: "", chart: seed }]
+      : []);
   const [loading, setLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(startHistory);
   const [chats, setChats] = useState<PennyConversationSummary[]>(HISTORY);
@@ -141,7 +202,10 @@ function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; o
         {empty && <PennyStarterState>
           {STARTERS.map(label => <SuggestionChip key={label} label={label} onTap={() => setInput(label)} />)}
         </PennyStarterState>}
-        {messages.map(turn => turn.table ? <VerdictBubble key={turn.id} onOfferTap={() => {}} msg={{
+        {messages.map(turn => turn.chart ? <VerdictBubble key={turn.id} onOfferTap={() => {}} msg={{
+          id: turn.id, role: "assistant", kind: "verdict", headline: CHART_FIXTURES[turn.chart].headline,
+          reply: CHART_FIXTURES[turn.chart].reply, chart: CHART_FIXTURES[turn.chart].spec, degraded: false,
+        }} /> : turn.table ? <VerdictBubble key={turn.id} onOfferTap={() => {}} msg={{
           id: turn.id, role: "assistant", kind: "verdict", headline: "Your OpenRouter payments",
           reply: "Here are your 5 most recent OpenRouter payments, 14 in all.", table: TABLE_FIXTURE, degraded: false,
         }} /> : <div key={turn.id} className={turn.role === "user" ? "ml-8 break-words rounded-2xl bg-indigo-50 px-3 py-2 text-slate-900 dark:bg-indigo-950 dark:text-slate-100" : "mr-4 break-words text-slate-700 dark:text-slate-200"}>
@@ -161,7 +225,8 @@ function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; o
 
 export default function PennyFullscreenClient() {
   const params = useSearchParams();
-  const seed = params.get("table") === "1" ? "table" : (params.get("thread") ?? params.get("state")) === "long" ? "long" : "empty";
+  const chartParam = params.get("chart") ?? "";
+  const seed = chartParam in CHART_FIXTURES ? chartParam : params.get("table") === "1" ? "table" : (params.get("thread") ?? params.get("state")) === "long" ? "long" : "empty";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const startHistory = params.get("history") === "1";
   const [open, setOpen] = useState(params.get("open") === "1" || startHistory);
@@ -172,7 +237,7 @@ export default function PennyFullscreenClient() {
     document.documentElement.style.colorScheme = mode;
     return () => { document.documentElement.classList.toggle("dark", wasDark); document.documentElement.style.colorScheme = previousScheme; };
   }, [mode]);
-  const href = (m = mode, s = seed) => `?mode=${m}&${s === "table" ? "table=1" : `thread=${s}`}`;
+  const href = (m = mode, s = seed) => `?mode=${m}&${s === "table" ? "table=1" : s in CHART_FIXTURES ? `chart=${s}` : `thread=${s}`}`;
 
   return <main className="min-h-dvh bg-slate-100 px-4 pb-36 pt-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 sm:px-6">
     <div className="mx-auto max-w-xl">
@@ -186,6 +251,7 @@ export default function PennyFullscreenClient() {
       <nav aria-label="Options" className="mt-4 flex flex-wrap gap-2">
         <a className={button} href={href(mode === "dark" ? "light" : "dark")}>{mode === "dark" ? "Light" : "Dark"} theme</a>
         <a className={button} href={href(mode, "table")}>Table answer</a>
+        {Object.keys(CHART_FIXTURES).map(k => <a key={k} className={button} href={href(mode, k)}>Chart: {k}</a>)}
         <a className={button} href={href(mode, seed === "long" ? "empty" : "long")}>{seed === "long" ? "Start empty" : "Start with a long thread"}</a>
       </nav>
       <button type="button" onClick={() => setOpen(true)} className={`${button} mt-5 bg-indigo-600 px-5 text-white`}>Open Penny</button>

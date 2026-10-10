@@ -579,6 +579,36 @@ GOLDEN_CASES = [
         why="G251: a by-month tabulation of a category is get_category_spend with as_table true (per-month rows built server-side).",
     ),
     dict(
+        id="spend-12-chart-by-month",
+        source="spend.md",
+        question="Show my eating out by month as a bar chart",
+        screen="spend",
+        expected=["get_category_spend"],
+        expected_args={"get_category_spend": {"as_chart": "bar", "category": "Eating Out", "months": 6}},
+        source_quote="custom category",
+        why="G252 (Kevin 2026-10-10): a request for a bar chart of a category by month is get_category_spend with as_chart bar; the app draws the points from server-summed months (test_penny_chart.py).",
+    ),
+    dict(
+        id="spend-13-pie-of-categories",
+        source="spend.md",
+        question="Pie of where my money went this month",
+        screen="spend",
+        expected=["get_category_spend"],
+        expected_args={"get_category_spend": {"as_chart": "donut"}},
+        source_quote="custom category",
+        why="G252: a pie is a donut of the top categories this pay period (no category argument), smaller ones grouped as Other server-side.",
+    ),
+    dict(
+        id="spend-14-chart-account-balance",
+        source="spend.md",
+        question="Chart my Monzo balance over the last 3 months",
+        screen="spend",
+        expected=["search_transactions"],
+        expected_args={"search_transactions": {"as_chart": "line"}},
+        source_quote="custom category",
+        why="G252: no tool returns balance history (the app keeps none), so a balance chart is the nearest honest thing, a line of money in and out over time from search_transactions with as_chart line, labelled as net of money in and out and not a balance.",
+    ),
+    dict(
         id="spend-07-prior-period",
         source="spend.md",
         question="Was I over usual on Groceries last pay period?",
@@ -737,7 +767,7 @@ for _case in GOLDEN_CASES:
     assert _case.get("source_quote"), f"{_case['id']}: missing source_quote"
 
 _SOURCE_COUNTS = {
-    "home-and-penny.md": 8, "spend.md": 12, "planning-grow-debt.md": 7,
+    "home-and-penny.md": 8, "spend.md": 15, "planning-grow-debt.md": 7,
     "insights-accounts-mirror.md": 6,
 }
 
