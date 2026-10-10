@@ -178,13 +178,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "signin-loading",
-    name: "Signing-in state · G202 · approved A, folded in",
-    description:
-      "G202 · approved A, folded in (Kevin picked Two stages on 2026-10-04): the calm 'signing you in' state shown from the moment the in-app browser returns until the session is ready or the attempt fails · a two-row ledger of the two real stages (browser hand-back, then session check), 'Still signing you in' after 20s with Cancel on screen, a focused role=alert notice on failure or timeout, and tap-to-retry when Sorted cannot be reached · renders the production LoginScreen and SignInProgress through the phase and nowMs props with a fake clock, fixtures only, nothing signs in · ?state=waiting|waiting-slow|checking|resume|failed|timeout|unreachable&mode=light|dark&t=<seconds>&live=1&chrome=0",
-    states: [{ label: "Signing in 0s", value: "waiting" }, { label: "Signing in 25s", value: "waiting-slow" }, { label: "Checking session", value: "checking" }, { label: "Resumed", value: "resume" }, { label: "Failed", value: "failed" }, { label: "Timed out", value: "timeout" }, { label: "Unreachable", value: "unreachable" }],
-  },
-  {
     slug: "settings-overhaul",
     name: "Settings overhaul · G201",
     description:
@@ -198,12 +191,6 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G199 · approved B, folded in (Kevin 2026-10-03): the page shown in the Android Chrome Custom Tab / iOS in-app browser after Google sign-in (Signed in, Taking you back to Sorted, Return to Sorted) and its error state · Open cockpit, type-led heading with the mark beside it, action anchored low under a hairline, no card · every frame renders the shared template the backend serves, in light and dark · no gradient, no green, no red · A108 adds the bank-connect frames (Bank connected, Bank did not link) from the same template · ?state=ok|hint|error|bank-ok|bank-error&mode=light|dark",
     states: [{ label: "Signed in", value: "ok" }, { label: "After 3 seconds", value: "hint" }, { label: "Did not complete", value: "error" }, { label: "Bank connected", value: "bank-ok" }, { label: "Bank did not link", value: "bank-error" }],
-  },
-  {
-    slug: "penny-keyboard",
-    name: "Penny keyboard · G197",
-    description: "G197, approved B restored (Kevin 2026-10-02): Codex's conversation-first layout from G191 (02c22ef4) over the G196 keyboard mechanics. Tapping the input changes nothing. Once a software keyboard is up the Penny window takes over the visible height in one move, with a compact header (a clear gap between its line and the close button), the links and question chips hidden, the conversation filling the space and the composer and its note on the keyboard edge. Nothing moves afterwards, the page behind cannot scroll, and the navigation and Penny button hide. Uses the production Penny panel, header, composer and thread anchor with local-only replies. Physical iOS Safari, Android Chrome and Capacitor keyboard checks remain required. ?state=short|long|empty|error&mode=light|dark",
-    states: [{ label: "Short thread", value: "short" }, { label: "Long thread", value: "long" }, { label: "Empty", value: "empty" }, { label: "Reply error", value: "error" }],
   },
   {
     slug: "penny-fullscreen",

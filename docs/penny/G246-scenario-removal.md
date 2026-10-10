@@ -57,7 +57,7 @@ and grow blocks. Nothing was ever written to Mongo by the simulator: it read
 | `components/PennySheet.tsx` line 470, `components/Sidebar.tsx` line 27 | comments naming `ScenarioPage` | EDIT comments |
 | `lib/comingUp.tsx`, `lib/preferencesSnapshot.ts` | the word in ordinary prose ("one sentence per scenario", "reconcile scenarios") | KEEP unchanged: unrelated vocabulary |
 | `app/design/g100-scenario-canvas/` (+ `app/design/page.tsx` entry at ~545) | G100 design preview of the /scenario canvas | DELETE and drop the index entry |
-| `app/design/g176-*`, `g124-upcoming-refine`, `cards-page`, `planning-ladder-timeline`, `home-brief-cards`, `penny-keyboard` fixtures and clients | `SCENARIOS` / `?state=` are preview example states | KEEP: unrelated vocabulary, checked each |
+| `app/design/g176-*`, `g124-upcoming-refine`, `cards-page`, `planning-ladder-timeline`, `home-brief-cards` fixtures and clients | `SCENARIOS` / `?state=` are preview example states | KEEP: unrelated vocabulary, checked each |
 | `scripts/*.test.mjs` containing "scenario" (g176, g187, coming-up-dates, preferences-snapshot, scroll-nav-detect, serial-queue, build-mobile-guard, manual/g45) | test prose and fixture names | KEEP: unrelated |
 | Links: `git grep` for `/scenario`, `scenarioRun`, `href`/`router.push` | only `PennyConversation.runScenario`; no nav, sidebar, tour or deep-link entry | nothing else to remove |
 

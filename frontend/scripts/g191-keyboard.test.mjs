@@ -153,20 +153,12 @@ assert.match(source("../app/Providers.tsx"), /useSoftKeyboardAttribute\(\)/, "G1
   setSoftKeyboardAttribute(root, pennyKeyboardVisible(844, { ...pennyViewport({ width: 390, height: 844 }, { width: 390, height: 524 }), scale: 2 }));
   assert.equal(attrs.has("data-soft-keyboard"), false, "Pinch zoom never sets it");
 }
-assert.match(source("../app/design/page.tsx"), /takes over the visible height in one move/);
 assert.doesNotMatch(frame, /keyboardHeight/, "Native keyboard heights are never added to an already-resized viewport");
 const touchHandler = frame.split("onPointerDownCapture=")[1].split("onFocusCapture=")[0];
 assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setComposerEngaged/, "Touch-down must not resize the panel before the input receives its tap");
 assert.match(frame, /pennyTypingActive\(\{[^}]*engaged: composerEngaged, keyboardVisible: Boolean\(viewport\?\.keyboardVisible\)/, "The panel decides typing only through the tested pure rule");
 assert.match(frame, /!event.currentTarget.contains\(next\)/, "Tab within the dialog cannot collapse the typing layout under an open keyboard");
 assert.doesNotMatch(frame, /setNativeKeyboard/, "Native show events cannot expand the panel before the viewport resizes");
-const preview = source("../app/design/penny-keyboard/PennyKeyboardClient.tsx");
-assert.doesNotMatch(preview, /variant/, "The A/B switch no longer means anything");
-assert.match(preview, /PennySheetHeader, PennySheetPanel.*components\/PennySheet/);
-assert.match(preview, /<PennyComposer/);
-assert.match(preview, /usePennyThreadAnchor/);
-assert.doesNotMatch(preview, /\bapi\.|\bfetch\(/);
-assert.match(preview, /FixtureBottomNav/);
 assert.match(source("../components/BottomNav.tsx"), /data-penny-navigation/);
 assert.doesNotMatch(source("../app/layout.tsx").replace(/\/\/[^\n]*/g, ""), /maximumScale|userScalable/, "Pinch zoom remains enabled");
 // Touch sequence: a simulated device driving the same pure rules the panel uses.

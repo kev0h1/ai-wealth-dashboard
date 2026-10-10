@@ -448,10 +448,7 @@ await t("G202: 'Still signing you in' appears at 20s and not before, and the pan
   assert.ok(/signingCopy\(phase, now\)/.test(spSrc));
 });
 
-await t("G202: the preview renders the production LoginScreen, with no copied variants", () => {
-  const pv = read("app/design/signin-loading/SigninLoadingClient.tsx");
-  assert.ok(/import LoginScreen/.test(pv) && /<LoginScreen phase=\{phase\} nowMs=\{nowMs\} \/>/.test(pv));
-  assert.ok(!/variants/.test(pv) && !/renderPhase/.test(pv));
+await t("G202: LoginScreen carries no render-slot or hide-mark leftovers", () => {
   assert.ok(!/renderPhase|hideMarkWhileSigningIn/.test(lsSrc));
 });
 

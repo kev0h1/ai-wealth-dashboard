@@ -24,7 +24,7 @@ interface LoginScreenProps {
   // Cancel pressed while `resuming`: AuthProvider drops its resume signal.
   // `discardSession` is true only for an explicit "Use a different account".
   onCancelResume?: (discardSession?: boolean) => void;
-  // Preview only (/design/signin-loading): drive the phase and a fake clock
+  // Preview-only props: drive the phase and a fake clock
   // from outside. Production passes neither, LoginScreen owns the phase.
   phase?: LoginPhase;
   nowMs?: number;
