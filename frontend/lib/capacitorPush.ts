@@ -566,7 +566,7 @@ export function createPushResyncController(deps: {
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(t as ReturnType<typeof setTimeout>));
   let completed = false;
-  let inFlight = false;
+  let inFlightGen = -1;
   let step = 0;
   let timer: unknown = null;
   let generation = 0;
@@ -577,19 +577,22 @@ export function createPushResyncController(deps: {
   }
 
   async function once(scheduleRetry: boolean): Promise<void> {
-    if (completed || inFlight) return;
+    if (completed) return;
+    // inFlight is per generation: a stale attempt from before a reset must not
+    // block the new generation's attempt (sign-out then quick sign-in).
+    if (inFlightGen === generation) return;
     if (scheduleRetry) cancelTimer(); // a resume attempt leaves a pending backoff timer alone
     const gen = generation;
-    inFlight = true;
+    inFlightGen = gen;
     let result: PushInitResult | "skipped";
     try {
       result = await deps.attempt();
     } catch {
       result = "unavailable";
     } finally {
-      inFlight = false;
+      if (inFlightGen === gen) inFlightGen = -1;
     }
-    if (gen !== generation) return; // signed out meanwhile
+    if (gen !== generation) return; // signed out meanwhile; the new generation runs itself
     if (result === "granted") {
       completed = true;
       step = 0;

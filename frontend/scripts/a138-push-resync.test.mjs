@@ -71,6 +71,28 @@ check("backoff schedule", RESYNC_BACKOFF_MS, [2000, 5000, 15000, 45000]);
   check("after reset a new sign-in resyncs", h.c.completed, true);
 }
 
+{
+  // reset while an attempt is in flight, then run(): the new generation attempts and completes.
+  const releases = [];
+  const results = ["no-token", "granted"];
+  let calls = 0;
+  const c = createPushResyncController({
+    attempt: () => new Promise((res) => { const r = results[calls++]; releases.push(() => res(r)); }),
+    setTimer: () => ({}),
+    clearTimer: () => {},
+  });
+  const first = c.run();
+  c.reset();
+  const second = c.run();
+  check("reset mid-attempt: new run() starts its own attempt", calls, 2);
+  releases[1]();
+  await second;
+  check("new generation completes", c.completed, true);
+  releases[0]();
+  await first;
+  check("stale attempt finishing later does not undo or retry", [c.completed, calls], [true, 2]);
+}
+
 // Settings action: native vs web.
 const n = noDeviceAdvice(true), w = noDeviceAdvice(false);
 check("native: Register this device action, no toggle advice", [n.action, /off and on/i.test(n.text)], [REGISTER_DEVICE_LABEL, false]);

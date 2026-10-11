@@ -1737,7 +1737,7 @@ export default function SettingsPage() {
             <button
               onClick={handleSyncHistory}
               disabled={syncingHistory}
-              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
+              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
             >
               <RotateCcw size={14} className={syncingHistory ? "animate-spin" : ""} />
               {syncingHistory ? "Syncing…" : "Sync history (90 days)"}
