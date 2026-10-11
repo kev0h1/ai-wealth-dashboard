@@ -78,7 +78,7 @@ assert.doesNotMatch(convo, /composerHeight|--composer-h/);
 assert.match(source("../lib/usePennyThreadAnchor.ts"), /new ResizeObserver/);
 assert.match(convo, /useRef<HTMLTextAreaElement>/);
 assert.match(convo, /function UserBubble[\s\S]*?whitespace-pre-wrap/, "Typed line breaks survive in the sent bubble");
-assert.match(html({ value: "a".repeat(420) }), /data-penny-counter aria-live="off"/, "Counter itself never announces per keystroke");
+assert.match(html({ value: "a".repeat(420) }), /data-penny-counter="true" aria-live="off"/, "Counter itself never announces per keystroke");
 assert.doesNotMatch(html({ value: "a".repeat(449) }), /Fewer than 50|Character limit/);
 assert.match(html({ value: "a".repeat(450) }), /role="status"[^>]*>Fewer than 50 characters left/);
 assert.equal(html({ value: "a".repeat(450) }).match(/Fewer than 50[^<]*/)[0], html({ value: "a".repeat(499) }).match(/Fewer than 50[^<]*/)[0], "Same text across the band, so one announcement");
