@@ -33,6 +33,8 @@ its own docstring/guards) — so this suite never touches real Mongo.
 import asyncio
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
+
 from app.routers.analytics import (
     _learn_transfer_destinations,
     _learn_card_repayment_destinations,
@@ -364,7 +366,7 @@ def test_internal_inflows_unaffected_by_card_repayment_link():
     with uid=None makes no database calls at all (see its own uid-gated
     reads), so this is a pure in-memory check.
     """
-    future = (date.today() + timedelta(days=10)).isoformat()
+    future = (timeutil.user_today() + timedelta(days=10)).isoformat()
     cached = {
         "recurring_spend": [{
             "key":             "HSBC CREDIT CARD",
@@ -400,7 +402,7 @@ def test_internal_inflows_unaffected_by_card_repayment_link():
 
 
 def test_suppressed_series_never_emits_a_bill():
-    future = (date.today() + timedelta(days=10)).isoformat()
+    future = (timeutil.user_today() + timedelta(days=10)).isoformat()
     cached = {
         "recurring_spend": [{
             "key":             "Cleared Card DDR",

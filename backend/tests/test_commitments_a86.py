@@ -38,10 +38,20 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 import app.routers.commitments as commitments
+from tests._clock import pin_user_today
 
 UID = "kevin@example.com"
 USER = {"email": UID}
-FUTURE_DATE = (date.today() + timedelta(days=200)).isoformat()
+REAL_TODAY = date.today()
+FUTURE_DATE = (REAL_TODAY + timedelta(days=200)).isoformat()
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    """H105: FUTURE_DATE is built from the import-time date, and the route
+    rejects a past target_date against timeutil.user_today(); pin the app
+    clock to that same day so the file survives a faked or later calendar."""
+    pin_user_today(monkeypatch, REAL_TODAY)
 
 
 # ── Generic fake-Mongo plumbing (subset matcher + collection) ───────────────
