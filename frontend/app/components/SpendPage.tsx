@@ -340,6 +340,14 @@ export default function SpendPage() {
   // (notable cards, majority rows, the RhythmCard deep-link above).
   const [openCategory, setOpenCategory] = useState<(CategoryData & { title?: string }) | null>(null);
   const [periodOffset, setPeriodOffset] = useState(() => initialPeriod.offset);
+  // G262: the Mirror route shows only once the Mirror has a portrait to open
+  // (same gate as Penny's entry); a fresh user sees no row.
+  const [mirrorReady, setMirrorReady] = useState(false);
+  useEffect(() => {
+    api.getMirror()
+      .then((portrait) => setMirrorReady(portrait.status === "ok" && portrait.traits.length > 0))
+      .catch(() => setMirrorReady(false));
+  }, []);
   const [fetchedSignals, setFetchedSignals] = useState<Record<number, SignalMap>>({});
   const signals = fetchedSignals[periodOffset] ?? cachedSignals(periodOffset) ?? {};
   // force = the Door or a category just changed, so the cached copy is dead.
@@ -1165,6 +1173,7 @@ export default function SpendPage() {
                 initialMovedOpen={restoredUi.movedOpen}
                 onMovedOpenChange={(open) => writeSpendUiState({ movedOpen: open })}
                 signals={signals}
+                mirrorRoute={mirrorReady}
                 sym={sym}
                 onAimChanged={refetchSignals}
                 onIntent={(category, answer) => api.recordTrendIntent(category, answer)

@@ -133,7 +133,9 @@ const keepHtml = card({ ...eat, choice: "keep" });
 assert.ok(text(keepHtml).includes(KEEP_NOTE) && KEEP_NOTE === "That is part of how you do things, so it stays as it is and I will not nag you about it.");
 const mp = read("../app/mirror/MirrorPage.tsx");
 assert.ok(mp.includes("Back to Spend"));
-assert.ok(read("../components/SpendHeader.tsx").includes("<MirrorRouteLink"), "route from Spend");
+assert.ok(!read("../components/SpendHeader.tsx").includes("MirrorRouteLink"), "G262: route no longer under the Spend title");
+assert.ok(read("../components/SpendVerdictView.tsx").includes("{mirrorRoute && <MirrorRouteLink />}"), "G262: route heads the rest-of-spending list");
+assert.ok(read("../app/components/SpendPage.tsx").includes("mirrorRoute={mirrorReady}") && read("../app/components/SpendPage.tsx").includes('portrait.status === "ok" && portrait.traits.length > 0'), "G262: route gated on a portrait");
 assert.ok(read("../components/MirrorRouteLink.tsx").includes("How your money behaves"));
 
 // 6. the nudge ---------------------------------------------------------------

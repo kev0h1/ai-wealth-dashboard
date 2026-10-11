@@ -43,6 +43,7 @@ import MoneyText from "@/components/MoneyText";
 import { openTipsFor, tipSubline } from "@/lib/spendTips";
 import SpendPaceEvidence from "@/components/SpendPaceEvidence";
 import { AimRing, aimSentence } from "@/components/AimProgress";
+import MirrorRouteLink from "@/components/MirrorRouteLink";
 
 const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
@@ -1079,6 +1080,8 @@ export interface SpendVerdictViewProps {
   aims?: Record<string, Checkpoint>;
   /** Whole period length in days; defaults to the verdict's own period. */
   aimPeriodDays?: number;
+  /** G262: show the quiet "How your money behaves" row at the head of the list; the page sets it only once the Mirror has a portrait. */
+  mirrorRoute?: boolean;
 }
 
 /** The same guardrail is a rail event only in the approved journey view. */
@@ -1119,7 +1122,7 @@ export function TransferReviewGuardrail({
   );
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays, mirrorRoute = false }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -1345,6 +1348,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
         )}
         {nonZeroRows.length > 0 || (!journey && unresolved.total > 0) ? (
           <div className="mt-2 glass-card-flat rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/50 overflow-hidden">
+            {mirrorRoute && <MirrorRouteLink />}
             {visibleRows.map((row) => (
               <MajorityRowView
                 key={row.category}
