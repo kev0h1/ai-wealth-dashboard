@@ -9,7 +9,20 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import SpendJourneyNav, { jumpTo, type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 
-export type SpendRailVariant = "a" | "b" | "c";
+export type SpendRailVariant = "a" | "a2" | "b" | "c";
+
+/** A2: when the rail appears and goes. One rule: more than one viewport height of scroll
+ *  travel (summed up and down) inside a 1.5 second window. It fades out 1.2 seconds after the
+ *  last scroll event unless a finger or keyboard focus is on it. */
+export const RAIL_APPEAR = { travelViewports: 1, windowMs: 1500, hideDelayMs: 1200 } as const;
+/** Preview-only: forces one state so a screenshot can show it without a real scroll. */
+export type RailScrollSim = "idle" | "scrolling" | "settled" | "press" | "focus";
+/** Marks the journey column whose ::before is the vertical timeline line. */
+export const TIMELINE_ATTR = "data-spend-timeline";
+/** The pill is decorative and sits left of this x; the interactive column starts here, clear of
+ *  the Android back-gesture zone (about 24dp). */
+const HIT_LEFT = 24;
+const PILL_W = 24;
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 
@@ -182,6 +195,179 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
   );
 }
 
+
+/** x of the journey's vertical timeline line, measured from the element's own ::before. */
+function useTimelineX() {
+  const [x, setX] = useState(27.5);
+  useEffect(() => {
+    const measure = () => {
+      const el = document.querySelector(`[${TIMELINE_ATTR}]`) as HTMLElement | null;
+      if (!el) return;
+      const cs = getComputedStyle(el, "::before");
+      const left = parseFloat(cs.left);
+      const w = parseFloat(cs.width) || 1;
+      if (Number.isNaN(left)) return;
+      const next = el.getBoundingClientRect().left + left + w / 2;
+      setX((prev) => (Math.abs(prev - next) < 0.25 ? prev : next));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const t = window.setInterval(measure, 700);
+    return () => { window.removeEventListener("resize", measure); window.clearInterval(t); };
+  }, []);
+  return x;
+}
+
+// ── A2: A, centred on the timeline line, shown only during a long scroll ─────
+function RailA2({ destinations, scrollSim }: { destinations: SpendJourneyDestination[]; scrollSim?: RailScrollSim }) {
+  const { active } = useJourneyPosition(destinations.map((d) => d.id));
+  const lineX = useTimelineX();
+  const [shown, setShown] = useState(scrollSim === "scrolling" || scrollSim === "settled" || scrollSim === "press" || scrollSim === "focus");
+  const [reveal, setReveal] = useState<string | null>(null);
+  const [focused, setFocused] = useState(scrollSim === "focus");
+  const listRef = useRef<HTMLOListElement>(null);
+  const hideTimer = useRef<number | undefined>(undefined);
+  const pressed = useRef(false);
+  const focusedRef = useRef(scrollSim === "focus");
+  const handled = useRef(false);
+  const startY = useRef(0);
+
+  const scheduleHide = () => {
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => {
+      if (pressed.current || focusedRef.current) return;
+      setShown(false);
+    }, RAIL_APPEAR.hideDelayMs);
+  };
+
+  // Real scroll rule (off when a preview forces a state).
+  useEffect(() => {
+    if (scrollSim) return;
+    let samples: { t: number; d: number }[] = [];
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const now = performance.now();
+      const y = window.scrollY;
+      samples.push({ t: now, d: Math.abs(y - lastY) });
+      lastY = y;
+      samples = samples.filter((sm) => now - sm.t <= RAIL_APPEAR.windowMs);
+      const travel = samples.reduce((n, sm) => n + sm.d, 0);
+      if (travel >= window.innerHeight * RAIL_APPEAR.travelViewports) setShown(true);
+      // While it is up, every scroll event pushes the fade-out back.
+      setShown((cur) => { if (cur) scheduleHide(); return cur; });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); window.clearTimeout(hideTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollSim]);
+
+  // Preview states.
+  useEffect(() => {
+    if (!scrollSim) return;
+    if (scrollSim === "settled") scheduleHide();
+    if (scrollSim === "press") {
+      pressed.current = true;
+      const t = window.setTimeout(() => setReveal(destinations[Math.min(1, destinations.length - 1)].id), 950);
+      return () => window.clearTimeout(t);
+    }
+    if (scrollSim === "focus") {
+      const t = window.setTimeout(() => (listRef.current?.querySelector("a") as HTMLElement | null)?.focus(), 950);
+      return () => window.clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollSim]);
+
+  function idAt(clientY: number): string | null {
+    const items = Array.from(listRef.current?.children ?? []) as HTMLElement[];
+    let best: string | null = null;
+    let bestDist = Infinity;
+    items.forEach((li, i) => {
+      if (!destinations[i]) return;
+      const r = li.getBoundingClientRect();
+      const dist = Math.abs(clientY - (r.top + r.height / 2));
+      if (dist < bestDist) { bestDist = dist; best = destinations[i].id; }
+    });
+    return best;
+  }
+
+  const visible = shown || focused;
+  const dotLeft = lineX - HIT_LEFT;
+
+  return (
+    <nav
+      aria-label="Jump through this pay period"
+      style={{ left: HIT_LEFT }}
+      onFocus={(e) => {
+        if (!(e.target as HTMLElement).matches(":focus-visible") && scrollSim !== "focus") return;
+        focusedRef.current = true; setFocused(true);
+      }}
+      onBlur={() => { focusedRef.current = false; setFocused(false); if (!scrollSim) scheduleHide(); }}
+      className={`fixed top-[38%] z-30 w-11 transition-opacity duration-200 ease-out motion-reduce:transition-none lg:hidden ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
+    >
+      <ol
+        ref={listRef}
+        className="relative touch-none select-none"
+        onPointerDown={(e) => {
+          pressed.current = true; handled.current = false; startY.current = e.clientY;
+          window.clearTimeout(hideTimer.current);
+          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+          setReveal(idAt(e.clientY));
+        }}
+        onPointerMove={(e) => { if (pressed.current) setReveal(idAt(e.clientY)); }}
+        onPointerUp={(e) => {
+          if (!pressed.current) return;
+          pressed.current = false;
+          const id = idAt(e.clientY);
+          setReveal(null);
+          handled.current = true;
+          window.setTimeout(() => { handled.current = false; }, 400);
+          const d = destinations.find((x) => x.id === id);
+          if (d) jumpTo(d);
+          scheduleHide();
+        }}
+        onPointerCancel={() => { pressed.current = false; setReveal(null); scheduleHide(); }}
+      >
+        <li aria-hidden="true" className="pointer-events-none absolute inset-y-0 list-none rounded-full border border-slate-200 bg-white/90 shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-slate-800/90 dark:shadow-none" style={{ left: dotLeft - PILL_W / 2, width: PILL_W }} />
+        {destinations.map((d) => {
+          const isActive = active === d.id;
+          return (
+            <li key={d.id} className="relative">
+              <a
+                href={`#${d.id}`}
+                aria-label={nameFor(d)}
+                aria-current={isActive ? "location" : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (handled.current) { handled.current = false; return; }
+                  jumpTo(d);
+                }}
+                className={`group relative block h-11 w-11 rounded-full ${FOCUS}`}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ left: dotLeft }}
+                  className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ${isActive
+                    ? "size-3.5 bg-indigo-600 ring-4 ring-indigo-600/20 dark:bg-indigo-400 dark:ring-indigo-400/25"
+                    : "size-2 bg-slate-400 dark:bg-slate-500"}`}
+                />
+                {d.needsLook && <span aria-hidden="true" style={{ left: dotLeft + 6 }} className="absolute top-2 size-1.5 rounded-full bg-amber-400" />}
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute left-full top-1/2 ml-2 w-max max-w-[220px] -translate-y-1/2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm dark:border-slate-600 dark:bg-slate-800 ${reveal === d.id ? "block" : "hidden group-focus-visible:block"}`}
+                >
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-600 dark:text-slate-400">{d.label}</span>
+                  {d.summary && <span className="mt-0.5 block font-mono text-[13px] font-bold tabular-nums text-slate-900 dark:text-white">{d.summary}</span>}
+                  {d.needsLook && <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300"><span className="size-1.5 shrink-0 rounded-full bg-amber-400" />Needs a look</span>}
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
 // ── B: chips at the top only, a compact mini-map once they have scrolled away ─
 function RailB({ destinations }: { destinations: SpendJourneyDestination[] }) {
   const chipsRef = useRef<HTMLDivElement>(null);
@@ -316,9 +502,10 @@ function RailC({ destinations }: { destinations: SpendJourneyDestination[] }) {
 }
 
 /** Phone rail for the Spend journey. Pass the same destinations the strip gets. */
-export default function SpendJourneyRail({ variant, destinations }: { variant: SpendRailVariant; destinations: SpendJourneyDestination[] }) {
+export default function SpendJourneyRail({ variant, destinations, scrollSim }: { variant: SpendRailVariant; destinations: SpendJourneyDestination[]; scrollSim?: RailScrollSim }) {
   if (destinations.length === 0) return null;
   if (variant === "a") return <RailA destinations={destinations} />;
+  if (variant === "a2") return <RailA2 destinations={destinations} scrollSim={scrollSim} />;
   if (variant === "b") return <RailB destinations={destinations} />;
   return <RailC destinations={destinations} />;
 }
