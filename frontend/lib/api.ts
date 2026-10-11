@@ -477,7 +477,7 @@ export type CategorySignal = {
 };
 
 export type CategorySignals = {
-  period: { start: string; end: string; days_elapsed: number; days_left: number | null; offset: number; closed: boolean };
+  period: { start: string; end: string; days_elapsed: number; days_left: number | null; period_days?: number; offset: number; closed: boolean };
   signals: Record<string, CategorySignal>;
 };
 

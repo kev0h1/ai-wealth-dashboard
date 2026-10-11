@@ -17,6 +17,7 @@ import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
+import HubAimSection from "@/components/HubAim";
 import { usePreferences } from "@/components/PreferencesContext";
 import { insightsForDisplay, openTipsFor, tipsForMerchants } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
@@ -87,6 +88,10 @@ export default function TransactionsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  // G242: true once the first list has painted, so the aim block is never inserted above a
+  // list that has not settled yet, and stays mounted (editor open) across later reloads.
+  const [listSettled, setListSettled] = useState(false);
+  useEffect(() => { if (!loading) setListSettled(true); }, [loading]);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   // G119: the filter sheet's own open/close state — there was previously no
   // filter-opening control at all on this page, chips only ever arrived via
@@ -506,15 +511,26 @@ export default function TransactionsPage() {
             a fresh instance on every category change, so a stale open/
             notified-tips strip from the PREVIOUS category can never carry
             over onto the new one. */}
-        {tips.length > 0 && !loading && (
-          <div className="mt-1">
-            <TipsLine
-              key={tipsLineCategory}
-              category={tipsLineCategory!}
-              tips={tips}
-              initialOpenTipId={tipParam ?? undefined}
-              onTipOpened={(id) => api.markInsightOpened(id).catch(() => {})}
-            />
+        {(listSettled || (tips.length > 0 && !loading)) && (
+          <div className="mt-1 divide-y divide-slate-200/70 dark:divide-slate-700/70">
+            {/* G242: the aim for a single category on the current period, above
+                the tips line. HubAimSection renders nothing for any other scope. */}
+            {listSettled && (
+              <HubAimSection
+                scope={{ categoryFilter, categoriesFilter, merchantsFilter, searchQuery, txnType, periodFrom, periodTo }}
+              />
+            )}
+            {tips.length > 0 && !loading && (
+              <div>
+                <TipsLine
+                  key={tipsLineCategory}
+                  category={tipsLineCategory!}
+                  tips={tips}
+                  initialOpenTipId={tipParam ?? undefined}
+                  onTipOpened={(id) => api.markInsightOpened(id).catch(() => {})}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

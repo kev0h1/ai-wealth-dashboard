@@ -31,7 +31,10 @@ function roundTo5(n: number): number {
   return Math.max(5, Math.round(n / 5) * 5);
 }
 
-// Aim-setting sheet for the Mirror's "This isn't me, change it" path.
+// Aim editor (G242). Sets, edits and removes an aim for any category. Reached from
+// the transactions hub's aim block, from the Mirror's "change it" step and from
+// a notable's "New normal" answer.
+// Originally the Mirror's "This isn't me, change it" path.
 // Fetches the category's usual-period baseline from /spend/category-signals,
 // prefils the derived aim (backend suggested_aim when present, otherwise
 // ~93% of usual rounded to £5), and saves via POST /checkpoints. Cancelling
@@ -175,11 +178,9 @@ export default function AimSheet({ category, onClose, onSaved, baseline, existin
                       {saving ? "Saving…" : "Save aim"}
                     </button>
                   </div>
-                  {(onSubmit || baseline) && (
-                    <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
-                      A pace check, not a limit. Spending past it is fine, you will just see where you are.
-                    </p>
-                  )}
+                  <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
+                    A pace check, not a limit. Spending past it is fine, you will just see where you are.
+                  </p>
                   {onRemove && existingAmount != null && (
                     <button
                       type="button"

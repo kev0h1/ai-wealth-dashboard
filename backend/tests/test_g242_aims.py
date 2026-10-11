@@ -221,3 +221,14 @@ def test_nudge_one_at_a_time_picks_the_furthest_past(monkeypatch):
 def test_dismissed_nudge_stays_quiet(monkeypatch):
     cid = str(ObjectId())
     assert _nudge(monkeypatch, _portrait(EAT), [_served(cid, "Eating Out", 100, 96, 6)], dismissed=[cid]) is None
+
+
+# ── Erase and export: aims live on the existing checkpoints document ────────
+
+def test_aims_and_the_nudge_flag_ride_the_erased_collection():
+    """G242 added a field (nudge_dismissed) and no collection. The aim, its
+    amount and the dismissed flag are all on the checkpoints document, which
+    the erasure manifest already covers, and the Mirror choice lives on the
+    behaviour portrait document, also covered."""
+    from app.db import collections
+    assert {"checkpoints_col", "behaviour_portrait_col"} <= set(collections.ERASURE_MANIFEST)
