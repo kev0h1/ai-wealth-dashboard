@@ -36,6 +36,11 @@ own_transfers.py, test_internal_inflows.py) already established.
 import asyncio
 from datetime import date, datetime, timedelta
 
+import pytest
+
+from app.core import timeutil
+from tests._clock import pin_user_today
+
 from bson import ObjectId
 
 import app.db.collections as db_collections
@@ -188,7 +193,15 @@ class FakeCol:
         return None
 
 
-TODAY = date.today()
+TODAY = timeutil.user_today()
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    """H105: TODAY is read once at import, so pin the app clock to it; the
+    fixtures below are built from TODAY and must not drift from what the
+    product reads when the suite runs on a later (or faked) day."""
+    pin_user_today(monkeypatch, TODAY)
 
 
 def _once_doc(*, fill_account_id, amount):
@@ -514,7 +527,7 @@ def _shortfall_bill():
     return {
         "name": "Council Tax", "days_away": 3, "amount": 815.0,
         "account_id": DEST_ACCT, "account_balance": 0.0, "is_credit_card": False,
-        "kind": "commitment", "expected_date": (date.today() + timedelta(days=3)).isoformat(),
+        "kind": "commitment", "expected_date": (timeutil.user_today() + timedelta(days=3)).isoformat(),
         "account_name": "Premier",
     }
 
@@ -558,7 +571,7 @@ def _base_patch(monkeypatch, *, accounts, bills, allocations_list):
     import app.services.pay_period as pay_period
     import app.services.income as income_mod
 
-    today_d = date.today()
+    today_d = timeutil.user_today()
     monkeypatch.setattr(income_mod, "get_confirmed_payday", lambda prefs, today_d: None)
     monkeypatch.setattr(pay_period, "_next_payday", lambda td, cfg: today_d + timedelta(days=10))
     # Solidly mid-period (day 21 of the period) so the payday-plan section
@@ -696,7 +709,7 @@ def _run_payday_plan(monkeypatch, *, allocations_list, salary_balance=3000.0):
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
 
     import app.services.pay_period as pay_period
-    today_d = date.today()
+    today_d = timeutil.user_today()
     # Force the payday-plan window ON via preview (mirrors test_payday_
     # plan_own_transfers.py's own recipe) so the section actually computes.
     monkeypatch.setattr(

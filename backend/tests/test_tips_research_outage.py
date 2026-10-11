@@ -10,12 +10,13 @@ fakes and `httpx.AsyncClient` is replaced.
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
 
 import app.routers.admin_usage as admin_usage
+from tests._clock import pin_user_today
 import app.routers.savings_insights as si
 from app.services import tips_research_health as health
 
@@ -126,6 +127,15 @@ def test_timeout_and_request_error_are_classified(monkeypatch, runs):
     _tavily(monkeypatch, RuntimeError("boom"))
     _, outcome = _generate_with_outcome()
     assert outcome["failure"] == "error"
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    """H105: the product stamps these docs with datetime.utcnow() (a real
+    persisted clock) and checks freshness against timeutil.user_today(), so
+    pin the user clock to the real instant. The two then cannot disagree
+    when the suite runs under a faked or later calendar."""
+    pin_user_today(monkeypatch, datetime.now(timezone.utc))
 
 
 # 2. stale, not blank --------------------------------------------------------

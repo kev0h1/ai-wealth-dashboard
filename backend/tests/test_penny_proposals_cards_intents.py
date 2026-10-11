@@ -28,6 +28,7 @@ import app.routers.can_i as can_i_module
 import app.services.penny_tools as penny_tools_module
 from app.core.models import Account
 from app.services.penny_tools import execute_tool
+from tests._clock import pin_user_today
 
 UID = "kevin"
 
@@ -105,6 +106,15 @@ class _FakeCol:
 
         return _Result()
 
+
+# H105: promo/BT dates below are fixed 2026-27 calendar dates, and the tool
+# rejects a promo that ends in the past, so pin the app clock to a day before them.
+PINNED_TODAY = datetime(2026, 10, 12, 12, 0)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    pin_user_today(monkeypatch, PINNED_TODAY)
 
 def _live_doc(kind, params, **overrides):
     now = datetime.now()

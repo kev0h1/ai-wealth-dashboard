@@ -17,6 +17,8 @@ from datetime import date, datetime
 
 import app.routers.cards as cards
 from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS
+import pytest
+from tests._clock import pin_user_today
 
 
 UID = "kevin"
@@ -120,6 +122,12 @@ def _run(monkeypatch, accounts, cc_ids, txns, *, plan=None, plan_raises=False, w
 
     return asyncio.run(cards.cards_story(user={"email": UID}, which=which))
 
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    """H105: the fixture's promo/rate schedule is fixed 2026-27 calendar months,
+    so pin the app clock to the day the transactions are dated."""
+    pin_user_today(monkeypatch, D1)
 
 D1 = date(2026, 9, 5)
 

@@ -337,7 +337,7 @@ def _run_brief(monkeypatch, plans, accounts, commitment_docs, bills=None):
 
 
 def _goal(slice_pounds=80.0, **extra):
-    return _doc("Japan", amount=2000.0, target_date=(date.today() + timedelta(days=800)).isoformat(),
+    return _doc("Japan", amount=2000.0, target_date=(commitments.timeutil.user_today() + timedelta(days=800)).isoformat(),
                 user_id=CUID, **extra)
 
 
@@ -390,7 +390,7 @@ def test_ranks_after_the_set_aside_card(monkeypatch):
 
 
 def test_capped_plan_shows_the_reason(monkeypatch):
-    today = date.today()
+    today = commitments.timeutil.user_today()
     start, end = commitments.get_pay_period_for_date(today, {"type": "calendar_month"})
     prev = (start - timedelta(days=1)).isoformat()
     doc = _goal(period_eased={prev: {"contribution_pence": 0, "usual_pence": 8000}})
@@ -401,7 +401,7 @@ def test_capped_plan_shows_the_reason(monkeypatch):
 
 def test_largest_slice_first_and_only_one_card(monkeypatch):
     big = _goal()
-    small = _doc("Car", amount=500.0, target_date=(date.today() + timedelta(days=800)).isoformat(), user_id=CUID)
+    small = _doc("Car", amount=500.0, target_date=(commitments.timeutil.user_today() + timedelta(days=800)).isoformat(), user_id=CUID)
     plans = [_gplan(big, remaining=80.0, dest="p1"), _plan(str(small["_id"]), "Car", "cur", 20.0, kind="goal", dest=("p2",))]
     items = _run_brief(monkeypatch, plans, [_account("cur", 40.0)], [big, small])
     assert len([i for i in items if i["type"] == "plan_easing"]) == 1
@@ -409,7 +409,7 @@ def test_largest_slice_first_and_only_one_card(monkeypatch):
 
 
 def test_eased_plan_shows_the_deferred_line(monkeypatch):
-    today = date.today()
+    today = commitments.timeutil.user_today()
     _s, end = commitments.get_pay_period_for_date(today, {"type": "calendar_month"})
     doc = _goal(period_eased={end.isoformat(): {"contribution_pence": 3000, "usual_pence": 8000, "mode": "keep_date"}})
     items = _run_brief(monkeypatch, [_gplan(doc, remaining=30.0)], [_account("cur", 500.0)], [doc])

@@ -30,6 +30,11 @@ files by convention here).
 import asyncio
 from datetime import date, timedelta
 
+import pytest
+
+from app.core import timeutil
+from tests._clock import pin_user_today
+
 import app.routers.analytics as analytics
 import app.services.companion as companion
 import app.db.collections as db_collections
@@ -37,7 +42,15 @@ from app.routers.analytics import is_assessable_bill, PATTERNS_VERSION
 from app.services.categories import MOVEMENT
 
 UID = "kevin"
-TODAY = date.today()
+TODAY = timeutil.user_today()
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    """H105: TODAY is read once at import, so pin the app clock to it; the
+    fixtures below are built from TODAY and must not drift from what the
+    product reads when the suite runs on a later (or faked) day."""
+    pin_user_today(monkeypatch, TODAY)
 
 
 # ── Generic fake-Mongo plumbing (subset matcher + collection) ───────────────

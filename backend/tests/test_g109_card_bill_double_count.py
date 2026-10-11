@@ -38,6 +38,8 @@ import asyncio
 import inspect
 from datetime import date, timedelta
 
+from app.core import timeutil
+
 import app.routers.analytics as analytics
 import app.routers.allocations as allocations_router
 import app.routers.commitments as commitments_router
@@ -170,7 +172,7 @@ def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
     every calendar day."""
     _wire_common(monkeypatch)
 
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
 
     def fake_confirmed_payday(_prefs, _today):
@@ -217,7 +219,7 @@ def test_a_repayment_to_that_card_does_reduce_the_walk(monkeypatch):
     calendar day."""
     _wire_common(monkeypatch)
 
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
 
     def fake_confirmed_payday(_prefs, _today):
@@ -264,7 +266,7 @@ def test_charge_and_its_repayment_together_reduce_cash_only_once(monkeypatch):
     the window on every calendar day."""
     _wire_common(monkeypatch)
 
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
 
     def fake_confirmed_payday(_prefs, _today):
@@ -316,7 +318,7 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
     `days_away: 1` stays inside the window on every calendar day."""
     _wire_common(monkeypatch)
 
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
 
     def fake_confirmed_payday(_prefs, _today):
@@ -375,7 +377,7 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
     NOR the reserve (nothing has posted yet), overstating cash by £180.
 
     G137, 2026-09-21: originally written against `days_away: 10` under an
-    UNPINNED "today" (`compute_safe_to_spend` reads `date.today()`
+    UNPINNED "today" (`compute_safe_to_spend` reads `timeutil.user_today()`
     directly), relying on `get_confirmed_payday` finding no confirmed
     income stream in this fixture's bare prefs doc and falling back to the
     default "calendar_month" pay config, whose payday is a fixed calendar
@@ -393,7 +395,7 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
     """
     _wire_common(monkeypatch, recurring_spend=[])  # no card_dest_account_id anywhere -> unlearned
 
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
 
     def fake_confirmed_payday(_prefs, _today):
@@ -465,7 +467,7 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
     """
     _wire_common(monkeypatch, recurring_spend=[])
 
-    today = date.today()
+    today = timeutil.user_today()
     next_payday = today + timedelta(days=15)  # days_until_payday == 15, always
 
     def fake_confirmed_payday(_prefs, _today):
@@ -508,23 +510,23 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
 # Three separate calendar-drift blockages have come out of this one file in
 # two days (G137, G180/H94, H98) because each fix pinned only the test that
 # happened to be red that day rather than the underlying pattern: a fixture
-# built from `date.today()` plus a bare `days_away`/`expected_date` literal
+# built from `timeutil.user_today()` plus a bare `days_away`/`expected_date` literal
 # is silently at the mercy of `days_until_payday`, which shrinks to zero as
 # any calendar month ends (the `calendar_month` payday fallback used
 # whenever `get_confirmed_payday` finds no confirmed income stream in a
 # bare prefs doc). This file's own established fix (G180, extended by H98
 # above) is not "freeze a global clock" (that's test_pending_observed.py's
-# idiom, via timeutil.datetime) but "read the real date.today() once, then
+# idiom, via timeutil.datetime) but "read the real timeutil.user_today() once, then
 # pin income_service.get_confirmed_payday to today + 15 days so
 # days_until_payday is always 15, immune to the calendar" -- so the source
-# scan below does not forbid date.today() outright, it requires every test
+# scan below does not forbid timeutil.user_today() outright, it requires every test
 # that reads it to also carry that pin in the same function body. A test
-# with neither (no date.today() and no days_away fixture at all, like the
+# with neither (no timeutil.user_today() and no days_away fixture at all, like the
 # four `_touches_pooled_cash` unit tests above) is unaffected by either
 # check and passes trivially.
 def test_no_test_reads_the_real_clock_without_pinning_payday():
     """Source-scan guard: every test function in this file that calls
-    date.today()/datetime.utcnow()/datetime.now() must also monkeypatch
+    timeutil.user_today()/datetime.utcnow()/datetime.now() must also monkeypatch
     income_service.get_confirmed_payday within the same function body.
     Catches a future test being added back into the unpinned shape that
     caused H98 (and, one test over, the shape G180/H94 already fixed)."""

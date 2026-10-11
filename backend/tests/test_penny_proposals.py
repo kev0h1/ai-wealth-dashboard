@@ -24,6 +24,8 @@ import asyncio
 import json
 from datetime import date, datetime, timedelta
 
+from app.core import timeutil
+
 import pytest
 from fastapi import HTTPException
 
@@ -224,7 +226,7 @@ def test_propose_add_planned_happy_path(monkeypatch):
     fake_col = _FakeCol()
     monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_col)
 
-    future = (date.today() + timedelta(days=5)).isoformat()
+    future = (timeutil.user_today() + timedelta(days=5)).isoformat()
     result = asyncio.run(execute_tool(UID, "propose_add_planned", {"name": "Car service", "amount": 150, "date": future}))
 
     assert result["proposal"] is True
@@ -233,12 +235,12 @@ def test_propose_add_planned_happy_path(monkeypatch):
 
 
 def test_propose_add_planned_negative_amount_is_tool_error():
-    result = asyncio.run(execute_tool(UID, "propose_add_planned", {"name": "X", "amount": -5, "date": date.today().isoformat()}))
+    result = asyncio.run(execute_tool(UID, "propose_add_planned", {"name": "X", "amount": -5, "date": timeutil.user_today().isoformat()}))
     assert "error" in result
 
 
 def test_propose_add_planned_past_date_is_tool_error():
-    past = (date.today() - timedelta(days=5)).isoformat()
+    past = (timeutil.user_today() - timedelta(days=5)).isoformat()
     result = asyncio.run(execute_tool(UID, "propose_add_planned", {"name": "X", "amount": 10, "date": past}))
     assert "error" in result
 
@@ -252,7 +254,7 @@ def test_propose_add_planned_ambiguous_account(monkeypatch):
     monkeypatch.setattr(accounts_module, "get_accounts", fake_get_accounts)
 
     result = asyncio.run(execute_tool(UID, "propose_add_planned", {
-        "name": "X", "amount": 10, "date": date.today().isoformat(), "account_id": "joint",
+        "name": "X", "amount": 10, "date": timeutil.user_today().isoformat(), "account_id": "joint",
     }))
     assert result.get("ambiguous") is True
 
@@ -348,7 +350,7 @@ def test_propose_create_commitment_happy_path(monkeypatch):
 
     monkeypatch.setattr(commitments_module, "preview_commitment", fake_preview)
 
-    target = (date.today() + timedelta(days=200)).isoformat()
+    target = (timeutil.user_today() + timedelta(days=200)).isoformat()
     result = asyncio.run(execute_tool(UID, "propose_create_commitment", {"name": "Japan trip", "amount": 2000, "target_date": target}))
 
     assert result["proposal"] is True
@@ -363,7 +365,7 @@ def test_propose_create_commitment_past_target_date_is_tool_error():
 
 
 def test_propose_create_commitment_invalid_amount_is_tool_error():
-    target = (date.today() + timedelta(days=100)).isoformat()
+    target = (timeutil.user_today() + timedelta(days=100)).isoformat()
     result = asyncio.run(execute_tool(UID, "propose_create_commitment", {"name": "X", "amount": -1, "target_date": target}))
     assert "error" in result
 
@@ -376,7 +378,7 @@ def test_propose_create_commitment_ambiguous_pot_account(monkeypatch):
 
     monkeypatch.setattr(accounts_module, "get_accounts", fake_get_accounts)
 
-    target = (date.today() + timedelta(days=100)).isoformat()
+    target = (timeutil.user_today() + timedelta(days=100)).isoformat()
     result = asyncio.run(execute_tool(UID, "propose_create_commitment", {
         "name": "X", "amount": 100, "target_date": target, "funding_pots": [{"account_id": "ISA"}],
     }))
@@ -1352,7 +1354,7 @@ def test_execute_create_allocation_stamps_created_via(monkeypatch):
 
 
 def test_execute_add_planned_stamps_created_via(monkeypatch):
-    future = (date.today() + timedelta(days=5)).isoformat()
+    future = (timeutil.user_today() + timedelta(days=5)).isoformat()
     fake_proposals = _FakeCol([_live_doc("add_planned", {"name": "Car service", "amount": 150, "date": future, "account_id": None})])
     monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
     _patch_consented_prefs(monkeypatch)
@@ -1382,7 +1384,7 @@ def test_execute_add_planned_stamps_created_via(monkeypatch):
 
 
 def test_execute_create_commitment_stamps_created_via_and_sets_source(monkeypatch):
-    target = (date.today() + timedelta(days=200)).isoformat()
+    target = (timeutil.user_today() + timedelta(days=200)).isoformat()
     fake_proposals = _FakeCol([_live_doc("create_commitment", {"name": "Japan trip", "amount": 2000, "target_date": target, "funding_pots": []})])
     monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
     _patch_consented_prefs(monkeypatch)
@@ -1670,7 +1672,7 @@ def test_execute_set_card_apr_dispatches_and_preserves_existing_promos(monkeypat
     ])
     monkeypatch.setattr(card_terms_module, "accounts_col", fake_accounts_col)
 
-    until = (date.today() + timedelta(days=30)).isoformat()
+    until = (timeutil.user_today() + timedelta(days=30)).isoformat()
     fake_terms_col = _FakeCol([{
         "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 21.9,
         "promos": [{"kind": "purchases", "apr_pct": 0.0, "until": until}],
