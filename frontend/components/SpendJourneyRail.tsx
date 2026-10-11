@@ -97,7 +97,7 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
   const startY = useRef(0);
   const pressed = useRef(false);
 
-  if (active === null || destinations.length === 0) return null;
+  const started = active !== null;
 
   function idAt(clientY: number): string | null {
     const items = Array.from(listRef.current?.children ?? []) as HTMLElement[];
@@ -114,7 +114,7 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
   return (
     <nav
       aria-label="Jump through this pay period"
-      className="fixed left-0.5 top-[38%] z-30 w-11 lg:hidden"
+      className={`fixed left-0.5 top-[38%] z-30 w-11 lg:hidden ${started ? "" : "pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100"}`}
     >
       <ol
         ref={listRef}
@@ -257,7 +257,7 @@ function RailC({ destinations }: { destinations: SpendJourneyDestination[] }) {
             ref={buttonRef}
             type="button"
             aria-expanded={open}
-            aria-controls="spend-rail-c-panel"
+            aria-controls={open ? "spend-rail-c-panel" : undefined}
             onClick={() => setOpen((v) => !v)}
             className={`flex h-11 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none ${FOCUS}`}
           >
