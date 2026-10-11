@@ -782,7 +782,7 @@ export function MajorityRowView({
   onOpen,
   tips,
   aim = null,
-  aimStyle = "line",
+  aimStyle: aimStyleProp = "line",
   periodDays = 28,
   aimOffer = null,
   onAimAction,
@@ -796,6 +796,7 @@ export function MajorityRowView({
 } & MajorityRowAimProps) {
   const s = row.payments_count === 1 ? "" : "s";
   const suffix = tipSubline(tips);
+  const aimStyle = aimStyleProp === "ringUnlessTip" ? (suffix ? "line" : "ring") : aimStyleProp;
   const rowButton = (
     <button
       type="button"

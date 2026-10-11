@@ -13,7 +13,11 @@
 // first is out of scope for this round, the second fetches its own copy). The
 // title row below is a stand-in for the hero and is not a proposal.
 //
-// Deep links: ?variant=a|b|c&mode=light|dark&state=spend|category|aim|mirror|step|nudge&chrome=0
+// Round 2 (Kevin's pick: C, with two refinements). States hub, hubaim, hubboth, rowtip and
+// rowtip2 always render variant C. The hub is HubMock.tsx: the hub page fetches its own data,
+// so the shell is hand-authored and every part that carries the design is the real component.
+//
+// Deep links: ?variant=a|b|c&mode=light|dark&state=spend|category|aim|mirror|step|nudge|past|categoryaim|aimedit|opened|hub|hubaim|hubboth|rowtip|rowtip2&chrome=0
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -27,17 +31,20 @@ import MirrorRouteLink from "@/components/MirrorRouteLink";
 import MirrorNextStep from "@/components/MirrorNextStep";
 import PennyMark from "@/components/PennyMark";
 import { TraitCard } from "@/app/mirror/MirrorPage";
+import HubMock from "./HubMock";
 import { aimPace } from "@/lib/aimPace";
 import type { AimRowStyle } from "@/components/AimProgress";
 import type { ActiveAim, Checkpoint, MirrorTrait } from "@/lib/api";
-import { EATING_OUT_TXNS, PERIOD_DAYS, SPENT, TRAITS, USUAL, aimFor, suggestedAim, verdictFor } from "./fixtures";
+import { ALL_TIPS, EATING_OUT_TIP, EATING_OUT_TXNS, PERIOD_DAYS, PERIOD_FROM, PERIOD_TO, SPENT, TRAITS, USUAL, aimFor, suggestedAim, verdictFor } from "./fixtures";
 
 type Variant = "a" | "b" | "c";
-type Screen = "spend" | "mirror";
-type PreviewState = "spend" | "category" | "aim" | "mirror" | "step" | "nudge" | "past" | "categoryaim" | "aimedit" | "opened";
-const STATES: PreviewState[] = ["spend", "category", "aim", "mirror", "step", "nudge", "past", "categoryaim", "aimedit", "opened"];
+type Screen = "spend" | "mirror" | "hub";
+type PreviewState = "spend" | "category" | "aim" | "mirror" | "step" | "nudge" | "past" | "categoryaim" | "aimedit" | "opened" | "hub" | "hubaim" | "hubboth" | "rowtip" | "rowtip2";
+const STATES: PreviewState[] = ["spend", "category", "aim", "mirror", "step", "nudge", "past", "categoryaim", "aimedit", "opened", "hub", "hubaim", "hubboth", "rowtip", "rowtip2"];
+const ROUND2: PreviewState[] = ["hub", "hubaim", "hubboth", "rowtip", "rowtip2"];
 const STATE_LABEL: Record<PreviewState, string> = {
   spend: "Spend", category: "Category sheet", aim: "Aim editor", mirror: "Mirror", step: "Next steps", nudge: "Penny nudge", past: "Past an aim", categoryaim: "Sheet with aim", aimedit: "Edit aim", opened: "Editor opens",
+  hub: "R2 Hub", hubaim: "R2 Hub with aim", hubboth: "R2 Hub aim and tip", rowtip: "R2 Row tip, ring kept", rowtip2: "R2 Row tip, text line",
 };
 
 interface VariantConfig {
@@ -71,6 +78,14 @@ const CONFIG: Record<Variant, VariantConfig> = {
   },
 };
 
+const ROUND2_NOTE: Record<string, string> = {
+  hub: "Round 2, refinement 1. Tapping a category row goes to the transactions hub, not a pop-up. With no aim the hub carries one quiet 44px row under the filter chips, in the same grammar as the tips line.",
+  hubaim: "Round 2, refinement 1. With an aim, the same slot shows the ring, the sentence, the even-pace line and Edit or remove this aim. The amount editor is the one sheet left, because choosing a figure needs a field.",
+  hubboth: "Round 2. A hub that has an aim and a tip: the aim first (it is the user's own), a hairline, then the tips line.",
+  rowtip: "Round 2, refinement 2, layout 1. The ring stays beside the amount, the tip stays in the subline as it does in production (count first, then a figure). Groceries shows the longer two-tip subline.",
+  rowtip2: "Round 2, refinement 2, layout 2. A row that carries a tip drops the ring and shows the aim as a text line under the subline; rows without a tip keep the ring.",
+};
+
 type Sheet = { kind: "category" | "aim"; category: string } | null;
 
 export default function MirrorAimsClient() {
@@ -79,7 +94,10 @@ export default function MirrorAimsClient() {
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const state: PreviewState = STATES.includes(params.get("state") as PreviewState) ? (params.get("state") as PreviewState) : "spend";
   const chrome = params.get("chrome") !== "0";
-  const cfg = CONFIG[variant];
+  const round2 = ROUND2.includes(state);
+  // Round 2 is the C follow-up: its states always render C, whatever the chip says.
+  const cfgKey: Variant = round2 ? "c" : variant;
+  const cfg = CONFIG[cfgKey];
 
   useEffect(() => {
     const el = document.documentElement;
@@ -93,12 +111,12 @@ export default function MirrorAimsClient() {
   const eatingOutSpent = state === "nudge" ? 96 : state === "past" ? 122 : SPENT["Eating Out"];
   const verdict = useMemo(() => verdictFor(eatingOutSpent), [eatingOutSpent]);
 
-  const [screen, setScreen] = useState<Screen>(state === "mirror" || state === "step" || state === "opened" ? "mirror" : "spend");
+  const [screen, setScreen] = useState<Screen>(state === "mirror" || state === "step" || state === "opened" ? "mirror" : state === "hub" || state === "hubaim" || state === "hubboth" ? "hub" : "spend");
   const [aims, setAims] = useState<Record<string, Checkpoint>>(() => {
     const base: Record<string, Checkpoint> = { Groceries: aimFor(280, SPENT.Groceries, "fixture-aim-groceries") };
     if (state === "nudge") base["Eating Out"] = aimFor(100, 96, "fixture-aim-eating-out");
     if (state === "past") base["Eating Out"] = aimFor(100, 122, "fixture-aim-eating-out");
-    if (state === "categoryaim" || state === "aimedit") base["Eating Out"] = aimFor(100, 82, "fixture-aim-eating-out");
+    if (state === "categoryaim" || state === "aimedit" || state === "hubaim" || state === "hubboth" || state === "rowtip" || state === "rowtip2") base["Eating Out"] = aimFor(100, 82, "fixture-aim-eating-out");
     return base;
   });
   const [sheet, setSheet] = useState<Sheet>(
@@ -126,8 +144,17 @@ export default function MirrorAimsClient() {
   }
 
   const editorFor = (category: string) => setSheet({ kind: "aim", category });
-  const openForRow = (category: string) =>
-    cfg.rowOpensEditor ? editorFor(category) : setSheet({ kind: "category", category });
+  // C (Kevin's pick): a category row goes to the transactions hub, as production does today.
+  // A and B keep the round 1 behaviour (rule rows open the editor, others open the sheet).
+  const openForRow = (category: string) => {
+    if (cfgKey === "c") {
+      if (category === "Eating Out") { setScreen("hub"); if (typeof window !== "undefined") window.scrollTo({ top: 0 }); }
+      return;
+    }
+    return cfg.rowOpensEditor ? editorFor(category) : setSheet({ kind: "category", category });
+  };
+  const showTips = state === "hubboth" || state === "rowtip" || state === "rowtip2";
+  const rowAimStyle: AimRowStyle = state === "rowtip2" ? "ringUnlessTip" : cfg.rowStyle;
 
   // ── Spend ──────────────────────────────────────────────────────────────
   const eatingAim = aims["Eating Out"];
@@ -173,7 +200,8 @@ export default function MirrorAimsClient() {
           onIntent={async () => {}}
           onNewNormalRequest={() => {}}
           aims={aims}
-          aimStyle={cfg.rowStyle}
+          aimStyle={rowAimStyle}
+          categoryInsights={showTips ? ALL_TIPS : undefined}
           aimPeriodDays={PERIOD_DAYS}
           aimOffer={cfg.offerOnRow && !aims["Eating Out"] ? { category: "Eating Out", amount: suggestedAim("Eating Out") ?? 100 } : null}
           onAimAction={cfg.rowOpensEditor ? editorFor : undefined}
@@ -245,6 +273,21 @@ export default function MirrorAimsClient() {
     </div>
   );
 
+  const hub = (
+    <HubMock
+      category="Eating Out"
+      transactions={EATING_OUT_TXNS}
+      from={PERIOD_FROM}
+      to={PERIOD_TO}
+      aim={aims["Eating Out"] ?? null}
+      suggestedAim={suggestedAim("Eating Out")}
+      periodDays={PERIOD_DAYS}
+      tips={showTips ? [EATING_OUT_TIP] : []}
+      onBack={goSpend}
+      onOpenEditor={() => editorFor("Eating Out")}
+    />
+  );
+
   const sheetCategory = sheet?.category ?? "";
   const sheetAim = sheet ? aims[sheetCategory] : undefined;
 
@@ -253,8 +296,9 @@ export default function MirrorAimsClient() {
       <div className="min-h-dvh bg-[#f0f2f7] pb-28 dark:bg-[#0f172a]">
         {chrome && (
           <nav aria-label="Preview controls" className="border-b border-slate-200 px-4 py-2 text-[12px] text-slate-600 dark:border-slate-700 dark:text-slate-400">
-            <p className="font-semibold text-slate-800 dark:text-slate-100">{cfg.name}</p>
+            <p className="font-semibold text-slate-800 dark:text-slate-100">{cfg.name}{round2 ? " · round 2" : ""}</p>
             <p className="mt-0.5 leading-snug">{cfg.summary}</p>
+            {round2 && <p className="mt-1 leading-snug">{ROUND2_NOTE[state]}</p>}
             <p className="mt-1 flex flex-wrap gap-x-3">
               {(["a", "b", "c"] as const).map((v) => (
                 <a key={v} className="inline-flex min-h-[44px] items-center font-semibold text-indigo-700 dark:text-indigo-300" href={`?variant=${v}&mode=${mode}&state=${state}`}>Variant {v.toUpperCase()}</a>
@@ -267,10 +311,11 @@ export default function MirrorAimsClient() {
           </nav>
         )}
         <main className="mx-auto w-full max-w-[430px] px-4 pt-5">
-          {screen === "spend" ? spend : mirror}
+          {screen === "spend" ? spend : screen === "hub" ? hub : mirror}
           <aside aria-label="About this preview" className="mt-8 rounded-xl border border-slate-200 p-3 text-[11px] leading-snug text-slate-600 dark:border-slate-700 dark:text-slate-400">
             <p className="font-semibold text-slate-700 dark:text-slate-200">About this preview</p>
             <p className="mt-1">Not rendered: the Spend hero (the title row above is a stand-in) and the New normal consent sheet (it fetches its own copy, so that button does nothing here). The Mirror header and intro are hand-authored around the real trait card. The Planning plan and checkpoint steps end here, those screens are outside this round. Fixtures only.</p>
+            <p className="mt-1">Round 2 (C only): the transactions hub page fetches its own data and reads its filters from the URL, so it cannot take fixtures without a refactor. Its page shell is hand-authored here; the filter chips and trigger, day groups, payment rows, tips line and ring are the real components, and the aim block is new. In production a category row already opens the hub, and the category sheet survives only for the Payments over £250 list, so the round 1 category sheet and its aim section would go if the hub is agreed. Only the Eating Out row opens the hub in this preview.</p>
           </aside>
         </main>
 

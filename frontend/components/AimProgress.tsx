@@ -10,7 +10,9 @@ import { aimPace } from "@/lib/aimPace";
 import { fmtWhole } from "@/lib/aimFormat";
 import MoneyText from "@/components/MoneyText";
 
-export type AimRowStyle = "line" | "rule" | "ring";
+/** "ringUnlessTip" is round 2: the ring, but a row that already carries a tip suffix
+ *  in its subline drops the ring for the text line, so neither crowds the other. */
+export type AimRowStyle = "line" | "rule" | "ring" | "ringUnlessTip";
 
 /** The sentence all three presentations share: "£82 of a £100 aim, on pace". */
 export function aimSentence(aim: Checkpoint, periodDays: number, sym = "£"): string {
