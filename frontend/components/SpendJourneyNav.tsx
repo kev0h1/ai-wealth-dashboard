@@ -8,9 +8,12 @@ export type SpendJourneyDestination = {
   value: ReactNode;
   needsLook?: boolean;
   onBeforeJump?: () => void;
+  /** G264: plain-text figure ("3 payments, £84") for the slim rails' labels and
+   *  accessible names. The default strip ignores it and keeps rendering `value`. */
+  summary?: string;
 };
 
-function jumpTo(destination: SpendJourneyDestination) {
+export function jumpTo(destination: SpendJourneyDestination) {
   destination.onBeforeJump?.();
   const section = document.getElementById(destination.id);
   if (!section) return;

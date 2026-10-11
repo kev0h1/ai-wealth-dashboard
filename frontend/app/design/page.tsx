@@ -657,6 +657,25 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "spend-rail",
+    name: "Spend navigation rail · G264",
+    description:
+      "G264, skills: impeccable (primary), design-taste-frontend (considered), web-design-guidelines (audit); directions drafted by openai/gpt-6-astra and rewritten to DESIGN.md · Kevin: the pinned 2x2 jump strip takes about a quarter of the phone screen · A the timeline markers become a slim sticky rail, press or drag to reveal labels and amounts / B the 2x2 chips show only at the top, a compact mini-map takes over once scrolled / C one slim row with the current section and a disclosure of every section · all three also hide a zero-value to-categorise stop and say needs for one payment · renders the production SpendVerdictView, SpendJourneySummary, SpendTrends and strip with a long fixture journey (SpendPage fetches its own data, so its grid is mirrored) · ?variant=current|a|b|c&mode=light|dark&state=top|mid|bottom|nochanges|nothingtocategorise|zero&nav=1&chrome=0",
+    variants: [
+      { label: "A · Timeline rail", value: "a" },
+      { label: "B · Mini-map", value: "b" },
+      { label: "C · Current-section row", value: "c" },
+    ],
+    states: [
+      { label: "Top", value: "top" },
+      { label: "Mid", value: "mid" },
+      { label: "Bottom", value: "bottom" },
+      { label: "No changes", value: "nochanges" },
+      { label: "Nothing to categorise", value: "nothingtocategorise" },
+      { label: "One 40p payment", value: "zero" },
+    ],
+  },
+  {
     slug: "spend-live",
     name: "spend-live",
     description: "Spend page · fixtures reference (real components)",
