@@ -67,3 +67,14 @@ def test_erasure_manifest_and_erase_only_collections_do_not_overlap():
         f"collection(s) listed in both ERASURE_MANIFEST and "
         f"ERASE_ONLY_COLLECTIONS: {sorted(overlap)}"
     )
+
+
+def test_yapily_collections_swept_by_erase_user_without_a_binding():
+    """H87: the removed provider's three collections have no *_col binding,
+    are not in ERASURE_MANIFEST, and are still swept on erasure through
+    ERASE_ONLY_COLLECTIONS until backend/scripts/retire_yapily_accounts.py
+    drops them."""
+    for bare in ("yapily_accounts", "yapily_consents", "yapily_transactions"):
+        assert bare in collections.ERASE_ONLY_COLLECTIONS
+        assert f"{bare}_col" not in collections.ERASURE_MANIFEST
+        assert not hasattr(collections, f"{bare}_col")
