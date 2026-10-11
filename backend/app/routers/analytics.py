@@ -3259,13 +3259,12 @@ async def at_risk_count(user: dict = Depends(current_user)):
                 return v
 
         oid_ids = [_try_oid(a) for a in acct_ids]
-        for col in (accounts_col,):
-            async for acc in col.find(
-                {"_id": {"$in": oid_ids}},
-                {"balance": 1, "current_balance": 1, "available_balance": 1},
-            ):
-                bal = acc.get("balance") or acc.get("current_balance") or acc.get("available_balance") or 0.0
-                live_balances[str(acc["_id"])] = float(bal)
+        async for acc in accounts_col.find(
+            {"_id": {"$in": oid_ids}},
+            {"balance": 1, "current_balance": 1, "available_balance": 1},
+        ):
+            bal = acc.get("balance") or acc.get("current_balance") or acc.get("available_balance") or 0.0
+            live_balances[str(acc["_id"])] = float(bal)
 
     running: dict[str, float] = {}
     for b in assessable_bills:
@@ -3499,9 +3498,8 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
     bank_by_account: dict = {}
     if any(buckets.values()):
         acct_proj = {"provider": 1}
-        for col in (accounts_col,):
-            async for a in col.find({"user_id": uid}, acct_proj):
-                bank_by_account[str(a["_id"])] = a.get("provider")
+        async for a in accounts_col.find({"user_id": uid}, acct_proj):
+            bank_by_account[str(a["_id"])] = a.get("provider")
 
     result: dict = {}
     for key in keys:
@@ -4456,16 +4454,13 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             acc_id = pdoc.get("account_id")
             if acc_id:
                 _acct_doc = None
-                for _col in (accounts_col,):
-                    # account_type/account_subtype: forward-compat projection,
-                    # see acct_proj_map comment above — no current writer sets them.
-                    _acct_doc = await _col.find_one(
-                        {"_id": _try_oid_inner(acc_id)},
-                        {"name": 1, "provider": 1, "balance": 1,
-                         "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1},
-                    )
-                    if _acct_doc:
-                        break
+                # account_type/account_subtype: forward-compat projection,
+                # see acct_proj_map comment above — no current writer sets them.
+                _acct_doc = await accounts_col.find_one(
+                    {"_id": _try_oid_inner(acc_id)},
+                    {"name": 1, "provider": 1, "balance": 1,
+                     "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1},
+                )
                 if _acct_doc:
                     acc_name = _acct_doc.get("name")
                     acc_bank = _bank_label(_acct_doc.get("provider"))

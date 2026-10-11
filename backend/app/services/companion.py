@@ -621,14 +621,13 @@ async def _live_balance(account_id: str) -> float | None:
             return v
 
     oid = _try_oid(account_id)
-    for col in (accounts_col,):
-        doc = await col.find_one(
-            {"_id": oid},
-            {"balance": 1, "current_balance": 1, "available_balance": 1},
-        )
-        if doc:
-            bal = doc.get("balance") or doc.get("current_balance") or doc.get("available_balance") or 0.0
-            return float(bal)
+    doc = await accounts_col.find_one(
+        {"_id": oid},
+        {"balance": 1, "current_balance": 1, "available_balance": 1},
+    )
+    if doc:
+        bal = doc.get("balance") or doc.get("current_balance") or doc.get("available_balance") or 0.0
+        return float(bal)
     return None
 
 
@@ -926,8 +925,7 @@ async def _load_debits(uid: str, start: date, end: date) -> list[dict]:
     }
     proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
     out: list[dict] = []
-    for col in (transactions_col,):
-        out += await col.find(debit_q, proj).to_list(None)
+    out += await transactions_col.find(debit_q, proj).to_list(None)
     return out
 
 
@@ -1306,12 +1304,11 @@ async def _pp_salary_observed(
         tol = max(2.0, float(salary_amount) * 0.15)
         credit_q = {"user_id": uid, "transaction_type": "credit", "date": {"$gte": since}}
         proj = {"account_id": 1, "amount": 1}
-        for col in (transactions_col,):
-            async for c in col.find(credit_q, proj):
-                if str(c.get("account_id") or "") != str(salary_acct):
-                    continue
-                if abs(abs(float(c.get("amount") or 0)) - float(salary_amount)) <= tol:
-                    return True
+        async for c in transactions_col.find(credit_q, proj):
+            if str(c.get("account_id") or "") != str(salary_acct):
+                continue
+            if abs(abs(float(c.get("amount") or 0)) - float(salary_amount)) <= tol:
+                return True
         return False
     except Exception:
         log.exception("_pp_salary_observed: lookup failed for uid=%s acct=%s", uid, salary_acct)
@@ -5809,45 +5806,44 @@ async def compute_today_items(
                     _rc_start_dt = _datetime(_rc_period_start.year, _rc_period_start.month, _rc_period_start.day)
                     _rc_end_dt = _datetime(_rc_period_end.year, _rc_period_end.month, _rc_period_end.day, 23, 59, 59)
                     _rc_raw_txns: list[dict] = []
-                    for _col in (_rc_txns_col,):
-                        async for _doc in _col.find(
-                            {
-                                "user_id": uid,
-                                "transaction_type": {"$in": ["debit", "credit"]},
-                                "date": {"$gte": _rc_start_dt, "$lte": _rc_end_dt},
-                            },
-                            {
-                                "amount": 1, "date": 1, "category": 1, "custom_category": 1,
-                                "transaction_type": 1, "merchant_name": 1, "description": 1,
-                            },
-                        ):
-                            _doc_cat = _doc.get("custom_category") or _doc.get("category") or "Other"
-                            if _doc_cat != _rc_cat:
-                                continue
-                            _doc_amt = abs(float(_doc.get("amount") or 0))
-                            if _doc.get("transaction_type") == "credit":
-                                _doc_amt = -_doc_amt
-                            if _doc_amt <= 0:
-                                continue
-                            _rc_raw_txns.append({
-                                "amount": _doc_amt,
-                                # Display-only cleanup (_clean_descriptor_for_display,
-                                # above) — merchant_name is often blank for card
-                                # transactions, leaving the raw bank descriptor
-                                # (e.g. "AMZNMKTPLACE*NJ0X14124") as the only
-                                # candidate; this strips its POS reference suffix
-                                # and title-cases it for the rhythm checkpoint's
-                                # "dominant transaction" line. Never rewrites the
-                                # stored fields or feeds back into categorisation.
-                                "name": _clean_descriptor_for_display(
-                                    (_doc.get("merchant_name") or _doc.get("description") or "").strip()
-                                ),
-                                "date": (
-                                    _doc["date"].date()
-                                    if hasattr(_doc.get("date"), "date")
-                                    else _doc.get("date")
-                                ),
-                            })
+                    async for _doc in _rc_txns_col.find(
+                        {
+                            "user_id": uid,
+                            "transaction_type": {"$in": ["debit", "credit"]},
+                            "date": {"$gte": _rc_start_dt, "$lte": _rc_end_dt},
+                        },
+                        {
+                            "amount": 1, "date": 1, "category": 1, "custom_category": 1,
+                            "transaction_type": 1, "merchant_name": 1, "description": 1,
+                        },
+                    ):
+                        _doc_cat = _doc.get("custom_category") or _doc.get("category") or "Other"
+                        if _doc_cat != _rc_cat:
+                            continue
+                        _doc_amt = abs(float(_doc.get("amount") or 0))
+                        if _doc.get("transaction_type") == "credit":
+                            _doc_amt = -_doc_amt
+                        if _doc_amt <= 0:
+                            continue
+                        _rc_raw_txns.append({
+                            "amount": _doc_amt,
+                            # Display-only cleanup (_clean_descriptor_for_display,
+                            # above) — merchant_name is often blank for card
+                            # transactions, leaving the raw bank descriptor
+                            # (e.g. "AMZNMKTPLACE*NJ0X14124") as the only
+                            # candidate; this strips its POS reference suffix
+                            # and title-cases it for the rhythm checkpoint's
+                            # "dominant transaction" line. Never rewrites the
+                            # stored fields or feeds back into categorisation.
+                            "name": _clean_descriptor_for_display(
+                                (_doc.get("merchant_name") or _doc.get("description") or "").strip()
+                            ),
+                            "date": (
+                                _doc["date"].date()
+                                if hasattr(_doc.get("date"), "date")
+                                else _doc.get("date")
+                            ),
+                        })
                     if _rc_raw_txns and _rc_spent > 0:
                         _rc_biggest = max(_rc_raw_txns, key=lambda x: x["amount"])
                         if _rc_biggest["amount"] / _rc_spent >= 0.70:
@@ -6178,9 +6174,8 @@ async def infer_plan_sources_batch(
     }
     proj = {"account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1}
     credits_by_pot: dict[str, list[dict]] = {}
-    for col in (transactions_col,):
-        for t in await col.find(q, proj).to_list(None):
-            credits_by_pot.setdefault(str(t.get("account_id") or ""), []).append(t)
+    for t in await transactions_col.find(q, proj).to_list(None):
+        credits_by_pot.setdefault(str(t.get("account_id") or ""), []).append(t)
     debits = await _load_debits(uid, start, end) if credits_by_pot else []
     pot_source: dict[str, str | None] = {}
     for aid, credits in credits_by_pot.items():

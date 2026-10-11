@@ -67,3 +67,64 @@ def test_yapily_collections_are_erase_only_and_unbound():
     for name in script.COLLECTIONS:
         assert name in cols.ERASE_ONLY_COLLECTIONS
         assert not hasattr(cols, name + "_col")
+
+
+class _SeedCol(_Col):
+    def __init__(self, n):
+        super().__init__(n)
+
+    async def delete_many(self, f):
+        r = await super().delete_many(f)
+        self.n = 0
+        return r
+
+
+class _SeedDB(_DB):
+    def __init__(self, name):
+        super().__init__(name)
+        self.c = {n: _SeedCol(3) for n in script.COLLECTIONS}
+
+
+def test_only_restricts_count_to_one_collection(monkeypatch, capsys):
+    monkeypatch.setattr(cols, "db", _SeedDB("wealth_test_x"))
+    assert script.main(["--only", "yapily_accounts"]) == 0
+    out = capsys.readouterr().out
+    assert "yapily_accounts: 3 document(s)" in out
+    assert "yapily_consents" not in out and "yapily_transactions" not in out
+
+
+def test_apply_yes_deletes_and_drops_through_the_guarded_path(monkeypatch, capsys):
+    fake = _SeedDB("wealth_test_x")
+    dropped = []
+
+    async def fake_guarded_drop(client, db_name, collection, confirm_name=None):
+        dropped.append((db_name, collection, confirm_name))
+
+    monkeypatch.setattr(cols, "db", fake)
+    import app.db.guard as guard
+    monkeypatch.setattr(guard, "guarded_drop_collection", fake_guarded_drop)
+
+    assert script.main(["--apply", "--yes"]) == 0
+    out = capsys.readouterr().out
+    for name in script.COLLECTIONS:
+        assert f"{name}: deleted 3" in out
+        assert f"{name}: dropped" in out
+        assert fake.c[name].deleted
+    assert dropped == [("wealth_test_x", n, "wealth_test_x") for n in script.COLLECTIONS]
+
+
+def test_apply_yes_with_only_touches_just_that_collection(monkeypatch, capsys):
+    fake = _SeedDB("wealth_test_x")
+    dropped = []
+
+    async def fake_guarded_drop(client, db_name, collection, confirm_name=None):
+        dropped.append(collection)
+
+    monkeypatch.setattr(cols, "db", fake)
+    import app.db.guard as guard
+    monkeypatch.setattr(guard, "guarded_drop_collection", fake_guarded_drop)
+
+    assert script.main(["--apply", "--yes", "--only", "yapily_accounts"]) == 0
+    assert dropped == ["yapily_accounts"]
+    assert fake.c["yapily_accounts"].deleted
+    assert not fake.c["yapily_consents"].deleted and not fake.c["yapily_transactions"].deleted
