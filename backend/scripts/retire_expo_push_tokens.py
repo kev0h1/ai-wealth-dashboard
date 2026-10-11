@@ -59,6 +59,15 @@ async def run(apply: bool) -> int:
         print("count mode: nothing changed (use --apply --yes to delete)")
         return 0
 
+    # Check the drop guard BEFORE deleting anything so a run never half-completes.
+    if out[PLANS] is not None:
+        from app.db.guard import assert_drop_allowed
+        try:
+            assert_drop_allowed(cols.db.name, cols.db.name)
+        except Exception as exc:
+            print(f"refusing before any change: {exc}", file=sys.stderr)
+            return 3
+
     if out[TOKENS]:
         r = await cols.db[TOKENS].delete_many({})
         print(f"{TOKENS}: deleted {r.deleted_count}")

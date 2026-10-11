@@ -40,3 +40,27 @@ def test_count_mode_changes_nothing(monkeypatch, capsys):
     assert "expo_push_tokens: 2 document(s)" in out
     assert "savings_plans: 0 document(s)" in out
     assert not fake.c["expo_push_tokens"].deleted
+
+
+def test_apply_refuses_up_front_when_drop_guard_would_block(monkeypatch, capsys):
+    class Col:
+        def __init__(self, n):
+            self.n, self.deleted = n, False
+        async def count_documents(self, f):
+            return self.n
+        async def delete_many(self, f):
+            self.deleted = True
+    class DB:
+        name = "wealth"
+        def __init__(self):
+            self.c = {"expo_push_tokens": Col(2), "savings_plans": Col(0)}
+        async def list_collection_names(self):
+            return list(self.c)
+        def __getitem__(self, k):
+            return self.c[k]
+    import app.db.collections as cols
+    fake = DB()
+    monkeypatch.setattr(cols, "db", fake)
+    monkeypatch.delenv("ALLOW_DROP_PROD_DB", raising=False)
+    assert asyncio.run(script.run(True)) == 3
+    assert not fake.c["expo_push_tokens"].deleted
