@@ -300,6 +300,7 @@ def test_erase_user_clears_conversations(monkeypatch):
     for name, fake in fakes.items():
         monkeypatch.setattr(colmod, name, fake)
     monkeypatch.setattr(colmod, "ERASE_ONLY_COLLECTIONS", frozenset())
+    monkeypatch.setattr(colmod, "RETIRED_COLLECTIONS", frozenset())
     fakes["penny_conversations_col"].docs = [
         {"_id": "c1", "user_id": A, "turns": []}, {"_id": "c2", "user_id": B, "turns": []},
     ]

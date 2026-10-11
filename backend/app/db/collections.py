@@ -584,3 +584,24 @@ ERASE_ONLY_COLLECTIONS = frozenset({
     "mpesa_accounts", "mpesa_transactions",
     "mono_connections", "mono_accounts", "mono_transactions",
 })
+
+# A128: collections of RETIRED features that still exist in the database
+# (the Expo mobile port, removed 2026-09-08, left expo_push_tokens with
+# user_id-keyed rows; savings_plans is empty). Nothing under app/ binds or
+# reads them. erase_user still sweeps them by name (user_id and uid-keyed
+# _id) so account deletion removes a user's rows even before
+# scripts/retire_expo_push_tokens.py has deleted the data, and the guard in
+# tests/test_collections_manifest.py fails if a name here ever gains a live
+# binding (it is then no longer retired: move it into ERASURE_MANIFEST).
+# Once the script has run on every environment this set may be emptied.
+RETIRED_COLLECTIONS = frozenset({"expo_push_tokens", "savings_plans"})
+
+
+def managed_collection_names() -> set[str]:
+    """Every bare Mongo collection name erase_user knows about: live bindings
+    (by their real collection name, not the attribute name), erase-only and
+    retired. Anything in the database outside this set is unmanaged."""
+    names = set(ERASE_ONLY_COLLECTIONS) | set(RETIRED_COLLECTIONS)
+    for attr in ERASURE_MANIFEST:
+        names.add(globals()[attr].name)
+    return names

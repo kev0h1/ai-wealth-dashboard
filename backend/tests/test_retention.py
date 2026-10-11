@@ -190,7 +190,8 @@ def _patch_all_collections(monkeypatch, overrides: dict) -> None:
             continue
         monkeypatch.setattr(_real_cols, name, overrides.get(name, FakeCol()))
     fake_db = FakeDB({
-        name: overrides.get(name, FakeCol()) for name in _real_cols.ERASE_ONLY_COLLECTIONS
+        name: overrides.get(name, FakeCol())
+        for name in (_real_cols.ERASE_ONLY_COLLECTIONS | _real_cols.RETIRED_COLLECTIONS)
     })
     monkeypatch.setattr(_real_cols, "db", fake_db)
 
@@ -1141,3 +1142,16 @@ def test_stamp_activity_swallows_db_errors(monkeypatch):
     monkeypatch.setattr(retention, "user_profiles_col", ExplodingCol())
     # Must not raise.
     asyncio.run(retention.stamp_activity("kevin@example.com", now=NOW))
+
+
+def test_erase_user_sweeps_retired_expo_push_tokens(monkeypatch):
+    """A128: expo_push_tokens has no binding but holds user_id rows."""
+    uid, other = "gone@example.com", "stays@example.com"
+    tokens = FakeCol([
+        {"_id": "tok1", "user_id": uid, "platform": "ios"},
+        {"_id": "tok2", "user_id": other, "platform": "ios"},
+    ])
+    _patch_all_collections(monkeypatch, {"expo_push_tokens": tokens})
+    removed = asyncio.run(retention.erase_user(uid))
+    assert removed.get("expo_push_tokens") == 1
+    assert list(tokens.docs) == ["tok2"]
