@@ -301,6 +301,10 @@ function RailA2({ destinations, scrollSim }: { destinations: SpendJourneyDestina
         if (!(e.target as HTMLElement).matches(":focus-visible") && scrollSim !== "focus") return;
         focusedRef.current = true; setFocused(true);
       }}
+      onKeyDown={(e) => {
+        // Escape lets a keyboard user dismiss the rail: drop focus off the marker and it fades out.
+        if (e.key === "Escape") (document.activeElement as HTMLElement | null)?.blur();
+      }}
       onBlur={() => { focusedRef.current = false; setFocused(false); if (!scrollSim) scheduleHide(); }}
       className={`fixed top-[38%] z-30 w-11 transition-opacity duration-200 ease-out motion-reduce:transition-none lg:hidden ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
     >
@@ -341,7 +345,7 @@ function RailA2({ destinations, scrollSim }: { destinations: SpendJourneyDestina
                   if (handled.current) { handled.current = false; return; }
                   jumpTo(d);
                 }}
-                className="group relative block h-11 w-11 rounded-full focus-visible:outline-none"
+                className="group relative block h-11 w-11 rounded-full focus-visible:!outline-none"
               >
                 <span
                   aria-hidden="true"
