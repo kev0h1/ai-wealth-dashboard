@@ -77,7 +77,7 @@ console.error = origError;
 
 const src = readFileSync(new URL("../lib/capacitorPush.ts", import.meta.url), "utf8");
 check("registration listener calls postPushToken", /addListener\("registration"[\s\S]*?postPushToken\(token\.value/.test(src), true);
-check("resyncCompleted = true only behind a granted check", /=== "granted"\) resyncCompleted = true/.test(src) && (src.match(/resyncCompleted = true/g) || []).length === 1, true);
+check("completed is set only behind a granted result (A138 controller)", /result === "granted"\) \{\s*completed = true/.test(src) && (src.match(/completed = true/g) || []).length === 1, true);
 check("unregister cancels pending post and resync", /unregisterCapacitorPush[\s\S]*?cancelPendingTokenPost\?\.\(\)[\s\S]*?cancelPendingResync\?\.\(\)/.test(src), true);
 
 if (failures > 0) {

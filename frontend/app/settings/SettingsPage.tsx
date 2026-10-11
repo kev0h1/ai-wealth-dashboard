@@ -31,7 +31,8 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
 import { resolveFullName, initialsOf } from "@/lib/displayName";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
-import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
+import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce, awaitPushTokenPost } from "@/lib/capacitorPush";
+import { noDeviceAdvice } from "@/lib/testPushAdvice";
 import {
   isAvailable as checkBiometryAvailability,
   authenticate as authenticateBiometrics,
@@ -186,7 +187,7 @@ export default function SettingsPage() {
   const [notifError, setNotifError] = useState("");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
   const [testPushLoading, setTestPushLoading] = useState(false);
-  const [testPushMsg, setTestPushMsg] = useState<{ text: string; tone: "ok" | "warn" } | null>(null);
+  const [testPushMsg, setTestPushMsg] = useState<{ text: string; tone: "ok" | "warn"; action?: string } | null>(null);
 
   const [incomeBracket, setIncomeBracket] = useState("");
   const [incomeInput, setIncomeInput] = useState("");
@@ -987,6 +988,30 @@ export default function SettingsPage() {
     }
   }
 
+  // A138: native "Register this device": register now, wait for the server to
+  // hold the token, then re-send the test.
+  async function handleRegisterDevice() {
+    setTestPushLoading(true);
+    setTestPushMsg(null);
+    try {
+      const result = await initCapacitorPush();
+      if (result !== "granted") {
+        setTestPushMsg({
+          text: result === "denied"
+            ? "Notifications are blocked, enable them in your phone's Settings app."
+            : "Your phone didn't finish registering. Please try again in a moment.",
+          tone: "warn",
+          action: result === "denied" ? undefined : noDeviceAdvice(true).action ?? undefined,
+        });
+        return;
+      }
+      await awaitPushTokenPost();
+    } finally {
+      setTestPushLoading(false);
+    }
+    await handleTestPush();
+  }
+
   async function handleTestPush() {
     setTestPushLoading(true);
     setTestPushMsg(null);
@@ -996,10 +1021,8 @@ export default function SettingsPage() {
     try {
       const res = await api.sendTestPush();
       if (!res.ok) {
-        setTestPushMsg({
-          text: "No device is registered yet. Turn notifications off and on again to register this device.",
-          tone: "warn",
-        });
+        const advice = noDeviceAdvice(notifPermission === "native");
+        setTestPushMsg({ text: advice.text, tone: "warn", action: advice.action ?? undefined });
         return;
       }
       const received = await receivedPromise;
@@ -1021,7 +1044,8 @@ export default function SettingsPage() {
       }
     } finally {
       setTestPushLoading(false);
-      setTimeout(() => setTestPushMsg(null), 5000);
+      // The register action must stay tappable, so only plain messages auto-clear.
+      setTimeout(() => setTestPushMsg((m) => (m && m.action ? m : null)), 5000);
     }
   }
 
@@ -1502,6 +1526,16 @@ export default function SettingsPage() {
                     {testPushMsg.text}
                   </p>
                 )}
+                {testPushMsg?.action && (
+                  <button
+                    type="button"
+                    onClick={handleRegisterDevice}
+                    disabled={testPushLoading}
+                    className="mt-2 min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
+                  >
+                    {testPushMsg.action}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1703,7 +1737,7 @@ export default function SettingsPage() {
             <button
               onClick={handleSyncHistory}
               disabled={syncingHistory}
-              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
+              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
             >
               <RotateCcw size={14} className={syncingHistory ? "animate-spin" : ""} />
               {syncingHistory ? "Syncing…" : "Sync history (90 days)"}

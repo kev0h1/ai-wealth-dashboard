@@ -54,18 +54,6 @@ const pendingReceiveResolvers = new Set<(received: boolean) => void>();
 // exactly like `registrationListenerRegistered` exists to prevent.
 const pendingTokenResolvers = new Set<(token: string | null) => void>();
 
-// Guards `resyncCapacitorPush()`. `resyncInFlight` stops two overlapping
-// calls from both running the async work. `resyncCompleted` is set ONLY
-// after `initCapacitorPush()` has actually been awaited without throwing
-// earlier in the try block (a native-bridge exception from
-// checkPermissions(), or a failed dynamic import). A throw must leave
-// `resyncCompleted` false so a later call in the same session can retry,
-// collapsing this into a single "ran once" flag would permanently disable
-// self-heal for exactly the case it exists for, a flaky bridge. Do not
-// simplify this back to one boolean.
-let resyncCompleted = false;
-let resyncInFlight = false;
-
 // Resolves a push payload's `url` to a safe, app-relative path — mirrors
 // `public/sw.js`'s `notificationclick` handler (`data.url || "/"`), plus a
 // same-origin guard so a tampered/absolute-external url can never navigate
@@ -231,6 +219,14 @@ function reportPushDiagnostic(stage: string, detail: unknown, plat: string): voi
 // Nothing is sent while locked; the retry only fires after setAppLocked(false).
 let cancelPendingTokenPost: (() => void) | null = null;
 
+// A138: the most recent token upload started by the registration listener, so
+// a caller that has just awaited initCapacitorPush() (Settings "Register this
+// device") can wait for the server to hold the token before sending a test.
+let lastTokenPost: Promise<void> = Promise.resolve();
+export function awaitPushTokenPost(): Promise<void> {
+  return lastTokenPost.catch(() => {});
+}
+
 export function postPushToken(token: string, plat: string): Promise<void> {
   const registration =
     plat === "android" ? api.registerFcmToken(token, plat) : api.registerApnsToken(token, plat);
@@ -281,7 +277,7 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
         } catch {
           /* ignore */
         }
-        void postPushToken(token.value, platform());
+        lastTokenPost = postPushToken(token.value, platform());
         for (const resolve of pendingTokenResolvers) resolve(token.value);
         pendingTokenResolvers.clear();
       });
@@ -397,7 +393,7 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
 export async function unregisterCapacitorPush(opts: { remote?: boolean } = {}): Promise<void> {
   if (!isNative()) return;
   const remote = opts.remote !== false;
-  resyncCompleted = false;
+  resyncController.reset();
   // A140: a sign-out must not leave an unlock-deferred upload or resync
   // behind to register this token for the next user.
   cancelPendingTokenPost?.();
@@ -507,38 +503,145 @@ export async function isCapacitorPushRegistered(): Promise<boolean> {
  * by a deliberate Settings action, not this call.
  */
 export async function resyncCapacitorPush(): Promise<void> {
-  if (resyncCompleted || resyncInFlight) return;
   if (!isNative()) return;
+  void ensureResumeListener();
+  await resyncController.run();
+}
+
+/** One resync attempt through the guard chain, "skipped" when nothing was tried. */
+async function attemptResyncOnce(): Promise<PushInitResult | "skipped"> {
   // A140: never start while the biometric lock is up; defer the whole resync
   // until unlock (one pending deferral at a time).
   if (isAppLocked()) {
     if (!cancelPendingResync) {
       cancelPendingResync = runWhenUnlocked(() => {
         cancelPendingResync = null;
-        void resyncCapacitorPush();
+        void resyncController.run();
       });
     }
-    return;
+    return "skipped";
   }
-  if (!getToken()) return; // no session yet, the register POST would just 401
+  if (!getToken()) {
+    // A138/A135: a missing in-memory session token here means storage handed
+    // back nothing; log it (never throw) so the cause is visible in a debug build.
+    console.warn("[capacitorPush] resync skipped: no session token available");
+    return "skipped"; // no session yet, the register POST would just 401
+  }
   try {
     const { PushNotifications } = await import("@capacitor/push-notifications");
     const status = await PushNotifications.checkPermissions();
     // Never trigger the OS permission prompt from a background resync; that
-    // must stay a deliberate tap on the Settings toggle. A not-yet-granted
-    // permission is a legitimate no-op, not a failure, so it must not mark
-    // this resync as in-flight or completed, a later call this session
-    // (e.g. after the user grants it via the Settings toggle) stays free
-    // to do the real work.
-    if (status.receive !== "granted") return;
-    resyncInFlight = true;
-    // Only a real "granted" completes the resync; no-token/unavailable/denied
-    // stay retryable. A138 adds backoff and the Settings retry action.
-    if ((await initCapacitorPush()) === "granted") resyncCompleted = true;
+    // must stay a deliberate tap on the Settings toggle.
+    if (status.receive !== "granted") return "skipped";
+    return await initCapacitorPush();
   } catch {
     /* best-effort, a failed resync just leaves the existing token in place */
-  } finally {
-    resyncInFlight = false;
+    return "unavailable";
+  }
+}
+
+/**
+ * A138: the sign-out/sign-in race. Logout deletes the local FCM token; the
+ * next sign-in triggers a resync whose 10s token wait can race that deletion
+ * and come back "no-token". Only a real "granted" completes the resync;
+ * no-token/unavailable retry on a bounded backoff, and an app resume retries
+ * once more. Pure (injected init/schedule) so the check can drive it.
+ */
+export const RESYNC_BACKOFF_MS = [2000, 5000, 15000, 45000];
+
+export interface PushResyncController {
+  run(): Promise<void>;
+  resume(): Promise<void>;
+  reset(): void;
+  readonly completed: boolean;
+}
+
+export function createPushResyncController(deps: {
+  attempt: () => Promise<PushInitResult | "skipped">;
+  delays?: number[];
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (t: unknown) => void;
+}): PushResyncController {
+  const delays = deps.delays ?? RESYNC_BACKOFF_MS;
+  const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(t as ReturnType<typeof setTimeout>));
+  let completed = false;
+  let inFlight = false;
+  let step = 0;
+  let timer: unknown = null;
+  let generation = 0;
+
+  function cancelTimer() {
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+  }
+
+  async function once(scheduleRetry: boolean): Promise<void> {
+    if (completed || inFlight) return;
+    if (scheduleRetry) cancelTimer(); // a resume attempt leaves a pending backoff timer alone
+    const gen = generation;
+    inFlight = true;
+    let result: PushInitResult | "skipped";
+    try {
+      result = await deps.attempt();
+    } catch {
+      result = "unavailable";
+    } finally {
+      inFlight = false;
+    }
+    if (gen !== generation) return; // signed out meanwhile
+    if (result === "granted") {
+      completed = true;
+      step = 0;
+      return;
+    }
+    if (scheduleRetry && (result === "no-token" || result === "unavailable") && step < delays.length) {
+      const ms = delays[step++];
+      timer = setTimer(() => {
+        timer = null;
+        void once(true);
+      }, ms);
+    }
+  }
+
+  return {
+    run: () => once(true),
+    resume: () => {
+      // One extra attempt on resume, restarting nothing: a fresh chain only
+      // begins from run() (sign-in), so resume cannot loop forever.
+      return once(false);
+    },
+    reset() {
+      generation += 1;
+      completed = false;
+      step = 0;
+      cancelTimer();
+    },
+    get completed() {
+      return completed;
+    },
+  };
+}
+
+const resyncController = createPushResyncController({ attempt: attemptResyncOnce });
+
+let resumeListenerRegistered = false;
+async function ensureResumeListener(): Promise<void> {
+  if (resumeListenerRegistered) return;
+  resumeListenerRegistered = true;
+  try {
+    // A133: calling a plugin the binary does not implement can spin the JS
+    // thread, so detect it via PluginHeaders before touching it.
+    const headers = (Capacitor as unknown as { PluginHeaders?: Array<{ name: string }> }).PluginHeaders;
+    if (Array.isArray(headers) && !headers.some((h) => h.name === "App")) return;
+    const { App } = await import("@capacitor/app");
+    // A139: never return the plugin proxy from this async function.
+    await App.addListener("resume", () => {
+      void resyncController.resume();
+    });
+  } catch (e) {
+    resumeListenerRegistered = false;
+    console.error("[capacitorPush] resume listener failed", e);
   }
 }
 
