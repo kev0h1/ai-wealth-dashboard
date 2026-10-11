@@ -2126,7 +2126,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-11, claude): G242 fold-in 11d15774 applies 44px choice buttons and neutral indigo change on the Mirror; recommend Kevin close G259 against it.
 - [ ] **G260. Tips research freshness mixes utcnow() stamps with user_today() checks (found by the H105 review 2026-10-11): harmless in the UK except around midnight and under a faked clock; align both on timeutil** [owner: claude]
 - [ ] **G261. Front-Loader next step is explanatory only after G242: build a real pre-peak checkpoint (create it before the early-month peak, verify it from transactions per BEHAVIOURS Layer 4, nudge on it under Layer 2 consent)** [owner: claude]
-- [ ] **G262. After G242 on UAT (Kevin 2026-10-11): the 'How your money behaves' route sits under the Spend title beside the period picker but should head 'The rest of your spending' section; and no aim ring shows on any category row, so verify whether Kevin has an aim for the current period and whether the ring reads the right payload** [owner: claude] [priority: p1]
+- [ ] **G262. After G242 on UAT (Kevin 2026-10-11): the 'How your money behaves' route sits under the Spend title beside the period picker but should head 'The rest of your spending' section; and no aim ring shows on any category row, so verify whether Kevin has an aim for the current period and whether the ring reads the right payload** [owner: claude] [priority: p1] [state: in-progress] [branch: feature-G262-mirror-route-and-rings]
 
 ## H. Repo hygiene
 
