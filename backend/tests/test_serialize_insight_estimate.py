@@ -19,10 +19,21 @@ The contract this file locks in:
 """
 from datetime import datetime, timedelta
 
+import pytest
+
+from tests._clock import pin_user_today
+
 from app.routers.savings_insights import _serialize_insight, _savings_estimate_monthly
 from app.routers.analytics import _parse_saving_amount
 
-NOW = datetime.utcnow()
+# H105: fixed instant, and the app's user clock pinned to it, so the file is
+# date-independent (content_valid_until / deadline checks read timeutil).
+NOW = datetime(2026, 10, 12, 12, 0, 0)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch):
+    pin_user_today(monkeypatch, NOW)
 
 
 def _doc(**overrides) -> dict:
