@@ -236,7 +236,7 @@ def test_goal_update_relink_clears_existing_self_source(monkeypatch):
            "funding_pots": [{"account_id": "saving", "baseline": 0, "count_existing": False}]}
     col = _Collection([doc])
     monkeypatch.setattr(commitments, "commitments_col", col)
-    async def pots(_): return [{"account_id": "current", "baseline": 0, "count_existing": False}]
+    async def pots(_, _uid=None): return [{"account_id": "current", "baseline": 0, "count_existing": False}]
     async def serial(*_): return {"ok": True}
     monkeypatch.setattr(commitments, "_build_pots", pots)
     monkeypatch.setattr(commitments, "_serialise_one_with_siblings", serial)
