@@ -156,10 +156,12 @@ export function fulfilmentRow(plan: Plan): { detail: string; status: string; amo
   if (f.state === "fulfilled") {
     const last = f.matched[f.matched.length - 1];
     const when = last ? dateShort(last.date) : "";
-    return { detail: `${money(f.matched_pence)}${when ? ` set aside ${when}` : " set aside"}`, status: "Paid this period", amount: money(0) };
+    // A plan contribution is paid, never "set aside" (that is the set-aside mechanism).
+    // The amount slot says "Paid" so the row does not read "£0" under "Still to set aside".
+    return { detail: `${money(f.matched_pence)}${when ? ` paid ${when}` : " paid"}`, status: "this period", amount: "Paid" };
   }
   if (f.state === "partial") {
-    return { detail: `${money(f.matched_pence)} of ${money(f.expected_pence)} set aside`, status: "to set aside", amount: money(-f.unmet_pence) };
+    return { detail: `${money(f.matched_pence)} of ${money(f.expected_pence)} paid`, status: "to set aside", amount: money(-f.unmet_pence) };
   }
   return null;
 }

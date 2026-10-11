@@ -784,6 +784,8 @@ export type Commitment = {
   /** G256: the payment that fulfils each period's contribution, if the user chose one. */
   fill_rule?: PlanFillRule | null;
   fulfilment?: PlanFulfilment | null;
+  paid_this_period?: boolean;
+  paid_amount?: number;
   /** Paying account only. Funding pots remain receiving/progress accounts.
    * G230: the user's choice, or an inference from recent transfers into the
    * pot(s) (then `source_inferred` is true and nothing is stored). */
@@ -870,6 +872,9 @@ export type AccountPlanData = {
   remaining: number;
   /** G256: set when a goal plan carries a fill rule. */
   fulfilment?: PlanFulfilment | null;
+  /** G256: the contribution was paid this period (why remaining reads 0). */
+  paid_this_period?: boolean;
+  paid_amount?: number;
   active: boolean;
 };
 

@@ -607,6 +607,7 @@ async def list_account_plans(user: dict = Depends(current_user)):
                               if slice_info.get("fulfilment") else None),
             "remaining": slice_info["per_period_slice"],
             "fulfilment": slice_info.get("fulfilment"),
+            **commitments._paid_fields(slice_info.get("fulfilment")),
             "active": doc.get("status", "active") == "active",
         })
     return {"items": items}

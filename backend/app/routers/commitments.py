@@ -413,7 +413,7 @@ def _pot_account_overlap(docs: list[dict]) -> dict[str, set[str]]:
 
 
 async def _pot_progress_and_slice(
-    doc: dict, cfg: dict, ledger: dict, today: date,
+    doc: dict, cfg: dict, ledger: dict, today: date, *, claim: bool = True,
 ) -> dict:
     """{progress, remaining, periods_left, per_period_slice} for one
     commitment doc — the ONE slice computation shared by `_serialise`,
@@ -464,7 +464,7 @@ async def _pot_progress_and_slice(
     # in this one function so Safe to Spend, Upcoming, the account position and
     # Penny all follow. Any failure keeps the full reservation (fail closed).
     fulfilment = None
-    if doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
+    if claim and doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
         fulfilment = await _plan_fulfilment(doc, per_period_slice, _start, _end)
         if fulfilment is not None:
             per_period_slice = min(per_period_slice, fulfilment["unmet"])
@@ -479,6 +479,14 @@ async def _pot_progress_and_slice(
     }
 
 
+def _paid_fields(f: dict | None) -> dict:
+    """Why per_period_slice reads 0: the contribution was paid this period."""
+    return {
+        "paid_this_period": bool(f and f.get("state") == "fulfilled"),
+        "paid_amount": round((f.get("matched_pence") or 0) / 100, 2) if f else 0.0,
+    }
+
+
 def _public_fill_rule(doc: dict) -> dict | None:
     rule = doc.get("fill_rule")
     if not isinstance(rule, dict) or not rule.get("match_value"):
@@ -488,7 +496,9 @@ def _public_fill_rule(doc: dict) -> dict | None:
 
 async def _plan_fulfilment(doc: dict, slice_due: int, start: date, end: date) -> dict | None:
     """G256: this period's fulfilment for a plan carrying a fill rule, or None
-    (no rule, no known paying account, or any lookup failure)."""
+    (no rule, no known paying account, or any lookup failure). A debit fulfils
+    at most one plan: rivals are the user's other active plans with a rule and
+    the same paying account (see plan_fulfilment.claims_debit)."""
     uid = doc["user_id"]
     try:
         from app.services.account_plan_sources import owned_account_map, resolve_goal_source
@@ -497,7 +507,31 @@ async def _plan_fulfilment(doc: dict, slice_due: int, start: date, end: date) ->
         account_map = await owned_account_map(uid)
         dest = {str(p["account_id"]) for p in _doc_pots(doc)}
         source_id, _inferred = await resolve_goal_source(uid, doc, account_map, dest)
-        return await plan_fulfilment.period_fulfilment(uid, doc, slice_due, source_id, start, end)
+        if not source_id:
+            return None
+        others = [
+            d for d in await commitments_col.find(
+                {"user_id": uid, "status": "active", "fill_rule": {"$ne": None}}
+            ).to_list(None)
+            if d.get("_id") != doc.get("_id") and d.get("fill_rule")
+        ]
+        rivals: list[dict] = []
+        if others:
+            cfg = await _pay_cfg(uid)
+            today = timeutil.user_today()
+            all_docs = others + [doc]
+            ledger = await compute_pot_ledger(uid, docs=all_docs)
+            for o in others:
+                o_dest = {str(p["account_id"]) for p in _doc_pots(o)}
+                o_src, _i = await resolve_goal_source(uid, o, account_map, o_dest)
+                if o_src != source_id:
+                    continue
+                info = await _pot_progress_and_slice(o, cfg, ledger, today, claim=False)
+                rivals.append({
+                    "doc": o, "rule": plan_fulfilment.validate_fill_rule(o["fill_rule"]),
+                    "expected_pence": int(info["per_period_slice"]) * 100,
+                })
+        return await plan_fulfilment.period_fulfilment(uid, doc, slice_due, source_id, start, end, rivals)
     except Exception:
         logger.exception("commitments: plan fulfilment lookup failed")
         return None
@@ -919,6 +953,7 @@ async def _serialise(
         "source_unset":        bool(doc.get("source_unset")),
         "fill_rule":           _public_fill_rule(doc),
         "fulfilment":          slice_info.get("fulfilment"),
+        **_paid_fields(slice_info.get("fulfilment")),
         "source":              doc.get("source", "manual"),
         "status":              doc.get("status", "active"),
         "progress":            progress,

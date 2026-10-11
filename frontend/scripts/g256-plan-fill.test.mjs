@@ -26,6 +26,8 @@ assert.match(fields, /Which payment fills it\?/, "the set-aside heading is uncha
 
 // 2. Suggestion label, prefilled but never applied.
 assert.match(sheet, /note=\{suggestedActive \? "Suggested from your transfers" : undefined\}/, "label shown only while the suggestion is untouched");
+assert.ok(!/useEffect\([^]*?setRule\(\(cur\)/.test(sheet), "suggestion is never prefilled into the rule");
+assert.match(sheet, /suggestedName=\{suggestedActive/, "suggestion is tagged, not selected");
 assert.match(sheet, /Nothing is saved until you do\./, "suggestion states it is not saved");
 assert.match(sheet, /if \(ruleTouched \|\| \(sourceTouched && !sourceId\)\) body\.fill_rule = ruleBody/, "edit sends a rule only when touched");
 assert.match(sheet, /\.\.\.\(ruleTouched \? \{ fill_rule: ruleBody \} : \{\}\)/, "create sends a rule only when touched");
@@ -46,9 +48,9 @@ assert.match(plain, /Only payments matching this count toward the envelope/, "se
 const base = { id: "goal:g", record_id: "g", kind: "goal", name: "Japan", destination: "Japan pot", destination_account_ids: ["pot"], source_account_id: "monzo", source_basis: "chosen", period_amount: 85, filled_amount: 80, remaining: 0, active: true };
 const fulfilled = { state: "fulfilled", expected_pence: 8500, matched_pence: 8000, unmet_pence: 0, seen_in_sink: true, matched: [{ date: "2026-10-01", amount: 80, label: "To Japan pot" }] };
 const [paid] = plansFromApi([{ ...base, fulfilment: fulfilled }]);
-assert.deepEqual(fulfilmentRow(paid), { detail: "£80 set aside 1 Oct", status: "Paid this period", amount: "£0" });
+assert.deepEqual(fulfilmentRow(paid), { detail: "£80 paid 1 Oct", status: "this period", amount: "Paid" });
 const [part] = plansFromApi([{ ...base, remaining: 50, filled_amount: 30, period_amount: 80, fulfilment: { ...fulfilled, state: "partial", expected_pence: 8000, matched_pence: 3000, unmet_pence: 5000, matched: [{ date: "2026-10-02", amount: 30, label: "x" }] } }]);
-assert.deepEqual(fulfilmentRow(part), { detail: "£30 of £80 set aside", status: "to set aside", amount: "−£50" });
+assert.deepEqual(fulfilmentRow(part), { detail: "£30 of £80 paid", status: "to set aside", amount: "−£50" });
 const [none] = plansFromApi([{ ...base, remaining: 85, filled_amount: 0, fulfilment: { ...fulfilled, state: "unmet", matched_pence: 0, unmet_pence: 8500, matched: [] } }]);
 assert.equal(fulfilmentRow(none), null, "no match yet reads as today's 'to set aside'");
 assert.equal(fulfilmentRow(plansFromApi([base])[0]), null, "no rule, nothing changes");

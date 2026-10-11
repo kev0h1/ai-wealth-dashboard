@@ -214,19 +214,19 @@ export default function CommitmentSheet({
   const loadFillCandidates = useCallback(
     (accountId: string) =>
       (operations.planFillCandidates ?? api.planFillCandidates)(accountId, potKey ? potKey.split(",") : [])
-        .then((r) => { setSuggestion(r.suggestion); return r.items; }),
+        .then((r) => {
+          setSuggestion(r.suggestion);
+          // The suggestion is always a row the user can tap, unselected until they do.
+          const s = r.suggestion;
+          const has = s && r.items.some((c) => c.display_name === s.match_value);
+          return s && !has
+            ? [{ series_key: "suggested", display_name: s.match_value, last_amount: s.last_amount, last_date: s.last_date, occurrences_90d: s.occurrences_90d }, ...r.items]
+            : r.items;
+        }),
     [operations, potKey],
   );
-  const suggestedActive = Boolean(
-    suggestion && !ruleTouched && !commitment?.fill_rule
-    && rule.match_value === suggestion.match_value && rule.match_type === suggestion.match_type,
-  );
-  useEffect(() => {
-    if (!suggestion || ruleTouched || commitment?.fill_rule) return;
-    setRule((cur) => cur.match_value
-      ? cur
-      : { match_type: suggestion.match_type, match_value: suggestion.match_value, fill_display_name: suggestion.fill_display_name });
-  }, [suggestion, ruleTouched, commitment?.fill_rule]);
+  // Offered, never preselected: nothing is chosen until the user taps a row.
+  const suggestedActive = Boolean(suggestion && !ruleTouched && !commitment?.fill_rule && !rule.match_value);
   const fulfilment = commitment?.fill_rule ? commitment.fulfilment ?? null : null;
 
   function togglePot(accountId: string) {
@@ -701,6 +701,7 @@ export default function CommitmentSheet({
                     onChange={(v) => { setRule(v); setRuleTouched(true); setSaveError(false); }}
                     loadCandidates={loadFillCandidates}
                     note={suggestedActive ? "Suggested from your transfers" : undefined}
+                    suggestedName={suggestedActive ? suggestion?.match_value : undefined}
                     emptyText="No money has left this account in the last 90 days."
                     helperText={suggestedActive
                       ? "Tap it to confirm. Nothing is saved until you do. A matching payment from this account counts as this period’s contribution."

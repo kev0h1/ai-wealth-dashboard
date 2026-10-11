@@ -168,7 +168,14 @@ def test_two_matches_sum_and_each_counts_once():
 
 # ── the shared slice: reservation release through every reader ──────────────
 
-def _slice(monkeypatch, goal, txns):
+def _slice(monkeypatch, goal, txns, others=()):
+    monkeypatch.setattr(commitments, "commitments_col", _Collection([goal, *others]))
+
+    async def _ledger(uid, docs=None, balances=None):
+        return {"commitments": {str(d["_id"]): {"total_claimed": 0.0, "claims": {}} for d in docs or []}}
+    monkeypatch.setattr(commitments, "compute_pot_ledger", _ledger)
+    async def _cfg(_): return CFG
+    monkeypatch.setattr(commitments, "_pay_cfg", _cfg)
     pf.transactions_col = _Txns(txns)
     pf.yapily_transactions_col = _Txns()
 
@@ -300,8 +307,61 @@ def test_account_plan_row_reports_filled_and_released(monkeypatch):
     pf.transactions_col = _Txns([_debit(80.0)])
     pf.yapily_transactions_col = _Txns()
     monkeypatch.setattr(pf, "transactions_col", pf.transactions_col)
-    rows = _rows(monkeypatch, _goal(fill_rule=RULE, source_account_id="current"), slice_=None)
+    goal = _goal(fill_rule=RULE, source_account_id="current")
+    monkeypatch.setattr(commitments, "commitments_col", _Collection([goal]))
+    rows = _rows(monkeypatch, goal, slice_=None)
     row = rows[0]
     assert row["filled_amount"] == 80.0 and row["remaining"] == 0
+    assert row["paid_this_period"] is True and row["paid_amount"] == 80.0
     assert row["period_amount"] >= 80 and row["fulfilment"]["state"] == "fulfilled"
     assert row["fulfilment"]["matched"][0]["label"].lower().startswith("to japan pot")
+
+
+# ── one debit fulfils at most one plan ──────────────────────────────────────
+
+def _two(a_amount=1000, b_amount=1000):
+    t0 = datetime(2026, 1, 1)
+    a = _goal(name="A", amount=a_amount, fill_rule=RULE, created_at=t0)
+    b = _goal(name="B", amount=b_amount, fill_rule=RULE, created_at=t0 + timedelta(days=1))
+    return a, b
+
+
+def test_same_rule_one_transfer_fulfils_only_the_earliest_plan(monkeypatch):
+    a, b = _two()
+    debit = [_debit(80.0)]
+    ia = _slice(monkeypatch, a, debit, others=[b])
+    ib = _slice(monkeypatch, b, debit, others=[a])
+    assert ia["fulfilment"]["state"] == "fulfilled" and ia["per_period_slice"] == 0
+    assert ib["fulfilment"]["state"] == "unmet" and ib["per_period_slice"] > 0
+    # the same single pass for both readers: only one slice is released in total
+    plain = _slice(monkeypatch, _goal(amount=1000), [])["per_period_slice"]
+    assert ia["per_period_slice"] + ib["per_period_slice"] == plain
+
+
+def test_exact_amount_plan_wins_over_the_earlier_plan(monkeypatch):
+    a, b = _two(a_amount=1000, b_amount=2000)
+    b_slice = _slice(monkeypatch, _goal(amount=2000), [])["per_period_slice"]
+    a_slice = _slice(monkeypatch, _goal(amount=1000), [])["per_period_slice"]
+    assert a_slice != b_slice
+    debit = [_debit(float(b_slice))]
+    ia = _slice(monkeypatch, a, debit, others=[b])
+    ib = _slice(monkeypatch, b, debit, others=[a])
+    assert ib["fulfilment"]["state"] == "fulfilled" and ib["per_period_slice"] == 0
+    assert ia["fulfilment"]["state"] == "unmet" and ia["per_period_slice"] == a_slice
+
+
+def test_a_different_rule_is_not_a_rival(monkeypatch):
+    a, b = _two()
+    b["fill_rule"] = {"match_type": "description_contains", "match_value": "Car fund"}
+    debit = [_debit(80.0)]
+    assert _slice(monkeypatch, a, debit, others=[b])["fulfilment"]["state"] == "fulfilled"
+    assert _slice(monkeypatch, b, debit, others=[a])["fulfilment"]["state"] == "unmet"
+
+
+def test_claims_debit_pure_ordering():
+    a, b = _two()
+    me = {"doc": b, "rule": pf.validate_fill_rule(RULE), "expected_pence": 8000}
+    rival = {"doc": a, "rule": pf.validate_fill_rule(RULE), "expected_pence": 4000}
+    assert pf.claims_debit(me, [rival], _debit(80.0), 8000) is True     # exact amount beats earlier
+    assert pf.claims_debit(me, [rival], _debit(40.0), 8000) is False    # rival's exact amount
+    assert pf.claims_debit(me, [rival], _debit(55.0), 8000) is False    # neither exact: earliest wins

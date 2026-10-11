@@ -115,9 +115,36 @@ def assess(expected_pence: int, matched_pence: int) -> dict:
     return {"state": "partial", "unmet_pence": expected_pence - matched_pence}
 
 
+def _created_key(doc: dict):
+    """Earliest-created first: created_at, else the ObjectId's own timestamp."""
+    created = doc.get("created_at")
+    if hasattr(created, "timestamp"):
+        try:
+            return (created.replace(tzinfo=None) if getattr(created, "tzinfo", None) else created).timestamp(), str(doc.get("_id"))
+        except Exception:
+            pass
+    oid = doc.get("_id")
+    gen = getattr(oid, "generation_time", None)
+    return (gen.timestamp() if gen else 0.0, str(oid))
+
+
+def claims_debit(me: dict, rivals: list[dict], txn: dict, my_expected_pence: int) -> bool:
+    """One debit fulfils at most one plan. Among the plans whose rule matches it
+    on this source: an exact-amount plan (slice due equals the debit, to the
+    penny) wins, otherwise the earliest-created. Every plan evaluates the same
+    inputs, so `_pot_progress_and_slice` and `/account-plans` always agree.
+    `me` and each rival: {doc, expected_pence}."""
+    amount_pence = int(round(abs(float(txn.get("amount") or 0)) * 100))
+    field = [me] + [r for r in rivals if rule_matches(r["rule"], txn)]
+    exact = [c for c in field if c["expected_pence"] == amount_pence]
+    pool = exact or field
+    winner = min(pool, key=lambda c: _created_key(c["doc"]))
+    return winner is me
+
+
 async def period_fulfilment(
     uid: str, doc: dict, expected_pounds: int, source_id: str | None,
-    start: date, end: date,
+    start: date, end: date, rivals: list[dict] | None = None,
 ) -> dict | None:
     """Fulfilment of this period's slice, or None when the plan has no rule or
     no known paying account (it then reserves its full slice, as before)."""
@@ -127,6 +154,9 @@ async def period_fulfilment(
     window_end = min(end, timeutil.user_today())
     debits = await _load(uid, [source_id], "debit", start, window_end)
     hits = sorted((t for t in debits if rule_matches(rule, t)), key=lambda t: t["date"])
+    if rivals:
+        me = {"doc": doc, "rule": rule, "expected_pence": int(expected_pounds) * 100}
+        hits = [t for t in hits if claims_debit(me, rivals, t, me["expected_pence"])]
     matched = round(sum(abs(float(t.get("amount") or 0)) for t in hits), 2)
     matched_pence = int(round(matched * 100))
     verdict = assess(int(expected_pounds) * 100, matched_pence)
