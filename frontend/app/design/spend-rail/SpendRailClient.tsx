@@ -23,7 +23,7 @@ import { BarChart3, WalletCards } from "lucide-react";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption } from "@/components/SpendHeader";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
-import SpendJourneyRail, { type SpendRailVariant } from "@/components/SpendJourneyRail";
+import SpendJourneyRail, { RAIL_APPEAR, TIMELINE_ATTR, type RailScrollSim, type SpendRailVariant } from "@/components/SpendJourneyRail";
 import SpendTrends, { DEFAULT_HOME_PINNED_WIDGET, DEFAULT_WIDGETS } from "@/components/SpendTrends";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { PREVIEW_ACCOUNTS, PREVIEW_CHART_PERIOD_TXNS, PREVIEW_CHART_TRANSACTIONS, PREVIEW_INCOME_TXNS, PREVIEW_SIGNALS } from "../spend-live/fixtures";
@@ -36,10 +36,12 @@ type Variant = "current" | SpendRailVariant;
 const VARIANTS: { value: Variant; label: string }[] = [
   { value: "current", label: "Today" },
   { value: "a", label: "A Rail" },
+  { value: "a2", label: "A2 Follow-up" },
   { value: "b", label: "B Mini-map" },
   { value: "c", label: "C Row" },
 ];
 const SCROLL_STATES = ["top", "mid", "bottom"] as const;
+const SIM_STATES = ["idle", "scrolling", "settled", "press", "focus"] as const;
 const DATA_STATES = ["nochanges", "nothingtocategorise", "zero"] as const;
 
 const money = (v: number) => `£${Math.abs(Math.round(v)).toLocaleString("en-GB")}`;
@@ -52,11 +54,12 @@ export default function SpendRailClient() {
   const params = useSearchParams();
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const rawVariant = params.get("variant");
-  const variant: Variant = rawVariant === "current" || rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
+  const variant: Variant = rawVariant === "current" || rawVariant === "a" || rawVariant === "b" || rawVariant === "c" ? rawVariant : "a2";
   const state = params.get("state") ?? "top";
   const ruleOn = params.get("rule") !== "off";
   const showNav = params.get("nav") === "1";
   const chrome = params.get("chrome") !== "0";
+  const scrollSim = (SIM_STATES as readonly string[]).includes(state) ? (state as RailScrollSim) : undefined;
   const dataKey: RailFixtureKey = (DATA_STATES as readonly string[]).includes(state) ? (state as RailFixtureKey) : "base";
   const verdict = RAIL_VERDICTS[dataKey];
 
@@ -70,7 +73,7 @@ export default function SpendRailClient() {
 
   // Scroll states: the page really scrolls, this only parks it for a screenshot or a deep link.
   useEffect(() => {
-    const target = (SCROLL_STATES as readonly string[]).includes(state) ? state : (DATA_STATES as readonly string[]).includes(state) ? "mid" : "top";
+    const target = (SCROLL_STATES as readonly string[]).includes(state) ? state : ((DATA_STATES as readonly string[]).includes(state) || scrollSim) ? "mid" : "top";
     if (target === "top") return;
     const t = window.setTimeout(() => {
       if (target === "bottom") window.scrollTo(0, document.documentElement.scrollHeight);
@@ -142,6 +145,7 @@ export default function SpendRailClient() {
                 <a href={`?variant=${variant}&mode=${mode === "dark" ? "light" : "dark"}&state=${state}${showNav ? "&nav=1" : ""}`} className="inline-flex min-h-11 items-center rounded-full bg-slate-100 px-4 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">{mode === "dark" ? "Light" : "Dark"}</a>
               </div>
               <p className="mt-2">Try the data states: <a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=${variant}&mode=${mode}&state=nochanges`}>no changes</a>, <a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=${variant}&mode=${mode}&state=nothingtocategorise`}>nothing to categorise</a>, <a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=${variant}&mode=${mode}&state=zero`}>one 40p payment</a>.</p>
+              <p className="mt-2">A2 states (rail only): {SIM_STATES.map((st, i) => <span key={st}>{i > 0 ? ", " : ""}<a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=a2&mode=${mode}&state=${st}`}>{st}</a></span>)}. Without a state, scroll for real: the rail appears after more than {RAIL_APPEAR.travelViewports} screen of scrolling within {RAIL_APPEAR.windowMs / 1000} seconds, stays while you scroll, and fades {RAIL_APPEAR.hideDelayMs / 1000} seconds after you stop unless a finger or keyboard focus is on it. A short or idle page never shows it. Its dots and active marker sit exactly on the timeline line (measured from the line itself). The pill is 24px wide, centred on the line; only the 44px touch column from 24px rightward is interactive, so the Android back-gesture edge is left alone.</p>
               <p className="mt-2">Preview note: the grid and timeline here are mirrored from SpendPage, and the rail is not yet wired into production. The rail sits 24px in from the screen edge to stay clear of the Android back gesture.</p>
               <p className="mt-2"><span className="font-semibold">Zero-value rule (all variants).</span> A payment that shows as £0 (under 50p) is not a to-do: the stop and its jump link are hidden, it stays inside Out. When a stop shows, one payment reads "1 payment still needs a category". Switch off with rule=off to see today.</p>
             </div>
@@ -160,10 +164,10 @@ export default function SpendRailClient() {
                 <SpendJourneyNav destinations={destinations} />
               </div>
             ) : (
-              <SpendJourneyRail variant={variant} destinations={destinations} />
+              <SpendJourneyRail variant={variant} destinations={destinations} scrollSim={scrollSim} />
             )}
 
-            <main className="relative min-w-0 pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10 lg:col-start-2 lg:row-start-1">
+            <main {...{ [TIMELINE_ATTR]: "" }} className="relative min-w-0 pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10 lg:col-start-2 lg:row-start-1">
               <section className="relative pb-10">
                 <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true"><WalletCards size={12} /></span>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · 25 Sept</p>
