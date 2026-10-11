@@ -113,7 +113,7 @@ export default function HubMock({ category, transactions, from, to, aim, suggest
 
       <div className="px-4 pb-2 pt-4">
         <div className="relative">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+          <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
           <input
             type="search"
             readOnly
