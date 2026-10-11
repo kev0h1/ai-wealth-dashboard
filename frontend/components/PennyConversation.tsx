@@ -317,7 +317,7 @@ function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5">
-        <p className="text-[14px] leading-snug break-words"><MoneyText text={text} /></p>
+        <p className="text-[14px] leading-snug break-words whitespace-pre-wrap"><MoneyText text={text} /></p>
       </div>
     </div>
   );
@@ -923,7 +923,7 @@ export default function PennyConversation({
   // itself, only reads and reacts to `capped`.
   const usage = usePennyUsage();
   const atCap = usage.capped;
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   // The sheet's own scroll container (inSheet mode only) — this component
   // renders it, rather than receiving a ref from the caller, because the

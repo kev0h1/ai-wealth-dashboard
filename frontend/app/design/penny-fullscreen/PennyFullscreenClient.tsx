@@ -152,7 +152,7 @@ function PreviewWindow({ open, onClose, seed, startHistory }: { open: boolean; o
   const [chats, setChats] = useState<PennyConversationSummary[]>(HISTORY);
   const [openLast, setOpenLast] = useState(false);
   const [usageShown, setUsageShown] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const thread = useRef<HTMLDivElement>(null);
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { ref, close } = useSheetA11y<HTMLDivElement>(onClose, { lockScroll: true, backToClose: true });
