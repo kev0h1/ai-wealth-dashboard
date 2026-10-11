@@ -19,6 +19,7 @@
 //  - "Other" is never a category — it only ever appears as the ask card or
 //    the quiet reconciliation whisper, never a majority/notable row.
 
+import { unresolvedHeading, unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ShieldCheck, ArrowLeftRight, Target, RotateCcw, CircleHelp } from "lucide-react";
@@ -1082,6 +1083,10 @@ export interface SpendVerdictViewProps {
   aimPeriodDays?: number;
   /** G262: show the quiet "How your money behaves" row at the head of the list; the page sets it only once the Mirror has a portrait. */
   mirrorRoute?: boolean;
+  /** G264: hide the "still need a category" stop (and its ask card) when the unplaced total
+   *  rounds to £0, and use "needs" for a single payment. Off by default so today's render is
+   *  unchanged until the rule is approved. */
+  hideTrivialUnresolved?: boolean;
 }
 
 /** The same guardrail is a rail event only in the approved journey view. */
@@ -1122,7 +1127,7 @@ export function TransferReviewGuardrail({
   );
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays, mirrorRoute = false }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays, mirrorRoute = false, hideTrivialUnresolved = false }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -1150,7 +1155,8 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
   const hiddenCount = nonZeroRows.length - visibleRows.length;
   const headerSum = nonZeroRows.reduce((s, r) => s + r.spent, 0);
 
-  const showAskCard = unresolved.ask_worthy && !askDismissed && unresolved.largest != null;
+  const trivialUnresolved = hideTrivialUnresolved && !unresolvedWorthAsking(unresolved.total);
+  const showAskCard = unresolved.ask_worthy && !askDismissed && unresolved.largest != null && !trivialUnresolved;
 
   async function handleDismissAsk() {
     const txnId = unresolved.largest?.id;
@@ -1254,7 +1260,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           notable stack's own 12px rhythm instead of filing as "notable
           #4". id="spend-unresolved" is the OUT-pill footnote's Show Your
           Working scroll target (SpendHeader's onUnresolvedTap). */}
-      {journey && unresolved.total > 0 ? (
+      {journey && unresolved.total > 0 && !trivialUnresolved ? (
         <section id="spend-unresolved" tabIndex={-1} className="relative scroll-mt-24 pb-10 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
           <span aria-hidden="true" className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10">
             <CircleHelp size={12} />
@@ -1262,7 +1268,9 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-950 dark:text-white">
-                {unresolved.payments_count} payment{unresolved.payments_count === 1 ? "" : "s"} still need a category
+                {hideTrivialUnresolved
+                  ? unresolvedHeading(unresolved.payments_count)
+                  : <>{unresolved.payments_count} payment{unresolved.payments_count === 1 ? "" : "s"} still need a category</>}
               </h2>
               <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">Already included in Out, but not yet in a category.</p>
             </div>
