@@ -1,11 +1,12 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
-import { api, Account, Commitment, CommitmentPreview } from "@/lib/api";
+import { api, Account, Commitment, CommitmentPreview, PlanFillCandidates } from "@/lib/api";
+import { FillRulePicker, type FillRuleValue } from "@/components/AllocationFields";
 import { usePreferences } from "@/components/PreferencesContext";
 import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPeriodConfig } from "@/lib/payPeriod";
 import MoneyText from "@/components/MoneyText";
@@ -72,7 +73,18 @@ interface CommitmentSheetProps {
 /** The existing Commitment API surface, kept injectable for real component
  * fixtures without changing production behaviour. */
 export type CommitmentSheetOperations = Pick<typeof api,
-  "accounts" | "previewCommitment" | "createCommitment" | "updateCommitment" | "cancelCommitment">;
+  "accounts" | "previewCommitment" | "createCommitment" | "updateCommitment" | "cancelCommitment">
+  & Partial<Pick<typeof api, "planFillCandidates">>;
+
+/** "1 Oct" from an ISO date. */
+function shortDate(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
+  return Number.isFinite(d.getTime())
+    ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
+    : "";
+}
+
+const EMPTY_RULE: FillRuleValue = { match_type: "description_contains", match_value: "", fill_display_name: "" };
 
 /** "YYYY-MM" for next calendar month — the earliest pickable target. */
 function nextMonthYm(): string {
@@ -147,6 +159,15 @@ export default function CommitmentSheet({
   // Nothing is written unless the user picks (an untouched inference is never saved).
   const [sourceId, setSourceId] = useState<string>(commitment?.source_account_id ?? "");
   const [sourceTouched, setSourceTouched] = useState(false);
+  // G256: the payment that fulfils each period's contribution, same rule shape
+  // and picker as a set-aside. A suggestion from the user's transfers is only
+  // prefilled; nothing is saved until the user picks it (or any rule).
+  const [rule, setRule] = useState<FillRuleValue>(() =>
+    commitment?.fill_rule
+      ? { ...commitment.fill_rule, fill_display_name: commitment.fill_rule.match_value }
+      : EMPTY_RULE);
+  const [ruleTouched, setRuleTouched] = useState(false);
+  const [suggestion, setSuggestion] = useState<PlanFillCandidates["suggestion"]>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
@@ -186,6 +207,27 @@ export default function CommitmentSheet({
       && !pots.some((p) => p.account_id === acc.id);
   });
   const sourceInferred = Boolean(commitment?.source_inferred) && !sourceTouched && sourceId !== "";
+
+  // G256: candidates are payments leaving the chosen paying account; the
+  // suggestion rides along from the same call.
+  const potKey = pots.map((p) => p.account_id).join(",");
+  const loadFillCandidates = useCallback(
+    (accountId: string) =>
+      (operations.planFillCandidates ?? api.planFillCandidates)(accountId, potKey ? potKey.split(",") : [])
+        .then((r) => {
+          setSuggestion(r.suggestion);
+          // The suggestion is always a row the user can tap, unselected until they do.
+          const s = r.suggestion;
+          const has = s && r.items.some((c) => c.display_name === s.match_value);
+          return s && !has
+            ? [{ series_key: "suggested", display_name: s.match_value, last_amount: s.last_amount, last_date: s.last_date, occurrences_90d: s.occurrences_90d }, ...r.items]
+            : r.items;
+        }),
+    [operations, potKey],
+  );
+  // Offered, never preselected: nothing is chosen until the user taps a row.
+  const suggestedActive = Boolean(suggestion && !ruleTouched && !commitment?.fill_rule && !rule.match_value);
+  const fulfilment = commitment?.fill_rule ? commitment.fulfilment ?? null : null;
 
   function togglePot(accountId: string) {
     setPots((prev) =>
@@ -289,6 +331,10 @@ export default function CommitmentSheet({
     setSaving(true);
     setSaveError(false);
     const target_date = `${month}-01`;
+    // G256: a rule needs a paying account to read; "Not set" or an emptied rule sends null.
+    const ruleBody = sourceId && rule.match_value.trim()
+      ? { match_type: rule.match_type, match_value: rule.match_value.trim() }
+      : null;
     try {
       let item: Commitment;
       if (commitment) {
@@ -308,6 +354,7 @@ export default function CommitmentSheet({
           body.funding_pots = pots;
         }
         if (sourceTouched) { body.source_account_id = sourceId || null; body.source_unset = !sourceId; }
+        if (ruleTouched || (sourceTouched && !sourceId)) body.fill_rule = ruleBody;
         item = await operations.updateCommitment(commitment.id, body);
       } else {
         item = await operations.createCommitment({
@@ -317,6 +364,7 @@ export default function CommitmentSheet({
           funding_pots: pots,
           source,
           ...(sourceTouched ? { source_account_id: sourceId || null, source_unset: !sourceId } : {}),
+          ...(ruleTouched ? { fill_rule: ruleBody } : {}),
         });
       }
       // G83 fix-round: a commitment create/edit can change the goal-name
@@ -639,6 +687,48 @@ export default function CommitmentSheet({
                       ? "Based on recent transfers. Pick an account to confirm it, or Not set to keep this plan out of any one account’s figures."
                       : "The account this contribution leaves each period. Choosing one does not move money."}
                   />
+                </div>
+              )}
+
+              {/* G256: the payment that fulfils each period's contribution. The
+                  shared set-aside rule picker, reading payments leaving the
+                  paying account. A suggestion is prefilled, never applied. */}
+              {sourceOptions.length > 0 && sourceId && (
+                <div data-testid="plan-fill-rule-field" className="space-y-1.5">
+                  <FillRulePicker
+                    accountId={sourceId}
+                    value={rule}
+                    onChange={(v) => { setRule(v); setRuleTouched(true); setSaveError(false); }}
+                    loadCandidates={loadFillCandidates}
+                    note={suggestedActive ? "Suggested from your transfers" : undefined}
+                    suggestedName={suggestedActive ? suggestion?.match_value : undefined}
+                    emptyText="No money has left this account in the last 90 days."
+                    helperText={suggestedActive
+                      ? "Tap it to confirm. Nothing is saved until you do. A matching payment from this account counts as this period’s contribution."
+                      : "A matching payment from this account counts as this period’s contribution, not everything leaving the account."}
+                  />
+                  {fulfilment && fulfilment.state !== "unmet" && fulfilment.matched.length > 0 && (
+                    <p data-testid="plan-fill-rule-matched" className="text-[13px] text-slate-500 dark:text-slate-400 num">
+                      <MoneyText text={fulfilment.state === "fulfilled"
+                        ? `Matched: £${(fulfilment.matched_pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2 })} on ${shortDate(fulfilment.matched[fulfilment.matched.length - 1].date)}, ${fulfilment.matched[fulfilment.matched.length - 1].label}.`
+                        : `Matched so far: £${(fulfilment.matched_pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2 })} of £${(fulfilment.expected_pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2 })}.`} />
+                      {fulfilment.seen_in_sink ? " It has arrived in the pot." : ""}
+                    </p>
+                  )}
+                  {fulfilment && fulfilment.state === "unmet" && (
+                    <p data-testid="plan-fill-rule-matched" className="text-[13px] text-slate-500 dark:text-slate-400">
+                      No matching payment yet this pay period.
+                    </p>
+                  )}
+                  {(rule.match_value.trim() !== "" && !suggestedActive) && (
+                    <button
+                      type="button"
+                      onClick={() => { setRule(EMPTY_RULE); setRuleTouched(true); }}
+                      className="min-h-[44px] flex items-center px-1 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+                    >
+                      Stop matching a payment
+                    </button>
+                  )}
                 </div>
               )}
 

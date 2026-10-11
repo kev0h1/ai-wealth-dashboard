@@ -84,6 +84,7 @@ from app.db.collections import (
 )
 from app.routers.savings import _cashflow, _current_savings
 from app.services import plan_easing, response_cache
+from app.services.plan_fulfilment import fill_candidates as _plan_fill_candidates, validate_fill_rule
 from app.services.debt_plan import (
     DAYS_PER_MONTH,
     MATERIAL_BALANCE,
@@ -415,7 +416,7 @@ def _pot_account_overlap(docs: list[dict]) -> dict[str, set[str]]:
 
 
 async def _pot_progress_and_slice(
-    doc: dict, cfg: dict, ledger: dict, today: date,
+    doc: dict, cfg: dict, ledger: dict, today: date, *, claim: bool = True,
 ) -> dict:
     """{progress, remaining, periods_left, per_period_slice} for one
     commitment doc — the ONE slice computation shared by `_serialise`,
@@ -460,7 +461,18 @@ async def _pot_progress_and_slice(
         usual_slice = max(per_period_slice, int(entry.get("usual_pence") or 0) // 100)
         eased_this_period = max(0, min(int(entry["contribution_pence"]) // 100, per_period_slice))
         per_period_slice = eased_this_period
+    # G256: a matched OUTGOING transfer from the paying account releases the
+    # slice (whole when fulfilled, the matched part when partial). Applied after
+    # easing, so `usual_slice` and every easing figure above are untouched, and
+    # in this one function so Safe to Spend, Upcoming, the account position and
+    # Penny all follow. Any failure keeps the full reservation (fail closed).
+    fulfilment = None
+    if claim and doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
+        fulfilment = await _plan_fulfilment(doc, per_period_slice, _start, _end)
+        if fulfilment is not None:
+            per_period_slice = min(per_period_slice, fulfilment["unmet"])
     return {
+        "fulfilment":       fulfilment,
         "progress":         progress,
         "remaining":        remaining,
         "periods_left":     periods_left,
@@ -468,6 +480,64 @@ async def _pot_progress_and_slice(
         "usual_slice":      usual_slice,
         "eased_this_period": eased_this_period,
     }
+
+
+def _paid_fields(f: dict | None) -> dict:
+    """Why per_period_slice reads 0: the contribution was paid this period."""
+    return {
+        "paid_this_period": bool(f and f.get("state") == "fulfilled"),
+        "paid_amount": round((f.get("matched_pence") or 0) / 100, 2) if f else 0.0,
+    }
+
+
+def _public_fill_rule(doc: dict) -> dict | None:
+    rule = doc.get("fill_rule")
+    if not isinstance(rule, dict) or not rule.get("match_value"):
+        return None
+    return {"match_type": rule.get("match_type"), "match_value": rule.get("match_value")}
+
+
+async def _plan_fulfilment(doc: dict, slice_due: int, start: date, end: date) -> dict | None:
+    """G256: this period's fulfilment for a plan carrying a fill rule, or None
+    (no rule, no known paying account, or any lookup failure). A debit fulfils
+    at most one plan: rivals are the user's other active plans with a rule and
+    the same paying account (see plan_fulfilment.claims_debit)."""
+    uid = doc["user_id"]
+    try:
+        from app.services.account_plan_sources import owned_account_map, resolve_goal_source
+        from app.services import plan_fulfilment
+
+        account_map = await owned_account_map(uid)
+        dest = {str(p["account_id"]) for p in _doc_pots(doc)}
+        source_id, _inferred = await resolve_goal_source(uid, doc, account_map, dest)
+        if not source_id:
+            return None
+        others = [
+            d for d in await commitments_col.find(
+                {"user_id": uid, "status": "active", "fill_rule": {"$ne": None}}
+            ).to_list(None)
+            if d.get("_id") != doc.get("_id") and d.get("fill_rule")
+        ]
+        rivals: list[dict] = []
+        if others:
+            cfg = await _pay_cfg(uid)
+            today = timeutil.user_today()
+            all_docs = others + [doc]
+            ledger = await compute_pot_ledger(uid, docs=all_docs)
+            for o in others:
+                o_dest = {str(p["account_id"]) for p in _doc_pots(o)}
+                o_src, _i = await resolve_goal_source(uid, o, account_map, o_dest)
+                if o_src != source_id:
+                    continue
+                info = await _pot_progress_and_slice(o, cfg, ledger, today, claim=False)
+                rivals.append({
+                    "doc": o, "rule": plan_fulfilment.validate_fill_rule(o["fill_rule"]),
+                    "expected_pence": int(info["per_period_slice"]) * 100,
+                })
+        return await plan_fulfilment.period_fulfilment(uid, doc, slice_due, source_id, start, end, rivals)
+    except Exception:
+        logger.exception("commitments: plan fulfilment lookup failed")
+        return None
 
 
 # ── Feasibility (owner's semantics: meet the expense without debt; dipping
@@ -890,6 +960,9 @@ async def _serialise(
         "funding_account_name": funding_name,
         "source_account_id":  doc.get("source_account_id"),
         "source_unset":        bool(doc.get("source_unset")),
+        "fill_rule":           _public_fill_rule(doc),
+        "fulfilment":          slice_info.get("fulfilment"),
+        **_paid_fields(slice_info.get("fulfilment")),
         "source":              doc.get("source", "manual"),
         "status":              doc.get("status", "active"),
         "progress":            progress,
@@ -1157,6 +1230,22 @@ async def list_commitments(user: dict = Depends(current_user)):
     return result
 
 
+@router.get("/commitments/fill-candidates")
+async def plan_fill_candidates(
+    source_account_id: str, pot_ids: str = "", user: dict = Depends(current_user),
+):
+    """G256: recent (90d) payments leaving the plan's paying account, in the
+    shape the shared rule picker reads, plus a rule suggested from the transfers
+    that reached the plan's pots. Own accounts only; nothing is written."""
+    uid = user["email"]
+    account_map = await owned_account_map(uid)
+    source_id = str(source_account_id or "").strip()
+    if source_id not in account_map:
+        raise HTTPException(400, "account not found")
+    pots = [p for p in (x.strip() for x in str(pot_ids or "").split(",")) if p in account_map]
+    return await _plan_fill_candidates(uid, source_id, pots, account_map)
+
+
 @router.post("/commitments")
 async def create_commitment(
     body: dict,
@@ -1243,6 +1332,12 @@ async def create_commitment(
             {str(p["account_id"]) for p in pots},
         )
         doc["source_unset"] = doc["source_account_id"] is None and body.get("source_unset") is True
+    # G256: the same fill rule set-asides have; a deliberate "Not set" source
+    # has nothing to match against, so no rule is kept.
+    if "fill_rule" in body:
+        rule = validate_fill_rule(body.get("fill_rule"))
+        if rule is not None and not doc.get("source_unset"):
+            doc["fill_rule"] = rule
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
@@ -1534,6 +1629,13 @@ async def update_commitment(
     }:
         # A destination change must not leave an invalid self-source behind.
         updates["source_account_id"] = None
+    if "fill_rule" in body:
+        if target_status != "active":
+            raise HTTPException(409, "Payment rules can only be changed for active goals.")
+        rule = validate_fill_rule(body.get("fill_rule"))
+        updates["fill_rule"] = rule
+    if updates.get("source_unset") is True:
+        updates["fill_rule"] = None  # "Not set" has no account to match against
     if "contribute_delta" in body:
         # A86: a contribution only ever makes sense against a commitment that
         # is (and, after this same request, remains) active — reject 409

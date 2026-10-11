@@ -1,4 +1,4 @@
-import type { Account, AccountPlanData, CashflowData } from "./api";
+import type { Account, AccountPlanData, CashflowData, PlanFulfilment } from "./api";
 import type { UpcomingAccountSummary } from "./upcomingAccounts";
 
 /** Account-only planning overlay. Never an input to the payday hero or bill walk. */
@@ -21,6 +21,8 @@ export type Plan = {
   overlapUncertain?: boolean;
   overlapReason?: "forecast-transfer" | "shared-plan";
   scheduledPence?: number;
+  /** G256: this period's fulfilment when the plan has a fill rule. */
+  fulfilment?: PlanFulfilment | null;
 };
 
 export function money(pence: number, positive = false) {
@@ -64,7 +66,7 @@ export function plansFromApi(items: AccountPlanData[]): Plan[] {
     sourceId: item.source_account_id, evidence: item.source_basis,
     periodPence: Math.round(item.period_amount * 100),
     filledPence: Math.round((item.filled_amount ?? 0) * 100),
-    remainingPence: Math.round(item.remaining * 100), active: item.active,
+    remainingPence: Math.round(item.remaining * 100), active: item.active, fulfilment: item.fulfilment ?? null,
     amountUnavailable: ![item.period_amount, item.remaining, item.filled_amount ?? 0].every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0),
   }));
 }
@@ -144,4 +146,27 @@ export function accountPlan(account: UpcomingAccountSummary, plans: Plan[]) {
     : afterPlans === null || walkLowPence === null ? null : Math.min(afterPlans, walkLowPence - reservedPence);
   const planGap = afterPlans === null || afterPayments === null ? null : Math.max(0, -afterPlans) - Math.max(0, -afterPayments);
   return { assigned, unassigned, estimated, uncertain, allocationPence, goalPence, scheduledPence, reservedPence, afterPayments, afterPlans, spendFromPence, planGap };
+}
+
+/** G256: the wording for a plan whose contribution a matched outgoing transfer has covered.
+ * Never an undo, never a button: a statement of what happened. */
+export function fulfilmentRow(plan: Plan): { detail: string; status: string; amount: string } | null {
+  const f = plan.fulfilment;
+  if (!f || !plan.active) return null;
+  if (f.state === "fulfilled") {
+    const last = f.matched[f.matched.length - 1];
+    const when = last ? dateShort(last.date) : "";
+    // A plan contribution is paid, never "set aside" (that is the set-aside mechanism).
+    // The amount slot says "Paid" so the row does not read "£0" under "Still to set aside".
+    return { detail: `${money(f.matched_pence)}${when ? ` paid ${when}` : " paid"}`, status: "this period", amount: "Paid" };
+  }
+  if (f.state === "partial") {
+    return { detail: `${money(f.matched_pence)} of ${money(f.expected_pence)} paid`, status: "to set aside", amount: money(-f.unmet_pence) };
+  }
+  return null;
+}
+
+function dateShort(iso: string) {
+  const date = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }).format(date) : "";
 }
