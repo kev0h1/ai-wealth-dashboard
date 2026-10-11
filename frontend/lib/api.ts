@@ -751,7 +751,39 @@ export type CommitmentPot = {
   contributing_balance: number;
 };
 
+/** G256: the same fill rule shape set-asides carry. */
+export type PlanFillRule = {
+  match_type: "description_equals" | "description_contains";
+  match_value: string;
+};
+
+/** G256: this pay period's fulfilment of a plan that has a fill rule. A
+ * matched OUTGOING transfer from the paying account fulfils it; the sink
+ * rising (`seen_in_sink`) is confirmation only. */
+export type PlanFulfilment = {
+  state: "fulfilled" | "partial" | "unmet";
+  expected_pence: number;
+  matched_pence: number;
+  unmet_pence: number;
+  seen_in_sink: boolean;
+  matched: { date: string; amount: number; label: string }[];
+};
+
+export type PlanFillCandidates = {
+  items: FillCandidate[];
+  /** A rule proposed from the transfers that reached the plan's pot. Never applied for the user. */
+  suggestion: (PlanFillRule & {
+    fill_display_name: string;
+    last_amount: number;
+    last_date: string;
+    occurrences_90d: number;
+  }) | null;
+};
+
 export type Commitment = {
+  /** G256: the payment that fulfils each period's contribution, if the user chose one. */
+  fill_rule?: PlanFillRule | null;
+  fulfilment?: PlanFulfilment | null;
   /** Paying account only. Funding pots remain receiving/progress accounts.
    * G230: the user's choice, or an inference from recent transfers into the
    * pot(s) (then `source_inferred` is true and nothing is stored). */
@@ -836,6 +868,8 @@ export type AccountPlanData = {
   period_amount: number;
   filled_amount: number | null;
   remaining: number;
+  /** G256: set when a goal plan carries a fill rule. */
+  fulfilment?: PlanFulfilment | null;
   active: boolean;
 };
 
@@ -2972,6 +3006,8 @@ export const api = {
     source_account_id?: string | null;
     /** G230: true only when the user picks "Not set" (never inferred). */
     source_unset?: boolean;
+    /** G256: sent only when the user chose or removed a rule. */
+    fill_rule?: PlanFillRule | null;
     name: string;
     amount: number;
     target_date: string;
@@ -2984,6 +3020,7 @@ export const api = {
   updateCommitment: (id: string, body: {
     source_account_id?: string | null;
     source_unset?: boolean;
+    fill_rule?: PlanFillRule | null;
     name?: string;
     amount?: number;
     target_date?: string;
@@ -3036,6 +3073,10 @@ export const api = {
   allocationFillCandidates: (accountId: string) =>
     get<{ items: FillCandidate[] }>(`/allocations/fill-candidates?account_id=${encodeURIComponent(accountId)}`)
       .then((d) => d.items),
+  // G256: recent payments leaving a plan's paying account, plus a rule
+  // suggested from the transfers that reached its pots. Nothing is written.
+  planFillCandidates: (sourceAccountId: string, potIds: string[]) =>
+    get<PlanFillCandidates>(`/commitments/fill-candidates?source_account_id=${encodeURIComponent(sourceAccountId)}&pot_ids=${encodeURIComponent(potIds.join(","))}`),
   createAllocation: (body: {
     source_account_id?: string | null;
     name: string;

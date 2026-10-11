@@ -3,7 +3,7 @@
 import { useId } from "react";
 import { ArrowDownLeft, ArrowLeftRight, Check, ChevronDown, ChevronRight, ReceiptText } from "lucide-react";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "@/lib/upcomingAccounts";
-import { accountPlan, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
+import { accountPlan, fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, PlanIcon, dateLabel, money } from "./detailPrimitives";
 
 export interface UpcomingAccountDetailsProps { account: UpcomingAccountSummary; periodLabel: string; plans?: Plan[]; plansStatus?: "loading" | "error" | "ready"; onPlan?: (id: string) => void;
@@ -27,7 +27,8 @@ function EventLine({ event, onEvent, align }: { event: UpcomingAccountEvent; onE
 function PlanRow({ plan, onPlan }: { plan: Plan; onPlan?: (id: string) => void }) {
   const unassigned = !hasPlanSource(plan);
   const estimated = !unassigned && plan.evidence === "recent-transfers";
-  const content = <><PlanIcon kind={plan.kind} /><span className="min-w-0"><span className="block break-words text-sm font-semibold">{plan.name}</span><span className={"mt-0.5 block text-xs leading-5 " + detailMuted}>{unassigned ? "Choose paying account" : plan.kind === "goal" ? "Goal · this period" : money(plan.filledPence) + " of " + money(plan.periodPence) + " set aside"}</span>{estimated && <span className={"block text-xs leading-5 " + detailMuted}>Paying account based on recent transfers</span>}</span><span className="text-right"><span className={"block text-sm font-semibold " + detailInk}>{plan.amountUnavailable ? "Unavailable" : money(unassigned ? remaining(plan) : -remaining(plan))}</span><span className={"block text-xs " + detailMuted}>{unassigned ? "unassigned" : estimated ? "estimated" : "to set aside"}</span></span>{onPlan && <ChevronRight size={14} className={detailMuted} aria-hidden="true" />}</>;
+  const paid = unassigned ? null : fulfilmentRow(plan);
+  const content = <><PlanIcon kind={plan.kind} /><span className="min-w-0"><span className="block break-words text-sm font-semibold">{plan.name}</span><span className={"mt-0.5 block text-xs leading-5 " + detailMuted}>{unassigned ? "Choose paying account" : paid ? paid.detail : plan.kind === "goal" ? "Goal · this period" : money(plan.filledPence) + " of " + money(plan.periodPence) + " set aside"}</span>{estimated && <span className={"block text-xs leading-5 " + detailMuted}>Paying account based on recent transfers</span>}</span><span className="text-right"><span className={"block text-sm font-semibold " + detailInk}>{plan.amountUnavailable ? "Unavailable" : paid ? paid.amount : money(unassigned ? remaining(plan) : -remaining(plan))}</span><span className={"block text-xs " + detailMuted}>{unassigned ? "unassigned" : paid ? paid.status : estimated ? "estimated" : "to set aside"}</span></span>{onPlan && <ChevronRight size={14} className={detailMuted} aria-hidden="true" />}</>;
   return <li>{onPlan ? <button type="button" data-flow-focus={"plan-" + plan.id} onClick={() => onPlan(plan.id)} className={"grid min-h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto_0.75rem] items-center gap-3 rounded-lg py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 " + detailFocus}>{content}</button> : <div className="grid min-h-16 grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 py-3">{content}</div>}</li>;
 }
 

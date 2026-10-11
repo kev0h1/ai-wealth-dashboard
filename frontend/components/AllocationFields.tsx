@@ -115,12 +115,21 @@ export function FillRulePicker({
   value,
   onChange,
   loadCandidates = api.allocationFillCandidates,
+  note,
+  emptyText = "No money has come into this account in the last 90 days.",
+  helperText = "Only payments matching this count toward the envelope, not everything landing in the account.",
 }: {
   accountId: string;
   value: FillRuleValue;
   onChange: (v: FillRuleValue) => void;
   /** Injectable for unauthenticated previews; defaults to the live API. */
   loadCandidates?: (accountId: string) => ReturnType<typeof api.allocationFillCandidates>;
+  /** G256: a small line under the heading, e.g. "Suggested from your transfers". */
+  note?: string;
+  /** G256: a plan's rule reads payments LEAVING the paying account, so its
+   * empty and helper lines differ. The picker itself is the one shared piece. */
+  emptyText?: string;
+  helperText?: string;
 }) {
   const [candidates, setCandidates] = useState<FillCandidate[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -164,6 +173,9 @@ export function FillRulePicker({
       <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
         Which payment fills it?
       </label>
+      {note && (
+        <p data-testid="fill-rule-note" className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mb-1">{note}</p>
+      )}
 
       {!manual && (
         <>
@@ -203,7 +215,7 @@ export function FillRulePicker({
           )}
           {!loading && !error && candidates && candidates.length === 0 && (
             <p className="text-[13px] text-slate-400 dark:text-slate-500 px-1 py-2">
-              No money has come into this account in the last 90 days.
+              {emptyText}
             </p>
           )}
           <button
@@ -267,7 +279,7 @@ export function FillRulePicker({
       )}
 
       <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-        Only payments matching this count toward the envelope, not everything landing in the account.
+        {helperText}
       </p>
     </div>
   );
