@@ -44,7 +44,7 @@ const EXTS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 // through lib/callbackRelay.ts (a doFetch indirection the scan does not flag), so their
 // ALLOW entries were removed rather than left stale.
 const ALLOW = [
-  ...["nordigen", "yapily"].map((p) => ({
+  ...["nordigen"].map((p) => ({
     file: `app/auth/${p}/callback/route.ts`,
     snippet: "fetch(`${BACKEND}/auth/" + p + "/callback",
     reason:

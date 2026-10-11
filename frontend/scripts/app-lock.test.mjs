@@ -128,7 +128,7 @@ await withStubbedFetch(async (getCallCount) => {
   let threwSynchronously = false;
   let maybeRejected;
   try {
-    maybeRejected = api.deleteYapilyConnection("fake-consent-token");
+    maybeRejected = api.deleteManualAccountRule("fake-rule-id");
   } catch {
     threwSynchronously = true;
   }

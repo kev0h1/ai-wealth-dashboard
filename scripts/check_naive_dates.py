@@ -1033,22 +1033,6 @@ ALLOWLIST: dict[str, dict[str, dict]] = {
             ),
         },
     },
-    "app/routers/yapily.py": {
-        "\"created_at\": datetime.now(),": {
-            "reason": (
-                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
-                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
-                "user as a day or day-count)"
-            ),
-        },
-        "from_date = (datetime.now() - timedelta(days=90)).strftime(\"%Y-%m-%dT00:00:00Z\")": {
-            "reason": (
-                "internal N-day transaction lookback window (query cutoff), not user-facing calendar "
-                "copy; persisted audit timestamp (created_at/updated_at-style write, not rendered to the "
-                "user as a day or day-count)"
-            ),
-        },
-    },
     "app/services/affordability.py": {
         "cutoff = datetime.now() - timedelta(days=90)": {
             "reason": (
@@ -1652,14 +1636,6 @@ ALLOWLIST: dict[str, dict[str, dict]] = {
                 "background bank-sync worker internals (token/connection lifecycle, retry/query windows), "
                 "not user-facing (token expiry/refresh, connection created_at/updated_at, sync-window "
                 "query params sent to the bank API, last_synced write)"
-            ),
-        },
-    },
-    "app/services/yapily_sync.py": {
-        "\"updated_at\": datetime.now(),": {
-            "reason": (
-                "persisted audit timestamp (created_at/updated_at-style write, not rendered to the user "
-                "as a day or day-count) on a Yapily institution connection"
             ),
         },
     },

@@ -1891,7 +1891,7 @@ export class ApiError extends Error {
 //
 // This is a closed, explicit exemption list, not an "/auth/" prefix match:
 // several bank-LINKING routes also happen to live under /auth/ (finexer,
-// yapily, truelayer, the legacy provider — see LEGACY_BANK_ID above) and
+// truelayer, the legacy provider — see LEGACY_BANK_ID above) and
 // those are ordinary authenticated calls that must still trigger sign-out on
 // a revoked session. Only the login/session-check surface, and the one
 // truly public route this file calls, are exempt:
@@ -3328,18 +3328,6 @@ export const api = {
     }).then((r) => toJson<ManualAccountRule>(r)),
   deleteManualAccountRule: (id: string) =>
     fetch(`${API_BASE}/manual-account-rules/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ deleted: string }>(r)),
-
-  // Yapily (UK open banking)
-  yapilyInstitutions: (country = "GB") =>
-    get<{ id: string; name: string; logo: string; countries: string[] }[]>(`/auth/yapily/institutions?country=${country}`),
-  yapilyRequisition: (institution_id: string) =>
-    post<{ link: string; requisition_id: string }>("/auth/yapily/requisition", { institution_id }),
-  yapilySync: () => post<{ message: string }>("/yapily/sync", {}),
-  deleteYapilyConnection: (consentToken: string) =>
-    fetch(`${API_BASE}/yapily/connections/${encodeURIComponent(consentToken)}`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ deleted: string }>(r)),

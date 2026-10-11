@@ -173,7 +173,6 @@ FILES=(
   "app/auth/finexer/callback/route.ts"
   "app/auth/nordigen/callback/route.ts"
   "app/auth/truelayer/callback/route.ts"
-  "app/auth/yapily/callback/route.ts"
 )
 
 for f in "${FILES[@]}"; do

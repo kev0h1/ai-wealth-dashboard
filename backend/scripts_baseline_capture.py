@@ -60,14 +60,9 @@ async def _challenge_eligible_count(uid: str) -> int:
     week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     four_weeks_ago = week_start - timedelta(days=28)
 
-    from app.db.collections import yapily_transactions_col
-    tl = await transactions_col.find(
+    raw_txns = await transactions_col.find(
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": four_weeks_ago}}
     ).to_list(None)
-    yap = await yapily_transactions_col.find(
-        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": four_weeks_ago}}
-    ).to_list(None)
-    raw_txns = tl + yap
 
     hist_txns = [t for t in raw_txns if t.get("date", datetime.min) < week_start]
 
