@@ -17,6 +17,9 @@ from app.core.deep_links import DEEP_LINK_SCHEME, bank_return_url, signin_return
 from app.core.signin_handoff_template import TEMPLATE
 
 SUCCESS_HINT = "Signed in. You can close this window and return to Sorted."
+# A136: a return that carries a one-time code must not tell the user to close
+# the window (closing loses the code, and the new build has no poll fallback).
+CODE_RETURN_HINT = "Tap Return to Sorted to finish signing in."
 
 _SLOT = re.compile(r"\{\{(\w+)\}\}")
 
@@ -64,7 +67,7 @@ def signin_handoff_html(ok: bool, *, scheme: str = "auto",
         "scheme": scheme,
         "heading": heading,
         "message": message if message is not None else default_message,
-        "success_hint": SUCCESS_HINT,
+        "success_hint": CODE_RETURN_HINT if code else SUCCESS_HINT,
         "ok_flag": "true" if ok else "false",
         "auto_return": "true" if auto_return else "false",
     })

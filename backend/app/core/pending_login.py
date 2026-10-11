@@ -314,7 +314,7 @@ async def issue_start(pkce_challenge: str, ip: str | None) -> dict | None:
 
 
 _CODE_PREFIX = "auth:code:"
-CODE_TTL = 120
+CODE_TTL = 300  # A136: 5 minutes; the start record outlives it by 5s
 _CODE_RE = re.compile(r"^[0-9a-f]{32}$")
 _codes: dict[str, tuple[str, float]] = {}
 

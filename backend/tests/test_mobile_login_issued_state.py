@@ -165,6 +165,29 @@ def test_code_ttl_expiry(client, monkeypatch):
     assert client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "4" * 32}).status_code == 404
 
 
+def test_code_ttl_is_five_minutes_and_start_outlives_it():
+    assert pl.CODE_TTL == 300
+    d = asyncio.run(pl.issue_start(_sha("t" * 32), "203.0.113.5"))
+    rec = asyncio.run(pl.get_start(d["state"]))
+    asyncio.run(pl.complete_issued(d["state"], rec, "token:x"))
+    exp = pl._starts[d["state"]][1]
+    code_exp = max(e for _, e in pl._codes.values())
+    assert exp - code_exp >= 4.5
+
+
+def test_code_return_never_says_close_this_window(client):
+    d = _start(client, "5" * 32)
+    ok = asyncio.run(pl.complete_issued(d["state"], asyncio.run(pl.get_start(d["state"])), "token:x"))
+    from app.core.signin_handoff import signin_handoff_html
+    page = signin_handoff_html(True, code=ok)
+    assert "Tap Return to Sorted to finish signing in." in page
+    assert "close this window" not in page.lower()
+    assert 'data-done="Tap Return' in page
+    assert "!" not in "Tap Return to Sorted to finish signing in." and "\u2014" not in page
+    # legacy (no code) return keeps the old hint
+    assert "You can close this window and return to Sorted." in signin_handoff_html(True)
+
+
 def test_code_return_url_keeps_frozen_path():
     from app.core.deep_links import signin_return_url
     assert signin_return_url() == "wealthdash://auth-done"
