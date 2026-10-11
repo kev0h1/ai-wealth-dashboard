@@ -181,7 +181,7 @@ def test_create_writes_the_unset_marker_only_for_not_set(monkeypatch):
     col = _Collection()
     monkeypatch.setattr(commitments, "commitments_col", col)
     async def amap(_): return _accounts()
-    async def pots(_): return []
+    async def pots(_, _uid=None): return []
     async def serial(*_): return {"ok": True}
     monkeypatch.setattr(commitments, "owned_account_map", amap)
     monkeypatch.setattr(commitments, "_build_pots", pots)

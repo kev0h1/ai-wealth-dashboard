@@ -162,7 +162,7 @@ def _setup_goal(monkeypatch, col):
     monkeypatch.setattr(commitments, "commitments_col", col)
     monkeypatch.setattr(commitments.response_cache, "ainvalidate", lambda uid: _cache_spy(calls, uid))
     async def accounts(_): return _source_accounts()
-    async def pots(raw):
+    async def pots(raw, _uid=None):
         return [{"account_id": str(p["account_id"]), "baseline": 0, "count_existing": False} for p in raw]
     async def serial(_, doc): return deepcopy(doc)
     monkeypatch.setattr(commitments, "owned_account_map", accounts)

@@ -189,13 +189,16 @@ def _try_oid(v: str):
         return v
 
 
-async def _live_balance(account_id: str) -> float | None:
-    """Current balance for an account id across all account collections."""
+async def _live_balance(account_id: str, uid: str) -> float | None:
+    """Current balance for an account id across all account collections.
+
+    Scoped to `uid` at query level (A132): an id the caller does not own is
+    indistinguishable from one that does not exist (None)."""
     oid = _try_oid(account_id)
     for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
         for _id in ({oid, account_id} if oid != account_id else {account_id}):
             doc = await col.find_one(
-                {"_id": _id},
+                {"_id": _id, "user_id": uid},
                 {"balance": 1, "current_balance": 1, "available_balance": 1},
             )
             if doc:
@@ -209,18 +212,18 @@ async def _live_balance(account_id: str) -> float | None:
     return None
 
 
-async def _account_name(account_id: str) -> str | None:
+async def _account_name(account_id: str, uid: str) -> str | None:
     """Display name for an account id, whitespace-normalised, or None."""
     oid = _try_oid(account_id)
     for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
         for _id in ({oid, account_id} if oid != account_id else {account_id}):
-            doc = await col.find_one({"_id": _id}, {"name": 1})
+            doc = await col.find_one({"_id": _id, "user_id": uid}, {"name": 1})
             if doc:
                 return " ".join(str(doc.get("name") or "").split()) or None
     return None
 
 
-async def _pot_kind(account_id: str) -> str | None:
+async def _pot_kind(account_id: str, uid: str) -> str | None:
     """"connected" | "manual" (offline, manual_accounts_col) | None if unknown."""
     oid = _try_oid(account_id)
     ids = {oid, account_id} if oid != account_id else {account_id}
@@ -230,7 +233,7 @@ async def _pot_kind(account_id: str) -> str | None:
         (manual_accounts_col, "manual"),
     ):
         for _id in ids:
-            if await col.find_one({"_id": _id}, {"_id": 1}):
+            if await col.find_one({"_id": _id, "user_id": uid}, {"_id": 1}):
                 return kind
     return None
 
@@ -343,7 +346,7 @@ async def compute_pot_ledger(
         if balances is not None and aid in balances and balances[aid] is not None:
             live_map[aid] = float(balances[aid])
         else:
-            live = await _live_balance(aid)
+            live = await _live_balance(aid, uid)
             live_map[aid] = float(live) if live is not None else 0.0
     pot_free = dict(live_map)  # decrements as goals claim
 
@@ -434,7 +437,7 @@ async def _pot_progress_and_slice(
     else:
         pot_sum = 0.0
         for pot in _doc_pots(doc):
-            live = await _live_balance(str(pot["account_id"]))
+            live = await _live_balance(str(pot["account_id"]), str(doc.get("user_id") or ""))
             if live is None:
                 continue
             baseline = float(pot.get("baseline") or 0.0)
@@ -831,20 +834,26 @@ async def _serialise(
     # by this goal's own remaining need); a direct pot-growth read otherwise
     # (done/cancelled docs aren't allocated — nothing left to compete for).
     pot_items: list[dict] = []
+    doc_uid = str(doc.get("user_id") or "")
     for pot in _doc_pots(doc):
         aid = str(pot["account_id"])
         if ledger_entry is not None:
             contributing = ledger_entry["claims"].get(aid, 0.0)
         else:
-            live = await _live_balance(aid)
+            live = await _live_balance(aid, doc_uid)
             baseline = float(pot.get("baseline") or 0.0)
             contributing = 0.0
             if live is not None:
                 contributing = live if pot.get("count_existing") else max(0.0, live - baseline)
         pot_items.append({
             "account_id":           aid,
-            "name":                 await _account_name(aid),
-            "kind":                 pot.get("kind") or "connected",
+            "name":                 await _account_name(aid, doc_uid),
+            # A pot pointing at an account the goal's owner does not own (or
+            # that no longer exists) renders as unavailable, never leaking.
+            "kind":                 (
+                (pot.get("kind") or "connected")
+                if await _pot_kind(aid, doc_uid) else "unknown"
+            ),
             "count_existing":       bool(pot.get("count_existing")),
             "contributing_balance": round(contributing, 2),
         })
@@ -1022,18 +1031,19 @@ def _validate_target_date(raw) -> str:
     return target.isoformat()
 
 
-async def _capture_baseline(fid: str) -> float:
+async def _capture_baseline(fid: str, uid: str) -> float:
     """Live pot balance at link time — the progress zero-point."""
-    live = await _live_balance(fid)
+    live = await _live_balance(fid, uid)
     if live is None:
-        raise HTTPException(400, "funding account not found")
+        raise HTTPException(404, "Account not found")
     return round(float(live), 2)
 
 
-async def _build_pots(raw) -> list[dict]:
+async def _build_pots(raw, uid: str) -> list[dict]:
     """Validate a funding_pots request payload ([{account_id, count_existing}])
     into the stored v2 shape, capturing baselines now. Duplicate account ids
-    collapse to the first occurrence; unknown accounts are a 400."""
+    collapse to the first occurrence; accounts the caller does not own (or that
+    do not exist) are a 404 with one shared body, so existence never leaks."""
     if raw in (None, "", []):
         return []
     if not isinstance(raw, list):
@@ -1049,13 +1059,13 @@ async def _build_pots(raw) -> list[dict]:
         if aid in seen:
             continue
         seen.add(aid)
-        kind = await _pot_kind(aid)
+        kind = await _pot_kind(aid, uid)
         if kind is None:
-            raise HTTPException(400, "funding account not found")
+            raise HTTPException(404, "Account not found")
         count_existing = bool(entry.get("count_existing"))
         # count_existing → baseline 0 (whole balance counts); otherwise the
         # balance right now is the zero-point.
-        baseline = 0.0 if count_existing else await _capture_baseline(aid)
+        baseline = 0.0 if count_existing else await _capture_baseline(aid, uid)
         pots.append({
             "account_id":     aid,
             "kind":           kind,
@@ -1205,10 +1215,10 @@ async def create_commitment(
     # v2 payload preferred; legacy single funding_account_id accepted for one
     # release and treated as a single connected/manual pot, count_existing off.
     if "funding_pots" in body:
-        pots = await _build_pots(body.get("funding_pots"))
+        pots = await _build_pots(body.get("funding_pots"), uid)
     else:
         fid = body.get("funding_account_id") or None
-        pots = await _build_pots([{"account_id": fid}] if fid else [])
+        pots = await _build_pots([{"account_id": fid}] if fid else [], uid)
 
     doc = {
         "user_id":      uid,
@@ -1275,10 +1285,10 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
                 continue
             seen.add(aid)
             count_existing = bool(entry.get("count_existing"))
-            kind = await _pot_kind(aid) or "connected"
+            kind = await _pot_kind(aid, uid) or "connected"
             baseline = 0.0
             if not count_existing:
-                live = await _live_balance(aid)
+                live = await _live_balance(aid, uid)
                 baseline = float(live) if live is not None else 0.0
             draft_pots.append({
                 "account_id":     aid,
@@ -1359,7 +1369,7 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
                 if c["amount"] > 0 and c["commitment_id"] != draft_id
             ]
         else:
-            live = await _live_balance(aid)
+            live = await _live_balance(aid, uid)
             free = round(max(0.0, float(live)), 2) if live is not None else 0.0
             also_funding = []
         pots_detail.append({"account_id": aid, "also_funding": also_funding, "free": free})
@@ -1487,7 +1497,7 @@ async def update_commitment(
         # same count_existing flag keeps its stored baseline (its link time
         # hasn't changed — re-capturing would wipe accrued growth). Fresh
         # baselines are captured only for new pots or a flipped flag.
-        pots = await _build_pots(body.get("funding_pots"))
+        pots = await _build_pots(body.get("funding_pots"), uid)
         prior = {
             (p["account_id"], bool(p.get("count_existing"))): p
             for p in _doc_pots(doc)
@@ -1506,7 +1516,7 @@ async def update_commitment(
             )
         # Legacy single-pot re-link (one release) — same capture semantics.
         fid = body.get("funding_account_id") or None
-        pots = await _build_pots([{"account_id": fid}] if fid else [])
+        pots = await _build_pots([{"account_id": fid}] if fid else [], uid)
         updates["funding_pots"] = pots
         updates.update(_pot_mirrors(pots))
     if "source_account_id" in body:
