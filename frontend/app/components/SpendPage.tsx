@@ -340,6 +340,28 @@ export default function SpendPage() {
   // (notable cards, majority rows, the RhythmCard deep-link above).
   const [openCategory, setOpenCategory] = useState<(CategoryData & { title?: string }) | null>(null);
   const [periodOffset, setPeriodOffset] = useState(() => initialPeriod.offset);
+  // G262: the Mirror route shows only once the Mirror has a portrait to open
+  // (same gate as Penny's entry); a fresh user sees no row.
+  const [mirrorReady, setMirrorReady] = useState(false);
+  useEffect(() => {
+    // Idle-loaded so a cold portrait recompute never contends with the verdict render.
+    let cancelled = false;
+    const loadMirror = () => {
+      api.getMirror()
+        .then((portrait) => { if (!cancelled) setMirrorReady(portrait.status === "ok" && portrait.traits.length > 0); })
+        .catch(() => { if (!cancelled) setMirrorReady(false); });
+    };
+    const idleApi = window as unknown as {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idleApi.requestIdleCallback === "function") {
+      const idleId = idleApi.requestIdleCallback(loadMirror, { timeout: 2500 });
+      return () => { cancelled = true; idleApi.cancelIdleCallback?.(idleId); };
+    }
+    const timerId = window.setTimeout(loadMirror, 1200);
+    return () => { cancelled = true; window.clearTimeout(timerId); };
+  }, []);
   const [fetchedSignals, setFetchedSignals] = useState<Record<number, SignalMap>>({});
   const signals = fetchedSignals[periodOffset] ?? cachedSignals(periodOffset) ?? {};
   // force = the Door or a category just changed, so the cached copy is dead.
@@ -1165,6 +1187,7 @@ export default function SpendPage() {
                 initialMovedOpen={restoredUi.movedOpen}
                 onMovedOpenChange={(open) => writeSpendUiState({ movedOpen: open })}
                 signals={signals}
+                mirrorRoute={mirrorReady}
                 sym={sym}
                 onAimChanged={refetchSignals}
                 onIntent={(category, answer) => api.recordTrendIntent(category, answer)
