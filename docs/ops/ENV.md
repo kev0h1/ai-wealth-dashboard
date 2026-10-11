@@ -75,9 +75,6 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `FCM_PROJECT_ID` | `core/config.py` | present | present (required, currently absent, see "Known drift" below) | required for Android push in production. |
 | `FCM_SERVICE_ACCOUNT_PATH` | `core/config.py` | absent (default file `backend/.fcm_service_account.json` is used) | absent | optional; only needed to point at a non-default file path. |
 | `FCM_SERVICE_ACCOUNT_JSON` | `core/config.py` | absent (UAT uses the `.fcm_service_account.json` file directly) | present (required, currently absent, see "Known drift" below) | required in production (no persistent filesystem); set the whole service-account JSON as this env var, not a path. |
-| `YAPILY_APP_UUID` | `core/config.py` | present | present | optional; Yapily is dormant, pending removal per the Finexer migration. |
-| `YAPILY_SECRET` | `core/config.py` | present | present | optional; see above. |
-| `YAPILY_BASE_URL` | `core/config.py` | present | absent (default `https://api.yapily.com` is correct) | optional; UAT pins it explicitly, production relies on the default. |
 | `FINEXER_API_KEY` | `core/config.py` | present | present | required; primary bank-connect provider. |
 | `FINEXER_RETURN_URL` | `core/config.py` | present | absent (default matches production URL) | optional; UAT pins it explicitly. |
 | `FINEXER_APP_ID` | `core/config.py` | absent | absent | optional; A143, the app id from the Finexer app settings. Needed by `backend/scripts/finexer_template.py` (or its `--app-id`) and by the dark-template check. Per environment: UAT = the sandbox app (acc_GA5guMoUxCWpDfSy6ShPbiHZ), Railway/production = the production app (acc_DqPCRpHskkjNy7uYa1wv7mSv). Finexer scopes templates by API key, not by the app id in the URL, so each environment needs the key that belongs to its own app. |
@@ -324,6 +321,14 @@ A27 backlog note.
   service, that is harmless (nothing reads it) but should be cleared out
   next time either is touched, so it doesn't get mistaken for something
   live.
+- **`YAPILY_APP_UUID`, `YAPILY_SECRET`, `YAPILY_BASE_URL`**: retired by H87
+  (the Yapily integration was removed; Finexer is the only open-banking
+  provider besides the legacy TrueLayer path). Nothing reads them. Delete
+  them from the UAT `backend/.env` and from both Railway services after the
+  H87 merge, so they are not mistaken for live configuration. The leftover
+  `yapily_*` collections are removed by
+  `backend/scripts/retire_yapily_accounts.py` (count first, then
+  `--apply --yes` only after a backup and Kevin's go-ahead).
 - Net effect of the first two points above: **production push
   notifications are unconfigured** (`APNS_CONFIGURED` / `FCM_CONFIGURED`
   both evaluate false with these unset). Not a regression, production has
@@ -399,7 +404,6 @@ only how the bot-route credential itself works.
 | `VAPID_PRIVATE_KEY` | Generate a fresh VAPID keypair (`py_vapid` or any standard tool), update. On UAT this falls back to `backend/.vapid_private_key` if unset. | Every existing web-push subscription becomes invalid (VAPID keys are what browsers use to verify the push sender) — users need to be re-subscribed; there is no seamless rotation for web push, this is an expected one-time break. |
 | `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_AUTH_KEY` (the `.p8` key, held as a file on UAT and as this env var's contents on Railway) | Apple Developer portal: revoke the old key, create a new APNs Auth Key, update `APNS_KEY_ID` and the key contents everywhere (`backend/.apns_auth_key.p8` on UAT, `APNS_AUTH_KEY` on Railway). `APNS_TEAM_ID` itself never needs rotating (it's the Apple team id, not a secret). | iOS push notifications fail until rotated; nothing else. |
 | `FCM_SERVICE_ACCOUNT_JSON` (and the file-fallback `.fcm_service_account.json` on UAT) | Firebase console: create a new service account key for the project, update everywhere, then revoke the old key. | Android push notifications fail until rotated; nothing else. |
-| `YAPILY_APP_UUID` / `YAPILY_SECRET` | Yapily dashboard: rotate, update. Yapily is dormant pending removal (Finexer migration) — a live gap found during this pass (see `docs/security/pentest-scope-2026-09.md` and the A26 completion report) is that Yapily consent tokens are stored in plaintext (`yapily_accounts_col.consent`), unlike TrueLayer's Fernet-encrypted tokens; there are currently zero live rows in that collection on UAT, but this is worth resolving before Yapily is fully retired rather than after. | New Yapily connections/syncs fail until rotated; Finexer (the primary provider) is unaffected. |
 | `FINEXER_API_KEY` | Finexer dashboard: rotate, update. | Every Finexer call fails — new consents, syncs, and webhook-triggered resyncs all stop working until rotated. This is the primary bank-connect provider, so this is a full open-banking outage while unrotated. |
 | `FINEXER_WEBHOOK_SECRET` (falls back to a generated `backend/.finexer_webhook_secret` file if unset) | Same shape as `TRUELAYER_WEBHOOK_SECRET`: generate a new value, update it in Finexer's webhook URL configuration and here together. | Finexer webhook deliveries 401 and are dropped until both sides agree; Finexer retries and eventually pauses the webhook after 10 consecutive non-2xx responses (per `routers/webhooks.py`'s own docstring), so a slow rotation risks the webhook being disabled Finexer-side, needing manual re-registration. |
 | `FINEXER_WEBHOOK_SIGNING_SECRET` | Finexer dashboard issues this once the webhook endpoint is registered; rotate by regenerating it there and updating here. Currently unset everywhere (Finexer hasn't issued one yet), which means signature verification is skipped with a logged warning — see the "what no log line or error response can carry" findings in the A26 completion report for why this specific gap is already flagged. | While unset: no signature check at all on Finexer webhooks (only the URL secret above gates them). While mid-rotation with a mismatched value on either side: every delivery 401s the same way as the URL-secret case above. |
@@ -412,7 +416,7 @@ only how the bot-route credential itself works.
 **Not secrets, no rotation procedure needed:** every other name in the
 tables above is either a non-sensitive config value (`APP_URL`,
 `API_PUBLIC_URL`, `MCP_PUBLIC_URL`, `ALLOWED_EMAILS`, `DEFAULT_TIER`,
-`APPLE_BUNDLE_ID`, `APPLE_SERVICES_ID`, `YAPILY_BASE_URL`,
+`APPLE_BUNDLE_ID`, `APPLE_SERVICES_ID`,
 `FINEXER_RETURN_URL`, `FINEXER_PROVIDERS_TTL_HOURS`,
 `RECONCILE_SPREAD_MINUTES`, `RECONCILE_MAX_PER_MINUTE`,
 `RECONCILE_MIN_GAP_SECONDS`, `SENTRY_ENV`, `APNS_BUNDLE_ID`,

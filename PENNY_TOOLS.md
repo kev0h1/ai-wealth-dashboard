@@ -278,14 +278,12 @@ text narrows an otherwise-ambiguous shared description), reading through
 same protection that router's own PATCH/DELETE endpoints already have (no
 endpoint accepts a `mirror:` id).
 `_resolve_bank_connection_for_propose` deliberately does NOT reuse
-`_resolve_account_for_propose` either: that resolver's account list mixes
-in Yapily accounts whose own `connection_id` field is actually a Yapily
-*consent* id, not a `connections_col`/`finexer_consents_col` row id —
-resolving a bank name through it could silently produce a connection id
-`disconnect_connection` can never find. The new resolver instead matches a
-connection id directly against `connections_col`/`finexer_consents_col`,
-or a bank name against `accounts_col`'s own `provider` field grouped by
-`connection_id`, and never touches Yapily at all.
+`_resolve_account_for_propose` either: that resolver's account list also
+carries offline and per-account rows, and resolving a bank name through it
+could silently produce a connection id `disconnect_connection` can never
+find. The new resolver instead matches a connection id directly against
+`connections_col`/`finexer_consents_col`, or a bank name against
+`accounts_col`'s own `provider` field grouped by `connection_id`.
 `propose_delete_offline_account` and `propose_disconnect_bank` are the
 first two propose tools to carry a new `destructive: true` flag on their
 stored and returned proposal (every other kind, past and present, defaults

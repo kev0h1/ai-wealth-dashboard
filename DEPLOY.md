@@ -469,7 +469,7 @@ all, so this fails soft, not fast — see `app/core/config.py`'s comment by
 
 What an `MCP_ONLY` instance skips at startup: the one-time migrations and
 cache seeds in `app/main.py`'s `_migrate` handler (user_id backfill,
-category-kind migration, subscription seeding, stale-connection/Yapily
+category-kind migration, subscription seeding, stale-connection
 cleanup, cashflow cache warm-up, penny top-up pack migration) — the main
 app service already runs these on every boot against the same shared
 Mongo, so an MCP-only instance skipping them is not a missed migration.
@@ -511,7 +511,6 @@ scripts/env_drift.py` to check the two against what Railway actually has.
 | `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist, the seed list; see "Sign-up mode" below for day-to-day invites |
 | `OPEN_SIGNUP` | unset (defaults false) | see "Sign-up mode" below |
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
-| `YAPILY_*` | from `backend/.env` | only if using the dormant Yapily provider |
 | `SENTRY_DSN` | optional | error monitoring |
 | `API_PUBLIC_URL` | optional, defaults to `https://api.wealth.auriqltd.co.uk` | the API's own domain, reached directly by Capacitor mobile builds (`build:mobile:prod`); added to CORS alongside `APP_URL` |
 | `STRIPE_SECRET_KEY` | Stripe dashboard, test mode first | B5 billing, unset today, see "Stripe setup checklist" below |

@@ -84,7 +84,8 @@ Route all LLM calls through OpenRouter (`openrouter.ai/api/v1/chat/completions`)
 
 **Status:** Superseded (2026-09-21, A98) — the Kenya region and the Mono
 provider were removed entirely. TrueLayer and Yapily remain as recorded
-below; Finexer is now the primary provider.  
+below; Finexer is now the primary provider. Yapily was later removed too
+(H87); this record is kept as history.  
 **Date:** 2026-06-15
 
 ### Context

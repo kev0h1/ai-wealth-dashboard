@@ -41,8 +41,7 @@ The guard `check:no-native-dialogs` has an empty allowlist.
 | routers/auth.py `/auth/google/mobile` | Google not configured | JSON 500 | hand-off sign-in error page, 503 | done |
 | routers/auth.py `/auth/google` | Google not configured | JSON 500 | redirect to `/?error=auth_failed` like its callback | done |
 | routers/auth.py google callbacks | all other failures | redirect / hand-off page | already designed | no change |
-| routers/yapily.py callback | any | always redirects | already designed | no change |
-| `/auth/*/link`, `/providers`, `/yapily/*`, `/oauth/register` `/token` `/revoke` | called by fetch or by machine clients | JSON | protocol or API responses, never navigated | no change |
+| `/auth/*/link`, `/providers`, `/oauth/register` `/token` `/revoke` | called by fetch or by machine clients | JSON | protocol or API responses, never navigated | no change |
 
 ## C. Next.js framework surfaces
 
