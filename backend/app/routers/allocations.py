@@ -598,9 +598,15 @@ async def list_account_plans(user: dict = Depends(current_user)):
             "source_basis": basis,
             "inferred": inferred,
             "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
-            "period_amount": slice_info["per_period_slice"],
-            "filled_amount": None,
+            # G256: with a fill rule, the period amount is the slice due, the
+            # filled amount what the matched outgoing transfer(s) covered and
+            # the remainder what is still reserved. Without one: as before.
+            "period_amount": (slice_info["fulfilment"]["expected_pence"] / 100
+                              if slice_info.get("fulfilment") else slice_info["per_period_slice"]),
+            "filled_amount": (slice_info["fulfilment"]["matched_pence"] / 100
+                              if slice_info.get("fulfilment") else None),
             "remaining": slice_info["per_period_slice"],
+            "fulfilment": slice_info.get("fulfilment"),
             "active": doc.get("status", "active") == "active",
         })
     return {"items": items}
