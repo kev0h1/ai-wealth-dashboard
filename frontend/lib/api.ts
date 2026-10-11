@@ -415,12 +415,37 @@ export type PaceSeriesPoint = {
   sustainable_line: number | null;
 };
 
+// G242: the server's pace reading for an aim. An aim is a pace check, not a
+// budget, so none of these states is a risk state. Optional so a cached or
+// older response still renders (lib/aimPace.ts falls back to the same rule).
+export type AimPaceFigures = {
+  state: "on" | "under" | "likely" | "past";
+  phrase: string;
+  period_days: number;
+  elapsed_fraction: number;
+  pace_today: number;
+  projected: number;
+  spent_fraction: number;
+};
+
 export type Checkpoint = {
   id: string;
   aim_amount: number;
   spent_so_far: number;
   days_left: number;
   on_track: boolean;
+  pace?: AimPaceFigures;
+};
+
+// GET /checkpoints/nudge: at most one, only for a Mirror trait marked "change".
+export type AimNudge = {
+  id: string;
+  category: string;
+  trait_title: string;
+  aim_amount: number;
+  spent_so_far: number;
+  projected: number;
+  days_left: number;
 };
 
 // GET /checkpoints also returns `ref` — the category the aim is anchored to.
@@ -3848,6 +3873,16 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
+  // G242: edit an active aim's amount; remove is cancelCheckpoint.
+  updateCheckpoint: (id: string, aim_amount: number) =>
+    fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ aim_amount }),
+    }).then((r) => toJson<Checkpoint>(r)),
+  aimNudge: () => get<{ nudge: AimNudge | null }>("/checkpoints/nudge"),
+  dismissAimNudge: (id: string) =>
+    post<{ ok: boolean }>(`/checkpoints/${encodeURIComponent(id)}/nudge-dismiss`, {}),
   recordTrendIntent: (category: string, answer: "one_off" | "new_normal") =>
     post<{ ok: boolean }>("/trends/intent", { category, answer }),
   // ── Spend card lifecycle — the consent sheet's pre-file preview, and the
