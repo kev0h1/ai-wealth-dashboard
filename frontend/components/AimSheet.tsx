@@ -149,8 +149,10 @@ export default function AimSheet({ category, onClose, onSaved, baseline, existin
                 <>
                   <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3">
                     {usual != null
-                      ? <>Your usual is about <strong className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">{fmtWhole(usual)}/period</strong>. Set an aim to track against:</>
-                      : <>Set an aim for {category} to track against, leave it blank and I&apos;ll work one out from your own baseline:</>}
+                      ? <>Your usual is about <strong className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">{fmtWhole(usual)}/period</strong>. {existingAmount != null ? "Adjust the aim you check against:" : "Set an aim to track against:"}</>
+                      : existingAmount != null
+                        ? <>Adjust the aim you check against for {category}:</>
+                        : <>Set an aim for {category} to track against, leave it blank and I&apos;ll work one out from your own baseline:</>}
                   </p>
 
                   <div className="flex flex-wrap items-center gap-2">

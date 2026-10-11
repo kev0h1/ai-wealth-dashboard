@@ -51,7 +51,7 @@ export default function MirrorNextStep({ layout, kind = "aim", category, amount 
       link: "Back to Spend",
     },
     plan: {
-      body: "Your regular saving dipped when you drew on it. A plan on Planning can set how much to put back and when, and I will check it against your transactions.",
+      body: "Your regular saving looks to have dipped when you drew on it. A plan on Planning can set how much to put back and when, and I will check it against your transactions.",
       button: "See the plan on Planning",
       done: "This opens your saving plan on Planning. That screen is outside this round.",
       link: "Back to Spend",

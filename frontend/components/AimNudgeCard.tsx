@@ -4,7 +4,7 @@
 // (BEHAVIOURS.md Layer 2), one at a time (Layer 3), and it names the trait.
 // It is advice from Penny, so it wears Penny's gradient chip and nothing
 // else does. Passing an aim is not a risk: never red, never amber.
-import { X } from "lucide-react";
+import { DismissChip } from "@/components/HomeBrief";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 import { fmtWhole } from "@/lib/aimFormat";
@@ -51,16 +51,7 @@ export default function AimNudgeCard({ category, traitTitle, aimAmount, spentSoF
         See {category}
       </button>
       {onDismiss && (
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss"
-          className="absolute right-2 top-2 z-10 flex h-11 w-11 touch-manipulation items-center justify-center rounded-full [-webkit-tap-highlight-color:transparent] transition-transform duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800"
-        >
-          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-900/[0.06] bg-slate-900/[0.05] transition-colors duration-150 dark:border-white/10 dark:bg-white/[0.06] [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11]">
-            <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
-          </span>
-        </button>
+        <DismissChip label="Dismiss" onClick={onDismiss} className="absolute right-2 top-2 z-10" />
       )}
     </div>
   );
