@@ -6212,8 +6212,8 @@ def _describe_pay_period_config(cfg: dict) -> str:
     if t == "calendar_month":
         return "calendar month (1st to last day of each month)"
     if t == "monthly_pay_date":
-        day = cfg.get("day", 1)
-        return f"monthly, paid on the {_ordinal(int(day))} of each month"
+        day = int(cfg.get("day", 1))  # D8: day 31 is clamped by the engine, so it is the last day
+        return "monthly, paid on the last day of each month" if day >= 31 else f"monthly, paid on the {_ordinal(day)} of each month"
     if t == "biweekly":
         wd = _PAY_PERIOD_WEEKDAY_NAMES[cfg.get("weekday", 5) % 7]
         ref = cfg.get("referenceDate", "")

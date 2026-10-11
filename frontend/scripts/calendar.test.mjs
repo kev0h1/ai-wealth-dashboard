@@ -77,7 +77,7 @@ assert.equal(todayIso(new Date(2026, 6, 15, 23, 59)), "2026-07-15");
 // G213 source guard: the manual-transaction and pay-period date defaults must not
 // derive a calendar date from toISOString.
 import { readFileSync } from "node:fs";
-for (const f of ["../app/components/AccountsPage.tsx", "../components/PayPeriodSettingsSheet.tsx", "../components/PreferencesContext.tsx", "../components/TransactionFilterSheet.tsx"]) {
+for (const f of ["../app/components/AccountsPage.tsx", "../components/PayPeriodPicker.tsx", "../components/PreferencesContext.tsx", "../components/TransactionFilterSheet.tsx"]) {
   const src = readFileSync(new URL(f, import.meta.url), "utf8");
   assert.ok(!/toISOString\(\)\s*\.\s*(slice|substring|substr)\s*\(/.test(src), `${f} derives a date from toISOString`);
   assert.ok(!/\.split\(\s*["']T["']\s*\)\s*\[\s*0\s*\]/.test(src), `${f} derives a date with split T`);

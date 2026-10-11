@@ -11,6 +11,7 @@
     "lint": "eslint",
     "check:calendar": "node --no-warnings --experimental-strip-types scripts/calendar.test.mjs",
     "check:date-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/date-picker.test.mjs",
+    "check:d8-payday-picker": "node --no-warnings --experimental-strip-types scripts/d8-payday-picker.test.mjs",
     "check:no-native-dialogs": "node scripts/check-no-native-dialogs.mjs",
     "check:no-native-date-inputs": "node scripts/check-no-native-date-inputs.mjs",
     "check:g228-plan-deferral": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g228-plan-deferral.test.mjs",
