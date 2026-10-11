@@ -27,11 +27,24 @@ function traitCategory(trait: MirrorTrait): string | null {
   return m ? m[1].trim() : null;
 }
 
-function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
+export function TraitCard({ trait, activeAim, onChoice, onSetAim, nextStep, saveChoice, openAimOnChange = true, refined = false, keepNote }: {
   trait: MirrorTrait;
   activeAim: ActiveAim | null;
   onChoice: (id: string, choice: "keep" | "change") => void;
   onSetAim: (category: string) => void;
+  // G242 (all optional; omit them and the card renders exactly as before).
+  // nextStep — the ONE concrete step shown after "change it", in place of the
+  //   generic confirmation line.
+  nextStep?: React.ReactNode;
+  // saveChoice — replaces the PUT of the choice (design previews).
+  saveChoice?: (id: string, choice: "keep" | "change") => Promise<void>;
+  // openAimOnChange — false when the next step owns the aim prompt.
+  openAimOnChange?: boolean;
+  // refined — 44px choice buttons, and a chosen "change" in neutral indigo (a
+  //   trait is a fact, not a caution, so amber is wrong there).
+  refined?: boolean;
+  // keepNote — a warmer acknowledgement for "keep it".
+  keepNote?: React.ReactNode;
 }) {
   const accent = KIND_ACCENT[trait.kind] ?? KIND_ACCENT.structure;
   const [saving, setSaving] = useState(false);
@@ -41,11 +54,11 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
     if (saving || trait.choice === choice) return;
     setSaving(true);
     try {
-      await api.setMirrorChoice(trait.id, choice);
+      await (saveChoice ? saveChoice(trait.id, choice) : api.setMirrorChoice(trait.id, choice));
       onChoice(trait.id, choice);
       // Change on a category-backed trait → open the aim sheet so the choice
       // becomes something Penny can actually track (skip if an aim exists).
-      if (choice === "change" && category && !activeAim) {
+      if (choice === "change" && category && !activeAim && openAimOnChange) {
         onSetAim(category);
       }
     } catch {
@@ -77,7 +90,7 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         <button
           onClick={() => handleChoice("keep")}
           disabled={saving}
-          className={`flex-1 text-xs font-semibold py-2 px-3 rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          className={`flex-1 text-xs font-semibold py-2 px-3 ${refined ? "min-h-[44px] " : ""}rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
             trait.choice === "keep"
               ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
               : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
@@ -88,9 +101,11 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         <button
           onClick={() => handleChoice("change")}
           disabled={saving}
-          className={`flex-1 text-xs font-semibold py-2 px-3 rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          className={`flex-1 text-xs font-semibold py-2 px-3 ${refined ? "min-h-[44px] " : ""}rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
             trait.choice === "change"
-              ? "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+              ? refined
+                ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                : "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
               : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
           }`}
         >
@@ -98,12 +113,15 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         </button>
       </div>
 
+      {/* Next step (G242): one concrete thing, instead of the generic line */}
+      {trait.choice === "change" && nextStep}
+
       {/* Confirmation line */}
-      {trait.choice && (
+      {trait.choice && !(trait.choice === "change" && nextStep) && (
         <div className="px-4 pb-4 -mt-1">
           {trait.choice === "keep" ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
-              Noted, we&apos;ll never nag you about this.
+              {keepNote ?? <>Noted, we&apos;ll never nag you about this.</>}
             </p>
           ) : category && activeAim ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">

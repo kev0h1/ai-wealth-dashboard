@@ -38,6 +38,9 @@ interface Props {
   sym?: string;
   isPro?: boolean;
   door?: DoorProps;
+  // G242 (optional): the category's aim section, rendered above the payments.
+  // Omit it and the sheet is unchanged.
+  aimSlot?: React.ReactNode;
   // From an insight deep-link: merchant display names whose rows should be
   // highlighted (case-insensitive substring match on merchant/description).
   highlightMerchants?: string[];
@@ -232,7 +235,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
   return null;
 }
 
-export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door, highlightMerchants }: Props) {
+export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door, aimSlot, highlightMerchants }: Props) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const colour = getCategoryColour(name, colours);
@@ -369,6 +372,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
         {/* Transaction list */}
         <div ref={listRef} className="border-t border-slate-100 dark:border-slate-700">
           {door && <DoorBlock door={door} />}
+          {aimSlot}
           {visibleTxns.map(tx => {
             const isMatch = merchantMode && matchesMerchant(tx);
             return (
