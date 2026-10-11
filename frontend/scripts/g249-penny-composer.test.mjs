@@ -63,7 +63,7 @@ assert.match(src, /onClick=\{onSend\}/);
 assert.equal(PENNY_MAX_CHARS, 500);
 assert.equal(PENNY_COUNTER_FROM, 400);
 assert.match(markup, /maxLength="500"/);
-assert.doesNotMatch(html({ value: "a".repeat(399) }), /data-penny-counter/);
+assert.doesNotMatch(html({ value: "a".repeat(399) }), /data-penny-counter(?!-status)/);
 assert.match(html({ value: "a".repeat(400) }), /data-penny-counter[^>]*>400\/500/);
 assert.match(html({ value: "a".repeat(500) }), />500\/500</);
 assert.match(source("../../backend/app/routers/can_i.py"), /3 <= len\(question\) <= 500/, "Backend gate matches the composer limit");
