@@ -52,10 +52,12 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/routers/spend_verdict.py", 79),
     ("app/routers/spend_verdict.py", 95),
     # ValueError raised by app.services.checkpoints.create_checkpoint /
-    # record_intent with an authored message ("ref must be a non-empty
-    # category name", "answer must be 'one_off' or 'new_normal'", etc.)
-    ("app/routers/checkpoints.py", 36),
-    ("app/routers/checkpoints.py", 74),
+    # record_intent / update_checkpoint (G242 PATCH) with an authored message
+    # ("ref must be a non-empty category name", "aim_amount must be a
+    # number", "answer must be 'one_off' or 'new_normal'", etc.)
+    ("app/routers/checkpoints.py", 39),
+    ("app/routers/checkpoints.py", 71),
+    ("app/routers/checkpoints.py", 118),
     # app.services.broadcast.BroadcastError — admin-only broadcast compose/
     # send, authored messages only.
     ("app/routers/broadcast.py", 94),
