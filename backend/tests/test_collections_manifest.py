@@ -67,3 +67,42 @@ def test_erasure_manifest_and_erase_only_collections_do_not_overlap():
         f"collection(s) listed in both ERASURE_MANIFEST and "
         f"ERASE_ONLY_COLLECTIONS: {sorted(overlap)}"
     )
+
+
+# ── A128: retired collections ───────────────────────────────────────────────
+
+def _bound_mongo_names() -> set[str]:
+    """Real Mongo collection names behind every live *_col binding (the
+    attribute name often differs, e.g. behaviour_portrait_col)."""
+    return {getattr(collections, n).name for n in _live_col_bindings()}
+
+
+def test_retired_collections_have_no_live_binding():
+    """A name in RETIRED_COLLECTIONS must not also be bound: a bound
+    collection is live code's, and belongs in ERASURE_MANIFEST."""
+    bound = _bound_mongo_names()
+    clash = bound & set(collections.RETIRED_COLLECTIONS)
+    assert not clash, (
+        f"collection(s) {sorted(clash)} are in RETIRED_COLLECTIONS but also "
+        "have a live *_col binding; remove them from RETIRED_COLLECTIONS and "
+        "add the binding to ERASURE_MANIFEST."
+    )
+    assert not (set(collections.RETIRED_COLLECTIONS) & set(collections.ERASE_ONLY_COLLECTIONS))
+
+
+def test_known_retired_names_are_covered():
+    """expo_push_tokens and savings_plans (A128) predate any manifest and
+    were missed by it: they must stay covered by name until the migration
+    has run everywhere and a reviewer removes them on purpose."""
+    assert {"expo_push_tokens", "savings_plans"} <= set(collections.RETIRED_COLLECTIONS)
+    assert {"expo_push_tokens", "savings_plans"} <= collections.managed_collection_names()
+
+
+def test_managed_collection_names_flags_unknown_collection():
+    managed = collections.managed_collection_names()
+    live_names = ["transactions", "expo_push_tokens", "mpesa_accounts", "some_new_thing"]
+    assert sorted(n for n in live_names if n not in managed) == ["some_new_thing"]
+
+
+def test_every_bound_collection_name_is_managed():
+    assert _bound_mongo_names() <= collections.managed_collection_names()
