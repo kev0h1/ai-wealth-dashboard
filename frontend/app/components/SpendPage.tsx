@@ -344,9 +344,23 @@ export default function SpendPage() {
   // (same gate as Penny's entry); a fresh user sees no row.
   const [mirrorReady, setMirrorReady] = useState(false);
   useEffect(() => {
-    api.getMirror()
-      .then((portrait) => setMirrorReady(portrait.status === "ok" && portrait.traits.length > 0))
-      .catch(() => setMirrorReady(false));
+    // Idle-loaded so a cold portrait recompute never contends with the verdict render.
+    let cancelled = false;
+    const loadMirror = () => {
+      api.getMirror()
+        .then((portrait) => { if (!cancelled) setMirrorReady(portrait.status === "ok" && portrait.traits.length > 0); })
+        .catch(() => { if (!cancelled) setMirrorReady(false); });
+    };
+    const idleApi = window as unknown as {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idleApi.requestIdleCallback === "function") {
+      const idleId = idleApi.requestIdleCallback(loadMirror, { timeout: 2500 });
+      return () => { cancelled = true; idleApi.cancelIdleCallback?.(idleId); };
+    }
+    const timerId = window.setTimeout(loadMirror, 1200);
+    return () => { cancelled = true; window.clearTimeout(timerId); };
   }, []);
   const [fetchedSignals, setFetchedSignals] = useState<Record<number, SignalMap>>({});
   const signals = fetchedSignals[periodOffset] ?? cachedSignals(periodOffset) ?? {};
