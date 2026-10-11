@@ -233,3 +233,29 @@ def test_aims_and_the_nudge_flag_ride_the_erased_collection():
     behaviour portrait document, also covered."""
     from app.db import collections
     assert {"checkpoints_col", "behaviour_portrait_col"} <= set(collections.ERASURE_MANIFEST)
+
+
+# ── HTTP level: another user's id is a 404, never a 403 ─────────────────────
+
+def _client(monkeypatch, docs):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import app.routers.checkpoints as router_mod
+    from app.core.auth import current_user
+
+    monkeypatch.setattr(svc, "checkpoints_col", FakeCol(docs))
+    monkeypatch.setattr(router_mod.response_cache, "invalidate", lambda uid: None)
+    app = FastAPI()
+    app.include_router(router_mod.router)
+    app.dependency_overrides[current_user] = lambda: {"email": OTHER}
+    return TestClient(app)
+
+
+def test_http_patch_and_dismiss_on_another_users_aim_are_404(monkeypatch):
+    mine = _aim(ME)
+    c = _client(monkeypatch, [mine])
+    r = c.patch(f"/checkpoints/{mine['_id']}", json={"aim_amount": 50})
+    assert r.status_code == 404
+    r = c.post(f"/checkpoints/{mine['_id']}/nudge-dismiss")
+    assert r.status_code == 404
+    assert mine["aim_amount"] == 100.0 and not mine.get("nudge_dismissed")

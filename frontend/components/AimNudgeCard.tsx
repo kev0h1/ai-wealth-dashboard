@@ -37,7 +37,7 @@ export default function AimNudgeCard({ category, traitTitle, aimAmount, spentSoF
         {category} looks likely to pass your aim.
       </p>
       <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
-        <MoneyText text={`${fmtWhole(spentSoFar, sym)} so far against a ${fmtWhole(aimAmount, sym)} aim, with ${daysLeft} days left. At this pace it would land near ${fmtWhole(projected, sym)}.`} />
+        <MoneyText text={`${fmtWhole(spentSoFar, sym)} so far against a ${fmtWhole(aimAmount, sym)} aim, with ${daysLeft === 1 ? "1 day" : `${daysLeft} days`} left. At this pace it would land near ${fmtWhole(projected, sym)}.`} />
       </p>
       <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
         You marked &ldquo;{traitTitle}&rdquo; as something to change, so I am keeping an eye on it. Nothing to do unless you want to.

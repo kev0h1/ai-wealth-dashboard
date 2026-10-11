@@ -145,8 +145,11 @@ assert.ok(text(nudge).includes("Your Signature: Eating Out"), "names the trait b
 assert.ok(["£96", "£100", "£122"].every((f) => text(nudge).includes(f)));
 assert.ok(nudge.includes('aria-label="Dismiss"'), "shared DismissChip");
 assert.ok(!/(red|amber|rose|orange)-\d/.test(nudge));
-assert.ok(read("../app/components/HomePage.tsx").includes("<AimNudge"), "mounted on Home");
+assert.ok(!read("../app/components/HomePage.tsx").includes("AimNudge"), "not on Home: Penny never repeats what a visible surface shows");
 assert.ok(read("../app/penny/PennyPage.tsx").includes("<AimNudge"), "mounted on Penny");
+const one = renderToStaticMarkup(h(AimNudgeCard, { category: "Eating Out", traitTitle: "T", aimAmount: 100, spentSoFar: 96, projected: 122, daysLeft: 1, onOpen: noop }));
+assert.ok(text(one).includes("with 1 day left.") && !text(one).includes("1 days"), "singular day");
+assert.ok(text(nudge).includes("with 6 days left."));
 const nudgeMount = read("../components/AimNudge.tsx");
 assert.ok(nudgeMount.includes("api.aimNudge()") && nudgeMount.includes("dismissAimNudge"));
 

@@ -24,7 +24,6 @@ import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import { getHomeCache, setHomeCache } from "@/lib/homeCache";
-import AimNudge from "@/components/AimNudge";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
@@ -1013,9 +1012,6 @@ export default function HomePage() {
               banner={reauthBanner}
             />
           </div>
-
-          {/* G242: Penny's aim nudge, only for a Mirror trait marked "change". */}
-          {!loading && !hasNoAccounts && <AimNudge className="px-4 pt-3 lg:px-0" />}
 
           {/* ── Fresh user (nothing connected yet): lead with onboarding ──
               Directly under the greeting/brief. This is the single instance
