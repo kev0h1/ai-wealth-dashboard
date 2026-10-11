@@ -19,7 +19,7 @@ function nameFor(d: SpendJourneyDestination) {
 
 /** Last destination whose top has crossed 38% of the viewport; null above the journey. */
 function useJourneyPosition(ids: string[]) {
-  const [state, setState] = useState<{ active: string | null; started: boolean }>({ active: null, started: false });
+  const [state, setState] = useState<{ active: string | null }>({ active: null });
   const key = ids.join("|");
   useEffect(() => {
     let raf = 0;
@@ -27,16 +27,14 @@ function useJourneyPosition(ids: string[]) {
       raf = 0;
       const vh = window.innerHeight;
       let active: string | null = null;
-      let started = false;
       for (const id of ids) {
         const el = document.getElementById(id);
         if (!el) continue;
         const top = el.getBoundingClientRect().top;
         if (top <= vh * 0.38) active = id;
-        if (top <= vh * 0.8) started = true;
       }
       if (ids.length && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) active = ids[ids.length - 1];
-      setState((prev) => (prev.active === active && prev.started === started ? prev : { active, started }));
+      setState((prev) => (prev.active === active ? prev : { active }));
     };
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(compute); };
     compute();
@@ -90,7 +88,8 @@ function LookDot() {
 
 // ── A: the timeline's own markers, as a slim sticky rail ─────────────────────
 function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
-  const { active, started } = useJourneyPosition(destinations.map((d) => d.id));
+  // The rail only exists once the journey itself is under the reader: above that it would sit on the hero.
+  const { active } = useJourneyPosition(destinations.map((d) => d.id));
   const [reveal, setReveal] = useState<string | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
   const handled = useRef(false);
@@ -98,7 +97,7 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
   const startY = useRef(0);
   const pressed = useRef(false);
 
-  if (!started || destinations.length === 0) return null;
+  if (active === null || destinations.length === 0) return null;
 
   function idAt(clientY: number): string | null {
     const items = Array.from(listRef.current?.children ?? []) as HTMLElement[];
@@ -115,7 +114,7 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
   return (
     <nav
       aria-label="Jump through this pay period"
-      className="fixed left-0.5 top-[30%] z-30 w-11 lg:hidden"
+      className="fixed left-0.5 top-[38%] z-30 w-11 lg:hidden"
     >
       <ol
         ref={listRef}
@@ -253,7 +252,7 @@ function RailC({ destinations }: { destinations: SpendJourneyDestination[] }) {
   return (
     <div ref={slotRef} className="h-11 min-w-0 lg:hidden">
       <div className={stuck ? "fixed inset-x-0 top-0 z-30 bg-[#f0f2f7]/95 pt-[env(safe-area-inset-top,0px)] backdrop-blur-sm dark:bg-[#0f172a]/95" : "relative"}>
-        <div className={`relative mx-auto max-w-6xl ${stuck ? "px-4 pb-1 pt-0" : ""}`}>
+        <div className={`relative mx-auto max-w-6xl ${stuck ? "px-4 py-1" : ""}`}>
           <button
             ref={buttonRef}
             type="button"
