@@ -204,6 +204,17 @@ APPLE_SERVICES_ID   = os.getenv("APPLE_SERVICES_ID", "")
 # account — the identity resolver still runs first (Gmail dot-insensitive
 # aliasing, Apple relay auto-linking) so the same person always lands in the
 # same account either way.
+# A136: the mobile sign-in flow used a client-chosen state (fixation, see
+# docs/security/A136-native-state-fixation.md). Server-issued state is now the
+# rule; while this is ON the old client-chosen state and challenge are still
+# accepted so installed binaries (which bundle their web code) keep working.
+# TODO(A136, set 2026-10-11): flip to false (or delete the legacy branches in
+# routers/auth.py) once the "mobile login: legacy state used" log line has
+# gone quiet after the next app release reaches users.
+MOBILE_LOGIN_LEGACY_STATE = os.getenv("MOBILE_LOGIN_LEGACY_STATE", "true").strip().lower() in ("1", "true", "yes")
+# A136: starter-network binding on the authorise hit: off | log | enforce.
+MOBILE_LOGIN_NET_BIND = os.getenv("MOBILE_LOGIN_NET_BIND", "log").strip().lower()
+
 OPEN_SIGNUP = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "true", "yes")
 
 

@@ -4,7 +4,7 @@ import time
 import urllib.parse
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import httpx
 import jwt
 from pydantic import BaseModel
@@ -18,8 +18,14 @@ from app.core.config import (
     mask_email,
 )
 from app.core.identity import resolve_signin_email
+from app.core.ratelimit import client_ip
+from app.core import config as _cfg
 from app.core.pending_login import (
     _store_pending,
+    get_start,
+    issue_start,
+    network_prefix,
+    redeem_issued,
     has_challenge,
     is_legacy_mobile_state,
     is_valid_mobile_state,
@@ -429,15 +435,60 @@ async def google_auth():
     return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 
+_log = logging.getLogger(__name__)
+
+
+def _not_found() -> JSONResponse:
+    # One shape for unknown, expired, used and malformed states: no oracle.
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+
+class MobileStartBody(BaseModel):
+    # sha256(code_verifier) hex. The client keeps the verifier (PKCE).
+    challenge: str = ""
+
+
+@router.post("/auth/mobile/start")
+async def mobile_start(body: MobileStartBody, request: Request):
+    """A136: the server issues the sign-in state and the poll secret. The rate
+    limit is the /auth/mobile/start rule in app.core.ratelimit (applied by the
+    auth middleware, per IP)."""
+    issued = await issue_start(body.challenge, client_ip(request))
+    if issued is None:
+        raise HTTPException(status_code=400, detail="Invalid request")
+    return issued
+
+
+async def _net_ok(record: dict, request: Request | None, where: str) -> bool:
+    """Starter-network binding (MOBILE_LOGIN_NET_BIND: off|log|enforce)."""
+    mode = _cfg.MOBILE_LOGIN_NET_BIND
+    if mode == "off" or not record.get("net") or request is None:
+        return True
+    if network_prefix(client_ip(request)) == record["net"]:
+        return True
+    _log.warning("mobile login: network differs from the starter's at %s (mode=%s)", where, mode)
+    return mode != "enforce"
+
+
 @router.get("/auth/google/mobile")
-async def google_auth_mobile(state: str = "", challenge: str = ""):
+async def google_auth_mobile(state: str = "", challenge: str = "", request: Request = None):
     if not GOOGLE_CLIENT_ID:
         return signin_error_response(status_code=503)
-    # A133: `challenge` is sha256(poll_secret), hex. The secret itself never
-    # leaves the app and is never in a URL. Without a valid challenge a
-    # new-format state is simply never redeemable (legacy states need none).
-    if challenge:
-        await store_challenge(state, challenge)
+    record = await get_start(state)
+    if record is not None:
+        # Server-issued state: must be live and unused. A `challenge` in the
+        # URL is ignored; the PKCE challenge was bound at /auth/mobile/start.
+        if record.get("used") or not await _net_ok(record, request, "authorise"):
+            return _not_found()
+    elif _cfg.MOBILE_LOGIN_LEGACY_STATE and is_valid_mobile_state(state):
+        # TODO(A136): legacy client-chosen state (installed builds). Remove
+        # with MOBILE_LOGIN_LEGACY_STATE. Never logs the state.
+        _log.info("mobile login: legacy state used (client-chosen, pre-A136 app build) at authorise")
+        # A133: `challenge` is sha256(poll_secret), hex.
+        if challenge:
+            await store_challenge(state, challenge)
+    else:
+        return _not_found()
     redirect_uri = f"{APP_URL}/api/auth/google/mobile-callback"
     params = urllib.parse.urlencode({
         "client_id":     GOOGLE_CLIENT_ID,
@@ -461,6 +512,7 @@ def _poll_reply(value: str | None) -> dict:
 class MobilePollBody(BaseModel):
     state: str = ""
     poll_secret: str | None = None
+    code_verifier: str | None = None  # A136: PKCE verifier, issued-state flow
 
 
 @router.post("/auth/mobile/poll")
@@ -468,6 +520,11 @@ async def mobile_poll_secret(body: MobilePollBody):
     # A133: new builds. The poll_secret rides in the body, never a URL. A
     # malformed state, an unknown state and a wrong or missing secret all get
     # exactly {"status": "pending"}.
+    # A136: a server-issued state needs the poll secret AND the PKCE verifier.
+    if await get_start(body.state) is not None:
+        return _poll_reply(await redeem_issued(body.state, body.poll_secret, body.code_verifier))
+    if not _cfg.MOBILE_LOGIN_LEGACY_STATE:
+        return _poll_reply(None)
     return _poll_reply(await redeem_pending(body.state, body.poll_secret))
 
 
@@ -475,13 +532,22 @@ async def mobile_poll_secret(body: MobilePollBody):
 async def mobile_poll(state: str):
     # Legacy (pre-A133 installed builds): single-read, legacy states only.
     # A new-format state has no secret here, so it always gets "pending".
+    if not _cfg.MOBILE_LOGIN_LEGACY_STATE:
+        return _poll_reply(None)
     return _poll_reply(await redeem_pending(state, None))
 
 
 @router.get("/auth/google/mobile-callback")
-async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
+async def google_mobile_callback(code: str = None, error: str = None, state: str = "", request: Request = None):
+    issued = await get_start(state)
+
     async def finish(value: str) -> HTMLResponse:
-        if is_valid_mobile_state(state):
+        if issued is not None:
+            # A136: only a live, unused, server-issued state stores anything.
+            if not issued.get("used") and await _net_ok(issued, request, "callback"):
+                await _store_pending(state, value)
+        elif _cfg.MOBILE_LOGIN_LEGACY_STATE and is_valid_mobile_state(state):
+            _log.info("mobile login: legacy state used (client-chosen, pre-A136 app build) at callback")
             if is_legacy_mobile_state(state):
                 # TODO(A133): drop with the legacy state format. Never logs the state.
                 logging.getLogger(__name__).info("mobile login: legacy state format used (pre-A133 app build), single-read")

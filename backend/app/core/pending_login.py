@@ -214,3 +214,130 @@ async def redeem_pending(state: str, poll_secret: str | None = None) -> str | No
     if not _secret_matches(poll_secret, await _get_challenge(state)):
         return None
     return await _pop_pending(state)
+
+
+# ── A136: server-issued sign-in state ────────────────────────────────────
+# Before A136 the app chose its own state and challenge, so anyone could
+# start a login, hand the victim the authorise link and redeem the victim's
+# token with the poll secret they kept. Now POST /auth/mobile/start issues
+# the state. The record holds sha256(poll_secret) (poll_secret is
+# SERVER-generated and returned once), the client's PKCE challenge
+# (sha256(code_verifier)) and the network prefix of the starter. The
+# authorise URL, the callback and the redeem all require a live, unused
+# record, and redeem needs BOTH the poll_secret AND the code_verifier.
+#
+# Honest limit: this stops state choosing, replays and log-reader attacks, and
+# makes every attempt rate-limited, short-lived and single-use. It cannot by
+# itself prove the person who opens the link is the person whose app started
+# it (no device attestation here); the network-prefix binding below is the
+# extra signal for that, see docs/security/A136-native-state-fixation.md.
+#
+# Stored in Redis with a native TTL (in-process fallback), the same store as
+# the pending entry, not a Mongo collection: a record lives at most 10
+# minutes, is pre-auth and holds no user identifier, so it is not user-keyed
+# and is not in ERASURE_MANIFEST.
+_START_PREFIX = "auth:start:"
+START_TTL = 600
+_PKCE_RE = re.compile(r"^[0-9a-f]{64}$")
+_starts: dict[str, tuple[str, float]] = {}
+
+
+def network_prefix(ip: str | None) -> str:
+    """IPv4 /24 or IPv6 /64 as a short string; "" when unknown."""
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return ""
+    bits = 24 if addr.version == 4 else 64
+    return str(ipaddress.ip_network(f"{addr}/{bits}", strict=False))
+
+
+async def _start_put(state: str, record: dict, ttl: int, *, nx: bool = False) -> bool:
+    import json
+    raw = json.dumps(record)
+    if await redis_ok():
+        try:
+            return bool(await get_redis().set(f"{_START_PREFIX}{state}", raw, ex=ttl, nx=nx))
+        except Exception:
+            pass
+    now = time.time()
+    for k in [k for k, (_, exp) in _starts.items() if exp < now]:
+        _starts.pop(k, None)
+    if nx and state in _starts:
+        return False
+    _starts[state] = (raw, now + ttl)
+    return True
+
+
+async def get_start(state: str) -> dict | None:
+    """The live start record for a state, or None (unknown, expired, malformed)."""
+    import json
+    if not is_valid_mobile_state(state) or is_legacy_mobile_state(state):
+        return None
+    raw = None
+    if await redis_ok():
+        try:
+            raw = await get_redis().get(f"{_START_PREFIX}{state}")
+        except Exception:
+            raw = None
+    if raw is None:
+        entry = _starts.get(state)
+        if entry and entry[1] >= time.time():
+            raw = entry[0]
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
+
+
+async def issue_start(pkce_challenge: str, ip: str | None) -> dict | None:
+    """Mint a state and poll secret. None for a malformed PKCE challenge."""
+    import secrets
+    from datetime import datetime, timedelta, timezone
+    if not pkce_challenge or _PKCE_RE.fullmatch(pkce_challenge) is None:
+        return None
+    state = "m" + secrets.token_hex(16)
+    poll_secret = secrets.token_hex(16)
+    record = {
+        "poll_hash": hashlib.sha256(poll_secret.encode()).hexdigest(),
+        "challenge": pkce_challenge,
+        "net": network_prefix(ip),
+        "used": False,
+    }
+    if not await _start_put(state, record, START_TTL, nx=True):
+        return None
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=START_TTL)
+    return {"state": state, "poll_secret": poll_secret, "expires_at": expires_at.isoformat()}
+
+
+async def mark_start_used(state: str, record: dict) -> None:
+    """Single use: after the token is released the state stops being
+    authorisable; the record lingers only for the replay-grace window so a
+    lost response can be re-read by the holder of BOTH secrets."""
+    await _start_put(state, {**record, "used": True}, _REPLAY_TTL)
+
+
+async def redeem_issued(state: str, poll_secret: str | None, code_verifier: str | None) -> str | None:
+    """Redeem for a server-issued state. Needs the poll secret AND the PKCE
+    verifier. Any failure is None (same as "pending"): no oracle, and nothing
+    is consumed by a wrong guess."""
+    record = await get_start(state)
+    if record is None:
+        return None
+    poll_ok = (
+        bool(poll_secret) and _POLL_SECRET_RE.fullmatch(poll_secret) is not None
+        and hmac.compare_digest(hashlib.sha256(poll_secret.encode()).hexdigest(), record.get("poll_hash", ""))
+    )
+    ver_ok = (
+        bool(code_verifier) and _POLL_SECRET_RE.fullmatch(code_verifier) is not None
+        and hmac.compare_digest(hashlib.sha256(code_verifier.encode()).hexdigest(), record.get("challenge", ""))
+    )
+    if not (poll_ok and ver_ok):
+        return None
+    value = await _pop_pending(state)
+    if value is not None and value.startswith("token:") and not record.get("used"):
+        await mark_start_used(state, record)
+    return value
