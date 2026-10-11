@@ -12,6 +12,7 @@
 import { useId } from "react";
 import CustomSelect from "@/components/CustomSelect";
 import { DateField } from "@/components/DatePicker";
+import { todayIso } from "@/lib/calendar";
 import { ordinal, type PayMode, type PayPeriodDraft } from "@/lib/payPeriodDraft";
 
 const WORKING_DAYS = [
@@ -117,6 +118,7 @@ export default function PayPeriodPicker({
             onChange={(v) => set({ referenceDate: v })}
             appearance="outlined"
             placeholder="Choose your last payday"
+            today={todayIso()}
           />
         </div>
       )}
