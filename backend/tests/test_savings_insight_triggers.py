@@ -107,7 +107,6 @@ def _patch_collections(monkeypatch, primary_docs, *, labels=None, recurring_spen
     monthly-amount fix — defaults to "no cached doc" so existing tests that
     don't care about it keep exercising the honest-window-average fallback."""
     monkeypatch.setattr(savings_insights, "transactions_col", FakeCol(primary_docs))
-    monkeypatch.setattr(savings_insights, "yapily_transactions_col", FakeCol())
     monkeypatch.setattr(savings_insights, "statement_transactions_col", FakeCol())
     monkeypatch.setattr(savings_insights, "savings_labels_col", FakeCol(labels or []))
     cache_docs = [{"_id": UID, "recurring_spend": recurring_spend}] if recurring_spend is not None else []

@@ -50,9 +50,8 @@ class _Recorder:
 def _patch_collections(monkeypatch, docs, *, items=0):
     col = FakeCol(docs)
     monkeypatch.setattr(counted, "accounts_col", col)
-    monkeypatch.setattr(counted, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(counted, "manual_accounts_col", FakeCol([]))
-    monkeypatch.setattr(counted, "_COLLECTIONS", (counted.accounts_col, counted.yapily_accounts_col, counted.manual_accounts_col))
+    monkeypatch.setattr(counted, "_COLLECTIONS", (counted.accounts_col, counted.manual_accounts_col))
 
     async def paid(_uid, _aid):
         return items
@@ -258,9 +257,8 @@ def test_real_cashflow_builder_drops_items_on_an_excluded_account(monkeypatch):
 
     monkeypatch.setattr(counted, "accounts_col", FakeCol([
         {"_id": "joint", "user_id": BUILDER_UID, "include_in_safe_to_spend": False, "name": "Joint"}]))
-    monkeypatch.setattr(counted, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(counted, "manual_accounts_col", FakeCol([]))
-    monkeypatch.setattr(counted, "_COLLECTIONS", (counted.accounts_col, counted.yapily_accounts_col, counted.manual_accounts_col))
+    monkeypatch.setattr(counted, "_COLLECTIONS", (counted.accounts_col, counted.manual_accounts_col))
     counted_bill = _pattern(key="RENT", account_id="main", dest_account_id=None, category="Bills")
     joint_bill = _pattern(key="JOINT DD", account_id="joint", dest_account_id=None, category="Bills")
     resp = _run_build_response(monkeypatch, [counted_bill, joint_bill])

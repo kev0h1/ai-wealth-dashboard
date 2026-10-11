@@ -114,17 +114,15 @@ UID = "fixture-user@example.com"
 
 
 def _patch_router_cols(monkeypatch, prefs_docs=None, cashflow_docs=None,
-                        txn_docs=None, yapily_txn_docs=None,
-                        acct_docs=None, yapily_acct_docs=None,
+                        txn_docs=None,
+                        acct_docs=None,
                         stub_recompute=True):
     prefs_col = FakeCol(prefs_docs or [])
     cashflow_col = FakeCol(cashflow_docs or [])
     monkeypatch.setattr(analytics, "preferences_col", prefs_col)
     monkeypatch.setattr(analytics, "cashflow_cache_col", cashflow_col)
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(txn_docs or []))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol(yapily_txn_docs or []))
     monkeypatch.setattr(analytics, "accounts_col", FakeCol(acct_docs or []))
-    monkeypatch.setattr(analytics, "yapily_accounts_col", FakeCol(yapily_acct_docs or []))
     if stub_recompute:
         async def _noop_recompute(uid, clear_ai_cache=True):
             return None
@@ -477,9 +475,7 @@ def test_apply_verdicts_override_is_optional_backward_compatible():
 
 def test_enrich_unknown_key_falls_back_to_raw_key(monkeypatch):
     monkeypatch.setattr(analytics, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "accounts_col", FakeCol([]))
-    monkeypatch.setattr(analytics, "yapily_accounts_col", FakeCol([]))
 
     result = asyncio.run(_enrich_dismissed_keys(UID, {"GHOST MERCHANT"}))
     row = result["GHOST MERCHANT"]
@@ -501,11 +497,9 @@ def test_enrich_known_key_derives_display_fields_from_history(monkeypatch):
          "date": now - timedelta(days=1), "account_id": "acc1", "user_id": UID},
     ]
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "accounts_col", FakeCol([
         {"_id": "acc1", "user_id": UID, "provider": "Monzo"},
     ]))
-    monkeypatch.setattr(analytics, "yapily_accounts_col", FakeCol([]))
 
     result = asyncio.run(_enrich_dismissed_keys(UID, {"NETFLIX.COM"}))
     row = result["NETFLIX.COM"]

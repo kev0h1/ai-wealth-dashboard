@@ -1,6 +1,6 @@
 """Focused Safe-to-Spend hardening tests.
 
-These exercise the pure low-point walk, the active-consent account universe,
+These exercise the pure low-point walk, the live account pool,
 and preference-cache invalidation without requiring Mongo.
 """
 import asyncio
@@ -136,36 +136,21 @@ def test_lowest_projected_balance_keeps_savings_and_untraced_movements():
     assert lowest == 30.0
 
 
-def test_safe_to_spend_excludes_yapily_records_without_authorized_consent(monkeypatch):
-    native = _ListCol([{"balance": 200.0}])
-    stale_yapily = _ListCol([{"balance": 900.0}])
-    consents = _ListCol([])
+def test_safe_to_spend_pool_is_the_live_accounts_collection_only(monkeypatch):
+    """H87: with the retired second provider and its consent filter gone, the pool is
+    exactly the `accounts_col` rows for the user, with the same projection the
+    pre-H87 native query used (G231 flag included), so a fixture with no
+    second-provider rows yields the identical pool, and therefore the identical Safe to
+    Spend figure, before and after."""
+    native = _ListCol([{"balance": 200.0}, {"balance": 50.0}])
     monkeypatch.setattr(analytics, "accounts_col", native)
-    monkeypatch.setattr(analytics, "yapily_accounts_col", stale_yapily)
-    monkeypatch.setattr(analytics, "yapily_consents_col", consents)
 
     result = asyncio.run(analytics._safe_to_spend_accounts("user@example.com"))
 
-    assert result == [{"balance": 200.0}]
-    assert stale_yapily.find_calls == []
-    assert consents.find_calls == [
-        ({"user_id": "user@example.com", "status": "AUTHORIZED"}, {"_id": 1})
-    ]
-
-
-def test_safe_to_spend_includes_yapily_records_with_authorized_consent(monkeypatch):
-    native = _ListCol([{"balance": 200.0}])
-    active_yapily = _ListCol([{"balance": 300.0}])
-    monkeypatch.setattr(analytics, "accounts_col", native)
-    monkeypatch.setattr(analytics, "yapily_accounts_col", active_yapily)
-    monkeypatch.setattr(analytics, "yapily_consents_col", _ListCol([{"_id": "active-consent"}]))
-
-    result = asyncio.run(analytics._safe_to_spend_accounts("user@example.com"))
-
-    assert result == [{"balance": 200.0}, {"balance": 300.0}]
-    assert active_yapily.find_calls == [
+    assert result == [{"balance": 200.0}, {"balance": 50.0}]
+    assert native.find_calls == [
         (
-            {"user_id": "user@example.com", "consent": {"$in": ["active-consent"]}},
+            {"user_id": "user@example.com"},
             {"balance": 1, "type": 1, "subtype": 1, "currency": 1, "name": 1,
              "include_in_safe_to_spend": 1},  # G231
         )

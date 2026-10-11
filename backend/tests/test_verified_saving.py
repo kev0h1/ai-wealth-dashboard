@@ -6,7 +6,7 @@ the insight is stamped `verified_savings` / `verified_merchant` / `verified_at`.
 
 No mongomock is available in this environment (see test_notifications.py's
 own note), so the four transaction collections `_check_verified_saving` reads
-(`transactions_col`, `yapily_transactions_col`, `statement_transactions_col`,
+(`transactions_col`, `statement_transactions_col`,
 `statement_transactions_col`) are replaced with tiny in-memory fakes supporting
 just enough of Motor's `.find().to_list()` surface to drive the real
 function, following the same monkeypatch-the-module-level-name pattern
@@ -82,7 +82,6 @@ def _patch_collections(monkeypatch, primary_docs, *, others_empty=True):
     data usually lives in exactly one source."""
     monkeypatch.setattr(savings_insights, "transactions_col", FakeCol(primary_docs))
     if others_empty:
-        monkeypatch.setattr(savings_insights, "yapily_transactions_col", FakeCol())
         monkeypatch.setattr(savings_insights, "statement_transactions_col", FakeCol())
 
 

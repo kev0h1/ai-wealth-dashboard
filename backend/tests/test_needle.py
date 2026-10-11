@@ -1,13 +1,6 @@
-"""Unit tests for app.services.needle's provider union — owner-approved fix,
-2026-08. `_credit_card_account_ids` and `_txns_for_period` used to query
-`accounts_col`/`transactions_col` only (TrueLayer/Finexer), so a
-Yapily-connected credit card was invisible to every caller of these helpers
-(net_position's card-growth reserve, the needle month-close movement fact,
-and the cards-story/companion/cycle-story Mirror surfaces) — silently, with
-no exception, reproducing the exact bug net_position.py exists to close.
-`compute_safe_to_spend` (analytics.py:2188-2213) and spend_verdict's
-`_load_period_txns` already union both providers; these two helpers now
-match them.
+"""Unit tests for app.services.needle's account/transaction helpers
+(`_credit_card_account_ids`, `_txns_for_period`). H87 removed a retired
+provider, so both helpers read accounts_col / transactions_col only.
 
 No mongomock is available in this environment (see test_notifications.py's
 own note); small purpose-built fake collections stand in, following the
@@ -67,37 +60,12 @@ class _FakeTxnsCol:
 
 # ── _credit_card_account_ids ────────────────────────────────────────────────
 
-def test_credit_card_account_ids_unions_yapily(monkeypatch):
-    # Yapily account docs (yapily_sync.py) store a lowercased `type` only,
-    # never a `subtype` — is_credit_card_account's fallback already covers
-    # that shape (see its docstring), confirmed here end-to-end.
-    native = [{"user_id": "kevin", "account_id": "native-current", "type": "bank", "subtype": "TRANSACTION"}]
-    yapily = [{"user_id": "kevin", "_id": "yapily-card-1", "type": "credit_card"}]
-    monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol(native))
-    monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol(yapily))
-
-    ids = asyncio.run(needle._credit_card_account_ids("kevin"))
-    assert ids == {"yapily-card-1"}
-
-
-def test_credit_card_account_ids_native_only_still_works(monkeypatch):
-    # Regression guard: widening to Yapily must not disturb the pre-existing
-    # native-only path.
+def test_credit_card_account_ids_returns_native_cards(monkeypatch):
     native = [{"user_id": "kevin", "account_id": "native-card", "type": "credit_card", "subtype": ""}]
     monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol(native))
-    monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol([]))
 
     ids = asyncio.run(needle._credit_card_account_ids("kevin"))
     assert ids == {"native-card"}
-
-
-def test_credit_card_account_ids_excludes_yapily_current_account(monkeypatch):
-    yapily = [{"user_id": "kevin", "_id": "yapily-current", "type": "transaction"}]
-    monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol([]))
-    monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol(yapily))
-
-    ids = asyncio.run(needle._credit_card_account_ids("kevin"))
-    assert ids == set()
 
 
 def test_credit_card_account_ids_never_leaks_another_users_card(monkeypatch):
@@ -114,7 +82,6 @@ def test_credit_card_account_ids_never_leaks_another_users_card(monkeypatch):
         {"user_id": "someone-else", "account_id": "someone-elses-card", "type": "credit_card", "subtype": ""},
     ]
     monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol(accounts))
-    monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol([]))
 
     kevin_ids = asyncio.run(needle._credit_card_account_ids("kevin"))
     other_ids = asyncio.run(needle._credit_card_account_ids("someone-else"))
@@ -125,63 +92,36 @@ def test_credit_card_account_ids_never_leaks_another_users_card(monkeypatch):
 
 # ── _txns_for_period ─────────────────────────────────────────────────────────
 
-def test_txns_for_period_unions_yapily(monkeypatch):
-    native_txns = [
-        {"user_id": "kevin", "account_id": "native-card", "amount": 100.0,
-         "transaction_type": "debit", "date": datetime(2026, 8, 5)},
-    ]
-    yapily_txns = [
-        {"user_id": "kevin", "account_id": "yapily-card-1", "amount": 40.0,
-         "transaction_type": "debit", "date": datetime(2026, 8, 10)},
-    ]
-    monkeypatch.setattr(needle, "transactions_col", _FakeTxnsCol(native_txns))
-    monkeypatch.setattr(needle, "yapily_transactions_col", _FakeTxnsCol(yapily_txns))
-
-    txns = asyncio.run(needle._txns_for_period("kevin", date(2026, 8, 1), date(2026, 8, 25)))
-    assert {t["account_id"] for t in txns} == {"native-card", "yapily-card-1"}
-
-
-def test_txns_for_period_account_id_filter_applies_across_both_providers(monkeypatch):
+def test_txns_for_period_account_id_filter_applies(monkeypatch):
     native_txns = [
         {"user_id": "kevin", "account_id": "native-card", "amount": 100.0,
          "transaction_type": "debit", "date": datetime(2026, 8, 5)},
         {"user_id": "kevin", "account_id": "native-current", "amount": 999.0,
          "transaction_type": "debit", "date": datetime(2026, 8, 5)},
     ]
-    yapily_txns = [
-        {"user_id": "kevin", "account_id": "yapily-card-1", "amount": 40.0,
-         "transaction_type": "debit", "date": datetime(2026, 8, 10)},
-        {"user_id": "kevin", "account_id": "yapily-current", "amount": 500.0,
-         "transaction_type": "debit", "date": datetime(2026, 8, 10)},
-    ]
     monkeypatch.setattr(needle, "transactions_col", _FakeTxnsCol(native_txns))
-    monkeypatch.setattr(needle, "yapily_transactions_col", _FakeTxnsCol(yapily_txns))
 
-    card_ids = {"native-card", "yapily-card-1"}
     txns = asyncio.run(
-        needle._txns_for_period("kevin", date(2026, 8, 1), date(2026, 8, 25), account_ids=card_ids)
+        needle._txns_for_period("kevin", date(2026, 8, 1), date(2026, 8, 25), account_ids={"native-card"})
     )
-    assert {t["account_id"] for t in txns} == {"native-card", "yapily-card-1"}
+    assert {t["account_id"] for t in txns} == {"native-card"}
 
 
 # ── End-to-end: the exact bug the coordinator reproduced ────────────────────
 
-def test_card_growth_unpaid_not_silently_zero_for_yapily_only_card(monkeypatch):
-    """A user whose ONLY credit card is Yapily-connected must still get a
-    real reserve, not the pre-fix silent £0 (`if not card_ids: return 0.0`
-    early-out — no exception, nothing in the logs)."""
-    yapily_accounts = [{"user_id": "kevin", "_id": "yapily-card-1", "type": "credit_card"}]
-    yapily_txns = [
-        {"user_id": "kevin", "account_id": "yapily-card-1", "amount": 200.0,
+def test_card_growth_unpaid_for_a_native_only_card(monkeypatch):
+    """A user whose card lives in accounts_col must get a real reserve, not a
+    silent GBP 0 (`if not card_ids: return 0.0` early-out)."""
+    accounts = [{"user_id": "kevin", "_id": "native-card-1", "type": "credit_card"}]
+    txns = [
+        {"user_id": "kevin", "account_id": "native-card-1", "amount": 200.0,
          "transaction_type": "debit", "date": datetime(2026, 8, 5)},
     ]
     async def fake_kinds(uid):
         return dict(BUILTIN_CATEGORY_KINDS)
 
-    monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol([]))
-    monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol(yapily_accounts))
-    monkeypatch.setattr(needle, "transactions_col", _FakeTxnsCol([]))
-    monkeypatch.setattr(needle, "yapily_transactions_col", _FakeTxnsCol(yapily_txns))
+    monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol(accounts))
+    monkeypatch.setattr(needle, "transactions_col", _FakeTxnsCol(txns))
     # G24: card_growth_by_card (which this exercises via card_growth_unpaid)
     # now also reads category kinds to split out new_spend — mock it so
     # this stays a pure unit test rather than a real DB call.

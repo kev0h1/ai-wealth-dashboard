@@ -311,11 +311,9 @@ def test_worker_sync_tasks_skip_paused_users(env, monkeypatch):
 
     monkeypatch.setattr(sync_worker, "finexer_sync_pipeline", _never)
     monkeypatch.setattr(sync_worker, "sync_connection", _never)
-    monkeypatch.setattr(sync_worker, "sync_yapily_consent", _never)
     for coro in (
         sync_worker.task_sync_finexer({}, "c1", UID),
         sync_worker.task_sync_truelayer({}, "c1", UID),
-        sync_worker.task_sync_yapily({}, "t1", UID),
     ):
         assert _run(coro) == {"skipped": "open_banking_paused"}
     assert called == []
@@ -519,13 +517,11 @@ def test_payment_failed_body_states_grace_days_from_config(monkeypatch):
 
 # ── review round: more sync guards and fail-closed ────────────────────────
 
-def test_sync_history_and_yapily_sync_are_noops_when_paused(env):
+def test_sync_history_is_a_noop_when_paused(env):
     import app.routers.accounts as accounts_router
-    import app.routers.yapily as yapily_router
     subs, _ = env
     subs.docs.append({"user_id": UID, "tier": "statements", "status": "active"})
     assert _run(accounts_router.sync_history({"email": UID}))["paused"] is True
-    assert _run(yapily_router.yapily_sync_all({"email": UID}))["paused"] is True
 
 
 def test_fail_closed_flag_both_ways(monkeypatch):

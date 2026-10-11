@@ -285,7 +285,6 @@ def _patch_today_items_collections(monkeypatch, uid, savings_insight_docs):
     monkeypatch.setattr(companion_module, "cashflow_cache_col", _SpyCol([{"_id": uid}]))
     monkeypatch.setattr(companion_module, "preferences_col", _SpyCol([{"user_id": uid}]))
     monkeypatch.setattr(companion_module, "accounts_col", _SpyCol([]))
-    monkeypatch.setattr(companion_module, "yapily_accounts_col", _SpyCol([]))
     monkeypatch.setattr(companion_module, "manual_accounts_col", _SpyCol([]))
     monkeypatch.setattr(companion_module, "companion_items_col", companion_items)
     monkeypatch.setattr(companion_module, "behaviour_portrait_col", behaviour_portrait)
@@ -293,7 +292,7 @@ def _patch_today_items_collections(monkeypatch, uid, savings_insight_docs):
     monkeypatch.setattr(db_collections_module, "card_terms_col", _SpyCol([]))
     monkeypatch.setattr(db_collections_module, "commitments_col", _SpyCol([]))
     # app.services.pace imports its OWN module-level cashflow_cache_col /
-    # transactions_col / yapily_transactions_col / preferences_col (from
+    # transactions_col / preferences_col (from
     # app.db.collections, at import time), read/written by
     # compute_today_items's rhythm-checkpoint pass via
     # pace._read_cached_baseline / _write_cached_baseline. Patching only
@@ -305,7 +304,6 @@ def _patch_today_items_collections(monkeypatch, uid, savings_insight_docs):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", _SpyCol([{"_id": uid}]))
     monkeypatch.setattr(pace_module, "preferences_col", _SpyCol([{"user_id": uid}]))
     monkeypatch.setattr(pace_module, "transactions_col", _SpyCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", _SpyCol([]))
 
     import app.services.pay_period as pay_period_module
     import app.services.income as income_module

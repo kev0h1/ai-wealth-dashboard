@@ -164,7 +164,6 @@ async def _boom(*args, **kwargs):
 def _setup(monkeypatch, *, commitments_docs=None, col=None):
     monkeypatch.setattr(commitments, "commitments_col", col or FakeCol(commitments_docs or []))
     monkeypatch.setattr(commitments, "accounts_col", FakeCol([]))
-    monkeypatch.setattr(commitments, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(commitments, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(commitments, "preferences_col", FakeCol([]))
     monkeypatch.setattr(commitments, "savings_goals_col", FakeCol([]))

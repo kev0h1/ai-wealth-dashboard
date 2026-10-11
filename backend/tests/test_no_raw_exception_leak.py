@@ -106,21 +106,24 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 4692),
-    ("app/services/penny_tools.py", 4857),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 5366),
-    ("app/services/penny_tools.py", 5386),
-    ("app/services/penny_tools.py", 5422),
-    ("app/services/penny_tools.py", 5445),
-    ("app/services/penny_tools.py", 5587),
-    ("app/services/penny_tools.py", 5592),
-    ("app/services/penny_tools.py", 5597),
-    ("app/services/penny_tools.py", 5695),
-    ("app/services/penny_tools.py", 5700),
-    ("app/services/penny_tools.py", 5705),
-    ("app/services/penny_tools.py", 6646),
-    ("app/services/penny_tools.py", 7301),
-    ("app/services/penny_tools.py", 7315),
+    # H87 (2026-10-11) removed the Yapily collection import and lookups earlier in
+    # this file, shifting the lines below by -1 to -4; re-derived by the same AST
+    # scan, not new exception sites.
+    ("app/services/penny_tools.py", 4691),
+    ("app/services/penny_tools.py", 4856),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 5365),
+    ("app/services/penny_tools.py", 5385),
+    ("app/services/penny_tools.py", 5421),
+    ("app/services/penny_tools.py", 5444),
+    ("app/services/penny_tools.py", 5586),
+    ("app/services/penny_tools.py", 5591),
+    ("app/services/penny_tools.py", 5596),
+    ("app/services/penny_tools.py", 5694),
+    ("app/services/penny_tools.py", 5699),
+    ("app/services/penny_tools.py", 5704),
+    ("app/services/penny_tools.py", 6645),
+    ("app/services/penny_tools.py", 7297),
+    ("app/services/penny_tools.py", 7311),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

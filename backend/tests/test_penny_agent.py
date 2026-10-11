@@ -996,7 +996,6 @@ def test_category_txn_rows_filters_foreign_currency_rows(monkeypatch):
         {"amount": 999.0, "category": "Groceries", "currency": "KES", "merchant_name": "Naivas"},
         {"amount": 20.0, "category": "Groceries", "merchant_name": "Sainsbury's"},  # no currency key -> kept
     ]))
-    monkeypatch.setattr(penny_tools_module, "yapily_transactions_col", _FakeCollection([]))
 
     from datetime import datetime as _dt
     rows = asyncio.run(penny_tools_module._category_txn_rows(
@@ -1018,7 +1017,6 @@ def test_get_upcoming_bills_computes_live_on_cache_miss(monkeypatch):
 
     monkeypatch.setattr(penny_tools_module.cashflow_cache_col, "find_one", fake_find_one_miss)
     monkeypatch.setattr(penny_tools_module, "accounts_col", _FakeCollection([{"_id": "acc1"}]))
-    monkeypatch.setattr(penny_tools_module, "yapily_accounts_col", _FakeCollection([]))
 
     computed = {"called": False}
 
@@ -1053,7 +1051,6 @@ def test_get_upcoming_bills_insufficient_data_only_when_no_accounts_at_all(monke
 
     monkeypatch.setattr(penny_tools_module.cashflow_cache_col, "find_one", fake_find_one_miss)
     monkeypatch.setattr(penny_tools_module, "accounts_col", _FakeCollection([]))
-    monkeypatch.setattr(penny_tools_module, "yapily_accounts_col", _FakeCollection([]))
 
     async def fail_compute_patterns(uid):
         raise AssertionError("must not compute live with zero connected accounts")

@@ -85,20 +85,6 @@ def test_uk_account_listing_marks_engine_sources_and_statement_accounts(monkeypa
     )
     monkeypatch.setattr(
         accounts_router,
-        "yapily_consents_col",
-        _Collection([{"user_id": "kevin", "status": "AUTHORIZED"}]),
-    )
-    monkeypatch.setattr(
-        accounts_router,
-        "yapily_accounts_col",
-        _Collection([{
-            **_account("yapily", name="Open banking savings", subtype="SAVINGS"),
-            "institution_id": "Open Bank",
-            "consent": "consent-1",
-        }]),
-    )
-    monkeypatch.setattr(
-        accounts_router,
         "manual_accounts_col",
         _Collection([{
             "_id": "manual",
@@ -116,7 +102,6 @@ def test_uk_account_listing_marks_engine_sources_and_statement_accounts(monkeypa
     assert eligibility == {
         "linked": True,
         "statement": False,
-        "yapily": True,
         "manual": True,
     }
 
@@ -143,8 +128,6 @@ def test_uk_credit_card_eligibility_matches_the_real_engine_classifier(monkeypat
         _Collection([credit_doc, current_doc, savings_doc]),
     )
     monkeypatch.setattr(accounts_router, "statement_accounts_col", _Collection())
-    monkeypatch.setattr(accounts_router, "yapily_consents_col", _Collection())
-    monkeypatch.setattr(accounts_router, "yapily_accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "manual_accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "account_rates_col", _Collection())
 
@@ -173,44 +156,29 @@ def test_uk_credit_card_eligibility_matches_the_real_engine_classifier(monkeypat
     assert companion._is_savings(savings_doc) is True
 
 
-def test_yapily_credit_card_is_ineligible_despite_never_setting_subtype(monkeypatch):
-    """G55 blocker 1 (rejected review, 2026-09-12): `services/yapily_sync.py`'s
-    `sync_yapily_consent` stores the provider's real account type lowercased
-    straight into `type` (`"type": acc.get("type", "TRANSACTION").lower()`)
-    and never writes a `subtype`/`account_subtype` key at all for a
-    `yapily_accounts_col` doc. Removing the frontend's own type/subtype
-    string heuristic without also fixing this router's Yapily branch would
-    have been a REGRESSION, not a neutral omission: a Yapily credit card the
-    old heuristic correctly hid would start showing as an eligible toggle --
-    exactly the screen-disagrees-with-engine bug this item exists to close,
-    reintroduced by the fix itself. The engine still refuses to use it (so
-    no money moves), which is precisely why this is easy to miss without a
-    fixture shaped like the real sync output.
-    """
+def test_credit_card_doc_without_subtype_is_ineligible(monkeypatch):
+    """G55 blocker 1: a credit card whose doc carries only a lowercased `type`
+    (`credit_card`) and no `subtype`/`account_subtype` key must still read as
+    a card, not as an eligible current account. The shape was first seen on
+    a since-removed provider; the classifier is provider-independent, so
+    the fixture now lives in accounts_col."""
 
-    # Shape matches yapily_sync.py's real write for a credit card exactly:
-    # type="credit_card" (provider enum, lowercased), no subtype key.
-    yapily_credit_doc = {
-        "_id": "yap-cc", "user_id": "kevin", "name": "Yapily credit card",
+    credit_doc = {
+        "_id": "plain-cc", "user_id": "kevin", "name": "Plain credit card",
         "type": "credit_card", "balance": -200, "currency": "GBP",
-        "institution_id": "Open Bank", "consent": "consent-1", "status": "connected",
+        "provider": "Open Bank", "status": "connected",
     }
 
-    monkeypatch.setattr(accounts_router, "accounts_col", _Collection())
+    monkeypatch.setattr(accounts_router, "accounts_col", _Collection([credit_doc]))
     monkeypatch.setattr(accounts_router, "statement_accounts_col", _Collection())
-    monkeypatch.setattr(
-        accounts_router, "yapily_consents_col",
-        _Collection([{"user_id": "kevin", "status": "AUTHORIZED"}]),
-    )
-    monkeypatch.setattr(accounts_router, "yapily_accounts_col", _Collection([yapily_credit_doc]))
     monkeypatch.setattr(accounts_router, "manual_accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "account_rates_col", _Collection())
 
     result = asyncio.run(accounts_router.get_accounts({"email": "kevin"}))
     eligibility = {account.id: account.cover_source_eligible for account in result}
 
-    assert is_credit_card_account(yapily_credit_doc) is True
-    assert eligibility["yap-cc"] is False
+    assert is_credit_card_account(credit_doc) is True
+    assert eligibility["plain-cc"] is False
 
 
 def test_settings_eligibility_matches_the_engines_full_source_predicate(monkeypatch):
@@ -249,8 +217,6 @@ def test_settings_eligibility_matches_the_engines_full_source_predicate(monkeypa
 
     monkeypatch.setattr(accounts_router, "accounts_col", _Collection([loan_doc, blank_doc]))
     monkeypatch.setattr(accounts_router, "statement_accounts_col", _Collection())
-    monkeypatch.setattr(accounts_router, "yapily_consents_col", _Collection())
-    monkeypatch.setattr(accounts_router, "yapily_accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "manual_accounts_col", _Collection())
     monkeypatch.setattr(accounts_router, "account_rates_col", _Collection())
 

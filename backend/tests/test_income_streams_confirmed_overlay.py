@@ -60,7 +60,6 @@ def _run(uid_prefs_docs, txns):
     monkey_targets = {
         "preferences_col": FakeCol(uid_prefs_docs),
         "transactions_col": FakeCol(txns),
-        "yapily_transactions_col": FakeCol([]),
     }
     orig = {}
     for name, fake in monkey_targets.items():

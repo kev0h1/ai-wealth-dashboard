@@ -147,16 +147,13 @@ def _base_patch(monkeypatch, *, accounts, bills, income, companion_items=None):
     monkeypatch.setattr(companion, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", _Col(accounts))
-    monkeypatch.setattr(companion, "yapily_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "companion_items_col", companion_items_col)
     monkeypatch.setattr(companion, "behaviour_portrait_col", _Col([]))
     monkeypatch.setattr(companion, "transactions_col", _Col([]))
-    # `_pp_salary_observed` reads both collections unconditionally on every
-    # in-window, non-preview call, so this harness must patch
-    # `yapily_transactions_col` too, exactly like `transactions_col` above,
-    # or an unpatched test would reach the real Mongo-backed collection.
-    monkeypatch.setattr(companion, "yapily_transactions_col", _Col([]))
+    # `_pp_salary_observed` reads transactions_col unconditionally on every
+    # in-window, non-preview call, so this harness patches it (above) to
+    # keep an unpatched test off the real Mongo-backed collection.
     monkeypatch.setattr(db_collections, "savings_insights_col", _Col([]))
     monkeypatch.setattr(db_collections, "card_terms_col", _Col([]))
     monkeypatch.setattr(db_collections, "commitments_col", _Col([]))
@@ -166,7 +163,6 @@ def _base_patch(monkeypatch, *, accounts, bills, income, companion_items=None):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", _Col([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", _Col([]))
 
     import app.services.pay_period as pay_period
     import app.services.income as income_mod
@@ -327,7 +323,7 @@ def test_plan_still_shows_when_salary_not_yet_observed(monkeypatch):
     )
     monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda ref, cfg: (today_d, today_d + timedelta(days=29)))
     monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=30))
-    # transactions_col/yapily_transactions_col stay empty (default from
+    # transactions_col stays empty (default from
     # _base_patch) — no observed credit at all.
 
     items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=True))

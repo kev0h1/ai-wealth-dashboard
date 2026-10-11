@@ -151,7 +151,6 @@ def _patch_sync_all(monkeypatch, cashflow_col: FakeCol, *, truelayer_new: int):
         return ["acc-1"], truelayer_new
 
     monkeypatch.setattr(accounts_router, "connections_col", FakeCol([{"_id": "conn-1", "user_id": UID}]))
-    monkeypatch.setattr(accounts_router, "yapily_consents_col", FakeCol())
     monkeypatch.setattr(accounts_router, "_finexer_consents_col", FakeCol())
     monkeypatch.setattr(accounts_router, "sync_connection", fake_sync_connection)
     monkeypatch.setattr(accounts_router, "apply_rules_bulk", _noop)
@@ -698,7 +697,6 @@ def test_penny_load_cashflow_cache_miss_stamps_engine_build(monkeypatch):
 
     monkeypatch.setattr(penny_tools, "cashflow_cache_col", col)
     monkeypatch.setattr(penny_tools, "accounts_col", accounts)
-    monkeypatch.setattr(penny_tools, "yapily_accounts_col", FakeCol())
     monkeypatch.setattr(penny_tools, "_compute_cashflow_patterns", fake_patterns)
 
     result = asyncio.run(penny_tools._load_cashflow_cache(uid))

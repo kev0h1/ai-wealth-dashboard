@@ -452,7 +452,6 @@ def _pattern(**overrides):
 
 def _run_build_response(monkeypatch, recurring_spend, *, recurring_income=None, observed=None):
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(observed or []))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_overrides_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_rules_col", FakeCol([]))
     monkeypatch.setattr(analytics, "planned_expenses_col", FakeCol([]))
@@ -613,7 +612,6 @@ def test_planned_one_off_never_carries_dest_fields(monkeypatch):
         "account_id": None,
     }
     monkeypatch.setattr(analytics, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_overrides_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_rules_col", FakeCol([]))
     monkeypatch.setattr(analytics, "planned_expenses_col", FakeCol([planned_doc]))
@@ -739,7 +737,6 @@ def _run_at_risk(monkeypatch, bills, inflows, *, next_pay_in_days=10):
     )
     monkeypatch.setattr(analytics, "preferences_col", FakeCol([]))
     monkeypatch.setattr(analytics, "accounts_col", FakeCol([]))
-    monkeypatch.setattr(analytics, "yapily_accounts_col", FakeCol([]))
 
     async def fake_resp(cached, uid=None, prefs=None):
         return {"upcoming_bills": bills, "upcoming_income": [], "internal_inflows": inflows}
@@ -815,7 +812,6 @@ def _run_compute_today_items(monkeypatch, bills, inflows):
     monkeypatch.setattr(companion, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", FakeCol([]))
-    monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "companion_items_col", FakeCol([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", FakeCol([]))
@@ -825,7 +821,7 @@ def _run_compute_today_items(monkeypatch, bills, inflows):
     monkeypatch.setattr(db_collections, "savings_insights_col", FakeCol([]))
     monkeypatch.setattr(db_collections, "card_terms_col", FakeCol([]))
     # app.services.pace imports its OWN module-level cashflow_cache_col /
-    # transactions_col / yapily_transactions_col / preferences_col (from
+    # transactions_col / preferences_col (from
     # app.db.collections, at import time), read/written by
     # compute_today_items's rhythm-checkpoint pass via
     # pace._read_cached_baseline / _write_cached_baseline. Patching only
@@ -837,7 +833,6 @@ def _run_compute_today_items(monkeypatch, bills, inflows):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
 
     import app.services.pay_period as pay_period
     import app.services.income as income

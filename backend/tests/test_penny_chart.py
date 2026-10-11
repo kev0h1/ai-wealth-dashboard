@@ -302,7 +302,6 @@ def _category_world(monkeypatch):
     ]
     _install(monkeypatch, rows)
     monkeypatch.setattr(penny_tools_module, "transactions_col", _Col(rows))
-    monkeypatch.setattr(penny_tools_module, "yapily_transactions_col", _Col([]))
     monkeypatch.setattr(penny_tools_module.timeutil, "user_today", lambda: date(2026, 10, 8))
 
     async def resolve(uid, name):

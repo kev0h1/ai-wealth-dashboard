@@ -301,11 +301,10 @@ def _pending_doc(_id, desc, amount, on_date, account_id="natwest"):
 
 def _run_build_response(monkeypatch, recurring_spend, *, observed=None, pending=None):
     from app.db.collections import (
-        transactions_col, yapily_transactions_col, upcoming_overrides_col,
+        transactions_col, upcoming_overrides_col,
         upcoming_rules_col, planned_expenses_col,
     )
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(observed or []))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "pending_transactions_col", FakeCol(pending or []))
     monkeypatch.setattr(analytics, "upcoming_overrides_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_rules_col", FakeCol([]))

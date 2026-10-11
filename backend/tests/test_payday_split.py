@@ -115,7 +115,6 @@ def _run(monkeypatch, *, balance, bills, income, days_to_pay=5):
     monkeypatch.setattr(companion, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", _Col([_account(balance)]))
-    monkeypatch.setattr(companion, "yapily_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "companion_items_col", _Col([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", _Col([]))
@@ -124,7 +123,7 @@ def _run(monkeypatch, *, balance, bills, income, days_to_pay=5):
     monkeypatch.setattr(db_collections, "card_terms_col", _Col([]))
     monkeypatch.setattr(db_collections, "commitments_col", _Col([]))
     # app.services.pace imports its OWN module-level cashflow_cache_col /
-    # transactions_col / yapily_transactions_col / preferences_col (from
+    # transactions_col / preferences_col (from
     # app.db.collections, at import time) rather than reading through
     # companion's names — compute_today_items's rhythm-checkpoint pass
     # (companion.py, "ONE kind-map read...") calls straight into
@@ -136,7 +135,6 @@ def _run(monkeypatch, *, balance, bills, income, days_to_pay=5):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", _Col([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", _Col([]))
 
     import app.services.pay_period as pay_period
     import app.services.income as income_mod

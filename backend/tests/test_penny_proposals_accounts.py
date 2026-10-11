@@ -745,22 +745,21 @@ def test_propose_disconnect_bank_unknown_name_is_tool_error(monkeypatch):
     assert "error" in result
 
 
-def test_propose_disconnect_bank_never_resolves_yapily_consent_id(monkeypatch):
-    """A Yapily account's own `connection_id` field is actually a Yapily
-    *consent* id (see accounts.py's own get_accounts), never a real
-    connections_col/finexer_consents_col row — this resolver must never
-    treat that value as a resolvable connection even if (defensively) an
-    account carrying it were somehow present in accounts_col."""
+def test_propose_disconnect_bank_never_resolves_an_unknown_connection_id(monkeypatch):
+    """An account whose `connection_id` is not a real
+    connections_col/finexer_consents_col row id must never be treated as a
+    resolvable connection (originally written for a removed
+    provider's consent ids; the guard is provider-independent)."""
     _patch_bank_env(
         monkeypatch,
         connections=[{"_id": "conn-real", "user_id": UID}],
         accounts=[
             {"_id": "a1", "user_id": UID, "connection_id": "conn-real", "provider": "Monzo"},
-            {"_id": "a-yap", "user_id": UID, "connection_id": "yapily-consent-999", "provider": "Yapily Test Bank"},
+            {"_id": "a-other", "user_id": UID, "connection_id": "unknown-consent-999", "provider": "Other Test Bank"},
         ],
     )
     result = asyncio.run(execute_tool(UID, "propose_disconnect_bank", {
-        "connection_or_account_ref": "yapily-consent-999",
+        "connection_or_account_ref": "unknown-consent-999",
     }))
     # execute_tool's own _tool_error wrapping drops "available" (same as
     # every other propose exec's `return _tool_error(resolved["error"])`
@@ -768,10 +767,10 @@ def test_propose_disconnect_bank_never_resolves_yapily_consent_id(monkeypatch):
     # match genuinely failed rather than merely being reported oddly.
     assert "error" in result
     direct = asyncio.run(
-        penny_tools_module._resolve_bank_connection_for_propose(UID, "yapily-consent-999")
+        penny_tools_module._resolve_bank_connection_for_propose(UID, "unknown-consent-999")
     )
     assert direct.get("error")
-    assert "Yapily Test Bank" in direct.get("available", [])
+    assert "Other Test Bank" in direct.get("available", [])
 
 
 # ═════════════════════════════════════════════════════════════════════════

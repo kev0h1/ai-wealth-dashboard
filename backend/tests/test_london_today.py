@@ -316,7 +316,6 @@ def test_upcoming_move_due_tomorrow_is_not_pending_or_overdue_at_frozen_clock(mo
     _freeze(monkeypatch, "2026-09-24T22:30:00")
 
     monkeypatch.setattr(analytics, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(analytics, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "pending_transactions_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_overrides_col", FakeCol([]))
     monkeypatch.setattr(analytics, "upcoming_rules_col", FakeCol([]))

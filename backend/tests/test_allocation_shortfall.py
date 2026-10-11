@@ -52,7 +52,6 @@ def _run(monkeypatch, bills, plans, accounts, *, eligibility=None):
     monkeypatch.setattr(companion, "_reserved_for_allocations", _no_reserve)
     monkeypatch.setattr(companion, "_load_account_plans", _plans)
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts))
-    monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "companion_items_col", FakeCol([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", FakeCol([]))
@@ -66,7 +65,6 @@ def _run(monkeypatch, bills, plans, accounts, *, eligibility=None):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
 
     async def fake_resp(cached, uid=None, prefs=None):
         return {"upcoming_bills": bills, "upcoming_income": [], "internal_inflows": []}

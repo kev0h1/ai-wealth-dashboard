@@ -189,7 +189,6 @@ def test_compute_today_items_income_view_has_exactly_one_salary(monkeypatch):
         "user_id": UID, "income_streams": [CONFIRMED_STREAM],
     }]))
     monkeypatch.setattr(companion, "accounts_col", _Col([_account(1000.0)]))
-    monkeypatch.setattr(companion, "yapily_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "companion_items_col", _Col([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", _Col([]))
@@ -203,7 +202,6 @@ def test_compute_today_items_income_view_has_exactly_one_salary(monkeypatch):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", _Col([cache_doc]))
     monkeypatch.setattr(pace_module, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", _Col([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", _Col([]))
 
     import app.services.pay_period as pay_period
     import app.services.income as income_mod

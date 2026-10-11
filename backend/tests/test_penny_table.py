@@ -146,10 +146,9 @@ def _fx_rows():
 
 
 def _install(monkeypatch, rows):
-    cols = (_Col(rows), _Col([]), _Col([]))
+    cols = (_Col(rows), _Col([]))
     monkeypatch.setattr(penny_tools_module, "_SEARCH_COLLECTIONS", cols)
     monkeypatch.setattr(penny_tools_module, "transactions_col", cols[0])
-    monkeypatch.setattr(penny_tools_module, "yapily_transactions_col", cols[1])
 
     class Tx(_FakeTx):
         pass
@@ -230,7 +229,6 @@ def test_category_spend_table_has_a_row_per_month_including_empty_ones(monkeypat
     ]
     _install(monkeypatch, rows)
     monkeypatch.setattr(penny_tools_module, "transactions_col", _Col(rows))
-    monkeypatch.setattr(penny_tools_module, "yapily_transactions_col", _Col([]))
     monkeypatch.setattr(penny_tools_module.timeutil, "user_today", lambda: date(2026, 10, 8))
 
     async def resolve(uid, name):

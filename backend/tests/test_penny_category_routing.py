@@ -118,10 +118,9 @@ def _install(monkeypatch, custom=("Padel", "Golf")):
     rows = _padel_rows()
     for i, r in enumerate(rows):
         r["id"] = f"t{i}"
-    cols = (_Col(rows), _Col([]), _Col([]))
+    cols = (_Col(rows), _Col([]))
     monkeypatch.setattr(penny_tools_module, "_SEARCH_COLLECTIONS", cols)
     monkeypatch.setattr(penny_tools_module, "transactions_col", cols[0])
-    monkeypatch.setattr(penny_tools_module, "yapily_transactions_col", cols[1])
     doc = {"user_id": UID, "categories": [{"name": n, "kind": "discretionary"} for n in custom]}
     monkeypatch.setattr(categories_module, "user_categories_col", _Col([doc]))
     monkeypatch.setattr(penny_tools_module.timeutil, "user_today", lambda: date(2026, 10, 8))

@@ -214,7 +214,7 @@ def _delete_route(monkeypatch, client, consent_id="fx-acct-1"):
     consents = FakeCol([{"_id": consent_id, "user_id": UID, "status": "authorized"}])
     markers = FakeCol()
     for name, col in (("accounts_col", acc_col), ("connections_col", FakeCol()),
-                      ("yapily_accounts_col", FakeCol()), ("excluded_accounts_col", FakeCol()),
+                      ("excluded_accounts_col", FakeCol()),
                       ("_finexer_consents_col", consents)):
         monkeypatch.setattr(acc, name, col)
     async def _noop(*a, **k):

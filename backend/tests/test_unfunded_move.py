@@ -193,7 +193,6 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
         )
 
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts or []))
-    monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "companion_items_col", FakeCol(companion_items or []))
     monkeypatch.setattr(companion, "behaviour_portrait_col", FakeCol([]))
@@ -211,7 +210,7 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
         return []
     monkeypatch.setattr(companion, "list_active_allocations", no_active_allocations)
     # app.services.pace imports its OWN module-level cashflow_cache_col /
-    # transactions_col / yapily_transactions_col / preferences_col (from
+    # transactions_col / preferences_col (from
     # app.db.collections, at import time), read/written by
     # compute_today_items's rhythm-checkpoint pass via
     # pace._read_cached_baseline / _write_cached_baseline. Patching only
@@ -226,13 +225,11 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
     monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(categories_module, "user_categories_col", FakeCol([]))
     monkeypatch.setattr(checkpoints_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(checkpoints_module, "checkpoints_col", FakeCol([]))
     monkeypatch.setattr(checkpoints_module, "category_intent_col", FakeCol([]))
     monkeypatch.setattr(db_collections, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(db_collections, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(db_collections, "commitments_col", FakeCol([]))
     async def no_debt_plan(uid):
         return {"totals": {"verdict": "good"}, "cards": []}
@@ -782,7 +779,6 @@ def test_shadow_and_real_gate_cannot_disagree_under_a_racing_probe(monkeypatch):
         lambda today_d, pay_cfg: (today_d - timedelta(days=10), today_d + timedelta(days=17)),
     )
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts))
-    monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
     racing_items_col = _FlippingCol([])
     monkeypatch.setattr(companion, "companion_items_col", racing_items_col)
@@ -804,13 +800,11 @@ def test_shadow_and_real_gate_cannot_disagree_under_a_racing_probe(monkeypatch):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(categories_module, "user_categories_col", FakeCol([]))
     monkeypatch.setattr(checkpoints_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(checkpoints_module, "checkpoints_col", FakeCol([]))
     monkeypatch.setattr(checkpoints_module, "category_intent_col", FakeCol([]))
     monkeypatch.setattr(db_collections, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(db_collections, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(db_collections, "commitments_col", FakeCol([]))
 
     async def no_debt_plan(uid):

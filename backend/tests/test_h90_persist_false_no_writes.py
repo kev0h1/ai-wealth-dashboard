@@ -95,7 +95,6 @@ def _run_persist_false(monkeypatch):
     monkeypatch.setattr(companion, "cashflow_cache_col", col([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", col([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", col([]))
-    monkeypatch.setattr(companion, "yapily_accounts_col", col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", col([]))
     monkeypatch.setattr(companion, "companion_items_col", col([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", col([]))

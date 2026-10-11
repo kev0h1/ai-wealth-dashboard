@@ -585,8 +585,7 @@ def test_propose_recategorise_not_found_is_tool_error(monkeypatch):
 
 def test_propose_recategorise_out_of_reach_collection_is_tool_error(monkeypatch):
     _patch_recat_txn_col(monkeypatch, [])  # not in transactions_col
-    monkeypatch.setattr(penny_tools_module, "yapily_transactions_col", _FakeTxnCol([_txn_doc(_id="t9")]))
-    monkeypatch.setattr(penny_tools_module, "statement_transactions_col", _FakeTxnCol([]))
+    monkeypatch.setattr(penny_tools_module, "statement_transactions_col", _FakeTxnCol([_txn_doc(_id="t9")]))
 
     result = asyncio.run(execute_tool(UID, "propose_recategorise_transaction", {
         "transaction_id": "t9", "new_category": "Eating Out", "scope": "just_once",

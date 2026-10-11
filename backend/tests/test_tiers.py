@@ -106,7 +106,6 @@ def test_check_connection_limit_raises_402_for_lite_at_bank_cap(monkeypatch):
     )
     monkeypatch.setattr(collections_module, "connections_col", _FakeCountCollection(3))
     monkeypatch.setattr(collections_module, "finexer_consents_col", _FakeCountCollection(0))
-    monkeypatch.setattr(collections_module, "yapily_consents_col", _FakeCountCollection(0))
     monkeypatch.setattr(collections_module, "accounts_col", _FakeCountCollection(0))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -130,7 +129,6 @@ def test_check_connection_limit_is_noop_for_max_tier(monkeypatch):
     )
     monkeypatch.setattr(collections_module, "connections_col", _FakeCountCollection(999))
     monkeypatch.setattr(collections_module, "finexer_consents_col", _FakeCountCollection(999))
-    monkeypatch.setattr(collections_module, "yapily_consents_col", _FakeCountCollection(999))
     monkeypatch.setattr(collections_module, "accounts_col", _FakeCountCollection(999))
 
     # Max tier has no bank or account cap — must not raise.

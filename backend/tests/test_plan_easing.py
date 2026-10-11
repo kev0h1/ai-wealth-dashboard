@@ -60,7 +60,7 @@ def _today(monkeypatch, day):
 def _setup(monkeypatch, docs):
     col = FakeCol(docs)
     monkeypatch.setattr(commitments, "commitments_col", col)
-    for name in ("accounts_col", "yapily_accounts_col", "manual_accounts_col", "preferences_col", "savings_goals_col"):
+    for name in ("accounts_col", "manual_accounts_col", "preferences_col", "savings_goals_col"):
         monkeypatch.setattr(commitments, name, FakeCol([]))
     monkeypatch.setattr(commitments, "_cashflow", _boom)
     monkeypatch.setattr(commitments, "get_debt_plan_cached", _boom)
@@ -312,7 +312,7 @@ def _run_brief(monkeypatch, plans, accounts, commitment_docs, bills=None):
 
     monkeypatch.setattr(companion, "_reserved_for_allocations", _no_reserve)
     monkeypatch.setattr(companion, "_load_account_plans", _plans)
-    for name in ("yapily_accounts_col", "manual_accounts_col", "companion_items_col", "behaviour_portrait_col", "transactions_col"):
+    for name in ("manual_accounts_col", "companion_items_col", "behaviour_portrait_col", "transactions_col"):
         monkeypatch.setattr(companion, name, CompanionCol([]))
     monkeypatch.setattr(companion, "accounts_col", CompanionCol(accounts))
     monkeypatch.setattr(db_collections, "savings_insights_col", CompanionCol([]))
@@ -322,11 +322,10 @@ def _run_brief(monkeypatch, plans, accounts, commitment_docs, bills=None):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", CompanionCol([{"_id": CUID}]))
     monkeypatch.setattr(pace_module, "preferences_col", CompanionCol([{"user_id": CUID}]))
     monkeypatch.setattr(pace_module, "transactions_col", CompanionCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", CompanionCol([]))
     col = FakeCol(commitment_docs)
     monkeypatch.setattr(db_collections, "commitments_col", col)
     monkeypatch.setattr(commitments, "commitments_col", col)
-    for name in ("accounts_col", "yapily_accounts_col", "manual_accounts_col", "preferences_col"):
+    for name in ("accounts_col", "manual_accounts_col", "preferences_col"):
         monkeypatch.setattr(commitments, name, FakeCol([]))
 
     async def fake_resp(cached, uid=None, prefs=None):

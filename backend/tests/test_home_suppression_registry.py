@@ -180,7 +180,6 @@ def _run(monkeypatch, *, accounts=None, portrait_docs=None, companion_items=None
     )
 
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts or []))
-    monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(companion, "companion_items_col", FakeCol(companion_items or []))
     monkeypatch.setattr(companion, "behaviour_portrait_col", FakeCol(portrait_docs or []))
@@ -197,7 +196,6 @@ def _run(monkeypatch, *, accounts=None, portrait_docs=None, companion_items=None
     monkeypatch.setattr(pace_module, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", FakeCol([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", FakeCol([]))
 
     async def fake_resp(cached, uid=None, prefs=None):
         return {"upcoming_bills": [], "upcoming_income": [], "internal_inflows": []}

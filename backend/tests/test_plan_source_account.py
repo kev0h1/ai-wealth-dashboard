@@ -71,7 +71,6 @@ def _rows(monkeypatch, goal, accounts=None, txns=(), slice_=80):
     monkeypatch.setattr(allocations, "allocations_col", _Collection())
     monkeypatch.setattr(allocations, "commitments_col", _Collection([goal]))
     monkeypatch.setattr(companion, "transactions_col", _Txns(txns))
-    monkeypatch.setattr(companion, "yapily_transactions_col", _Txns())
     accts = accounts or {k: v for k, v in _accounts().items()}
     accts = {**accts, "saving": {**accts["saving"], "balance": 100}}
 
@@ -148,7 +147,6 @@ def test_unassigned_goals_are_inferred_with_one_query_per_collection(monkeypatch
     goals = [_goal(name=f"G{i}", funding_pots=[{"account_id": "saving"}]) for i in range(3)]
     txns = _Txns(_transfer_pair())
     monkeypatch.setattr(companion, "transactions_col", txns)
-    monkeypatch.setattr(companion, "yapily_transactions_col", _Txns())
     accts = {k: v for k, v in _accounts().items()}
 
     async def amap(_): return accts

@@ -122,7 +122,7 @@ def test_card_growth_guard_skipped_when_bill_has_no_account_id(monkeypatch):
 def test_card_growth_guard_matches_via_is_credit_card_flag_when_account_id_differs(monkeypatch):
     """is_credit_card is the PRIMARY signal — a bill dict whose account_id
     doesn't line up with the card-growth account-id set (a real possibility:
-    the delta comes from `_credit_card_account_ids`/native+Yapily txn
+    the delta comes from `_credit_card_account_ids`/native txn
     collections, the bill window is built independently) must still be
     caught via the explicit flag analytics.py already computes."""
     async def fake_card_ids(uid):

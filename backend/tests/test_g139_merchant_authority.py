@@ -459,7 +459,6 @@ def test_rhythm_card_category_total_matches_transactions_search(monkeypatch):
            merchant="TFL", desc="TFL TRAVEL", category="Transport"),
     ]
     monkeypatch.setattr(pace, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(pace, "yapily_transactions_col", FakeCol([]))
 
     kind_map = CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
     spend_txns = asyncio.run(
@@ -473,7 +472,6 @@ def test_rhythm_card_category_total_matches_transactions_search(monkeypatch):
             rhythm_total += _t_row["amount"]
 
     monkeypatch.setattr(transactions_router, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(transactions_router, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(transactions_router, "statement_transactions_col", FakeCol([]))
 
     search_result = asyncio.run(transactions_router.search_transactions(

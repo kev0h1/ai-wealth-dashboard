@@ -98,7 +98,7 @@ class _FakeCursor:
 
 
 class FakeTxnCol:
-    """Stand-in for `transactions_col`/`yapily_transactions_col`: enough of
+    """Stand-in for `transactions_col`: enough of
     Motor's `.find()` (sync call returning an async-iterable cursor) to drive
     `_current_classification_flags`'s query against real documents."""
 
@@ -504,13 +504,11 @@ def test_category_pace_preference_off_suppresses(monkeypatch):
 
 # ── _maybe_classification_attention: unplaced + miscategorised, dedup on id ─
 
-def _patch_classification(monkeypatch, *, txns=None, yapily_txns=None, flagged=None,
+def _patch_classification(monkeypatch, *, txns=None, flagged=None,
                            pairs=None, pref_on=True, state_docs=None):
     state, sent = _patch_common(monkeypatch, pref_on=pref_on, state_docs=state_docs)
     txn_col = FakeTxnCol(txns)
-    yapily_col = FakeTxnCol(yapily_txns)
     monkeypatch.setattr(notifications, "transactions_col", txn_col)
-    monkeypatch.setattr(notifications, "yapily_transactions_col", yapily_col)
 
     async def fake_flagged(uid):
         return flagged or []
@@ -521,7 +519,7 @@ def _patch_classification(monkeypatch, *, txns=None, yapily_txns=None, flagged=N
         return pairs if pairs is not None else []
 
     monkeypatch.setattr(analytics, "_transfer_pair_suggestions", fake_pairs)
-    return state, sent, txn_col, yapily_col
+    return state, sent, txn_col
 
 
 def test_classification_attention_first_run_seeds_silently(monkeypatch):
@@ -536,7 +534,7 @@ def test_classification_attention_first_run_seeds_silently(monkeypatch):
 
 def test_classification_attention_new_unplaced_after_seeding_notifies(monkeypatch):
     baseline = [_txn("t1", category="Other")]
-    state, sent, txn_col, _ = _patch_classification(
+    state, sent, txn_col = _patch_classification(
         monkeypatch, txns=baseline, state_docs={"kevin": {"classification_seen": ["t1"]}},
     )
 

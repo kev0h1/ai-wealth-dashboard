@@ -103,7 +103,6 @@ def _base_patch(monkeypatch, *, accounts, bills, income):
     monkeypatch.setattr(companion, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", _Col(accounts))
-    monkeypatch.setattr(companion, "yapily_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "companion_items_col", _Col([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", _Col([]))
@@ -114,7 +113,6 @@ def _base_patch(monkeypatch, *, accounts, bills, income):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", _Col([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", _Col([]))
 
     import app.services.pay_period as pay_period
     import app.services.income as income_mod

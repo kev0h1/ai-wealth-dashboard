@@ -252,7 +252,7 @@ def test_empty_breakdown_when_no_credit_cards(monkeypatch):
 
 
 def test_breakdown_row_for_card_missing_from_accounts_col(monkeypatch):
-    """A card can be in cc_ids (the accounts_col + yapily_accounts_col union,
+    """A card can be in cc_ids (the credit-card ids from accounts_col,
     see _credit_card_account_ids) but absent from raw_accounts (accounts_col
     only, see compute_cycle_story). Regression coverage for the contract lie
     this used to emit: name/provider are typed non-null on both
@@ -260,7 +260,7 @@ def test_breakdown_row_for_card_missing_from_accounts_col(monkeypatch):
     still satisfy that, not silently emit None."""
     accounts = [_acc("cc_known", "Known Card", "Amex")]
     # cc_orphan is credit-card-classified (present in cc_ids, e.g. because it
-    # only lives in yapily_accounts_col) but there is no matching doc in
+    # only lives outside accounts_col) but there is no matching doc in
     # `accounts`, so acc_by_id.get("cc_orphan") misses.
     cc_ids = {"cc_known", "cc_orphan"}
     txns = [

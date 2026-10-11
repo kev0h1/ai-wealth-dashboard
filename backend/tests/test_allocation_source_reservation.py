@@ -249,11 +249,9 @@ def _pending_doc(*, fill_account_id, amount):
 
 def _setup_real_allocations(monkeypatch, *, docs, accounts=None):
     monkeypatch.setattr(allocations, "accounts_col", FakeCol(accounts or []))
-    monkeypatch.setattr(allocations, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(allocations, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(allocations, "allocations_col", FakeCol(docs))
     monkeypatch.setattr(allocations, "transactions_col", FakeCol([]))
-    monkeypatch.setattr(allocations, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(allocations, "preferences_col", FakeCol(
         [{"user_id": UID, "pay_period_config": {"type": "calendar_month"}}]
     ))
@@ -360,9 +358,7 @@ def _setup_fallback(monkeypatch, *, alloc, credits, debits):
         return [alloc]
     monkeypatch.setattr(companion, "list_active_allocations", fake_list_active_allocations)
     monkeypatch.setattr(allocations, "transactions_col", FakeCol(credits))
-    monkeypatch.setattr(allocations, "yapily_transactions_col", FakeCol([]))
     monkeypatch.setattr(companion, "transactions_col", FakeCol(debits))
-    monkeypatch.setattr(companion, "yapily_transactions_col", FakeCol([]))
 
 
 def test_daily_drip_shape_derives_the_right_source_via_the_fallback(monkeypatch):
@@ -542,7 +538,6 @@ def _base_patch(monkeypatch, *, accounts, bills, allocations_list):
     monkeypatch.setattr(companion, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(companion, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(companion, "accounts_col", _Col(accounts))
-    monkeypatch.setattr(companion, "yapily_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "manual_accounts_col", _Col([]))
     monkeypatch.setattr(companion, "companion_items_col", _Col([]))
     monkeypatch.setattr(companion, "behaviour_portrait_col", _Col([]))
@@ -553,7 +548,6 @@ def _base_patch(monkeypatch, *, accounts, bills, allocations_list):
     monkeypatch.setattr(pace_module, "cashflow_cache_col", _Col([{"_id": UID}]))
     monkeypatch.setattr(pace_module, "preferences_col", _Col([{"user_id": UID}]))
     monkeypatch.setattr(pace_module, "transactions_col", _Col([]))
-    monkeypatch.setattr(pace_module, "yapily_transactions_col", _Col([]))
 
     import app.services.pay_period as pay_period
     import app.services.income as income_mod

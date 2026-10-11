@@ -239,15 +239,13 @@ def _account(acct_id, uid=UID):
 
 
 def _setup(monkeypatch, *, accounts=None, allocations_docs=None, txns=None,
-           yapily_txns=None, prefs=None):
+           prefs=None):
     monkeypatch.setattr(allocations, "date", _FixedDate)
     monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     monkeypatch.setattr(allocations, "accounts_col", FakeCol(accounts or []))
-    monkeypatch.setattr(allocations, "yapily_accounts_col", FakeCol([]))
     monkeypatch.setattr(allocations, "manual_accounts_col", FakeCol([]))
     monkeypatch.setattr(allocations, "allocations_col", FakeCol(allocations_docs or []))
     monkeypatch.setattr(allocations, "transactions_col", FakeCol(txns or []))
-    monkeypatch.setattr(allocations, "yapily_transactions_col", FakeCol(yapily_txns or []))
     monkeypatch.setattr(allocations, "preferences_col", FakeCol(
         prefs if prefs is not None else [{"user_id": UID, "pay_period_config": {"type": "calendar_month"}}]
     ))
