@@ -102,3 +102,15 @@ users.
    production run needs the production Mongo URI with write access for the local
    flips and is run by Kevin or the coordinator.
 4. Repeat monthly until the A106 pending count (admin sync stats) stays at 0.
+
+## Weekly future-date test sweep (H105)
+
+Backend tests that bind to the real calendar (hard-coded 2026 dates, `date.today()` fixtures against the faked or real `timeutil` clock) rot silently and then block every `session.sh finish`. Run the guard weekly, and after any change to date-sensitive tests:
+
+```bash
+backend/.venv/bin/python scripts/check_future_dates.py          # clock-sensitive files at today+60/180/365, about 2.5 minutes
+backend/.venv/bin/python scripts/check_future_dates.py --full   # whole suite at each date, about 3.5 minutes per date
+backend/.venv/bin/python backend/scripts/run_suite_at_date.py 2027-03-31 tests/test_x.py   # one date, any pytest args
+```
+
+It is not wired into `session.sh finish` because it runs longer than the 90 second budget. The dates run one after another, never in parallel (memory, see the budget above; check `free -m` is at least 1500 MB available first). The clock is faked by the opt-in plugin `backend/tests/_plugins/fake_clock.py` (active only when `FAKE_DATE` is set). To fix a failure, pin the file with `tests/_clock.py` `pin_user_today` in an autouse fixture or derive its dates from `timeutil.user_today()`; if the test exposes a genuine product date-boundary defect, raise a G item and mark the test xfail referencing it.
