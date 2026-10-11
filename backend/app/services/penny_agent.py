@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_chart, penny_table
+from app.services import penny_chart, penny_period, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -509,7 +509,14 @@ _SYSTEM_PROMPT = (
     "'Sorted keeps no balance history and I could not match an account called X'. To "
     "stack categories by month ('stack eating out and groceries by month') call "
     "get_category_spend with as_chart `stacked_bar` and `categories` (two to four names). "
-    "Never describe a chart you did not request.\n\n"
+    "Never describe a chart you did not request.\n"
+    "18. Periods: when the user names a span ('last 6 months', 'over the year' is 12 "
+    "months), pass it as `months` to get_category_spend, and omit `category` to cover "
+    "every category. When a tool result carries `period.label`, state the period "
+    "exactly as that label ('6 months, 11 Apr to 11 Oct', 'this pay period, 25 Sep "
+    "to 29 Oct') and never describe a period the result did not return: a result "
+    "labelled this pay period is NOT the last 6 months. The app replaces a period "
+    "phrase that disagrees with the result.\n\n"
     "OUTPUT FORMAT: once you have everything you need for an IN-SCOPE "
     "question, respond with EXACTLY two lines, nothing before or after:\n"
     "HEADLINE: <under 8 words>\n"
@@ -940,6 +947,7 @@ async def run_penny_agent(
         tools_used: list[str] = []
         table_block: dict | None = None
         chart_block: dict | None = None
+        periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
         repaired = False
         rounds = 0
@@ -1079,6 +1087,7 @@ async def run_penny_agent(
                                 result["chart"] = penny_chart.marker_for_model(block)
                                 result.pop("transactions", None)
                                 result.pop("top_categories", None)
+                        periods.extend(penny_period.collect_periods(result))
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
                         logger.info(
@@ -1151,6 +1160,7 @@ async def run_penny_agent(
                         continue
                     prose = safe_prose(content)
                     if prose:
+                        _, prose = penny_period.guard_reply("", prose, periods, uid)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
                         if new_last_result:
@@ -1158,6 +1168,9 @@ async def run_penny_agent(
                         return done
                     return {"loop_failed": True}
                 headline, reply = parsed
+                # G265: a period phrase the model wrote that no tool result
+                # backs is replaced with the tool's own label.
+                headline, reply = penny_period.guard_reply(headline, reply, periods, uid)
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,

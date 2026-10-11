@@ -131,6 +131,10 @@ for (const [name, spec] of Object.entries({ bar, line, stacked, donut })) {
   assert.equal(html(h(PennyChart, { chart: { ...bar, series: [] } })), "");
   assert.equal(lib.normalisePennyChart({ ...bar, series: [{ name: "x", points: new Array(37).fill({ x: "a", y: { amount: 1, currency: "GBP" } }) }] }), null);
   assert.equal(lib.normalisePennyChart({ ...donut, series: [donut.series[0], donut.series[0]] }), null);
+  // G265: four categories plus Other make five series; six is still refused.
+  const one = (i) => ({ name: `s${i}`, points: m([["a", { amount: 1, currency: "GBP" }]]) });
+  assert.ok(lib.normalisePennyChart({ ...stacked, series: [0, 1, 2, 3, 4].map(one) }), "five series are drawn");
+  assert.equal(lib.normalisePennyChart({ ...stacked, series: [0, 1, 2, 3, 4, 5].map(one) }), null);
   assert.equal(lib.normalisePennyChart({ ...stacked, series: [{ name: "x", points: m([["a", { amount: -1, currency: "GBP" }]]) }] }), null);
   const evil = html(h(PennyChart, { chart: { ...bar, title: "<img src=x onerror=1>", summary: "<script>alert(1)</script>" } }));
   assert.ok(!evil.includes("<script") && !evil.includes("<img"), "strings are drawn as text");

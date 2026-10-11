@@ -104,10 +104,10 @@ from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
 from app.services.debt_plan import get_debt_plan_cached
-from app.services import penny_chart, penny_search, penny_table
+from app.services import penny_chart, penny_period, penny_search, penny_table
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.safe_calc import future_value as _safe_calc_future_value
-from app.services.spend_verdict import compute_spend_verdict
+from app.services.spend_verdict import _load_period_txns, bucket_transactions, compute_spend_verdict
 from app.services.sync_freshness import last_bank_sync
 
 logger = logging.getLogger(__name__)
@@ -237,8 +237,9 @@ _AS_TABLE_DESC = (
 _AS_TABLE_DESC_PERIOD = (
     "Set true when the user asks to tabulate, list or compare spend by period or by category "
     "('tabulate my eating out by month'). With a category the app shows one row per "
-    "month (pass months, 6 if the user did not say); without one it shows the top "
-    "categories. You get the totals and a marker, not the rows. Reference the table "
+    "month (pass months, 6 if the user did not say); without one it shows every "
+    "category over the months asked for (pass months for 'last 6 months'), else the top "
+    "categories this pay period. The title carries the exact period. You get the totals and a marker, not the rows. Reference the table "
     "in one sentence and never retype its numbers."
 )
 
@@ -281,8 +282,9 @@ _AS_CHART_DESC_PERIOD = (
     "Set when the user asks to chart, plot, graph or visualise spend ('show my eating out "
     "by month as a bar chart', 'pie of where my money went'). One of bar, line, stacked_bar, "
     "donut (a pie is a donut). With a category the app charts one bar per month (pass months, "
-    "6 if the user did not say); without one it charts the top categories this pay period, "
-    "best as a donut. You get a marker and a one-sentence summary, not the points. "
+    "6 if the user did not say); without one and with months set it stacks the top categories "
+    "by month (a donut shares the window by category); without months it charts the top "
+    "categories this pay period, best as a donut. You get a marker and a one-sentence summary, not the points. "
     "Reference the chart in one sentence and never retype its numbers."
 )
 
@@ -511,8 +513,11 @@ TOOL_SCHEMAS = [
                 "or custom (the list is in the context; a custom category such as a "
                 "sport or hobby the user created counts, matched case-insensitively): this pay period, optionally the last "
                 "N months too, with payment count and the top 3 merchants by "
-                "spend in that category. Omit `category` to get the top spending "
-                "categories this period instead of one category's detail. Use "
+                "spend in that category. Omit `category` for every category at once: "
+                "with `months` set that is the whole rolling window (total, payments "
+                "and monthly average per category), without it the top categories this "
+                "pay period. Every result carries `period.label`, the exact window the "
+                "figures cover: state the period as that label. Use "
                 "this for 'how much did I spend on X', 'what's driving my X "
                 "spend', or any advice-shaped question ('how can I cut my X "
                 "spending') where the facts (the total, how it compares, what's "
@@ -525,7 +530,7 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {
                     "category": {"type": "string", "description": "A category name from the user's list, built-in or custom, e.g. 'Entertainment'. Omit for the top categories this period."},
-                    "months": {"type": "integer", "description": "Optional: also total this category over the last N calendar months (rolling window)."},
+                    "months": {"type": "integer", "description": "Rolling window in calendar months ending today. Set it whenever the user names a span ('last 6 months', 'over the year' is 12); with `category` omitted it aggregates every category over that window."},
                     "as_table": {"type": "boolean", "description": _AS_TABLE_DESC_PERIOD},
                     "as_chart": {"type": "string", "enum": _AS_CHART_ENUM, "description": _AS_CHART_DESC_PERIOD},
                     "categories": {"type": "array", "items": {"type": "string"}, "maxItems": 4, "description": _CATEGORIES_DESC},
@@ -2520,6 +2525,11 @@ async def _exec_search_transactions(
             row["fx"] = fx
         rows.append(row)
     result = {"transactions": rows, "count": len(rows), "match_kind": match_kind}
+    # G265: when the search was bounded by date_from/date_to, the totals above
+    # cover exactly that range (they share the query), and the label says so.
+    search_period = _range_period(date_from, date_to)
+    if search_period:
+        result["period"] = search_period
     if rows:
         # G254: what the rows really state about exchange rates, so "is there
         # an fx rate on these" is answered from data, honestly.
@@ -2565,19 +2575,29 @@ async def _exec_search_transactions(
         result["_result_ids"] = ids[:_IDS_CAP]
     if chart and chart["type"] and items:
         built = _transactions_chart(items, chart, q, matched_category, totals,
-                                    account_label=humanise_account_name(matched_account.name) if matched_account else None)
+                                    account_label=humanise_account_name(matched_account.name) if matched_account else None,
+                                    period_label=search_period["label"] if search_period else None)
         if built:
             result["_chart"] = built
             return result
         as_table = True  # nothing drawable: fall back to the table
         chart = {**chart, "note": "Could not draw that chart, so this is shown as a table."}
     if as_table and items:
-        table = _transactions_table(items[:_TABLE_ROW_CAP], matched_category, totals)
+        table = _transactions_table(items[:_TABLE_ROW_CAP], matched_category, totals,
+                                    period_label=search_period["label"] if search_period else None)
         if table and chart and chart.get("note"):
             table = _table_with_note(table, chart["note"])
         if table:
             result["_table"] = table
     return result
+
+
+def _range_period(date_from: str | None, date_to: str | None) -> dict | None:
+    """The labelled period for explicit date bounds (same parser the search
+    query uses), or None when the search was not date-bounded."""
+    start = _parse_date_bound(date_from)
+    end = _parse_date_bound(date_to, end_of_day=True)
+    return penny_period.range_period(start.date() if start else None, end.date() if end else None)
 
 
 def _table_with_note(table: dict, note: str) -> dict:
@@ -2623,7 +2643,8 @@ async def _resolve_user_account(uid: str, text: str) -> dict:
     return {"status": "ambiguous" if hits else "unresolved", "names": names}
 
 
-def _transactions_chart(items: list, chart: dict, q, matched_category, totals, account_label: str | None = None) -> dict | None:
+def _transactions_chart(items: list, chart: dict, q, matched_category, totals, account_label: str | None = None,
+                        period_label: str | None = None) -> dict | None:
     """Per-day, per-week or per-month totals (whichever keeps the chart within
     36 points) of the rows the search found, in the commonest currency, or a
     donut by category. Server-summed from the user's own rows, never typed by
@@ -2653,6 +2674,8 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals, a
     if account_label:
         label = penny_table.clean_text(account_label, 40)
         title = f"{label} money in and out"
+    if period_label:  # G265: the date range the search was bounded to, from the tool
+        title = penny_table.clean_text(f"{title}, {period_label}", penny_chart.MAX_TITLE)
     name = "Spent" if all_debit else "Net"
     if len(use) < len(items):
         notes.append("Other currencies left out.")
@@ -2665,7 +2688,9 @@ def _transactions_chart(items: list, chart: dict, q, matched_category, totals, a
                 continue
             cat = penny_table.clean_text(d.get("custom_category") or d.get("category") or "Other", 40) or "Other"
             by[cat] = by.get(cat, 0.0) + abs(float(d.get("amount") or 0))
-        table = {"title": f"{label} by category" if not account_label else f"{label} spending by category", "columns": [
+        table = {"title": penny_table.clean_text(
+            (f"{label} by category" if not account_label else f"{label} spending by category")
+            + (f", {period_label}" if period_label else ""), penny_chart.MAX_TITLE), "columns": [
             {"key": "category", "label": "Category", "kind": "text"},
             {"key": "spent", "label": "Spent", "kind": "money"}],
             "rows": [{"category": k, "spent": penny_table.money_cell(v, currency)} for k, v in by.items()]}
@@ -2712,7 +2737,8 @@ def _first_number(doc: dict, fields: tuple[str, ...], absolute: bool = True) -> 
     return None
 
 
-def _transactions_table(items: list, matched_category: str | None, totals: dict | None) -> dict | None:
+def _transactions_table(items: list, matched_category: str | None, totals: dict | None,
+                        period_label: str | None = None) -> dict | None:
     """The user's own rows as a validated table block. Amounts are signed
     (money out is negative) in the transaction's own currency; the GBP, rate
     and fee columns appear only when a row carries them."""
@@ -2766,6 +2792,8 @@ def _transactions_table(items: list, matched_category: str | None, totals: dict 
         lead = f"{note} " if note else ""
         note = penny_table.clean_text(f"{lead}{totals['totals_summary']}.", 200)
     title = f"{matched_category} transactions" if matched_category else "Transactions"
+    if period_label:
+        title = f"{title}, {period_label}"
     return penny_table.validate_or_none({
         "title": penny_table.clean_text(title, 80), "columns": columns, "rows": rows,
         **({"note": note} if note else {}),
@@ -3086,12 +3114,14 @@ async def _exec_get_account_activity(
     # model can see it explicitly used date_from/date_to rather than the
     # relative fallback, and can quote the real start date in its reply.
     window = {"from": start_dt.date().isoformat(), "to": end_dt.date().isoformat()}
+    period = penny_period.range_period(start_dt.date(), end_dt.date())
     if target:
         result = summaries[0]
         result["days"] = days
         result["window"] = window
+        result["period"] = period
         return result
-    result = {"accounts": summaries, "days": days, "window": window}
+    result = {"accounts": summaries, "days": days, "window": window, "period": period}
     capped = len(accs) - len(targets)
     if capped > 0:
         result["accounts_capped"] = capped
@@ -3215,6 +3245,16 @@ def _translate_move_jargon(reading: str) -> str:
 _QUIET_FLAG_CAP = 10
 
 
+def _verdict_period_label(period: dict, offset: int) -> dict:
+    """G265: label, kind and offset for the pay period the verdict covers."""
+    try:
+        p = penny_period.pay_period_period(
+            date.fromisoformat(period["start"]), date.fromisoformat(period["end"]), offset)
+    except (KeyError, TypeError, ValueError):
+        return {}
+    return {"label": p["label"], "months": None, "kind": "pay_period", "offset": offset}
+
+
 async def _exec_get_spend_verdict(uid: str, period_offset: int) -> dict:
     off = max(-60, min(0, int(period_offset or 0)))
     try:
@@ -3233,6 +3273,7 @@ async def _exec_get_spend_verdict(uid: str, period_offset: int) -> dict:
         # this dict (pace.py's compute_category_signals builds `period`,
         # spend_verdict.py only forwards it) — the tool used to strip them.
         "period": {
+            **_verdict_period_label(period, off),
             "start": period.get("start"),
             "end": period.get("end"),
             "days_elapsed": period.get("days_elapsed"),
@@ -3622,24 +3663,22 @@ async def _stacked_category_chart(uid: str, categories, months, chart: dict) -> 
     the user's own rows. None when fewer than two categories resolve (the caller
     carries on as a single-category chart)."""
     names: list[str] = []
-    for c in list(categories)[:penny_chart.MAX_SERIES]:
+    for c in list(categories)[:penny_chart.MAX_STACK_CATEGORIES]:
         resolved, _ = await _resolve_user_category(uid, str(c))
         if resolved and resolved not in names:
             names.append(resolved)
     if len(names) < 2:
         return None
-    try:
-        months = max(1, min(24, int(months or 6)))
-    except (TypeError, ValueError):
-        months = 6
+    months = _clean_months(months) or 6
     today = timeutil.user_today()
-    start_d, end_d = today - timedelta(days=30 * months), today
+    period = penny_period.window_period(months, today)
+    start_d, end_d = date.fromisoformat(period["start"]), today
     start_dt = datetime(start_d.year, start_d.month, start_d.day)
     end_dt = datetime(end_d.year, end_d.month, end_d.day, 23, 59, 59)
     tables = []
     for n in names:
         rows = await _category_txn_rows(uid, n, start_dt, end_dt)
-        tables.append(_category_months_table(n, rows, start_d, end_d))
+        tables.append(_category_months_table(n, rows, start_d, end_d, period["label"]))
     if not all(tables):
         return None
     keys = [f"c{i}" for i in range(len(names))]
@@ -3653,14 +3692,180 @@ async def _stacked_category_chart(uid: str, categories, months, chart: dict) -> 
         ],
     }
     built = penny_chart.chart_from_rows(
-        merged, "stacked_bar", "month", keys, series_names=names, title=f"{' and '.join([', '.join(names[:-1]), names[-1]]) if len(names) > 2 else ' and '.join(names)} by month",
-        note=penny_chart.join_notes(chart.get("note"), f"The last {months} months plus this month so far.", tables[0].get("note")),
+        merged, "stacked_bar", "month", keys, series_names=names, title=f"{' and '.join([', '.join(names[:-1]), names[-1]]) if len(names) > 2 else ' and '.join(names)} by month, {period['label']}",
+        note=penny_chart.join_notes(chart.get("note"), tables[0].get("note")),
     )
-    return {"categories": names, "last_n_months": {"months": months}, "_chart": built} if built else None
+    return {"categories": names, "period": period, "last_n_months": {"months": months}, "_chart": built} if built else None
+
+
+def _clean_months(months) -> int | None:
+    """The requested rolling window in whole calendar months (1 to 24), or None
+    when none was asked for or the value is not a number."""
+    if months in (None, "", 0, False):
+        return None
+    try:
+        return max(1, min(24, int(months)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _pay_period_dict(period: dict) -> dict:
+    """The current pay period as a labelled `period`, built from the Spend
+    engine's own bounds; if they are missing the label still says what it is."""
+    try:
+        return penny_period.pay_period_period(
+            date.fromisoformat(period["start"]), date.fromisoformat(period["end"]))
+    except (KeyError, TypeError, ValueError):
+        return {"label": "this pay period", "start": period.get("start"), "end": period.get("end"),
+                "months": None, "kind": "pay_period", "offset": 0}
+
+
+def _month_buckets(start_d: date, end_d: date) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    y, m = start_d.year, start_d.month
+    while (y, m) <= (end_d.year, end_d.month):
+        out.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+_WINDOW_NOTE = "Excludes income and money moved between your own accounts, as on the Spend page."
+
+
+async def _all_categories_window(uid: str, months: int, as_table: bool, chart: dict | None) -> dict:
+    """G265: EVERY category over the rolling window of `months` calendar months
+    ending today (London date), through the Spend page's own loader and
+    bucketing (custom_category first, income and movement kinds excluded, home
+    currency only, refunds netted, "Other" held apart as unresolved). The label
+    is built here from real dates, never by the model."""
+    today = timeutil.user_today()
+    period = penny_period.window_period(months, today)
+    start_d = date.fromisoformat(period["start"])
+    try:
+        txns = await _load_period_txns(uid, start_d, today)
+        kind_map = await get_category_kinds(uid)
+    except Exception:
+        logger.exception("penny_tools: get_category_spend window lookup failed for %s", uid)
+        return _tool_error("spend lookup failed")
+    cat_agg, _moved, _income = bucket_transactions(txns, kind_map)
+    ranked = sorted(
+        ((c, r) for c, r in cat_agg.items() if c != "Other" and r["spent"] > 0),
+        key=lambda kv: -kv[1]["spent"],
+    )
+    unresolved = (cat_agg.get("Other") or {}).get("spent") or 0.0
+    total = sum(r["spent"] for _, r in ranked)
+    rows = [
+        {"category": c, "total": r["spent"], "payments": int(r["payments_count"]),
+         "monthly_average": r["spent"] / months}
+        for c, r in ranked
+    ]
+    result: dict = {
+        "period": period,
+        "categories": [
+            {"category": r["category"], "total": _money(r["total"]), "payments": r["payments"],
+             "monthly_average": _money(r["monthly_average"])}
+            for r in rows[:12]
+        ],
+        "categories_count": len(rows),
+        "total": _money(total),
+        "monthly_average": _money(total / months),
+        "note": _WINDOW_NOTE + " The monthly average is the total divided by the number of months.",
+    }
+    if len(rows) > 12:
+        result["categories_shown"] = 12
+    if unresolved > 0:
+        result["uncategorised_total"] = _money(unresolved)
+    if not rows:
+        return result
+    label = period["label"]
+    cap = penny_table.MAX_ROWS
+    table_note = _WINDOW_NOTE if len(rows) <= cap else f"Showing the top {cap} of {len(rows)} categories. {_WINDOW_NOTE}"
+    table = penny_table.validate_or_none({
+        "title": penny_table.clean_text(f"Spending by category, {label}", 80),
+        "columns": [
+            {"key": "category", "label": "Category", "kind": "text"},
+            {"key": "total", "label": "Total", "kind": "money"},
+            {"key": "payments", "label": "Payments", "kind": "number"},
+            {"key": "avg", "label": "Monthly average", "kind": "money"},
+        ],
+        "rows": [
+            {"category": penny_table.clean_text(r["category"], 60), "total": penny_table.money_cell(r["total"]),
+             "payments": r["payments"], "avg": penny_table.money_cell(r["monthly_average"])}
+            for r in rows[:cap]
+        ],
+        "note": table_note,
+    })
+    if chart is not None and chart["type"]:
+        wanted, note = chart["type"], chart.get("note")
+        if wanted == "donut":
+            if table:
+                result.update(_chart_or_table(table, chart, "category", ["total"], series_names=["Total"],
+                                              title=f"Spending by category, {label}"))
+            return result
+        stacked = _window_stacked_chart(txns, kind_map, rows, start_d, today, label,
+                                        note if wanted == "stacked_bar" else penny_chart.join_notes(
+                                            note, "Months are shown as stacked bars by category."))
+        if stacked:
+            result["_chart"] = stacked
+            return result
+        if table:
+            result["_table"] = _table_with_note(table, "Could not draw that chart, so this is shown as a table.")
+        return result
+    if (as_table or (chart is not None and chart["type"] is None)) and table:
+        result["_table"] = _table_with_note(table, chart["note"]) if chart and chart.get("note") else table
+    return result
+
+
+def _window_stacked_chart(txns: list[dict], kind_map: dict, rows: list[dict], start_d: date, end_d: date,
+                          label: str, note: str | None) -> dict | None:
+    """A stacked bar per calendar month over the window: the top four categories
+    by window total plus the rest as "Other". Server-summed with the same
+    bucketing as the page; the earliest month may be part of a month."""
+    buckets = _month_buckets(start_d, end_d)
+    if len(rows) < 1 or not 1 <= len(buckets) <= penny_chart.MAX_POINTS:
+        return None
+    top = [r["category"] for r in rows[:penny_chart.MAX_STACK_CATEGORIES]]
+    tail = len(rows) > len(top)
+    by_month: dict[tuple[int, int], dict[str, float]] = {}
+    grouped: dict[tuple[int, int], list[dict]] = {b: [] for b in buckets}
+    for t in txns:
+        g = grouped.get((t["date"].year, t["date"].month))
+        if g is not None:
+            g.append(t)
+    for b, items in grouped.items():
+        agg, _, _ = bucket_transactions(items, kind_map)
+        by_month[b] = {c: r["spent"] for c, r in agg.items() if c != "Other"}
+    clamped = False
+    keys = [f"c{i}" for i in range(len(top))] + (["other"] if tail else [])
+    names = top + (["Other"] if tail else [])
+    table_rows = []
+    for b in buckets:
+        vals = by_month[b]
+        cells = [vals.get(c, 0.0) for c in top]
+        if tail:
+            cells.append(sum(v for c, v in vals.items() if c not in top))
+        if any(v < 0 for v in cells):
+            clamped = True
+        table_rows.append({"month": date(b[0], b[1], 1).strftime("%b %Y"),
+                           **{k: penny_table.money_cell(max(0.0, v)) for k, v in zip(keys, cells)}})
+    merged = {
+        "title": penny_table.clean_text(f"Spending by month, {label}", 80),
+        "columns": [{"key": "month", "label": "Month", "kind": "text", "align": "left"}] + [
+            {"key": k, "label": penny_table.clean_text(n, 40), "kind": "money", "align": "right"} for k, n in zip(keys, names)],
+        "rows": table_rows,
+    }
+    return penny_chart.chart_from_rows(
+        merged, "stacked_bar", "month", keys, series_names=names, title=merged["title"],
+        note=penny_chart.join_notes(
+            note, penny_chart.OTHER_NOTE if tail else None,
+            "Months with a net refund show as zero." if clamped else None,
+            "The earliest month may be part of a month.", _WINDOW_NOTE),
+    )
 
 
 async def _exec_get_category_spend(uid: str, category: str | None, months, as_table: bool = False,
                                    chart: dict | None = None, categories=None) -> dict:
+    months = _clean_months(months)
     if chart and chart["type"] == "stacked_bar" and isinstance(categories, list) and len(categories) >= 2:
         stacked = await _stacked_category_chart(uid, categories, months, chart)
         if stacked:
@@ -3679,6 +3884,10 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
             category = resolved
         elif names:
             unrecognised = names[:_CATEGORY_HINT_CAP]
+    if not category and months:
+        # G265: a multi-month question with no single category is an aggregate
+        # over the window, never the current pay period's figures.
+        return await _all_categories_window(uid, months, as_table, chart)
     try:
         verdict = await compute_spend_verdict(uid, offset=0)
     except Exception:
@@ -3686,6 +3895,8 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
         return _tool_error("spend lookup failed")
 
     period = verdict.get("period") or {}
+    pay_period = _pay_period_dict(period)
+    pay_label = pay_period["label"]
     # Current-period totals are ALWAYS read from the engine's own already-
     # computed per-category split (notables ∪ majority — the same two lists
     # the Spend page itself renders from), never re-summed from raw
@@ -3700,7 +3911,7 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
         if chart is not None and chart["type"]:
             ranked_all = sorted(by_cat.values(), key=lambda r: -(r.get("spent") or 0))[:penny_table.MAX_ROWS]
             cat_table = penny_table.validate_or_none({
-                "title": "Spending by category this pay period",
+                "title": penny_table.clean_text(f"Spending by category, {pay_label}", 80),
                 "columns": [
                     {"key": "category", "label": "Category", "kind": "text"},
                     {"key": "spent", "label": "Spent", "kind": "money"},
@@ -3714,11 +3925,11 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
             if chart["type"] == "line":  # categories have no order in time
                 requested = {**chart, "type": "bar", "note": "Categories have no order in time, so this is a bar chart."}
             extra.update(_chart_or_table(cat_table, requested, "category", ["spent"],
-                                         series_names=["Spent"], title="Spending by category this pay period"))
+                                         series_names=["Spent"], title=f"Spending by category, {pay_label}"))
         elif as_table:
             ranked = sorted(by_cat.values(), key=lambda r: -(r.get("spent") or 0))[:12]
             table = penny_table.validate_or_none({
-                "title": "Top spending this pay period",
+                "title": penny_table.clean_text(f"Top spending, {pay_label}", 80),
                 "columns": [
                     {"key": "category", "label": "Category", "kind": "text"},
                     {"key": "spent", "label": "Spent", "kind": "money"},
@@ -3737,7 +3948,7 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
                 extra["_table"] = _table_with_note(table, chart["note"]) if chart and chart.get("note") else table
         return {
             **extra,
-            "period": {"start": period.get("start"), "end": period.get("end")},
+            "period": pay_period,
             "top_categories": [
                 {
                     "category": r["category"],
@@ -3751,10 +3962,11 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
     cur = by_cat.get(category)
     result: dict = {
         "category": category,
-        "period": {"start": period.get("start"), "end": period.get("end")},
+        "period": pay_period,
         "this_period": {
             "spent": _money((cur or {}).get("spent")),
             "payments_count": (cur or {}).get("payments_count", 0),
+            "period": pay_period,
         },
     }
 
@@ -3763,10 +3975,11 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
     # covers the current pay period too, at most ~31 days), else just the
     # current period's own bounds — one query, never two.
     today = timeutil.user_today()
+    window_period = None
     try:
         if months:
-            months = max(1, min(24, int(months)))
-            start_d = today - timedelta(days=30 * months)
+            window_period = penny_period.window_period(months, today)
+            start_d = date.fromisoformat(window_period["start"])
             end_d = today
         else:
             start_d = date.fromisoformat(period["start"]) if period.get("start") else today
@@ -3778,13 +3991,20 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
         logger.exception("penny_tools: get_category_spend raw lookup failed for %s", uid)
         rows_raw = []
         months = None
+        window_period = None
 
-    if months:
+    if months and window_period:
         total = sum(abs(float(d.get("amount") or 0)) for d in rows_raw)
+        # The window is what the table, chart and any "last N months" claim
+        # cover, so it is the headline period; the pay period stays on
+        # this_period.
+        result["period"] = window_period
         result["last_n_months"] = {
             "months": months,
             "spent": _money(total),
             "payments_count": len(rows_raw),
+            "monthly_average": _money(total / months, 2),
+            "period": window_period,
             # G241: the window the total covers, so a per-week or per-month
             # average can be computed from the real day count (90 days is
             # 12.86 weeks, not 12) instead of an assumed one.
@@ -3798,11 +4018,12 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
         }
 
     result["top_merchants"] = _top_merchants(rows_raw, 3)
-    if wants_rows and months and unrecognised is None:
-        table = _category_months_table(category, rows_raw, start_d, end_d)
+    if wants_rows and months and window_period and unrecognised is None:
+        wlabel = window_period["label"]
+        table = _category_months_table(category, rows_raw, start_d, end_d, wlabel)
         if table and chart is not None and chart["type"]:
             result.update(_chart_or_table(table, chart, "month", ["spent"], series_names=[category],
-                                          title=f"{category} by month", time_x=True))
+                                          title=f"{category} by month, {wlabel}", time_x=True))
         elif table and chart is not None:
             result["_table"] = _table_with_note(table, chart["note"]) if chart.get("note") else table
         elif table:
@@ -3819,7 +4040,8 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
     return result
 
 
-def _category_months_table(category: str, rows_raw: list[dict], start_d: date, end_d: date) -> dict | None:
+def _category_months_table(category: str, rows_raw: list[dict], start_d: date, end_d: date,
+                           label: str | None = None) -> dict | None:
     """One row per calendar month across the window, months with nothing
     spent included as zero so a gap is visible. Server-summed, never typed
     by the model. The window is rolling, so the earliest month can be part."""
@@ -3839,7 +4061,7 @@ def _category_months_table(category: str, rows_raw: list[dict], start_d: date, e
     if not buckets or len(buckets) > penny_table.MAX_ROWS:
         return None
     return penny_table.validate_or_none({
-        "title": penny_table.clean_text(f"{category} by month", 80),
+        "title": penny_table.clean_text(f"{category} by month" + (f", {label}" if label else ""), 80),
         "columns": [
             {"key": "month", "label": "Month", "kind": "text"},
             {"key": "spent", "label": "Spent", "kind": "money"},

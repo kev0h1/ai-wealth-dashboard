@@ -256,7 +256,7 @@ PINNED_TOOL_DESCRIPTION_HASHES = {
     "explain": "7282dd0045f2197a2e68112439f0a2d48a92134dcf52487eb224c3e3d02bb776",
     "get_account_activity": "a177a9327880d3e518b6164b375da8926fb345a9ac20b3675904c6ed1e20e3f7",
     "get_accounts": "635f1a49e599affcc455cba594ddffdd6e69d5ec17d29aa41e701a1bbba83c9b",
-    "get_category_spend": "ba49e39ccbe465eb629398196f5901f953ff747dc4f1f6d7bda527000b84a3af",
+    "get_category_spend": "8a9dce2167d309f5eab3cb026098bc2c9fc9b6a615e4479e4b91343f641fab18",
     "get_debt_position": "4384fc55409fa7e83abb58d1edd609406ee2d36085f5fe3839e36da194480fbf",
     "get_goals": "7b86b15a50184eee52984f959b3b71c4816dc03235e0ec8e28fe9c1b89140605",
     "get_insights": "3a6f2039c14cae734953e189a4328f17d54111b25cfdfed1b17acbdc03763796",
@@ -629,6 +629,26 @@ GOLDEN_CASES = [
         why="G252: a stacked chart of two to four categories is get_category_spend with as_chart stacked_bar and a categories list (per-month series built server-side).",
     ),
     dict(
+        id="spend-17-aggregate-six-months",
+        source="spend.md",
+        question="Can you aggregate my spending over the last 6 months",
+        screen="spend",
+        expected=["get_category_spend"],
+        expected_args={"get_category_spend": {"months": 6, "as_table": True}},
+        source_quote="custom category",
+        why="G265 (Kevin 2026-10-11): an all-categories question over a named span is get_category_spend with months set and NO category, so the table is the 6-month aggregate titled with its own window, never this pay period's figures. Executed with a synthetic fixture in test_penny_multi_month.py.",
+    ),
+    dict(
+        id="spend-18-by-category-this-period",
+        source="spend.md",
+        question="What have I spent in each category this pay period",
+        screen="spend",
+        expected=["get_category_spend"],
+        expected_args={"get_category_spend": {"as_table": True}},
+        source_quote="custom category",
+        why="G265: with no span named the same tool, with no months, covers the current pay period and says so in its label.",
+    ),
+    dict(
         id="spend-07-prior-period",
         source="spend.md",
         question="Was I over usual on Groceries last pay period?",
@@ -787,7 +807,7 @@ for _case in GOLDEN_CASES:
     assert _case.get("source_quote"), f"{_case['id']}: missing source_quote"
 
 _SOURCE_COUNTS = {
-    "home-and-penny.md": 8, "spend.md": 17, "planning-grow-debt.md": 7,
+    "home-and-penny.md": 8, "spend.md": 19, "planning-grow-debt.md": 7,
     "insights-accounts-mirror.md": 6,
 }
 

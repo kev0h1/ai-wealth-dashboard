@@ -1,7 +1,7 @@
 // G252: typed chart specs in Penny's replies. Pure functions, no React.
 //
 // The spec is built and validated on the server (backend/app/services/
-// penny_chart.py): 1..4 series, at most 36 points per series (8 slices for a
+// penny_chart.py): 1..5 series, at most 36 points per series (8 slices for a
 // donut, the rest already grouped into "Other"), typed values, no HTML, and a
 // summary sentence the server wrote from the data. The client still treats it
 // as untrusted: a malformed spec renders nothing, and every string is drawn as
@@ -26,7 +26,7 @@ export type PennyChartSpec = {
   summary: string;
 };
 
-export const CHART_MAX_SERIES = 4;
+export const CHART_MAX_SERIES = 5;
 export const CHART_MAX_POINTS = 36;
 export const CHART_MAX_SLICES = 8;
 const TYPES = new Set(["bar", "line", "stacked_bar", "donut"]);
