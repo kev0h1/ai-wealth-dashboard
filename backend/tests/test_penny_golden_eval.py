@@ -641,7 +641,7 @@ GOLDEN_CASES = [
     dict(
         id="spend-18-by-category-this-period",
         source="spend.md",
-        question="What have I spent in each category this pay period",
+        question="Tabulate what I have spent in each category this pay period",
         screen="spend",
         expected=["get_category_spend"],
         expected_args={"get_category_spend": {"as_table": True}},
