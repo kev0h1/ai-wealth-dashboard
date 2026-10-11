@@ -9,6 +9,7 @@ import PennyMark from "@/components/PennyMark";
 import { PennyPromptBar } from "@/components/PennyConversation";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { usePreferences } from "@/components/PreferencesContext";
+import AimNudge from "@/components/AimNudge";
 import { BriefBody, BriefSkeleton, PaydayPlanSection } from "@/components/HomeBrief";
 import { isActionableCompanionItem } from "@/lib/companionItems";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
@@ -233,6 +234,9 @@ export default function PennyPage() {
             </>
           )}
         </div>
+
+        {/* G242: Penny's aim nudge, only for a Mirror trait marked "change" */}
+        {!loading && <AimNudge className="mt-6" />}
 
         {/* c. Payday Plan — its permanent home. Same component Home uses,
             just without the `gate` prop — always available here, year-round,

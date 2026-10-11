@@ -418,6 +418,8 @@ async def get_aim_nudge(uid: str, aims: list[dict] | None = None) -> dict | None
         "spent_so_far": best["spent_so_far"],
         "projected":    best["pace"]["projected"],
         "days_left":    best["days_left"],
+        "period_start": best["period_start"],
+        "period_end":   best["period_end"],
     }
 
 

@@ -11,7 +11,6 @@ import { fmtWhole } from "@/lib/aimFormat";
 
 export interface AimNudgeCardProps {
   category: string;
-  /** Title of the trait the user marked "change", named in the nudge. */
   /** The trait's real title, as the Mirror shows it. */
   traitTitle: string;
   aimAmount: number;

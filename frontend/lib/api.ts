@@ -446,6 +446,8 @@ export type AimNudge = {
   spent_so_far: number;
   projected: number;
   days_left: number;
+  period_start: string;
+  period_end: string;
 };
 
 // GET /checkpoints also returns `ref` — the category the aim is anchored to.

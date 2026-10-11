@@ -156,7 +156,7 @@ def test_dismiss_is_user_scoped(monkeypatch):
 
 def _served(cp_id, ref, aim, spent, days_left, period_days=28):
     return {"id": cp_id, "ref": ref, "aim_amount": aim, "spent_so_far": spent,
-            "days_left": days_left, "pace": svc.aim_pace(aim, spent, period_days, days_left)}
+            "days_left": days_left, "period_start": "2026-09-28", "period_end": "2026-10-25", "pace": svc.aim_pace(aim, spent, period_days, days_left)}
 
 
 def _portrait(*traits):
@@ -182,6 +182,7 @@ def test_nudge_fires_for_change_trait_when_likely(monkeypatch):
     assert n["category"] == "Eating Out"
     assert n["trait_title"] == "Your Signature: Eating Out"
     assert n["id"] == cid and n["projected"] > 100
+    assert (n["period_start"], n["period_end"]) == ("2026-09-28", "2026-10-25")
 
 
 def test_nudge_needs_consent_keep_unanswered_and_missing_portrait(monkeypatch):
