@@ -142,6 +142,7 @@ export default function SpendRailClient() {
                 <a href={`?variant=${variant}&mode=${mode === "dark" ? "light" : "dark"}&state=${state}${showNav ? "&nav=1" : ""}`} className="inline-flex min-h-11 items-center rounded-full bg-slate-100 px-4 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">{mode === "dark" ? "Light" : "Dark"}</a>
               </div>
               <p className="mt-2">Try the data states: <a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=${variant}&mode=${mode}&state=nochanges`}>no changes</a>, <a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=${variant}&mode=${mode}&state=nothingtocategorise`}>nothing to categorise</a>, <a className="font-semibold text-indigo-700 underline dark:text-indigo-300" href={`?variant=${variant}&mode=${mode}&state=zero`}>one 40p payment</a>.</p>
+              <p className="mt-2">Preview note: the grid and timeline here are mirrored from SpendPage, and the rail is not yet wired into production. The rail sits 24px in from the screen edge to stay clear of the Android back gesture.</p>
               <p className="mt-2"><span className="font-semibold">Zero-value rule (all variants).</span> A payment that shows as £0 (under 50p) is not a to-do: the stop and its jump link are hidden, it stays inside Out. When a stop shows, one payment reads "1 payment still needs a category". Switch off with rule=off to see today.</p>
             </div>
           )}

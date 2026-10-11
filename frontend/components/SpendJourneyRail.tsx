@@ -114,7 +114,7 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
   return (
     <nav
       aria-label="Jump through this pay period"
-      className={`fixed left-0.5 top-[38%] z-30 w-11 lg:hidden ${started ? "" : "pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100"}`}
+      className={`fixed left-6 top-[38%] z-30 w-11 lg:hidden ${started ? "" : "pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100"}`}
     >
       <ol
         ref={listRef}
@@ -135,6 +135,9 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
           const id = idAt(e.clientY);
           setReveal(null);
           handled.current = true;
+          // A pointer jump swallows the click that follows it; clear the flag soon after so a
+          // later keyboard or VoiceOver activation is never ignored.
+          window.setTimeout(() => { handled.current = false; }, 400);
           const d = destinations.find((x) => x.id === id);
           if (d) jumpTo(d);
         }}
@@ -168,7 +171,7 @@ function RailA({ destinations }: { destinations: SpendJourneyDestination[] }) {
                 >
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-600 dark:text-slate-400">{d.label}</span>
                   {d.summary && <span className="mt-0.5 block font-mono text-[13px] font-bold tabular-nums text-slate-900 dark:text-white">{d.summary}</span>}
-                  {d.needsLook && <span className="mt-0.5 block text-[11px] text-amber-700 dark:text-amber-400">Needs a look</span>}
+                  {d.needsLook && <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300"><span className="size-1.5 shrink-0 rounded-full bg-amber-400" />Needs a look</span>}
                 </span>
               </a>
             </li>
@@ -232,7 +235,6 @@ function RailC({ destinations }: { destinations: SpendJourneyDestination[] }) {
   const { active } = useJourneyPosition(destinations.map((d) => d.id));
   const [open, setOpen] = useState(false);
   const current = destinations.find((d) => d.id === active) ?? null;
-  const hiddenLook = destinations.some((d) => d.needsLook && d.id !== active);
 
   useEffect(() => {
     if (!open) return;
@@ -271,7 +273,6 @@ function RailC({ destinations }: { destinations: SpendJourneyDestination[] }) {
                 <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">Jump to a section</span>
               )}
             </span>
-            {hiddenLook && <><span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-amber-400" /><span className="sr-only">Another section needs a look</span></>}
             <ChevronDown size={16} aria-hidden="true" className={`shrink-0 text-slate-600 transition-transform motion-reduce:transition-none dark:text-slate-400 ${open ? "rotate-180" : ""}`} />
           </button>
           {open && (
