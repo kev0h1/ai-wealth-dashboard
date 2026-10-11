@@ -8,7 +8,7 @@ import { runMobileLoginLoop } from "../lib/mobileLoginLoop.ts";
 import { createHash } from "node:crypto";
 import {
   PENDING_LOGIN_KEY, PENDING_LOGIN_TTL_MS, clearPendingLogin, createSharedPoller,
-  loadPendingLogin, newPendingLogin, savePendingLogin, sha256Hex,
+  loadPendingLogin, newPendingLogin, savePendingLogin, sha256Hex, newCodeVerifier, pendingFromIssued,
 } from "../lib/pendingLogin.ts";
 
 let failures = 0;
@@ -119,7 +119,7 @@ await t("source: nativeGoogleLogin uses the loop, a bounded POST fetch, and the 
 await t("source: state and poll secret come from crypto.getRandomValues, never Math.random", () => {
   const src = read("lib/pendingLogin.ts");
   const fn = src.slice(src.indexOf("export function newPendingLogin"), src.indexOf("export function savePendingLogin"));
-  assert.equal((fn.match(/crypto\.getRandomValues\(/g) || []).length, 2);
+  assert.equal((fn.match(/crypto\.getRandomValues\(/g) || []).length, 3, "legacy state + secret, plus the A136 verifier");
   assert.ok(fn.includes("new Uint8Array(16)"));
   assert.ok(!src.includes("Math.random"));
   assert.ok(!read("lib/nativeAuth.ts").includes("Math.random"));
@@ -135,8 +135,8 @@ await t("source: the poll secret is never placed in a URL (only sha256 of it, as
       }
     }
   }
-  assert.ok(/&challenge=\$\{challenge\}/.test(na) && na.includes("sha256Hex(pending.pollSecret)"));
-  assert.ok(na.includes("body: JSON.stringify({ state: p.state, poll_secret: p.pollSecret })"));
+  assert.ok(!/&challenge=/.test(na), "A136: the authorise URL carries only the server-issued state");
+  assert.ok(na.includes("poll_secret: p.pollSecret"));
   assert.ok(!/poll\?state=/.test(na), "no GET poll with the state in the query");
 });
 
@@ -168,6 +168,28 @@ await t("newPendingLogin: state m+32hex, secret 32hex, distinct", () => {
   assert.match(p.pollSecret, /^[0-9a-f]{32}$/);
   assert.notEqual(p.state.slice(1), p.pollSecret);
   assert.equal(p.startedAt, 5);
+});
+
+await t("A136: server-issued state: verifier is client-made, state and secret are the server's, record round-trips", () => {
+  const v = newCodeVerifier();
+  assert.match(v, /^[0-9a-f]{32}$/);
+  const issued = { state: "m" + "a".repeat(32), poll_secret: "b".repeat(32) };
+  const p = pendingFromIssued(issued, v, 50);
+  assert.deepEqual(p, { state: issued.state, pollSecret: issued.poll_secret, startedAt: 50, codeVerifier: v });
+  assert.equal(pendingFromIssued({ state: "mabc_1700000000000", poll_secret: "b".repeat(32) }, v), null, "legacy-shaped state refused");
+  assert.equal(pendingFromIssued({ state: issued.state, poll_secret: "short" }, v), null);
+  const a = memStore();
+  savePendingLogin(p, [a]);
+  assert.deepEqual(loadPendingLogin(51, [a]), p);
+});
+
+await t("A136: source: sign-in starts at /auth/mobile/start, sends only sha256(verifier), poll carries code_verifier, URL has no challenge", () => {
+  const na = read("lib/nativeAuth.ts");
+  assert.ok(na.includes("/auth/mobile/start`"));
+  assert.ok(na.includes("challenge: sha256Hex(codeVerifier)"));
+  assert.ok(na.includes("code_verifier: p.codeVerifier"));
+  assert.ok(!na.includes("&challenge="), "no client-chosen challenge in the authorise URL");
+  assert.ok(!/newPendingLogin\(/.test(na), "client no longer chooses state or poll secret");
 });
 
 await t("pending login persists to both stores, loads, clears; expiry and junk are dropped", () => {

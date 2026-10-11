@@ -309,7 +309,7 @@ async def issue_start(pkce_challenge: str, ip: str | None) -> dict | None:
     }
     if not await _start_put(state, record, START_TTL, nx=True):
         return None
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=START_TTL)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=START_TTL)  # naive-ok: tz-aware UTC TTL instant, not user-facing calendar copy
     return {"state": state, "poll_secret": poll_secret, "expires_at": expires_at.isoformat()}
 
 

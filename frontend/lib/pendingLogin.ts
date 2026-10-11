@@ -24,6 +24,10 @@ export interface PendingLogin {
   state: string;
   pollSecret: string;
   startedAt: number;
+  // A136: the PKCE verifier for a server-issued state. Its sha256 was sent to
+  // POST /auth/mobile/start; the poll needs it AND pollSecret. Absent only on a
+  // record written by a pre-A136 build (legacy client-chosen state).
+  codeVerifier?: string;
 }
 
 export const PENDING_LOGIN_KEY = "wd_pending_login";
@@ -48,6 +52,23 @@ export function newPendingLogin(now = Date.now()): PendingLogin {
   const p = new Uint8Array(16);
   crypto.getRandomValues(p);
   return { state: "m" + hex(s), pollSecret: hex(p), startedAt: now };
+}
+
+// A136: the server chooses the state and the poll secret
+// (POST /auth/mobile/start); the client only generates the PKCE verifier.
+export function newCodeVerifier(): string {
+  const v = new Uint8Array(16);
+  crypto.getRandomValues(v);
+  return hex(v);
+}
+
+export function pendingFromIssued(
+  issued: { state: string; poll_secret: string },
+  codeVerifier: string,
+  now = Date.now(),
+): PendingLogin | null {
+  if (!/^m[0-9a-f]{32}$/.test(issued.state) || !/^[0-9a-f]{32}$/.test(issued.poll_secret)) return null;
+  return { state: issued.state, pollSecret: issued.poll_secret, startedAt: now, codeVerifier };
 }
 
 export function savePendingLogin(p: PendingLogin, stores: StoreLike[] = defaultStores()): void {
@@ -75,7 +96,8 @@ export function loadPendingLogin(now = Date.now(), stores: StoreLike[] = default
         typeof p.pollSecret === "string" && /^[0-9a-f]{32}$/.test(p.pollSecret) &&
         typeof p.startedAt === "number" && now - p.startedAt >= 0 && now - p.startedAt < PENDING_LOGIN_TTL_MS
       ) {
-        return { state: p.state, pollSecret: p.pollSecret, startedAt: p.startedAt };
+        const ver = typeof p.codeVerifier === "string" && /^[0-9a-f]{32}$/.test(p.codeVerifier) ? p.codeVerifier : undefined;
+        return { state: p.state, pollSecret: p.pollSecret, startedAt: p.startedAt, ...(ver ? { codeVerifier: ver } : {}) };
       }
     } catch { /* malformed: fall through to clear */ }
     clearPendingLogin(stores); // malformed or expired

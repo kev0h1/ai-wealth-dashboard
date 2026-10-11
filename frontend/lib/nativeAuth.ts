@@ -10,7 +10,8 @@ import {
   clearPendingLogin,
   createSharedPoller,
   loadPendingLogin,
-  newPendingLogin,
+  newCodeVerifier,
+  pendingFromIssued,
   savePendingLogin,
   sha256Hex,
   type PendingLogin,
@@ -316,7 +317,7 @@ async function postPoll(p: PendingLogin): Promise<PollReply | null> {
     const res = await gatedFetch(`${API_BASE}/auth/mobile/poll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: p.state, poll_secret: p.pollSecret }),
+      body: JSON.stringify({ state: p.state, poll_secret: p.pollSecret, ...(p.codeVerifier ? { code_verifier: p.codeVerifier } : {}) }),
       ...(ctrl ? { signal: ctrl.signal } : {}),
     });
     if (!res.ok) return null;
@@ -360,6 +361,31 @@ function loopDeps(p: PendingLogin, timeoutMs?: number) {
   };
 }
 
+// A136: bounded; null on any failure (never throws).
+async function startServerLogin(codeVerifier: string, signal: AbortSignal): Promise<PendingLogin | null> {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 10_000) : undefined;
+  const onAbort = () => ctrl?.abort();
+  signal.addEventListener("abort", onAbort);
+  try {
+    const res = await gatedFetch(`${API_BASE}/auth/mobile/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge: sha256Hex(codeVerifier) }),
+      ...(ctrl ? { signal: ctrl.signal } : {}),
+    });
+    if (!res.ok) return null;
+    const d = (await res.json()) as { state?: string; poll_secret?: string };
+    if (typeof d.state !== "string" || typeof d.poll_secret !== "string") return null;
+    return pendingFromIssued({ state: d.state, poll_secret: d.poll_secret }, codeVerifier);
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export async function nativeGoogleLogin(): Promise<NativeLoginResult> {
   const ctrl = beginLogin();
   try {
@@ -370,15 +396,19 @@ export async function nativeGoogleLogin(): Promise<NativeLoginResult> {
 }
 
 async function googleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> {
-  // A133: state is 128 bits from the CSPRNG ("m" + 32 hex). It is NOT a
-  // secret (it is in logged URLs); redemption needs the separate pollSecret,
-  // whose sha256 is sent as `challenge`. The secret itself is never in a URL.
-  const pending = newPendingLogin();
-  const challenge = sha256Hex(pending.pollSecret);
+  // A136: the SERVER issues the state and the poll secret (POST
+  // /auth/mobile/start); this app only generates the PKCE verifier and sends
+  // its sha256. Redemption needs the poll secret AND the verifier, neither of
+  // which is ever in a URL. A start failure is a failed sign-in: falling back
+  // to a client-chosen state would reopen the fixation hole (A136).
+  const codeVerifier = newCodeVerifier();
+  const pending = await startServerLogin(codeVerifier, signal);
+  if (signal.aborted) return "cancelled";
+  if (!pending) return "failed";
   // Persisted BEFORE the browser opens so a WebView reload or process kill
   // while the sheet is up can still redeem the login (resumePendingLogin).
   savePendingLogin(pending);
-  const url = `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(pending.state)}&challenge=${challenge}`;
+  const url = `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(pending.state)}`;
   // A133: Browser.open is bounded. A rejection is a failed sign-in; if it is
   // merely slow (>10s) the poll loop starts anyway rather than waiting on it.
   const opened = Browser.open({ url }).then(
