@@ -154,7 +154,7 @@ export type PayPeriodConfig =
   | { type: "last_friday" }
   | { type: "last_weekday_of_month"; weekday: number }
   | { type: "calendar_month" }
-  | { type: "monthly_pay_date"; day: number }   // day 1-28: period from day N to day N-1 next month
+  | { type: "monthly_pay_date"; day: number }   // day 1-31: period from day N to day N-1 next month; the day is clamped to the month length, so 31 is the last day
   | { type: "weekly"; weekday: number }          // 0=Sun…6=Sat, 7-day periods
   | { type: "biweekly"; weekday: number; referenceDate: string }  // ISO payday reference
   | { type: "custom"; start: string; end: string };  // one period; prev/next shift by same duration
