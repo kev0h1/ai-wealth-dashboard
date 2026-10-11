@@ -2,8 +2,9 @@
 
 // Aim progress for a Spend category row (G242). Three presentations of the
 // same quiet fact. Neutral by construction: an aim is a pace check, so no
-// state is ever red or amber, and passing one is not a risk. The fill is the
-// category's own colour, never a status colour.
+// state is ever red or amber, and passing one is not a risk. The fill is
+// neutral ink: a category colour (orange Eating Out, say) would read as a
+// warning.
 import type { Checkpoint } from "@/lib/api";
 import { aimPace } from "@/lib/aimPace";
 import { fmtWhole } from "@/lib/aimFormat";
@@ -26,7 +27,7 @@ export function AimLine({ aim, periodDays, sym = "£" }: { aim: Checkpoint; peri
 }
 
 /** Thin neutral rule: the fill is what is spent, the tick is where an even pace would be today. */
-export function AimRule({ aim, periodDays, colour, sym = "£" }: { aim: Checkpoint; periodDays: number; colour: string; sym?: string }) {
+export function AimRule({ aim, periodDays, sym = "£" }: { aim: Checkpoint; periodDays: number; sym?: string }) {
   const p = aimPace(aim, periodDays);
   return (
     <div>
@@ -39,7 +40,7 @@ export function AimRule({ aim, periodDays, colour, sym = "£" }: { aim: Checkpoi
         role="img"
         aria-label={`${aimSentence(aim, periodDays, sym)}. The tick marks an even pace for today, ${fmtWhole(p.paceToday, sym)}.`}
       >
-        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.round(p.spentFraction * 100)}%`, backgroundColor: colour }} />
+        <div className="absolute inset-y-0 left-0 rounded-full bg-slate-500 dark:bg-slate-400" style={{ width: `${Math.round(p.spentFraction * 100)}%` }} />
         <div className="absolute -top-0.5 h-2 w-0.5 rounded-full bg-slate-500 dark:bg-slate-300" style={{ left: `calc(${Math.round(Math.min(1, p.paceToday / Math.max(1, aim.aim_amount)) * 100)}% - 1px)` }} />
       </div>
     </div>
@@ -47,7 +48,7 @@ export function AimRule({ aim, periodDays, colour, sym = "£" }: { aim: Checkpoi
 }
 
 /** Compact ring beside the amount. Fill is spent against the aim; the dot sits at even pace. */
-export function AimRing({ aim, periodDays, colour, sym = "£" }: { aim: Checkpoint; periodDays: number; colour: string; sym?: string }) {
+export function AimRing({ aim, periodDays, sym = "£" }: { aim: Checkpoint; periodDays: number; sym?: string }) {
   const p = aimPace(aim, periodDays);
   const r = 8;
   const c = 2 * Math.PI * r;
@@ -57,7 +58,7 @@ export function AimRing({ aim, periodDays, colour, sym = "£" }: { aim: Checkpoi
       <circle cx="11" cy="11" r={r} fill="none" strokeWidth="2.5" className="stroke-slate-200 dark:stroke-slate-700" />
       <circle
         cx="11" cy="11" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round"
-        stroke={colour}
+        className="stroke-slate-500 dark:stroke-slate-400"
         strokeDasharray={`${c * p.spentFraction} ${c}`}
         transform="rotate(-90 11 11)"
       />

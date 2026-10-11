@@ -5,7 +5,7 @@ export const PERIOD_DAYS = 28;
 const PERIOD = { start: "2026-09-28", end: "2026-10-25", days_elapsed: 22, days_left: 6, offset: 0, closed: false };
 
 /** Usual per-period figure per category, as the baseline AimSheet reads. */
-export const USUAL: Record<string, number> = { "Eating Out": 107, Groceries: 260, Transport: 95, Padel: 70 };
+export const USUAL: Record<string, number> = { "Eating Out": 107, Groceries: 300, Transport: 95, Padel: 70 };
 
 /** Pre-filled aim: ~93% of usual rounded to 5, the same rule AimSheet applies. */
 export function suggestedAim(category: string): number | null {

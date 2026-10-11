@@ -796,7 +796,6 @@ export function MajorityRowView({
 } & MajorityRowAimProps) {
   const s = row.payments_count === 1 ? "" : "s";
   const suffix = tipSubline(tips);
-  const colour = getCategoryColour(row.category, colours);
   const rowButton = (
     <button
       type="button"
@@ -816,7 +815,7 @@ export function MajorityRowView({
           <p className="sr-only">{aimSentence(aim, periodDays, sym)}</p>
         )}
       </div>
-      {aim && aimStyle === "ring" && <AimRing aim={aim} periodDays={periodDays} colour={colour} sym={sym} />}
+      {aim && aimStyle === "ring" && <AimRing aim={aim} periodDays={periodDays} sym={sym} />}
       <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(row.spent)}</span>
       <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
     </button>
@@ -834,7 +833,7 @@ export function MajorityRowView({
           aria-label={`Edit your ${row.category} aim. ${aimSentence(aim, periodDays, sym)}`}
           className="block min-h-[44px] w-full py-2 pl-[54px] pr-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
         >
-          <AimRule aim={aim} periodDays={periodDays} colour={colour} sym={sym} />
+          <AimRule aim={aim} periodDays={periodDays} sym={sym} />
         </button>
       )}
       {hasOffer && (

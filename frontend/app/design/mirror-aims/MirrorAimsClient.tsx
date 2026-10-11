@@ -95,7 +95,7 @@ export default function MirrorAimsClient() {
 
   const [screen, setScreen] = useState<Screen>(state === "mirror" || state === "step" ? "mirror" : "spend");
   const [aims, setAims] = useState<Record<string, Checkpoint>>(() => {
-    const base: Record<string, Checkpoint> = { Groceries: aimFor(240, SPENT.Groceries, "fixture-aim-groceries") };
+    const base: Record<string, Checkpoint> = { Groceries: aimFor(280, SPENT.Groceries, "fixture-aim-groceries") };
     if (state === "nudge") base["Eating Out"] = aimFor(100, 96, "fixture-aim-eating-out");
     return base;
   });
