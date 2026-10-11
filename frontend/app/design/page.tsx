@@ -32,6 +32,22 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "mirror-aims",
+    name: "Mirror to action, aims on Spend · G242",
+    description:
+      "G242, skills: impeccable, web-design-guidelines, drafted with openai/gpt-6-astra and rewritten to DESIGN.md · An aim is a pace check, not a budget: never red or amber, never a limit · Four parts per variant: (1) change it on a trait leads to one next step, (2) set an aim from any category row or category sheet, (3) aim progress on the Spend row, (4) a quiet route back to the Mirror · A quiet line, category-sheet editing, low route row / B thin rule with a pace tick, one-row offer, outlined route, one-tap Penny step / C ring, pill route, editor opens at once · Renders the production SpendVerdictView, CategorySheet, AimSheet and Mirror TraitCard with fixture data · ?variant=a|b|c&mode=light|dark&state=spend|category|aim|mirror|step|nudge",
+    states: [
+      { label: "Spend", value: "spend" },
+      { label: "Category sheet", value: "category" },
+      { label: "Aim editor", value: "aim" },
+      { label: "Mirror", value: "mirror" },
+      { label: "Next step", value: "step" },
+      { label: "Penny nudge", value: "nudge" },
+    ],
+    variants: [{ label: "A · Quiet line", value: "a" }, { label: "B · Pace rule", value: "b" }, { label: "C · Pocket ring", value: "c" }],
+    group: "current",
+  },
+  {
     slug: "spend-tips",
     name: "spend-tips",
     description:
