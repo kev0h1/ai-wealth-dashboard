@@ -2109,6 +2109,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G257. Design previews that toggle the html dark class once in an effect (sheet-swipe, penny-fullscreen, g176-upcoming-rows and others) lose the race against PreferencesProvider re-applying the stored dark preference, so their light mode renders dark components on a dark-preference device (found in the G250 preview theme review 2026-10-10); extract the G250 approach (document-level toggle, observer re-enforcement, restore on unmount) into a shared preview-theme hook and use it in every preview with a mode switch** [owner: claude]
 - [ ] **G258. Penny's pay-period proposal still caps the pay day at 28 (penny_tools.py ~6262, schema text ~1380/1404, test_penny_proposals_preferences.py:166) while D8 lets the user set day 31 meaning the last day of the month; align the validator, schema text and docstring so Penny can propose the last day too** [owner: claude]
 - [ ] **G259. Mirror trait card: the selected 'change it' button is amber (reads as caution for a fact) and the choice buttons are under 44px (app/mirror/MirrorPage.tsx); fix in production regardless of the G242 pick** [owner: claude]
+- [ ] **G260. Tips research freshness mixes utcnow() stamps with user_today() checks (found by the H105 review 2026-10-11): harmless in the UK except around midnight and under a faked clock; align both on timeutil** [owner: claude]
 
 ## H. Repo hygiene
 
