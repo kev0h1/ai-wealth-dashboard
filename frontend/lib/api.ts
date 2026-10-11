@@ -1085,8 +1085,11 @@ export type CanIResponse = {
   table?: import("./pennyTable").PennyTableBlock | null;
   /** G252: a typed chart spec the app draws itself (see lib/pennyChart.ts). */
   chart?: import("./pennyChart").PennyChartSpec | null;
+  /** G254: true when the answer loop failed on the server (not a refusal, not
+   * stored): `reply` says so plainly and the client offers Try again. */
+  retry?: boolean;
   /** G248: present when the question was sent with a conversation id. */
-  conversation?: { id: string; turn_count?: number; at_cap?: boolean; missing?: boolean; error?: boolean };
+  conversation?: { id: string; turn_count?: number; at_cap?: boolean; missing?: boolean; error?: boolean; skipped?: boolean };
 };
 
 /** G248: Penny chat history, see backend/app/services/penny_conversations.py. */

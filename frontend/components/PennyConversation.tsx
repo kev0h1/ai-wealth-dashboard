@@ -675,12 +675,12 @@ function BouncingDots() {
   );
 }
 
-function ErrorRetry({ onRetry }: { onRetry: () => void }) {
+function ErrorRetry({ onRetry, message }: { onRetry: () => void; message?: string | null }) {
   return (
     <div className="flex justify-start">
       <div className={PENNY_BUBBLE}>
         <p className="text-[14px] leading-relaxed text-slate-500 dark:text-slate-400">
-          Couldn&apos;t check that just now, try again in a moment.
+          {message || "Couldn't check that just now, try again in a moment."}
         </p>
         <button
           onClick={onRetry}
@@ -897,6 +897,8 @@ export default function PennyConversation({
   useEffect(() => { chatRef.current = chat; });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  // G254: the server's own words when the loop failed (not a network error).
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [offer, setOffer] = useState<CanIOffer | null>(null);
   const [offerSheetOpen, setOfferSheetOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -1110,6 +1112,7 @@ export default function PennyConversation({
     // wire entirely rather than sending an empty `view: null`.
     const sendView = sendScreen ? screenViews[sendScreen] ?? undefined : undefined;
     setError(false);
+    setErrorMessage(null);
     setLoading(true);
     // G248: the stored conversation this question belongs to. Created on the
     // first question; if that fails the question still gets answered, just
@@ -1125,6 +1128,13 @@ export default function PennyConversation({
       const res = await api.canI(question, history, context, sendScreen, sendView, conversationId);
       if (chat && chat.getRestoreSeq() !== sendToken) return;
       if (chat && res.conversation?.at_cap) chat.markFull();
+      if (res.retry) {
+        // G254: the answer loop failed on the server. Not a refusal and not
+        // stored: show its plain words with the same Try again affordance.
+        setErrorMessage(res.reply || null);
+        setError(true);
+        return;
+      }
       // One id per answer turn, shared across whichever branch below fires
       // (see the Msg union's `id` comment for why every message needs one).
       const id = newMsgId();
@@ -2067,7 +2077,7 @@ export default function PennyConversation({
           return <VerdictBubble key={m.id} msg={m} onOfferTap={openOfferSheet} />;
         })}
         {loading && <BouncingDots />}
-        {error && !loading && <ErrorRetry onRetry={retry} />}
+        {error && !loading && <ErrorRetry onRetry={retry} message={errorMessage} />}
         {/* Scroll target only exists (and is only needed) in full-page
             mode — sheet mode scrolls `scrollContainerRef` directly by
             `scrollHeight`, see the autoscroll effect above. */}
