@@ -2123,6 +2123,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G259. Mirror trait card: the selected 'change it' button is amber (reads as caution for a fact) and the choice buttons are under 44px (app/mirror/MirrorPage.tsx); fix in production regardless of the G242 pick** [owner: claude]
   - note (2026-10-11, claude): G242 fold-in 11d15774 applies 44px choice buttons and neutral indigo change on the Mirror; recommend Kevin close G259 against it.
 - [ ] **G260. Tips research freshness mixes utcnow() stamps with user_today() checks (found by the H105 review 2026-10-11): harmless in the UK except around midnight and under a faked clock; align both on timeutil** [owner: claude]
+- [ ] **G261. Front-Loader next step is explanatory only after G242: build a real pre-peak checkpoint (create it before the early-month peak, verify it from transactions per BEHAVIOURS Layer 4, nudge on it under Layer 2 consent)** [owner: claude]
 
 ## H. Repo hygiene
 
