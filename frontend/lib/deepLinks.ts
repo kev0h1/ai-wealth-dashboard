@@ -9,6 +9,7 @@ export const BANK_CONNECTED_PATH = "auth-complete";
 export const QUERY_PROVIDER = "provider";
 export const QUERY_CONNECTION = "connection";
 export const QUERY_STATUS = "status";
+export const QUERY_CODE = "code";
 
 export const DEEP_LINK_EVENT = "wd:deeplink";
 
@@ -19,6 +20,9 @@ export interface DeepLinkDetail {
   provider?: string;
   connection?: string;
   status?: "ok" | "error";
+  // A136: one-time sign-in code on auth-done (32 hex). Meaningless without the
+  // PKCE verifier the app that started the login holds.
+  code?: string;
 }
 
 const UNKNOWN: DeepLinkDetail = { kind: "unknown" };
@@ -30,9 +34,12 @@ export function parseDeepLink(url: string): DeepLinkDetail {
   const m = /^([a-z][a-z0-9+.-]*):\/{0,3}([^?#]*)(?:\?([^#]*))?/i.exec(url.trim());
   if (!m || m[1].toLowerCase() !== DEEP_LINK_SCHEME) return UNKNOWN;
   const path = m[2].replace(/^\/+|\/+$/g, "").toLowerCase();
-  if (path === SIGNIN_PATH) return { kind: "signin" };
-  if (path !== BANK_CONNECTED_PATH) return UNKNOWN;
   const q = new URLSearchParams(m[3] ?? "");
+  if (path === SIGNIN_PATH) {
+    const code = q.get(QUERY_CODE);
+    return code && /^[0-9a-f]{32}$/.test(code) ? { kind: "signin", code } : { kind: "signin" };
+  }
+  if (path !== BANK_CONNECTED_PATH) return UNKNOWN;
   const detail: DeepLinkDetail = { kind: "bank_connected" };
   const provider = q.get(QUERY_PROVIDER);
   const connection = q.get(QUERY_CONNECTION);

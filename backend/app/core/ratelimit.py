@@ -39,6 +39,7 @@ RULES = [
     # A136: server-issued mobile sign-in state. A real app calls this once
     # per sign-in attempt; 10/min per IP bounds state minting.
     ("/auth/mobile/start", 10, 60),
+    ("/auth/mobile/redeem", 20, 60),
     ("/auth/",    30, 60),
     ("/webhooks/", 60, 60),
     # A95: GET /logo/{domain} proxies to Logo.dev/Google's favicon service

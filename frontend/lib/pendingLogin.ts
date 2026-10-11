@@ -157,6 +157,16 @@ export function sha256Hex(input: string): string {
   return Array.from(h, (x) => x.toString(16).padStart(8, "0")).join("");
 }
 
+// A136: the one-time sign-in code from the wealthdash://auth-done return. Held
+// in memory only, for the pending login's lifetime. A code that arrives when no
+// login with a verifier is pending is never used (see takeCapturedCode callers).
+let capturedCode: string | null = null;
+export function captureSigninCode(code: string | undefined): void {
+  if (code && /^[0-9a-f]{32}$/.test(code)) capturedCode = code;
+}
+export function peekCapturedCode(): string | null { return capturedCode; }
+export function dropCapturedCode(): void { capturedCode = null; }
+
 export interface PollReply {
   status?: string;
   token?: string;

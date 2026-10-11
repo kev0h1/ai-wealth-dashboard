@@ -25,7 +25,8 @@ from app.core.pending_login import (
     get_start,
     issue_start,
     network_prefix,
-    redeem_issued,
+    complete_issued,
+    redeem_code,
     has_challenge,
     is_legacy_mobile_state,
     is_valid_mobile_state,
@@ -512,7 +513,24 @@ def _poll_reply(value: str | None) -> dict:
 class MobilePollBody(BaseModel):
     state: str = ""
     poll_secret: str | None = None
-    code_verifier: str | None = None  # A136: PKCE verifier, issued-state flow
+    code_verifier: str | None = None  # A136: accepted and ignored for issued states
+
+
+class MobileRedeemBody(BaseModel):
+    code: str = ""
+    code_verifier: str = ""
+
+
+@router.post("/auth/mobile/redeem")
+async def mobile_redeem(body: MobileRedeemBody):
+    """A136: exchange the one-time code from the wealthdash://auth-done return
+    for the sign-in outcome. Needs the PKCE verifier bound at start, which only
+    the app that started the flow holds. Uniform 404 otherwise. Rate-limited
+    (/auth/mobile/redeem in app.core.ratelimit)."""
+    value = await redeem_code(body.code, body.code_verifier)
+    if value is None:
+        return _not_found()
+    return _poll_reply(value)
 
 
 @router.post("/auth/mobile/poll")
@@ -520,9 +538,12 @@ async def mobile_poll_secret(body: MobilePollBody):
     # A133: new builds. The poll_secret rides in the body, never a URL. A
     # malformed state, an unknown state and a wrong or missing secret all get
     # exactly {"status": "pending"}.
-    # A136: a server-issued state needs the poll secret AND the PKCE verifier.
+    # A136: a server-issued state is NEVER released by polling (the result is
+    # only reachable through the code the completing device receives, see
+    # /auth/mobile/redeem). Pending forever, so an attacker who holds the
+    # state, poll secret and verifier still gets nothing.
     if await get_start(body.state) is not None:
-        return _poll_reply(await redeem_issued(body.state, body.poll_secret, body.code_verifier))
+        return _poll_reply(None)
     if not _cfg.MOBILE_LOGIN_LEGACY_STATE:
         return _poll_reply(None)
     return _poll_reply(await redeem_pending(body.state, body.poll_secret))
@@ -542,10 +563,16 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
     issued = await get_start(state)
 
     async def finish(value: str) -> HTMLResponse:
+        code = None
         if issued is not None:
-            # A136: only a live, unused, server-issued state stores anything.
+            # A136: only a live, unused, server-issued state completes, and the
+            # outcome is NOT stored under the state: it goes behind a one-time
+            # code sent only to this (completing) browser.
             if not issued.get("used") and await _net_ok(issued, request, "callback"):
-                await _store_pending(state, value)
+                code = await complete_issued(state, issued, value)
+            ok = code is not None and value.startswith("token:")
+            page = signin_handoff_html(ok, auto_return=ok, code=code)
+            return HTMLResponse(page, headers={"Content-Security-Policy": signin_handoff_csp(page)})
         elif _cfg.MOBILE_LOGIN_LEGACY_STATE and is_valid_mobile_state(state):
             _log.info("mobile login: legacy state used (client-chosen, pre-A136 app build) at callback")
             if is_legacy_mobile_state(state):

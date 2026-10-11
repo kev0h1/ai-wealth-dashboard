@@ -8,7 +8,7 @@ import { runMobileLoginLoop } from "../lib/mobileLoginLoop.ts";
 import { createHash } from "node:crypto";
 import {
   PENDING_LOGIN_KEY, PENDING_LOGIN_TTL_MS, clearPendingLogin, createSharedPoller,
-  loadPendingLogin, newPendingLogin, savePendingLogin, sha256Hex, newCodeVerifier, pendingFromIssued,
+  loadPendingLogin, newPendingLogin, savePendingLogin, sha256Hex, newCodeVerifier, pendingFromIssued, captureSigninCode, peekCapturedCode, dropCapturedCode,
 } from "../lib/pendingLogin.ts";
 
 let failures = 0;
@@ -190,6 +190,31 @@ await t("A136: source: sign-in starts at /auth/mobile/start, sends only sha256(v
   assert.ok(na.includes("code_verifier: p.codeVerifier"));
   assert.ok(!na.includes("&challenge="), "no client-chosen challenge in the authorise URL");
   assert.ok(!/newPendingLogin\(/.test(na), "client no longer chooses state or poll secret");
+});
+
+await t("A136: a captured sign-in code is held in memory, shape-checked, droppable", () => {
+  dropCapturedCode();
+  captureSigninCode("nope");
+  captureSigninCode(undefined);
+  assert.equal(peekCapturedCode(), null);
+  captureSigninCode("cd".repeat(16));
+  assert.equal(peekCapturedCode(), "cd".repeat(16));
+  dropCapturedCode();
+  assert.equal(peekCapturedCode(), null);
+});
+
+await t("A136 redeem step (source): issued logins redeem the deep-link code with the verifier and never poll; foreign codes are ignored", () => {
+  const na = read("lib/nativeAuth.ts");
+  assert.ok(na.includes("window.addEventListener(DEEP_LINK_EVENT"), "listens for wd:deeplink");
+  assert.ok(na.includes("captureSigninCode(d.code)"));
+  assert.ok(na.includes("/auth/mobile/redeem`"));
+  assert.ok(na.includes("JSON.stringify({ code, code_verifier: p.codeVerifier })"));
+  assert.ok(/if \(p\.codeVerifier\) return postRedeem\(p\);/.test(na), "issued logins never reach the poll endpoint");
+  assert.ok(/if \(!code \|\| !p\.codeVerifier\) return null;/.test(na), "no verifier or no code: nothing is sent");
+  assert.ok(/res\.status === 404\) \{ dropCapturedCode\(\); return null; \}/.test(na), "a code that is not ours is dropped silently");
+  assert.ok(na.includes("dropCapturedCode(); // a code seen before this login began is not ours"));
+  // the A139-safe close stays in deepLinks.ts (no plugin proxy returned from an async fn)
+  assert.ok(read("lib/deepLinks.ts").includes("const { Browser } = await import(\"@capacitor/browser\");"));
 });
 
 await t("pending login persists to both stores, loads, clears; expiry and junk are dropped", () => {

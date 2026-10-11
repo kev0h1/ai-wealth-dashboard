@@ -313,31 +313,81 @@ async def issue_start(pkce_challenge: str, ip: str | None) -> dict | None:
     return {"state": state, "poll_secret": poll_secret, "expires_at": expires_at.isoformat()}
 
 
-async def mark_start_used(state: str, record: dict) -> None:
-    """Single use: after the token is released the state stops being
-    authorisable; the record lingers only for the replay-grace window so a
-    lost response can be re-read by the holder of BOTH secrets."""
-    await _start_put(state, {**record, "used": True}, _REPLAY_TTL)
+_CODE_PREFIX = "auth:code:"
+CODE_TTL = 120
+_CODE_RE = re.compile(r"^[0-9a-f]{32}$")
+_codes: dict[str, tuple[str, float]] = {}
 
 
-async def redeem_issued(state: str, poll_secret: str | None, code_verifier: str | None) -> str | None:
-    """Redeem for a server-issued state. Needs the poll secret AND the PKCE
-    verifier. Any failure is None (same as "pending"): no oracle, and nothing
-    is consumed by a wrong guess."""
-    record = await get_start(state)
-    if record is None:
+async def _code_put(code: str, payload: dict) -> None:
+    import json
+    raw = json.dumps(payload)
+    if await redis_ok():
+        try:
+            await get_redis().set(f"{_CODE_PREFIX}{code}", raw, ex=CODE_TTL)
+            return
+        except Exception:
+            pass
+    now = time.time()
+    for k in [k for k, (_, exp) in _codes.items() if exp < now]:
+        _codes.pop(k, None)
+    _codes[code] = (raw, now + CODE_TTL)
+
+
+async def _code_get(code: str, *, delete: bool = False) -> dict | None:
+    import json
+    raw = None
+    done = False
+    if await redis_ok():
+        try:
+            client = get_redis()
+            raw = await (client.getdel(f"{_CODE_PREFIX}{code}") if delete else client.get(f"{_CODE_PREFIX}{code}"))
+            done = True
+        except Exception:
+            raw = None
+    if raw is None and not done:
+        entry = _codes.get(code)
+        if entry and entry[1] >= time.time():
+            raw = entry[0]
+    if delete:
+        _codes.pop(code, None)
+    if raw is None:
         return None
-    poll_ok = (
-        bool(poll_secret) and _POLL_SECRET_RE.fullmatch(poll_secret) is not None
-        and hmac.compare_digest(hashlib.sha256(poll_secret.encode()).hexdigest(), record.get("poll_hash", ""))
-    )
-    ver_ok = (
-        bool(code_verifier) and _POLL_SECRET_RE.fullmatch(code_verifier) is not None
-        and hmac.compare_digest(hashlib.sha256(code_verifier.encode()).hexdigest(), record.get("challenge", ""))
-    )
-    if not (poll_ok and ver_ok):
+    try:
+        return json.loads(raw)
+    except ValueError:
         return None
-    value = await _pop_pending(state)
-    if value is not None and value.startswith("token:") and not record.get("used"):
-        await mark_start_used(state, record)
-    return value
+
+
+async def complete_issued(state: str, record: dict, value: str) -> str | None:
+    """The OAuth callback finished for a server-issued state. Single use: the
+    state is closed, and the outcome is stored under a fresh one-time 128-bit
+    CODE that only the completing browser is sent (via the wealthdash://
+    return). Nothing is stored under the state, so polling the state can never
+    return the result. Returns the code."""
+    import secrets
+    code = secrets.token_hex(16)
+    await _code_put(code, {"state": state, "value": value})
+    # The start record (it holds the PKCE challenge) must outlive the code.
+    await _start_put(state, {**record, "used": True}, CODE_TTL + 5)
+    return code
+
+
+async def redeem_code(code: str | None, code_verifier: str | None) -> str | None:
+    """POST /auth/mobile/redeem. Releases the stored outcome only to a caller
+    holding the code AND the verifier whose sha256 was bound at start. Every
+    failure is None (uniform 404); a wrong verifier consumes nothing."""
+    if not code or _CODE_RE.fullmatch(code) is None:
+        return None
+    if not code_verifier or _POLL_SECRET_RE.fullmatch(code_verifier) is None:
+        return None
+    entry = await _code_get(code)
+    if entry is None:
+        return None
+    record = await get_start(entry.get("state", ""))
+    if record is None or not hmac.compare_digest(
+        hashlib.sha256(code_verifier.encode()).hexdigest(), record.get("challenge", "")
+    ):
+        return None
+    taken = await _code_get(code, delete=True)  # atomic single use
+    return taken.get("value") if taken else None

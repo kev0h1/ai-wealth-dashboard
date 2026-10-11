@@ -50,7 +50,7 @@ def render_template(template: str, slots: dict[str, str]) -> str:
 
 def signin_handoff_html(ok: bool, *, scheme: str = "auto",
                         auto_return: bool = True, message: str | None = None,
-                        heading: str | None = None) -> str:
+                        heading: str | None = None, code: str | None = None) -> str:
     if ok:
         default_heading, default_message = "Signed in", "Taking you back to Sorted."
     else:
@@ -59,7 +59,7 @@ def signin_handoff_html(ok: bool, *, scheme: str = "auto",
     heading = heading if heading is not None else default_heading
     return render_template(TEMPLATE, {
         "title": "Sorted | Sign-in",
-        "return_url_json": json.dumps(signin_return_url()),
+        "return_url_json": json.dumps(signin_return_url(code)),
         "state": "ok" if ok else "error",
         "scheme": scheme,
         "heading": heading,

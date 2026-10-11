@@ -23,26 +23,43 @@ Impact: full account takeover for anyone who can be tricked into one tap on a
 link. The A133 challenge stopped a log reader who only had the state, but not
 an attacker who chose the state and challenge up front.
 
-## The fix
+## The fix (final design)
 
-The server issues the state.
+The first cut (server-issued state, poll secret and PKCE verifier on the poll)
+did not close the attack: the attacker calls `POST /auth/mobile/start`
+themselves, holds the verifier and poll secret, sends the victim the link and
+polls. The final design binds the result to the device that COMPLETES the flow.
 
-- `POST /auth/mobile/start {challenge}` returns `{state, poll_secret,
-  expires_at}`. `challenge` is the sha256 of a PKCE `code_verifier` the app
-  keeps. The state and the poll secret are server-generated (128 bits each).
-  The record (sha256(poll_secret), PKCE challenge, starter's network prefix)
-  lives in Redis with a 10 minute TTL (in-process fallback), pre-auth and not
-  user-keyed, so it is not in `ERASURE_MANIFEST` and needs no Mongo collection.
-  Rate limit: 10 per minute per IP (`/auth/mobile/start` in `RULES`).
-- `GET /auth/google/mobile` and the callback only act on a live, unused,
-  server-issued state. Anything else (unknown, expired, used, malformed, or a
-  client-chosen state) gets one identical `404 {"detail":"Not Found"}`. A
-  `challenge` in the URL is ignored for an issued state, so it cannot be
-  rebound.
-- `POST /auth/mobile/poll` for an issued state needs the poll secret AND the
-  code verifier. A wrong guess consumes nothing and looks like "pending".
-- Single use: once the token is released the state stops being authorisable,
-  and the record lingers only for the 30 second replay window.
+- `POST /auth/mobile/start {challenge}` issues `{state, poll_secret,
+  expires_at}`; `challenge` is sha256 of a PKCE verifier the app keeps. Record
+  (PKCE challenge, starter network prefix) in Redis, 10 minute TTL, pre-auth, not
+  user-keyed, so not in `ERASURE_MANIFEST`. Rate limit 10 per minute per IP.
+- `GET /auth/google/mobile` and the callback only act on a live, unused issued
+  state; anything else is a uniform `404 {"detail":"Not Found"}`.
+- On callback the outcome is NOT stored under the state. The server mints a
+  one-time 128-bit `code` (Redis, 2 minute TTL, single use) holding the outcome
+  and sends the completing browser to `wealthdash://auth-done?code=<code>`
+  (the path is frozen for installed binaries; the code rides in the query).
+  The state is closed at the same moment.
+- `POST /auth/mobile/redeem {code, code_verifier}` releases the outcome only if
+  sha256(verifier) equals the challenge stored at start and the code is live and
+  unused; a wrong verifier consumes nothing; every failure is the same 404.
+  Rate limit 20 per minute per IP.
+- `POST /auth/mobile/poll` for an issued state returns `pending` forever (even
+  with the legacy flag), so an attacker holding state, poll secret and verifier
+  gets nothing.
+- Client: `nativeGoogleLogin` calls start, opens the authorise URL with the
+  server state, and redeems on the `wd:deeplink` event using the verifier it
+  holds. A code received when no login with a verifier is pending, or one that
+  404s on redeem, is dropped silently and shows nothing.
+
+Why it closes the hole: the code goes to whoever finished the Google sign-in
+(the victim's browser, which returns to the victim's app, which holds no
+matching verifier). The attacker holds the verifier but never receives the code.
+
+Residual: another app registered for the `wealthdash://` scheme could read the
+code, but would also need the verifier, which never leaves the starting app.
+The scheme return itself must work on the device: see the iOS note below.
 
 ## Transition (installed binaries bundle their web code)
 
@@ -56,7 +73,7 @@ requests, so the fix is only complete once the flag is off.
 
 ## What this does not prove, and the extra signal
 
-A server-issued state alone does not stop an attacker who calls
+(First-cut analysis, superseded by the code return above.) A server-issued state alone does not stop an attacker who calls
 `/auth/mobile/start` themselves and sends the victim the resulting link: the
 server cannot tell the app's own browser from a link opened elsewhere without
 device attestation. What the fix removes is choosing the state, unlimited
@@ -67,3 +84,16 @@ authorise or callback) or `enforce` (404). It defaults to `log` because a
 phone can legitimately change address between the app and the browser; move to
 `enforce` once the log shows mismatches are rare. App attestation (Play
 Integrity, App Attest) remains the full answer and is not done.
+
+## iOS scheme registration
+
+Android: `capacitor-spike/scripts/ensure-wealthdash-manifest.py` places the
+intent-filter. iOS: the `ios/` project is generated at build time, and the
+`wealthdash` URL scheme is registered by the PlistBuddy step "Register
+wealthdash URL scheme" in `codemagic.yaml` (CFBundleURLTypes). Nothing else
+outside the repo is relied on for registration. Open risk: the hand-off page
+notes that on iPhone a `wealthdash://` navigation from the in-app browser can be
+swallowed (A133), and with the code return that is now the only way the result
+reaches the app. Verify on a real iPhone before switching
+`MOBILE_LOGIN_LEGACY_STATE` off; until then the legacy poll keeps old and
+unverified builds working.

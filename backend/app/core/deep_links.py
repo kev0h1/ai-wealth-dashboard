@@ -12,8 +12,11 @@ SIGNIN_RETURN_PATH = "auth-done"
 BANK_RETURN_PATH = "auth-complete"
 
 
-def signin_return_url() -> str:
-    return f"{DEEP_LINK_SCHEME}://{SIGNIN_RETURN_PATH}"
+def signin_return_url(code: str | None = None) -> str:
+    """A136: an issued-state sign-in carries a one-time `code` in the query
+    (the path stays frozen for installed binaries)."""
+    base = f"{DEEP_LINK_SCHEME}://{SIGNIN_RETURN_PATH}"
+    return f"{base}?{urlencode({'code': code})}" if code else base
 
 
 def bank_return_url(provider: str, connection_id: str, status: str = "ok") -> str:

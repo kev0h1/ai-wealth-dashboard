@@ -4,13 +4,17 @@ import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
 import { getToken, setTokenAsync, clearToken } from "./auth";
+import { DEEP_LINK_EVENT, type DeepLinkDetail } from "./deepLinks";
 import { runMobileLoginLoop, type LoginResult } from "./mobileLoginLoop";
 import {
   PENDING_LOGIN_TTL_MS,
   clearPendingLogin,
   createSharedPoller,
   loadPendingLogin,
+  captureSigninCode,
+  dropCapturedCode,
   newCodeVerifier,
+  peekCapturedCode,
   pendingFromIssued,
   savePendingLogin,
   sha256Hex,
@@ -308,8 +312,47 @@ export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelle
 // error: "invite_only"} body.
 const BROWSER_OPEN_TIMEOUT_MS = 10_000;
 
-// A133: POST /auth/mobile/poll. The poll_secret is only ever in the JSON body.
+// A136: a code from a wealthdash://auth-done return. The listener is installed at
+// module load so a cold-start return is not missed. The code is kept in memory
+// and only ever used by a pending login that holds its verifier.
+if (typeof window !== "undefined") {
+  window.addEventListener(DEEP_LINK_EVENT, (e) => {
+    const d = (e as CustomEvent<DeepLinkDetail>).detail;
+    if (d?.kind === "signin") captureSigninCode(d.code);
+  });
+}
+
+// A136: redeem the code with the verifier. Null = nothing to report yet (no
+// code, network failure) or a code this login cannot redeem (404: it was not
+// ours, so it is ignored silently).
+async function postRedeem(p: PendingLogin): Promise<PollReply | null> {
+  const code = peekCapturedCode();
+  if (!code || !p.codeVerifier) return null;
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const abortTimer = ctrl ? setTimeout(() => ctrl.abort(), 10_000) : undefined;
+  try {
+    const res = await gatedFetch(`${API_BASE}/auth/mobile/redeem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, code_verifier: p.codeVerifier }),
+      ...(ctrl ? { signal: ctrl.signal } : {}),
+    });
+    if (res.status === 404) { dropCapturedCode(); return null; }
+    if (!res.ok) return null;
+    dropCapturedCode();
+    return (await res.json()) as PollReply;
+  } catch {
+    return null;
+  } finally {
+    if (abortTimer !== undefined) clearTimeout(abortTimer);
+  }
+}
+
+// A133: POST /auth/mobile/poll (legacy client-chosen state only). The
+// poll_secret is only ever in the JSON body. A server-issued login (A136, it
+// holds a codeVerifier) never polls: it redeems the deep-link code instead.
 async function postPoll(p: PendingLogin): Promise<PollReply | null> {
+  if (p.codeVerifier) return postRedeem(p);
   // Bounded, so one stuck request can never wedge the serialised loop.
   const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
   const abortTimer = ctrl ? setTimeout(() => ctrl.abort(), 10_000) : undefined;
@@ -317,7 +360,7 @@ async function postPoll(p: PendingLogin): Promise<PollReply | null> {
     const res = await gatedFetch(`${API_BASE}/auth/mobile/poll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: p.state, poll_secret: p.pollSecret, ...(p.codeVerifier ? { code_verifier: p.codeVerifier } : {}) }),
+      body: JSON.stringify({ state: p.state, poll_secret: p.pollSecret }),
       ...(ctrl ? { signal: ctrl.signal } : {}),
     });
     if (!res.ok) return null;
@@ -402,6 +445,7 @@ async function googleLoginInner(signal: AbortSignal): Promise<NativeLoginResult>
   // which is ever in a URL. A start failure is a failed sign-in: falling back
   // to a client-chosen state would reopen the fixation hole (A136).
   const codeVerifier = newCodeVerifier();
+  dropCapturedCode(); // a code seen before this login began is not ours
   const pending = await startServerLogin(codeVerifier, signal);
   if (signal.aborted) return "cancelled";
   if (!pending) return "failed";

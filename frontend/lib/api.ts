@@ -1926,6 +1926,7 @@ const UNAUTHORIZED_HOOK_EXEMPT_PATHS = [
   "/auth/google/native",
   "/auth/apple/native",
   "/auth/mobile/start",
+  "/auth/mobile/redeem",
   "/auth/mobile/poll",
   "/auth/logout",
   "/health",

@@ -16,11 +16,17 @@ assert.equal(dl.BANK_CONNECTED_PATH, contract.paths.bank_connected);
 assert.equal(dl.QUERY_PROVIDER, contract.query.provider);
 assert.equal(dl.QUERY_CONNECTION, contract.query.connection);
 assert.equal(dl.QUERY_STATUS, contract.query.status);
+assert.equal(dl.QUERY_CODE, contract.query.code);
 // Frozen for installed binaries.
 assert.equal(dl.SIGNIN_PATH, "auth-done");
 assert.equal(dl.BANK_CONNECTED_PATH, "auth-complete");
 
 // Parsing.
+// A136: the sign-in return may carry a one-time code (32 hex); anything else is dropped.
+const c32 = "ab".repeat(16);
+assert.deepEqual(dl.parseDeepLink(`wealthdash://auth-done?code=${c32}`), { kind: "signin", code: c32 });
+assert.deepEqual(dl.parseDeepLink("wealthdash://auth-done?code=short"), { kind: "signin" });
+assert.deepEqual(dl.parseDeepLink(`wealthdash://auth-done?code=${c32.toUpperCase()}`), { kind: "signin" });
 assert.deepEqual(dl.parseDeepLink("wealthdash://auth-done"), { kind: "signin" });
 assert.deepEqual(dl.parseDeepLink("wealthdash://auth-complete"), { kind: "bank_connected" });
 assert.deepEqual(dl.parseDeepLink("wealthdash://auth-complete/"), { kind: "bank_connected" });

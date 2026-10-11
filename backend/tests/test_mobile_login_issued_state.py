@@ -27,10 +27,10 @@ def _env(monkeypatch):
     monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "test-client")
     monkeypatch.setattr(cfg, "MOBILE_LOGIN_LEGACY_STATE", False)
     monkeypatch.setattr(cfg, "MOBILE_LOGIN_NET_BIND", "log")
-    for d in (pl._pending, pl._replay, pl._challenges, pl._starts):
+    for d in (pl._pending, pl._replay, pl._challenges, pl._starts, pl._codes):
         d.clear()
     yield
-    for d in (pl._pending, pl._replay, pl._challenges, pl._starts):
+    for d in (pl._pending, pl._replay, pl._challenges, pl._starts, pl._codes):
         d.clear()
 
 
@@ -75,48 +75,100 @@ def test_authorise_requires_issued_state_when_legacy_off(client):
     assert not asyncio.run(pl.has_challenge(chosen))  # nothing was registered
 
 
+def _finish(client, state, error=True):
+    """Drive the callback for an issued state; returns the code in the page."""
+    import re as _re
+    r = client.get("/auth/google/mobile-callback", params={"error": "x", "state": state})
+    m = _re.search(r"wealthdash://auth-done\?code=([0-9a-f]{32})", r.text)
+    return r, (m.group(1) if m else None)
+
+
 def test_challenge_in_url_cannot_rebind_issued_state(client):
     d = _start(client, "c" * 32)
     client.get("/auth/google/mobile", params={"state": d["state"], "challenge": _sha("evil" * 8)})
-    asyncio.run(pl._store_pending(d["state"], "token:victim"))
-    # attacker's own secret and verifier do not open it
-    assert asyncio.run(pl.redeem_issued(d["state"], "e" * 32, "evil" * 8)) is None
-    assert asyncio.run(pl.redeem_issued(d["state"], d["poll_secret"], "c" * 32)) == "token:victim"
+    _, code = _finish(client, d["state"])
+    assert code
+    assert asyncio.run(pl.redeem_code(code, "evil" * 8)) is None
+    assert asyncio.run(pl.redeem_code(code, "c" * 32)) == "error:auth_failed"
 
 
-def test_redeem_needs_poll_secret_and_verifier(client):
+def test_callback_mints_code_and_stores_nothing_pollable(client):
     d = _start(client, "d" * 32)
-    asyncio.run(pl._store_pending(d["state"], "token:abc"))
-    st = d["state"]
-    assert asyncio.run(pl.redeem_issued(st, None, "d" * 32)) is None
-    assert asyncio.run(pl.redeem_issued(st, d["poll_secret"], None)) is None
-    assert asyncio.run(pl.redeem_issued(st, "f" * 32, "d" * 32)) is None
-    assert asyncio.run(pl.redeem_issued(st, d["poll_secret"], "9" * 32)) is None
-    # wrong guesses consumed nothing
-    assert asyncio.run(pl.redeem_issued(st, d["poll_secret"], "d" * 32)) == "token:abc"
+    r, code = _finish(client, d["state"])
+    assert code and r.status_code == 200
+    assert asyncio.run(pl._pop_pending(d["state"])) is None  # nothing under the state
+    assert d["state"] not in pl._pending and d["state"] not in pl._replay
 
 
-def test_poll_endpoint_issued_flow(client):
+def test_poll_never_releases_an_issued_state(client):
     d = _start(client, "1" * 32)
-    asyncio.run(pl._store_pending(d["state"], "token:xyz"))
-    body = {"state": d["state"], "poll_secret": d["poll_secret"]}
-    assert client.post("/auth/mobile/poll", json=body).json() == {"status": "pending"}
-    body["code_verifier"] = "1" * 32
-    assert client.post("/auth/mobile/poll", json=body).json() == {"status": "token", "token": "xyz"}
+    _finish(client, d["state"])
+    # attacker holds state, poll secret AND verifier: still nothing
+    body = {"state": d["state"], "poll_secret": d["poll_secret"], "code_verifier": "1" * 32}
+    for _ in range(2):
+        assert client.post("/auth/mobile/poll", json=body).json() == {"status": "pending"}
+    # even with the legacy flag on
+    cfg.MOBILE_LOGIN_LEGACY_STATE = True
+    try:
+        assert client.post("/auth/mobile/poll", json=body).json() == {"status": "pending"}
+    finally:
+        cfg.MOBILE_LOGIN_LEGACY_STATE = False
 
 
-def test_state_is_single_use(client, monkeypatch):
+def test_redeem_needs_code_and_matching_verifier(client):
+    d = _start(client, "e" * 32)
+    _, code = _finish(client, d["state"])
+    nf = client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "9" * 32})
+    assert nf.status_code == 404 and nf.json() == {"detail": "Not Found"}
+    assert client.post("/auth/mobile/redeem", json={"code": code}).status_code == 404
+    assert client.post("/auth/mobile/redeem", json={"code": "0" * 32, "code_verifier": "e" * 32}).status_code == 404
+    assert client.post("/auth/mobile/redeem", json={"code": "zz", "code_verifier": "e" * 32}).json() == {"detail": "Not Found"}
+    # wrong guesses consumed nothing
+    ok = client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "e" * 32})
+    assert ok.status_code == 200 and ok.json() == {"status": "error", "error": "auth_failed"}
+
+
+def test_foreign_flow_code_is_useless_to_the_receiving_device(client):
+    """The attack: attacker starts (holds the verifier), victim completes the
+    flow. The code goes to the VICTIM's device, which has no verifier."""
+    d = _start(client, "a1" * 16)
+    _, code = _finish(client, d["state"])  # delivered to the victim's browser
+    # victim's app (no verifier / its own verifier) cannot redeem it
+    assert client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "b2" * 16}).status_code == 404
+    # the attacker never receives the code; polling gives nothing
+    assert client.post("/auth/mobile/poll", json={"state": d["state"], "poll_secret": d["poll_secret"], "code_verifier": "a1" * 16}).json() == {"status": "pending"}
+
+
+def test_code_is_single_use(client):
     d = _start(client, "2" * 32)
-    asyncio.run(pl._store_pending(d["state"], "token:once"))
-    assert asyncio.run(pl.redeem_issued(d["state"], d["poll_secret"], "2" * 32)) == "token:once"
-    # once released, the state can no longer be authorised or complete a login
+    _, code = _finish(client, d["state"])
+    assert client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "2" * 32}).status_code == 200
+    assert client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "2" * 32}).status_code == 404
+    # the state is closed too: no second authorise, no second code
     assert client.get("/auth/google/mobile", params={"state": d["state"]}).status_code == 404
-    client.get("/auth/google/mobile-callback", params={"error": "x", "state": d["state"]})
-    assert asyncio.run(pl._pop_pending(d["state"])) in (None, "token:once")  # only the replay copy
-    # and after the grace window nothing is left
-    pl._replay.clear()
-    pl._starts.clear()
-    assert asyncio.run(pl.redeem_issued(d["state"], d["poll_secret"], "2" * 32)) is None
+    _, again = _finish(client, d["state"])
+    assert again is None
+
+
+def test_token_outcome_rides_the_code(client):
+    d = _start(client, "3" * 32)
+    code = asyncio.run(pl.complete_issued(d["state"], asyncio.run(pl.get_start(d["state"])), "token:SESSION"))
+    assert asyncio.run(pl.redeem_code(code, "3" * 32)) == "token:SESSION"
+    assert asyncio.run(pl.redeem_code(code, "3" * 32)) is None
+
+
+def test_code_ttl_expiry(client, monkeypatch):
+    d = _start(client, "4" * 32)
+    _, code = _finish(client, d["state"])
+    real = pl.time.time
+    monkeypatch.setattr(pl.time, "time", lambda: real() + pl.CODE_TTL + 5)
+    assert client.post("/auth/mobile/redeem", json={"code": code, "code_verifier": "4" * 32}).status_code == 404
+
+
+def test_code_return_url_keeps_frozen_path():
+    from app.core.deep_links import signin_return_url
+    assert signin_return_url() == "wealthdash://auth-done"
+    assert signin_return_url("a" * 32) == "wealthdash://auth-done?code=" + "a" * 32
 
 
 def test_ttl_expiry(client, monkeypatch):
@@ -124,13 +176,11 @@ def test_ttl_expiry(client, monkeypatch):
     real = pl.time.time
     monkeypatch.setattr(pl.time, "time", lambda: real() + pl.START_TTL + 5)
     assert client.get("/auth/google/mobile", params={"state": d["state"]}).status_code == 404
-    assert asyncio.run(pl.redeem_issued(d["state"], d["poll_secret"], "3" * 32)) is None
+    _, code = _finish(client, d["state"])
+    assert code is None  # an expired start completes nothing
 
 
-def test_callback_stores_only_for_issued_state_when_legacy_off(client):
-    d = _start(client)
-    client.get("/auth/google/mobile-callback", params={"error": "x", "state": d["state"]})
-    assert asyncio.run(pl._pop_pending(d["state"])) == "error:auth_failed"
+def test_callback_stores_nothing_for_client_chosen_state_when_legacy_off(client):
     chosen = "m" + "a" * 32
     asyncio.run(pl.store_challenge(chosen, _sha("s" * 32)))
     client.get("/auth/google/mobile-callback", params={"error": "x", "state": chosen})
@@ -180,6 +230,7 @@ def test_network_prefix():
 def test_start_has_its_own_rate_limit_rule():
     rules = {p: (n, w) for p, n, w in RULES}
     assert rules["/auth/mobile/start"] == (10, 60)
+    assert rules["/auth/mobile/redeem"] == (20, 60)
     prefixes = [p for p, _, _ in RULES]
     assert prefixes.index("/auth/mobile/start") < prefixes.index("/auth/")
 
