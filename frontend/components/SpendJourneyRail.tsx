@@ -341,12 +341,12 @@ function RailA2({ destinations, scrollSim }: { destinations: SpendJourneyDestina
                   if (handled.current) { handled.current = false; return; }
                   jumpTo(d);
                 }}
-                className={`group relative block h-11 w-11 rounded-full ${FOCUS}`}
+                className="group relative block h-11 w-11 rounded-full focus-visible:outline-none"
               >
                 <span
                   aria-hidden="true"
                   style={{ left: dotLeft }}
-                  className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full ${isActive
+                  className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full group-focus-visible:outline group-focus-visible:outline-2 group-focus-visible:outline-offset-4 group-focus-visible:outline-indigo-500 ${isActive
                     ? "size-3.5 bg-indigo-600 ring-4 ring-indigo-600/20 dark:bg-indigo-400 dark:ring-indigo-400/25"
                     : "size-2 bg-slate-400 dark:bg-slate-500"}`}
                 />
