@@ -62,7 +62,7 @@ export function AimRing({ aim, periodDays, sym = "£" }: { aim: Checkpoint; peri
         strokeDasharray={`${c * p.spentFraction} ${c}`}
         transform="rotate(-90 11 11)"
       />
-      <circle cx={11 + r * Math.cos(paceAngle)} cy={11 + r * Math.sin(paceAngle)} r="1.6" className="fill-slate-600 dark:fill-slate-200" />
+      <circle cx={11 + r * Math.cos(paceAngle)} cy={11 + r * Math.sin(paceAngle)} r="3" strokeWidth="1.25" className="fill-slate-700 stroke-white dark:fill-slate-100 dark:stroke-slate-900" />
     </svg>
   );
 }

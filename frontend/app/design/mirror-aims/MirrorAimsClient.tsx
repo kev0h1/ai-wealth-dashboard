@@ -34,10 +34,10 @@ import { EATING_OUT_TXNS, PERIOD_DAYS, SPENT, TRAITS, USUAL, aimFor, suggestedAi
 
 type Variant = "a" | "b" | "c";
 type Screen = "spend" | "mirror";
-type PreviewState = "spend" | "category" | "aim" | "mirror" | "step" | "nudge";
-const STATES: PreviewState[] = ["spend", "category", "aim", "mirror", "step", "nudge"];
+type PreviewState = "spend" | "category" | "aim" | "mirror" | "step" | "nudge" | "past" | "categoryaim" | "aimedit" | "opened";
+const STATES: PreviewState[] = ["spend", "category", "aim", "mirror", "step", "nudge", "past", "categoryaim", "aimedit", "opened"];
 const STATE_LABEL: Record<PreviewState, string> = {
-  spend: "Spend", category: "Category sheet", aim: "Aim editor", mirror: "Mirror", step: "Next step", nudge: "Penny nudge",
+  spend: "Spend", category: "Category sheet", aim: "Aim editor", mirror: "Mirror", step: "Next steps", nudge: "Penny nudge", past: "Past an aim", categoryaim: "Sheet with aim", aimedit: "Edit aim", opened: "Editor opens",
 };
 
 interface VariantConfig {
@@ -90,22 +90,25 @@ export default function MirrorAimsClient() {
     return () => { el.classList.toggle("dark", wasDark); el.style.colorScheme = scheme; };
   }, [mode]);
 
-  const eatingOutSpent = state === "nudge" ? 96 : SPENT["Eating Out"];
+  const eatingOutSpent = state === "nudge" ? 96 : state === "past" ? 122 : SPENT["Eating Out"];
   const verdict = useMemo(() => verdictFor(eatingOutSpent), [eatingOutSpent]);
 
-  const [screen, setScreen] = useState<Screen>(state === "mirror" || state === "step" ? "mirror" : "spend");
+  const [screen, setScreen] = useState<Screen>(state === "mirror" || state === "step" || state === "opened" ? "mirror" : "spend");
   const [aims, setAims] = useState<Record<string, Checkpoint>>(() => {
     const base: Record<string, Checkpoint> = { Groceries: aimFor(280, SPENT.Groceries, "fixture-aim-groceries") };
     if (state === "nudge") base["Eating Out"] = aimFor(100, 96, "fixture-aim-eating-out");
+    if (state === "past") base["Eating Out"] = aimFor(100, 122, "fixture-aim-eating-out");
+    if (state === "categoryaim" || state === "aimedit") base["Eating Out"] = aimFor(100, 82, "fixture-aim-eating-out");
     return base;
   });
   const [sheet, setSheet] = useState<Sheet>(
-    state === "category" ? { kind: "category", category: "Eating Out" }
-      : state === "aim" ? { kind: "aim", category: "Eating Out" }
+    state === "category" || state === "categoryaim" ? { kind: "category", category: "Eating Out" }
+      : state === "aim" || state === "aimedit" || (state === "opened" && cfg.autoOpenEditor) ? { kind: "aim", category: "Eating Out" }
       : null
   );
+  const [stepsDone, setStepsDone] = useState<Record<string, boolean>>({});
   const [traits, setTraits] = useState<MirrorTrait[]>(() =>
-    TRAITS.map((t) => ((state === "step" || state === "nudge") && t.ref_category ? { ...t, choice: "change" } : t))
+    TRAITS.map((t) => (state === "step" || state === "nudge" || state === "opened") && (t.ref_category || state === "step") ? { ...t, choice: "change" } : t)
   );
   const [nudgeShown, setNudgeShown] = useState(true);
 
@@ -150,7 +153,7 @@ export default function MirrorAimsClient() {
         <div className="mt-4">
           <AimNudgeCard
             category="Eating Out"
-            traitTitle={eatingTrait?.title.replace(/^Your Signature:\s*/i, "") ?? "Eating Out"}
+            traitTitle={eatingTrait?.title ?? "Your Signature: Eating Out"}
             aimAmount={nudgeAim.aim_amount}
             spentSoFar={nudgeAim.spent_so_far}
             projected={nudgeAim.spent_so_far / nudgePace.elapsedFraction}
@@ -220,17 +223,21 @@ export default function MirrorAimsClient() {
               openAimOnChange={cfg.autoOpenEditor}
               onChoice={(id, choice) => setTraits((prev) => prev.map((t) => (t.id === id ? { ...t, choice } : t)))}
               onSetAim={(c) => editorFor(c)}
-              keepNote={<>That is part of how you do things, so I will leave it alone.</>}
-              nextStep={cat ? (
+              keepNote={<>That is part of how you do things, so it stays as it is and I will not nag you about it.</>}
+              nextStep={(
                 <MirrorNextStep
                   layout={cfg.nextStep}
-                  category={cat}
+                  kind={cat ? "aim" : trait.id.includes("front") ? "checkpoint" : "plan"}
+                  category={cat ?? ""}
                   amount={aim ? aim.aim_amount : amount}
-                  status={aim ? "done" : "open"}
-                  onAct={() => (cfg.nextStep === "penny" ? saveAim(cat, undefined) : editorFor(cat))}
-                  onSeeSpend={goSpend}
+                  status={cat ? (aim ? "done" : "open") : stepsDone[trait.id] ? "done" : "open"}
+                  onAct={() => {
+                    if (cat) cfg.nextStep === "penny" ? saveAim(cat, undefined) : editorFor(cat);
+                    else setStepsDone((p) => ({ ...p, [trait.id]: true }));
+                  }}
+                  onSeeNext={goSpend}
                 />
-              ) : undefined}
+              )}
             />
           );
         })}
@@ -261,6 +268,10 @@ export default function MirrorAimsClient() {
         )}
         <main className="mx-auto w-full max-w-[430px] px-4 pt-5">
           {screen === "spend" ? spend : mirror}
+          <aside aria-label="About this preview" className="mt-8 rounded-xl border border-slate-200 p-3 text-[11px] leading-snug text-slate-600 dark:border-slate-700 dark:text-slate-400">
+            <p className="font-semibold text-slate-700 dark:text-slate-200">About this preview</p>
+            <p className="mt-1">Not rendered: the Spend hero (the title row above is a stand-in) and the New normal consent sheet (it fetches its own copy, so that button does nothing here). The Mirror header and intro are hand-authored around the real trait card. The Planning plan and checkpoint steps end here, those screens are outside this round. Fixtures only.</p>
+          </aside>
         </main>
 
         {sheet?.kind === "category" && (

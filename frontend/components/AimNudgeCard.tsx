@@ -12,6 +12,7 @@ import { fmtWhole } from "@/lib/aimFormat";
 export interface AimNudgeCardProps {
   category: string;
   /** Title of the trait the user marked "change", named in the nudge. */
+  /** The trait's real title, as the Mirror shows it. */
   traitTitle: string;
   aimAmount: number;
   spentSoFar: number;
@@ -34,13 +35,13 @@ export default function AimNudgeCard({ category, traitTitle, aimAmount, spentSoF
         Penny
       </span>
       <p className="mt-2 pr-8 text-[15px] font-semibold leading-snug text-slate-900 dark:text-slate-100">
-        {category} is on course to pass your aim.
+        {category} looks likely to pass your aim.
       </p>
       <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
         <MoneyText text={`${fmtWhole(spentSoFar, sym)} so far against a ${fmtWhole(aimAmount, sym)} aim, with ${daysLeft} days left. At this pace it would land near ${fmtWhole(projected, sym)}.`} />
       </p>
       <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
-        You told me &ldquo;{traitTitle}&rdquo; is something you want to change, so I am keeping an eye on it. No action needed.
+        You marked &ldquo;{traitTitle}&rdquo; as something to change, so I am keeping an eye on it. Nothing to do unless you want to.
       </p>
       <button
         type="button"
@@ -54,9 +55,11 @@ export default function AimNudgeCard({ category, traitTitle, aimAmount, spentSoF
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="absolute right-1 top-1 flex size-11 items-center justify-center text-slate-500 transition-opacity active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"
+          className="absolute right-2 top-2 z-10 flex h-11 w-11 touch-manipulation items-center justify-center rounded-full [-webkit-tap-highlight-color:transparent] transition-transform duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800"
         >
-          <X size={15} aria-hidden="true" />
+          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-900/[0.06] bg-slate-900/[0.05] transition-colors duration-150 dark:border-white/10 dark:bg-white/[0.06] [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11]">
+            <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+          </span>
         </button>
       )}
     </div>
