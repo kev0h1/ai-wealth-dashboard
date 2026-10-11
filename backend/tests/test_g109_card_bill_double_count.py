@@ -377,7 +377,7 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
     NOR the reserve (nothing has posted yet), overstating cash by £180.
 
     G137, 2026-09-21: originally written against `days_away: 10` under an
-    UNPINNED "today" (`compute_safe_to_spend` reads `timeutil.user_today()`
+    UNPINNED "today" (`compute_safe_to_spend` reads `date.today()`
     directly), relying on `get_confirmed_payday` finding no confirmed
     income stream in this fixture's bare prefs doc and falling back to the
     default "calendar_month" pay config, whose payday is a fixed calendar
@@ -507,26 +507,62 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
 
 # ── H98 guard: the fourth blockage cannot come from this file ──────────────
 #
+# H105: the clock is read either raw (date.today()/datetime.now()/utcnow()) or
+# through app.core.timeutil (timeutil.user_today()/user_now(), or those names
+# imported directly). Both count as "reads the clock" for the guard below.
+def _reads_real_clock(fn_node: ast.AST) -> bool:
+    for n in ast.walk(fn_node):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if (
+            isinstance(f, ast.Attribute)
+            and isinstance(f.value, ast.Name)
+            and (
+                (f.value.id in ("date", "datetime") and f.attr in ("today", "utcnow", "now"))
+                or (f.value.id == "timeutil" and f.attr in ("user_today", "user_now"))
+            )
+        ):
+            return True
+        if isinstance(f, ast.Name) and f.id in ("user_today", "user_now"):
+            return True
+    return False
+
+
+def test_real_clock_matcher_catches_timeutil_reads():
+    """Negative test for the guard's matcher: each shape below must register
+    as a clock read, and a clock-free function must not."""
+    for body in (
+        "def test_a():\n    x = date.today()",
+        "def test_a():\n    x = datetime.utcnow()",
+        "def test_a():\n    x = timeutil.user_today()",
+        "def test_a():\n    x = timeutil.user_now()",
+        "def test_a():\n    x = user_today()",
+    ):
+        assert _reads_real_clock(ast.parse(body)), body
+    assert not _reads_real_clock(ast.parse("def test_a():\n    x = 1 + 2"))
+
+
 # Three separate calendar-drift blockages have come out of this one file in
 # two days (G137, G180/H94, H98) because each fix pinned only the test that
 # happened to be red that day rather than the underlying pattern: a fixture
-# built from `timeutil.user_today()` plus a bare `days_away`/`expected_date` literal
+# built from `date.today()` plus a bare `days_away`/`expected_date` literal
 # is silently at the mercy of `days_until_payday`, which shrinks to zero as
 # any calendar month ends (the `calendar_month` payday fallback used
 # whenever `get_confirmed_payday` finds no confirmed income stream in a
 # bare prefs doc). This file's own established fix (G180, extended by H98
 # above) is not "freeze a global clock" (that's test_pending_observed.py's
-# idiom, via timeutil.datetime) but "read the real timeutil.user_today() once, then
+# idiom, via timeutil.datetime) but "read the real date.today() once, then
 # pin income_service.get_confirmed_payday to today + 15 days so
 # days_until_payday is always 15, immune to the calendar" -- so the source
-# scan below does not forbid timeutil.user_today() outright, it requires every test
+# scan below does not forbid date.today() outright, it requires every test
 # that reads it to also carry that pin in the same function body. A test
-# with neither (no timeutil.user_today() and no days_away fixture at all, like the
+# with neither (no date.today() and no days_away fixture at all, like the
 # four `_touches_pooled_cash` unit tests above) is unaffected by either
 # check and passes trivially.
 def test_no_test_reads_the_real_clock_without_pinning_payday():
     """Source-scan guard: every test function in this file that calls
-    timeutil.user_today()/datetime.utcnow()/datetime.now() must also monkeypatch
+    date.today()/datetime.utcnow()/datetime.now() must also monkeypatch
     income_service.get_confirmed_payday within the same function body.
     Catches a future test being added back into the unpinned shape that
     caused H98 (and, one test over, the shape G180/H94 already fixed)."""
@@ -535,17 +571,7 @@ def test_no_test_reads_the_real_clock_without_pinning_payday():
     source = inspect.getsource(_this_module)
     tree = ast.parse(source)
 
-    def reads_real_clock(fn_node: ast.FunctionDef) -> bool:
-        for n in ast.walk(fn_node):
-            if (
-                isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Attribute)
-                and isinstance(n.func.value, ast.Name)
-                and n.func.value.id in ("date", "datetime")
-                and n.func.attr in ("today", "utcnow", "now")
-            ):
-                return True
-        return False
+    reads_real_clock = _reads_real_clock
 
     def pins_confirmed_payday(fn_node: ast.FunctionDef) -> bool:
         for n in ast.walk(fn_node):
