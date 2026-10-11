@@ -10,6 +10,7 @@
 // AccountsPage; the header is pure props so check:g236-accounts-fold-in can
 // render it.
 
+import type { ReactNode } from "react";
 import { EyeOff, RefreshCw } from "lucide-react";
 
 export interface AccountsHeaderNetWorth {
@@ -28,8 +29,8 @@ export interface AccountsHeaderProps {
   /** Turns the global hide-balances preference off. */
   onShow: () => void;
   /** G250 options, all absent in production so today's render is unchanged. */
-  /** "top" moves the hidden chip to the title row's right; default "below". */
-  chipPlacement?: "below" | "top";
+  /** "top" moves the hidden chip to the title row's right; "none" leaves it to the caller (aside or rail); default "below". */
+  chipPlacement?: "below" | "top" | "none";
   /** Tighter spacing: the Home rhythm (G221) puts 20px before the next section. */
   tight?: boolean;
   /** Compact Cash / Cards / Investments reading beside Net worth. */
@@ -38,6 +39,12 @@ export interface AccountsHeaderProps {
   lastSynced?: string | null;
   /** Sync now. With lastSynced, a 44px control sits top right. */
   onRefresh?: () => void;
+  /** G250 round 2: the Add action returns to the top right of the title row. */
+  topRight?: ReactNode;
+  /** G250 round 2: a quiet right-aligned reading on the Net worth row (e.g. the hidden chip or "Updated N min ago"). */
+  aside?: ReactNode;
+  /** G250 round 2: a right action column spanning the header; top sits on the title line, bottom on the caption line. */
+  rail?: { top: ReactNode; bottom?: ReactNode };
 }
 
 export interface AccountsHeaderBreakdownItem {
@@ -51,7 +58,7 @@ function money(v: number, hidden: boolean): string {
   return `${v < 0 ? "−" : ""}£${Math.abs(v).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 }
 
-function HiddenChip({ onShow, className = "" }: { onShow: () => void; className?: string }) {
+export function HiddenChip({ onShow, className = "" }: { onShow: () => void; className?: string }) {
   return (
     <button
       type="button"
@@ -67,7 +74,7 @@ function HiddenChip({ onShow, className = "" }: { onShow: () => void; className?
   );
 }
 
-export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chipPlacement = "below", tight = false, breakdown, lastSynced, onRefresh }: AccountsHeaderProps) {
+export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chipPlacement = "below", tight = false, breakdown, lastSynced, onRefresh, topRight, aside, rail }: AccountsHeaderProps) {
   const text = netWorth
     ? hidden
       ? "£••••"
@@ -76,7 +83,9 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chi
   const title = <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>;
   const chipTop = showChip && chipPlacement === "top";
   const refresh = lastSynced && onRefresh;
-  const titleRowExtra = chipTop ? (
+  const titleRowExtra = topRight ? (
+    <div className="-my-2.5">{topRight}</div>
+  ) : chipTop ? (
     <HiddenChip onShow={onShow} className="-my-2.5 -mr-1" />
   ) : refresh ? (
     <button
@@ -91,6 +100,7 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chi
     </button>
   ) : null;
   const hasBreakdown = !!breakdown && breakdown.length > 0;
+  const hasAside = !!aside;
   const figure = netWorth ? (
     <>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Net worth</p>
@@ -104,8 +114,8 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chi
       {showChip && chipPlacement === "below" && <HiddenChip onShow={onShow} className="mt-1" />}
     </>
   ) : null;
-  return (
-    <header className={tight ? "mb-0" : "mb-4"}>
+  const inner = (
+    <>
       {titleRowExtra ? (
         <div className="flex items-center justify-between gap-3">
           {title}
@@ -117,8 +127,9 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chi
       {netWorth && (
         // Net worth is a position, not a risk: it stays hero-white even when
         // negative (Red Is Risk keeps red for genuine risk states).
-        <div className={`${tight ? "mt-3" : "mt-5"}${hasBreakdown ? " flex items-start justify-between gap-4" : ""}`} data-tutorial-id="tutorial-networth">
-          {hasBreakdown ? <div className="min-w-0">{figure}</div> : figure}
+        <div className={`${tight ? "mt-3" : "mt-5"}${hasBreakdown || hasAside ? " flex items-start justify-between gap-4" : ""}`} data-tutorial-id="tutorial-networth">
+          {hasBreakdown || hasAside ? <div className="min-w-0">{figure}</div> : figure}
+          {hasAside && <div className="mt-4 shrink-0" data-aside>{aside}</div>}
           {hasBreakdown && (
             <dl className="mt-5 shrink-0 space-y-1 text-xs" data-breakdown>
               {breakdown!.map((b) => (
@@ -130,6 +141,21 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chi
             </dl>
           )}
         </div>
+      )}
+    </>
+  );
+  return (
+    <header className={tight ? "mb-0" : "mb-4"}>
+      {rail ? (
+        <div className="flex items-stretch justify-between gap-4" data-rail>
+          <div className="min-w-0">{inner}</div>
+          <div className="flex shrink-0 flex-col items-end justify-between">
+            <div className="-mt-2.5">{rail.top}</div>
+            {rail.bottom && <div className="-mb-1">{rail.bottom}</div>}
+          </div>
+        </div>
+      ) : (
+        inner
       )}
     </header>
   );
