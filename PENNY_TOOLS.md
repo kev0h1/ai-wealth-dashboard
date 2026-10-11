@@ -730,6 +730,12 @@ last 6 months" above a table of this pay period's figures. `get_category_spend` 
   period", "this month") that matches no period a tool returned is replaced with the
   latest tool label, logged as `penny_period_guard_rewrite` and counted in
   `penny_period.GUARD_REWRITES`. No tool period, or no phrase, leaves the text alone.
+  Only unambiguous mismatches are rewritten: with several different period phrases a
+  mismatched one is rewritten only to a label of the same kind (window or pay period)
+  that no other phrase already uses, otherwise the text is left alone and
+  `penny_period_guard_skip` is logged. Deal, term and repayment spans ("0% deal runs over
+  12 months") and "N months ago" are not period claims; "the last year" counts as 12
+  months; "N-month average" is rewritten only when it is the sole phrase.
   Prompt rule 18 asks the model to state `period.label` exactly.
 - **Audit of the other windows**: `search_transactions` totals share the row query so
   date_from/date_to are honoured, and the result now carries the range as `period`;

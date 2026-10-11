@@ -116,11 +116,20 @@ _NUM = r"(?P<n>\d{1,2}|" + "|".join(sorted((re.escape(w) for w in _NUM_WORDS), k
 _PHRASES: list[tuple[re.Pattern, str]] = [
     (re.compile(rf"\b(?P<p>(?:the\s+)?(?:last|past|previous|preceding)\s+{_NUM}[\s-]months?)\b", re.I), "months"),
     (re.compile(rf"\b(?:over|across|during|within)\s+(?P<p>{_NUM}[\s-]months?)\b", re.I), "months"),
+    (re.compile(r"\b(?P<p>(?:the\s+)?(?:last|past)\s+year)\b", re.I), "year"),
+    (re.compile(rf"\b(?P<p>{_NUM}[\s-]month\s+average)\b", re.I), "avg"),
     (re.compile(r"\b(?P<p>(?:the\s+)?(?:last|past|previous)\s+month)\b", re.I), "month1"),
+    (re.compile(r"\b(?P<p>(?:the\s+)?(?:last|previous)\s+pay[\s-]?period)\b", re.I), "last_pay_period"),
     (re.compile(r"\b(?P<p>(?:this|the\s+current)\s+pay[\s-]?period)\b", re.I), "pay_period"),
     (re.compile(r"\b(?P<p>(?:this|the\s+current)\s+period)\b", re.I), "pay_period"),
     (re.compile(r"\b(?P<p>this\s+month)\b", re.I), "calendar_month"),
 ]
+
+# A span of months that is not a spending window: a deal, a term, a repayment.
+_NON_SPEND_WORDS = ("promo", "deal", "0%", "runs", "term", "contract", "agreement", "repay", "interest")
+_AGO = re.compile(r"\s*ago\b", re.I)
+
+GUARD_SKIPS = 0
 
 
 def _count(token: str) -> int | None:
@@ -130,53 +139,120 @@ def _count(token: str) -> int | None:
     return _NUM_WORDS.get(token)
 
 
+def _group(kind: str) -> str:
+    """window (a span of months), pay (a pay period) or calendar."""
+    if kind in ("pay_period", "last_pay_period"):
+        return "pay"
+    return "calendar" if kind == "calendar_month" else "window"
+
+
+def _period_group(p: dict) -> str:
+    return "pay" if p.get("kind") == "pay_period" else "window"
+
+
 def _matches(kind: str, n: int | None, p: dict) -> bool:
-    if kind == "months":
+    if kind in ("months", "avg"):
         return p.get("months") == n
     if kind == "month1":
         return p.get("months") == 1
+    if kind == "year":
+        return p.get("months") == 12
     if kind == "pay_period":
         return p.get("kind") == "pay_period" and (p.get("offset") or 0) == 0
+    if kind == "last_pay_period":
+        return p.get("kind") == "pay_period" and (p.get("offset") or 0) == -1
     return False  # "this month" is never what a window or pay period is
 
 
+def _non_spending(text: str, start: int, end: int) -> bool:
+    """True for "0% deal runs over 12 months", "6 months ago": not a claim
+    about the period the figures cover."""
+    if _AGO.match(text[end:end + 12]):
+        return True
+    words = text[:start].lower().split()[-6:]
+    return any(w.startswith(k) or (k == "0%" and "0%" in w) for w in words for k in _NON_SPEND_WORDS)
+
+
+def _sentence_start(text: str, start: int) -> bool:
+    before = text[:start].rstrip()
+    # a preposition ("Over") is kept outside the span, so look past it
+    return not before or before[-1] in ".!?\n"
+
+
+def _skip(why: str, text: str) -> None:
+    global GUARD_SKIPS
+    GUARD_SKIPS += 1
+    logger.warning("penny_period_guard_skip why=%s total=%d", why, GUARD_SKIPS)
+
+
 def guard_text(text: str, periods: list[dict]) -> tuple[str, int]:
-    """(text, rewrites). Every period phrase in `text` that matches none of the
-    `periods` the tools returned is replaced with the label of the most recent
-    one. No periods, or no period phrase: the text is returned untouched."""
+    """(text, rewrites). A period phrase that matches none of the `periods` the
+    tools returned is replaced with a tool label, but only when that cannot
+    make the sentence false: with several different period phrases in the text
+    a mismatched one is rewritten only to a label of the same kind (window or
+    pay period) that no other phrase already uses, otherwise the text is left
+    alone and a `penny_period_guard_skip` is logged. No periods, or no period
+    phrase: untouched."""
     global GUARD_REWRITES
     usable = [p for p in periods if isinstance(p, dict) and isinstance(p.get("label"), str) and p["label"]]
     if not text or not usable:
         return text, 0
-    label = usable[-1]["label"]
-    count = 0
-    spans: list[tuple[int, int]] = []
-    out: list[str] = []
-    cursor = 0
     hits: list[tuple[int, int, str, int | None]] = []
     for pattern, kind in _PHRASES:
         for m in pattern.finditer(text):
-            n = _count(m.group("n")) if kind == "months" else None
-            if kind == "months" and n is None:
+            n = None
+            if kind in ("months", "avg"):
+                n = _count(m.group("n"))
+                if n is None:
+                    continue
+            if kind in ("months", "avg", "year", "month1") and _non_spending(text, m.start("p"), m.end("p")):
                 continue
             hits.append((m.start("p"), m.end("p"), kind, n))
-    # Resolve overlaps: earliest start wins, then the longest.
     hits.sort(key=lambda h: (h[0], -(h[1] - h[0])))
-    for start, end, kind, n in hits:
-        if spans and start < spans[-1][1]:
+    chosen: list[tuple[int, int, str, int | None]] = []
+    for h in hits:  # overlaps: earliest start wins, then the longest
+        if chosen and h[0] < chosen[-1][1]:
             continue
-        spans.append((start, end))
+        chosen.append(h)
+    distinct = {(_group(k), k, n) for _, _, k, n in chosen}
+    multi = len(distinct) > 1
+    repl: list[tuple[int, int, str, bool]] = []
+    for start, end, kind, n in chosen:
         if any(_matches(kind, n, p) for p in usable):
             continue
-        out.append(text[cursor:start])
-        out.append(label)
-        cursor = end
-        count += 1
-    if not count:
+        same = [p for p in usable if _period_group(p) == _group(kind)]
+        if multi:
+            target = same[-1] if same else None
+            if (target is None or kind in ("calendar_month", "avg")
+                    or any(_matches(k2, n2, target) for _, _, k2, n2 in chosen)):
+                _skip("multiple period phrases", text)
+                continue
+        else:
+            if kind == "avg" and not same:
+                _skip("average with no matching window", text)
+                continue
+            target = same[-1] if same else usable[-1]
+        label = target["label"]
+        if kind == "avg":
+            label = f"average over {label}"
+        if text[start:start + 4].lower() == "the " and label[:1].isdigit() and _sentence_start(text, start):
+            label = text[start:start + 4] + label  # "The past year" -> "The 6 months, ..."
+        repl.append((start, end, label, _sentence_start(text, start)))
+    if not repl:
         return text, 0
+    out, cursor = [], 0
+    for start, end, label, at_start in repl:
+        out.append(text[cursor:start])
+        if at_start and label[:1].isalpha():
+            label = label[:1].upper() + label[1:]
+        out.append(label)
+        # close the label's own commas: "..., 11 Apr to 11 Oct, you spent"
+        if re.match(r"\s+[A-Za-z0-9\u00a3]", text[end:end + 3]):
+            out.append(",")
+        cursor = end
     out.append(text[cursor:])
-    GUARD_REWRITES += count
-    return "".join(out), count
+    GUARD_REWRITES += len(repl)
+    return "".join(out), len(repl)
 
 
 def guard_reply(headline: str, reply: str, periods: list[dict], uid: str = "") -> tuple[str, str]:

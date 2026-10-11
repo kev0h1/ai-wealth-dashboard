@@ -217,7 +217,7 @@ def test_no_months_chart_is_titled_with_the_pay_period(world):
      [penny_period.pay_period_period(date(2026, 9, 25), date(2026, 10, 29))],
      f"The table below shows your spending totals across {PAY_LABEL}", 1),
     # mismatch the other way
-    ("This pay period you spent £500.", [penny_period.window_period(6, TODAY)], f"{LABEL} you spent £500.", 1),
+    ("This pay period you spent £500.", [penny_period.window_period(6, TODAY)], f"{LABEL}, you spent £500.", 1),
     ("You spent £500 this month.", [penny_period.window_period(6, TODAY)], f"You spent £500 {LABEL}.", 1),
     ("Spending over the past 3 months", [penny_period.window_period(6, TODAY)], f"Spending over {LABEL}", 1),
     # no period phrase: untouched
@@ -231,6 +231,57 @@ def test_no_months_chart_is_titled_with_the_pay_period(world):
 ])
 def test_guard_text(text, periods, expected, n):
     assert penny_period.guard_text(text, periods) == (expected, n)
+
+
+_W6 = penny_period.window_period(6, TODAY)
+_P0 = penny_period.pay_period_period(date(2026, 9, 25), date(2026, 10, 29))
+_PL = penny_period.pay_period_period(date(2026, 8, 25), date(2026, 9, 24), -1)
+_W12 = penny_period.window_period(12, TODAY)
+
+
+# True positives, negatives and the ambiguous cases the review asked for.
+@pytest.mark.parametrize("text,periods,expected,n", [
+    # true positives: one false claim, rewritten to a label of the right kind
+    ("You spent £500 over the last 3 months.", [_W6], f"You spent £500 over {LABEL}.", 1),
+    ("Across the past three months it was £900.", [_W6], f"Across {LABEL}, it was £900.", 1),
+    ("Over the last 3 months you spent £5,000.", [_W6], f"Over {LABEL}, you spent £5,000.", 1),
+    ("This pay period you spent £800.", [_PL], f"Last pay period, 25 Aug to 24 Sep, you spent £800.", 1),
+    ("The last 6 months came to £900.", [_P0], f"This pay period, 25 Sep to 29 Oct, came to £900.", 1),
+    ("Over the last year you spent £9k.", [_W6], f"Over {LABEL}, you spent £9k.", 1),
+    ("The past year was £9k.", [_W6], f"The {LABEL}, was £9k.", 1),
+    ("Your 3-month average is £400.", [_W6], f"Your average over {LABEL}, is £400.", 1),
+    ("This month you spent £400.", [_P0], f"This pay period, 25 Sep to 29 Oct, you spent £400.", 1),
+    # negatives: the claim is backed, or is not a period claim
+    ("Over the last year you spent £9k.", [_W12], "Over the last year you spent £9k.", 0),
+    ("Your 6-month average is £1,500.", [_W6], "Your 6-month average is £1,500.", 0),
+    ("This pay period you spent £800.", [_P0], "This pay period you spent £800.", 0),
+    ("The last pay period was £700.", [_PL], "The last pay period was £700.", 0),
+    ("Your 0% deal runs over 12 months.", [_W6], "Your 0% deal runs over 12 months.", 0),
+    ("The contract term is across 24 months.", [_W6], "The contract term is across 24 months.", 0),
+    ("You opened it 3 months ago, over the last 6 months you spent £5.", [_W6],
+     "You opened it 3 months ago, over the last 6 months you spent £5.", 0),
+    ("Repay it over 12 months at £100.", [_W6], "Repay it over 12 months at £100.", 0),
+    ("Interest is charged during 6 months.", [_P0], "Interest is charged during 6 months.", 0),
+    ("It was the last 3 months ago.", [_W6], "It was the last 3 months ago.", 0),
+    # ambiguous: several different period phrases, never make a false sentence
+    ("In the last 6 months you spent £5k, and this pay period £800.", [_W6],
+     "In the last 6 months you spent £5k, and this pay period £800.", 0),
+    ("Last pay period was higher; this pay period is lower.", [_PL],
+     "Last pay period was higher; this pay period is lower.", 0),
+    ("The last 3 months and this pay period.", [_W6, _P0], f"The {LABEL}, and this pay period.", 1),
+    ("Your 3-month average beat the last 6 months.", [_W6], "Your 3-month average beat the last 6 months.", 0),
+])
+def test_guard_only_rewrites_unambiguous_mismatches(text, periods, expected, n):
+    assert penny_period.guard_text(text, periods) == (expected, n)
+
+
+def test_a_skipped_ambiguity_is_logged(caplog):
+    caplog.set_level("WARNING")
+    penny_period.guard_text("In the last 6 months you spent £5k, and this pay period £800.", [_W6])
+    assert "penny_period_guard_skip" in caplog.text
+    caplog.clear()
+    penny_period.guard_text("Last pay period was higher; this pay period is lower.", [_PL])
+    assert "penny_period_guard_skip" in caplog.text
 
 
 def test_guard_counts_rewrites():
