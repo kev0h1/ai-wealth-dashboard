@@ -23,15 +23,15 @@ const props = { inputRef: { current: null }, value: "Draft question", onChange()
 const normal = renderToStaticMarkup(React.createElement(PennyComposer, props));
 assert.match(normal, /General information, not regulated financial advice/);
 assert.match(normal, /aria-label="Ask Penny a spending question"/);
-assert.match(normal, /maxLength="160"/);
+assert.match(normal, /maxLength="500"/);
 assert.match(normal, /Draft question/);
 // G198: a pending reply never disables or locks the input (Android closes the keyboard on a focused input turning readOnly/disabled).
 for (const loading of [true, false]) {
   const markup = renderToStaticMarkup(React.createElement(PennyComposer, { ...props, loading }));
-  assert.doesNotMatch(markup, /<input[^>]*disabled=""/, "Pending reply: input not disabled");
-  assert.doesNotMatch(markup, /<input[^>]*readOnly=""/, "Pending reply: input not readOnly");
+  assert.doesNotMatch(markup, /<textarea[^>]*disabled=""/, "Pending reply: input not disabled");
+  assert.doesNotMatch(markup, /<textarea[^>]*readOnly=""/, "Pending reply: input not readOnly");
 }
-assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, atCap: true })), /<input[^>]*disabled=""/, "Message limits still disable input");
+assert.match(renderToStaticMarkup(React.createElement(PennyComposer, { ...props, atCap: true })), /<textarea[^>]*disabled=""/, "Message limits still disable input");
 
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 const live = source("../components/PennySheet.tsx");
@@ -40,7 +40,7 @@ assert.doesNotMatch(live, /layout=/, "G196: one docked window, no layout variant
 assert.match(source("../components/PennyConversation.tsx"), /<PennyComposer/);
 const composerSrc = source("../components/PennyComposer.tsx");
 assert.doesNotMatch(composerSrc, /preserveFocus|readOnly=|\.blur\(/, "G198: no readOnly toggle, no blur in the send path");
-const inputTag = composerSrc.match(/<input[\s\S]*?\/>/)[0];
+const inputTag = composerSrc.match(/<textarea[\s\S]*?\/>/)[0];
 assert.doesNotMatch(inputTag, /disabled=\{[^}]*loading|\bkey=/, "G198: input disabled never tied to pending state, no remount key");
 const buttonTag = composerSrc.match(/<button type="button" onClick=\{onSend\}[\s\S]*?style=/)[0];
 assert.match(buttonTag, /onPointerDown=\{\(event\) => event\.preventDefault\(\)\}/, "G198: send does not steal focus on pointer-down");
@@ -220,7 +220,7 @@ assert.match(frame, /return applyPennyTypingAttribute\(document\.documentElement
 let sent = 0;
 const composer = PennyComposer({ ...props, onSend() { sent++; } });
 const input = composer.props.children[0].props.children[0];
-const press = (nativeEvent, keyCode = 13) => input.props.onKeyDown({ key: "Enter", keyCode, nativeEvent });
+const press = (nativeEvent, keyCode = 13) => input.props.onKeyDown({ key: "Enter", keyCode, nativeEvent, preventDefault() {} });
 press({ isComposing: true });
 press({ isComposing: false }, 229);
 assert.equal(sent, 0, "Enter during IME composition does not send");

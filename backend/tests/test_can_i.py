@@ -58,7 +58,7 @@ def test_greeting_response_shape_costs_nothing():
 
 
 def test_can_i_greeting_short_circuits_before_length_gate(monkeypatch):
-    # "Hi" is 2 characters, below the 3-160 gate — proves the greeting check
+    # "Hi" is 2 characters, below the 3-500 gate — proves the greeting check
     # runs BEFORE that gate, not after (it would otherwise 400).
     body = {"question": "Hi"}
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))

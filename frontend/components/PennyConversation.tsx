@@ -923,7 +923,7 @@ export default function PennyConversation({
   // itself, only reads and reacts to `capped`.
   const usage = usePennyUsage();
   const atCap = usage.capped;
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   // The sheet's own scroll container (inSheet mode only) — this component
   // renders it, rather than receiving a ref from the caller, because the
