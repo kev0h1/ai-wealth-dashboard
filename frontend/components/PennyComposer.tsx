@@ -8,6 +8,8 @@ import { BRAND_GRADIENT } from "@/lib/brand";
  * point from which the quiet counter appears. */
 export const PENNY_MAX_CHARS = 500;
 export const PENNY_COUNTER_FROM = 400;
+/** Screen readers get one polite announcement here and one at the cap. */
+export const PENNY_WARN_AT = 450;
 /** The field grows from one line up to this many lines, then scrolls inside. */
 export const PENNY_MAX_LINES = 5;
 
@@ -99,8 +101,9 @@ export default function PennyComposer({ inputRef, value, onChange, onSend, place
     </div>}
     <div className="flex items-center justify-between gap-2 mt-1.5">
       <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 min-w-0">General information, not regulated financial advice.</p>
-      {!chatFull && value.length >= PENNY_COUNTER_FROM && <span data-penny-counter aria-live="polite"
+      {!chatFull && value.length >= PENNY_COUNTER_FROM && <span data-penny-counter aria-live="off"
         className="flex-shrink-0 text-[11px] leading-snug tabular-nums text-slate-500 dark:text-slate-400">{value.length}/{PENNY_MAX_CHARS}</span>}
+      {!chatFull && <span data-penny-counter-status role="status" aria-live="polite" className="sr-only">{value.length >= PENNY_MAX_CHARS ? "Character limit reached" : value.length >= PENNY_WARN_AT ? "Fewer than 50 characters left" : ""}</span>}
       {atCap && onMoreMessages && <button type="button" onClick={onMoreMessages}
         className="flex-shrink-0 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 underline decoration-dotted underline-offset-2 whitespace-nowrap flex items-center justify-center"
         style={{ minHeight: 44, minWidth: 44, padding: "14px 4px", margin: "-14px -4px -14px 0" }}
