@@ -156,7 +156,7 @@ export function fulfilmentRow(plan: Plan): { detail: string; status: string; amo
   if (f.state === "fulfilled") {
     const last = f.matched[f.matched.length - 1];
     const when = last ? dateShort(last.date) : "";
-    return { detail: `${money(f.matched_pence)}${when ? ` set aside ${when}` : " set aside"}`, status: "Paid this period", amount: money(f.matched_pence) };
+    return { detail: `${money(f.matched_pence)}${when ? ` set aside ${when}` : " set aside"}`, status: "Paid this period", amount: money(0) };
   }
   if (f.state === "partial") {
     return { detail: `${money(f.matched_pence)} of ${money(f.expected_pence)} set aside`, status: "to set aside", amount: money(-f.unmet_pence) };

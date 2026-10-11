@@ -46,7 +46,7 @@ assert.match(plain, /Only payments matching this count toward the envelope/, "se
 const base = { id: "goal:g", record_id: "g", kind: "goal", name: "Japan", destination: "Japan pot", destination_account_ids: ["pot"], source_account_id: "monzo", source_basis: "chosen", period_amount: 85, filled_amount: 80, remaining: 0, active: true };
 const fulfilled = { state: "fulfilled", expected_pence: 8500, matched_pence: 8000, unmet_pence: 0, seen_in_sink: true, matched: [{ date: "2026-10-01", amount: 80, label: "To Japan pot" }] };
 const [paid] = plansFromApi([{ ...base, fulfilment: fulfilled }]);
-assert.deepEqual(fulfilmentRow(paid), { detail: "£80 set aside 1 Oct", status: "Paid this period", amount: "£80" });
+assert.deepEqual(fulfilmentRow(paid), { detail: "£80 set aside 1 Oct", status: "Paid this period", amount: "£0" });
 const [part] = plansFromApi([{ ...base, remaining: 50, filled_amount: 30, period_amount: 80, fulfilment: { ...fulfilled, state: "partial", expected_pence: 8000, matched_pence: 3000, unmet_pence: 5000, matched: [{ date: "2026-10-02", amount: 30, label: "x" }] } }]);
 assert.deepEqual(fulfilmentRow(part), { detail: "£30 of £80 set aside", status: "to set aside", amount: "−£50" });
 const [none] = plansFromApi([{ ...base, remaining: 85, filled_amount: 0, fulfilment: { ...fulfilled, state: "unmet", matched_pence: 0, unmet_pence: 8500, matched: [] } }]);
