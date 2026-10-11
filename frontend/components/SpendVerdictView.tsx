@@ -42,7 +42,7 @@ import { formatDate } from "@/lib/payPeriod";
 import MoneyText from "@/components/MoneyText";
 import { openTipsFor, tipSubline } from "@/lib/spendTips";
 import SpendPaceEvidence from "@/components/SpendPaceEvidence";
-import { AimLine, AimRing, AimRule, aimSentence, type AimRowStyle } from "@/components/AimProgress";
+import { AimRing, aimSentence } from "@/components/AimProgress";
 
 const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
@@ -759,19 +759,14 @@ function UnresolvedAskCard({
   );
 }
 
-/** G242 (optional, preview-first): an aim's quiet progress on a category row.
- *  Every field is optional; with none supplied the row renders exactly as before. */
+/** G242 (approved C): an aim's progress on a category row, the slate ring beside
+ *  the amount. Kept at all times, also when the subline carries a tip suffix.
+ *  Every field is optional; with no aim the row renders exactly as before. */
 export interface MajorityRowAimProps {
   /** This category's live aim, if it has one. */
   aim?: Checkpoint | null;
-  /** How the aim reads on the row: a text line, a thin rule with a pace tick, or a ring. */
-  aimStyle?: AimRowStyle;
-  /** Whole period length in days, for the pace reading. */
+  /** Whole period length in days, for the pace reading when the aim carries none. */
   periodDays?: number;
-  /** Offer to set an aim on this row (pre-filled amount). Only shown when there is no aim. */
-  aimOffer?: number | null;
-  /** Rule and offer presentations are their own tap target; they call this to open the aim editor. */
-  onAimAction?: () => void;
   sym?: string;
 }
 
@@ -782,10 +777,7 @@ export function MajorityRowView({
   onOpen,
   tips,
   aim = null,
-  aimStyle: aimStyleProp = "line",
   periodDays = 28,
-  aimOffer = null,
-  onAimAction,
   sym = "£",
 }: {
   row: SpendVerdictMajorityRow;
@@ -796,8 +788,7 @@ export function MajorityRowView({
 } & MajorityRowAimProps) {
   const s = row.payments_count === 1 ? "" : "s";
   const suffix = tipSubline(tips);
-  const aimStyle = aimStyleProp === "ringUnlessTip" ? (suffix ? "line" : "ring") : aimStyleProp;
-  const rowButton = (
+  return (
     <button
       type="button"
       onClick={onOpen}
@@ -811,43 +802,12 @@ export function MajorityRowView({
           {quietTag && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · above usual</span>}
           {suffix && <MoneyText text={` · ${suffix}`} />}
         </p>
-        {aim && aimStyle === "line" && <AimLine aim={aim} periodDays={periodDays} sym={sym} />}
-        {aim && aimStyle === "ring" && (
-          <p className="sr-only">{aimSentence(aim, periodDays, sym)}</p>
-        )}
+        {aim && <p className="sr-only">{aimSentence(aim, periodDays, sym)}</p>}
       </div>
-      {aim && aimStyle === "ring" && <AimRing aim={aim} periodDays={periodDays} sym={sym} />}
+      {aim && <AimRing aim={aim} periodDays={periodDays} sym={sym} />}
       <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(row.spent)}</span>
       <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
     </button>
-  );
-  const hasRuleAim = aim != null && aimStyle === "rule";
-  const hasOffer = aim == null && aimOffer != null && onAimAction != null;
-  if (!hasRuleAim && !hasOffer) return rowButton;
-  return (
-    <div>
-      {rowButton}
-      {hasRuleAim && aim && (
-        <button
-          type="button"
-          onClick={onAimAction}
-          aria-label={`Edit your ${row.category} aim. ${aimSentence(aim, periodDays, sym)}`}
-          className="block min-h-[44px] w-full py-2 pl-[54px] pr-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
-        >
-          <AimRule aim={aim} periodDays={periodDays} sym={sym} />
-        </button>
-      )}
-      {hasOffer && (
-        <button
-          type="button"
-          onClick={onAimAction}
-          className="flex min-h-[44px] w-full items-center gap-1.5 py-2 pl-[54px] pr-4 text-left text-[12px] font-semibold text-indigo-700 transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
-        >
-          <Target size={13} className="flex-shrink-0" aria-hidden="true" />
-          <MoneyText text={`Set an aim of about ${fmtAimWhole(aimOffer!, sym)}`} />
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -1113,16 +1073,12 @@ export interface SpendVerdictViewProps {
   /** Approved G57 A presentation. It changes section hierarchy and labels,
    *  but keeps this component's existing live actions and data sources. */
   journey?: boolean;
-  /** G242 (optional): live aims by category, shown as a quiet progress line on each
-   *  Spend row. Omit and every row renders exactly as before. */
+  /** G242: live aims by category, overriding the ones `signals` carries (fixtures and
+   *  tests). Omit it and each category's aim comes from its signal's checkpoint, the
+   *  server's own reading. Every aim shows as a ring beside the amount. */
   aims?: Record<string, Checkpoint>;
-  aimStyle?: AimRowStyle;
   /** Whole period length in days; defaults to the verdict's own period. */
   aimPeriodDays?: number;
-  /** One row may offer "Set an aim of about £X" (never every row). */
-  aimOffer?: { category: string; amount: number } | null;
-  /** Opens the aim editor for a category (rule and offer rows are their own tap target). */
-  onAimAction?: (category: string) => void;
 }
 
 /** The same guardrail is a rail event only in the approved journey view. */
@@ -1163,7 +1119,7 @@ export function TransferReviewGuardrail({
   );
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimStyle, aimPeriodDays, aimOffer, onAimAction }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -1397,11 +1353,8 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
                 quietTag={quietFlagCategories.has(row.category)}
                 onOpen={() => onOpenCategory(row.category)}
                 tips={openTipsFor(row.category, categoryInsights ?? [])}
-                aim={aims?.[row.category] ?? null}
-                aimStyle={aimStyle}
+                aim={aims?.[row.category] ?? signals?.[row.category]?.checkpoint ?? null}
                 periodDays={aimPeriodDays ?? (period.days_elapsed + (period.days_left ?? 0) || undefined)}
-                aimOffer={aimOffer?.category === row.category ? aimOffer.amount : null}
-                onAimAction={onAimAction ? () => onAimAction(row.category) : undefined}
                 sym={sym}
               />
             ))}

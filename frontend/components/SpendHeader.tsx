@@ -33,6 +33,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info } from 
 import { SheetFrame } from "@/components/SheetFrame";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
+import MirrorRouteLink from "@/components/MirrorRouteLink";
 import type { SpendVerdict, Transaction } from "@/lib/api";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
@@ -309,6 +310,8 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">
             Day {verdict.period.days_elapsed}{verdict.period.days_left != null ? ` of ${verdict.period.days_elapsed + verdict.period.days_left}` : ""}
           </p>
+          {/* G242: the quiet route to the Mirror, under the title. */}
+          <div className="-ml-3"><MirrorRouteLink /></div>
         </div>
 
         <nav aria-label="Pay period" className="flex min-h-11 shrink-0 items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
