@@ -16,7 +16,7 @@ from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
 from app.core.models import Transaction
 from app.db.collections import (
-    transactions_col, accounts_col, yapily_accounts_col, yapily_transactions_col,
+    transactions_col, accounts_col,
     statement_transactions_col,
     commitments_col, manual_accounts_col, teaching_events_col,
 )
@@ -56,7 +56,7 @@ async def oldest_transaction(user: dict = Depends(current_user)):
     navigation before it pages into empty pre-history."""
     uid = user["email"]
     oldest = None
-    for col in (transactions_col, yapily_transactions_col,
+    for col in (transactions_col,
                 statement_transactions_col):
         doc = await col.find_one({"user_id": uid}, {"date": 1}, sort=[("date", 1)])
         if doc and doc.get("date") and (oldest is None or doc["date"] < oldest):
@@ -68,8 +68,6 @@ async def _txn_source(account_id: str, uid: str):
     """Which collection holds this account's transactions."""
     if account_id.startswith("statement-"):
         return statement_transactions_col
-    if await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid}, {"_id": 1}):
-        return yapily_transactions_col
     return transactions_col
 
 
@@ -205,7 +203,7 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     23-account user) and filtered client-side."""
     uid    = user["email"]
     cutoff = datetime.now() - timedelta(days=min(days, 730))
-    cols = (transactions_col, yapily_transactions_col, statement_transactions_col)
+    cols = (transactions_col, statement_transactions_col)
     results = await asyncio.gather(
         *(c.find({"user_id": uid, "date": {"$gte": cutoff}}).to_list(None) for c in cols)
     )
@@ -374,7 +372,7 @@ async def search_transactions(
     fetch_n   = page * page_size
 
     query = _search_query(uid, q, category, days, merchants, date_from, date_to, txn_type, categories)
-    cols  = (transactions_col, yapily_transactions_col, statement_transactions_col)
+    cols  = (transactions_col, statement_transactions_col)
 
     counts, per_collection = await asyncio.gather(
         asyncio.gather(*(c.count_documents(query) for c in cols)),
@@ -802,11 +800,6 @@ async def set_transaction_planned(transaction_id: str, body: dict, user: dict = 
         {"_id": transaction_id, "user_id": user["email"]},
         {"$set": {"planned": planned}},
     )
-    if result.matched_count == 0:
-        await yapily_transactions_col.update_one(
-            {"_id": transaction_id, "user_id": user["email"]},
-            {"$set": {"planned": planned}},
-        )
     return {"updated": transaction_id, "planned": planned}
 
 

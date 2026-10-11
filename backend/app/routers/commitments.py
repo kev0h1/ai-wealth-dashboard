@@ -80,7 +80,6 @@ from app.db.collections import (
     manual_accounts_col,
     preferences_col,
     savings_goals_col,
-    yapily_accounts_col,
 )
 from app.routers.savings import _cashflow, _current_savings
 from app.services import plan_easing, response_cache
@@ -192,7 +191,7 @@ def _try_oid(v: str):
 async def _live_balance(account_id: str) -> float | None:
     """Current balance for an account id across all account collections."""
     oid = _try_oid(account_id)
-    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+    for col in (accounts_col, manual_accounts_col):
         for _id in ({oid, account_id} if oid != account_id else {account_id}):
             doc = await col.find_one(
                 {"_id": _id},
@@ -212,7 +211,7 @@ async def _live_balance(account_id: str) -> float | None:
 async def _account_name(account_id: str) -> str | None:
     """Display name for an account id, whitespace-normalised, or None."""
     oid = _try_oid(account_id)
-    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+    for col in (accounts_col, manual_accounts_col):
         for _id in ({oid, account_id} if oid != account_id else {account_id}):
             doc = await col.find_one({"_id": _id}, {"name": 1})
             if doc:
@@ -226,7 +225,6 @@ async def _pot_kind(account_id: str) -> str | None:
     ids = {oid, account_id} if oid != account_id else {account_id}
     for col, kind in (
         (accounts_col, "connected"),
-        (yapily_accounts_col, "connected"),
         (manual_accounts_col, "manual"),
     ):
         for _id in ids:

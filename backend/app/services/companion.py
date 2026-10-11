@@ -15,7 +15,6 @@ from urllib.parse import quote
 from app.core import timeutil
 from app.db.collections import (
     accounts_col,
-    yapily_accounts_col,
     manual_accounts_col,
     cashflow_cache_col,
     preferences_col,
@@ -23,7 +22,6 @@ from app.db.collections import (
     companion_items_col,
     needle_history_col,
     transactions_col,
-    yapily_transactions_col,
     user_profiles_col,
 )
 
@@ -501,7 +499,7 @@ async def _lookup_account_name(account_id: str) -> str | None:
         ids.append(ObjectId(account_id))
     except Exception:
         pass
-    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+    for col in (accounts_col, manual_accounts_col):
         for _id in ids:
             doc = await col.find_one({"_id": _id}, {"name": 1})
             if doc:
@@ -623,7 +621,7 @@ async def _live_balance(account_id: str) -> float | None:
             return v
 
     oid = _try_oid(account_id)
-    for col in (accounts_col, yapily_accounts_col):
+    for col in (accounts_col,):
         doc = await col.find_one(
             {"_id": oid},
             {"balance": 1, "current_balance": 1, "available_balance": 1},
@@ -928,7 +926,7 @@ async def _load_debits(uid: str, start: date, end: date) -> list[dict]:
     }
     proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
     out: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         out += await col.find(debit_q, proj).to_list(None)
     return out
 
@@ -1286,8 +1284,8 @@ async def _pp_salary_observed(
     any CREDIT into `salary_acct` dated on/after `pstart` (this pay
     period's first day) whose amount is within tolerance (`max(2.0, 15%)`,
     the same band the rest of this file's own-credit matching uses) of
-    `salary_amount`. Reads the same two collections
-    (`transactions_col`/`yapily_transactions_col`) the rest of this file's
+    `salary_amount`. Reads the same collection
+    (`transactions_col`) the rest of this file's
     observed-credit checks already read, so there is one query pattern for
     "did a real credit land", not several.
 
@@ -1308,7 +1306,7 @@ async def _pp_salary_observed(
         tol = max(2.0, float(salary_amount) * 0.15)
         credit_q = {"user_id": uid, "transaction_type": "credit", "date": {"$gte": since}}
         proj = {"account_id": 1, "amount": 1}
-        for col in (transactions_col, yapily_transactions_col):
+        for col in (transactions_col,):
             async for c in col.find(credit_q, proj):
                 if str(c.get("account_id") or "") != str(salary_acct):
                     continue
@@ -2415,12 +2413,6 @@ async def compute_today_items(
     # never seeds a walk.
     _g231_excluded: set[str] = set()
     async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
-        if acc.get("include_in_safe_to_spend") is False:
-            _g231_excluded.add(str(acc["_id"]))
-            continue
-        acc["_str_id"] = str(acc["_id"])
-        all_uk_accounts.append(acc)
-    async for acc in yapily_accounts_col.find({"user_id": uid}, {**_acct_proj, "institution_id": 1}):
         if acc.get("include_in_safe_to_spend") is False:
             _g231_excluded.add(str(acc["_id"]))
             continue
@@ -5732,7 +5724,7 @@ async def compute_today_items(
 
         # ONE kind-map read, shared by load_spend_txns and both loops below.
         _rc_kinds = await _get_category_kinds(uid)
-        from app.db.collections import transactions_col as _rc_txns_col, yapily_transactions_col as _rc_yapily_col
+        from app.db.collections import transactions_col as _rc_txns_col
 
         # ── resolve the current period ─────────────────────────────────────────
         from app.services.pay_period import get_pay_period_for_date as _get_period
@@ -5817,7 +5809,7 @@ async def compute_today_items(
                     _rc_start_dt = _datetime(_rc_period_start.year, _rc_period_start.month, _rc_period_start.day)
                     _rc_end_dt = _datetime(_rc_period_end.year, _rc_period_end.month, _rc_period_end.day, 23, 59, 59)
                     _rc_raw_txns: list[dict] = []
-                    for _col in (_rc_txns_col, _rc_yapily_col):
+                    for _col in (_rc_txns_col,):
                         async for _doc in _col.find(
                             {
                                 "user_id": uid,
@@ -6186,7 +6178,7 @@ async def infer_plan_sources_batch(
     }
     proj = {"account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1}
     credits_by_pot: dict[str, list[dict]] = {}
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         for t in await col.find(q, proj).to_list(None):
             credits_by_pot.setdefault(str(t.get("account_id") or ""), []).append(t)
     debits = await _load_debits(uid, start, end) if credits_by_pot else []

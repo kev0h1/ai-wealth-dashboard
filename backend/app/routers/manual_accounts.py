@@ -12,19 +12,19 @@ from app.core import timeutil
 from app.db.collections import (
     manual_accounts_col, manual_transactions_col, savings_goals_col,
     manual_account_rules_col, manual_account_mirrors_col,
-    transactions_col, statement_transactions_col, yapily_transactions_col,
-    accounts_col, statement_accounts_col, yapily_accounts_col,
+    transactions_col, statement_transactions_col,
+    accounts_col, statement_accounts_col,
 )
 from app.services.manual_account_rules import apply_rules, reverse_rule, account_key
 
 _SOURCE_TXN_COLLECTIONS = [
-    transactions_col, statement_transactions_col, yapily_transactions_col,
+    transactions_col, statement_transactions_col,
 ]
 
 # Account collections a rule may be scoped to — the connected (real) accounts
 # whose transactions the three source collections above hold.
 _SOURCE_ACCOUNT_COLLECTIONS = [
-    accounts_col, statement_accounts_col, yapily_accounts_col,
+    accounts_col, statement_accounts_col,
 ]
 
 router = APIRouter(tags=["manual-accounts"])

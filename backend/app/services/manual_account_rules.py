@@ -7,13 +7,13 @@ re-runs after every sync are idempotent, and a rule can be cleanly reversed.
 from datetime import datetime
 
 from app.db.collections import (
-    transactions_col, statement_transactions_col, yapily_transactions_col,
+    transactions_col, statement_transactions_col,
     manual_accounts_col, manual_account_rules_col, manual_account_mirrors_col,
 )
 from app.services.description_match import matches_contains, matches_equals
 
 _TXN_COLLECTIONS = [
-    transactions_col, statement_transactions_col, yapily_transactions_col,
+    transactions_col, statement_transactions_col,
 ]
 
 

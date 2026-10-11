@@ -53,11 +53,6 @@ statement_transactions_col  = db["statement_transactions"]
 # against the Statements tier's statement_uploads_per_month cap.
 statement_uploads_col       = db["statement_uploads"]
 
-# Yapily
-yapily_consents_col     = db["yapily_consents"]
-yapily_accounts_col     = db["yapily_accounts"]
-yapily_transactions_col = db["yapily_transactions"]
-
 # Savings insights
 savings_insights_col    = db["savings_insights"]
 savings_labels_col      = db["savings_insight_labels"]
@@ -526,7 +521,6 @@ ERASURE_MANIFEST = frozenset({
     "account_rates_col", "push_subscriptions_col", "apns_tokens_col",
     "fcm_tokens_col", "notification_state_col", "confirmed_transfer_pairs_col",
     "statement_accounts_col", "statement_transactions_col", "statement_uploads_col",
-    "yapily_consents_col", "yapily_accounts_col", "yapily_transactions_col",
     "savings_insights_col", "savings_labels_col", "debt_plans_col",
     "card_terms_col", "card_product_rates_col", "savings_goals_col",
     "manual_accounts_col", "manual_transactions_col", "manual_account_rules_col",
@@ -583,4 +577,9 @@ ERASURE_MANIFEST = frozenset({
 ERASE_ONLY_COLLECTIONS = frozenset({
     "mpesa_accounts", "mpesa_transactions",
     "mono_connections", "mono_accounts", "mono_transactions",
+    # H87: Yapily was removed (the three bindings with it). Rows may remain
+    # until Kevin runs backend/scripts/retire_yapily_accounts.py. NOTE: A128
+    # calls its equivalent set RETIRED_COLLECTIONS on its own branch; fold
+    # these three names into that set when the branches meet.
+    "yapily_consents", "yapily_accounts", "yapily_transactions",
 })

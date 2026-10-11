@@ -1,5 +1,5 @@
 """Account-type classification — the single source of truth for what kind of
-account an account doc (TrueLayer, Finexer or Yapily row) is: credit card,
+account an account doc (TrueLayer or Finexer row) is: credit card,
 savings/ISA pot, or current (transaction) account.
 
 Moved out of `services/card_rates.py` (H35, 2026-09-13): `is_credit_card_account`
@@ -16,8 +16,7 @@ of why it belongs on its own.
 
 
 def is_credit_card_account(acc: dict) -> bool:
-    """True when an account doc (TrueLayer or Finexer row in accounts_col,
-    or a yapily row) is a credit card — same test as needle.py."""
+    """True when an account doc (TrueLayer or Finexer row in accounts_col) is a credit card — same test as needle.py."""
     subtype = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
     atype = (acc.get("account_type") or acc.get("type") or "").lower()
     return "CREDIT" in subtype or atype in ("credit", "credit_card")

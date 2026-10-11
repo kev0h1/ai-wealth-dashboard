@@ -38,7 +38,7 @@ from datetime import date, datetime, timedelta
 
 from app.core import timeutil
 
-from app.db.collections import category_intent_col, commitments_col, preferences_col, transactions_col, yapily_transactions_col
+from app.db.collections import category_intent_col, commitments_col, preferences_col, transactions_col
 from app.services.categories import (
     INCOME,
     MOVEMENT,
@@ -154,7 +154,7 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
     raw_docs: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         try:
             async for doc in col.find(
                 {

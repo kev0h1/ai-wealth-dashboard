@@ -270,8 +270,7 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     for t in cc_payment_txns:
         payments_by_acc[t["account_id"]] += abs(t["amount"])
 
-    # Every credit card account the user has (cc_ids — the accounts_col +
-    # yapily_accounts_col union, see _credit_card_account_ids), not just the
+    # Every credit card account the user has (cc_ids, see _credit_card_account_ids), not just the
     # ones with new spend this cycle: a dormant card is still one of "all the
     # cards a user has" (owner feedback on the Month in Review cards slide,
     # 2026-08-28) and should show as a £0 row, ranked last by the sort below.
@@ -281,11 +280,8 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
         acc_new_spend = round(raw_new_spend, 2)
         acc_payments = round(payments_by_acc.get(aid, 0.0), 2)
         acc_delta = round(acc_new_spend - acc_payments, 2)
-        # acc_by_id is keyed off raw_accounts (accounts_col only), but aid can
-        # come from a card that only exists in yapily_accounts_col (cc_ids is
-        # the union of both — see _credit_card_account_ids). That leaves
-        # acc_doc {} for a Yapily-only card today (yapily_accounts_col is
-        # currently empty, so this is dormant, not dead). name/provider are
+        # acc_by_id is keyed off raw_accounts (accounts_col only), so aid may
+        # not resolve and acc_doc can be {}. name/provider are
         # typed non-null on both sides (shared/src/types.ts, frontend/lib/api.ts),
         # so fall back the same way truelayer_sync.py does for an unresolved
         # provider rather than emitting a null the contract forbids.

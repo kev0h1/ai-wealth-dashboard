@@ -23,7 +23,6 @@ from app.db.collections import (
     statement_transactions_col,
     savings_insights_col, savings_labels_col,
     subscriptions_col, subscription_usage_col, statement_uploads_col,
-    yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
     teaching_events_col, allocations_col, penny_proposals_col, penny_conversations_col,
@@ -42,7 +41,7 @@ from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORI
 from app.services import data_version
 
 from app.routers import (
-    auth, truelayer, yapily, accounts as accounts_router,
+    auth, truelayer, accounts as accounts_router,
     transactions as transactions_router, preferences, push, categories,
     analytics, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
@@ -89,7 +88,7 @@ def _routers(
     rather than inherit whatever APP_URL the process happens to have (see
     tests/test_truelayer_uat_only.py)."""
     routers = [
-        auth.router, yapily.router,
+        auth.router,
         accounts_router.router, transactions_router.router, preferences.router,
         push.router, categories.router, analytics.router,
         chat.router, statements.router, investments.router,
@@ -372,8 +371,6 @@ async def _create_indexes():
     # than the regex-prefix scan kept only as a fallback for rows missing the
     # field.
     await _ensure_index(transactions_col, [("user_id", 1), ("merchant_key", 1), ("transaction_type", 1)])
-    await _ensure_index(yapily_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
-    await _ensure_index(yapily_transactions_col, [("user_id", 1), ("date", -1)])
     await _ensure_index(statement_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
     await _ensure_index(statement_transactions_col, [("user_id", 1), ("date", -1)])
     await _ensure_index(accounts_col, "connection_id")
@@ -576,7 +573,7 @@ async def _migrate():
     # F10: an MCP-only instance serves only the connector, never the app
     # routes these one-time migrations/backfills and cache seeds exist for
     # (user_id backfill, category-kind migration, subscription seeding,
-    # stale-connection/Yapily cleanup, cashflow cache warm-up, penny top-up
+    # stale-connection cleanup, cashflow cache warm-up, penny top-up
     # pack migration). The main app service still runs this on every boot
     # and covers the shared Mongo, so skipping it here is safe, not a
     # missed migration — see app.main's module docstring / DEPLOY.md's
@@ -596,13 +593,11 @@ async def _migrate():
         upsert=False,
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
-    asyncio.create_task(_encrypt_plaintext_yapily_consents())
     asyncio.create_task(_migrate_category_kinds())
     asyncio.create_task(_migrate_mortgage_car_finance_categories())
     asyncio.create_task(_fix_all_users_categories())
     asyncio.create_task(_seed_subscriptions())
     asyncio.create_task(_cleanup_stale_connections())
-    asyncio.create_task(_cleanup_stale_yapily_data())
     asyncio.create_task(_seed_cashflow_cache())
     asyncio.create_task(_migrate_penny_topup_packs())
     asyncio.create_task(_seed_mcp_call_counters())
@@ -624,19 +619,6 @@ async def _encrypt_plaintext_tokens():
             count += 1
     if count:
         print(f"[startup] encrypted tokens on {count} connections")
-
-
-async def _encrypt_plaintext_yapily_consents():
-    """One-time (A30): upgrade any Yapily consent rows still on the pre-A30
-    shape (raw consent token stored as `_id`, no encrypted `token` field)
-    to the fingerprinted-id + encrypted-token shape. See
-    app.services.yapily_sync.migrate_legacy_yapily_consents / upgrade_legacy_consent
-    — the same upgrade also happens lazily on next sync, this just closes
-    the gap for rows that never sync again (e.g. status EXPIRED)."""
-    from app.services.yapily_sync import migrate_legacy_yapily_consents
-    count = await migrate_legacy_yapily_consents()
-    if count:
-        print(f"[startup] upgraded {count} legacy yapily consent rows")
 
 
 async def _migrate_category_kinds():
@@ -673,28 +655,6 @@ async def _fix_all_users_categories():
             # Startup migration — categories changed under this user without
             # anything else invalidating their cached responses.
             await data_version.bump(uid)
-
-
-async def _cleanup_stale_yapily_data():
-    """Remove yapily_accounts and yapily_transactions for users with no active Yapily consent.
-
-    These are orphaned records from past Yapily connections that were later replaced by
-    TrueLayer. They cause phantom duplicate accounts on the accounts page and confuse the
-    delete logic (delete_account finds the Yapily copy first, leaving the TrueLayer copy).
-    """
-    user_ids = await yapily_accounts_col.distinct("user_id")
-    for uid in user_ids:
-        if not uid:
-            continue
-        has_consent = await yapily_consents_col.count_documents(
-            {"user_id": uid, "status": "AUTHORIZED"}
-        )
-        if has_consent == 0:
-            accts = await yapily_accounts_col.delete_many({"user_id": uid})
-            txns  = await yapily_transactions_col.delete_many({"user_id": uid})
-            if accts.deleted_count:
-                print(f"[startup] cleaned {accts.deleted_count} stale yapily accounts "
-                      f"and {txns.deleted_count} transactions for {uid}")
 
 
 async def _cleanup_stale_connections():

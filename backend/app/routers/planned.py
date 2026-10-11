@@ -11,7 +11,6 @@ from app.core import timeutil
 from app.db.collections import (
     accounts_col,
     planned_expenses_col,
-    yapily_accounts_col,
 )
 from app.services import response_cache
 
@@ -61,10 +60,6 @@ async def create_planned_expense(body: dict, user: dict = Depends(current_user))
         acct_doc = await accounts_col.find_one(
             {"_id": _try_oid(account_id), "user_id": uid}, {"_id": 1}
         )
-        if not acct_doc:
-            acct_doc = await yapily_accounts_col.find_one(
-                {"_id": _try_oid(account_id), "user_id": uid}, {"_id": 1}
-            )
         if not acct_doc:
             raise HTTPException(404, "Account not found")
 
@@ -231,10 +226,6 @@ async def update_planned_expense(planned_id: str, body: dict, user: dict = Depen
             acct_doc = await accounts_col.find_one(
                 {"_id": _try_oid(account_id), "user_id": uid}, {"_id": 1}
             )
-            if not acct_doc:
-                acct_doc = await yapily_accounts_col.find_one(
-                    {"_id": _try_oid(account_id), "user_id": uid}, {"_id": 1}
-                )
             if not acct_doc:
                 raise HTTPException(404, "Account not found")
             updates["account_id"] = account_id

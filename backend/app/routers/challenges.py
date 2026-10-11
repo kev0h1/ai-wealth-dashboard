@@ -8,7 +8,7 @@ from app.core import timeutil
 from app.core.auth import current_user
 from app.db.collections import (
     challenges_col,
-    transactions_col, yapily_transactions_col,
+    transactions_col,
 )
 
 router = APIRouter(tags=["challenges"])
@@ -61,9 +61,7 @@ def _day_bounds():
 
 
 async def _get_debit_txns_challenge(uid: str, since: datetime) -> list:
-    tl  = await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
-    yap = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
-    return tl + yap
+    return await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
 
 
 async def _resolve_stale_challenges(uid: str):

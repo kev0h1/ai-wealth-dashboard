@@ -24,7 +24,7 @@ from app.services.categories import (
 )
 from app.db.collections import (
     savings_insights_col, savings_labels_col,
-    transactions_col, yapily_transactions_col, statement_transactions_col,
+    transactions_col, statement_transactions_col,
     preferences_col, cashflow_cache_col,
 )
 
@@ -1298,7 +1298,6 @@ async def _detect_insight_categories(user_id: str) -> list[str]:
     cutoff    = datetime.utcnow() - timedelta(days=90)
     pipelines = [
         transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
-        yapily_transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
         statement_transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
     ]
     all_lists = await asyncio.gather(*pipelines, return_exceptions=True)
@@ -1340,7 +1339,7 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
     # and dates are kept alongside so a display name and a same-month
     # duplicate-cadence flag can be derived per bucket below.
     buckets: dict[str, list[tuple[float, Optional[datetime], str]]] = defaultdict(list)
-    for col in [transactions_col, yapily_transactions_col, statement_transactions_col]:
+    for col in [transactions_col, statement_transactions_col]:
         try:
             txns = await col.find(
                 {"user_id": user_id, "date": {"$gte": cutoff}, "transaction_type": "debit"},
@@ -2793,7 +2792,7 @@ async def _category_net_totals(user_id: str, category_label: str) -> tuple[float
     now    = datetime.utcnow()
     cutoff = now - timedelta(days=90)
     before_total, after_total = 0.0, 0.0
-    for col in [transactions_col, yapily_transactions_col, statement_transactions_col]:
+    for col in [transactions_col, statement_transactions_col]:
         try:
             txns = await col.find(
                 {"user_id": user_id, "transaction_type": "debit", "date": {"$gte": cutoff}},
@@ -2875,7 +2874,7 @@ async def _category_trigger_spend_total(user_id: str, category_key: str) -> floa
         return 0.0
     cutoff = datetime.utcnow() - timedelta(days=90)
     total = 0.0
-    for col in [transactions_col, yapily_transactions_col, statement_transactions_col]:
+    for col in [transactions_col, statement_transactions_col]:
         try:
             txns = await col.find(
                 {"user_id": user_id, "date": {"$gte": cutoff}, "transaction_type": "debit"},
@@ -2940,7 +2939,7 @@ async def _check_verified_saving(user_id: str, existing: dict) -> Optional[dict]
     key_norm = _normalize_merchant_key(key)
     now = datetime.utcnow()
     recent, before = 0, 0
-    for col in [transactions_col, yapily_transactions_col, statement_transactions_col]:
+    for col in [transactions_col, statement_transactions_col]:
         try:
             txns = await col.find(
                 {"user_id": user_id, "transaction_type": "debit", "date": {"$gte": now - timedelta(days=90)}},
@@ -3331,7 +3330,7 @@ async def get_unknown_bills(user: dict = Depends(current_user)):
     }
 
     buckets: dict[str, list[float]] = defaultdict(list)
-    for col in [transactions_col, yapily_transactions_col, statement_transactions_col]:
+    for col in [transactions_col, statement_transactions_col]:
         txns = await col.find(
             {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "debit"},
             {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1, "amount": 1},

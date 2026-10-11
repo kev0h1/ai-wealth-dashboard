@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core import timeutil
 from app.db.collections import (
-    accounts_col, transactions_col, yapily_transactions_col,
+    accounts_col, transactions_col,
     savings_goals_col, manual_accounts_col,
 )
 from app.services.cashflow import monthly_cashflow_cached

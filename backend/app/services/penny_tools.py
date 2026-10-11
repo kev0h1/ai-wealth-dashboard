@@ -83,7 +83,7 @@ from app.db.collections import (
     connections_col, finexer_consents_col, manual_account_rules_col,
     manual_accounts_col, penny_proposals_col, preferences_col, savings_goals_col,
     savings_insights_col, savings_labels_col, statement_transactions_col,
-    transactions_col, yapily_accounts_col, yapily_transactions_col,
+    transactions_col,
 )
 from app.routers.analytics import (
     PATTERNS_VERSION, _build_cashflow_response, _compute_cashflow_patterns,
@@ -2127,7 +2127,6 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
         return cached
     has_accounts = bool(
         await accounts_col.find_one({"user_id": uid}, {"_id": 1})
-        or await yapily_accounts_col.find_one({"user_id": uid}, {"_id": 1})
     )
     if not has_accounts:
         return None
@@ -2291,7 +2290,7 @@ async def _exec_get_recurring_payments(uid: str) -> dict:
 # verbatim rather than a new hardcoded tuple, so a new source added to that
 # endpoint is automatically picked up here too.
 _SEARCH_COLLECTIONS = (
-    transactions_col, yapily_transactions_col, statement_transactions_col,
+    transactions_col, statement_transactions_col,
 )
 _SEARCH_CAP = 20
 
@@ -3473,7 +3472,7 @@ async def _exec_check_affordability(uid: str, amount, timeframe) -> dict:
 async def _category_txn_rows(uid: str, category: str, start: datetime, end: datetime) -> list[dict]:
     home_currency = "GBP"
     rows: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         async for doc in col.find(
             {"user_id": uid, "transaction_type": "debit", "date": {"$gte": start, "$lte": end}},
             {"amount": 1, "category": 1, "custom_category": 1, "merchant_name": 1, "description": 1, "currency": 1, "date": 1},
@@ -5899,14 +5898,14 @@ async def _find_transaction_doc_by_id(uid: str, transaction_id: str) -> dict | N
     is ACTIONABLE: `PATCH /transactions/{id}` and the rule-application
     machinery (`apply_single_rule`/`count_rule_matches`,
     app.services.categorisation) both only ever touch `transactions_col`,
-    never the other two (Yapily/statement). A hit there is real
+    never the other one (statement). A hit there is real
     but out of reach for this tool; returns the sentinel dict
     `{"_out_of_reach": True}` so the caller can return an honest error
     instead of silently building a proposal that would no-op on execute."""
     doc = await transactions_col.find_one({"_id": transaction_id, "user_id": uid}, _RECAT_PROJ)
     if doc is not None:
         return doc
-    for col in (yapily_transactions_col, statement_transactions_col):
+    for col in (statement_transactions_col,):
         other = await col.find_one({"_id": transaction_id, "user_id": uid}, {"_id": 1})
         if other is not None:
             return {"_out_of_reach": True}
@@ -6652,12 +6651,9 @@ async def _resolve_bank_connection_for_propose(uid: str, ref: str) -> dict:
     TrueLayer, or a finexer_consents_col row for Finexer) for
     propose_disconnect_bank, never a single account. Deliberately does NOT
     reuse `_resolve_account_for_propose` — that resolver's get_accounts
-    list mixes in Yapily accounts whose `connection_id` field is actually a
-    Yapily *consent* id (see accounts.py's own get_accounts), not a
-    connections_col/finexer_consents_col row id; resolving a bank name
-    through it could silently produce a connection id disconnect_connection
-    can never find, a wrong-but-plausible match. Yapily is never touched by
-    this tool at all.
+    list also carries offline accounts and per-account rows rather than
+    connection rows; resolving a bank name through it could silently produce
+    an id disconnect_connection can never find, a wrong-but-plausible match.
 
     `ref` is tried two ways: an exact `_id` match against connections_col or
     finexer_consents_col for this uid is always unambiguous (ids are

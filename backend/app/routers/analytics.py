@@ -27,8 +27,7 @@ from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
 from app.core import timeutil
 from app.db.collections import (
-    accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
-    yapily_consents_col,
+    accounts_col, transactions_col,
     statement_accounts_col, investment_accounts_col,
     statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
@@ -264,7 +263,6 @@ async def get_kpis(user: dict = Depends(current_user)):
     _last_sync = await last_bank_sync(uid)
 
     accounts      = await accounts_col.find({"user_id": uid}).to_list(None)
-    yapily_accs   = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
     stmt_accs_all = await statement_accounts_col.find({"user_id": uid}).to_list(None)
     # GBP net worth only — a non-GBP statement account must not be summed as £
     stmt_accs     = [a for a in stmt_accs_all if str(a.get("currency", "GBP")).upper() == "GBP"]
@@ -288,28 +286,22 @@ async def get_kpis(user: dict = Depends(current_user)):
         for a in inv_accs
     )
 
-    if not accounts and not yapily_accs and not stmt_accs and not inv_accs:
+    if not accounts and not stmt_accs and not inv_accs:
         return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)
 
     net_worth = (
         sum(a["balance"] for a in accounts)
-        + sum(a.get("balance", 0) for a in yapily_accs)
         + sum(a.get("balance", 0) for a in stmt_accs)
         + investment_total
     )
     cash = (
         sum(a["balance"] for a in accounts if a["type"] == "bank")
-        + sum(a.get("balance", 0) for a in yapily_accs if a.get("type") == "bank")
         + sum(a.get("balance", 0) for a in stmt_accs if a.get("type") == "bank")
     )
-    yapily_txn_debits = await yapily_transactions_col.find(
-        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
-    ).to_list(None)
     debits    = await transactions_col.find(
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
     ).to_list(None)
-    all_debits = debits + yapily_txn_debits
-    avg_spend  = _avg_monthly_burn(all_debits)
+    avg_spend  = _avg_monthly_burn(debits)
     runway     = cash / avg_spend if avg_spend else 0
 
     return KPIResponse(
@@ -1955,8 +1947,7 @@ def _overlay_live_account_balances(resp: dict, accs: list[dict]) -> None:
     balance (G188), in one pass over the already-fetched account rows.
 
     Upcoming's per-account walk seeds from these. An item whose account is
-    not in the live pool (e.g. a Yapily account whose consent was revoked, or
-    an item with no account) keeps its snapshot value: there is no live
+    not in the live pool (e.g. an item with no account) keeps its snapshot value: there is no live
     figure to prefer, and dropping it would change the walk's inputs.
     """
     live = {str(a["_id"]): float(a.get("balance") or 0) for a in accs if a.get("_id") is not None}
@@ -2063,23 +2054,11 @@ def _touches_pooled_cash(item: dict) -> bool:
 async def _safe_to_spend_accounts(uid: str) -> list[dict]:
     """Live UK account pool source for Safe-to-Spend.
 
-    Yapily account documents are retained after a consent is removed. An
-    account belongs in a balance calculation only when its own consent is
-    still AUTHORIZED; a different active consent must not revive stale cash.
+    H87: the pool is `accounts_col` only (TrueLayer and Finexer rows).
     """
     projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1, "name": 1,
                   "include_in_safe_to_spend": 1}
-    native_task = accounts_col.find({"user_id": uid}, projection).to_list(None)
-    active_consents_task = yapily_consents_col.find(
-        {"user_id": uid, "status": "AUTHORIZED"}, {"_id": 1}
-    ).to_list(None)
-    accounts, active_consents = await asyncio.gather(native_task, active_consents_task)
-    active_consent_ids = [consent["_id"] for consent in active_consents if consent.get("_id")]
-    if active_consent_ids:
-        accounts += await yapily_accounts_col.find(
-            {"user_id": uid, "consent": {"$in": active_consent_ids}}, projection
-        ).to_list(None)
-    return accounts
+    return await accounts_col.find({"user_id": uid}, projection).to_list(None)
 
 
 # Tokens generic enough to appear in almost any UK current or savings
@@ -2671,11 +2650,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     raw: list[dict] = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
-    raw += await yapily_transactions_col.find(
-        {"user_id": uid, "date": {"$gte": cutoff180}}, proj
-    ).to_list(None)
 
-    # accounts_col/yapily_accounts_col docs today only ever populate "type"/
+    # accounts_col docs today only ever populate "type"/
     # "subtype" (see truelayer_sync.py, finexer_sync.py); "account_type"/
     # "account_subtype" are projected too for forward-compat with
     # is_credit_card_account's dual lookup (mirrors companion.py/behaviour.py/
@@ -2683,10 +2659,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     acct_proj_map = {"name": 1, "balance": 1, "currency": 1, "provider": 1,
                       "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1,
                       "include_in_safe_to_spend": 1}
-    acct_docs = (
-        await accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
-        + await yapily_accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
-    )
+    acct_docs = await accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
     account_map: dict[str, dict] = {
         str(a["_id"]): {
             "name": a.get("name", "Account"),
@@ -2925,10 +2898,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
 
     acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1, "include_in_safe_to_spend": 1}
-    all_accounts = (
-        await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
-        + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
-    )
+    all_accounts = await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
     available_balance = round(sum(
         float(a.get("balance", 0))
         for a in all_accounts
@@ -3289,7 +3259,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
                 return v
 
         oid_ids = [_try_oid(a) for a in acct_ids]
-        for col in (accounts_col, yapily_accounts_col):
+        for col in (accounts_col,):
             async for acc in col.find(
                 {"_id": {"$in": oid_ids}},
                 {"balance": 1, "current_balance": 1, "available_balance": 1},
@@ -3519,7 +3489,6 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
     cutoff = datetime.now() - timedelta(days=_ENRICH_LOOKBACK_DAYS)
     proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1}
     raw: list = await transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
-    raw += await yapily_transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
 
     buckets: dict = defaultdict(list)
     for t in raw:
@@ -3530,7 +3499,7 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
     bank_by_account: dict = {}
     if any(buckets.values()):
         acct_proj = {"provider": 1}
-        for col in (accounts_col, yapily_accounts_col):
+        for col in (accounts_col,):
             async for a in col.find({"user_id": uid}, acct_proj):
                 bank_by_account[str(a["_id"])] = a.get("provider")
 
@@ -4060,7 +4029,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # the sum of two database round trips before Planning can render.
         _obs_batches = await asyncio.gather(*(
             _load_recent_observations(_col)
-            for _col in [transactions_col, yapily_transactions_col]
+            for _col in [transactions_col]
         ))
         _obs_pipeline_results = [row for batch in _obs_batches for row in batch]
         for _t in _obs_pipeline_results:
@@ -4487,7 +4456,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             acc_id = pdoc.get("account_id")
             if acc_id:
                 _acct_doc = None
-                for _col in (accounts_col, yapily_accounts_col):
+                for _col in (accounts_col,):
                     # account_type/account_subtype: forward-compat projection,
                     # see acct_proj_map comment above — no current writer sets them.
                     _acct_doc = await _col.find_one(
@@ -4700,9 +4669,6 @@ async def _get_txn_dates_for_income_key(uid: str, key: str) -> list:
     raw = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
     ).to_list(None)
-    raw += await yapily_transactions_col.find(
-        {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
-    ).to_list(None)
     dates = []
     for t in raw:
         t_key = series_key(t)
@@ -4912,10 +4878,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     Algorithm (pooled):
     1. Compute next_payday from pay_period_config / confirmed income schedule.
     2. Load cashflow cache; if absent → insufficient_data.
-    3. Sum LIVE balances of spendable current accounts only. Yapily accounts
-       are eligible only while their consent remains AUTHORIZED, matching
-       GET /accounts; stale records from a revoked consent must never become
-       phantom cash here.
+    3. Sum LIVE balances of spendable current accounts only.
        Exclusion rules (mirrors HomePage.tsx isSavings / isCredit heuristics):
          - subtype contains "SAVING" (case-insensitive) → savings account
          - type contains "credit" OR subtype contains "CREDIT" → credit card

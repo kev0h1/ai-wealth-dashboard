@@ -304,7 +304,7 @@ async def get_payday_proposal(uid: str, today: date | None = None) -> dict | Non
     _log = logging.getLogger(__name__)
     try:
         from datetime import datetime, timedelta
-        from app.db.collections import transactions_col, yapily_transactions_col
+        from app.db.collections import transactions_col
         from app.routers.analytics import _detect_recurring
         from collections import defaultdict
 
@@ -315,9 +315,6 @@ async def get_payday_proposal(uid: str, today: date | None = None) -> dict | Non
         proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
                 "transaction_type": 1, "category": 1, "custom_category": 1, "account_id": 1}
         raw = await transactions_col.find(
-            {"user_id": uid, "date": {"$gte": cutoff}}, proj
-        ).to_list(None)
-        raw += await yapily_transactions_col.find(
             {"user_id": uid, "date": {"$gte": cutoff}}, proj
         ).to_list(None)
         credits = [t for t in raw if t.get("transaction_type") == "credit"

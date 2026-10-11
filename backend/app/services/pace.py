@@ -27,7 +27,6 @@ from app.db.collections import (
     cashflow_cache_col,
     preferences_col,
     transactions_col,
-    yapily_transactions_col,
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
@@ -188,7 +187,7 @@ async def load_spend_txns(
         date_filter["$lte"] = datetime(end.year, end.month, end.day, 23, 59, 59)
 
     raw_docs: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         try:
             async for doc in col.find(
                 {
@@ -455,7 +454,7 @@ async def compute_pace(
     }
 
     raw_docs: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         try:
             async for doc in col.find(
                 {
@@ -770,7 +769,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
     }
 
     raw_docs: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         try:
             async for doc in col.find(
                 {"user_id": uid, "transaction_type": "debit", "date": {"$gte": db_cutoff_dt}},

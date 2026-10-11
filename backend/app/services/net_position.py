@@ -71,7 +71,7 @@ async def card_growth_unpaid(
     `is_credit_card` boolean (set via `is_credit_card_account`) alongside
     `account_id` — that flag is the PRIMARY signal a bill resolves to a
     card, since `account_id` sets can differ in spelling/format across the
-    two transaction collections (native + Yapily) the card-growth delta and
+    transaction sources the card-growth delta and
     the bills window are independently sourced from. `account_id in
     card_ids` is kept as a FALLBACK for bill dicts with no `is_credit_card`
     key at all (older callers/tests), so a card direct debit still gets

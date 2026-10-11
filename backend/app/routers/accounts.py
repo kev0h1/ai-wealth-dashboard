@@ -11,12 +11,10 @@ from app.core.subscription import open_banking_paused
 from app.db.collections import (
     connections_col, accounts_col, transactions_col,
     statement_accounts_col, statement_transactions_col,
-    yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     account_rates_col, manual_accounts_col, cashflow_cache_col,
     excluded_accounts_col,
 )
 from app.services.truelayer_sync import sync_connection
-from app.services.yapily_sync import sync_yapily_consent
 from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
@@ -59,7 +57,7 @@ async def _attach_aprs(uid: str, result: List[Account]) -> List[Account]:
 
 
 def _engine_source_eligible(acc: dict) -> bool:
-    """`cover_source_eligible` for a live (TrueLayer/Finexer/Yapily) account
+    """`cover_source_eligible` for a live (TrueLayer/Finexer) account
     doc, defined as EXACTLY the combined predicate `companion.py`'s
     `source_capacity` build applies (see `compute_today_items`'s
     `source_capacity` loop, `services/companion.py` around line 1802-1810):
@@ -77,7 +75,7 @@ def _engine_source_eligible(acc: dict) -> bool:
     marker only ever exists on companion.py's manually-tracked account
     snapshots, which routers/accounts.py builds separately in
     `_manual_to_account`/`_manual_accounts` below with its own (already
-    correct) credit-card check — a raw accounts_col/yapily_accounts_col doc
+    correct) credit-card check — a raw accounts_col doc
     is never offline-marked, so that leg of the OR is omitted here as
     always-false for this input shape, not because it doesn't apply.
     """
@@ -161,32 +159,6 @@ async def get_accounts(user: dict = Depends(current_user)):
             connection_id="",
             cover_source_eligible=False,
         ))
-    # Only include Yapily accounts if the user has an active Yapily consent.
-    # Stale records from past Yapily connections (consent since deleted) must
-    # not surface — they create phantom duplicates of TrueLayer accounts.
-    has_yapily_consent = await yapily_consents_col.count_documents(
-        {"user_id": uid, "status": "AUTHORIZED"}
-    ) > 0
-    if has_yapily_consent:
-        yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
-        for a in yapily_accs:
-            result.append(Account(
-                id=a["_id"], name=a.get("name", "Account"), type=a.get("type", "bank"),
-                balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
-                provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
-                connection_id=a.get("consent", ""),
-                paused=paused,
-                # G55: was unconditionally True regardless of card type.
-                # Yapily's own sync (`services/yapily_sync.py`) stores the
-                # provider's real account type lowercased straight into
-                # `type` (its enum includes credit card) and never sets
-                # `subtype` at all, so `_engine_source_eligible` is passed
-                # the RAW doc `a` here, not the Account's own defaulted
-                # `type="bank"` above, otherwise a Yapily credit card would
-                # read as a current account and wrongly pass.
-                cover_source_eligible=_engine_source_eligible(a),
-                include_in_safe_to_spend=a.get("include_in_safe_to_spend") is not False,
-            ))
     result.extend(await _manual_accounts(uid, "GBP"))
     return await _attach_aprs(uid, result)
 
@@ -221,9 +193,6 @@ async def sync_all(user: dict = Depends(current_user)):
         ids, new_count = await sync_connection(conn["_id"], uid)
         total += len(ids)
         total_new_txns += new_count
-    yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
-    for yc in yapily_conns:
-        asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
     finexer_conns = await _finexer_consents_col.find({"user_id": uid, "status": "authorized"}).to_list(None)
     # The Finexer pulls run alongside the response, but the recompute below
@@ -289,9 +258,6 @@ async def sync_history(user: dict = Depends(current_user)):
         ids, new_count = await sync_connection(conn["_id"], uid, from_date=from_dt)
         total += len(ids)
         total_new_txns += new_count
-    yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
-    for yc in yapily_conns:
-        asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
     async def _post_sync(u, new_count: int):
         await apply_rules_bulk(u, structural=True)
@@ -343,22 +309,6 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
             raise HTTPException(404, "Account not found")
         await cascade_account_deletion(uid, [account_id], acc_col=statement_accounts_col, txn_col=statement_transactions_col)
         return {"deleted": account_id}
-
-    # Yapily: clean up stale record AND run cascade for its provider collections.
-    # Then fall through — a Yapily account may also have a TrueLayer exclusion row
-    # that needs to be written (legacy pattern from older codebase).
-    yapily_acc = await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid})
-    if yapily_acc:
-        await cascade_account_deletion(
-            uid, [account_id],
-            acc_col=yapily_accounts_col,
-            txn_col=yapily_transactions_col,
-        )
-        # Fall through to TrueLayer exclusion path below (if a TrueLayer account
-        # exists with this id), otherwise return here.
-        tl_also = await accounts_col.find_one({"_id": account_id, "user_id": uid})
-        if not tl_also:
-            return {"deleted": account_id}
 
     tl_acc = await accounts_col.find_one({"_id": account_id, "user_id": uid})
     if tl_acc:

@@ -11,7 +11,7 @@ from copy import deepcopy
 
 from fastapi import HTTPException
 
-from app.db.collections import accounts_col, manual_accounts_col, yapily_accounts_col
+from app.db.collections import accounts_col, manual_accounts_col
 from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account,
@@ -71,7 +71,6 @@ async def owned_account_map(uid: str) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for col, manual in (
         (accounts_col, False),
-        (yapily_accounts_col, False),
         (manual_accounts_col, True),
     ):
         for doc in await col.find({"user_id": uid}).to_list(None):

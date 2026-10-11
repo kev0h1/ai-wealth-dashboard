@@ -23,7 +23,7 @@ from app.core.config import PRIMARY_EMAIL
 from app.core.push import send_push_to_user, notify_new_transactions
 from app.db.collections import (
     preferences_col, savings_goals_col,
-    transactions_col, yapily_transactions_col, notification_state_col,
+    transactions_col, notification_state_col,
 )
 from app.services.categories import get_category_kinds, is_non_spend
 from app.services.pay_period import get_pay_period_for_date
@@ -547,7 +547,7 @@ async def _current_classification_flags(user_id: str) -> tuple[set[str], set[str
 
     other_clause = _category_clause("Other")
     unplaced: set[str] = set()
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         cursor = col.find(
             {"user_id": user_id, "transaction_type": "debit", **other_clause},
             {"_id": 1},

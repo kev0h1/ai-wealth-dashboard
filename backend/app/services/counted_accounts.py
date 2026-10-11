@@ -1,7 +1,7 @@
 """G231: accounts a user has chosen not to count towards Safe to Spend.
 
 One flag, `include_in_safe_to_spend`, lives on the account document (live
-bank accounts, Yapily accounts and offline accounts alike). Absent means
+bank accounts and offline accounts alike). Absent means
 counted, so every existing account keeps counting. Only spendability
 changes: balances still show on Accounts and in net worth.
 
@@ -18,7 +18,7 @@ from app.core.config import mask_email
 from fastapi import HTTPException
 
 from app.db.collections import (
-    accounts_col, yapily_accounts_col, manual_accounts_col,
+    accounts_col, manual_accounts_col,
     allocations_col, commitments_col,
 )
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 FLAG = "include_in_safe_to_spend"
 
-_COLLECTIONS = (accounts_col, yapily_accounts_col, manual_accounts_col)
+_COLLECTIONS = (accounts_col, manual_accounts_col)
 
 
 def is_excluded(doc: dict | None) -> bool:

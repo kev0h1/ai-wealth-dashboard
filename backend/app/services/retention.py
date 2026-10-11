@@ -56,18 +56,18 @@ _RELAY_DOMAIN = "@privaterelay.appleid.com"
 # connection/consent doc, every provider's account doc, and every
 # provider's transaction rows. Looked up fresh from app.db.collections by
 # name (see account_has_data) rather than bound at import time, same
-# reasoning as erase_user's own manifest-driven sweep. A101: the five
-# collections with no live *_col binding (Mono/M-Pesa, unbound by A98) are
+# reasoning as erase_user's own manifest-driven sweep. A101: the
+# collections with no live *_col binding (Mono/M-Pesa unbound by A98; the retired provider unbound by H87) are
 # NOT listed here — they are all connection/account/transaction data too,
 # but account_has_data checks them separately via
 # app.db.collections.ERASE_ONLY_COLLECTIONS, the same raw db[name] path
 # erase_user uses for them, since there is no *_col attribute to getattr.
 _ACCOUNT_DATA_COLLECTIONS = (
-    "connections_col", "finexer_consents_col", "yapily_consents_col",
+    "connections_col", "finexer_consents_col",
     "accounts_col", "statement_accounts_col", "manual_accounts_col",
-    "yapily_accounts_col", "investment_accounts_col",
+    "investment_accounts_col",
     "transactions_col", "statement_transactions_col",
-    "yapily_transactions_col", "manual_transactions_col",
+    "manual_transactions_col",
 )
 
 # Activity-stamp throttle: `current_user` (app.core.auth) calls stamp_activity
@@ -152,7 +152,7 @@ async def erase_user(uid: str) -> dict[str, int]:
 
 async def account_has_data(uid: str) -> bool:
     """True if `uid` owns any connection, consent, account, or transaction
-    row anywhere (TrueLayer, Finexer, Yapily, statement upload, manual,
+    row anywhere (TrueLayer, Finexer, statement upload, manual,
     investment, or the unbound Mono/M-Pesa collections — A101) — the bar
     erase_orphaned_relay_account below refuses to cross ("never delete an
     account with data").

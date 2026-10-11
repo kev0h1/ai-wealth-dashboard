@@ -8,7 +8,7 @@ than 3 months of history we average over the months actually present.
 """
 from datetime import datetime
 
-from app.db.collections import cashflow_cache_col, transactions_col, yapily_transactions_col
+from app.db.collections import cashflow_cache_col, transactions_col
 from app.services.categories import get_category_kinds, is_non_spend
 
 # Only the fields the maths below actually touches — keeps the 90-day scan
@@ -58,15 +58,7 @@ async def monthly_cashflow(uid: str, cutoff: datetime) -> dict:
         {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}},
         _CF_PROJECTION,
     ).to_list(None)
-    income_txns += await yapily_transactions_col.find(
-        {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}},
-        _CF_PROJECTION,
-    ).to_list(None)
     debit_txns  = await transactions_col.find(
-        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}},
-        _CF_PROJECTION,
-    ).to_list(None)
-    debit_txns += await yapily_transactions_col.find(
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}},
         _CF_PROJECTION,
     ).to_list(None)

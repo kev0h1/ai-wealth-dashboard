@@ -54,7 +54,7 @@ def is_encrypted(value: Optional[str]) -> bool:
 
 def token_fingerprint(value: str) -> str:
     """Deterministic, non-reversible lookup key for a bank credential that
-    must ALSO serve as a document/join id (e.g. Yapily's consent token,
+    must ALSO serve as a document/join id (e.g. a provider consent token,
     which a provider both issues to us as an opaque identifier and expects
     back verbatim as a bearer header — unlike TrueLayer, where the OAuth
     `state`/connection id we mint ourselves is a different value from the

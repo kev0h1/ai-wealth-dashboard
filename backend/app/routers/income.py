@@ -3,7 +3,7 @@ from datetime import date as _date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core import timeutil
-from app.db.collections import preferences_col, transactions_col, yapily_transactions_col
+from app.db.collections import preferences_col, transactions_col
 from app.routers.analytics import compute_and_cache_cashflow, _detect_recurring
 from app.services.income import derive_schedule, next_occurrence, schedule_label, get_confirmed_payday
 from app.services.categorisation import series_key
@@ -33,9 +33,6 @@ async def _get_detected_income_streams(uid: str) -> list[dict]:
     raw = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff}}, proj
     ).to_list(None)
-    raw += await yapily_transactions_col.find(
-        {"user_id": uid, "date": {"$gte": cutoff}}, proj
-    ).to_list(None)
     credits = [t for t in raw if t.get("transaction_type") == "credit"
                and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
     return _detect_recurring(credits, today=timeutil.user_today(), is_income=True)
@@ -51,9 +48,6 @@ async def _get_txn_dates_for_key(uid: str, key: str) -> list[_date]:
     proj = {"merchant_name": 1, "description": 1, "date": 1, "transaction_type": 1,
             "category": 1, "custom_category": 1, "account_id": 1}
     raw = await transactions_col.find(
-        {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
-    ).to_list(None)
-    raw += await yapily_transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
     ).to_list(None)
     dates = []

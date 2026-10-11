@@ -23,7 +23,6 @@ EXPIRY_GRACE_DAYS = 7
 from app.db.collections import (
     planned_expenses_col,
     transactions_col,
-    yapily_transactions_col,
 )
 from app.services import response_cache
 
@@ -88,7 +87,7 @@ async def settle_planned_expenses(uid: str) -> bool:
 
         # Search both transaction collections
         candidates = []
-        for col in (transactions_col, yapily_transactions_col):
+        for col in (transactions_col,):
             txns = await col.find(
                 txn_query,
                 {"_id": 1, "amount": 1, "date": 1, "category": 1, "custom_category": 1},

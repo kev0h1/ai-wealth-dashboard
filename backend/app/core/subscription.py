@@ -709,12 +709,12 @@ async def grant_pack(email: str, kind: str, pack_id: str, *, source: str = "purc
 async def check_connection_limit(email: str) -> None:
     """Raise 402 if the user's tier's bank or account cap is exceeded.
 
-    `max_banks` counts completed TrueLayer connections, connected Finexer
-    consents, and Yapily consents. `max_accounts` counts `accounts_col`
+    `max_banks` counts completed TrueLayer connections and connected Finexer
+    consents. `max_accounts` counts `accounts_col`
     docs for the user. Either cap being None means unlimited. With the
     default tier at max, this is a no-op today."""
     from app.db.collections import (
-        accounts_col, connections_col, finexer_consents_col, yapily_consents_col,
+        accounts_col, connections_col, finexer_consents_col,
     )
 
     sub = await get_subscription(email)
@@ -724,8 +724,7 @@ async def check_connection_limit(email: str) -> None:
     if max_banks is not None:
         tl_count = await connections_col.count_documents({"user_id": email, "access_token": {"$exists": True}})
         finexer_count = await finexer_consents_col.count_documents({"user_id": email, "status": "connected"})
-        yap_count = await yapily_consents_col.count_documents({"user_id": email})
-        bank_count = tl_count + finexer_count + yap_count
+        bank_count = tl_count + finexer_count
         if bank_count >= max_banks:
             raise HTTPException(
                 status_code=402,

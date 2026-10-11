@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
 from app.db.collections import (
-    transactions_col, yapily_transactions_col,
+    transactions_col,
     statement_transactions_col,
 )
 from app.services.transport import analyse_transport
@@ -22,7 +22,6 @@ async def get_transport_summary(user: dict = Depends(current_user)):
             "date": 1, "transaction_type": 1, "category": 1}
 
     raw = await transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
-    raw += await yapily_transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
     raw += await statement_transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
 
     return analyse_transport(raw, period_days=90)

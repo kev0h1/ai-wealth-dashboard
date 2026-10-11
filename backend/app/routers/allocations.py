@@ -93,8 +93,6 @@ from app.db.collections import (
     manual_accounts_col,
     preferences_col,
     transactions_col,
-    yapily_accounts_col,
-    yapily_transactions_col,
 )
 from app.services import response_cache
 from app.services.categories import clean_name
@@ -135,12 +133,12 @@ def _try_oid(v: str):
 
 async def _account_owned(uid: str, account_id: str) -> bool:
     """True if `account_id` is one of `uid`'s own accounts (connected via
-    TrueLayer/Finexer/Yapily, or a manual offline account) — same account
+    TrueLayer/Finexer, or a manual offline account) — same account
     universe commitments.py's funding pots draw from (see
     commitments._pot_kind), plus an explicit user_id ownership check."""
     oid = _try_oid(account_id)
     ids = {oid, account_id} if oid != account_id else {account_id}
-    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+    for col in (accounts_col, manual_accounts_col):
         for _id in ids:
             if await col.find_one({"_id": _id, "user_id": uid}, {"_id": 1}):
                 return True
@@ -291,7 +289,7 @@ async def matching_fills_this_period(
     }
     proj = {"amount": 1, "merchant_name": 1, "description": 1, "date": 1}
     out: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         for t in await col.find(q, proj).to_list(None):
             if not _rule_matches(match_type, match_value, t):
                 continue
@@ -629,7 +627,7 @@ async def fill_candidates(account_id: str = Query(...), user: dict = Depends(cur
     }
     proj = {"amount": 1, "merchant_name": 1, "description": 1, "date": 1}
     txns = []
-    for col in (transactions_col, yapily_transactions_col):
+    for col in (transactions_col,):
         txns += await col.find(q, proj).to_list(None)
 
     groups: dict[str, list[dict]] = defaultdict(list)

@@ -15,12 +15,11 @@ from app.core.config import (
 )
 from app.core.push import send_push_to_user
 from app.db.collections import (
-    accounts_col, connections_col, yapily_consents_col,
+    accounts_col, connections_col,
     webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
     finexer_consents_col, worker_runs_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
-from app.services.yapily_sync import sync_yapily_consent
 from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
@@ -114,19 +113,6 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     await _warm_after_sync(user_id)
     return {"synced": len(ids), "new_transactions": new_count}
-
-
-async def task_sync_yapily(ctx, consent_token: str, user_id: str):
-    # B45: webhook-driven and retried jobs reach here without passing the
-    # reconcile cron's tier check, so the pause is enforced at the task too.
-    if await open_banking_paused(user_id, fail_closed=True):
-        return {"skipped": "open_banking_paused"}
-    await sync_yapily_consent(consent_token, user_id)
-    await apply_rules_bulk(user_id, structural=True)
-    await categorise_others_bg(user_id)
-    await apply_mirror_rules(user_id)
-    await _warm_after_sync(user_id)
-    return {"ok": True}
 
 
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
@@ -761,7 +747,7 @@ class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
     # the weekly insights refresh land somewhere that executes them.
-    functions = [task_sync_truelayer, task_sync_yapily,
+    functions = [task_sync_truelayer,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
