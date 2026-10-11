@@ -80,7 +80,7 @@ def test_can_i_length_gate_rejects_short_question(monkeypatch):
 
 def test_can_i_length_gate_rejects_long_question(monkeypatch):
     monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
-    body = {"question": "x" * 161}
+    body = {"question": "x" * 501}
     try:
         asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
         assert False, "expected HTTPException"
