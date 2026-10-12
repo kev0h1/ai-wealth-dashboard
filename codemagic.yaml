@@ -156,6 +156,9 @@ workflows:
         # production until compliance sign-off.
         NEXT_PUBLIC_MCP_CONNECTOR: "on"
         NEXT_PUBLIC_MCP_URL: "https://uat.wealth.auriqltd.co.uk/api/mcp"
+        # Merged consent step (A159/A161): ON at Finexer's request, UAT and
+        # production app builds alike (the prod workflow below sets it too).
+        NEXT_PUBLIC_CONSENT_MERGED_STEP: "on"
     scripts:
       - &step_build_web
         name: Build web (mobile static export)
@@ -546,6 +549,9 @@ workflows:
         # with `[ "${IOS_PUSH_ENABLED:-false}" = "true" ]`, a YAML boolean `true`
         # would not match that string comparison.
         IOS_PUSH_ENABLED: "true"
+        # Merged consent step (A159/A161): ON in production at Finexer's
+        # request. Build-time flag; switching it off is a rebuild.
+        NEXT_PUBLIC_CONSENT_MERGED_STEP: "on"
     scripts:
       - *step_build_web
       - *step_capacitor_sync

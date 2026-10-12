@@ -261,6 +261,12 @@ else
   fi
 fi
 
+# Merged consent step (A159/A161). Finexer asked to see it live, so it is ON
+# for every app build, production and UAT alike. The flag is build-time
+# (frontend/lib/featureFlags.ts), so the app bundle only carries it if it is
+# exported here. Switching it off is an edit to this line plus a rebuild.
+export NEXT_PUBLIC_CONSENT_MERGED_STEP=on
+
 # MOBILE_API_BASE lets CI (or a local override) point the built app at a
 # different backend. Falls back to UAT when unset — Kevin's standing rule is
 # that Android APK builds always bake the UAT API base by default; only an

@@ -85,6 +85,12 @@ TRUELAYER_RAILWAY_VARS = [
 ]
 TRUELAYER_VERCEL_VAR = "NEXT_PUBLIC_TRUELAYER_PICKER"
 
+# A161: the merged consent step (A159) is ON in production at Finexer's
+# request. Unlike the flags above this one is wanted ON, so the check never
+# goes red; it reports what the repo's production app builds will carry and
+# reminds the operator that the Vercel variable is theirs to set.
+CONSENT_MERGED_STEP_VAR = "NEXT_PUBLIC_CONSENT_MERGED_STEP"
+
 # C10: after a successful deploy, best-effort trigger the production
 # TestFlight build via the Codemagic API. See docs/ops/ENV.md's "Release
 # tooling" section for CODEMAGIC_API_TOKEN / CODEMAGIC_APP_ID and
@@ -489,6 +495,41 @@ def verdict_truelayer_absent(
     )
 
 
+# ── (k) merged consent step flag (A161) ──────────────────────────────────
+
+
+def _file_sets_flag_on(path: Path, pattern: str) -> bool:
+    try:
+        return re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE) is not None
+    except OSError:
+        return False
+
+
+def verdict_consent_merged_step(repo_root: Path = REPO_ROOT) -> CheckItem:
+    """Amber, never red: report the flag state the repo's production app
+    builds carry (build-mobile.sh and the Codemagic production workflow) and
+    remind the operator that Vercel production is not readable from here."""
+    var = CONSENT_MERGED_STEP_VAR
+    build_mobile = _file_sets_flag_on(
+        repo_root / "frontend" / "scripts" / "build-mobile.sh", rf"^export {var}=on\s*$"
+    )
+    codemagic_text = ""
+    try:
+        codemagic_text = (repo_root / "codemagic.yaml").read_text(encoding="utf-8")
+    except OSError:
+        pass
+    prod_block = codemagic_text.split(f"{CODEMAGIC_PROD_WORKFLOW}:", 1)[-1] if f"{CODEMAGIC_PROD_WORKFLOW}:" in codemagic_text else ""
+    codemagic_prod = re.search(rf'^\s*{var}:\s*"on"\s*$', prod_block, re.MULTILINE) is not None
+    state = (
+        f"app builds: build-mobile.sh prod {'ON' if build_mobile else 'OFF'}, "
+        f"Codemagic {CODEMAGIC_PROD_WORKFLOW} {'ON' if codemagic_prod else 'OFF'}"
+    )
+    return CheckItem(
+        "consent_merged_step", "Merged consent step flag (A161)", "amber",
+        f"{state}. Vercel production env {var} must be set by Kevin; this script cannot verify it",
+    )
+
+
 # ── check orchestration ──────────────────────────────────────────────────
 
 
@@ -566,6 +607,7 @@ def run_check(
         vercel_truelayer_present = False
     items.append(verdict_mcp_flag(railway_mcp_present, vercel_mcp_present))
     items.append(verdict_truelayer_absent(railway_truelayer_present, vercel_truelayer_present))
+    items.append(verdict_consent_merged_step(repo_root))
 
     return items
 

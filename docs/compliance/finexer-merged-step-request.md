@@ -1,6 +1,6 @@
 # Draft request to Finexer: merged consent step (A159)
 
-For Kevin to review and send. Not sent. The change is built behind a flag that stays off until Finexer replies.
+For Kevin to review and send. Not sent. The change is built behind a flag. It is live in production at Finexer's request, for their review.
 
 **To:** Finexer LTD compliance contact
 **Subject:** AURIQ LTD: change to our pre-consent screen, written view needed (Client Terms A4.2, 7.5, A6.2)
@@ -34,7 +34,7 @@ Folder: `docs/compliance/finexer-merged-step-request/`
 
 ## 4. Rollout control
 
-The merged step is behind the build-time flag `NEXT_PUBLIC_CONSENT_MERGED_STEP` (read in `frontend/lib/featureFlags.ts` as `CONSENT_MERGED_STEP`). It is off by default, in production and on UAT, so the current four-tap flow with the full sentence on Sorted's review screen stays live. We will not turn it on until you have replied in writing. We will say AURIQ LTD is an agent of Finexer LTD and never describe AURIQ LTD as an appointed representative or tied agent, or as FCA authorised itself.
+The merged step is behind the build-time flag `NEXT_PUBLIC_CONSENT_MERGED_STEP` (read in `frontend/lib/featureFlags.ts` as `CONSENT_MERGED_STEP`). It is on in UAT and in production, at Finexer's request to see it live, for their review. Switching it off is a rebuild plus a release, and the always-visible variant (the full A4.1 sentence on Sorted's review screen) is the fallback. Finexer's written request to see it live is kept with the pack, because clauses 7.5 and A6.2 require prior written approval of consent-screen changes. We will say AURIQ LTD is an agent of Finexer LTD and never describe AURIQ LTD as an appointed representative or tied agent, or as FCA authorised itself.
 
 Kind regards,
 Kevin Maingi

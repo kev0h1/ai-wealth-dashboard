@@ -76,6 +76,18 @@ check_tag "date+sha+number+env prefix (uat)" "uat build 2026-09-08 abc1234 #42" 
 check_tag "date+sha+number+env prefix (prod)" "prod build 2026-09-08 abc1234 #7" "2026-09-08" "abc1234" "7" "prod"
 check_tag "empty number is same as unset" "build 2026-09-08 abc1234" "2026-09-08" "abc1234" ""
 
+# ── A161: the merged consent step flag is exported ON for every app build
+# (production included), unconditionally: the export sits at column 0, not
+# inside the prod/UAT conditional, and nothing in the script turns it off.
+if grep -q '^export NEXT_PUBLIC_CONSENT_MERGED_STEP=on$' "$SCRIPT_DIR/build-mobile.sh" \
+  && ! grep -Eq '(unset|export) +NEXT_PUBLIC_CONSENT_MERGED_STEP=?(off)?$' "$SCRIPT_DIR/build-mobile.sh" \
+  && ! grep -q 'NEXT_PUBLIC_CONSENT_MERGED_STEP=off' "$SCRIPT_DIR/build-mobile.sh"; then
+  echo "PASS: build-mobile.sh exports NEXT_PUBLIC_CONSENT_MERGED_STEP=on unconditionally"
+else
+  echo "FAIL: build-mobile.sh must export NEXT_PUBLIC_CONSENT_MERGED_STEP=on at top level and never turn it off"
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "build-mobile-guard.test.sh: FAILED"
   exit 1

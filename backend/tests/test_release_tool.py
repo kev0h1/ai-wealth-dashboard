@@ -278,6 +278,28 @@ def test_verdict_mcp_flag_present_on_vercel_is_red():
 # credential names rather than one flag, plus the Vercel picker flag.
 
 
+# ── verdict_consent_merged_step (A161) ───────────────────────────────────
+
+
+def test_consent_merged_step_reports_app_builds_and_vercel_reminder():
+    item = release.verdict_consent_merged_step(REPO_ROOT)
+    assert item.verdict == "amber"
+    assert "build-mobile.sh prod ON" in item.message
+    assert "Codemagic ios-capacitor-prod ON" in item.message
+    assert (
+        "Vercel production env NEXT_PUBLIC_CONSENT_MERGED_STEP must be set by Kevin; "
+        "this script cannot verify it"
+    ) in item.message
+
+
+def test_consent_merged_step_reports_off_when_repo_files_lack_the_flag(tmp_path):
+    item = release.verdict_consent_merged_step(tmp_path)
+    assert item.verdict == "amber"
+    assert "build-mobile.sh prod OFF" in item.message
+    assert "Codemagic ios-capacitor-prod OFF" in item.message
+    assert "cannot verify it" in item.message
+
+
 def test_verdict_truelayer_absent_everywhere_is_green():
     item = release.verdict_truelayer_absent({"ai-wealth-dashboard": [], "worker": []}, False)
     assert item.verdict == "green"

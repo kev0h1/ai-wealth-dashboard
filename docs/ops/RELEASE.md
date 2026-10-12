@@ -274,6 +274,36 @@ the production smoke checks first and does not tag if any fail, then pushes the
 tag. It deploys nothing. Run from the shared tree, by Kevin or the coordinator
 (a developer session never releases).
 
+## Consent merged step flag (A161)
+
+The merged consent step (A159) is ON in production at Finexer's written
+request, so they can review it live. The flag is build-time
+(`frontend/lib/featureFlags.ts`, `CONSENT_MERGED_STEP`), so every surface needs
+a rebuild to carry it. `scripts/release.py check` reports an amber row
+"Merged consent step flag (A161)" with what the repo's app builds carry, and
+reminds you that it cannot read Vercel.
+
+Steps for Kevin:
+
+1. Vercel production environment: set `NEXT_PUBLIC_CONSENT_MERGED_STEP` to
+   `on` (Production scope only is enough). This script cannot verify it.
+2. App builds already carry it: `frontend/scripts/build-mobile.sh` exports
+   `NEXT_PUBLIC_CONSENT_MERGED_STEP=on` for every target, and `codemagic.yaml`
+   sets it on both `ios-capacitor` and `ios-capacitor-prod`. Confirm both
+   are present on the commit being released.
+3. Run `scripts/release.py deploy` as normal. The Vercel build reads the
+   variable at build time, so deploy after step 1, not before.
+4. Verify with a test account (never real banks): choosing a bank goes
+   straight to Finexer's hosted page; the bank list shows the pinned line
+   "AURIQ LTD acts as an agent of Finexer LTD, which is FCA authorised";
+   tapping it opens the full A4.1 sentence in place; Back and Cancel still
+   work. Take screenshots for the compliance pack.
+5. UAT: `frontend/.env.local` already has the variable on. The coordinator or
+   Kevin rebuilds with `backend/.venv/bin/python scripts/frontend_build.py`.
+
+Fallback: switching it off is a variable change plus a rebuild plus a
+release, which restores the always-visible variant.
+
 ## d) Rollback
 
 ```bash
