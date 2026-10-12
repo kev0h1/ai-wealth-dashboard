@@ -591,6 +591,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-12, claude): Coordinator review PASS 2026-10-12 on fd48f676: reviewer PASS at a82b97f4, later commit is a main merge. Kevin approved the merge in chat 2026-10-12. Production web stays off until Kevin sets the Vercel variable and releases via release.py.
 - [ ] **A162. Remove the A159 merged consent step and its flag, keeping the A155 G two-step bank connection flow (Kevin 2026-10-12: too small with the keyboard up)** [owner: claude] [state: review: feature-A162-merged-step-remove]
   - note (2026-10-12, claude): Reviewer PASS at 39d4852b: two-step A155 G flow untouched, merged-step code, flag and a159 check removed, DESIGN.md and Finexer doc updated (doc kept, marked withdrawn), tsc and 8 named checks exit 0, mutation on check:agency-disclosure fails as expected. A161 rejected; UAT .env.local flag off, rebuild is the coordinator's.
+  - note (2026-10-12, claude): Coordinator review PASS 2026-10-12 on 10de1062: reviewer PASS at 39d4852b, later commit is a main merge. Kevin approved the merge in chat 2026-10-12.
 
 ## B. Penny cost, tiers and billing
 
