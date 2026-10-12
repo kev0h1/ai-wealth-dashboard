@@ -23,7 +23,12 @@ We are AURIQ LTD, trading as Sorted, a registered agent of Finexer Ltd. Since ab
 - Template: aYiuDETVBXPq ("Sorted light")
 - Request: POST /apps/acc_DqPCRpHskkjNy7uYa1wv7mSv/templates/aYiuDETVBXPq, form-encoded fields name, app_name, css and header_html
 - Attempts: four, between 16:40 UTC and about 17:00 UTC on 12 October 2026. The CSS lengths were 1846, 1663 and 1862 characters. The last of these was the template's own current CSS sent back unchanged, so the failure does not depend on our content.
-- Response each time: HTTP 500, error type server_error, code internal_error, with the message asking us to try again later or contact you. Exact body: [Kevin: paste the JSON body from the sync output here]
+- Response each time: HTTP 500, error type server_error, code internal_error, with the message asking us to try again later or contact you. Exact body:
+
+```json
+{"error":{"type":"server_error","code":"internal_error","message":"The server encountered an internal error and was unable to complete your request. Please try again later or contact us at https://finexer.com/contact."}}
+```
+
 - Reads work: GET on the template list and on the single template both return 200.
 - Each failed update still changed the template's updated_at timestamp, although the css and header were not changed, so the handler seems to fail after touching the record.
 - Our live consent page is unaffected. We have not attempted updates to our dark template (8pq22L45Lf9L) to avoid further changes.
