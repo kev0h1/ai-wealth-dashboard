@@ -31,7 +31,8 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
 import { resolveFullName, initialsOf } from "@/lib/displayName";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
-import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
+import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce, awaitPushTokenPost } from "@/lib/capacitorPush";
+import { noDeviceAdvice, NOTIFICATIONS_BLOCKED_TEXT } from "@/lib/testPushAdvice";
 import {
   isAvailable as checkBiometryAvailability,
   authenticate as authenticateBiometrics,
@@ -186,7 +187,7 @@ export default function SettingsPage() {
   const [notifError, setNotifError] = useState("");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
   const [testPushLoading, setTestPushLoading] = useState(false);
-  const [testPushMsg, setTestPushMsg] = useState<{ text: string; tone: "ok" | "warn" } | null>(null);
+  const [testPushMsg, setTestPushMsg] = useState<{ text: string; tone: "ok" | "warn"; action?: string } | null>(null);
 
   const [incomeBracket, setIncomeBracket] = useState("");
   const [incomeInput, setIncomeInput] = useState("");
@@ -945,7 +946,7 @@ export default function SettingsPage() {
         // round-trip didn't finish, so the status row still promotes to
         // "granted"; the amber note below explains the rest.
         setNativePushStatus("granted");
-        setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported, please try again.");
+        setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported. Please try again.");
       } else {
         setNotifError("Couldn't enable notifications on this device.");
       }
@@ -987,6 +988,30 @@ export default function SettingsPage() {
     }
   }
 
+  // A138: native "Register this device": register now, wait for the server to
+  // hold the token, then re-send the test.
+  async function handleRegisterDevice() {
+    setTestPushLoading(true);
+    setTestPushMsg(null);
+    try {
+      const result = await initCapacitorPush();
+      if (result !== "granted") {
+        setTestPushMsg({
+          text: result === "denied"
+            ? NOTIFICATIONS_BLOCKED_TEXT
+            : "Your phone didn't finish registering. Please try again in a moment.",
+          tone: "warn",
+          action: result === "denied" ? undefined : noDeviceAdvice(true).action ?? undefined,
+        });
+        return;
+      }
+      await awaitPushTokenPost();
+    } finally {
+      setTestPushLoading(false);
+    }
+    await handleTestPush();
+  }
+
   async function handleTestPush() {
     setTestPushLoading(true);
     setTestPushMsg(null);
@@ -996,10 +1021,8 @@ export default function SettingsPage() {
     try {
       const res = await api.sendTestPush();
       if (!res.ok) {
-        setTestPushMsg({
-          text: "No device is registered yet. Turn notifications off and on again to register this device.",
-          tone: "warn",
-        });
+        const advice = noDeviceAdvice(notifPermission === "native");
+        setTestPushMsg({ text: advice.text, tone: "warn", action: advice.action ?? undefined });
         return;
       }
       const received = await receivedPromise;
@@ -1021,7 +1044,8 @@ export default function SettingsPage() {
       }
     } finally {
       setTestPushLoading(false);
-      setTimeout(() => setTestPushMsg(null), 5000);
+      // The register action must stay tappable, so only plain messages auto-clear.
+      setTimeout(() => setTestPushMsg((m) => (m && m.action ? m : null)), 5000);
     }
   }
 
@@ -1414,7 +1438,7 @@ export default function SettingsPage() {
                   <BellOff size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Notifications blocked</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are blocked, enable them in your phone&apos;s Settings app.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{NOTIFICATIONS_BLOCKED_TEXT}</p>
                   </div>
                 </div>
               ) : nativePushStatus === "prompt" ? (
@@ -1501,6 +1525,16 @@ export default function SettingsPage() {
                   <p className={`mt-2 text-xs font-medium ${testPushMsg.tone === "ok" ? "text-emerald-500" : "text-amber-500"}`}>
                     {testPushMsg.text}
                   </p>
+                )}
+                {testPushMsg?.action && (
+                  <button
+                    type="button"
+                    onClick={handleRegisterDevice}
+                    disabled={testPushLoading}
+                    className="mt-2 min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
+                  >
+                    {testPushMsg.action}
+                  </button>
                 )}
               </div>
             )}

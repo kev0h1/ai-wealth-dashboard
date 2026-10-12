@@ -394,7 +394,7 @@ function scanApiTsForUngatedFetches(lines) {
   check("NativePushResync re-POSTs the existing browser subscription on sign-in (web resync)",
     /getSubscription\(\)/.test(resync) && /api\.subscribePush\(/.test(resync) && /if \(email\) resyncWebPush\(\)/.test(resync));
   check("logout() clears its push race timer", /clearTimeout\(pushTimer\)/.test(logoutBody));
-  check("unregisterCapacitorPush skips the network DELETE when remote is false", /if \(remote\)/.test(push) && /resyncCompleted = false/.test(push));
+  check("unregisterCapacitorPush skips the network DELETE when remote is false", /if \(remote\)/.test(push) && /resyncController\.reset\(\)/.test(push));
 }
 
 if (failures > 0) {
