@@ -64,7 +64,7 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | `get_debt_position` | debt plan engine | balances, plan state, terms asked never assumed; per-card rate_schedule/classification/classification_evidence/movement.monthly-basis-periods_used/potential_monthly_interest/usage(_conflict), plus top-level scenario_b, extra_to_clear, transfer_routes (refinance_options) (enrichment pass, 2026-08-27) |
 | `get_goals` | `app.routers.commitments.list_commitments` (the same route Planning's Commitments block calls, replacing a thin `commitments_col` read, 2026-08-27) | active/done goals with progress, per_period_slice (this period, eased if so), usual_slice, eased_this_period (G228), paid_from and paid_from_inferred (G230: the current account the contribution leaves, and whether that is a guess from recent transfers, so hedge it), periods_left, on_track, feasibility(_note), pace_note, shared_pot_goals, funding_pots |
 | `check_affordability(amount, timeframe?)` | `app.services.affordability` (extracted from the deleted ladder's own what-if arithmetic) | a final, quote-verbatim `verdict` sentence, the £ figures raw+formatted, nearest-yes/savings-pace facts; `ask_when: true` + `timeframe_assumed: "current_period"` when a large amount was judged against the current period for lack of a timeframe (restored ladder behaviour, audit fix 2026-08-26) |
-| `get_category_spend(category?, months?, as_table?)` | `compute_spend_verdict` (this period) + raw transaction rows (top merchants / N-month total), home-currency filtered the same way `_load_period_txns` is (audit fix 2026-08-26) | per-category totals, payment counts, top 3 merchants — server-aggregated, never summed by the model; G243: `category` accepts any of the user's categories, custom included, case-insensitively (`categories.resolve_category_name`), and a name that is no category returns `category_recognised: false` with `available_categories` |
+| `get_category_spend(category?, months?, as_table?, as_chart?, categories?)` | `compute_spend_verdict` (this period) + raw transaction rows (top merchants / N-month total), home-currency filtered the same way `_load_period_txns` is (audit fix 2026-08-26) | per-category totals, payment counts, top 3 merchants — server-aggregated, never summed by the model; G243: `category` accepts any of the user's categories, custom included, case-insensitively (`categories.resolve_category_name`), and a name that is no category returns `category_recognised: false` with `available_categories`; G265: `months` without `category` is a per-category aggregate over the window, and every result carries a deterministic `period.label` |
 | `get_insights` | `savings_insights_col`, ranked the same way GET /savings-insights ranks it, plus `GET /value-delivered` | title/summary/estimated-saving per insight, rank 1 = best; triggered_by, verified_savings/merchant, deadline_at, is_new, return_reason, plus a value_delivered summary with breakdown[] (enrichment pass, 2026-08-27) |
 | `explain(topic)` | one flat registry in `penny_tools.py`: fixed screen/topic copy moved verbatim from the deleted ladder, PLUS four new registries (2026-08-27) | (a) per-screen/topic copy (isa_capability/saving_vs_investing/categorisation), (b) 14 jargon-term definitions grounded in code, (c) 8 headline-number reconciliations (what a figure includes/excludes and which sibling it disagrees with), (d) 13 how-do-I action walkthroughs, (e) 16 UK money-basics explainers (isa-allowance, cash-vs-ss-isa, lisa, personal-savings-allowance, emergency-fund, high-interest-debt-first, pension-match, pension-tax-relief, compound-interest, investment-fees, diversification, dividend-allowance, cgt-allowance, tax-year-dates, premium-bonds, marriage-allowance), imported from `app.content.money_basics.MONEY_BASICS` (the retired "Money basics" rotating Home card's own content, now grounding here instead) rather than copy-pasted, so the two can never drift; unknown topic returns the full valid-key list. 63 keys total (`checkpoint` is a second key aliasing `aim`'s own entry, same concept named both ways in the app, so 62 distinct pieces of copy). Replaces `get_page_explainer`. F16 (2026-09-10, reworked same day after rejection in review) added `mcp_connector` — what the MCP connector is, that it's read-only with no raw transactions, where to get the URL (Settings' Connected assistants card), that sign-in is required, and the Connect/Max tiers it ships on. `MCP_CONNECTOR_ENABLED` (A17) gates the topic's EXISTENCE, not its copy: on a deployment where the flag is off (production, pending the Finexer compliance answers), `mcp_connector` is not a valid topic at all — absent from this tool's own description (`_explain_tool_description`, read at call time so a test can monkeypatch the flag), absent from `_exec_explain`'s unknown-topic valid-key list, and unreachable by any path. The first pass instead wrote a second not-yet-available copy variant for the flag-off case; rejected, because A17 exists specifically so a connector-off deployment ships with the connector entirely absent (hidden from Settings, stripped from the legal pages), and describing it at all, even to say it isn't live yet, puts it back into production through a different door and promises timing Kevin has not committed to. There is exactly one reply string, `_MCP_CONNECTOR_REPLY`, used only when the flag is genuinely on. |
 | `get_tax_position` | `app.routers.chat.build_tax_fact_pack` (shared with `answer_tax_question`, extracted 2026-08-26) | the user's OWN income, pension, adjusted net income, personal allowance remaining, Child Benefit status |
@@ -701,6 +701,55 @@ money went" and "chart my balance". Same structured path as G251 tables:
   chats redraw it. Client: `components/PennyChart.tsx` (recharts, as on Spend).
 - Golden rows `spend-12-chart-by-month`, `spend-13-pie-of-categories` and
   `spend-14-chart-account-balance`; `check:g252-penny-chart` covers rendering.
+
+## G265 (2026-10-11): periods are labelled by the tool, never by the model
+
+Defect: asked to aggregate spending over the last 6 months, Penny said "across the
+last 6 months" above a table of this pay period's figures. `get_category_spend` ignored
+`months` when no single category was given.
+
+- **All categories over a window**: `months` set and `category` omitted aggregates
+  EVERY category over the rolling window (today minus N calendar months to today, London
+  date, `penny_period.window_period`). It reads through the Spend page's own loader and
+  bucketing (`spend_verdict._load_period_txns` + `bucket_transactions`): custom category
+  first, income and movement kinds excluded, home currency only, refunds netted, "Other"
+  reported apart as `uncategorised_total`. Per category: `total`, `payments`,
+  `monthly_average` (total / N). Without `months` it stays the current pay period.
+- **`period`** on the result: `{label, start, end, months, kind}`. Labels are built from
+  real dates: "6 months, 11 Apr to 11 Oct", "this pay period, 25 Sep to 29 Oct" (the verdict
+  tool also says "last pay period, ..."). Table and chart titles are built from the label
+  (`Spending by category, 6 months, 11 Apr to 11 Oct`), never from model text. A single
+  category over N months carries the window as `period` and keeps the pay period on
+  `this_period.period`.
+- **Table**: Category, Total, Payments, Monthly average. **Chart** with months and no
+  category: a stacked bar per calendar month over the top four categories plus Other
+  (`MAX_SERIES` is now 5, still four named categories); bar and line requests become that
+  stacked bar with a note, a pie shares the window by category.
+- **The guard** (`penny_period.guard_reply`, called in the loop on the final HEADLINE and
+  REPLY): a period phrase the model wrote ("the last 6 months", "over 3 months", "this pay
+  period", "this month") that matches no period a tool returned is replaced with the
+  latest tool label, logged as `penny_period_guard_rewrite` and counted in
+  `penny_period.GUARD_REWRITES`. No tool period, or no phrase, leaves the text alone.
+  Only unambiguous mismatches are rewritten: with several different period phrases a
+  mismatched one is rewritten only to a label of the same kind (window or pay period)
+  that no other phrase already uses, otherwise the text is left alone and
+  `penny_period_guard_skip` is logged. Deal, term and repayment spans ("0% deal runs over
+  12 months") and "N months ago" are not period claims; "the last year" counts as 12
+  months; "N-month average" is rewritten only when it is the sole phrase.
+  The guard is fail-safe (any error returns the original text, logged as
+  `penny_period_guard_error`, wrapped again at the loop call sites); "last month" and
+  "this month" are calendar months and never relabelled; non-spend spans are also
+  recognised from the words after the span ("would repay", "costs"); two different
+  mismatched phrases are never both turned into one label.
+  Prompt rule 18 asks the model to state `period.label` exactly.
+- **Audit of the other windows**: `search_transactions` totals share the row query so
+  date_from/date_to are honoured, and the result now carries the range as `period`;
+  `get_account_activity` honours days/date_from/date_to and now labels its window;
+  `get_spend_verdict` honours period_offset and is labelled; `get_savings_position` takes
+  no window (a fixed 90 day smoothed monthly basis); `check_affordability`'s timeframe is
+  forward-looking and flagged when assumed.
+- Golden rows `spend-17-aggregate-six-months` and `spend-18-by-category-this-period`;
+  tests in `tests/test_penny_multi_month.py`.
 
 ## Coverage checklist
 

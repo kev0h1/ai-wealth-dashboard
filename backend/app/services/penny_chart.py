@@ -17,7 +17,7 @@ Spec shape (plain data, never markup):
      "note": str <= 200 (optional),
      "summary": str}
 
-Caps: 1..4 series; bar/line/stacked_bar at most 36 points per series; donut
+Caps: 1..5 series (four categories plus Other); bar/line/stacked_bar at most 36 points per series; donut
 exactly one series of at most 8 slices (`aggregate_slices` folds the rest
 into "Other" and sets the note "Smaller categories grouped as Other").
 x: date -> "YYYY-MM-DD"; category/text -> str <= 60. y cells: money ->
@@ -42,7 +42,8 @@ from app.services.penny_table import _CURRENCY_RE, _CTRL_RE, _DATE_RE, _HTML_RE,
 TYPES = ("bar", "line", "stacked_bar", "donut")
 X_KINDS = ("date", "category", "text")
 UNITS = ("money", "number", "rate")
-MAX_SERIES = 4
+MAX_SERIES = 5  # G265: four categories plus "Other" in a stacked bar
+MAX_STACK_CATEGORIES = 4
 MAX_POINTS = 36
 MAX_SLICES = 8
 MAX_TITLE = 80
