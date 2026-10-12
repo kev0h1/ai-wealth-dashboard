@@ -1,5 +1,7 @@
 # Draft request to Finexer: merged consent step (A159)
 
+Status: withdrawn 2026-10-12. Sorted keeps the two-step flow; this request is kept for the record and should not be sent.
+
 For Kevin to review and send. Not sent. The change is built behind a flag that stays off until Finexer replies.
 
 **To:** Finexer LTD compliance contact
