@@ -21,3 +21,6 @@ export function noDeviceAdvice(native: boolean): NoDeviceAdvice {
     action: null,
   };
 }
+
+export const NOTIFICATIONS_BLOCKED_TEXT =
+  "Notifications are blocked. Enable them in your phone's Settings app.";

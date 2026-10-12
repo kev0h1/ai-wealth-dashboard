@@ -106,5 +106,10 @@ check("resume listener gated on PluginHeaders App", /h\.name === "App"/.test(pus
 check("settings wires Register this device to init then re-test", /handleRegisterDevice/.test(settings) && /await initCapacitorPush\(\)/.test(settings) && /noDeviceAdvice\(notifPermission === "native"\)/.test(settings), true);
 check("settings has no hardcoded off-and-on advice", /off and on again/.test(settings), false);
 
+const helper = readFileSync(new URL("../lib/testPushAdvice.ts", import.meta.url), "utf8");
+check("old toggle sentence appears only in the web branch of the helper", [/Turn notifications off and on/.test(settings), (helper.match(/Turn notifications off and on/g) || []).length], [false, 1]);
+check("no comma-splice blocked copy anywhere", /blocked, enable/i.test(settings + helper), false);
+check("every blocked branch uses the shared text", (settings.match(/NOTIFICATIONS_BLOCKED_TEXT/g) || []).length >= 3, true);
+
 if (failures) { console.error(`${failures} failed`); process.exit(1); }
 console.log("all passed");

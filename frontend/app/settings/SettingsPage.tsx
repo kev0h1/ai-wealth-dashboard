@@ -32,7 +32,7 @@ import { MCP_CONNECTOR } from "@/lib/featureFlags";
 import { resolveFullName, initialsOf } from "@/lib/displayName";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce, awaitPushTokenPost } from "@/lib/capacitorPush";
-import { noDeviceAdvice } from "@/lib/testPushAdvice";
+import { noDeviceAdvice, NOTIFICATIONS_BLOCKED_TEXT } from "@/lib/testPushAdvice";
 import {
   isAvailable as checkBiometryAvailability,
   authenticate as authenticateBiometrics,
@@ -946,7 +946,7 @@ export default function SettingsPage() {
         // round-trip didn't finish, so the status row still promotes to
         // "granted"; the amber note below explains the rest.
         setNativePushStatus("granted");
-        setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported, please try again.");
+        setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported. Please try again.");
       } else {
         setNotifError("Couldn't enable notifications on this device.");
       }
@@ -998,7 +998,7 @@ export default function SettingsPage() {
       if (result !== "granted") {
         setTestPushMsg({
           text: result === "denied"
-            ? "Notifications are blocked, enable them in your phone's Settings app."
+            ? NOTIFICATIONS_BLOCKED_TEXT
             : "Your phone didn't finish registering. Please try again in a moment.",
           tone: "warn",
           action: result === "denied" ? undefined : noDeviceAdvice(true).action ?? undefined,
@@ -1438,7 +1438,7 @@ export default function SettingsPage() {
                   <BellOff size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Notifications blocked</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are blocked, enable them in your phone&apos;s Settings app.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{NOTIFICATIONS_BLOCKED_TEXT}</p>
                   </div>
                 </div>
               ) : nativePushStatus === "prompt" ? (
