@@ -1083,9 +1083,8 @@ export interface SpendVerdictViewProps {
   aimPeriodDays?: number;
   /** G262: show the quiet "How your money behaves" row at the head of the list; the page sets it only once the Mirror has a portrait. */
   mirrorRoute?: boolean;
-  /** G264: hide the "still need a category" stop (and its ask card) when the unplaced total
-   *  rounds to £0, and use "needs" for a single payment. Off by default so today's render is
-   *  unchanged until the rule is approved. */
+  /** G264: the "still needs a category" stop (and its ask card) is hidden when the unplaced
+   *  total rounds to £0 (the payment stays in Out). On by default; pass false to opt out. */
   hideTrivialUnresolved?: boolean;
 }
 
@@ -1127,7 +1126,7 @@ export function TransferReviewGuardrail({
   );
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays, mirrorRoute = false, hideTrivialUnresolved = false }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange, journey = false, aims, aimPeriodDays, mirrorRoute = false, hideTrivialUnresolved = true }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -1268,9 +1267,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-950 dark:text-white">
-                {hideTrivialUnresolved
-                  ? unresolvedHeading(unresolved.payments_count)
-                  : <>{unresolved.payments_count} payment{unresolved.payments_count === 1 ? "" : "s"} still need a category</>}
+                {unresolvedHeading(unresolved.payments_count)}
               </h2>
               <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">Already included in Out, but not yet in a category.</p>
             </div>
