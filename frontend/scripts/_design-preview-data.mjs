@@ -186,11 +186,28 @@ export function isImportOf(src, slug) {
 // breaks that gate, so it is a real code dependency though not an import.
 // Import lines and comments never count. Only meaningful for files in frontend/scripts.
 export function isReadBy(src, slug) {
-  const pathRe = new RegExp(`["'\`][^"'\`\\n]*design/${escapeRe(slug)}/`);
+  const e = escapeRe(slug);
+  // A quoted path holding design/<slug>/ ("../app/design/x/y.tsx", `${root}/app/design/x/y`).
+  const pathRe = new RegExp(`["'\`][^"'\`\\n]*design/${e}(?![\\w-])`);
+  // Segmented form: path.join(root, "app", "design", "<slug>", ...) or read("frontend","app","design","<slug>",...).
+  const segRe = new RegExp(`["']design["']\\s*,\\s*["']${e}["']`);
   const readRe = /\b(readFileSync|readFile|existsSync|statSync|new URL|read|readSource|source|src)\s*\(|\bnew URL\(/;
-  return stripComments(src)
-    .split("\n")
-    .some((l) => pathRe.test(l) && readRe.test(l) && !/^\s*(import|export)\b[^(]*\bfrom\b/.test(l) && !/\bimport\s*\(/.test(l) && !/^\s*import\s+["']/.test(l));
+  const joinRe = /\bpath\.(join|resolve)\s*\(|\bnew URL\s*\(/;
+  const notImport = (l) => !/^\s*(import|export)\b[^(]*\bfrom\b/.test(l) && !/\bimport\s*\(/.test(l) && !/^\s*import\s+["']/.test(l);
+  const lines = stripComments(src).split("\n");
+  const holdsPath = (l) => pathRe.test(l) || segRe.test(l);
+  // Direct: the path form and the read call share a line.
+  if (lines.some((l) => holdsPath(l) && readRe.test(l) && notImport(l))) return true;
+  // Two-line: `const X = <path.join/resolve/new URL/quoted path holding the preview>` and
+  // a later read call that uses X.
+  for (const l of lines) {
+    const m = /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(l);
+    if (!m || !notImport(l) || !holdsPath(l) || !(joinRe.test(l) || pathRe.test(l))) continue;
+    const name = escapeRe(m[1]);
+    const useRe = new RegExp(`(?<![\\w$.])${name}(?![\\w$])`);
+    if (lines.some((u) => u !== l && useRe.test(u) && readRe.test(u) && notImport(u))) return true;
+  }
+  return false;
 }
 
 // Marketing items whose output lives under /design (G222 to G224, C22).
