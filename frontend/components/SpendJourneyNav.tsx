@@ -8,9 +8,6 @@ export type SpendJourneyDestination = {
   value: ReactNode;
   needsLook?: boolean;
   onBeforeJump?: () => void;
-  /** G264: plain-text figure ("3 payments, £84") for the slim rails' labels and
-   *  accessible names. The default strip ignores it and keeps rendering `value`. */
-  summary?: string;
 };
 
 export function jumpTo(destination: SpendJourneyDestination) {
