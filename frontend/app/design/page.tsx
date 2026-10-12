@@ -657,6 +657,31 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "spend-rail",
+    name: "Spend navigation rail · G264",
+    description:
+      "G264, skills: impeccable (primary), design-taste-frontend (considered), web-design-guidelines (audit); directions drafted by openai/gpt-6-astra and rewritten to DESIGN.md · Kevin: the pinned 2x2 jump strip takes about a quarter of the phone screen · A the timeline markers become a slim sticky rail, press or drag to reveal labels and amounts / B the 2x2 chips show only at the top, a compact mini-map takes over once scrolled / C one slim row with the current section and a disclosure of every section · FOLLOW-UP A2 (Kevin, UAT phone): the rail is centred on the timeline line and appears only during a long scroll (more than one screen of travel in 1.5s), fading 1.2s after you stop · all three also hide a zero-value to-categorise stop and say needs for one payment · renders the production SpendVerdictView, SpendJourneySummary, SpendTrends and strip with a long fixture journey (SpendPage fetches its own data, so its grid is mirrored) · ?variant=current|a|a2|b|c&mode=light|dark&state=top|mid|bottom|nochanges|nothingtocategorise|zero|idle|scrolling|settled|press|focus&nav=1&chrome=0",
+    variants: [
+      { label: "A2 · Follow-up: centred on the line, only while scrolling far", value: "a2" },
+      { label: "A · Timeline rail", value: "a" },
+      { label: "B · Mini-map", value: "b" },
+      { label: "C · Current-section row", value: "c" },
+    ],
+    states: [
+      { label: "Top", value: "top" },
+      { label: "Mid", value: "mid" },
+      { label: "Bottom", value: "bottom" },
+      { label: "No changes", value: "nochanges" },
+      { label: "Nothing to categorise", value: "nothingtocategorise" },
+      { label: "One 40p payment", value: "zero" },
+      { label: "A2 idle (no rail)", value: "idle" },
+      { label: "A2 scrolling", value: "scrolling" },
+      { label: "A2 settled (gone)", value: "settled" },
+      { label: "A2 press", value: "press" },
+      { label: "A2 focus", value: "focus" },
+    ],
+  },
+  {
     slug: "spend-live",
     name: "spend-live",
     description: "Spend page · fixtures reference (real components)",

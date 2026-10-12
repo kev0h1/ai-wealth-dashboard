@@ -355,7 +355,7 @@ async def _can_i_answer(body: dict, user: dict, last_result: dict | None = None)
 
     # ── 1. Greeting short-circuit — deterministic, no LLM, no quota. Checked
     # BEFORE the length gate immediately below, on purpose: "Hi" is 2
-    # characters and would otherwise trip the 3-160 400 error before ever
+    # characters and would otherwise trip the 3-500 400 error before ever
     # reaching _is_greeting, and a greeting is not a malformed question, it
     # isn't a question at all. Also checked before the OPENROUTER_API_KEY
     # guard below, since answering a greeting needs no LLM and so has no
@@ -364,8 +364,8 @@ async def _can_i_answer(body: dict, user: dict, last_result: dict | None = None)
         return _greeting_response()
 
     # ── 2. Length gate and API-key guard — unchanged ─────────────────────
-    if not (3 <= len(question) <= 160):
-        raise HTTPException(400, "question must be 3-160 characters")
+    if not (3 <= len(question) <= 500):
+        raise HTTPException(400, "question must be 3-500 characters")
     if not OPENROUTER_API_KEY:
         raise HTTPException(500, "AI not configured")
 

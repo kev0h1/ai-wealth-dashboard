@@ -102,3 +102,13 @@ users.
    production run needs the production Mongo URI with write access for the local
    flips and is run by Kevin or the coordinator.
 4. Repeat monthly until the A106 pending count (admin sync stats) stays at 0.
+
+## Retired Expo collections (A128)
+
+The Expo mobile app was retired on 2026-09-08 and left two collections that no code binds: `expo_push_tokens` (user_id-keyed push tokens, dead data; 2 documents on UAT) and `savings_plans` (empty). `erase_user` sweeps both by name (`RETIRED_COLLECTIONS` in `backend/app/db/collections.py`), so account deletion is safe before the cleanup runs. To remove the data, once per environment (production only with Kevin's go-ahead; the daily backup covers both collections, so no export is needed):
+
+1. Count (read-only): `cd backend && .venv/bin/python scripts/retire_expo_push_tokens.py`
+2. Apply: `ALLOW_DROP_PROD_DB=1 .venv/bin/python scripts/retire_expo_push_tokens.py --apply --yes` (the guard in `app/db/guard.py` needs the environment variable for any non-test database).
+3. Run against UAT first, check the counts, then repeat on production with its `MONGO_URI`/`MONGO_DB` (use `--env-file`).
+
+The script prints counts only. Once every environment is clean, `RETIRED_COLLECTIONS` can be emptied in a reviewed change.

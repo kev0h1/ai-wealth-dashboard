@@ -340,9 +340,16 @@ TOOL_SCHEMAS = [
                 "exists only where the row itself states one); if none does, say plainly that the "
                 "data does not include a rate, never that it is out of scope. Returns at "
                 "most 20 rows, most recent first, plus matched_count, "
-                "matched_spent and matched_received: the totals across EVERY "
-                "match, so use those (never a sum of the 20 rows) for any "
-                "total or count. Figures are authoritative: quote "
+                "totals (one entry per currency: currency, spent, received, count) "
+                "and totals_summary, the totals across EVERY match, so use those "
+                "(never a sum of the 20 rows) for any total or count. Amounts in "
+                "different currencies are never added: for mixed rows quote them "
+                "per currency (\"Spent USD 44.40 and £5.00\"), never one pound "
+                "figure. matched_spent and matched_received are given only when "
+                "every row is in one currency (null with mixed_currency true "
+                "otherwise); gbp_equivalent_spent covers only rows that are in "
+                "pounds or carry a stored pound amount (gbp_equivalent_rows says "
+                "how many), so say it is partial unless that equals the count. Figures are authoritative: quote "
                 "them verbatim, never recompute, derive, or round them yourself. "
                 "Does NOT match account or pot names — `q` only "
                 "searches each row's own description/merchant/category. If the "
@@ -2754,6 +2761,10 @@ def _transactions_table(items: list, matched_category: str | None, totals: dict 
     note = None
     if totals and totals["matched_count"] > len(rows):
         note = f"Showing the {len(rows)} most recent of {totals['matched_count']} matches."
+    if totals and totals.get("mixed_currency") and totals.get("totals_summary"):
+        # Mixed currencies: the summary is per currency, never one pound figure.
+        lead = f"{note} " if note else ""
+        note = penny_table.clean_text(f"{lead}{totals['totals_summary']}.", 200)
     title = f"{matched_category} transactions" if matched_category else "Transactions"
     return penny_table.validate_or_none({
         "title": penny_table.clean_text(title, 80), "columns": columns, "rows": rows,
@@ -2761,37 +2772,109 @@ def _transactions_table(items: list, matched_category: str | None, totals: dict 
     })
 
 
+def _money_in(amount: float, currency: str) -> dict:
+    """`_money` for one currency: pounds keep the symbol, anything else is
+    written with its ISO code ("USD 44.40"), never as a pound figure."""
+    val = round(float(amount or 0.0), 2)
+    cur = (currency or "GBP").upper()
+    formatted = _fmt_gbp(val, 2) if cur == "GBP" else f"{'−' if val < 0 else ''}{cur} {abs(val):,.2f}"
+    return {"raw": val, "formatted": formatted}
+
+
+def _totals_summary(per_currency: list[dict]) -> str | None:
+    """"Spent USD 44.40 and £5.00" / "Received £10.00", one phrase per
+    direction, per currency, never one summed figure for mixed rows."""
+    def join(parts: list[str]) -> str:
+        return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    phrases = []
+    for key, label in (("spent", "Spent"), ("received", "Received")):
+        parts = [t[key]["formatted"] for t in per_currency if t[key]["raw"]]
+        if parts:
+            phrases.append(f"{label} {join(parts)}")
+    return "; ".join(phrases) or None
+
+
+# Stored GBP amounts a row may carry (see _GBP_FIELDS); rows without one are
+# never converted.
+_GBP_STORED = {"$ifNull": ["$amount_gbp", {"$ifNull": ["$gbp_amount", "$home_amount"]}]}
+_GBP_OF_ROW = {"$cond": [{"$eq": [{"$ifNull": ["$currency", "GBP"]}, "GBP"]}, "$amount", _GBP_STORED]}
+
+
 async def _search_totals(query: dict) -> dict | None:
     """Count and money in/out across ALL matches of `query`, summed in
-    Mongo. Amounts are stored absolute with `transaction_type` carrying the
-    direction. Returns None (totals simply omitted) if the aggregation fails,
-    so the 20-row answer is never lost to it."""
+    Mongo PER CURRENCY (G253: amounts in different currencies are never added
+    together). Amounts are stored absolute with `transaction_type` carrying
+    the direction; a missing currency is GBP. `matched_spent` and
+    `matched_received` are given only when every row is in one currency,
+    otherwise they are None with `mixed_currency` true. A GBP equivalent is
+    summed only over rows that are GBP or carry a stored GBP amount. Returns
+    None (totals simply omitted) if the aggregation fails, so the 20-row
+    answer is never lost to it."""
     try:
         pipeline = [
             {"$match": query},
-            {"$group": {"_id": "$transaction_type", "total": {"$sum": "$amount"}, "n": {"$sum": 1}}},
+            {"$group": {
+                "_id": {"t": "$transaction_type", "c": {"$ifNull": ["$currency", "GBP"]}},
+                "total": {"$sum": "$amount"}, "n": {"$sum": 1},
+                "gbp_total": {"$sum": _GBP_OF_ROW},
+                "gbp_n": {"$sum": {"$cond": [{"$isNumber": _GBP_OF_ROW}, 1, 0]}},
+            }},
         ]
         per_collection = await asyncio.gather(*(
-            c.aggregate(pipeline).to_list(10) for c in _SEARCH_COLLECTIONS
+            c.aggregate(pipeline).to_list(50) for c in _SEARCH_COLLECTIONS
         ))
     except Exception:
         logger.exception("penny_tools: search_transactions totals failed")
         return None
-    spent = received = 0.0
+    by_cur: dict[str, dict] = {}
+    gbp_spent = gbp_received = 0.0
+    gbp_rows = 0
     count = 0
     for groups in per_collection:
         for g in groups:
-            count += int(g.get("n") or 0)
+            gid = g.get("_id")
+            kind, cur = (gid.get("t"), gid.get("c")) if isinstance(gid, dict) else (gid, "GBP")
+            cur = str(cur or "GBP").upper()
+            n = int(g.get("n") or 0)
+            count += n
             amount = abs(float(g.get("total") or 0.0))
-            if g.get("_id") == "credit":
-                received += amount
+            slot = by_cur.setdefault(cur, {"spent": 0.0, "received": 0.0, "count": 0})
+            slot["count"] += n
+            gbp = abs(float(g.get("gbp_total") or 0.0))
+            gbp_rows += int(g.get("gbp_n") or 0)
+            if kind == "credit":
+                slot["received"] += amount
+                gbp_received += gbp
             else:
-                spent += amount
-    return {
-        "matched_count": count,
-        "matched_spent": _money(spent, 2),
-        "matched_received": _money(received, 2),
-    }
+                slot["spent"] += amount
+                gbp_spent += gbp
+    ordered = sorted(by_cur.items(), key=lambda kv: (-kv[1]["count"], kv[0]))
+    per_currency = [
+        {"currency": cur, "spent": _money_in(v["spent"], cur),
+         "received": _money_in(v["received"], cur), "count": v["count"]}
+        for cur, v in ordered
+    ]
+    mixed = len(per_currency) > 1
+    out: dict = {"matched_count": count, "totals": per_currency, "mixed_currency": mixed}
+    if mixed:
+        out["matched_spent"] = out["matched_received"] = None
+        out["totals_note"] = (
+            "These rows are in more than one currency, so there is no single total: quote totals "
+            "per currency exactly as in totals_summary, never add them or write one pound figure."
+        )
+    elif per_currency:
+        out["matched_spent"] = per_currency[0]["spent"]
+        out["matched_received"] = per_currency[0]["received"]
+    else:
+        out["matched_spent"] = out["matched_received"] = _money(0.0, 2)
+    summary = _totals_summary(per_currency)
+    if summary:
+        out["totals_summary"] = summary
+    if gbp_rows:
+        out["gbp_equivalent_spent"] = _money(gbp_spent, 2)
+        out["gbp_equivalent_received"] = _money(gbp_received, 2)
+        out["gbp_equivalent_rows"] = gbp_rows
+    return out
 
 
 # ── Fuzzy name resolution, shared by every account/pot/trait/series
@@ -6212,8 +6295,8 @@ def _describe_pay_period_config(cfg: dict) -> str:
     if t == "calendar_month":
         return "calendar month (1st to last day of each month)"
     if t == "monthly_pay_date":
-        day = cfg.get("day", 1)
-        return f"monthly, paid on the {_ordinal(int(day))} of each month"
+        day = int(cfg.get("day", 1))  # D8: day 31 is clamped by the engine, so it is the last day
+        return "monthly, paid on the last day of each month" if day >= 31 else f"monthly, paid on the {_ordinal(day)} of each month"
     if t == "biweekly":
         wd = _PAY_PERIOD_WEEKDAY_NAMES[cfg.get("weekday", 5) % 7]
         ref = cfg.get("referenceDate", "")

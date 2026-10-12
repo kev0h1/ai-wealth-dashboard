@@ -53,6 +53,8 @@ Top recommendations:
 
 ## 3. Fulfilment detection
 
+**Status: first slice built (G256).** Detection 1 only, for goal plans: `fill_rule` {match_type, match_value} on the plan (the set-aside rule shape and picker), a matched OUTGOING debit from the paying account in the pay period fulfils the contribution at 85% of the slice or more (the G235 15% tolerance; the slice is rounded up to 5 pounds and recomputed after the pot rises), the reservation is released through `_pot_progress_and_slice` (so Safe to Spend, Upcoming plans and the account position follow), and a same-period credit in the sink is confirmation only (`seen_in_sink`). A partial match releases only the matched part. Rule suggested from the transfers that reached the pot, confirmed by the user, never applied. Not built: detections 2 to 6 beyond that flag, the roll-over or missed prompt and its caps (build item 5), period records, a forecast move matching the rule being treated as certain in G235's overlap check, set-asides' own outgoing release.
+
 In order of preference (**Proposed** unless marked):
 
 1. **Matched outgoing transfer from the source.** Releases the reservation. This is the no-double-counting rule: the debit has already lowered the pooled balance, so holding the reservation would count the money twice, and waiting for the sink would understate Safe to Spend through sync lag or an unseen sink. (**Today** allocations release only on the inbound match; goals never release per period.)

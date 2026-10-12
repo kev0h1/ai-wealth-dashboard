@@ -89,3 +89,68 @@ def test_negative_days_away_never_counts_anywhere():
     silently count one if it ever did."""
     assert in_current_window(-1, 5) is False
     assert is_payday_day(-1, 5) is False
+
+
+# ── D8: "paid on the last day of the month" ────────────────────────────────
+#
+# `calendar_month` means the period runs 1st to last (a budgeting window), not
+# "paid on the last day". The engine already models the latter correctly:
+# `monthly_pay_date` clamps the pay day to the month's length, so day=31 is
+# the last day of every month (28/29 in Feb, 30 in Apr/Jun/Sep/Nov). No
+# distinct type is needed; the onboarding/Settings picker writes day=31.
+from datetime import date
+
+from app.services.pay_period import get_pay_period_for_date
+
+_LAST_DAY = {"type": "monthly_pay_date", "day": 31}
+
+
+def test_last_day_of_month_period_starts_on_the_last_day_31_day_month():
+    # 31 Jan is payday: the period runs 31 Jan to 27 Feb (day before 28 Feb).
+    assert get_pay_period_for_date(date(2025, 1, 31), _LAST_DAY) == (date(2025, 1, 31), date(2025, 2, 27))
+    assert get_pay_period_for_date(date(2025, 1, 15), _LAST_DAY) == (date(2024, 12, 31), date(2025, 1, 30))
+
+
+def test_last_day_of_month_february_non_leap_and_leap():
+    assert get_pay_period_for_date(date(2025, 2, 28), _LAST_DAY) == (date(2025, 2, 28), date(2025, 3, 30))
+    assert get_pay_period_for_date(date(2025, 2, 27), _LAST_DAY) == (date(2025, 1, 31), date(2025, 2, 27))
+    # Leap year: 29 Feb is the last day.
+    assert get_pay_period_for_date(date(2024, 2, 29), _LAST_DAY) == (date(2024, 2, 29), date(2024, 3, 30))
+    assert get_pay_period_for_date(date(2024, 2, 28), _LAST_DAY) == (date(2024, 1, 31), date(2024, 2, 28))
+
+
+def test_last_day_of_month_thirty_day_month():
+    assert get_pay_period_for_date(date(2025, 4, 30), _LAST_DAY) == (date(2025, 4, 30), date(2025, 5, 30))
+    assert get_pay_period_for_date(date(2025, 4, 29), _LAST_DAY) == (date(2025, 3, 31), date(2025, 4, 29))
+
+
+def test_last_day_of_month_year_boundaries():
+    assert get_pay_period_for_date(date(2025, 12, 31), _LAST_DAY) == (date(2025, 12, 31), date(2026, 1, 30))
+    assert get_pay_period_for_date(date(2026, 1, 10), _LAST_DAY) == (date(2025, 12, 31), date(2026, 1, 30))
+
+
+def test_last_day_of_month_periods_are_contiguous_across_a_full_year():
+    d = date(2024, 1, 1)
+    seen = set()
+    while d < date(2025, 3, 1):
+        start, end = get_pay_period_for_date(d, _LAST_DAY)
+        assert start <= d <= end
+        # start is always the last calendar day of its month
+        from calendar import monthrange
+        assert start.day == monthrange(start.year, start.month)[1]
+        seen.add((start, end))
+        d = date.fromordinal(d.toordinal() + 1)
+    ordered = sorted(seen)
+    for (_, e1), (s2, _) in zip(ordered, ordered[1:]):
+        assert s2.toordinal() == e1.toordinal() + 1
+
+
+def test_calendar_month_is_not_a_last_day_payday():
+    # The distinction the ticket asks for: calendar_month starts on the 1st.
+    assert get_pay_period_for_date(date(2025, 1, 31), {"type": "calendar_month"}) == (date(2025, 1, 1), date(2025, 1, 31))
+
+
+def test_penny_describes_day_31_as_last_day():
+    from app.services.penny_tools import _describe_pay_period_config
+    assert _describe_pay_period_config(_LAST_DAY) == "monthly, paid on the last day of each month"
+    assert "25th" in _describe_pay_period_config({"type": "monthly_pay_date", "day": 25})

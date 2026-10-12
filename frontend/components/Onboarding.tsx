@@ -13,6 +13,8 @@ import {
   authenticate as authenticateBiometrics,
   setLockEnabled as setBiometricLockEnabled,
 } from "@/lib/biometrics";
+import PayPeriodPicker from "@/components/PayPeriodPicker";
+import { DEFAULT_DRAFT, configFromDraft, type PayPeriodDraft } from "@/lib/payPeriodDraft";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { getSubscriptionCached, useOpenBankingAccess } from "@/lib/openBankingAccess";
 
@@ -22,16 +24,6 @@ interface OnboardingProps {
 }
 
 type Step = "welcome" | "profile" | "payday" | "plan" | "income" | "bank" | "secure";
-
-const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
-  { label: "Last Friday of month",  sub: "Typical UK monthly salary",         value: { type: "last_friday" } },
-  { label: "1st of the month",      sub: "e.g. civil service, some pensions", value: { type: "monthly_pay_date", day: 1 } },
-  { label: "15th of the month",     sub: "",                                   value: { type: "monthly_pay_date", day: 15 } },
-  { label: "25th of the month",     sub: "Common for many employers",          value: { type: "monthly_pay_date", day: 25 } },
-  { label: "28th of the month",     sub: "",                                   value: { type: "monthly_pay_date", day: 28 } },
-  { label: "End of the month",      sub: "Calendar month view",                value: { type: "calendar_month" } },
-  { label: "I'll set this later",   sub: "",                                   value: null },
-];
 
 const STEP_DOTS: Step[] = ["profile", "payday", "plan", "income", "bank", "secure"];
 
@@ -66,7 +58,8 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [firstName, setFirstName] = useState(() => defaultName.split(" ")[0] ?? "");
   const [lastName, setLastName]   = useState(() => defaultName.split(" ").slice(1).join(" ") ?? "");
   const [postcode, setPostcode]   = useState("");
-  const [payIdx, setPayIdx]       = useState(0);
+  // D8: onboarding defaults to monthly on a date the user picks.
+  const [payDraft, setPayDraft]     = useState<PayPeriodDraft>(DEFAULT_DRAFT);
   const [paydaySaving, setPaydaySaving] = useState(false);
   const [paydayErrorMsg, setPaydayErrorMsg] = useState<string | null>(null);
   const [incomeInput, setIncomeInput]     = useState("");
@@ -276,13 +269,14 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     },
   })).current;
 
+  function skipPayday() {
+    // "I'll set this later" — nothing to save, always proceeds.
+    setStep("plan");
+  }
+
   async function savePayday() {
-    const chosen = PAY_OPTIONS[payIdx].value;
-    if (!chosen) {
-      // "I'll set this later" — nothing to save, always proceeds.
-      setStep("plan");
-      return;
-    }
+    const chosen = configFromDraft(payDraft);
+    if (!chosen) return; // Continue is disabled until the draft is complete.
     setPaydaySaving(true);
     await paydaySaverRef.run(chosen);
     setPaydaySaving(false);
@@ -453,40 +447,24 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
           </p>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm overflow-hidden mb-4">
-          {PAY_OPTIONS.map((opt, i) => (
-            <button
-              key={i}
-              onClick={() => setPayIdx(i)}
-              className={`w-full flex items-center justify-between px-5 py-3.5 text-left transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${
-                payIdx === i
-                  ? "bg-indigo-50 dark:bg-indigo-900/30"
-                  : "hover:bg-slate-50 dark:hover:bg-slate-700/40"
-              }`}
-            >
-              <div>
-                <p className={`text-sm font-medium ${payIdx === i ? "text-indigo-700 dark:text-indigo-300" : "text-slate-800 dark:text-slate-100"}`}>
-                  {opt.label}
-                </p>
-                {opt.sub && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{opt.sub}</p>
-                )}
-              </div>
-              {payIdx === i && (
-                <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                  <Check size={11} stroke="white" strokeWidth={3} />
-                </div>
-              )}
-            </button>
-          ))}
+        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-4 mb-4">
+          <PayPeriodPicker draft={payDraft} onChange={setPayDraft} />
         </div>
 
         <button
           onClick={savePayday}
-          disabled={paydaySaving}
+          disabled={paydaySaving || !configFromDraft(payDraft)}
           className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition disabled:opacity-50"
         >
           {paydaySaving ? "Saving…" : "Continue"}
+        </button>
+        <button
+          type="button"
+          onClick={skipPayday}
+          disabled={paydaySaving}
+          className="mt-2 w-full min-h-11 rounded-2xl text-sm font-medium text-slate-500 dark:text-slate-400 active:scale-[0.97] transition disabled:opacity-50"
+        >
+          I&apos;ll set this later
         </button>
 
         {/* Rejected on review (2026-09-12): staying on this step with no
@@ -495,11 +473,11 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
             the same pattern already used in this diff for SpendTrends'
             widgetsSaveMsg and PreferencesContext's preferencesSaveError
             (DESIGN.md:142), naming the actual escape this exact step
-            offers: pick "I'll set this later" above and continue. */}
+            offers: pick "I'll set this later" below and continue. */}
         {paydayErrorMsg && (
           <p role="status" aria-live="polite" className="mt-3 flex items-start gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
             <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
-            <span>Could not save that. Try again, or choose &quot;I&apos;ll set this later&quot; above and continue.</span>
+            <span>Could not save that. Try again, or choose &quot;I&apos;ll set this later&quot; below and continue.</span>
           </p>
         )}
       </Shell>

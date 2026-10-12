@@ -25,12 +25,14 @@ category_intent_col shape:
      answer: "one_off"|"new_normal", created_at}
 """
 import logging
+import re
 from datetime import date, datetime, timezone
 
 from bson import ObjectId
 
 from app.core import timeutil
 from app.db.collections import (
+    behaviour_portrait_col,
     category_intent_col,
     checkpoints_col,
     preferences_col,
@@ -63,6 +65,66 @@ def derive_aim(usual_rate_per_day: float, period_days: int) -> float:
     raw = usual_rate_per_day * period_days
     rounded = round(raw / _AIM_ROUND) * _AIM_ROUND
     return max(_AIM_ROUND, float(rounded))
+
+
+# G242: the aim PACE reading. An aim is a pace check, not a budget: it never
+# blocks and never judges, so no state here is a risk state. Computed here, on
+# the server, from the user's own spend (never from a model), and returned
+# with every aim so the Spend rows, the transactions hub, the Mirror and
+# Penny's nudge all read ONE figure. The "even pace" is linear on purpose
+# ("An even pace would be about £79 by today"); `on_track` above keeps the
+# shaped Spend-page comparison it always had.
+_LIKELY_MIN_ELAPSED = 0.25   # too early in the period to project honestly
+_LIKELY_MARGIN = 1.05
+_UNDER_RATIO = 0.85
+
+_PACE_PHRASE = {
+    "on": "on pace",
+    "under": "under pace",
+    "likely": "likely to pass your aim",
+    "past": "past your aim",
+}
+
+
+def aim_pace(aim_amount: float, spent: float, period_days: int, days_left: int) -> dict:
+    """Pace reading for one aim. States: on / under / likely / past.
+
+    `days_left` counts today (the last day of a period is 1), exactly as the
+    progress block already reports it. Mirrors lib/aimPace.ts's fallback."""
+    total = max(1, int(period_days))
+    left = min(max(0, int(days_left)), total)
+    elapsed = max(1, total - left)
+    frac = min(1.0, elapsed / total)
+    amount = max(1.0, float(aim_amount))
+    pace_today = amount * frac
+    spent_fraction = min(1.0, max(0.0, spent / amount))
+    state = "on"
+    if spent >= amount:
+        state = "past"
+    elif frac >= _LIKELY_MIN_ELAPSED and spent / frac > amount * _LIKELY_MARGIN:
+        state = "likely"
+    elif spent <= pace_today * _UNDER_RATIO:
+        state = "under"
+    return {
+        "state": state,
+        "phrase": _PACE_PHRASE[state],
+        "period_days": total,
+        "elapsed_fraction": round(frac, 4),
+        "pace_today": round(pace_today, 2),
+        "projected": round(spent / frac, 2),
+        "spent_fraction": round(spent_fraction, 4),
+    }
+
+
+def _progress(doc: dict, spent: float, days_left: int, on_track: bool) -> dict:
+    """The progress block every read of an active aim carries."""
+    period_days = (date.fromisoformat(doc["period_end"]) - date.fromisoformat(doc["period_start"])).days + 1
+    return {
+        "spent_so_far": spent,
+        "days_left":    days_left,
+        "on_track":     on_track,
+        "pace":         aim_pace(doc["aim_amount"], spent, period_days, days_left),
+    }
 
 
 def _serialise(doc: dict, progress: dict | None = None) -> dict:
@@ -216,12 +278,7 @@ async def create_checkpoint(
     shaped_frac = await shaped_fraction(uid, period_start, pay_cfg, category=ref, kind_map=kind_map)
     on_track = spent <= aim * shaped_frac
 
-    progress = {
-        "spent_so_far": spent,
-        "days_left":    days_left,
-        "on_track":     on_track,
-    }
-    return _serialise(doc, progress)
+    return _serialise(doc, _progress(doc, spent, days_left, on_track))
 
 
 async def list_active(uid: str) -> list[dict]:
@@ -257,8 +314,7 @@ async def list_active(uid: str) -> list[dict]:
             uid, period_start, pay_cfg, category=doc["ref"], kind_map=kind_map
         )
         on_track     = spent <= doc["aim_amount"] * shaped_frac
-        progress = {"spent_so_far": spent, "days_left": days_left, "on_track": on_track}
-        out.append(_serialise(doc, progress))
+        out.append(_serialise(doc, _progress(doc, spent, days_left, on_track)))
     return out
 
 
@@ -269,6 +325,102 @@ async def cancel_checkpoint(uid: str, checkpoint_id: str) -> bool:
         {"$set": {"status": "cancelled", "resolved_at": _utcnow_iso()}},
     )
     return result.modified_count > 0
+
+
+async def update_checkpoint(uid: str, checkpoint_id: str, aim_amount) -> bool:
+    """Change the amount of an ACTIVE aim (G242 edit). Scoped on user_id at
+    the query, like cancel. A changed amount is a custom aim, and a nudge the
+    user dismissed for the old amount is allowed to speak again."""
+    try:
+        amount = float(aim_amount)
+    except (TypeError, ValueError):
+        raise ValueError("aim_amount must be a number")
+    if amount <= 0 or amount > 1_000_000:
+        raise ValueError("aim_amount must be between 0 and 1,000,000")
+    result = await checkpoints_col.update_one(
+        {"_id": ObjectId(checkpoint_id), "user_id": uid, "status": "active"},
+        {"$set": {"aim_amount": round(amount, 2), "basis": "custom", "nudge_dismissed": False}},
+    )
+    return result.modified_count > 0
+
+
+async def dismiss_aim_nudge(uid: str, checkpoint_id: str) -> bool:
+    """The user dismissed Penny's nudge for this aim. Scoped on user_id."""
+    result = await checkpoints_col.update_one(
+        {"_id": ObjectId(checkpoint_id), "user_id": uid, "status": "active"},
+        {"$set": {"nudge_dismissed": True}},
+    )
+    return result.modified_count > 0
+
+
+_SIGNATURE_TITLE = re.compile(r"^Your Signature:\s*(.+)$", re.IGNORECASE)
+
+
+def _trait_category(trait: dict) -> str | None:
+    """Category a Mirror trait is anchored to: the machine-readable
+    ref_category, else parsed from a 'Your Signature: X' title (portraits
+    computed before the field existed). Same rule as MirrorPage."""
+    if trait.get("ref_category"):
+        return trait["ref_category"]
+    m = _SIGNATURE_TITLE.match(trait.get("title") or "")
+    return m.group(1).strip() if m else None
+
+
+async def get_aim_nudge(uid: str, aims: list[dict] | None = None) -> dict | None:
+    """Penny's aim nudge, or None. BEHAVIOURS.md rules in code:
+
+    Layer 2: only a trait the user marked 'change' in the Mirror unlocks it, so
+    an aim set by itself, or on a 'keep' or unanswered trait, never nudges.
+    Layer 3: ONE at a time, the aim whose projected total is furthest past it.
+    Layer 4: the condition is the server pace reading (state 'likely'), from
+    transactions; nothing is self-reported.
+    A nudge the user dismissed stays dismissed until the aim amount changes.
+    """
+    portrait = await behaviour_portrait_col.find_one({"_id": uid})
+    if not portrait or portrait.get("status") != "ok":
+        return None
+    changing = {}
+    for trait in portrait.get("traits", []):
+        if trait.get("choice") != "change":
+            continue
+        cat = _trait_category(trait)
+        if cat:
+            changing[cat] = trait.get("title") or cat
+    if not changing:
+        return None
+
+    if aims is None:
+        aims = await list_active(uid)
+    dismissed = {
+        str(d["_id"])
+        for d in await checkpoints_col.find(
+            {"user_id": uid, "status": "active", "nudge_dismissed": True}, {"_id": 1}
+        ).to_list(None)
+    }
+    best = None
+    best_ratio = 0.0
+    for a in aims:
+        if a["ref"] not in changing or a["id"] in dismissed:
+            continue
+        pace = a.get("pace") or {}
+        if pace.get("state") != "likely":
+            continue
+        ratio = pace["projected"] / max(1.0, a["aim_amount"])
+        if ratio > best_ratio:
+            best, best_ratio = a, ratio
+    if best is None:
+        return None
+    return {
+        "id":           best["id"],
+        "category":     best["ref"],
+        "trait_title":  changing[best["ref"]],
+        "aim_amount":   best["aim_amount"],
+        "spent_so_far": best["spent_so_far"],
+        "projected":    best["pace"]["projected"],
+        "days_left":    best["days_left"],
+        "period_start": best["period_start"],
+        "period_end":   best["period_end"],
+    }
 
 
 async def record_intent(uid: str, category: str, answer: str) -> dict:
@@ -400,7 +552,7 @@ async def checkpoint_map_for_period(
     cat_spent: dict[str, float] | None = None,
     kind_map: dict[str, str] | None = None,
 ) -> dict[str, dict]:
-    """Return {category: {id, aim_amount, spent_so_far, days_left, on_track}}
+    """Return {category: {id, aim_amount, spent_so_far, days_left, on_track, pace}}
     for ACTIVE checkpoints in the given period.
 
     days_left: when passed (from pace), used verbatim so the caller's header
@@ -460,9 +612,7 @@ async def checkpoint_map_for_period(
         out[cat] = {
             "id":           str(doc["_id"]),
             "aim_amount":   aim,
-            "spent_so_far": spent,
-            "days_left":    days_left_computed,
-            "on_track":     on_track,
+            **_progress(doc, spent, days_left_computed, on_track),
         }
     return out
 

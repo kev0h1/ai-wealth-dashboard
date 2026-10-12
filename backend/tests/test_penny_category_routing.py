@@ -105,7 +105,9 @@ class _Col:
         matched = [d for d in self._docs if _match(d, pipeline[0]["$match"])]
         groups: dict = {}
         for d in matched:
-            g = groups.setdefault(d.get("transaction_type"), {"_id": d.get("transaction_type"), "total": 0.0, "n": 0})
+            cur = d.get("currency") or "GBP"
+            g = groups.setdefault((d.get("transaction_type"), cur), {
+                "_id": {"t": d.get("transaction_type"), "c": cur}, "total": 0.0, "n": 0})
             g["total"] += d["amount"]
             g["n"] += 1
         return _Cursor(list(groups.values()))

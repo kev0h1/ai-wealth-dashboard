@@ -415,12 +415,39 @@ export type PaceSeriesPoint = {
   sustainable_line: number | null;
 };
 
+// G242: the server's pace reading for an aim. An aim is a pace check, not a
+// budget, so none of these states is a risk state. Optional so a cached or
+// older response still renders (lib/aimPace.ts falls back to the same rule).
+export type AimPaceFigures = {
+  state: "on" | "under" | "likely" | "past";
+  phrase: string;
+  period_days: number;
+  elapsed_fraction: number;
+  pace_today: number;
+  projected: number;
+  spent_fraction: number;
+};
+
 export type Checkpoint = {
   id: string;
   aim_amount: number;
   spent_so_far: number;
   days_left: number;
   on_track: boolean;
+  pace?: AimPaceFigures;
+};
+
+// GET /checkpoints/nudge: at most one, only for a Mirror trait marked "change".
+export type AimNudge = {
+  id: string;
+  category: string;
+  trait_title: string;
+  aim_amount: number;
+  spent_so_far: number;
+  projected: number;
+  days_left: number;
+  period_start: string;
+  period_end: string;
 };
 
 // GET /checkpoints also returns `ref` — the category the aim is anchored to.
@@ -452,7 +479,7 @@ export type CategorySignal = {
 };
 
 export type CategorySignals = {
-  period: { start: string; end: string; days_elapsed: number; days_left: number | null; offset: number; closed: boolean };
+  period: { start: string; end: string; days_elapsed: number; days_left: number | null; period_days?: number; offset: number; closed: boolean };
   signals: Record<string, CategorySignal>;
 };
 
@@ -751,7 +778,41 @@ export type CommitmentPot = {
   contributing_balance: number;
 };
 
+/** G256: the same fill rule shape set-asides carry. */
+export type PlanFillRule = {
+  match_type: "description_equals" | "description_contains";
+  match_value: string;
+};
+
+/** G256: this pay period's fulfilment of a plan that has a fill rule. A
+ * matched OUTGOING transfer from the paying account fulfils it; the sink
+ * rising (`seen_in_sink`) is confirmation only. */
+export type PlanFulfilment = {
+  state: "fulfilled" | "partial" | "unmet";
+  expected_pence: number;
+  matched_pence: number;
+  unmet_pence: number;
+  seen_in_sink: boolean;
+  matched: { date: string; amount: number; label: string }[];
+};
+
+export type PlanFillCandidates = {
+  items: FillCandidate[];
+  /** A rule proposed from the transfers that reached the plan's pot. Never applied for the user. */
+  suggestion: (PlanFillRule & {
+    fill_display_name: string;
+    last_amount: number;
+    last_date: string;
+    occurrences_90d: number;
+  }) | null;
+};
+
 export type Commitment = {
+  /** G256: the payment that fulfils each period's contribution, if the user chose one. */
+  fill_rule?: PlanFillRule | null;
+  fulfilment?: PlanFulfilment | null;
+  paid_this_period?: boolean;
+  paid_amount?: number;
   /** Paying account only. Funding pots remain receiving/progress accounts.
    * G230: the user's choice, or an inference from recent transfers into the
    * pot(s) (then `source_inferred` is true and nothing is stored). */
@@ -836,6 +897,11 @@ export type AccountPlanData = {
   period_amount: number;
   filled_amount: number | null;
   remaining: number;
+  /** G256: set when a goal plan carries a fill rule. */
+  fulfilment?: PlanFulfilment | null;
+  /** G256: the contribution was paid this period (why remaining reads 0). */
+  paid_this_period?: boolean;
+  paid_amount?: number;
   active: boolean;
 };
 
@@ -2972,6 +3038,8 @@ export const api = {
     source_account_id?: string | null;
     /** G230: true only when the user picks "Not set" (never inferred). */
     source_unset?: boolean;
+    /** G256: sent only when the user chose or removed a rule. */
+    fill_rule?: PlanFillRule | null;
     name: string;
     amount: number;
     target_date: string;
@@ -2984,6 +3052,7 @@ export const api = {
   updateCommitment: (id: string, body: {
     source_account_id?: string | null;
     source_unset?: boolean;
+    fill_rule?: PlanFillRule | null;
     name?: string;
     amount?: number;
     target_date?: string;
@@ -3036,6 +3105,10 @@ export const api = {
   allocationFillCandidates: (accountId: string) =>
     get<{ items: FillCandidate[] }>(`/allocations/fill-candidates?account_id=${encodeURIComponent(accountId)}`)
       .then((d) => d.items),
+  // G256: recent payments leaving a plan's paying account, plus a rule
+  // suggested from the transfers that reached its pots. Nothing is written.
+  planFillCandidates: (sourceAccountId: string, potIds: string[]) =>
+    get<PlanFillCandidates>(`/commitments/fill-candidates?source_account_id=${encodeURIComponent(sourceAccountId)}&pot_ids=${encodeURIComponent(potIds.join(","))}`),
   createAllocation: (body: {
     source_account_id?: string | null;
     name: string;
@@ -3802,6 +3875,16 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
+  // G242: edit an active aim's amount; remove is cancelCheckpoint.
+  updateCheckpoint: (id: string, aim_amount: number) =>
+    fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ aim_amount }),
+    }).then((r) => toJson<Checkpoint>(r)),
+  aimNudge: () => get<{ nudge: AimNudge | null }>("/checkpoints/nudge"),
+  dismissAimNudge: (id: string) =>
+    post<{ ok: boolean }>(`/checkpoints/${encodeURIComponent(id)}/nudge-dismiss`, {}),
   recordTrendIntent: (category: string, answer: "one_off" | "new_normal") =>
     post<{ ok: boolean }>("/trends/intent", { category, answer }),
   // ── Spend card lifecycle — the consent sheet's pre-file preview, and the

@@ -6,7 +6,9 @@ import { ChevronLeft, RefreshCw } from "lucide-react";
 import { api, MirrorPortrait, MirrorTrait, ActiveAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import AimSheet from "@/components/AimSheet";
+import MirrorNextStep, { type MirrorStepKind } from "@/components/MirrorNextStep";
 import PennyMark from "@/components/PennyMark";
+import { invalidateSignalsCache, fetchSignals, type SignalMap } from "@/lib/signalsCache";
 
 // Kind → colour chip accent (Category Voice Rule: ~15% tint bg + full-strength icon)
 // chip text uses a dark hue-matched shade (not neutral gray) for contrast on the tinted bg
@@ -21,17 +23,31 @@ const KIND_ACCENT: Record<string, { bg: string; darkBg: string; dot: string; tex
 // Category a trait is anchored to: prefer the machine-readable ref_category the
 // backend now sends; fall back to parsing "Your Signature: {X}" titles for
 // portraits computed before the field existed.
-function traitCategory(trait: MirrorTrait): string | null {
+export function traitCategory(trait: MirrorTrait): string | null {
   if (trait.ref_category) return trait.ref_category;
   const m = trait.title.match(/^Your Signature:\s*(.+)$/i);
   return m ? m[1].trim() : null;
 }
 
-function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
+/** The ONE next step a "change it" leads to, by trait kind (G242): an aim for a
+ *  category-backed trait, a checkpoint for the Front-Loader, a plan for the saving
+ *  habit. Traits with none of these (the Orchestrator, hygiene) get the plain note. */
+export function nextStepKind(trait: MirrorTrait): MirrorStepKind | null {
+  if (traitCategory(trait)) return "aim";
+  if (trait.id === "front_loader") return "checkpoint";
+  if (trait.id === "saving_habit") return "plan";
+  return null;
+}
+
+export const KEEP_NOTE = "That is part of how you do things, so it stays as it is and I will not nag you about it.";
+
+export function TraitCard({ trait, activeAim, onChoice, onSetAim, nextStep }: {
   trait: MirrorTrait;
   activeAim: ActiveAim | null;
   onChoice: (id: string, choice: "keep" | "change") => void;
   onSetAim: (category: string) => void;
+  // The ONE concrete step shown after "change it", in place of the generic line.
+  nextStep?: React.ReactNode;
 }) {
   const accent = KIND_ACCENT[trait.kind] ?? KIND_ACCENT.structure;
   const [saving, setSaving] = useState(false);
@@ -43,8 +59,8 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
     try {
       await api.setMirrorChoice(trait.id, choice);
       onChoice(trait.id, choice);
-      // Change on a category-backed trait → open the aim sheet so the choice
-      // becomes something Penny can actually track (skip if an aim exists).
+      // Change on a category-backed trait opens the aim editor at once, so the
+      // choice becomes something Penny can track (skipped if an aim exists).
       if (choice === "change" && category && !activeAim) {
         onSetAim(category);
       }
@@ -77,7 +93,7 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         <button
           onClick={() => handleChoice("keep")}
           disabled={saving}
-          className={`flex-1 text-xs font-semibold py-2 px-3 rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          className={`flex-1 text-xs font-semibold py-2 px-3 min-h-[44px] rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
             trait.choice === "keep"
               ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
               : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
@@ -88,9 +104,9 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         <button
           onClick={() => handleChoice("change")}
           disabled={saving}
-          className={`flex-1 text-xs font-semibold py-2 px-3 rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          className={`flex-1 text-xs font-semibold py-2 px-3 min-h-[44px] rounded-xl border transition-[transform,opacity,background-color,color,border-color] duration-150 active:scale-[0.98] hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
             trait.choice === "change"
-              ? "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+              ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
               : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
           }`}
         >
@@ -98,12 +114,15 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         </button>
       </div>
 
+      {/* Next step (G242): one concrete thing, instead of the generic line */}
+      {trait.choice === "change" && nextStep}
+
       {/* Confirmation line */}
-      {trait.choice && (
+      {trait.choice && !(trait.choice === "change" && nextStep) && (
         <div className="px-4 pb-4 -mt-1">
           {trait.choice === "keep" ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
-              Noted, we&apos;ll never nag you about this.
+              {KEEP_NOTE}
             </p>
           ) : category && activeAim ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
@@ -157,6 +176,14 @@ export default function MirrorPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [aims, setAims] = useState<ActiveAim[]>([]);
   const [aimCategory, setAimCategory] = useState<string | null>(null);
+  // Suggested aim amounts, for the "Set an aim" step's pre-fill hint.
+  const [signals, setSignals] = useState<SignalMap>({});
+  // The Spend route links here with ?from=spend; only then does the back control say so.
+  const [fromSpend, setFromSpend] = useState(false);
+  useEffect(() => {
+    setFromSpend(new URLSearchParams(window.location.search).get("from") === "spend");
+    fetchSignals(0).then(setSignals).catch(() => {});
+  }, []);
 
   const refreshAims = useCallback(() => {
     api.listCheckpoints()
@@ -179,6 +206,11 @@ export default function MirrorPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => { refreshAims(); }, [refreshAims]);
+
+  function aimsChanged() {
+    invalidateSignalsCache();
+    refreshAims();
+  }
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -206,13 +238,13 @@ export default function MirrorPage() {
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
         {/* Header block with rise-in */}
         <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
-          {/* Back nav */}
+          {/* Back nav: "Back to Spend" when we arrived from Spend's route (G242), else history. */}
           <button
-            onClick={() => goBack(router)}
-            className="flex items-center gap-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 active:opacity-70 transition-[transform,opacity] mb-5"
+            onClick={() => (fromSpend ? router.push("/spend?view=period") : goBack(router))}
+            className="flex min-h-[44px] items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 active:opacity-70 transition-[transform,opacity] mb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            <ChevronLeft size={15} />
-            Back
+            <ChevronLeft size={15} aria-hidden="true" />
+            {fromSpend ? "Back to Spend" : "Back"}
           </button>
 
           {/* Header */}
@@ -269,12 +301,13 @@ export default function MirrorPage() {
                     onClick={async () => {
                       try {
                         await api.cancelCheckpoint(aim.id);
+                        invalidateSignalsCache();
                         setAims(prev => prev.filter(a => a.id !== aim.id));
                       } catch {
                         // silent — the row stays, user can try again
                       }
                     }}
-                    className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400 active:opacity-60 transition-opacity"
+                    className="mt-1 inline-flex min-h-[44px] items-center text-[12px] text-slate-600 dark:text-slate-400 active:opacity-60 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     Cancel this aim
                   </button>
@@ -312,6 +345,7 @@ export default function MirrorPage() {
             {portrait.traits.map((trait, i) => {
               const cat = traitCategory(trait);
               const activeAim = cat ? aims.find(a => a.ref === cat) ?? null : null;
+              const kind = nextStepKind(trait);
               return (
                 <div key={trait.id} className="rise-in" style={{ "--rise-index": i + 1 } as React.CSSProperties}>
                   <TraitCard
@@ -319,6 +353,16 @@ export default function MirrorPage() {
                     activeAim={activeAim}
                     onChoice={handleChoice}
                     onSetAim={setAimCategory}
+                    nextStep={kind ? (
+                      <MirrorNextStep
+                        kind={kind}
+                        category={cat ?? undefined}
+                        amount={cat ? signals[cat]?.suggested_aim ?? null : null}
+                        status={activeAim ? "done" : "open"}
+                        onAct={() => (kind === "plan" ? router.push("/planning") : cat && setAimCategory(cat))}
+                        onSeeNext={() => router.push("/spend?view=period")}
+                      />
+                    ) : undefined}
                   />
                 </div>
               );
@@ -331,7 +375,7 @@ export default function MirrorPage() {
         <AimSheet
           category={aimCategory}
           onClose={() => setAimCategory(null)}
-          onSaved={refreshAims}
+          onSaved={aimsChanged}
         />
       )}
     </div>

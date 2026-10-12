@@ -574,6 +574,96 @@
           "spend_from": 50
         }
       }
+    },
+    {
+      "name": "g256_fulfilled_goal_releases_reservation",
+      "pool": 200,
+      "closing": {
+        "barclays": 141.04
+      },
+      "plans": [
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "recent-transfers",
+          "period_amount": 85,
+          "filled_amount": 80,
+          "remaining": 0,
+          "active": true
+        }
+      ],
+      "movements": [
+        {
+          "account_id": "barclays",
+          "dest_account_id": null,
+          "amount": 80,
+          "category": "Transfer",
+          "kind": "movement"
+        }
+      ],
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 0,
+          "after_payments_and_plans": 141.04,
+          "uncertain": false,
+          "estimated": false,
+          "spend_from": 141.04,
+          "low_point": 141.04,
+          "low_point_and_plans": 141.04
+        }
+      },
+      "low_point": {
+        "barclays": 141.04
+      }
+    },
+    {
+      "name": "g256_partial_goal_reserves_only_the_unmet_remainder",
+      "pool": 200,
+      "closing": {
+        "barclays": 141.04
+      },
+      "plans": [
+        {
+          "id": "goal:japan",
+          "record_id": "japan",
+          "kind": "goal",
+          "name": "Japan",
+          "destination": "Japan pot",
+          "destination_account_ids": [
+            "japan-pot"
+          ],
+          "source_account_id": "barclays",
+          "source_basis": "chosen",
+          "period_amount": 80,
+          "filled_amount": 40,
+          "remaining": 40,
+          "active": true
+        }
+      ],
+      "movements": [],
+      "expected": {
+        "barclays": {
+          "after_payments": 141.04,
+          "plans_reserved": 40,
+          "after_payments_and_plans": 101.04,
+          "uncertain": false,
+          "estimated": false,
+          "spend_from": 101.04,
+          "low_point": 141.04,
+          "low_point_and_plans": 101.04
+        }
+      },
+      "low_point": {
+        "barclays": 141.04
+      }
     }
   ]
 }

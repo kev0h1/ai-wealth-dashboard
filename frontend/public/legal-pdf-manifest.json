@@ -36,9 +36,9 @@
     {
       "pdf": "SECURITY.pdf",
       "source": "SECURITY.md",
-      "source_sha256": "bc5779d7fa40459d66fe1ce2482a51c9b30e88b71ed85deadb2c1fc4fab4c655",
+      "source_sha256": "d042f585ca2d494b42a81cf6c7ddedb761174cf0c8f926cf0a4264df72f127c9",
       "exported": "2026-10-11",
-      "pages": 16,
+      "pages": 17,
       "mcp_connector": "full-text"
     }
   ]

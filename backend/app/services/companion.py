@@ -612,28 +612,6 @@ async def _gate_regular_move_cards(
     return _RegularMoveCardGate(item_id_by_dest, will_emit_by_dest, capped_out)
 
 
-async def _live_balance(account_id: str) -> float | None:
-    """Fetch current balance for a single account across all account collections."""
-    from bson import ObjectId
-
-    def _try_oid(v: str):
-        try:
-            return ObjectId(v)
-        except Exception:
-            return v
-
-    oid = _try_oid(account_id)
-    for col in (accounts_col, yapily_accounts_col):
-        doc = await col.find_one(
-            {"_id": oid},
-            {"balance": 1, "current_balance": 1, "available_balance": 1},
-        )
-        if doc:
-            bal = doc.get("balance") or doc.get("current_balance") or doc.get("available_balance") or 0.0
-            return float(bal)
-    return None
-
-
 # Money that isn't real spend (declared kind movement or income) is excluded
 # from "everyday spend" so the payday-plan target isn't inflated by money
 # already accounted for elsewhere (savings moves, debt payments, transfers).

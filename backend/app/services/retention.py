@@ -147,6 +147,16 @@ async def erase_user(uid: str) -> dict[str, int]:
         count = r_field.deleted_count + r_keyed.deleted_count
         if count:
             removed[name] = count
+
+    # A128: RETIRED_COLLECTIONS (expo_push_tokens, savings_plans) hold
+    # user_id-keyed rows from retired features and have no binding either.
+    for name in _cols.RETIRED_COLLECTIONS:
+        col = _cols.db[name]
+        r_field = await col.delete_many({"user_id": uid})
+        r_keyed = await col.delete_many({"_id": uid})
+        count = r_field.deleted_count + r_keyed.deleted_count
+        if count:
+            removed[name] = count
     return removed
 
 
