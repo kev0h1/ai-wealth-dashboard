@@ -30,6 +30,7 @@ import Spinner from "@/components/Spinner";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
 import SpendPaceHero from "@/components/SpendPaceHero";
+import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spendUiState";
@@ -1070,7 +1071,7 @@ export default function SpendPage() {
         : <span className="font-mono tabular-nums">{wholeMoney(Math.abs(paceDifference))}</span>,
       needsLook: paceDifference != null && paceDifference > 0,
     }] : []),
-    ...(verdict.unresolved.total > 0 ? [{
+    ...(unresolvedWorthAsking(verdict.unresolved.total) ? [{
       id: "spend-unresolved",
       label: "To categorise",
       value: <>{verdict.unresolved.payments_count} payment{verdict.unresolved.payments_count === 1 ? "" : "s"} · <span className="font-mono tabular-nums">{wholeMoney(verdict.unresolved.total)}</span></>,
@@ -1137,7 +1138,7 @@ export default function SpendPage() {
         </section>
 
         {verdict && (
-          <div className="sticky top-0 z-30 -mx-4 min-w-0 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:bg-[#0f172a]/95 lg:hidden">
+          <div className="min-w-0 lg:hidden">
             <SpendJourneyNav destinations={journeyDestinations} />
           </div>
         )}

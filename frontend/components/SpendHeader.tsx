@@ -34,6 +34,7 @@ import { SheetFrame } from "@/components/SheetFrame";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
 import type { SpendVerdict, Transaction } from "@/lib/api";
+import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
 // minus — same <£1 zero-safe convention as SafeToSpendCard.tsx's
@@ -461,7 +462,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
             <dt className="text-slate-600 dark:text-slate-400">Other categorised spending</dt>
             <dd className="font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">{fmt(restTotal)}</dd>
           </div>
-          {unresolvedTotal > 0 && (
+          {unresolvedWorthAsking(unresolvedTotal) && (
             <div className="flex items-center justify-between gap-4">
               <dt className="text-slate-600 dark:text-slate-400">To categorise</dt>
               <dd className="font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">{fmt(unresolvedTotal)}</dd>

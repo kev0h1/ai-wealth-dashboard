@@ -28,6 +28,7 @@ import { BarChart3, WalletCards } from "lucide-react";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption } from "@/components/SpendHeader";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
+import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import SpendTrends, { DEFAULT_HOME_PINNED_WIDGET, DEFAULT_WIDGETS } from "@/components/SpendTrends";
 import TeachingSheet from "@/components/TeachingSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
@@ -221,7 +222,7 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
         : <span className="font-mono tabular-nums">{money(paceDifference)}</span>,
       needsLook: paceDifference != null && paceDifference > 0,
     }] : []),
-    ...(verdict.unresolved.total > 0 ? [{
+    ...(unresolvedWorthAsking(verdict.unresolved.total) ? [{
       id: "spend-unresolved",
       label: "To categorise",
       value: <>{verdict.unresolved.payments_count} payment{verdict.unresolved.payments_count === 1 ? "" : "s"} · <span className="font-mono tabular-nums">{money(verdict.unresolved.total)}</span></>,
@@ -279,7 +280,7 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
               <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={destinations} desktop /></div>
             </section>
 
-            <div className="sticky top-0 z-30 -mx-4 min-w-0 bg-[#f0f2f7]/95 px-4 py-2 backdrop-blur-sm dark:bg-[#0f172a]/95 lg:hidden">
+            <div className="min-w-0 lg:hidden">
               <SpendJourneyNav destinations={destinations} />
             </div>
 
