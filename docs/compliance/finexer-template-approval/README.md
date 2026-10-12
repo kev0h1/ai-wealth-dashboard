@@ -53,3 +53,20 @@ The CSS changes colours, button and input radius, and our own header block only.
 ## Request for written approval (clause 7.6), for Kevin to paste
 
 > Hello, we are AURIQ LTD, trading as Sorted, a registered agent of Finexer Ltd. Under clause 7.6 of the Client Terms we ask for your written approval of the co-branded consent page templates on our app acc_DqPCRpHskkjNy7uYa1wv7mSv (light aYiuDETVBXPq, dark 8pq22L45Lf9L). We set the template name to AURIQ LTD, so your headline and regulated footer name the registered agent, and we add a short header above your page that names Finexer Ltd as the provider, states your FCA authorisation and firm reference 925695, and says AURIQ LTD, trading as Sorted, acts as your agent. We have not changed, hidden, resized or dimmed the permission list, the End User Terms, the Privacy Policy links or your regulated footer, and the footer text is set in full ink for legibility. The header HTML, the exact minified CSS for both templates and mock screenshots at 390px are attached. Please confirm in writing that this presentation is approved, or tell us what to change before we make it live.
+
+## Connect sheet (A160)
+
+After NEXT, Finexer shows a bottom sheet ("By clicking Connect you are permitting Finexer to access account information ... End User Terms and Privacy Policy", Cancel and CONNECT). Finexer keeps it white in both templates, so in dark the bank name inherited our near-white body ink (about 1.1:1 on white), and the sentence and links sat in Finexer's greys (about 3.9:1 and 2.6:1) with Cancel in our dark link colour (about 3:1). Markup and computed colours are in `docs/compliance/finexer-connect-sheet-dom.md`.
+
+Rules added to the shared CSS (colour and background only, so the regulated sentence and links keep Finexer's size, case, display, opacity, visibility and content):
+
+- `.form-control-inner`: background `var(--s-card)` (`!important`), text `var(--s-ink)`.
+- `.consent-term`: colour `inherit !important`.
+- `.consent-term a, #connect-state-cancel`: colour `var(--s-link) !important`.
+- The CONNECT button keeps Finexer's blue.
+
+Contrast (WCAG AA needs 4.5:1): dark, ink #f1f5f9 on card #1e293b 13.4:1, link #818cf8 on #1e293b 4.9:1. Light, ink #0f172a on #ffffff 17.9:1, link #4f46e5 on #ffffff 6.3:1.
+
+Minified size: light 1954, dark 2000 characters (limit 2000; the dark file has no headroom left). The current minified CSS is in `sorted-light.min.css` and `sorted-dark.min.css` in this folder (the inline blocks above predate A160). To fit, the shared CSS dropped redundant declarations, unquoted attribute selectors and the heading letter-spacing.
+
+Screenshots at 390px of Finexer's real hosted page (synthetic customer, consent never completed), with the new CSS applied on top of the live template: `connect-sheet-before-dark.png` (live dark template, unreadable bank name and dim links), `connect-sheet-dark.png` and `connect-sheet-light.png` (new CSS). Not yet synced to Finexer.
