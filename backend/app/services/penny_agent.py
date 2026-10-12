@@ -825,6 +825,20 @@ def safe_prose(raw: str | None) -> str:
     return text[:_PROSE_MAX]
 
 
+def _guarded_pair(headline: str, reply: str, periods: list[dict], uid: str) -> tuple[str, str]:
+    """G265: the period guard at the loop's call site. Even if the guard module
+    were to raise something its own wrapper missed, the original answer stands."""
+    try:
+        return penny_period.guard_reply(headline, reply, periods, uid)
+    except Exception:
+        logger.exception("penny_period_guard_error at call site for %s", uid)
+        return headline, reply
+
+
+def _guarded(text: str, periods: list[dict], uid: str) -> str:
+    return _guarded_pair("", text, periods, uid)[1]
+
+
 async def run_penny_agent(
     uid: str, question: str, history: list[dict], screen: str | None, context: str,
     view: dict | None = None, last_result: dict | None = None,
@@ -1162,7 +1176,7 @@ async def run_penny_agent(
                         continue
                     prose = safe_prose(content)
                     if prose:
-                        _, prose = penny_period.guard_reply("", prose, periods, uid)
+                        prose = _guarded(prose, periods, uid)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
                         if new_last_result:
@@ -1172,7 +1186,7 @@ async def run_penny_agent(
                 headline, reply = parsed
                 # G265: a period phrase the model wrote that no tool result
                 # backs is replaced with the tool's own label.
-                headline, reply = penny_period.guard_reply(headline, reply, periods, uid)
+                headline, reply = _guarded_pair(headline, reply, periods, uid)
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,

@@ -218,7 +218,7 @@ def test_no_months_chart_is_titled_with_the_pay_period(world):
      f"The table below shows your spending totals across {PAY_LABEL}", 1),
     # mismatch the other way
     ("This pay period you spent £500.", [penny_period.window_period(6, TODAY)], f"{LABEL}, you spent £500.", 1),
-    ("You spent £500 this month.", [penny_period.window_period(6, TODAY)], f"You spent £500 {LABEL}.", 1),
+    ("You spent £500 this month.", [penny_period.window_period(6, TODAY)], "You spent £500 this month.", 0),
     ("Spending over the past 3 months", [penny_period.window_period(6, TODAY)], f"Spending over {LABEL}", 1),
     # no period phrase: untouched
     ("Mortgage is the biggest category at £6,747.", [penny_period.window_period(6, TODAY)],
@@ -248,9 +248,19 @@ _W12 = penny_period.window_period(12, TODAY)
     ("This pay period you spent £800.", [_PL], f"Last pay period, 25 Aug to 24 Sep, you spent £800.", 1),
     ("The last 6 months came to £900.", [_P0], f"This pay period, 25 Sep to 29 Oct, came to £900.", 1),
     ("Over the last year you spent £9k.", [_W6], f"Over {LABEL}, you spent £9k.", 1),
-    ("The past year was £9k.", [_W6], f"The {LABEL}, was £9k.", 1),
+    ("The past year was £9k.", [_W6], f"The period of {LABEL}, was £9k.", 1),
     ("Your 3-month average is £400.", [_W6], f"Your average over {LABEL}, is £400.", 1),
-    ("This month you spent £400.", [_P0], f"This pay period, 25 Sep to 29 Oct, you spent £400.", 1),
+    # a calendar month is no tool period: never relabelled
+    ("This month you spent £400.", [_P0], "This month you spent £400.", 0),
+    ("Last month you spent £300.", [_W6], "Last month you spent £300.", 0),
+    ("In the last month you spent £300.", [_W6], "In the last month you spent £300.", 0),
+    # look ahead: a repayment or cost, not the span the figures cover
+    ("Over 12 months you would repay £50.", [_W6], "Over 12 months you would repay £50.", 0),
+    ("Across 24 months the interest is £90.", [_W6], "Across 24 months the interest is £90.", 0),
+    ("Over 12 months costs £30 in fees.", [_W6], "Over 12 months costs £30 in fees.", 0),
+    # two different mismatched claims never both become one label
+    ("The last 3 months were £500, but the last 4 months were £700.", [_W6],
+     "The last 3 months were £500, but the last 4 months were £700.", 0),
     # negatives: the claim is backed, or is not a period claim
     ("Over the last year you spent £9k.", [_W12], "Over the last year you spent £9k.", 0),
     ("Your 6-month average is £1,500.", [_W6], "Your 6-month average is £1,500.", 0),
@@ -268,7 +278,7 @@ _W12 = penny_period.window_period(12, TODAY)
      "In the last 6 months you spent £5k, and this pay period £800.", 0),
     ("Last pay period was higher; this pay period is lower.", [_PL],
      "Last pay period was higher; this pay period is lower.", 0),
-    ("The last 3 months and this pay period.", [_W6, _P0], f"The {LABEL}, and this pay period.", 1),
+    ("The last 3 months and this pay period.", [_W6, _P0], f"The period of {LABEL}, and this pay period.", 1),
     ("Your 3-month average beat the last 6 months.", [_W6], "Your 3-month average beat the last 6 months.", 0),
 ])
 def test_guard_only_rewrites_unambiguous_mismatches(text, periods, expected, n):
@@ -400,3 +410,42 @@ def test_collect_periods_puts_the_headline_period_last(world):
     res = _call({"category": "travel", "months": 6})
     labels = [p["label"] for p in penny_period.collect_periods(res)]
     assert labels[-1] == LABEL and PAY_LABEL in labels
+
+
+# ── fail-safe: a guard bug never costs the user their answer ──────────────
+def test_guard_text_returns_the_original_if_it_raises(monkeypatch, caplog):
+    def boom(text, periods):
+        raise RuntimeError("guard bug")
+
+    monkeypatch.setattr(penny_period, "_guard_text", boom)
+    assert penny_period.guard_text("Across the last 3 months", [_W6]) == ("Across the last 3 months", 0)
+    assert "penny_period_guard_error" in caplog.text
+
+
+def test_guard_reply_returns_the_originals_if_it_raises(monkeypatch, caplog):
+    def boom(*a, **k):
+        raise RuntimeError("guard bug")
+
+    monkeypatch.setattr(penny_period, "guard_text", boom)
+    assert penny_period.guard_reply("Head", "Across the last 3 months", [_W6]) == ("Head", "Across the last 3 months")
+    assert "penny_period_guard_error" in caplog.text
+
+
+def test_loop_completes_with_the_original_reply_if_the_guard_raises(monkeypatch, caplog):
+    def boom(*a, **k):
+        raise RuntimeError("guard bug")
+
+    monkeypatch.setattr(penny_agent_module.penny_period, "guard_reply", boom)
+    out = _run_loop(monkeypatch, _pay_result(),
+                    "HEADLINE: Your last 6 months\nREPLY: The table below shows totals across the last 6 months.")
+    assert out["reply"] == "The table below shows totals across the last 6 months."
+    assert out["headline"] == "Your last 6 months" and out["tools_used"] == ["get_category_spend"]
+    assert "penny_period_guard_error at call site" in caplog.text
+
+
+def test_prose_fallback_survives_a_raising_guard(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("guard bug")
+
+    monkeypatch.setattr(penny_agent_module.penny_period, "guard_reply", boom)
+    assert penny_agent_module._guarded("Totals across the last 6 months.", [_W6], "u") == "Totals across the last 6 months."

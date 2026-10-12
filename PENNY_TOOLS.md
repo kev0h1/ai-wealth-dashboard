@@ -736,6 +736,11 @@ last 6 months" above a table of this pay period's figures. `get_category_spend` 
   `penny_period_guard_skip` is logged. Deal, term and repayment spans ("0% deal runs over
   12 months") and "N months ago" are not period claims; "the last year" counts as 12
   months; "N-month average" is rewritten only when it is the sole phrase.
+  The guard is fail-safe (any error returns the original text, logged as
+  `penny_period_guard_error`, wrapped again at the loop call sites); "last month" and
+  "this month" are calendar months and never relabelled; non-spend spans are also
+  recognised from the words after the span ("would repay", "costs"); two different
+  mismatched phrases are never both turned into one label.
   Prompt rule 18 asks the model to state `period.label` exactly.
 - **Audit of the other windows**: `search_transactions` totals share the row query so
   date_from/date_to are honoured, and the result now carries the range as `period`;

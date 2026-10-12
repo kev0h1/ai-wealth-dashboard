@@ -128,6 +128,7 @@ _PHRASES: list[tuple[re.Pattern, str]] = [
 # A span of months that is not a spending window: a deal, a term, a repayment.
 _NON_SPEND_WORDS = ("promo", "deal", "0%", "runs", "term", "contract", "agreement", "repay", "interest")
 _AGO = re.compile(r"\s*ago\b", re.I)
+_AHEAD_WORDS = ("repay", "interest", "deal", "promo", "cost", "costs", "charged", "term", "contract")
 
 GUARD_SKIPS = 0
 
@@ -170,7 +171,11 @@ def _non_spending(text: str, start: int, end: int) -> bool:
     if _AGO.match(text[end:end + 12]):
         return True
     words = text[:start].lower().split()[-6:]
-    return any(w.startswith(k) or (k == "0%" and "0%" in w) for w in words for k in _NON_SPEND_WORDS)
+    if any(w.startswith(k) or (k == "0%" and "0%" in w) for w in words for k in _NON_SPEND_WORDS):
+        return True
+    # look ahead too: "Over 12 months you would repay £50", "6 months costs £30"
+    ahead = [re.sub(r"[^a-z0-9%]", "", w) for w in text[end:].lower().split()[:4]]
+    return any(w.startswith(k) for w in ahead for k in _AHEAD_WORDS if w)
 
 
 def _sentence_start(text: str, start: int) -> bool:
@@ -186,6 +191,17 @@ def _skip(why: str, text: str) -> None:
 
 
 def guard_text(text: str, periods: list[dict]) -> tuple[str, int]:
+    """Fail-safe wrapper: any error inside the guard returns the original text
+    unchanged (and logs `penny_period_guard_error`), so a guard bug can never
+    turn a good answer into a failure."""
+    try:
+        return _guard_text(text, periods)
+    except Exception:
+        logger.exception("penny_period_guard_error in guard_text")
+        return text, 0
+
+
+def _guard_text(text: str, periods: list[dict]) -> tuple[str, int]:
     """(text, rewrites). A period phrase that matches none of the `periods` the
     tools returned is replaced with a tool label, but only when that cannot
     make the sentence false: with several different period phrases in the text
@@ -217,8 +233,14 @@ def guard_text(text: str, periods: list[dict]) -> tuple[str, int]:
     distinct = {(_group(k), k, n) for _, _, k, n in chosen}
     multi = len(distinct) > 1
     repl: list[tuple[int, int, str, bool]] = []
+    targets: list[str] = []
     for start, end, kind, n in chosen:
         if any(_matches(kind, n, p) for p in usable):
+            continue
+        if kind in ("month1", "calendar_month"):
+            # "last month" / "this month" are calendar months; no tool period is
+            # one, so a label would be a different claim. Leave them.
+            _skip("calendar month phrase", text)
             continue
         same = [p for p in usable if _period_group(p) == _group(kind)]
         if multi:
@@ -233,11 +255,16 @@ def guard_text(text: str, periods: list[dict]) -> tuple[str, int]:
                 continue
             target = same[-1] if same else usable[-1]
         label = target["label"]
+        targets.append(label)
         if kind == "avg":
             label = f"average over {label}"
         if text[start:start + 4].lower() == "the " and label[:1].isdigit() and _sentence_start(text, start):
-            label = text[start:start + 4] + label  # "The past year" -> "The 6 months, ..."
+            label = f"{text[start:start + 4]}period of {label}"  # "The past year was" -> "The period of 6 months, ..., was"
         repl.append((start, end, label, _sentence_start(text, start)))
+    if len(targets) > 1 and len(set(targets)) < len(targets):
+        # two different claims must not both become the same label
+        _skip("different mismatched phrases would share one label", text)
+        return text, 0
     if not repl:
         return text, 0
     out, cursor = [], 0
@@ -258,14 +285,18 @@ def guard_text(text: str, periods: list[dict]) -> tuple[str, int]:
 def guard_reply(headline: str, reply: str, periods: list[dict], uid: str = "") -> tuple[str, str]:
     """Apply `guard_text` to the headline and reply; log one line per rewrite
     pass so the metric is greppable (`penny_period_guard_rewrite`)."""
-    new_headline, h = guard_text(headline, periods)
-    new_reply, r = guard_text(reply, periods)
-    if h or r:
-        logger.warning(
-            "penny_period_guard_rewrite uid=%s rewrites=%d label=%r total=%d",
-            uid, h + r, [p for p in periods if isinstance(p, dict)][-1].get("label"), GUARD_REWRITES,
-        )
-    return new_headline, new_reply
+    try:
+        new_headline, h = guard_text(headline, periods)
+        new_reply, r = guard_text(reply, periods)
+        if h or r:
+            logger.warning(
+                "penny_period_guard_rewrite uid=%s rewrites=%d label=%r total=%d",
+                uid, h + r, [p for p in periods if isinstance(p, dict)][-1].get("label"), GUARD_REWRITES,
+            )
+        return new_headline, new_reply
+    except Exception:
+        logger.exception("penny_period_guard_error in guard_reply uid=%s", uid)
+        return headline, reply
 
 
 def collect_periods(result) -> list[dict]:
