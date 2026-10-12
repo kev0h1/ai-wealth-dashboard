@@ -201,3 +201,34 @@ def test_state_keyed_by_app_id_and_legacy_flat_file_migrated(monkeypatch, tmp_pa
     assert set(state) == {"app_prod", "app_sandbox"}
     assert state["app_prod"] == {"light": "OLDLIGHT0001", "dark": "OLDDARK00001"}
     assert state["app_sandbox"]["light"] != state["app_prod"]["light"]
+
+
+def test_minify_keeps_attribute_selector_quotes():
+    out = ft.minify_css('input[type="submit"], [class*="title"] *  {\n  color: red;\n}\n')
+    assert out == 'input[type="submit"],[class*="title"] *{color:red}'
+
+
+def test_sync_css_file_sends_given_css_for_one_template(monkeypatch, tmp_path, capsys):
+    from urllib.parse import parse_qs
+    monkeypatch.setattr(ft, "STATE_FILE", tmp_path / "state.json")
+    f = tmp_path / "exp.css"
+    f.write_text("/* c */\na [x=\"y\"] {\n  color: red;\n}\n")
+    calls = []
+    existing = [{"id": "LIGHT0000001", "name": "Sorted light", "default": True}]
+    assert ft.main(["--app-id", "app_1", "sync", "--only", "light", "--css-file", str(f)],
+                   client=_mock_client(existing, calls)) == 0
+    posts = [c for c in calls if c[0] == "POST"]
+    assert [p[1] for p in posts] == ["/apps/app_1/templates/LIGHT0000001"]
+    assert parse_qs(posts[0][2])["css"] == ['a [x="y"]{color:red}']
+    assert "chars" in capsys.readouterr().out
+
+
+def test_sync_css_file_needs_only_and_respects_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(ft, "STATE_FILE", tmp_path / "state.json")
+    f = tmp_path / "big.css"
+    f.write_text("a{color:red}" * 300)
+    calls = []
+    assert ft.main(["--app-id", "app_1", "sync", "--css-file", str(f)], client=_mock_client([], calls)) == 2
+    with pytest.raises(SystemExit):
+        ft.main(["--app-id", "app_1", "sync", "--only", "light", "--css-file", str(f)], client=_mock_client([], calls))
+    assert [c for c in calls if c[0] == "POST"] == []
