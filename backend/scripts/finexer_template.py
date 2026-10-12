@@ -272,6 +272,9 @@ def main(argv=None, client: httpx.Client | None = None) -> int:
         elif a.cmd == "make-default":
             cmd_make_default(c, base, a.id, a.yes)
     except SystemExit as e:
+        if isinstance(e.code, str):
+            print(e.code, file=sys.stderr)
+            return 1
         return int(e.code or 0)
     return 0
 

@@ -229,6 +229,5 @@ def test_sync_css_file_needs_only_and_respects_limit(monkeypatch, tmp_path):
     f.write_text("a{color:red}" * 300)
     calls = []
     assert ft.main(["--app-id", "app_1", "sync", "--css-file", str(f)], client=_mock_client([], calls)) == 2
-    with pytest.raises(SystemExit):
-        ft.main(["--app-id", "app_1", "sync", "--only", "light", "--css-file", str(f)], client=_mock_client([], calls))
+    assert ft.main(["--app-id", "app_1", "sync", "--only", "light", "--css-file", str(f)], client=_mock_client([], calls)) == 1
     assert [c for c in calls if c[0] == "POST"] == []
