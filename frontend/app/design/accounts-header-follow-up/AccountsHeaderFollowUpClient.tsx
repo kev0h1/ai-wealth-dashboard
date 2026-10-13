@@ -15,7 +15,17 @@
 //   f  two-column header: title and Net worth left, a right rail with a filled
 //      Add on the title line and the reading / hidden chip on the caption line
 //
-// /design/accounts-header-follow-up?option|variant=a|b|c|d|e|f&mode=light|dark&accounts=6|18|20&state=shown|hidden[&chrome=off][&open=0|1]
+// Round 3 (G, H, I; skills: impeccable and design-taste-frontend, web-design-guidelines as
+// the audit; Astra drafted): Kevin was not convinced by the styling, so these are three
+// different art directions for the whole header, via the optional AccountsHeader `layout`
+// prop (the default render is untouched). Add stays top right, no floating button.
+//   g  Brief: a sentence on the canvas, "Net worth is £1,365"; text Add; Find stays a field
+//   h  Register: the first entry of the ledger between two hairlines; square icon Add;
+//      Find becomes an open ruled row and the lenses become underlined tabs
+//   i  Console: one glass-card instrument, an indigo-tint Add in its corner, a privacy
+//      rail with a 44px Show when hidden
+//
+// /design/accounts-header-follow-up?option|variant=a|b|c|d|e|f|g|h|i&mode=light|dark&accounts=6|18|20&state=shown|hidden[&chrome=off][&open=0|1]
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -28,8 +38,8 @@ import { SheetFrame } from "@/components/SheetFrame";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { breakdownFor, estateFor } from "./fixtures";
 
-type Option = "a" | "b" | "c" | "d" | "e" | "f";
-const OPTIONS: Option[] = ["a", "b", "c", "d", "e", "f"];
+type Option = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i";
+const OPTIONS: Option[] = ["g", "h", "i", "d", "e", "f", "a", "b", "c"];
 
 const OPTION_NOTES: Record<Option, { title: string; line: string }> = {
   a: { title: "A  Chip to the top right", line: "Round 1. Balances hidden · Show sits beside the title. Shown state leaves the right empty again. Floating Add kept." },
@@ -37,6 +47,9 @@ const OPTION_NOTES: Record<Option, { title: string; line: string }> = {
   c: { title: "C  Last synced and refresh", line: "Round 1. Updated time with a 44px refresh control top right. Floating Add kept." },
   d: { title: "D  Outlined Add pill", line: "Round 2. A 44px outlined Add on the title line; Net worth tightened under it; 20px before Find. No floating button." },
   e: { title: "E  Compact + and a quiet reading", line: "Round 2. A 44px plus top right; the Net worth row carries the hidden chip, or Updated N min ago when shown. No floating button." },
+  g: { title: "G  Brief", line: "Round 3. A sentence on the canvas, Net worth is £1,365, no boxes; text Add top right; the caption row carries Updated N min ago or the hidden reading; Find stays a field." },
+  h: { title: "H  Register", line: "Round 3. The first entry of the ledger: Net worth left, figure right, between two hairlines; a square icon Add; Find is an open ruled row and the lenses are underlined tabs." },
+  i: { title: "I  Console", line: "Round 3. One glass-card instrument under the title with Add in its corner; when hidden, a hairline privacy rail with a 44px Show." },
   f: { title: "F  Two-column rail", line: "Round 2. Title and Net worth left; a right rail with a filled Add on the title line and the reading or hidden chip on the caption line. No floating button." },
 };
 
@@ -100,20 +113,43 @@ function AddFilled({ onClick }: { onClick: () => void }) {
   );
 }
 
+function AddText({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" data-add-control aria-haspopup="dialog" onClick={onClick}
+      className={`-mr-3 inline-flex min-h-11 items-center gap-1 rounded-xl px-3 text-[15px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-400/10 ${press} ${focusRing}`}>
+      <Plus size={16} aria-hidden="true" />
+      Add<span className="sr-only"> account</span>
+    </button>
+  );
+}
+
+function AddTint({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" data-add-control aria-haspopup="dialog" aria-label="Add account" onClick={onClick}
+      className={`inline-flex size-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-400/15 dark:text-indigo-300 dark:hover:bg-indigo-400/25 ${press} ${focusRing}`}>
+      <Plus size={20} aria-hidden="true" />
+    </button>
+  );
+}
+
 const Updated = ({ className = "" }: { className?: string }) => (
   <p className={`text-xs text-slate-600 dark:text-slate-400 ${className}`} data-updated>Updated 8 min ago</p>
 );
 
 export default function AccountsHeaderFollowUpClient() {
   const params = useSearchParams();
-  const option: Option = OPTIONS.find((o) => o === (params.get("option") ?? params.get("variant"))) ?? "d";
+  const option: Option = OPTIONS.find((o) => o === (params.get("option") ?? params.get("variant"))) ?? "g";
   const mode = params.get("mode") === "dark" ? "dark" : "light";
   const p = params.get("accounts");
   const count: 6 | 18 | 20 = p === "6" ? 6 : p === "20" ? 20 : 18;
-  const hidden = params.get("state") === "hidden";
+  const hiddenParam = params.get("state") === "hidden";
+  // Show really turns the masking off here, so the hidden state can be judged both ways.
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => setRevealed(false), [hiddenParam]);
+  const hidden = hiddenParam && !revealed;
   const chrome = params.get("chrome") !== "off";
   const [sheetOpen, setSheetOpen] = useState(params.get("open") === "1");
-  const roundTwo = option === "d" || option === "e" || option === "f";
+  const roundTwo = option === "d" || option === "e" || option === "f" || option === "g" || option === "h" || option === "i";
 
   const menuRef = useRef<HTMLDivElement | null>(null);
   const estate = estateFor(count);
@@ -126,10 +162,17 @@ export default function AccountsHeaderFollowUpClient() {
   const off = "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300";
   const openSheet = () => setSheetOpen(true);
   const noop = () => {};
+  const reveal = () => setRevealed(true);
 
-  // Round 2 header props per option.
+  // Header props per option.
   const headerProps =
-    option === "d"
+    option === "g"
+      ? { layout: "brief" as const, topRight: <AddText onClick={openSheet} />, updated: "Updated 8 min ago" }
+      : option === "h"
+        ? { layout: "register" as const, topRight: <AddIcon onClick={openSheet} />, updated: "Updated 8 min ago" }
+        : option === "i"
+          ? { layout: "console" as const, topRight: <AddTint onClick={openSheet} />, updated: "Updated 8 min ago" }
+          : option === "d"
       ? { topRight: <AddPill onClick={openSheet} /> }
       : option === "e"
         ? {
@@ -199,29 +242,45 @@ export default function AccountsHeaderFollowUpClient() {
         {/* Round 2 has no floating Add, so the list needs the nav clearance only (the pre-G250 value). */}
         <div className={roundTwo ? "pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" : ADD_FAB_LIST_CLEARANCE} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
           {/* The page's header wrapper, with the pb-6 swapped for the Home 20px section gap. */}
-          <div className="px-4 pt-4 pb-5">
+          <div className={`px-4 pt-4 ${option === "i" || option === "h" ? "pb-4" : "pb-5"}`}>
             <AccountsHeader
               netWorth={{ value: estate.netWorth, accountCount: estate.rows.length }}
               hidden={hidden}
               showChip={hidden}
-              onShow={noop}
+              onShow={reveal}
               tight
               {...headerProps}
             />
           </div>
 
           <div className="space-y-5 px-4">
-            <div className="space-y-3">
-              <div aria-hidden="true" className="glass-tile flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-500 dark:text-slate-400">
-                <Search size={15} aria-hidden="true" />
-                <span>Find an account…</span>
+            {option === "h" ? (
+              // Register hand-over: an open, ruled Find row and underlined lens tabs, so the header,
+              // the search and the ledger read as one ruled sheet.
+              <div>
+                <div aria-hidden="true" className="flex min-h-11 items-center gap-2 border-b border-slate-300 px-1 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">
+                  <Search size={15} aria-hidden="true" />
+                  <span>Find an account…</span>
+                </div>
+                <div aria-hidden="true" className="mt-1 flex items-center gap-1 overflow-x-hidden">
+                  {lenses.map((l, i) => (
+                    <span key={l} className={`inline-flex min-h-11 shrink-0 items-center border-b-2 px-2.5 text-[13px] font-semibold ${i === 0 ? "border-indigo-600 text-slate-950 dark:border-indigo-400 dark:text-white" : "border-transparent text-slate-600 dark:text-slate-400"}`}>{l}</span>
+                  ))}
+                </div>
               </div>
-              <div aria-hidden="true" className="-mx-1 flex items-center gap-1.5 overflow-x-hidden px-1">
-                {lenses.map((l, i) => (
-                  <span key={l} className={`inline-flex min-h-11 shrink-0 items-center rounded-full px-3.5 text-[13px] font-semibold ${i === 0 ? "bg-indigo-500 text-white" : "glass-tile text-slate-500 dark:text-slate-400"}`}>{l}</span>
-                ))}
+            ) : (
+              <div className="space-y-3">
+                <div aria-hidden="true" className="glass-tile flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm text-slate-500 dark:text-slate-400">
+                  <Search size={15} aria-hidden="true" />
+                  <span>Find an account…</span>
+                </div>
+                <div aria-hidden="true" className="-mx-1 flex items-center gap-1.5 overflow-x-hidden px-1">
+                  {lenses.map((l, i) => (
+                    <span key={l} className={`inline-flex min-h-11 shrink-0 items-center rounded-full px-3.5 text-[13px] font-semibold ${i === 0 ? "bg-indigo-500 text-white" : "glass-tile text-slate-500 dark:text-slate-400"}`}>{l}</span>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {estate.pinned.length > 0 && (
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
