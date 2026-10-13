@@ -7,7 +7,7 @@ import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, Inv
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
-import AccountsAddFab, { ADD_FAB_LIST_CLEARANCE } from "@/components/AccountsAddFab";
+import { formatUpdated } from "@/lib/updatedLabel";
 import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
@@ -332,8 +332,6 @@ export default function AccountsPage() {
   // button that opens this menu — same handlers/routes, just one entry point.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  // G236: the floating Add steps aside while the Find field has focus (keyboard up).
-  const [findFocused, setFindFocused] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [reconnectWarning, setReconnectWarning] = useState<string | null>(null);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
@@ -2605,7 +2603,7 @@ export default function AccountsPage() {
     : null;
 
   return (
-    <div className={`min-h-dvh ${ADD_FAB_LIST_CLEARANCE}`} style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(max(env(safe-area-inset-bottom,0px),10px)+96px)] lg:pb-28" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — hidden once actually drilled into an investment (tab ===
           "Investments" with at least one account) so that view owns the
           screen the same way the bank account detail does; the zero-state
@@ -2621,13 +2619,66 @@ export default function AccountsPage() {
           DOM order. */}
       {(tab === "Banks" || investmentAccounts.length === 0) && (
       <div
-        className="px-4 pt-4 pb-6"
+        className="px-4 pt-4 pb-4"
       >
         <AccountsHeader
           netWorth={headerNetWorth}
           hidden={hideNetWorth}
           showChip={preferencesReady && hideNetWorthPref}
           onShow={() => setHideNetWorth(false)}
+          updated={formatUpdated(kpis?.last_updated)}
+          onAdd={() => setAddMenuOpen(v => !v)}
+          addOpen={addMenuOpen}
+          addRef={addMenuRef}
+          onAddClose={() => setAddMenuOpen(false)}
+          addMenu={addMenuOpen ? (
+            <div
+              role="menu"
+              aria-label="Add an account"
+              className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 shadow-xl divide-y divide-slate-100 dark:border-white/10 dark:bg-slate-800 dark:divide-white/5"
+            >
+              {/* A67: Add Bank is hidden outright on a plan with no
+                  open banking (Statements), rather than shown and
+                  answered with a 402 when tapped. Hidden, not
+                  disabled: a greyed-out row that never explains itself
+                  is worse than a menu that only offers what this plan
+                  can actually do. Statement, Investment and Offline
+                  below are on every plan. */}
+              {canConnectBank && (
+                <AddMenuItem
+                  tutorialId="tutorial-add-bank"
+                  icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                  label="Add Bank"
+                  onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
+                />
+              )}
+              {canConnectBank && LEGACY_BANK_AVAILABLE && (
+                <AddMenuItem
+                  icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                  label={LEGACY_BANK_MENU_LABEL}
+                  onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
+                />
+              )}
+              <AddMenuItem
+                tutorialId="tutorial-add-statement"
+                icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                label="Statement"
+                onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
+              />
+              <AddMenuItem
+                tutorialId="tutorial-add-investment"
+                icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+                label="Investment"
+                onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+              />
+              <AddMenuItem
+                tutorialId="tutorial-add-offline"
+                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                label="Offline"
+                onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+              />
+            </div>
+          ) : null}
         />
 
         {/* Investments-tab (legacy internal drill-in, reached only via
@@ -2740,68 +2791,6 @@ export default function AccountsPage() {
             header block's own pb-6 is the only space below the Add
             button/upload row; don't reintroduce dead space here. */}
       </div>
-      )}
-
-      {/* G236 (variant A, Kevin 2026-10-10): the Add action is a 56px floating
-          button bottom right, above the nav and clear of Penny (offsets in
-          components/AccountsAddFab.tsx). It opens the same Add menu the header
-          used to carry. Steps aside while any sheet is open or Find has focus. */}
-      {tab === "Banks" && (
-        <AccountsAddFab
-          open={addMenuOpen}
-          onToggle={() => setAddMenuOpen(v => !v)}
-          onClose={() => setAddMenuOpen(false)}
-          menuRef={addMenuRef}
-          suppressed={
-            findFocused || !!showBankPicker || showStatementUpload || showInvestmentUpload ||
-            manualModalOpen || manualTxModalOpen || ruleModalOpen || cardTermsOpen ||
-            !!confirmDialog?.open || !!selectedTx
-          }
-          menuItems={
-            <>
-            {/* A67: Add Bank is hidden outright on a plan with no
-                open banking (Statements), rather than shown and
-                answered with a 402 when tapped. Hidden, not
-                disabled: a greyed-out row that never explains itself
-                is worse than a menu that only offers what this plan
-                can actually do. Statement, Investment and Offline
-                below are on every plan. */}
-            {canConnectBank && (
-              <AddMenuItem
-                tutorialId="tutorial-add-bank"
-                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                label="Add Bank"
-                onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-              />
-            )}
-            {canConnectBank && LEGACY_BANK_AVAILABLE && (
-              <AddMenuItem
-                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                label={LEGACY_BANK_MENU_LABEL}
-                onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
-              />
-            )}
-            <AddMenuItem
-              tutorialId="tutorial-add-statement"
-              icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-              label="Statement"
-              onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
-            />
-            <AddMenuItem
-              tutorialId="tutorial-add-investment"
-              icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-              label="Investment"
-              onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-            />
-            <AddMenuItem
-              tutorialId="tutorial-add-offline"
-              icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-              label="Offline"
-              onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-            />
-            </>
-          }
-        />
       )}
 
       {/* ── Banks tab ── */}
@@ -2933,8 +2922,6 @@ export default function AccountsPage() {
                     onChange={(e) => setEstateQuery(e.target.value)}
                     placeholder="Find an account…"
                     aria-label="Find an account"
-                    onFocus={() => setFindFocused(true)}
-                    onBlur={() => setFindFocused(false)}
                     className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>

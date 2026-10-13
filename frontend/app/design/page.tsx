@@ -114,24 +114,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "accounts-header-follow-up",
-    name: "Accounts header follow-up · G250 · round 3, G / H / I",
-    description:
-      "G250 round 3, skills: impeccable, design-taste-frontend (web-design-guidelines as the audit) · Kevin was not convinced by the styling, so these are three different art directions for the whole header; Add stays top right and there is no floating button · G Brief: a sentence on the canvas, Net worth is £1,365, no boxes, a text Add, Updated N min ago or the hidden reading on the caption row · H Register: the first entry of the ledger, label left and figure right between two hairlines, a square icon Add, Find as an open ruled row and underlined lens tabs · I Console: one glass-card instrument under the title with an indigo-tint Add in its corner and, when hidden, a privacy rail with a 44px Show · Show really reveals the figures so both states can be judged · renders the production AccountsHeader (new optional layout prop), AccountLedgerRow and SheetFrame at the real 18-account shape with Kevin's figures · rounds 1 and 2 (A to F) stay selectable · ?option=a|b|c|d|e|f|g|h|i&mode=light|dark&accounts=6|18|20&state=shown|hidden",
-    states: [{ label: "Shown", value: "shown" }, { label: "Hidden", value: "hidden" }],
-    variants: [
-      { label: "G Brief", value: "g" },
-      { label: "H Register", value: "h" },
-      { label: "I Console", value: "i" },
-      { label: "D Outlined Add (r2)", value: "d" },
-      { label: "E Plus and reading (r2)", value: "e" },
-      { label: "F Rail (r2)", value: "f" },
-      { label: "A Chip top right (r1)", value: "a" },
-      { label: "B Breakdown (r1)", value: "b" },
-      { label: "C Last synced (r1)", value: "c" },
-    ],
-  },
-  {
     slug: "sts-accounts-route",
     name: "Safe to Spend route to Accounts · G219 · approved B, folded in",
     description:
