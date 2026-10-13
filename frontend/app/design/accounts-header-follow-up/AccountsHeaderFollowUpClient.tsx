@@ -36,7 +36,20 @@ import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsAddFab, { ADD_FAB_LIST_CLEARANCE } from "@/components/AccountsAddFab";
 import { SheetFrame } from "@/components/SheetFrame";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
-import { breakdownFor, estateFor } from "./fixtures";
+import { breakdownFor, estateFor, fixtureLastUpdated } from "./fixtures";
+
+/** "Updated 8 min ago" from an ISO last_updated: minutes, then hours, then days, then "Updated today" style fallbacks. */
+function formatUpdated(iso: string | null | undefined, now: number = Date.now()): string | undefined {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return undefined;
+  const mins = Math.max(0, Math.floor((now - t) / 60_000));
+  if (mins < 1) return "Updated just now";
+  if (mins < 60) return `Updated ${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Updated ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "Updated yesterday" : `Updated ${days} days ago`;
+}
 
 type Option = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i";
 const OPTIONS: Option[] = ["g", "h", "i", "d", "e", "f", "a", "b", "c"];
@@ -132,8 +145,8 @@ function AddTint({ onClick }: { onClick: () => void }) {
   );
 }
 
-const Updated = ({ className = "" }: { className?: string }) => (
-  <p className={`text-xs text-slate-600 dark:text-slate-400 ${className}`} data-updated>Updated 8 min ago</p>
+const Updated = ({ className = "", text }: { className?: string; text?: string }) => (
+  <p className={`text-xs text-slate-600 dark:text-slate-400 ${className}`} data-updated>{text}</p>
 );
 
 export default function AccountsHeaderFollowUpClient() {
@@ -162,33 +175,34 @@ export default function AccountsHeaderFollowUpClient() {
   const off = "border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300";
   const openSheet = () => setSheetOpen(true);
   const noop = () => {};
+  const updatedText = formatUpdated(fixtureLastUpdated());
   const reveal = () => setRevealed(true);
 
   // Header props per option.
   const headerProps =
     option === "g"
-      ? { layout: "brief" as const, topRight: <AddText onClick={openSheet} />, updated: "Updated 8 min ago" }
+      ? { layout: "brief" as const, topRight: <AddText onClick={openSheet} />, updated: updatedText }
       : option === "h"
-        ? { layout: "register" as const, topRight: <AddIcon onClick={openSheet} />, updated: "Updated 8 min ago" }
+        ? { layout: "register" as const, topRight: <AddIcon onClick={openSheet} />, updated: updatedText }
         : option === "i"
-          ? { layout: "console" as const, topRight: <AddTint onClick={openSheet} />, updated: "Updated 8 min ago" }
+          ? { layout: "console" as const, topRight: <AddTint onClick={openSheet} />, updated: updatedText }
           : option === "d"
       ? { topRight: <AddPill onClick={openSheet} /> }
       : option === "e"
         ? {
             topRight: <AddIcon onClick={openSheet} />,
             chipPlacement: "none" as const,
-            aside: hidden ? <HiddenChip onShow={noop} /> : <Updated className="flex min-h-11 items-center" />,
+            aside: hidden ? <HiddenChip onShow={noop} /> : <Updated text={updatedText} className="flex min-h-11 items-center" />,
           }
         : option === "f"
           ? {
               chipPlacement: "none" as const,
-              rail: { top: <AddFilled onClick={openSheet} />, bottom: hidden ? <HiddenChip onShow={noop} className="-mb-3" /> : <Updated /> },
+              rail: { top: <AddFilled onClick={openSheet} />, bottom: hidden ? <HiddenChip onShow={noop} className="-mb-3" /> : <Updated text={updatedText} /> },
             }
           : {
               chipPlacement: option === "a" ? ("top" as const) : ("below" as const),
               breakdown: option === "b" ? breakdownFor(estate) : undefined,
-              lastSynced: option === "c" ? "Updated 8 min ago" : undefined,
+              lastSynced: option === "c" ? updatedText : undefined,
               onRefresh: option === "c" ? noop : undefined,
             };
 

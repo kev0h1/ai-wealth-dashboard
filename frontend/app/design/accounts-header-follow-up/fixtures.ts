@@ -80,3 +80,8 @@ export function breakdownFor(estate: Estate): Breakdown[] {
     { label: "Investments", value: sum(["Investment"]) },
   ];
 }
+
+/** KPIResponse.last_updated (backend/app/routers/analytics.py) as an ISO string: the fixture syncs eight minutes before it is read, so the preview never goes stale. */
+export function fixtureLastUpdated(now: number = Date.now()): string {
+  return new Date(now - 8 * 60_000).toISOString();
+}
