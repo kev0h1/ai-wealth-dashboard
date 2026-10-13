@@ -594,6 +594,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **A162. Remove the A159 merged consent step and its flag, keeping the A155 G two-step bank connection flow (Kevin 2026-10-12: too small with the keyboard up)** [owner: claude] (done 2026-10-12, 733301a4aac2a25e0cee05af6beef8e9a27db93b)
   - note (2026-10-12, claude): Reviewer PASS at 39d4852b: two-step A155 G flow untouched, merged-step code, flag and a159 check removed, DESIGN.md and Finexer doc updated (doc kept, marked withdrawn), tsc and 8 named checks exit 0, mutation on check:agency-disclosure fails as expected. A161 rejected; UAT .env.local flag off, rebuild is the coordinator's.
   - note (2026-10-12, claude): Coordinator review PASS 2026-10-12 on 10de1062: reviewer PASS at 39d4852b, later commit is a main merge. Kevin approved the merge in chat 2026-10-12.
+- [ ] **A163. Add 'Sorted is a trading name of AURIQ LTD' to the regulatory disclosure, as Finexer requested on approving the consent journey (Kevin 2026-10-13, Finexer's reply quoted: 'The consent journey is satisfactory. One minor wording amendment: please clarify in the regulatory disclosure that Sorted is a trading name of Auriq Ltd, so the relationship between the trading name, legal entity and Finexer is clear. This can be incorporated before go-live without requiring a further full review of the journey.'); add the sentence immediately before the fixed A4.1 sentence wherever it is shown, without altering the A4.1 text itself** [owner: claude]
 
 ## B. Penny cost, tiers and billing
 
