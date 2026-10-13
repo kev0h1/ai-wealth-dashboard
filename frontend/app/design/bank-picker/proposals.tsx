@@ -13,7 +13,7 @@
 import { useRef, useState, type RefObject } from "react";
 import { ChevronLeft, Search, ShieldCheck, X } from "lucide-react";
 import { resolveApiAsset } from "@/lib/api";
-import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { SheetFrame } from "@/components/SheetFrame";
 import { pickerDescription, type Bank } from "@/components/BankPickerSheet";
 
@@ -42,7 +42,7 @@ export function groupOf(name: string): string {
 
 /** The fixed legal sentence, never clamped, never behind a tap. */
 export function Sentence({ className = "" }: { className?: string }) {
-  return <p data-agent-disclosure className={`${CAPTION} ${className}`}>{AGENT_DISCLOSURE}</p>;
+  return <p data-agent-disclosure className={`${CAPTION} ${className}`}>{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>;
 }
 
 function Mark({ bank, large = false }: { bank: Bank; large?: boolean }) {

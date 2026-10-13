@@ -12,6 +12,12 @@ const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const root = path.resolve(frontend, "..");
 const SENTENCE =
   "AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services.";
+// A163: Finexer asked for the trading name to be clear in the regulatory
+// disclosure. It sits IMMEDIATELY BEFORE the A4.1 sentence, joined by a single
+// space, wherever that sentence is shown. The A4.1 text above is not altered.
+const TRADING =
+  "Sorted is a trading name of AURIQ LTD.";
+const PAIR = `${TRADING} ${SENTENCE}`;
 const read = (p) => readFileSync(path.join(root, p), "utf8");
 const failures = [];
 
@@ -24,10 +30,29 @@ for (const p of [
 ]) {
   if (!read(p).includes(SENTENCE)) failures.push(`${p} does not contain the A4.1 sentence verbatim`);
 }
+// A163: the trading-name sentence must immediately precede A4.1 in every
+// literal rendering site (terms, root terms, hand-off template).
+for (const p of ["frontend/content/terms.md", "TERMS.md", "shared/signin-handoff/template.html"]) {
+  const t = read(p);
+  if (!t.includes(PAIR)) failures.push(`${p} does not have the trading-name sentence immediately before the A4.1 sentence`);
+  if (t.split(SENTENCE).length !== t.split(PAIR).length) failures.push(`${p} shows the A4.1 sentence without the trading-name sentence before it`);
+}
+{
+  const t = read("frontend/lib/regulatoryCopy.ts");
+  if (!t.includes(`export const TRADING_NAME_DISCLOSURE = ${JSON.stringify(TRADING)};`)) failures.push("frontend/lib/regulatoryCopy.ts TRADING_NAME_DISCLOSURE is not the pinned sentence");
+  if (t.indexOf("export const TRADING_NAME_DISCLOSURE") < t.indexOf("export const AGENT_DISCLOSURE")) failures.push("TRADING_NAME_DISCLOSURE must be declared after AGENT_DISCLOSURE (fixed text stays first)");
+}
 // Components must render the shared constant (so they cannot drift).
 for (const p of ["frontend/components/BankPickerSheet.tsx", "frontend/components/bank-connect/BankConnectionParts.tsx", "frontend/components/LoginScreen.tsx", "frontend/components/LegalDocument.tsx"]) {
-  if (!/\{AGENT_DISCLOSURE\}/.test(read(p))) failures.push(`${p} does not render {AGENT_DISCLOSURE}`);
+  const t = read(p);
+  if (!/\{AGENT_DISCLOSURE\}/.test(t)) failures.push(`${p} does not render {AGENT_DISCLOSURE}`);
+  // A163: every {AGENT_DISCLOSURE} is directly preceded by the trading-name sentence in the same element.
+  const total = (t.match(/\{AGENT_DISCLOSURE\}/g) ?? []).length;
+  const paired = (t.match(/\{TRADING_NAME_DISCLOSURE\}[ \t]*\{AGENT_DISCLOSURE\}/g) ?? []).length;
+  const pairedSpaced = (t.match(/\{TRADING_NAME_DISCLOSURE\} \{AGENT_DISCLOSURE\}/g) ?? []).length;
+  if (paired !== total || pairedSpaced !== total) failures.push(`${p} renders {AGENT_DISCLOSURE} ${total}x but only ${pairedSpaced}x directly after "{TRADING_NAME_DISCLOSURE} "`);
 }
+if (/[—–!]/.test(TRADING)) failures.push("trading-name sentence contains a dash or exclamation mark");
 if (/[—–]/.test(SENTENCE)) failures.push("sentence constant contains a dash character");
 
 const banned = [/appointed representative/i, /tied agent/i];
@@ -55,7 +80,9 @@ for (const d of dirs) {
 }
 try {
   const pdf = execFileSync("pdftotext", [path.join(frontend, "public/TERMS.pdf"), "-"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  if (!pdf.replace(/\s+/g, " ").includes(SENTENCE)) failures.push("frontend/public/TERMS.pdf does not contain the A4.1 sentence");
+  const flat = pdf.replace(/\s+/g, " ");
+  if (!flat.includes(SENTENCE)) failures.push("frontend/public/TERMS.pdf does not contain the A4.1 sentence");
+  if (!flat.includes(PAIR)) failures.push("frontend/public/TERMS.pdf does not have the trading-name sentence immediately before the A4.1 sentence");
 } catch (e) {
   if (e.code === "ENOENT") console.log("SKIP: pdftotext not installed; PDF sentence check not run");
   else failures.push("pdftotext failed on public/TERMS.pdf: " + e.message);

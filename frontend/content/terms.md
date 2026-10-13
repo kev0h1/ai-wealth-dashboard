@@ -19,7 +19,7 @@ These Terms, together with our Privacy Policy, form the agreement between you an
 
 This section is important and we want to be clear about it.
 
-AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services.
+Sorted is a trading name of AURIQ LTD. AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services.
 
 **AURIQ LTD is not authorised by the Financial Conduct Authority (FCA) in its own right.** The regulated activity carried out within Sorted, namely account information services ("**AIS**") which allow us to retrieve and display information from your bank accounts, is provided through **Finexer LTD**, a company authorised and regulated by the FCA to carry out account information services.
 

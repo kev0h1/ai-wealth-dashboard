@@ -3,7 +3,7 @@
 // Preview-only: the iframe is a static illustration of Finexer's hosted
 // consent page. It deliberately has no provider URL, scripts, or live actions.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { buildDoc, type IntroMode } from "../finexer-consent-intro/fixtures";
 
 type HostedConsentPreviewProps = {
@@ -21,7 +21,7 @@ function withProviderDisclosure(doc: string) {
   // following its closing tag is Finexer's generated shell and remains intact.
   const headerStart = '<div data-fx="header">';
   const headerEnd = '</div>\n<div class="fx-bar">';
-  const intro = `<div data-sorted="provider-intro" style="margin:16px 16px 12px;padding:0 0 12px;border-bottom:1px solid var(--s-border)"><p style="margin:0;font-size:14px;line-height:1.5;color:var(--s-ink)"><strong>Sorted</strong> is asking for read-only access to your accounts.</p><p data-sorted="agency-disclosure" style="margin:12px 0 0;font-size:13px;line-height:1.55;color:var(--s-ink)">${AGENT_DISCLOSURE}</p></div>`;
+  const intro = `<div data-sorted="provider-intro" style="margin:16px 16px 12px;padding:0 0 12px;border-bottom:1px solid var(--s-border)"><p style="margin:0;font-size:14px;line-height:1.5;color:var(--s-ink)"><strong>Sorted</strong> is asking for read-only access to your accounts.</p><p data-sorted="agency-disclosure" style="margin:12px 0 0;font-size:13px;line-height:1.55;color:var(--s-ink)">${TRADING_NAME_DISCLOSURE} ${AGENT_DISCLOSURE}</p></div>`;
 
   const headerStartAt = doc.indexOf(headerStart);
   const headerEndAt = doc.indexOf(headerEnd, headerStartAt);
