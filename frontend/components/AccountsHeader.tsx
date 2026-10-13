@@ -22,7 +22,7 @@ export interface AccountsHeaderNetWorth {
 }
 
 export interface AccountsHeaderProps {
-  /** Null until the KPIs have loaded: no Net worth card. */
+  /** Null until the KPIs have loaded, or when they fail: the card keeps the label and Add, with "Not available right now" in place of the figure. */
   netWorth: AccountsHeaderNetWorth | null;
   /** The figure is masked (global hide-balances preference, or not yet resolved). */
   hidden: boolean;
@@ -62,15 +62,19 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onA
   return (
     <header className="relative z-30">
       <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
-      {netWorth && (
+      {(
         <div className="glass-card mt-3 rounded-2xl p-4" data-tutorial-id="tutorial-networth">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-slate-600 dark:text-slate-400">Net worth</p>
-              <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white">
-                <span aria-hidden="true">{text}</span>
-                <span className="sr-only">{hidden ? "Balance hidden" : text}</span>
-              </p>
+              {netWorth ? (
+                <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white">
+                  <span aria-hidden="true">{text}</span>
+                  <span className="sr-only">{hidden ? "Balance hidden" : text}</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-400" data-networth-unavailable>Not available right now</p>
+              )}
             </div>
             <div ref={addRef} onKeyDown={onKeyDown} className="relative -mr-1 -mt-1 shrink-0">
               <button
@@ -88,11 +92,13 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onA
               {addMenu}
             </div>
           </div>
-          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-            across {netWorth.accountCount} {netWorth.accountCount === 1 ? "account" : "accounts"}
-            {!showChip && updated ? <span data-updated> · {updated}</span> : null}
-          </p>
-          {showChip && (
+          {netWorth && (
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+              across {netWorth.accountCount} {netWorth.accountCount === 1 ? "account" : "accounts"}
+              {!showChip && updated ? <span data-updated> · {updated}</span> : null}
+            </p>
+          )}
+          {netWorth && showChip && (
             <div className="-mb-2 mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-1 dark:border-white/10" data-privacy-rail>
               <p className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 <EyeOff size={13} aria-hidden="true" />

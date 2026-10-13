@@ -43,7 +43,13 @@ assert.ok(!render({ netWorth: { value: 1, accountCount: 2 }, hidden: false }).in
 assert.ok(!hidden.includes("gradient") && !/#[0-9a-f]{3,6}\b/i.test(hidden), "tokens only, no gradient, no raw hex");
 assert.ok(!render({ netWorth: { value: 1, accountCount: 1 }, hidden: true, showChip: false }).includes("data-hidden-chip"), "no chip unless asked");
 assert.ok(render({ netWorth: { value: -1234, accountCount: 1 }, hidden: false }).includes("−£1,234") && render({ netWorth: { value: -1234, accountCount: 1 }, hidden: false }).includes("across 1 account<"), "negative uses the currency minus, singular caption");
-assert.ok(!render({ netWorth: null, hidden: false }).includes("Net worth"), "no Net worth block until the KPIs load");
+{
+  // G250 review fix: a failed KPI fetch still leaves the card, the label and Add (and the tutorial target).
+  const nul = render({ netWorth: null, hidden: false, showChip: true, updated: "Updated 1 min ago" });
+  assert.ok(nul.includes("Net worth") && nul.includes("Not available right now"), "null state names the gap in plain words");
+  assert.ok(nul.includes("data-add-control") && nul.includes('data-tutorial-id="tutorial-add-account"'), "Add and its tutorial target survive");
+  assert.ok(!nul.includes("£") && !nul.includes("text-[30px]") && !nul.includes("data-privacy-rail") && !nul.includes("data-updated") && !nul.includes("across"), "no figure, rail, caption or reading");
+}
 
 {
   const now = Date.parse("2026-10-13T12:00:00Z");
