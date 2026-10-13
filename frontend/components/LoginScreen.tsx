@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, cancelNativeLogin } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
-import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
 import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
 
@@ -255,7 +255,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
 
         {/* Regulatory disclosure (Q6/A9) — single source of truth in lib/regulatoryCopy.ts */}
         <p className="mt-8 px-4 text-center text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-          {AGENT_DISCLOSURE}
+          {TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}
         </p>
 
         {/* Whisper build tag — see lib/buildTag.ts for why this exists. */}

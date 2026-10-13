@@ -4,7 +4,7 @@ import { consentToolbarColor, isDarkPreferenceOn } from "@/lib/consentToolbar";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { X, Search, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { api, ApiError, resolveApiAsset } from "@/lib/api";
-import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
 import { SheetFrame } from "@/components/SheetFrame";
 import BankConnectionFlow from "@/components/bank-connect/BankConnectionFlow";
@@ -65,7 +65,7 @@ interface BankPickerSheetProps {
 export function pickerDescription(provider: "finexer" | "legacy", placement: DisclosurePlacement): ReactNode {
   const line = provider === "legacy" ? LEGACY_BANK_SUBTITLE : SOURCE_LINE;
   if (placement !== "header") return line;
-  return <>{line}<span className={`mt-2 block ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</span></>;
+  return <>{line}<span className={`mt-2 block ${CAPTION_INK}`}>{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</span></>;
 }
 
 function ExpandableDisclosure({ initiallyExpanded = false }: { initiallyExpanded?: boolean }) {
@@ -77,14 +77,14 @@ function ExpandableDisclosure({ initiallyExpanded = false }: { initiallyExpanded
       <span>Regulated by the FCA through Finexer LTD</span>
       <ChevronDown size={16} aria-hidden="true" className={`flex-shrink-0 text-slate-500 dark:text-slate-300 transition-transform ${open ? "rotate-180" : ""}`} />
     </button>
-    <p id={regionId} hidden={!open} className={`pb-1 ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</p>
+    <p id={regionId} hidden={!open} className={`pb-1 ${CAPTION_INK}`}>{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>
   </div>;
 }
 
 /** The sheet footer for a placement, or undefined when the footer is freed. */
 export function pickerFooter(placement: DisclosurePlacement, initiallyExpanded = false): ReactNode {
   if (placement === "footer") {
-    return <p className="max-h-28 overflow-y-auto overscroll-contain text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">{AGENT_DISCLOSURE}</p>;
+    return <p className="max-h-28 overflow-y-auto overscroll-contain text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>;
   }
   if (placement === "list-end") {
     return <button type="button" onClick={() => {
@@ -359,7 +359,7 @@ export function BankPickerBody({ query, setQuery, searchRef, error, loading, fil
           )}
       </div>
       {disclosurePlacement === "list-end" && (
-        <p id={DISCLOSURE_ID} tabIndex={-1} className={`mx-5 mb-5 border-t border-slate-100 pt-4 outline-none dark:border-slate-700 ${CAPTION_INK}`}>{AGENT_DISCLOSURE}</p>
+        <p id={DISCLOSURE_ID} tabIndex={-1} className={`mx-5 mb-5 border-t border-slate-100 pt-4 outline-none dark:border-slate-700 ${CAPTION_INK}`}>{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>
       )}
   </>;
 }

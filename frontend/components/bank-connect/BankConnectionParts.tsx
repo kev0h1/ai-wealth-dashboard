@@ -4,7 +4,7 @@ import { ArrowRight, ChevronRight, Landmark, LoaderCircle, Search, X } from "luc
 import { useState, type RefObject } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
 import { resolveApiAsset } from "@/lib/api";
-import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 export const primary = "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-900";
 export const quiet = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 dark:text-indigo-300 dark:hover:bg-slate-800";
@@ -38,7 +38,7 @@ export function ConnectionNotice() {
     </section>
     <section aria-labelledby="connection-provider" className="border-t border-slate-200 pt-5 dark:border-slate-700">
       <h3 id="connection-provider" className="text-sm font-semibold text-slate-900 dark:text-slate-100">Who provides the connection</h3>
-      <p data-agent-disclosure className="mt-2 text-[13px] leading-[22px] text-slate-600 dark:text-slate-300">{AGENT_DISCLOSURE}</p>
+      <p data-agent-disclosure className="mt-2 text-[13px] leading-[22px] text-slate-600 dark:text-slate-300">{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>
     </section>
   </div>;
 }

@@ -3,7 +3,7 @@
 import { ArrowRight, ChevronRight, Landmark, Search, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
-import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 export type Journey = "g" | "h" | "i";
 export const DIRECTIONS = [
@@ -39,7 +39,7 @@ export function ConnectionNotice() {
     </section>
     <section aria-labelledby="connection-provider" className="border-t border-slate-200 pt-5 dark:border-slate-700">
       <h3 id="connection-provider" className="text-sm font-semibold text-slate-900 dark:text-slate-100">Who provides the connection</h3>
-      <p data-agent-disclosure className="mt-2 text-[13px] leading-[22px] text-slate-600 dark:text-slate-300">{AGENT_DISCLOSURE}</p>
+      <p data-agent-disclosure className="mt-2 text-[13px] leading-[22px] text-slate-600 dark:text-slate-300">{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>
     </section>
   </div>;
 }
