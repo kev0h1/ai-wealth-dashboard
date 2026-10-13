@@ -148,7 +148,7 @@ function LayoutHeader({ layout, netWorth, hidden, showChip, onShow, topRight, up
               {!showChip && updated ? <span data-updated> · {updated}</span> : null}
             </p>
             {showChip && (
-              <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-1 dark:border-white/10" data-privacy-rail>
+              <div className="-mb-2 mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-1 dark:border-white/10" data-privacy-rail>
                 <p className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                   <EyeOff size={13} aria-hidden="true" />
                   Balances hidden
