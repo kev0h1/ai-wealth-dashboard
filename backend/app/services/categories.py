@@ -113,6 +113,37 @@ BUILTIN_CATEGORY_KINDS: dict[str, str] = {
     "Other":         COMMITMENT,
 }
 
+#: G266: the built-in category a recurring credit card repayment lands in.
+DEBT_CATEGORY = "Debt"
+
+
+def is_card_repayment(
+    category: str | None,
+    *,
+    source_is_credit_card: bool = False,
+    dest_account_id: str | None = None,
+    card_dest_account_id: str | None = None,
+) -> bool:
+    """True when a recurring MOVEMENT-kind debit is a credit card repayment.
+
+    A missed repayment carries fees and interest, so for COVERAGE it is a
+    payment at risk, unlike an own-account move (savings top-up, pot
+    transfer) which may simply stay put. It keeps ``kind == "movement"`` so
+    every spend and pooled Safe-to-Spend consumer still excludes it; this
+    flag only changes the coverage verdict.
+
+    Rule: a learned card destination (``card_dest_account_id``) always
+    qualifies; otherwise category "Debt" qualifies unless the series has a
+    learned own-account destination (``dest_account_id``), which makes it a
+    transfer. A debit leaving a credit card is never a repayment.
+    """
+    if source_is_credit_card:
+        return False
+    if card_dest_account_id:
+        return True
+    return category == DEBT_CATEGORY and not dest_account_id
+
+
 #: Display-ordered built-in names. Single source of truth for the router.
 BUILTIN_CATEGORIES = list(BUILTIN_CATEGORY_KINDS)
 
