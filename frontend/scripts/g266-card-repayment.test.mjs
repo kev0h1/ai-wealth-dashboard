@@ -37,6 +37,7 @@ const flow = (bills) => ({ upcoming_bills: bills, upcoming_income: [], internal_
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, periodLabel: "x", plans: [], plansStatus: "ready" }));
   assert.match(html, /data-card-repayment-short/);
   assert.doesNotMatch(html, /may stay put/);
+  assert.match(html, /A missed repayment can bring fees and interest\. Goals and allocations are separate from this bill gap\./);
   assert.ok(!html.includes("—") && !html.includes("!"), "copy rules");
 }
 

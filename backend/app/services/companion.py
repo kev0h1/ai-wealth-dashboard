@@ -1425,6 +1425,12 @@ def _gate_recommendation(
     on the same account also bounces and must still be covered — in that
     case this returns THAT bill, not the movement, so the card's copy
     never misdescribes a standing order as "your bill".
+
+    G266 exception: a card repayment (`is_card_repayment`, see
+    categories.is_card_repayment) is MOVEMENT-kind but a payment at risk, since
+    a missed one carries fees and interest. It counts as a real bounce here and
+    can be the returned bill. A Debt-category series with no resolved card may
+    be a loan; it is treated the same way.
     """
     bounced = bounced_bills.get(dest_acct, [])
     # G266: a card repayment is MOVEMENT-kind but a payment at risk (a missed
