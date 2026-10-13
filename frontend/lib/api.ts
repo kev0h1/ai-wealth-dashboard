@@ -176,6 +176,14 @@ export type UpcomingBill = {
   dest_account_id?: string | null;
   dest_account_spendable?: boolean | null;
   /**
+   * G266: true for a recurring credit card repayment (category Debt, or a
+   * learned card destination). Kind stays "movement" so it is never spend,
+   * but for coverage it is a payment at risk, not a move that may stay put.
+   */
+  is_card_repayment?: boolean | null;
+  card_dest_account_id?: string | null;
+  card_dest_account_name?: string | null;
+  /**
    * Present only for a credit-card repayment bill whose amount was derived
    * from the card's live balance/spend rather than plain recurring history.
    * "balance_estimate" is currently the only value. Absent = the amount is

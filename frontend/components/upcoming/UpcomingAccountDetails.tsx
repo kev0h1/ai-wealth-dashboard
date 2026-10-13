@@ -4,6 +4,8 @@ import { useId } from "react";
 import { ArrowDownLeft, ArrowLeftRight, Check, ChevronDown, ChevronRight, ReceiptText } from "lucide-react";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import { accountPlan, fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
+import { cardRepaymentShortCopy } from "@/lib/upcomingAccountStatus";
+import { coverSuggestionSentence } from "@/lib/coverSuggestion";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, PlanIcon, dateLabel, money } from "./detailPrimitives";
 
 export interface UpcomingAccountDetailsProps { account: UpcomingAccountSummary; periodLabel: string; plans?: Plan[]; plansStatus?: "loading" | "error" | "ready"; onPlan?: (id: string) => void;
@@ -34,6 +36,7 @@ function PlanRow({ plan, onPlan }: { plan: Plan; onPlan?: (id: string) => void }
 
 function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountDetailsProps, "account" | "plans" | "plansStatus">>) {
   const result = accountPlan(account, plans);
+  if (account.status === "short" && account.shortFor?.cardRepayment) return <div className="space-y-2"><p data-card-repayment-short className="flex items-start gap-2 text-sm font-semibold"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{cardRepaymentShortCopy(account)}</p>{account.coverSuggestion && <p className={"text-xs leading-5 " + detailMuted}>{coverSuggestionSentence(account.coverSuggestion)}</p>}<p className={"text-xs leading-5 " + detailMuted}>A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap.</p></div>;
   if (account.status === "short") return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{money(Math.round(account.shortfall! * 100))} needed for payments</p><p className={"text-xs leading-5 " + detailMuted}>First shortfall {dateLabel(account.firstShortDate!)}. Goals and allocations are separate from this bill gap.</p></div>;
   if (account.status === "unknown") return <div className="space-y-2"><h3 className="text-base font-semibold">Balance needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>We can show your plans, but not whether this account can fund them until its balance and incoming money can be verified.</p></div>;
   if (plansStatus !== "ready") return <p className={"text-sm leading-6 " + detailMuted}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</p>;

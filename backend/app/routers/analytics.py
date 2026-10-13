@@ -44,7 +44,7 @@ from app.services.categorisation import (
     _CHANNEL_CODES,
 )
 from app.services.account_kinds import is_credit_card_account
-from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT
+from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT, is_card_repayment
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
 from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
@@ -3312,7 +3312,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
     }
     events: list[tuple[int, str, float, bool, str]] = []  # (days_away, acct_id, amount, is_income, kind)
     for b in assessable_bills:
-        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, b.get("kind")))
+        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, (b.get("kind"), bool(b.get("is_card_repayment")))))
     for i in window_income:
         acct = str(i.get("account_id") or "")
         if acct in running and income_credit_ok(i, acct, _confirmed_keys):
@@ -3347,7 +3347,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     events.sort(key=walk_sort_key)
 
     at_risk = 0
-    for days_away, acct, amount, is_income, kind in events:
+    for days_away, acct, amount, is_income, kind_flags in events:
+        kind, is_card = kind_flags if isinstance(kind_flags, tuple) else (kind_flags, False)
         if is_income:
             running[acct] = running.get(acct, 0.0) + amount
         else:
@@ -3365,7 +3366,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
             # which this badge must agree with (it links straight to that
             # page). A commitment/discretionary bill a movement starves still
             # counts, same as Planning's `movementCulprit` handling.
-            if bal < amount and kind != MOVEMENT:
+            if bal < amount and (kind != MOVEMENT or is_card):
                 at_risk += 1
 
     return {"count": at_risk}
@@ -4394,6 +4395,17 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "card_dest_account_name": r.get("card_dest_account_name") if _occ_kind == MOVEMENT else None,
                 "card_dest_account_bank": _bank_label(r.get("card_dest_account_bank")) if _occ_kind == MOVEMENT else None,
                 "card_dest_account_id":   r.get("card_dest_account_id") if _occ_kind == MOVEMENT else None,
+                # G266: a card repayment is a payment at risk for coverage
+                # (fees and interest if missed) while staying MOVEMENT-kind
+                # so Spend totals and the pooled Safe to Spend walk never
+                # count it as spending. Mirrors the rule in
+                # categories.is_card_repayment, applied here for the walks.
+                "is_card_repayment": _occ_kind == MOVEMENT and is_card_repayment(
+                    r.get("category"),
+                    source_is_credit_card=bool(r.get("is_credit_card", False)),
+                    dest_account_id=r.get("dest_account_id"),
+                    card_dest_account_id=r.get("card_dest_account_id"),
+                ),
             })
         # collision guard: a rolled pending occurrence must never duplicate/overtake the next cycle
         kept = []

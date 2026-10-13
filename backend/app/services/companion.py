@@ -1425,9 +1425,17 @@ def _gate_recommendation(
     on the same account also bounces and must still be covered — in that
     case this returns THAT bill, not the movement, so the card's copy
     never misdescribes a standing order as "your bill".
+
+    G266 exception: a card repayment (`is_card_repayment`, see
+    categories.is_card_repayment) is MOVEMENT-kind but a payment at risk, since
+    a missed one carries fees and interest. It counts as a real bounce here and
+    can be the returned bill. A Debt-category series with no resolved card may
+    be a loan; it is treated the same way.
     """
     bounced = bounced_bills.get(dest_acct, [])
-    real_bounced = [b for b in bounced if b.get("kind") != MOVEMENT]
+    # G266: a card repayment is MOVEMENT-kind but a payment at risk (a missed
+    # repayment carries fees and interest), so it counts as a real bounce.
+    real_bounced = [b for b in bounced if b.get("kind") != MOVEMENT or b.get("is_card_repayment")]
     if not real_bounced:
         return None
     return real_bounced[0]
@@ -3066,6 +3074,7 @@ async def compute_today_items(
         for _movement_acct, _movement_bills in bounced_bills.items()
         for _movement_bill in _movement_bills
         if _movement_bill.get("kind") == MOVEMENT and _movement_bill.get("pending")
+        and not _movement_bill.get("is_card_repayment")
     }
 
     def _plan_dest_bill(b: dict, account_id: str) -> dict:
@@ -4066,6 +4075,8 @@ async def compute_today_items(
             for _um_bill in _um_bills:
                 if _um_bill.get("kind") != MOVEMENT or not _um_bill.get("pending"):
                     continue
+                if _um_bill.get("is_card_repayment"):
+                    continue  # G266: a payment at risk, never a calm "may stay put" move
                 # Payday-plan overlap: this move's learned destination is
                 # already being funded by the LIVE plan this window, so the
                 # plan card already speaks for it — describing it again here

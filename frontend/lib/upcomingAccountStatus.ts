@@ -1,4 +1,5 @@
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
+import { shortDayMonth } from "./cardRepayment";
 import { accountPlan, type Plan } from "@/lib/upcomingPlans";
 
 export type AccountStatus = {
@@ -43,3 +44,11 @@ export function money(value: number) {
 
 /** Session-only memory of the By account fold (G229). Cleared on sign-out. */
 export const FINE_FOLD_KEY = "wd_upcoming_accounts_fine_open";
+
+/** G266: "£13.72 short for the NW World Mastercard repayment on 28 Oct". */
+export function cardRepaymentShortCopy(account: UpcomingAccountSummary): string {
+  const pence = Math.round((account.shortfall ?? 0) * 100);
+  const amount = `£${(pence / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+  const target = account.shortFor;
+  return target ? `${amount} short for the ${target.label} on ${shortDayMonth(target.date)}` : `${amount} short for payments`;
+}

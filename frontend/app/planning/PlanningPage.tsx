@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
-import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData } from "@/lib/api";
+import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -24,6 +24,8 @@ import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import type { PaymentDetail, UpcomingDetailView } from "@/components/upcoming/UpcomingDetailFlow";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
+import { isOptionalMove } from "@/lib/cardRepayment";
+import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import { positionsFromToday, upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
@@ -233,6 +235,7 @@ export default function PlanningPage() {
   // is built on). Absent on an old API or a failed read: accountPlan falls back
   // to its own arithmetic.
   const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | null>(null);
+  const [todayItems, setTodayItems] = useState<CompanionItem[] | null>(null);
   // Edit-only now — creation moved into SetAsideSheet's envelope step
   // (owner consolidation, 2026-08-29).
   const [allocationSheet, setAllocationSheet] = useState<Allocation | null>(null);
@@ -283,7 +286,7 @@ export default function PlanningPage() {
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
       api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true));
-      api.getToday().then((today) => setAccountEligibility(today.account_eligibility ?? null)).catch(() => {});
+      api.getToday().then((today) => { setAccountEligibility(today.account_eligibility ?? null); setTodayItems(today.items ?? null); }).catch(() => {});
       api.dismissedSeries()
         .then((d) => setDismissedCount(d.user.length + d.engine.length))
         .catch(() => {});
@@ -307,7 +310,7 @@ export default function PlanningPage() {
   // back to its own arithmetic meanwhile) and read the fresh one.
   function reloadAccountPositions() {
     setAccountEligibility(null);
-    api.getToday().then((today) => setAccountEligibility(today.account_eligibility ?? null)).catch(() => {});
+    api.getToday().then((today) => { setAccountEligibility(today.account_eligibility ?? null); setTodayItems(today.items ?? null); }).catch(() => {});
   }
 
   function refreshAllocations() {
@@ -361,7 +364,7 @@ export default function PlanningPage() {
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
   const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
-  const accountSummaries = (accountWalk?.accounts ?? []).map((account) => accountPositions[account.id] ? { ...account, position: accountPositions[account.id] } : account);
+  const accountSummaries = withCoverSuggestions((accountWalk?.accounts ?? []).map((account) => accountPositions[account.id] ? { ...account, position: accountPositions[account.id] } : account), todayItems);
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
   const paymentDetails: PaymentDetail[] = [];
 
@@ -723,7 +726,7 @@ export default function PlanningPage() {
           // This is the existing pooled working, not account coverage.
           // Its cash-transfer/card exclusions and hero arithmetic stay intact.
           if (!doesNotTouchCash(item)) running -= item.amount;
-          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: item.kind === "movement" };
+          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: isOptionalMove(item) };
         });
 
         const billsBeforePayday = rawItems.filter(item => {
@@ -799,7 +802,7 @@ export default function PlanningPage() {
             next_period: new Date(b.expected_date).getTime() > accountEndMs,
             balance_after: spendableNow,
             is_credit_card: Boolean(b.is_credit_card),
-            isMovement: b.kind === "movement",
+            isMovement: isOptionalMove(b),
           }));
         const displayItems = [...items, ...observedPendingItems];
 

@@ -39,6 +39,10 @@ export type UpcomingAccountSummary = {
   shortfall: number | null;
   status: "short" | "unfunded" | "covered" | "unknown";
   firstShortDate: string | null;
+  /** G266: the payment that sets the peak shortfall, named so the sheet can say what is at risk. Null unless status is "short". */
+  shortFor?: { label: string; date: string; cardRepayment: boolean } | null;
+  /** G266: a recommendation (never a button) from the cover-plan engine, when an account has room. */
+  coverSuggestion?: { amount: number; fromName: string; fromCount: number } | null;
   hasUnassignedIncome: boolean;
   events: UpcomingAccountEvent[];
   /** G238: server position for this account, when the API supplied it. */

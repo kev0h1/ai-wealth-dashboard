@@ -2,6 +2,7 @@ import type { CashflowData, UpcomingBill } from "./api";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "./upcomingAccounts";
 import type { UpcomingRowModel } from "../components/upcoming/UpcomingRow";
 import { upcomingDisplayName } from "./upcomingDisplayName";
+import { isCardRepayment, isOptionalMove, repaymentLabel } from "./cardRepayment";
 
 export type AccountCoverage = { before: number; after: number; shortfall: number };
 type Movement = { name: string; amount: number; expected_date: string };
@@ -66,7 +67,7 @@ export function walkUpcomingAccounts(
     const rawEvents = [
       ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
       ...transfers.map((item, index) => ({ id: `inflow-${index}`, name: item.source_account_name ? `From ${item.source_account_name}` : "Transfer in", expected_date: item.expected_date, type: "inflow" as const, kind: "inflow" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
-      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "bill" as const, kind: item.kind === "movement" ? "movement" as const : "payment" as const, amount: -pennies(item.amount), bill: item, ref: item as object })),
+      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "bill" as const, kind: isOptionalMove(item) ? "movement" as const : "payment" as const, amount: -pennies(item.amount), bill: item, ref: item as object })),
     ].sort(compareUpcomingEvents);
     const knownWorking = balanceKnown && rawEvents.every((item) => Number.isFinite(item.amount));
     let running = knownWorking ? pennies(opening!) : null;
@@ -74,6 +75,7 @@ export function walkUpcomingAccounts(
     let billGap = 0;
     let firstShortDate: string | null = null;
     let firstBillShortDate: string | null = null;
+    let shortFor: { label: string; date: string; cardRepayment: boolean } | null = null;
     let movementsSince: Movement[] = [];
     const events = rawEvents.map((event): UpcomingAccountEvent => {
       const before = running;
@@ -83,6 +85,10 @@ export function walkUpcomingAccounts(
         gap = Math.max(gap, shortfall);
         if (shortfall > 0) firstShortDate ??= event.expected_date;
         if (event.kind === "payment" && shortfall > 0) {
+          if (shortfall > billGap) {
+            const cardRepayment = isCardRepayment(event.bill);
+            shortFor = { label: cardRepayment ? repaymentLabel(event.bill) : upcomingDisplayName(event.bill), date: event.expected_date, cardRepayment };
+          }
           billGap = Math.max(billGap, shortfall);
           firstBillShortDate ??= event.expected_date;
         }
@@ -116,6 +122,7 @@ export function walkUpcomingAccounts(
       shortfall: verifiable ? (billGap || gap) / 100 : null,
       status: !verifiable ? "unknown" : billGap > 0 ? "short" : gap > 0 ? "unfunded" : "covered",
       firstShortDate: verifiable ? (billGap > 0 ? firstBillShortDate : firstShortDate) : null,
+      shortFor: verifiable && billGap > 0 ? shortFor : null,
       hasUnassignedIncome: unknownIncome,
       events,
     };
@@ -133,7 +140,7 @@ export function upcomingAccountAssessment(
   const isCreditCard = Boolean(item.is_credit_card);
   const coverage = item.type !== "income" && !future && !isSettling && !isCreditCard ? walk.coverage.get(item) : undefined;
   const short = (coverage?.shortfall ?? 0) > 0;
-  const optionalMove = item.kind === "movement";
+  const optionalMove = isOptionalMove(item);
   return {
     assessment: future ? "future" : coverage ? undefined : "unverified",
     coverage: coverage ? { ...coverage, optionalMove } : undefined,
