@@ -4,8 +4,8 @@
     {
       "pdf": "frontend/public/TERMS.pdf",
       "source": "frontend/content/terms.md",
-      "source_sha256": "2ece1ec24e18234ae3ad14bef4809e5a18c3e4348e00f3e86ef24cf4f0c9e428",
-      "exported": "2026-10-11",
+      "source_sha256": "0ee88721a74188b3e14d2f61b3057c09a61f8cf5d49c5dd5d82bbbd5b1d6b49d",
+      "exported": "2026-10-13",
       "pages": 8,
       "mcp_connector": "off"
     },
@@ -13,15 +13,15 @@
       "pdf": "frontend/public/PRIVACY.pdf",
       "source": "frontend/content/privacy.md",
       "source_sha256": "d86516ac5246577e9bd63f0ac3c09f315745857652b289c739dd413da6291661",
-      "exported": "2026-10-11",
+      "exported": "2026-10-13",
       "pages": 8,
       "mcp_connector": "off"
     },
     {
       "pdf": "TERMS.pdf",
       "source": "TERMS.md",
-      "source_sha256": "a6c375ec6695bcdfdc2461c46b14acd7bdc9c88bdb63442c5ae31c614635c9ed",
-      "exported": "2026-10-11",
+      "source_sha256": "3a8b4003782851ffd466de964099cde6d994dc23c4fa1300a071b70c7338ed53",
+      "exported": "2026-10-13",
       "pages": 6,
       "mcp_connector": "full-text"
     },
@@ -29,7 +29,7 @@
       "pdf": "PRIVACY.pdf",
       "source": "PRIVACY.md",
       "source_sha256": "39e0c26952d245a8d2239a8aad9adc4e82ffbde0bc95c1201d2262ebe9359924",
-      "exported": "2026-10-11",
+      "exported": "2026-10-13",
       "pages": 6,
       "mcp_connector": "full-text"
     },
@@ -37,7 +37,7 @@
       "pdf": "SECURITY.pdf",
       "source": "SECURITY.md",
       "source_sha256": "d042f585ca2d494b42a81cf6c7ddedb761174cf0c8f926cf0a4264df72f127c9",
-      "exported": "2026-10-11",
+      "exported": "2026-10-13",
       "pages": 17,
       "mcp_connector": "full-text"
     }
