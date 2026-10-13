@@ -45,7 +45,13 @@ export interface AccountsHeaderProps {
   aside?: ReactNode;
   /** G250 round 2: a right action column spanning the header; top sits on the title line, bottom on the caption line. */
   rail?: { top: ReactNode; bottom?: ReactNode };
+  /** G250 round 3: a different art direction for the whole header. Absent in production, so the default render is unchanged. */
+  layout?: AccountsHeaderLayout;
+  /** G250 round 3: pre-formatted freshness text for the caption row of a layout (display only, no control). */
+  updated?: string;
 }
+
+export type AccountsHeaderLayout = "brief" | "register" | "console";
 
 export interface AccountsHeaderBreakdownItem {
   label: string;
@@ -74,7 +80,142 @@ export function HiddenChip({ onShow, className = "" }: { onShow: () => void; cla
   );
 }
 
-export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chipPlacement = "below", tight = false, breakdown, lastSynced, onRefresh, topRight, aside, rail }: AccountsHeaderProps) {
+const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
+
+/** Quiet, borderless hidden-balances reading for the round 3 layouts: Show is the one indigo word. */
+function QuietShow({ onShow }: { onShow: () => void }) {
+  return (
+    <button
+      type="button"
+      data-hidden-chip
+      onClick={onShow}
+      className={`-my-3 -mr-2 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-xs text-slate-600 active:scale-95 transition-transform motion-reduce:transition-none dark:text-slate-400 ${focusRing}`}
+    >
+      <EyeOff size={13} aria-hidden="true" />
+      <span>Balances hidden</span>
+      <span aria-hidden="true">·</span>
+      <span className="font-semibold text-indigo-700 underline decoration-indigo-700/40 underline-offset-2 dark:text-indigo-300 dark:decoration-indigo-300/40">Show</span>
+    </button>
+  );
+}
+
+/**
+ * G250 round 3. Three whole-header treatments, each rendering the same pieces
+ * (title, Net worth, caption, hidden reading, Add via topRight):
+ *  brief     a sentence on the canvas, "Net worth is £1,365", the figure set inside it
+ *  register  the first entry of the ledger: label left, figure right, between two hairlines
+ *  console   one glass-card instrument, Add in its corner, a privacy rail when hidden
+ */
+function LayoutHeader({ layout, netWorth, hidden, showChip, onShow, topRight, updated }: {
+  layout: AccountsHeaderLayout;
+  netWorth: AccountsHeaderNetWorth | null;
+  hidden: boolean;
+  showChip: boolean;
+  onShow: () => void;
+  topRight?: ReactNode;
+  updated?: string;
+}) {
+  const text = netWorth ? money(netWorth.value, hidden) : "";
+  const title = <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>;
+  const count = netWorth ? `across ${netWorth.accountCount} ${netWorth.accountCount === 1 ? "account" : "accounts"}` : "";
+  const reading = showChip ? <QuietShow onShow={onShow} /> : updated ? <p className="text-xs text-slate-600 dark:text-slate-400" data-updated>{updated}</p> : null;
+  const spoken = <span className="sr-only">{hidden ? "Balance hidden" : text}</span>;
+  const titleRow = (corner: boolean) => (
+    <div className="flex items-center justify-between gap-3">
+      {title}
+      {corner && topRight ? <div className="-my-2.5">{topRight}</div> : null}
+    </div>
+  );
+
+  if (layout === "console") {
+    return (
+      <header data-layout="console">
+        {titleRow(false)}
+        {netWorth && (
+          <div className="glass-card mt-3 rounded-2xl p-4" data-tutorial-id="tutorial-networth">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-slate-600 dark:text-slate-400">Net worth</p>
+                <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white">
+                  <span aria-hidden="true">{text}</span>
+                  {spoken}
+                </p>
+              </div>
+              {topRight ? <div className="-mr-1 -mt-1 shrink-0">{topRight}</div> : null}
+            </div>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+              {count}
+              {!showChip && updated ? <span data-updated> · {updated}</span> : null}
+            </p>
+            {showChip && (
+              <div className="-mb-2 mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-1 dark:border-white/10" data-privacy-rail>
+                <p className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                  <EyeOff size={13} aria-hidden="true" />
+                  Balances hidden
+                </p>
+                <button
+                  type="button"
+                  data-hidden-chip
+                  onClick={onShow}
+                  className={`-mr-2 inline-flex min-h-11 items-center rounded-xl px-3 text-[13px] font-semibold text-indigo-700 active:scale-95 transition-transform motion-reduce:transition-none dark:text-indigo-300 ${focusRing}`}
+                >
+                  Show<span className="sr-only"> balances</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </header>
+    );
+  }
+
+  if (layout === "register") {
+    return (
+      <header data-layout="register">
+        {titleRow(true)}
+        {netWorth && (
+          <div className="mt-4" data-tutorial-id="tutorial-networth">
+            <div className="flex items-baseline justify-between gap-4 border-y border-slate-300 py-3.5 dark:border-slate-700">
+              <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-200">Net worth</p>
+              <p className="money min-w-[7ch] text-right text-[24px] font-semibold leading-[1.2] tracking-[-0.03em] text-slate-950 dark:text-white">
+                <span aria-hidden="true">{text}</span>
+                {spoken}
+              </p>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-600 dark:text-slate-400">{count}</p>
+              {reading}
+            </div>
+          </div>
+        )}
+      </header>
+    );
+  }
+
+  return (
+    <header data-layout="brief">
+      {titleRow(true)}
+      {netWorth && (
+        <div className="mt-4" data-tutorial-id="tutorial-networth">
+          <p className="text-[22px] font-medium leading-[1.3] tracking-[-0.01em] text-slate-600 dark:text-slate-300">
+            Net worth is{" "}
+            <span className="money text-[26px] font-bold tracking-[-0.03em] text-slate-950 dark:text-white">
+              <span aria-hidden="true">{text}</span>
+              {spoken}
+            </span>
+          </p>
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <p className="text-[13px] text-slate-600 dark:text-slate-400">{count}</p>
+            {reading}
+          </div>
+        </div>
+      )}
+    </header>
+  );
+}
+
+export default function AccountsHeader({ netWorth, hidden, showChip, onShow, chipPlacement = "below", tight = false, breakdown, lastSynced, onRefresh, topRight, aside, rail, layout, updated }: AccountsHeaderProps) {
+  if (layout) return <LayoutHeader layout={layout} netWorth={netWorth} hidden={hidden} showChip={showChip} onShow={onShow} topRight={topRight} updated={updated} />;
   const text = netWorth
     ? hidden
       ? "£••••"
