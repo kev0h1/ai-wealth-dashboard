@@ -32,6 +32,7 @@ from app.db.collections import (
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
 from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
+from app.services.spending import REFUND, SPEND, build_spending_context, try_build_spending_context, txn_flow
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,19 @@ def _norm(raw: dict) -> _Txn:
         "planned":    bool(raw.get("planned")),
         "id":         str(raw.get("_id") or ""),
     }
+
+
+async def _mark_own_moves(uid: str, txns: list[_Txn], start: datetime, kind_map: _KindMap) -> None:
+    """G268: flag `own_move` on normalised debits that are really a move
+    between the user's own accounts (app.services.spending), so `_classify`
+    files them as non-spend. Never raises: a lookup failure leaves the flags
+    off, i.e. today's kind-only behaviour."""
+    ctx = await try_build_spending_context(uid, start, None, kinds=kind_map)
+    if ctx is None:
+        return
+    for t in txns:
+        if ctx.is_own_move(t.get("id")):
+            t["own_move"] = True
 
 
 def _classify(
@@ -142,7 +156,9 @@ def _classify(
 
     for t in txns:
         cat = t["category"]
-        if is_non_spend(kind_map, cat):
+        # G268: an own-account move (t["own_move"], set from the spending
+        # context) is not spending whatever category it carries.
+        if is_non_spend(kind_map, cat) or t.get("own_move"):
             non_spend.append(t)
         elif t["planned"]:
             planned.append(t)
@@ -187,6 +203,10 @@ async def load_spend_txns(
     if end is not None:
         date_filter["$lte"] = datetime(end.year, end.month, end.day, 23, 59, 59)
 
+    spend_ctx = await build_spending_context(
+        uid, start_dt, date_filter.get("$lte"), kinds=kind_map,
+    )
+
     raw_docs: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
         try:
@@ -213,14 +233,14 @@ async def load_spend_txns(
             d_obj = timeutil.user_today()
 
         cat = doc.get("custom_category") or doc.get("category") or "Other"
-        if is_non_spend(kind_map, cat):
+        # G268: the one definition of spending (app.services.spending). A debit
+        # counts, a credit in a spend category is a refund and nets off, and
+        # movement, income and own-account moves contribute nothing.
+        flow = txn_flow(doc, spend_ctx)
+        if flow.kind not in (SPEND, REFUND):
             continue
 
-        amt = abs(float(doc.get("amount") or 0))
-        if doc.get("transaction_type") == "credit":
-            amt = -amt
-
-        result.append({"date": d_obj, "category": cat, "amount": amt})
+        result.append({"date": d_obj, "category": cat, "amount": flow.signed(doc.get("amount") or 0)})
 
     return result
 
@@ -470,6 +490,7 @@ async def compute_pace(
             logger.exception("pace: failed fetching from %s for %s", col.name, uid)
 
     all_txns = [_norm(d) for d in raw_docs]
+    await _mark_own_moves(uid, all_txns, db_cutoff_dt, kind_map)
 
     # Split by window in Python — no second DB round-trip needed.
     period_txns  = [t for t in all_txns if t["date"] >= period_start]
@@ -781,6 +802,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
             logger.exception("pace_detail: failed fetching from %s for %s", col.name, uid)
 
     all_txns     = [_norm(d) for d in raw_docs]
+    await _mark_own_moves(uid, all_txns, db_cutoff_dt, kind_map)
     period_txns  = [t for t in all_txns if period_start <= t["date"] <= period_end]
     history_txns = [t for t in all_txns if (period_start - timedelta(days=70)) <= t["date"] <= period_end]
 

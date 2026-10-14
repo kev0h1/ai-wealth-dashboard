@@ -59,6 +59,33 @@ Then three rules that make those six buildable.
 
 ---
 
+## What counts as spending
+
+> Canonical (G268, Kevin 2026-10-14). One definition, implemented once in `backend/app/services/spending.py` and read by every surface. A surface that tests "is this spending" any other way is a defect.
+
+**The One Out Rule.** Spend's Out figure, the jump-strip chip, the notables, the pace line and its difference from usual, the three charts (category breakdown, spending pace, period comparison), money shape's Fixed plus Free, Safe to Spend's spending pace, Penny's category tools (G252 charts, G265 multi-month aggregates, `get_category_spend`, account activity) and the MCP connector's read tools all reconcile to the same number for the same period.
+
+| | Counts as spending? |
+| --- | --- |
+| Everyday purchases (shopping, eating out, groceries, travel) | Yes |
+| Bills and subscriptions | Yes |
+| Mortgage or rent | Yes, the whole payment, as housing |
+| Loan repayments such as car finance | Yes |
+| Fees, interest, gifts and family | Yes |
+| Transfers between the user's own accounts | No |
+| Savings, investment and pension contributions | No |
+| Credit card repayments | No (the purchases were already counted, so the repayment would count them twice) |
+| Refunds | No, and not income either: a credit in a spend category nets off that category's spending |
+| Income | No |
+| A Business payment to the user's OWN account (for example "AURIQ AURIQ TIDE" to the user's Tide business account) | No, it is a movement |
+| A Business payment to a third party | Yes |
+
+**How it is decided.** A debit counts when its category kind is `discretionary` or `commitment`; kinds `movement` and `income` never count (this is what removes transfers, savings, investment, pension and card repayments, `categories.is_card_repayment` naming the card case). A credit in a spend category is a refund and subtracts. On top of the kind, a debit in a spend category is still a movement when it goes to the user's OWN account. That is own-account detection, never a blanket category kind, so Business keeps its kind for third-party payments. The evidence, strongest first: the row is linked to an offline account or goal; its text carries the number or sort code of another of the user's accounts; a transfer-pair match (a credit of the same amount within 2p, on a different account of the user's, within five days, that is not itself spending and not already paired); the user's own name in the text, for Business and Other rows only. A payee that merely shares a provider's name (a "TIDE PLATFORM LIMI" fee) is not evidence. An own-account debit is shown as moved money ("Between your accounts"), never as Out. If the receiving account is neither connected nor named by the user, the engine cannot see the pair, and the row stays spending until the user says it is theirs (the resolve-movement answer).
+
+**Where it lives.** `classify_flow` (pure, over the kind map), `find_own_move_ids` and `SpendingContext` (own-account detection), `txn_flow`, `is_spending`, `spend_amount` and the bulk variants. `GET /transactions` stamps each row with `spend_amount` (+payment, -refund, 0 otherwise) and the Spend charts sum that field, so the charts need no copy of the rule. Deliberately outside the definition: runway (`SKIP_BURN_CATS` in `analytics.py`) and the payday plan's per-account move targets, which ask what leaves an account, not what was spent.
+
+---
+
 ## The Ladder
 
 Four tiers, cost-ordered, escalated only when the tier above gives up. Every answer feeds back DOWN the ladder so it is never paid for twice.

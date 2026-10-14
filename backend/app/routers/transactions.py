@@ -28,6 +28,8 @@ from app.services.categorisation import (
     teaching_decision_times,
 )
 from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categorisation import user_identity
+from app.services.spending import SpendingContext, txn_flow
 from app.services import response_cache
 
 router = APIRouter(tags=["transactions"])
@@ -213,7 +215,19 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     for r in results:
         docs += r
     docs.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
-    return [_doc_to_tx(d) for d in docs]
+    # G268: stamp each row with its contribution to spending under the one
+    # definition, so the Spend charts (computed client-side from this list)
+    # reconcile with Spend's Out. A foreign-currency row is 0, as it is for
+    # the verdict's own loader.
+    kinds, identity = await asyncio.gather(get_category_kinds(uid), user_identity(uid))
+    spend_ctx = SpendingContext.from_docs(docs, kinds, identity)
+    out = []
+    for d in docs:
+        currency = d.get("currency")
+        foreign = bool(currency) and currency != "GBP"
+        amount = 0.0 if foreign else txn_flow(d, spend_ctx).signed(d.get("amount") or 0)
+        out.append(_doc_to_tx({**d, "spend_amount": round(amount, 2)}))
+    return out
 
 
 def _parse_date_bound(value: Optional[str], end_of_day: bool = False) -> Optional[datetime]:

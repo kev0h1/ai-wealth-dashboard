@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.db.collections import cashflow_cache_col, transactions_col, yapily_transactions_col
 from app.services.categories import get_category_kinds, is_non_spend
+from app.services.spending import build_spending_context
 
 # Only the fields the maths below actually touches — keeps the 90-day scan
 # from dragging full transaction documents over the wire.
@@ -75,15 +76,22 @@ async def monthly_cashflow(uid: str, cutoff: datetime) -> dict:
 
     monthly_income = round(_median_monthly(income_txns, now, n_months), 2)
 
+    # ONE category-kinds read per computation (also used for the monthly
+    # spending total below). G268: a debit that is really a move to the user's
+    # own account is not spending (app.services.spending), so it never enters
+    # the per-category medians.
+    kinds = await get_category_kinds(uid)
+    spend_ctx = await build_spending_context(uid, cutoff, None, kinds=kinds)
+    debit_txns = [t for t in debit_txns if not spend_ctx.is_own_move(str(t.get("_id") or ""))]
+
     by_cat: dict[str, list[dict]] = {}
     for t in debit_txns:
         cat = t.get("custom_category") or t.get("category") or "Other"
         by_cat.setdefault(cat, []).append(t)
     monthly_cat = {cat: round(_median_monthly(txns, now, n_months), 2) for cat, txns in by_cat.items()}
 
-    # ONE category-kinds read per computation; the filter below runs over the
-    # per-category medians (a handful of entries), never per transaction.
-    kinds = await get_category_kinds(uid)
+    # The filter below runs over the per-category medians (a handful of
+    # entries), never per transaction.
     monthly_spending = round(
         sum(v for k, v in monthly_cat.items() if not is_non_spend(kinds, k)), 2
     )
