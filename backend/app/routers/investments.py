@@ -3,12 +3,15 @@ import hashlib
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
 from app.core import timeutil
-from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col
+from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col, investment_valuations_col
+from app.services.investment_growth import account_growth
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
 from app.services.investment_prices import (
     get_instruments, holding_value, instrument_key, refresh_account_prices,
@@ -532,6 +535,7 @@ async def delete_investment_account(account_id: str, user: dict = Depends(curren
         raise HTTPException(404, "Investment account not found")
     await investment_holdings_col.delete_many({"account_id": account_id})
     await investment_notes_col.delete_many({"account_id": account_id})
+    await investment_valuations_col.delete_many({"account_id": account_id})
     await investment_accounts_col.delete_one({"_id": account_id})
     return {"deleted": account_id}
 
@@ -544,3 +548,19 @@ async def refresh_investment_prices(account_id: str, user: dict = Depends(curren
         raise HTTPException(404, "Investment account not found")
     result = await refresh_account_prices(acc)
     return result
+
+
+@router.get("/investment/accounts/{account_id}/growth")
+@router.get("/investments/{account_id}/growth")
+async def get_investment_growth(
+    account_id: str,
+    range: Literal["1m", "3m", "6m", "1y", "all"] = Query("all"),
+    user: dict = Depends(current_user),
+):
+    """G271: value over time, money paid in and simple growth (value minus
+    paid in) for one account, plus each holding's change since the last
+    statement. Prices are end of day and may be delayed."""
+    acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": user["email"]})
+    if not acc:
+        raise HTTPException(404, "Investment account not found")
+    return await account_growth(acc, range)

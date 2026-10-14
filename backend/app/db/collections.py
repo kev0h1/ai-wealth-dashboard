@@ -82,6 +82,7 @@ investment_holdings_col = db["investment_holdings"]
 # G270: shared per-instrument price table (_id = ISIN, else TICKER:<t>, else NAME:<n>).
 # Holds NO user data: never write a user id here.
 instrument_prices_col   = db["instrument_prices"]
+investment_valuations_col = db["investment_valuations"]  # G271: one daily value snapshot per account, user_id-keyed
 investment_notes_col    = db["investment_contract_notes"]  # per-trade contract notes, additive between statements
 
 # Grocery receipts / price intelligence
@@ -558,6 +559,9 @@ ERASURE_MANIFEST = frozenset({
     # sees the binding was decided on; erasing a user must never delete prices
     # other users' holdings read.
     "instrument_prices_col",
+    # G271: per-user daily valuation snapshots (user_id on every document), so
+    # erase_user's `user_id` sweep removes them with the account.
+    "investment_valuations_col",
     # A106: holds only a sha256 user hash and a consent id, keyed `_id ==
     # consent_id`, so erase_user's `user_id`/`_id == uid` sweep deliberately
     # never matches it: a marker must SURVIVE the erasure it was written

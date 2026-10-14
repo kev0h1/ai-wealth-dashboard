@@ -17,7 +17,7 @@ from app.core.config import (
 from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
-    instrument_prices_col, investment_holdings_col,
+    instrument_prices_col, investment_holdings_col, investment_valuations_col,
     connections_col, accounts_col, transactions_col, preferences_col,
     chat_sessions_col, episodic_memory_col, user_categories_col,
     budgets_col,
@@ -386,6 +386,9 @@ async def _create_indexes():
     await _ensure_index(instrument_prices_col, "fetched_at", name="instrument_fetched_at")
     await _ensure_index(investment_holdings_col, "instrument_key", name="holding_instrument_key")
     await _ensure_index(investment_holdings_col, "account_id", name="holding_account_id")
+    # G271: daily valuation snapshots, read per account in date order
+    await _ensure_index(investment_valuations_col, [("account_id", 1), ("date", 1)], name="valuation_account_date")
+    await _ensure_index(investment_valuations_col, "user_id", name="valuation_user_id")
     await _ensure_index(accounts_col, "connection_id")
     await _ensure_index(accounts_col, "user_id")
     await _ensure_index(connections_col, "user_id")
