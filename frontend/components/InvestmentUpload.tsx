@@ -10,9 +10,11 @@ interface InvestmentUploadProps {
   onClose: () => void;
   /** G272: optional explainer rendered below the file picker. Omitted, the sheet is unchanged. */
   explainer?: ReactNode;
+  /** Dependency injection for fixture-only design reviews. Production keeps the real uploader. */
+  uploadStatement?: typeof api.uploadInvestmentStatement;
 }
 
-export default function InvestmentUpload({ onSuccess, onClose, explainer }: InvestmentUploadProps) {
+export default function InvestmentUpload({ onSuccess, onClose, explainer, uploadStatement = api.uploadInvestmentStatement }: InvestmentUploadProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -36,7 +38,7 @@ export default function InvestmentUpload({ onSuccess, onClose, explainer }: Inve
     setUploading(true);
     setError(null);
     try {
-      const res = await api.uploadInvestmentStatement(selectedFile, password || undefined);
+      const res = await uploadStatement(selectedFile, password || undefined);
       setResult({
         provider: res.provider,
         account_type: res.account_type,
