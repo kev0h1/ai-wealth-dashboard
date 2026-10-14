@@ -73,8 +73,8 @@ export default function GrowthChart({
         )}
       </div>
       <div
-        role="img"
-        aria-label={summary}
+        role="application"
+        aria-label={`${summary} Use the left and right arrow keys to move between days.`}
         tabIndex={0}
         onPointerDown={pick}
         onPointerMove={(e) => { if (e.pointerType === "mouse" || e.buttons) pick(e); }}

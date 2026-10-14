@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, type KeyboardEvent } from "react";
 import MoneyText from "@/components/MoneyText";
 import {
   direction, GROWTH_RANGES, money, percent, RISK_LINES, shortDate,
@@ -11,8 +12,18 @@ export const ink = "text-slate-900 dark:text-slate-100";
 export const whisper = "text-slate-600 dark:text-slate-400";
 
 export function RangeChips({ range, onChange }: { range: GrowthRange; onChange?: (r: GrowthRange) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const i = GROWTH_RANGES.findIndex((r) => r.value === range);
+    const next = GROWTH_RANGES[(i + step + GROWTH_RANGES.length) % GROWTH_RANGES.length];
+    onChange?.(next.value);
+    ref.current?.querySelectorAll<HTMLButtonElement>("button")[GROWTH_RANGES.indexOf(next)]?.focus();
+  };
   return (
-    <div role="radiogroup" aria-label="Time range" className="flex items-center justify-between">
+    <div ref={ref} onKeyDown={onKey} role="radiogroup" aria-label="Time range" className="flex items-center justify-between">
       {GROWTH_RANGES.map((r) => {
         const on = r.value === range;
         return (
@@ -21,6 +32,7 @@ export function RangeChips({ range, onChange }: { range: GrowthRange; onChange?:
             type="button"
             role="radio"
             aria-checked={on}
+            tabIndex={on ? 0 : -1}
             onClick={() => onChange?.(r.value)}
             className="touch-manipulation flex min-h-[44px] min-w-[44px] flex-1 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800 rounded-lg"
           >
