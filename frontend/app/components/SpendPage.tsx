@@ -1079,7 +1079,11 @@ export default function SpendPage() {
     {
       id: "spend-majority-section",
       label: "Spending",
-      value: <span className="font-mono tabular-nums">{wholeMoney(verdict.majority.reduce((sum, row) => sum + Math.max(0, row.spent), 0))}</span>,
+      // G268: the chip is the period's total Out (the notables, the quieter
+      // categories and anything still to categorise), the same figure the
+      // hero leads with, not just the quieter categories the section below it
+      // lists.
+      value: <span className="font-mono tabular-nums">{wholeMoney(verdict.pills.spent)}</span>,
     },
     {
       id: "spend-journey-charts",
