@@ -1,0 +1,93 @@
+"use client";
+
+import { ChevronRight } from "lucide-react";
+import GrowthChart, { type ChartMode } from "./portfolio-growth/GrowthChart";
+import GrowthSplit, { type GrowthVariant } from "./portfolio-growth/GrowthSplit";
+import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
+import { money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+
+export const CHART_MODE: Record<GrowthVariant, ChartMode> = { ledger: "line", breathing: "dots", pair: "pair" };
+
+export interface PortfolioGrowthCardProps {
+  title: string;
+  growth: InvestmentGrowth | null;
+  range: GrowthRange;
+  onRangeChange?: (r: GrowthRange) => void;
+  status?: "ready" | "loading" | "error";
+  onRetry?: () => void;
+  /** Opens the drill-in (holdings). Omit to hide the link. */
+  onOpen?: () => void;
+  variant?: GrowthVariant;
+  hidden?: boolean;
+}
+
+export const cardSurface = "rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none";
+
+/** Portfolio growth card (G271). Takes its data through props; the page that
+ *  hosts it owns the fetch (api.getInvestmentGrowth). Prices are end of day,
+ *  so the figure is stamped "as of" the last daily value, never "live". */
+export default function PortfolioGrowthCard({
+  title, growth, range, onRangeChange, status = "ready", onRetry, onOpen, variant = "ledger", hidden,
+}: PortfolioGrowthCardProps) {
+  const roomy = variant === "breathing";
+
+  if (status === "loading") {
+    return <div className={`${cardSurface} h-[420px] animate-pulse`} aria-busy="true" aria-label="Loading portfolio growth" />;
+  }
+  if (status === "error" || !growth) {
+    return (
+      <section className={cardSurface}>
+        <h2 className={label}>{title}</h2>
+        <p className={`mt-2 text-[14px] ${ink}`}>We could not load this portfolio&apos;s growth.</p>
+        <button type="button" onClick={onRetry} className="touch-manipulation mt-2 min-h-[44px] rounded-xl px-1 text-[14px] font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">
+          Try again
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className={cardSurface} aria-label={`${title} growth`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className={label}>{title}</h2>
+        {growth.as_of ? <span className={`shrink-0 text-[11px] ${whisper}`}>As of {shortDate(growth.as_of)}</span> : null}
+      </div>
+      {growth.value !== null ? (
+        <p className={roomy ? "mt-3" : "mt-1"}>
+          <Money text={money(growth.value, { hidden })} className={`text-[30px] font-bold leading-tight tracking-tight ${ink}`} />
+        </p>
+      ) : (
+        <p className={`mt-2 text-[14px] ${ink}`}>Growth starts once we have a daily value for this account.</p>
+      )}
+
+      {variant === "pair" && growth.value !== null ? (
+        <div className="mt-3"><GrowthSplit g={growth} variant="pair" hidden={hidden} /></div>
+      ) : null}
+
+      <div className={roomy ? "mt-5" : "mt-2"}>
+        <RangeChips range={range} onChange={onRangeChange} />
+      </div>
+      <div className={roomy ? "mt-3" : "mt-1"}>
+        <GrowthChart points={growth.points} mode={CHART_MODE[variant]} hidden={hidden} summary={growthSummary(growth, hidden)} />
+      </div>
+
+      {variant !== "pair" && growth.value !== null ? (
+        <div className={roomy ? "mt-6" : "mt-3"}><GrowthSplit g={growth} variant={variant} hidden={hidden} /></div>
+      ) : null}
+      {growth.value !== null ? <p className={`mt-2 text-[12px] ${whisper}`}>Value minus money paid in.</p> : null}
+
+      <RiskLines className={roomy ? "mt-5" : "mt-3"} />
+
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="touch-manipulation mt-2 -mb-1 flex min-h-[44px] w-full items-center justify-between rounded-xl text-[14px] font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300"
+        >
+          See holdings and how it is worked out
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+    </section>
+  );
+}

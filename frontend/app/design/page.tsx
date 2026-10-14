@@ -32,6 +32,15 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "portfolio-growth",
+    name: "Portfolio growth · G271",
+    description:
+      "Design round, skills: impeccable + design-taste-frontend (art directions drafted by openai/gpt-6-astra, rewritten to DESIGN.md) · Investment growth card and drill-in: value over time with 1M/3M/6M/1Y/All, money paid in against growth (simple: value minus money paid in), per-holding change since the last statement, and the three risk lines · Renders the production PortfolioGrowthCard and PortfolioGrowthDetail with invented fixtures · A fall is shown in ink, never red · ?variant=a|b|c&state=growing|flat|fallen&mode=light|dark",
+    states: [{ label: "Growing", value: "growing" }, { label: "Flat", value: "flat" }, { label: "Fallen", value: "fallen" }],
+    variants: [{ label: "A · The Quiet Ledger", value: "a" }, { label: "B · Breathing Room", value: "b" }, { label: "C · Contribution and Difference", value: "c" }],
+    group: "current",
+  },
+  {
     slug: "plan-editor",
     name: "Plan and set-aside editor · G267",
     description: "Two working proposals: A editable summary, B three short steps. Suggested paying account, receiving pots and matching transfers, with alternatives on demand. Six accounts, five pots and forty fictional transactions; no live changes. Close the sheet to switch examples or themes.",
