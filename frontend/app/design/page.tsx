@@ -143,6 +143,15 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
   },
   {
+    slug: "statement-flow",
+    name: "Upload statement flow graphic · G272",
+    description:
+      "G272: the Upload Investment Statement sheet gains a small three-step graphic (statement sets holdings and units, contract notes add trades between statements, prices refresh daily) and a one-line note on what happens to the file · A is a vertical three-step list, B a compact three-chip strip with a caption · renders the production InvestmentUpload through its explainer prop · ?variant=a|b&mode=light|dark",
+    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
+    variants: [{ label: "A · Vertical list", value: "a" }, { label: "B · Chip strip", value: "b" }],
+    group: "current",
+  },
+  {
     slug: "sync-loading",
     name: "Sync loading state · G214 · approved B, folded in",
     description:
