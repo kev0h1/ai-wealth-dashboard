@@ -79,6 +79,9 @@ manual_account_mirrors_col = db["manual_account_mirrors"]
 # Investments
 investment_accounts_col = db["investment_accounts"]
 investment_holdings_col = db["investment_holdings"]
+# G270: shared per-instrument price table (_id = ISIN, else TICKER:<t>, else NAME:<n>).
+# Holds NO user data: never write a user id here.
+instrument_prices_col   = db["instrument_prices"]
 investment_notes_col    = db["investment_contract_notes"]  # per-trade contract notes, additive between statements
 
 # Grocery receipts / price intelligence
@@ -531,7 +534,7 @@ ERASURE_MANIFEST = frozenset({
     "card_terms_col", "card_product_rates_col", "savings_goals_col",
     "manual_accounts_col", "manual_transactions_col", "manual_account_rules_col",
     "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",
-    "investment_notes_col", "shopping_baskets_col", "subscriptions_col",
+    "investment_notes_col", "instrument_prices_col", "shopping_baskets_col", "subscriptions_col",
     "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
     "billing_customers_col", "billing_events_col", "cashflow_cache_col",
     "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",

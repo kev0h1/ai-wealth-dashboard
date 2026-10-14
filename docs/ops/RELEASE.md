@@ -334,3 +334,14 @@ Deploy Sorted to production. Follow docs/ops/RELEASE.md exactly and use only scr
 
 Do not run railway up, vercel deploy, git push to release, or set variables by any other means. Do not restart UAT services. Do not print secrets.
 ```
+
+## G270: shared instrument prices migration (once per environment)
+
+After the G270 branch is merged and the API has restarted (which creates the indexes), link existing holdings to the shared `instrument_prices` table. Dry-run first, from `backend/`; output is counts only:
+
+```bash
+.venv/bin/python scripts/migrate_instrument_prices.py            # dry-run, writes nothing
+.venv/bin/python scripts/migrate_instrument_prices.py --apply    # writes; idempotent, safe to re-run
+```
+
+Until it runs, the holdings endpoint falls back to any legacy per-holding price, and the daily worker links unlinked holdings itself, so ordering is not critical. Production needs Kevin's go-ahead.
