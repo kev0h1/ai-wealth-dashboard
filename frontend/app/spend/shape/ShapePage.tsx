@@ -23,6 +23,7 @@ import { usePennySheet } from "@/components/PennySheetProvider";
 import MoneyShapeHero from "./MoneyShapeHero";
 import WhatWorksCard from "./WhatWorksCard";
 import ReferenceShapesRow from "./ReferenceShapesRow";
+import type { BeyondView } from "@/components/PaySplitBeyond";
 
 function ShapeSkeleton() {
   return (
@@ -33,7 +34,7 @@ function ShapeSkeleton() {
   );
 }
 
-export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape } = {}) {
+export default function ShapePage({ shape: previewShape, beyondView }: { shape?: MoneyShape; beyondView?: BeyondView } = {}) {
   const router = useRouter();
   const { open: openPennySheet } = usePennySheet();
   const isPreview = previewShape !== undefined;
@@ -117,7 +118,7 @@ export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape 
         </div>
       ) : (
         <div className="px-4 pt-4 space-y-4">
-          <MoneyShapeHero shape={shape} />
+          <MoneyShapeHero shape={shape} beyondView={beyondView} />
           <WhatWorksCard ww={shape.what_works} onAskPenny={askPenny} />
           <ReferenceShapesRow onAskPenny={askPenny} />
           {error && (

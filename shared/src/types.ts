@@ -365,6 +365,18 @@ export interface MoneyShapePeriodEntry {
   label: string;
   take_home: number;
   overspent: number;
+  /** G269: everything that went out this period (fixed + moved + free).
+   *  Optional: absent on a payload from before the field existed. */
+  total_out?: number;
+  /** G269: max(0, total_out - take_home), what went out past what came in. */
+  beyond?: number;
+  /** G269: where the overshoot plausibly came from, only when the period's
+   *  own flows cover it; null when unknown (never guessed). */
+  beyond_source?: "cards" | "savings" | "cards_and_savings" | null;
+  /** G269: net growth of credit-card balances / net outflow of savings in the
+   *  period, from transactions (0 when none). */
+  card_growth?: number;
+  savings_drawdown?: number;
   jobs: MoneyShapeJob[];
   /** This period's own server-composed verdict sentence — NOT the same
    *  string as the top-level MoneyShape.verdict except when this is
@@ -383,6 +395,18 @@ export interface MoneyShapeAverageEntry {
   end: string;
   take_home: number;
   overspent: number;
+  /** G269: everything that went out this period (fixed + moved + free).
+   *  Optional: absent on a payload from before the field existed. */
+  total_out?: number;
+  /** G269: max(0, total_out - take_home), what went out past what came in. */
+  beyond?: number;
+  /** G269: where the overshoot plausibly came from, only when the period's
+   *  own flows cover it; null when unknown (never guessed). */
+  beyond_source?: "cards" | "savings" | "cards_and_savings" | null;
+  /** G269: net growth of credit-card balances / net outflow of savings in the
+   *  period, from transactions (0 when none). */
+  card_growth?: number;
+  savings_drawdown?: number;
   /** Mean-per-pay-period amounts/shares over the window — already an
    *  average server-side, render with MoneyText exactly like a single
    *  period's jobs, no client-side averaging. */
@@ -405,6 +429,18 @@ export interface MoneyShape {
    *  over" row becomes "Beyond take-home" for this amount instead (ink
    *  colour, never red — see MoneyShapeHero). 0 in the normal case. */
   overspent: number;
+  /** G269: everything that went out this period (fixed + moved + free).
+   *  Optional: absent on a payload from before the field existed. */
+  total_out?: number;
+  /** G269: max(0, total_out - take_home), what went out past what came in. */
+  beyond?: number;
+  /** G269: where the overshoot plausibly came from, only when the period's
+   *  own flows cover it; null when unknown (never guessed). */
+  beyond_source?: "cards" | "savings" | "cards_and_savings" | null;
+  /** G269: net growth of credit-card balances / net outflow of savings in the
+   *  period, from transactions (0 when none). */
+  card_growth?: number;
+  savings_drawdown?: number;
   /** null when status is "thin". Four entries (fixed/moved/free/left) when
    *  present; shares sum to 100. */
   jobs: MoneyShapeJob[] | null;
