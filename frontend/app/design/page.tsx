@@ -146,9 +146,9 @@ const ROUTES: PreviewRoute[] = [
     slug: "statement-flow",
     name: "Upload statement flow graphic · G272",
     description:
-      "G272: the Upload Investment Statement sheet gains a small three-step graphic (statement sets holdings and units, contract notes add trades between statements, prices refresh daily) and a one-line note on what happens to the file · A is a vertical three-step list, B a compact three-chip strip with a caption · renders the production InvestmentUpload through its explainer prop · ?variant=a|b&mode=light|dark",
+      "G272: three fresh statement-flow options inside the real upload sheet. C paper to portfolio, D an annotated account example, E a step-through explainer. Earlier A/B retained for comparison. Fixture-only imports, light and dark themes · ?variant=c|d|e&mode=light|dark",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "A · Vertical list", value: "a" }, { label: "B · Chip strip", value: "b" }],
+    variants: [{ label: "C · Paper to portfolio", value: "c" }, { label: "D · The account view", value: "d" }, { label: "E · Step through", value: "e" }],
     group: "current",
   },
   {
