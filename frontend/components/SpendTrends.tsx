@@ -27,6 +27,9 @@ import { api, Transaction, TransportSummary, SpendVerdictPaceEntry, DebtPlanSumm
 import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
+import {
+  DEFAULT_SPEND_WIDGETS, donutSlices, resolveSpendWidgets, spendAmountOf, spendPayments, spendTotal,
+} from "@/lib/spendCharts";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour } from "@/lib/categories";
@@ -49,9 +52,12 @@ function useIsDark() {
 
 export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_distribution" | "transport_modes" | "pace_curve" | "debt_burndown";
 
-// Only used before preferences load. A loaded empty list is intentional: it
-// means the person has removed every chart, so never repopulate it here.
-export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
+// What a user with no saved chart preferences sees (G268: Category breakdown
+// first, the others below it, nothing pinned to Home by default), and what
+// shows before preferences load. A saved list, even an empty one, always wins:
+// an empty list means the person has removed every chart, so never repopulate
+// it here. See lib/spendCharts.ts resolveSpendWidgets.
+export const DEFAULT_WIDGETS: WidgetId[] = [...DEFAULT_SPEND_WIDGETS];
 
 // Mirrors backend/app/routers/preferences.py's DEFAULT_HOME_PINNED_WIDGET.
 // The two previews below import this rather than repeating the string so a
@@ -125,10 +131,6 @@ export interface WidgetData {
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function spendDebits(txns: Transaction[]): Transaction[] {
-  return txns.filter(t => t.transaction_type === "debit" && (t.category || "Other") !== "Transfer");
-}
-
 const fmtGBP = (n: number) =>
   `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 
@@ -178,19 +180,9 @@ const TOOLTIP_STYLE = {
 /* ── Widget renderers ─────────────────────────────────────────────── */
 
 function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
-  const slices = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const t of data.periodTxns) {
-      const cat = t.category || "Other";
-      if (cat === "Transfer" || cat === "Income") continue;
-      // Credits are refunds — net them against the category
-      map[cat] = (map[cat] ?? 0) + (t.transaction_type === "credit" ? -Math.abs(t.amount) : Math.abs(t.amount));
-    }
-    return Object.entries(map)
-      .map(([name, value]) => ({ name, value }))
-      .filter(s => s.value > 0)
-      .sort((a, b) => b.value - a.value);
-  }, [data.periodTxns]);
+  // G268: net spending per category under the one definition (refunds net off,
+  // movements and own-account moves excluded), at most six segments plus Other.
+  const slices = useMemo(() => donutSlices(data.periodTxns), [data.periodTxns]);
 
   if (slices.length === 0) return <EmptyWidget compact={compact} />;
   const total = slices.reduce((s, x) => s + x.value, 0);
@@ -213,7 +205,7 @@ function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: bool
         </ResponsiveContainer>
       </div>
       <div className="flex-1 min-w-0 space-y-1.5">
-        {slices.slice(0, compact ? 3 : 5).map(s => (
+        {slices.slice(0, compact ? 3 : slices.length).map(s => (
           <div key={s.name} className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colour(s.name) }} />
             <span className="text-xs text-slate-600 dark:text-slate-300 truncate flex-1">{s.name}</span>
@@ -222,9 +214,9 @@ function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: bool
             </span>
           </div>
         ))}
-        {slices.length > (compact ? 3 : 5) && (
+        {compact && slices.length > 3 && (
           <p className="text-[11px] text-slate-500 dark:text-slate-400 pl-4">
-            +{slices.length - (compact ? 3 : 5)} more
+            +{slices.length - 3} more
           </p>
         )}
       </div>
@@ -237,9 +229,11 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const days = useMemo(() => {
     const byDay: Record<string, number> = {};
-    for (const t of spendDebits(data.periodTxns)) {
+    for (const t of data.periodTxns) {
+      const amt = spendAmountOf(t);
+      if (amt === 0) continue;
       const key = t.date.slice(0, 10);
-      byDay[key] = (byDay[key] ?? 0) + Math.abs(t.amount);
+      byDay[key] = (byDay[key] ?? 0) + amt;
     }
     const out: { label: string; spend: number }[] = [];
     const d = new Date(data.periodStart);
@@ -248,7 +242,7 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       out.push({
         label: `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`,
-        spend: byDay[key] ?? 0,
+        spend: Math.max(0, byDay[key] ?? 0),
       });
       d.setDate(d.getDate() + 1);
     }
@@ -329,10 +323,10 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
     let start = data.periodStart;
     let end = data.periodEnd;
     for (let i = 0; i < 6; i++) {
-      const txns = spendDebits(filterPeriod(data.allTxns, start, end));
+      const txns = filterPeriod(data.allTxns, start, end);
       out.unshift({
         label: `${start.getDate()} ${MONTH_SHORT[start.getMonth()]}`,
-        spend: txns.reduce((s, t) => s + Math.abs(t.amount), 0),
+        spend: spendTotal(txns),
         current: i === 0,
       });
       [start, end] = prevPeriodWithConfig(start, data.payPeriodConfig);
@@ -423,8 +417,8 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
 
   const bands = useMemo(() => {
     const totals = SIZE_BANDS.map(b => ({ label: b.label, count: 0, total: 0 }));
-    for (const t of spendDebits(data.periodTxns)) {
-      const amt = Math.abs(t.amount);
+    for (const t of spendPayments(data.periodTxns)) {
+      const amt = spendAmountOf(t);
       const idx = SIZE_BANDS.findIndex(b => amt >= b.min && amt < b.max);
       if (idx >= 0) { totals[idx].count += 1; totals[idx].total += amt; }
     }
@@ -1078,7 +1072,7 @@ export default function SpendTrends(props: {
   } = usePreferences();
   // prefsLoaded is true once the context has received the server response (non-null array).
   const prefsLoaded = props.preview != null || ctxWidgets !== null;
-  const initialWidgets = props.preview?.widgets ?? DEFAULT_WIDGETS;
+  const initialWidgets = props.preview?.widgets ?? resolveSpendWidgets(ctxWidgets, isWidgetId);
   const initialPinnedWidget = props.preview?.pinnedWidget ?? null;
   const [widgets, setWidgets] = useState<WidgetId[]>(initialWidgets);
   const [pinnedWidget, setPinnedWidget] = useState<WidgetId | null>(initialPinnedWidget);

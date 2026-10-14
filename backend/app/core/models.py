@@ -43,6 +43,12 @@ class Transaction(BaseModel):
     custom_category: Optional[str] = None
     transaction_type: str
     planned: Optional[bool] = None
+    # G268: this row's signed contribution to spending under the one
+    # definition (app.services.spending): +payment, -refund, 0 for income,
+    # movement, own-account moves and foreign-currency rows. None on routes
+    # that do not compute it; the charts read it so they cannot disagree with
+    # Spend's Out.
+    spend_amount: Optional[float] = None
 
     @property
     def effective_category(self) -> str:

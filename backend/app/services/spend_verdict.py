@@ -39,14 +39,12 @@ from datetime import date, datetime, timedelta
 from app.core import timeutil
 
 from app.db.collections import category_intent_col, commitments_col, preferences_col, transactions_col, yapily_transactions_col
-from app.services.categories import (
-    INCOME,
-    MOVEMENT,
-    get_category_kinds,
-    kind_of,
-)
+from app.services.categories import get_category_kinds
 from app.services.categorisation import canonical_merchant_key
 from app.services.pace import compute_category_signals, get_total_pace_curve_fn
+from app.services.spending import (
+    INCOME_FLOW, MOVED, REFUND, SPEND, classify_flow, try_build_spending_context,
+)
 from app.services.spend_impact import compute_spend_impact
 from app.services import response_cache
 
@@ -168,6 +166,11 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
         except Exception:
             logger.exception("_load_period_txns: failed fetching from %s for %s", col.name, uid)
 
+    # G268: own-account moves (a payment to the user's own account is a
+    # movement whatever category it carries) are tagged `own_move` so
+    # `bucket_transactions` files them as moved money, not Out.
+    spend_ctx = await try_build_spending_context(uid, start_dt, end_dt)
+
     out: list[dict] = []
     for doc in raw_docs:
         txn_currency = doc.get("currency")
@@ -190,6 +193,7 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
             "merchant_key":  doc.get("merchant_key") or "",
             "id":            str(doc.get("_id") or ""),
             "account_id":    str(doc.get("account_id") or ""),
+            "own_move":      bool(spend_ctx and spend_ctx.is_own_move(str(doc.get("_id") or ""))),
         })
     return out
 
@@ -233,15 +237,20 @@ def bucket_transactions(txns: list[dict], kind_map: dict) -> tuple[dict, dict, f
 
     for t in txns:
         cat = t["category"]
-        kind = kind_of(kind_map, cat)
+        # G268: the one definition of spending (app.services.spending).
+        flow = classify_flow(kind_map, cat, t["debit"], bool(t.get("own_move")))
 
-        if kind == INCOME:
+        if flow.kind == INCOME_FLOW:
             income_total += t["amount"] if t["debit"] is False else -t["amount"]
             continue
 
-        if kind == MOVEMENT:
+        if flow.kind == MOVED:
             if t["debit"]:
-                bucket = moved_groups[_movement_bucket(cat)]
+                # An own-account move that carries a spend category (Kevin's
+                # Business payment to his own Tide account) is shuffling
+                # between his accounts: "Between your accounts", not Out.
+                bucket_key = "own_accounts" if flow.reason == "own_account" else _movement_bucket(cat)
+                bucket = moved_groups[bucket_key]
                 bucket["amount"] += t["amount"]
                 bucket["payments_count"] += 1
                 bucket.setdefault("categories", set()).add(cat)
@@ -744,21 +753,18 @@ def build_pace_series(
     """
     daily: dict[int, float] = {}
     for t in txns:
-        if t["category"] == "Other":
-            # "Other" never earns a baseline (ontology carve-out) — the usual
-            # line and the shape training both exclude it, so the actual line
-            # must too, or an unplaced/unresolved transfer landing in "Other"
-            # spikes the actual line against a usual line that never counted
-            # it in the first place.
-            continue
-        kind = kind_of(kind_map, t["category"])
-        if kind in (INCOME, MOVEMENT):
+        # G268: the actual line is the period's total Out, exactly the figure
+        # `bucket_transactions` reports (Other, the still-to-categorise money,
+        # included), so "Day N: £X so far" always reconciles to Out on the last
+        # day. The `usual` line is unchanged: it never learns Other, and the
+        # frontend already reads the gap as Out minus usual.
+        flow = classify_flow(kind_map, t["category"], t["debit"], bool(t.get("own_move")))
+        if flow.kind not in (SPEND, REFUND):
             continue
         day = (t["date"] - start).days + 1
         if day < 1 or day > days_elapsed:
             continue
-        signed = t["amount"] if t["debit"] else -t["amount"]
-        daily[day] = daily.get(day, 0.0) + signed
+        daily[day] = daily.get(day, 0.0) + flow.signed(t["amount"])
 
     usual_total_for_period = None
     if not thin_history and total_curve_fn is not None and period_days:
