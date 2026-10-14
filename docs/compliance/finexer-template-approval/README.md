@@ -67,6 +67,8 @@ Rules added to the shared CSS (colour and background only, so the regulated sent
 
 Contrast (WCAG AA needs 4.5:1): dark, ink #f1f5f9 on card #1e293b 13.4:1, link #818cf8 on #1e293b 4.9:1. Light, ink #0f172a on #ffffff 17.9:1, link #4f46e5 on #ffffff 6.3:1.
 
-Minified size: light 1846, dark 1892 characters (limit 2000, and the repo gate requires strictly under it). The current minified CSS is in `sorted-light.min.css` and `sorted-dark.min.css` in this folder (the inline blocks above predate A160). To fit, the shared CSS dropped the button hover rule, which Finexer's link-buttons never use. Attribute selector quotes are kept as on the live templates (Finexer returned 500 on the first sync, which had unquoted ones).
+Minified size: light 1902, dark 1948 characters (limit 2000, and the repo gate requires strictly under it). The current minified CSS is in `sorted-light.min.css` and `sorted-dark.min.css` in this folder (the inline blocks above predate A160). To fit, the shared CSS dropped the button hover rule, which Finexer's link-buttons never use. Attribute selector quotes are kept as on the live templates (Finexer returned 500 on the first sync, which had unquoted ones).
 
 Screenshots at 390px of Finexer's real hosted page (synthetic customer, consent never completed), with the new CSS applied on top of the live template: `connect-sheet-before-dark.png` (live dark template, unreadable bank name and dim links), `connect-sheet-dark.png` and `connect-sheet-light.png` (new CSS). Not yet synced to Finexer.
+
+Scoping (A160 follow-up, 2026-10-14): Finexer reuses `.form-control-inner` for the main page's Cancel/NEXT row as well as for the Connect sheet, so the first synced rules put a slate band behind the main buttons in dark. All three sheet rules are now prefixed with `#mobile-modal` (the sheet's real ancestor; the main row is not inside it), so only the sheet is touched. Minified: light 1902, dark 1948.

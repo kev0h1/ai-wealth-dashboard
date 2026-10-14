@@ -70,7 +70,7 @@ footer, footer *, [class*="footer"] {
 }
 
 /* Connect confirmation sheet (A160), the bottom sheet Finexer opens after
-   NEXT: #mobile-modal > .form-control-inner. Finexer leaves it white, with the
+   NEXT: #mobile-modal > .form-control-inner. Finexer reuses .form-control-inner for the main page button row, so every rule is scoped to #mobile-modal. Finexer leaves it white, with the
    bank name inheriting our near-white body ink and the terms text and links in
    its own greys, so dark was unreadable. Colour and background only; the
    regulated sentence, links and Cancel/CONNECT keep Finexer's size, case and
@@ -78,9 +78,9 @@ footer, footer *, [class*="footer"] {
    WCAG AA (4.5:1 for normal text): dark ink #f1f5f9 on card #1e293b 13.4:1,
    link #818cf8 on #1e293b 4.9:1; light ink #0f172a on #fff 17.9:1, link
    #4f46e5 on #fff 6.3:1. */
-.form-control-inner { background: var(--s-card) !important; color: var(--s-ink); }
-.consent-term { color: inherit !important; }
-.consent-term a, #connect-state-cancel { color: var(--s-link) !important; }
+#mobile-modal .form-control-inner { background: var(--s-card) !important; color: var(--s-ink); }
+#mobile-modal .consent-term { color: inherit !important; }
+#mobile-modal .consent-term a, #mobile-modal #connect-state-cancel { color: var(--s-link) !important; }
 
 /* Our own intro block (header.html, variant A). The second line names Finexer
    as the provider at the same Body step as the first, Finexer in bold (Client Terms 5.6, 7.6). */
