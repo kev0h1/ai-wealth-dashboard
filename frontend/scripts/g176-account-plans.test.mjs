@@ -127,7 +127,10 @@ const roundedAmountForm = renderToStaticMarkup(React.createElement(AllocationEdi
   allocation: { id: "rounded", name: "Rounded allocation", amount_per_period: 33.333, fill_account_id: "challenge", source_account_id: null, match_type: "description_contains", match_value: "ROUND", fill_display_name: "Rounded allocation", effective_from: "2026-10-01", recurrence: "every_period", completed: false, pending: false, active: true, filled_this_period: 0, remaining: 33.333, period_start: "2026-10-01", period_end: "2026-10-29" },
   accounts: [{ id: "challenge", provider: "Monzo", name: "Challenge pot", type: "saving", subtype: "saving", currency: "GBP", balance: 60, status: "active", manual: false }], periodStart: new Date("2026-10-01T12:00:00Z"), onCancel() {}, onSaved() {}, onDeleted() {},
 }));
-assert.match(roundedAmountForm, /value="33\.33"/, "The initial amount honours the input's two-decimal step");
+assert.match(roundedAmountForm, /£33\.33/, "G267 summary preserves the rounded two-decimal contribution");
+assert.doesNotMatch(roundedAmountForm, /<input/, "G267 A defers editable fields until the corresponding summary row opens");
+const allocationEditorSource = readFileSync(new URL("../components/AllocationEditForm.tsx", import.meta.url), "utf8");
+assert.match(allocationEditorSource, /Number\(allocation\.amount_per_period\)\.toFixed\(2\)/, "The deferred amount input still starts at the precise two-decimal step");
 
 const missing = forecastFor("missing").accounts[0];
 assert.equal(accountPlan(missing, plans).afterPayments, null);
