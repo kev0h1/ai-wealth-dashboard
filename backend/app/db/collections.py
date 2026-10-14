@@ -534,7 +534,7 @@ ERASURE_MANIFEST = frozenset({
     "card_terms_col", "card_product_rates_col", "savings_goals_col",
     "manual_accounts_col", "manual_transactions_col", "manual_account_rules_col",
     "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",
-    "investment_notes_col", "instrument_prices_col", "shopping_baskets_col", "subscriptions_col",
+    "investment_notes_col", "shopping_baskets_col", "subscriptions_col",
     "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
     "billing_customers_col", "billing_events_col", "cashflow_cache_col",
     "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
@@ -552,6 +552,12 @@ ERASURE_MANIFEST = frozenset({
     "oauth_clients_col", "oauth_codes_col", "oauth_tokens_col",
     "safe_to_spend_history_col", "session_tombstones_col",
     "income_payer_attachments_col",
+    # G270: the shared instrument price table holds no user data at all (keyed
+    # by ISIN/ticker, never a user id), so erase_user's `user_id`/`_id == uid`
+    # sweep deliberately matches nothing in it. Listed so the manifest guard
+    # sees the binding was decided on; erasing a user must never delete prices
+    # other users' holdings read.
+    "instrument_prices_col",
     # A106: holds only a sha256 user hash and a consent id, keyed `_id ==
     # consent_id`, so erase_user's `user_id`/`_id == uid` sweep deliberately
     # never matches it: a marker must SURVIVE the erasure it was written

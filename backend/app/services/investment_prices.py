@@ -20,7 +20,7 @@ from typing import Protocol
 
 import httpx
 
-from app.core.config import TAVILY_API_KEY
+from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
 from app.core.timeutil import user_today
 from app.db.collections import (
@@ -30,6 +30,7 @@ from app.db.collections import (
 logger = logging.getLogger(__name__)
 
 HISTORY_MAX = 400  # roughly 18 months of trading days, bounded for G271
+MAX_DAILY_MOVE = 0.40  # reject a new price more than 40 percent from the last known one
 
 
 # ── Identity ────────────────────────────────────────────────────────────────
@@ -48,6 +49,12 @@ def instrument_key(isin: str | None, ticker: str | None = None, name: str | None
         return f"TICKER:{t}"
     n = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
     return f"NAME:{n}" if n else None
+
+
+def sanitise_name(name: str | None, limit: int = 80) -> str:
+    """The first uploader's fund name feeds a prompt shown for every holder, so
+    keep letters, digits, spaces and basic punctuation only, and cap length."""
+    return re.sub(r"[^A-Za-z0-9 .,&()'/+-]", "", name or "").strip()[:limit]
 
 
 # ── Sources ─────────────────────────────────────────────────────────────────
@@ -77,13 +84,18 @@ class LlmSearchSource:
 
     name = "web_search"
 
+    @property
+    def configured(self) -> bool:
+        return bool(TAVILY_API_KEY and OPENROUTER_API_KEY)
+
     async def fetch(self, instrument: dict) -> PriceQuote | None:
-        if not TAVILY_API_KEY:
+        if not self.configured:
             return None
-        name = instrument.get("name") or ""
+        name = sanitise_name(instrument.get("name"))
         isin = instrument.get("isin")
         ticker = instrument.get("ticker")
         ident = isin or ticker
+        # ISIN or ticker is the primary term; the name only helps when neither exists.
         query = f"{ident} fund unit price GBP" if ident else f"{name} fund unit price GBP today"
         async with httpx.AsyncClient(timeout=60) as client:
             tr = await client.post(
@@ -99,7 +111,7 @@ class LlmSearchSource:
             f"Source: {res.get('url', '')}\n{res.get('content', '')[:500]}" for res in results[:3]
         )
         prompt = (
-            f'Extract the current unit/NAV price in GBP for this holding: "{name}" (ISIN: {isin or "N/A"}).\n'
+            f'Extract the current unit/NAV price in GBP for the instrument with identifier {ident or "N/A"} (name: "{name}").\n'
             f"Search results:\n{snippets}\n\n"
             f"Return ONLY a JSON number (e.g. 289.95) or null if the price cannot be determined. No other text."
         )
@@ -183,26 +195,41 @@ async def record_quote(key: str, quote: PriceQuote, *, current: dict | None = No
 
 
 async def refresh_instrument(key: str, sources: list[PriceSource] | None = None, *, today: date | None = None) -> str:
-    """Refresh one instrument. Returns "fetched", "skipped" or "failed".
+    """Refresh one instrument. Returns "fetched", "skipped", "failed" or
+    "unavailable".
 
     Skipped when already attempted today (a success or a failure), so a day
     costs at most one fetch per instrument across all users. A failure keeps
-    the last price and its date and only stamps the attempt."""
+    the last price and its date and only stamps the attempt. When no source
+    is configured (missing API keys) nothing is stamped and the status is
+    "unavailable", so the day is not burned. A quote more than 40 percent
+    from the last known price is rejected as implausible."""
     today = today or user_today()
     doc = await instrument_prices_col.find_one({"_id": key})
     if doc is None:
         return "failed"
     if _same_day(doc.get("fetched_at"), today) or _same_day(doc.get("last_attempt_at"), today):
         return "skipped"
-    for src in (sources if sources is not None else default_sources()):
+    usable = [s for s in (sources if sources is not None else default_sources()) if getattr(s, "configured", True)]
+    if not usable:
+        return "unavailable"
+    last = doc.get("price")
+    for src in usable:
         try:
             quote = await src.fetch(doc)
         except Exception:
             logger.warning("instrument price fetch failed: key=%s source=%s", key, getattr(src, "name", "?"), exc_info=True)
             continue
-        if quote and quote.price and quote.price > 0:
-            await record_quote(key, quote, current=doc)
-            return "fetched"
+        if not (quote and quote.price and quote.price > 0):
+            continue
+        if last and abs(quote.price / last - 1) > MAX_DAILY_MOVE:
+            logger.warning(
+                "instrument price rejected as implausible: key=%s source=%s old=%s new=%s",
+                key, getattr(src, "name", "?"), last, quote.price,
+            )
+            continue
+        await record_quote(key, quote, current=doc)
+        return "fetched"
     await instrument_prices_col.update_one({"_id": key}, {"$set": {"last_attempt_at": _utcnow()}})
     return "failed"
 
@@ -248,20 +275,59 @@ async def _link_holdings(holdings: list[dict]) -> None:
         await ensure_instrument(key, isin=h.get("isin"), ticker=h.get("ticker"), name=h.get("name"))
 
 
+async def _recompute_for_keys(keys: set, insts: dict) -> set:
+    """Recompute every account (any user) holding one of `keys` from the
+    shared prices. Returns the users whose total moved."""
+    holdings = await investment_holdings_col.find({"instrument_key": {"$in": sorted(keys)}}).to_list(None)
+    acc_ids = {h["account_id"] for h in holdings}
+    changed: set = set()
+    for acc_id in sorted(acc_ids):
+        acc = await investment_accounts_col.find_one({"_id": acc_id})
+        if not acc:
+            continue
+        hs = await investment_holdings_col.find({"account_id": acc_id}).to_list(None)
+        await _link_holdings(hs)
+        before = acc.get("total_value")
+        after = await _recompute_account(acc, hs, insts)
+        if before != after and acc.get("user_id"):
+            changed.add(acc["user_id"])
+    return changed
+
+
+async def _bump(users: set) -> None:
+    from app.services import data_version
+    for uid in users:
+        try:
+            await data_version.bump(uid)
+        except Exception:
+            logger.exception("investment price refresh: version bump failed")
+
+
+def _status(outcomes: list[str]) -> str:
+    if "fetched" in outcomes:
+        return "updated"
+    if outcomes and all(o == "unavailable" for o in outcomes):
+        return "unavailable"
+    if outcomes and all(o == "skipped" for o in outcomes):
+        return "skipped"
+    return "failed" if "failed" in outcomes else "skipped"
+
+
 async def refresh_account_prices(acc: dict, sources: list[PriceSource] | None = None) -> dict:
     """User-triggered refresh for one account: refreshes only the instruments
-    it holds (each at most once a day, shared), then recomputes the total.
-    Returns {"updated": int, "new_total": float}."""
+    it holds (each at most once a day, shared), then recomputes the total of
+    every account holding them and bumps those users' data version.
+    Returns {"updated": int, "new_total": float, "status": "updated" |
+    "skipped" | "failed" | "unavailable"}."""
     holdings = await investment_holdings_col.find({"account_id": acc["_id"]}).to_list(None)
     await _link_holdings(holdings)
     keys = {h["instrument_key"] for h in holdings if h.get("instrument_key")}
-    updated = 0
-    for key in sorted(keys):
-        if await refresh_instrument(key, sources) == "fetched":
-            updated += 1
+    outcomes = [await refresh_instrument(key, sources) for key in sorted(keys)]
     insts = await get_instruments(keys)
-    total = await _recompute_account(acc, holdings, insts)
-    return {"updated": updated, "new_total": total}
+    changed = await _recompute_for_keys(keys, insts) if keys else set()
+    total = await _recompute_account(acc, holdings, insts)  # also covers accounts with no linkable holdings
+    await _bump(changed)
+    return {"updated": outcomes.count("fetched"), "new_total": total, "status": _status(outcomes)}
 
 
 async def refresh_all_instruments(sources: list[PriceSource] | None = None) -> dict:
@@ -271,11 +337,7 @@ async def refresh_all_instruments(sources: list[PriceSource] | None = None) -> d
     holdings = await investment_holdings_col.find({}).to_list(None)
     await _link_holdings(holdings)
     keys = {h["instrument_key"] for h in holdings if h.get("instrument_key")}
-    fetched = failed = 0
-    for key in sorted(keys):
-        outcome = await refresh_instrument(key, sources)
-        fetched += outcome == "fetched"
-        failed += outcome == "failed"
+    outcomes = [await refresh_instrument(key, sources) for key in sorted(keys)]
     insts = await get_instruments(keys)
     by_acc: dict[str, list[dict]] = {}
     for h in holdings:
@@ -288,6 +350,8 @@ async def refresh_all_instruments(sources: list[PriceSource] | None = None) -> d
             continue
         before = acc.get("total_value")
         after = await _recompute_account(acc, hs, insts)
-        if fetched and before != after and acc.get("user_id"):
+        if before != after and acc.get("user_id"):
             changed_users.add(acc["user_id"])
-    return {"instruments": len(keys), "fetched": fetched, "failed": failed, "changed_users": changed_users}
+    return {"instruments": len(keys), "fetched": outcomes.count("fetched"),
+            "failed": outcomes.count("failed"), "unavailable": outcomes.count("unavailable"),
+            "changed_users": changed_users}

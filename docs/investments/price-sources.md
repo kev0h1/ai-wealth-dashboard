@@ -26,3 +26,10 @@ Evaluated 2026-10-14 for end-of-day prices of LSE-listed ETFs (by ticker) and OE
 - Refresh: each instrument is attempted at most once per London day, shared across users. A failed attempt keeps the last price and its date and also stamps the attempt, so a failing instrument is not retried until the next day.
 - `history` holds one point per price date, bounded to 400 entries, for G271.
 - The collection holds no user data. Its `_id` is the ISIN, else `TICKER:<ticker>`, else `NAME:<normalised name>` for holdings carrying neither.
+
+## Known limits
+
+- The same fund can exist twice, once keyed by ISIN and once as a ticker-only (`TICKER:`) document, and the two are priced separately. No code links them.
+- The `NAME:` fallback is a normalised name, so two different funds with near-identical names collide, and one fund spelled two ways splits. It is a last resort for holdings with neither ISIN nor ticker.
+- A bare ticker does not say which exchange it is for, so the same ticker on two exchanges collides.
+- The first uploader's fund name seeds the instrument document for everyone. It is sanitised before use in the search prompt, the ISIN or ticker is the primary search term, and a price more than 40 percent from the last known one is rejected.

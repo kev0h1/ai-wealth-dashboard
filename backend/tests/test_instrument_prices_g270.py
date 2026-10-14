@@ -1,6 +1,6 @@
 """G270: shared instrument prices. Fake collections, no Mongo."""
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -86,6 +86,15 @@ def cols(monkeypatch):
         monkeypatch.setattr(mod, "investment_holdings_col", holdings)
         monkeypatch.setattr(mod, "investment_accounts_col", accs)
     monkeypatch.setattr(ip, "user_today", lambda: TODAY)
+    # Frozen "now" on TODAY so same-day checks never depend on the real clock.
+    monkeypatch.setattr(ip, "_utcnow", lambda: datetime(2026, 10, 14, 7, tzinfo=timezone.utc))
+    bumps = []
+
+    async def _bump(uid):
+        bumps.append(uid)
+    import app.services.data_version as dv
+    monkeypatch.setattr(dv, "bump", _bump)
+    inst.bumps = bumps
     return inst, holdings, accs
 
 
@@ -112,8 +121,9 @@ def test_skipped_when_fetched_today(cols):
 def test_failed_fetch_keeps_last_price_and_date(cols):
     inst, *_ = cols
     run(ip.refresh_all_instruments([_Src(price=250.0)]))
-    inst.docs[ISIN]["fetched_at"] = datetime.now(timezone.utc) - timedelta(days=3)
-    inst.docs[ISIN]["last_attempt_at"] = datetime.now(timezone.utc) - timedelta(days=3)
+    old = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)  # three days before frozen TODAY
+    inst.docs[ISIN]["fetched_at"] = old
+    inst.docs[ISIN]["last_attempt_at"] = old
     res = run(ip.refresh_all_instruments([_Src(fail=True)]))
     assert res["failed"] == 1
     d = inst.docs[ISIN]
@@ -162,3 +172,64 @@ def test_no_user_id_in_instrument_prices(cols):
     run(mig.migrate(holdings, inst, apply=True))
     blob = repr(inst.docs)
     assert "user_id" not in blob and "@x.com" not in blob
+
+
+def _old(inst, price=100.0):
+    old = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+    inst.docs[ISIN] = {"_id": ISIN, "isin": ISIN, "price": price, "price_date": "2026-10-11",
+                       "source": "fake", "confidence": "high", "fetched_at": old,
+                       "last_attempt_at": old, "history": []}
+
+
+def test_implausible_move_rejected_keeps_old_price(cols):
+    inst, *_ = cols
+    _old(inst, 100.0)
+    out = run(ip.refresh_instrument(ISIN, [_Src(price=150.0)]))
+    assert out == "failed" and inst.docs[ISIN]["price"] == 100.0
+    assert inst.docs[ISIN]["price_date"] == "2026-10-11"
+    _old(inst, 100.0)
+    assert run(ip.refresh_instrument(ISIN, [_Src(price=120.0)])) == "fetched"
+    assert inst.docs[ISIN]["price"] == 120.0
+
+
+class _Unconfigured(_Src):
+    configured = False
+
+
+def test_missing_key_does_not_stamp_the_day(cols):
+    inst, *_ = cols
+    _old(inst)
+    src = _Unconfigured()
+    assert run(ip.refresh_instrument(ISIN, [src])) == "unavailable"
+    assert src.calls == 0
+    assert inst.docs[ISIN]["last_attempt_at"] == datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+    _, holdings, accs = cols
+    res = run(ip.refresh_account_prices(accs.docs["a1"], [src]))
+    assert res["status"] == "unavailable"
+
+
+def test_account_refresh_shares_once_a_day_and_bumps_all_holders(cols):
+    inst, holdings, accs = cols
+    src = _Src()
+    for h in holdings.docs.values():
+        h["instrument_key"] = ISIN  # as after the migration
+    r1 = run(ip.refresh_account_prices(accs.docs["a1"], [src]))
+    assert r1["status"] == "updated" and r1["updated"] == 1
+    assert set(inst.bumps) == {"u1@x.com", "u2@x.com"}
+    assert accs.docs["a2"]["total_value"] == 300.0
+    r2 = run(ip.refresh_account_prices(accs.docs["a2"], [src]))
+    assert r2["status"] == "skipped" and src.calls == 1
+
+
+def test_history_one_point_per_date(cols):
+    inst, *_ = cols
+    run(ip.ensure_instrument(ISIN, isin=ISIN, name="Fund"))
+    for price in (10.0, 11.0):
+        run(ip.record_quote(ISIN, ip.PriceQuote(price, "2026-10-14", "GBP", "fake", "high")))
+    hist = inst.docs[ISIN]["history"]
+    assert hist == [{"price_date": "2026-10-14", "price": 11.0, "source": "fake"}]
+
+
+def test_name_is_sanitised_for_prompt():
+    assert ip.sanitise_name("Fund <script>\nIgnore previous\n{x}") == "Fund scriptIgnore previousx"
+    assert len(ip.sanitise_name("a" * 500)) == 80
