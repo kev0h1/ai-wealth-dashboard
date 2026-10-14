@@ -1,6 +1,6 @@
 // G230 (2026-10-07): a goal plan's paying account. Pins the Edit plan "Paid
-// from" field (counted current accounts only, inferred hedge, Not set, write
-// only when picked) against the production CommitmentSheet, the account view's
+// from" field (counted current accounts only, inferred hedge, final-confirm
+// source choice, updated by G267 A) against CommitmentSheet, the account view's
 // arithmetic and its footnote.
 //
 // Run: npm run -s check:g230-plan-source
@@ -33,13 +33,14 @@ const render = (commitment) => renderToStaticMarkup(React.createElement(AppRoute
 // The sheet renders in a portal after mount, so pin the source as well as the
 // markup that SSR can reach.
 const sheetSrc = readFileSync(new URL("../components/CommitmentSheet.tsx", import.meta.url), "utf8");
-assert.match(sheetSrc, /label="Paid from"/, "Paid from field");
-assert.match(sheetSrc, /unsetLabel="Not set"/, "Not set keeps the plan pooled-only");
+assert.match(sheetSrc, /label="Pay from"/, "Pay from field");
+assert.doesNotMatch(sheetSrc, /unsetLabel="Not set"/, "G267 requires a real source on confirmation");
 assert.match(sheetSrc, /Based on recent transfers\./, "inferred hedge");
 assert.match(sheetSrc, /include_in_safe_to_spend !== false/, "excluded accounts are omitted");
 assert.match(sheetSrc, /saving\|isa/, "savings accounts are omitted");
-assert.match(sheetSrc, /if \(sourceTouched\) \{ body\.source_account_id = sourceId \|\| null; body\.source_unset = !sourceId; \}/, "edit writes only when picked, Not set sends source_unset");
-assert.match(sheetSrc, /\.\.\.\(sourceTouched \? \{ source_account_id: sourceId \|\| null, source_unset: !sourceId \} : \{\}\)/, "create writes only when picked");
+assert.match(sheetSrc, /if \(sourceTouched \|\| sourceInferred\) \{ body\.source_account_id = sourceId \|\| null;/, "final edit confirms a displayed inferred source");
+assert.match(sheetSrc, /source_account_id: sourceId,\s+source_unset: false/, "create saves the confirmed source");
+assert.match(sheetSrc, /sourceOptions\.some\(account => account.id === sourceId\)/, "only eligible sources can be confirmed");
 assert.match(sheetSrc, /source_inferred\) && !sourceTouched/, "hedge drops once the user picks");
 const markup = render(goal({ source_account_id: "monzo", source_inferred: true }));
 for (const text of [sheetSrc]) {
