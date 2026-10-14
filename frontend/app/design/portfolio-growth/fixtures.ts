@@ -48,7 +48,7 @@ function series(seed: number, drift: number, noise: number, tail: number): Growt
 
 const SERIES: Record<Fixture, GrowthPoint[]> = {
   growing: series(11, 0.00045, 0.009, 0.0009),
-  flat: series(7, 0.00002, 0.004, 0),
+  flat: series(7, -0.00004, 0.004, 0),
   fallen: series(3, -0.00018, 0.01, -0.0013),
 };
 

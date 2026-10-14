@@ -28,8 +28,8 @@ export default function GrowthSplit({ g, variant, hidden }: { g: InvestmentGrowt
           <dd><Money text={money(g.paid_in, { hidden })} className={`font-semibold ${ink}`} /></dd>
         </div>
         <div className="flex items-baseline justify-between gap-3 py-2.5">
-          <dt className={`flex items-center gap-1.5 ${whisper}`}><Marker n={g.growth_abs} />Growth {since}</dt>
-          <dd className="text-right">
+          <dt className={`flex min-w-0 items-center gap-1.5 ${whisper}`}><Marker n={g.growth_abs} /><span className="truncate">Growth{since ? <span className="text-[12px]"> {since}</span> : null}</span></dt>
+          <dd className="shrink-0 whitespace-nowrap text-right">
             <Money text={growthText(g, hidden)} className={`font-semibold ${ink}`} />
             {pct ? <span className={`ml-2 text-[13px] ${whisper}`}>{pct}</span> : null}
           </dd>

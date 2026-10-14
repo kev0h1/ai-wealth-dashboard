@@ -96,8 +96,8 @@ export default function GrowthChart({
             )}
             {mode === "pair" ? (
               <>
-                <text x={W} y={geo.ys[last] + (valueAbove ? -8 : 15)} textAnchor="end" className="fill-indigo-700 text-[10px] font-semibold dark:fill-indigo-300">Value</text>
-                <text x={W} y={geo.paidYs[last] + (valueAbove ? 15 : -8)} textAnchor="end" className="fill-slate-600 text-[10px] font-semibold dark:fill-slate-400">Paid in</text>
+                <text x={W} y={geo.ys[last] + (valueAbove ? -8 : 15)} textAnchor="end" className="fill-indigo-700 stroke-white text-[10px] font-semibold dark:fill-indigo-300 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Value</text>
+                <text x={W} y={geo.paidYs[last] + (valueAbove ? 15 : -8)} textAnchor="end" className="fill-slate-600 stroke-white text-[10px] font-semibold dark:fill-slate-400 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Paid in</text>
               </>
             ) : null}
             {sel && idx !== null ? (
