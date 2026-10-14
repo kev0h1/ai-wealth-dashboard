@@ -709,7 +709,7 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
             "match_type": "description_contains", "match_value": "", "fill_display_name": "",
             "source_account_id": source_id,
             "effective_from": datetime(effective_from.year, effective_from.month, effective_from.day),
-            "recurrence": recurrence, "active": True, "created_at": datetime.now(timezone.utc),
+            "recurrence": recurrence, "active": True, "created_at": datetime.now(timezone.utc),  # naive-ok: persisted UTC audit timestamp, not a calendar reading
         }
         if recurrence == "once":
             doc["created_period_start"] = datetime(start.year, start.month, start.day)
