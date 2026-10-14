@@ -138,7 +138,7 @@ async def monthly_cashflow_cached(uid: str, cutoff: datetime) -> dict:
     data = await monthly_cashflow(uid, cutoff)
     await cashflow_cache_col.update_one(
         {"_id": uid},
-        {"$set": {"monthly_cf": {"data": data, "computed_at": datetime.now(), "version": MONTHLY_CF_VERSION}}},
+        {"$set": {"monthly_cf": {"data": data, "computed_at": datetime.now(), "version": MONTHLY_CF_VERSION}}},  # naive-ok: hour-scale cache stamp
         upsert=True,
     )
     return data

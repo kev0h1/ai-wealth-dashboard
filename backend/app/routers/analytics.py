@@ -3185,7 +3185,7 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         try:
             from app.services.cashflow import monthly_cashflow as _mcf, MONTHLY_CF_VERSION as _MONTHLY_CF_VERSION
             _cf = await _mcf(uid, datetime.now() - timedelta(days=90))
-            data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now(), "version": _MONTHLY_CF_VERSION}
+            data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now(), "version": _MONTHLY_CF_VERSION}  # naive-ok: hour-scale cache stamp
         except Exception as _mcf_e:
             print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
         data["computed_from"] = started_at

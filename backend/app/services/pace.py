@@ -352,7 +352,7 @@ async def _write_cached_baseline(
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": {f"total_baselines.{window_key}": {
-                "data": baseline, "months": months, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,
+                "data": baseline, "months": months, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,  # naive-ok: hour-scale cache stamp
             }}},
             upsert=True,
         )
@@ -1268,7 +1268,7 @@ async def _write_cached_shape(uid: str, window_key: str, bundle: dict) -> None:
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": {f"shape_profiles.{window_key}": {
-                "data": bundle, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,
+                "data": bundle, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,  # naive-ok: hour-scale cache stamp
             }}},
             upsert=True,
         )
