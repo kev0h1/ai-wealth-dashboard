@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "lucide-react";
 import { api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -8,9 +8,11 @@ import { SheetFrame } from "@/components/SheetFrame";
 interface InvestmentUploadProps {
   onSuccess: () => void;
   onClose: () => void;
+  /** G272: optional explainer rendered below the file picker. Omitted, the sheet is unchanged. */
+  explainer?: ReactNode;
 }
 
-export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploadProps) {
+export default function InvestmentUpload({ onSuccess, onClose, explainer }: InvestmentUploadProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -130,6 +132,8 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
               </button>
               <input ref={fileRef} type="file" accept=".pdf" aria-label="Investment statement file" className="sr-only" onChange={handleFileChange} />
             </div>
+
+            {explainer}
 
             {error && (
               <div role="alert" className="bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3">
