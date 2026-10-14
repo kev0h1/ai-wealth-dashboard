@@ -2219,6 +2219,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-14, claude): Design round, skills impeccable + web-design-guidelines. /design/statement-flow ?variant=a (vertical list) | b (chip strip), renders production InvestmentUpload via new optional explainer prop; shared copy in lib/investmentFlow.ts (also used by account card). Privacy line: AI reads PDF once, only holdings/units/values saved, file not kept. Evidence: routers/investments.py:107-224, services/pdf.py:16-33 (temp file deleted). Shots /tmp/g272/. Reviewer next, finish with --uat-review.
   - note (2026-10-14, claude): Reviewer PASS after wording fix 25965555. Notes for Kevin: PRIVACY.md has no retention row for uploaded statements (PDF deleted after extraction; matching line needs your approval and a PDF regen), filed as a follow-up. Router calls the parser without uid so LLM usage logs user_id None, filed too.
   - note (2026-10-14, claude): Coordinator review PASS 2026-10-14 on 8d6b3405: reviewer PASS after 25965555; account card copy moved to lib/investmentFlow.ts byte-identical; upload sheet unchanged unless explainer passed; later commit is a main merge.
+  - note (2026-10-14, claude): Reassigned to Codex by Kevin, 2026-10-14. Follow AGENTS.md; the planner note above has the full scope.
 - [ ] **G273. Investment statement parse records LLM usage with user_id None (G272 reviewer)** [owner: claude]
 
 ## H. Repo hygiene
