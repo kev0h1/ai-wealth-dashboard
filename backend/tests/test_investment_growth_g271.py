@@ -140,3 +140,36 @@ def test_erased_with_the_user(monkeypatch):
     assert list(vals.docs) == ["b1|2026-10-14"]
     from app.db.collections import ERASURE_MANIFEST
     assert "investment_valuations_col" in ERASURE_MANIFEST
+
+
+def test_endpoint_404_for_another_users_account(monkeypatch):
+    import app.routers.investments as router
+    from fastapi import HTTPException
+    accs = Col([{"_id": "a1", "user_id": USER}])
+    monkeypatch.setattr(router, "investment_accounts_col", accs)
+
+    async def _growth(acc, range_key):
+        return {"account_id": acc["_id"], "range": range_key}
+    monkeypatch.setattr(router, "account_growth", _growth)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(router.get_investment_growth("a1", "all", {"email": "other@x.com"}))
+    assert exc.value.status_code == 404
+    ok = asyncio.run(router.get_investment_growth("a1", "3m", {"email": USER}))
+    assert ok == {"account_id": "a1", "range": "3m"}
+
+
+def test_snapshot_all_isolates_a_failing_account(cols, monkeypatch):
+    vals, notes, accs, holds = cols
+    accs.docs["a2"] = {**_acc(), "_id": "a2"}
+    holds.docs["h2"] = {**_holdings()[0], "_id": "h2", "account_id": "a2"}
+    real = ig.snapshot_account
+
+    async def flaky(acc, holdings, insts, today=None):
+        if acc["_id"] == "a1":
+            raise RuntimeError("boom")
+        return await real(acc, holdings, insts, today)
+    monkeypatch.setattr(ig, "snapshot_account", flaky)
+    result = asyncio.run(ig.snapshot_all_accounts(TODAY))
+    assert result == {"written": 1, "failed": 1}
+    assert any(d["account_id"] == "a2" for d in vals.docs.values())
+    assert not any(d["account_id"] == "a1" for d in vals.docs.values())
