@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "plan-editor",
+    name: "Plan and set-aside editor · G267",
+    description: "Two working proposals: A editable summary, B three short steps. Suggested paying account, receiving pots and matching transfers, with alternatives on demand. Six accounts, five pots and forty fictional transactions; no live changes. Close the sheet to switch examples or themes.",
+    states: [{ label: "Suggested", value: "suggested" }, { label: "Tight", value: "tight" }, { label: "No match", value: "no-match" }, { label: "Unassigned", value: "unassigned" }, { label: "Partial period", value: "partial" }],
+    variants: [{ label: "A · Editable summary", value: "a" }, { label: "B · Three short steps", value: "b" }],
+    group: "current",
+  },
+  {
     slug: "spend-tips",
     name: "spend-tips",
     description:
