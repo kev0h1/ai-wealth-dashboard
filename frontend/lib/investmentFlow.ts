@@ -17,4 +17,4 @@ export const STATEMENT_FLOW_STEPS = [
 // (backend/app/services/pdf.py extract_pdf_text); its text is read by an AI
 // model (llm_parse_investment_statement).
 export const STATEMENT_PRIVACY_LINE =
-  "An AI model reads your PDF once to pick out holdings, units and values. Only those are saved, and the file itself is not kept.";
+  "An AI model reads your PDF once to pick out your account details, holdings, units and values. Only those are saved, and the file itself is not kept.";

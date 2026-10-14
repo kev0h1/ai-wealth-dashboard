@@ -18,7 +18,7 @@ export default function InvestmentFlow({ variant }: { variant: InvestmentFlowVar
                 {i < STATEMENT_FLOW_STEPS.length - 1 && (
                   <span aria-hidden="true" className="absolute left-4 top-10 -bottom-2 w-px bg-slate-200 dark:bg-slate-600" />
                 )}
-                <span className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-900/20">
+                <span className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-900/40">
                   <Icon size={16} aria-hidden="true" className="text-indigo-600 dark:text-indigo-400" />
                 </span>
                 <span className="min-w-0 pt-0.5 text-xs leading-snug text-slate-600 dark:text-slate-300">
