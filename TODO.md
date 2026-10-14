@@ -2224,6 +2224,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-14, claude): Reviewer PASS after wording fix 25965555. Notes for Kevin: PRIVACY.md has no retention row for uploaded statements (PDF deleted after extraction; matching line needs your approval and a PDF regen), filed as a follow-up. Router calls the parser without uid so LLM usage logs user_id None, filed too.
   - note (2026-10-14, claude): Coordinator review PASS 2026-10-14 on 8d6b3405: reviewer PASS after 25965555; account card copy moved to lib/investmentFlow.ts byte-identical; upload sheet unchanged unless explainer passed; later commit is a main merge.
   - note (2026-10-14, claude): Reassigned to Codex by Kevin, 2026-10-14. Follow AGENTS.md; the planner note above has the full scope.
+  - note (2026-10-14, codex): New design round requested by Kevin: keep prior A/B for reference and add C paper-to-portfolio illustration, D annotated unit-ledger example, E three-tab walkthrough, inside the production upload sheet with a fixture uploader that cannot send files. Impeccable + Web Design Guidelines, Calm Cockpit tokens, both themes/phone screenshots, independent review before finish --uat-review. No production graphic choice enabled.
 - [ ] **G273. Investment statement parse records LLM usage with user_id None (G272 reviewer)** [owner: claude]
 
 ## H. Repo hygiene
