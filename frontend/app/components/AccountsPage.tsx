@@ -27,6 +27,7 @@ import SegmentedControl from "@/components/SegmentedControl";
 import Spinner from "@/components/Spinner";
 import StatementUpload from "@/components/StatementUpload";
 import InvestmentUpload from "@/components/InvestmentUpload";
+import { STAY_CURRENT_COPY } from "@/lib/investmentFlow";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
@@ -3507,7 +3508,7 @@ export default function AccountsPage() {
                             {isProvisional && (
                               <>This account started from a contract note, so its value is a running total from <span className="font-mono tabular-nums">£0</span>, upload your first statement to set the real value.<br /><br /></>
                             )}
-                            A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives, then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
+                            {STAY_CURRENT_COPY}
                           </p>
                         )}
 
