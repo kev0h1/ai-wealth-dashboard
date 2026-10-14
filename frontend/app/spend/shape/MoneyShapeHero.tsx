@@ -182,15 +182,15 @@ function currentEntry(
   averages: AverageEntry[],
   scope: Scope,
   hasControl: boolean
-): { start: string; end: string; take_home: number; overspent: number; jobs: MoneyShapeJob[]; verdict: string | null } & Pick<MoneyShape, "total_out" | "beyond" | "beyond_source" | "card_growth"> {
+): { start: string; end: string; take_home: number; overspent: number; jobs: MoneyShapeJob[]; verdict: string | null } & Pick<MoneyShape, "total_out" | "beyond" | "beyond_source" | "card_growth" | "savings_drawdown"> {
   if (hasControl) {
     if (scope.kind === "period" && periods.length > 0) {
       const p = periods[Math.min(scope.index, periods.length - 1)];
-      return { start: p.start, end: p.end, take_home: p.take_home, overspent: p.overspent, jobs: p.jobs, verdict: p.verdict, total_out: p.total_out, beyond: p.beyond, beyond_source: p.beyond_source, card_growth: p.card_growth };
+      return { start: p.start, end: p.end, take_home: p.take_home, overspent: p.overspent, jobs: p.jobs, verdict: p.verdict, total_out: p.total_out, beyond: p.beyond, beyond_source: p.beyond_source, card_growth: p.card_growth, savings_drawdown: p.savings_drawdown };
     }
     if (scope.kind === "average") {
       const a = averages.find((x) => x.months === scope.months);
-      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.jobs, verdict: a.verdict, total_out: a.total_out, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth };
+      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.jobs, verdict: a.verdict, total_out: a.total_out, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth, savings_drawdown: a.savings_drawdown };
     }
   }
   return {
@@ -204,6 +204,7 @@ function currentEntry(
     beyond: shape.beyond,
     beyond_source: shape.beyond_source,
     card_growth: shape.card_growth,
+    savings_drawdown: shape.savings_drawdown,
   };
 }
 
@@ -444,7 +445,7 @@ export default function MoneyShapeHero({
       {orderedJobs.length > 0 && beyondView && (
         <PaySplitBar
           segs={orderedJobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }))}
-          figures={beyondFigures(entry)}
+          figures={beyondFigures(entry, displayedScope.kind === "average")}
           view={beyondView}
           size="hero"
         />
@@ -512,7 +513,7 @@ export default function MoneyShapeHero({
       </p>
       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Tap a job to see the transactions behind it.</p>
       {beyondView && (() => {
-        const figures = beyondFigures(entry);
+        const figures = beyondFigures(entry, displayedScope.kind === "average");
         const sentence = beyondSentence(figures);
         const paradox = paradoxLine(figures, shape.what_works?.trait?.choice === "change");
         return (

@@ -22,7 +22,10 @@ export type BeyondFigures = {
   beyond: number;
   source: BeyondSource;
   cardGrowth: number;
+  savingsDrawdown: number;
   moved: number;
+  /** An averaged window has no single period to attribute, so no source. */
+  average: boolean;
 };
 
 type Entry = {
@@ -32,12 +35,13 @@ type Entry = {
   beyond?: number;
   beyond_source?: BeyondSource;
   card_growth?: number;
+  savings_drawdown?: number;
   jobs: MoneyShapeJob[] | null | undefined;
 };
 
 /** The engine's own figures, with the older payload (no total_out/beyond)
  *  falling back to what its jobs and overspent already say. */
-export function beyondFigures(entry: Entry): BeyondFigures {
+export function beyondFigures(entry: Entry, average = false): BeyondFigures {
   const amountOf = (id: MoneyShapeJob["id"]) => entry.jobs?.find((j) => j.id === id)?.amount ?? 0;
   const moved = amountOf("moved");
   const totalOut = entry.total_out ?? amountOf("fixed") + moved + amountOf("free");
@@ -48,7 +52,9 @@ export function beyondFigures(entry: Entry): BeyondFigures {
     beyond,
     source: entry.beyond_source ?? null,
     cardGrowth: entry.card_growth ?? 0,
+    savingsDrawdown: entry.savings_drawdown ?? 0,
     moved,
+    average,
   };
 }
 
@@ -58,6 +64,7 @@ export const gbp = (n: number) => `£${Math.round(Math.abs(n)).toLocaleString("e
 export function beyondSentence(f: BeyondFigures, money: (n: number) => string = gbp): string | null {
   if (f.beyond < 1) return null;
   const lead = `You spent ${money(f.beyond)} more than came in.`;
+  if (f.average) return `${lead.slice(0, -1)} on average.`;
   if (f.source === "cards") return `${lead} It came from your cards.`;
   if (f.source === "savings") return `${lead} It came from your savings.`;
   if (f.source === "cards_and_savings") return `${lead} It came from your savings and your cards.`;
@@ -68,11 +75,16 @@ export function beyondSentence(f: BeyondFigures, money: (n: number) => string = 
  *  saving habit in the Mirror (the consent flag), one observation, a
  *  structural redirect and no accusation. */
 export function paradoxLine(f: BeyondFigures, consent: boolean, money: (n: number) => string = gbp): string | null {
-  if (!consent || f.beyond < 1 || f.moved < 1) return null;
+  if (!consent || f.average || f.beyond < 1 || f.moved < 1) return null;
   if ((f.source === "cards" || f.source === "cards_and_savings") && f.cardGrowth >= 1) {
-    return `You saved ${money(f.moved)} while your cards grew by ${money(f.cardGrowth)}. Point that saving at the card and the gap closes itself.`;
+    return `You moved ${money(f.moved)} while your cards grew by ${money(f.cardGrowth)}. Point that at the card and the gap closes itself.`;
   }
-  return `You moved ${money(f.moved)} to savings in a period that went ${money(f.beyond)} past what came in. The habit is yours to keep; where it points is the part to look at.`;
+  if (f.source === "savings") {
+    return f.savingsDrawdown >= 1
+      ? `You moved ${money(f.moved)} to savings and drew ${money(f.savingsDrawdown)} back out in the same period.`
+      : null;
+  }
+  return `You moved ${money(f.moved)} to savings in a period that went past what came in. The habit is yours to keep.`;
 }
 
 type Seg = { id: string; bg: string; amount: number };
@@ -161,7 +173,7 @@ export function PaySplitBar({
           <Segments segs={head} scale={headTotal} />
         </div>
         <div
-          className={`flex overflow-hidden rounded-full ring-1 ring-amber-500 ring-offset-2 ring-offset-[#f0f2f7] dark:ring-offset-slate-900 ${h}`}
+          className={`flex overflow-hidden rounded-full ring-1 ring-amber-500 ring-offset-2 ring-offset-transparent ${h}`}
           style={{ flexGrow: tailPct, flexBasis: 0 }}
         >
           <Segments segs={tail} scale={tailTotal} />

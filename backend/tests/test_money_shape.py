@@ -300,8 +300,7 @@ def test_verdict_for_normal():
 
 def test_verdict_for_overspent():
     assert verdict_for(58, 42, 200.0) == (
-        "Of every £100 that went out, £58 was spoken for before you chose anything, "
-        "and £200 more went out than came in."
+        "Of every £100 that went out, £58 was spoken for before you chose anything."
     )
 
 
@@ -476,7 +475,7 @@ def test_average_verdict_for_normal_form_word_and_digit():
 def test_average_verdict_for_overspent_form_when_outflow_exceeds_take_home():
     assert average_verdict_for(2, 50, 0, 200.0, 1200.0, 1000.0) == (
         "Over the last two pay periods, £50 of every £100 that went out was spoken for "
-        "before you chose anything, and £200 more went out than came in on average."
+        "before you chose anything."
     )
 
 

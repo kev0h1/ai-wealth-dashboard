@@ -792,7 +792,7 @@ const MONEY_SHAPE_OVERSPENT: MoneyShape = {
     // the WHOLE outflow, not this "Income" list or this "credit" marker.
     { id: "left", label: "Left over", amount: 0, share: 0, categories: ["Income"], txn_type: "credit" as const },
   ],
-  verdict: "Of every £100 you take home, £67 was spoken for before you chose anything, and spending went £200 past what came in.",
+  verdict: "Of every £100 that went out, £67 was spoken for before you chose anything.",
   trend: {
     // delta = 67 - 58 = 9 (>= 3) → trend_line_for: "Fixed share is up 9
     // points over six pay periods."

@@ -40,7 +40,7 @@ export function makeShape(fixture: Fixture, source: Source, consent: boolean): M
   const savingsDrawdown = beyond >= 1 && (source === "savings" || source === "both") ? (source === "both" ? 300 : 650) : 0;
   const fixedShare = js[0].share;
   const verdict = beyond >= 1
-    ? `Of every £100 that went out, £${fixedShare} was spoken for before you chose anything, and £${beyond.toLocaleString("en-GB")} more went out than came in.`
+    ? `Of every £100 that went out, £${fixedShare} was spoken for before you chose anything.`
     : `Of every £100 you take home, £${fixedShare} is spoken for before you choose anything. £${js[2].share} is yours to spend freely.`;
   const entry: MoneyShapePeriodEntry = {
     start: "2026-09-01", end: "2026-09-30", label, take_home: takeHome, overspent: beyond,

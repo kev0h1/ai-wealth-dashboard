@@ -346,8 +346,7 @@ def _build_jobs(fixed: float, moved: float, free: float, left: float, shares: di
 def verdict_for(fixed_share: int, free_share: int, overspent: float) -> str:
     if overspent > 1e-9:
         return (
-            f"Of every £100 that went out, £{fixed_share} was spoken for before you chose anything, "
-            f"and £{overspent:,.0f} more went out than came in."
+            f"Of every £100 that went out, £{fixed_share} was spoken for before you chose anything."
         )
     return (
         f"Of every £100 you take home, £{fixed_share} is spoken for before you choose anything. "
@@ -396,8 +395,7 @@ def average_verdict_for(k: int, fixed_share: int, free_share: int, overspent_mea
     if outflow_mean > take_home_mean + 1e-9:
         return (
             f"Over the last {k_label} pay periods, £{fixed_share} of every £100 that went out was "
-            f"spoken for before you chose anything, and £{overspent_mean:,.0f} more went out "
-            f"than came in on average."
+            f"spoken for before you chose anything."
         )
     return (
         f"Over the last {k_label} pay periods, £{fixed_share} of every £100 you took home was "
