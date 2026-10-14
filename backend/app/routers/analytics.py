@@ -44,6 +44,7 @@ from app.services.categorisation import (
     _CHANNEL_CODES,
 )
 from app.services.account_kinds import is_credit_card_account
+from app.services.spending import try_build_spending_context
 from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT, is_card_repayment
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
@@ -237,7 +238,7 @@ router = APIRouter(tags=["analytics"])
 SKIP_BURN_CATS = {"Transfer"}
 
 
-def _avg_monthly_burn(debits: list, fallback: float = 1000.0) -> float:
+def _avg_monthly_burn(debits: list, fallback: float = 1000.0, own_move_ids=frozenset()) -> float:
     """Average monthly spend from debit transactions.
 
     Excludes only transfers (not real cost of living), and divides by the actual
@@ -247,6 +248,9 @@ def _avg_monthly_burn(debits: list, fallback: float = 1000.0) -> float:
     spend = [
         d for d in debits
         if (d.get("custom_category") or d.get("category") or "Other") not in SKIP_BURN_CATS
+        # G268: a payment to the user's own account does not leave them, so it
+        # is not burn either (savings and debt still are, as above).
+        and str(d.get("_id") or "") not in own_move_ids
     ]
     if not spend:
         return fallback
@@ -309,7 +313,10 @@ async def get_kpis(user: dict = Depends(current_user)):
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
     ).to_list(None)
     all_debits = debits + yapily_txn_debits
-    avg_spend  = _avg_monthly_burn(all_debits)
+    _spend_ctx = await try_build_spending_context(uid, cutoff, None)
+    avg_spend  = _avg_monthly_burn(
+        all_debits, own_move_ids=_spend_ctx.own_move_ids if _spend_ctx else frozenset(),
+    )
     runway     = cash / avg_spend if avg_spend else 0
 
     return KPIResponse(
@@ -3176,9 +3183,9 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         # Refresh the memoised monthly cash-flow alongside the patterns so
         # per-request callers (safe-to-spend, debt, savings) read it for free.
         try:
-            from app.services.cashflow import monthly_cashflow as _mcf
+            from app.services.cashflow import monthly_cashflow as _mcf, MONTHLY_CF_VERSION as _MONTHLY_CF_VERSION
             _cf = await _mcf(uid, datetime.now() - timedelta(days=90))
-            data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now()}
+            data["monthly_cf"] = {"data": _cf, "computed_at": datetime.now(), "version": _MONTHLY_CF_VERSION}
         except Exception as _mcf_e:
             print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
         data["computed_from"] = started_at

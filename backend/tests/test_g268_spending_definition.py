@@ -136,7 +136,7 @@ def test_income_is_not_spending():
 def _business_period():
     own = doc("Business", 15000, day=4, desc="AURIQ AURIQ TIDE", merchant="Auriq Auriq Tide")
     # The incoming leg lands on the (connected) business account two days later.
-    credit = doc("Income", 15000, debit=False, day=5, account="tide-acc", desc="FASTER PAYMENT RECEIVED")
+    credit = doc("Transfer", 15000, debit=False, day=5, account="tide-acc", desc="FASTER PAYMENT RECEIVED")
     third_party = doc("Business", 500, day=6, desc="ACME SUPPLIES LTD", merchant="Acme Supplies Ltd")
     fee = doc("Business", 30, day=6, desc="TIDE PLATFORM LIMI", merchant="Tide Platform Limi")
     return own, credit, third_party, fee
@@ -170,22 +170,76 @@ def test_own_account_is_found_by_another_account_number():
 
 def test_a_credit_on_the_same_account_is_a_refund_not_a_partner():
     purchase = doc("Business", 70, day=2)
-    same_account_credit = doc("Income", 70, debit=False, day=3)  # same account "cur"
+    same_account_credit = doc("Transfer", 70, debit=False, day=3)  # same account "cur"
     assert find_own_move_ids([purchase, same_account_credit], KINDS, IDENTITY) == set()
 
 
 def test_a_credit_pairs_only_one_debit():
     a = doc("Business", 100, day=2)
     b = doc("Business", 100, day=2)
-    c = doc("Income", 100, debit=False, day=3, account="other")
+    c = doc("Transfer", 100, debit=False, day=3, account="other")
     assert len(find_own_move_ids([a, b, c], KINDS, IDENTITY)) == 1
 
 
-def test_the_users_name_alone_only_marks_business_and_other_rows():
+def test_the_users_name_alone_never_flags_a_row():
+    rent = doc("Other", 900, desc="MR K MAINGI RENT REF 7")
     business = doc("Business", 300, desc="KEVIN MAINGI")
     mortgage = doc("Mortgage", 1124, desc="MORTGAGE KEVIN MAINGI REF 1")
-    own = find_own_move_ids([business, mortgage], KINDS, IDENTITY)
-    assert own == {business["_id"]}
+    assert find_own_move_ids([rent, business, mortgage], KINDS, IDENTITY) == set()
+
+
+def test_the_users_name_with_a_pair_match_flags_the_row():
+    out = doc("Business", 300, day=2, desc="KEVIN MAINGI")
+    inn = doc("Transfer", 300, debit=False, day=3, account="tide-acc")
+    assert find_own_move_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
+
+
+def test_a_purchase_does_not_pair_with_a_salary_credit_of_the_same_amount():
+    purchase = doc("Shopping", 100, day=2, account="card-c")
+    salary = doc("Income", 100, debit=False, day=3, account="cur")
+    assert find_own_move_ids([purchase, salary], KINDS, IDENTITY) == set()
+    # even an Other/Business debit may not pair with Income
+    other = doc("Other", 100, day=2, account="card-c")
+    assert find_own_move_ids([other, salary], KINDS, IDENTITY) == set()
+
+
+def test_a_purchase_never_pairs_by_amount_even_with_a_transfer_credit():
+    purchase = doc("Groceries", 100, day=2, account="card-c")
+    transfer_in = doc("Transfer", 100, debit=False, day=3, account="cur")
+    assert find_own_move_ids([purchase, transfer_in], KINDS, IDENTITY) == set()
+
+
+def test_a_purchase_does_not_pair_with_the_free_leg_of_a_savings_transfer():
+    savings_out = doc("Savings", 100, day=2, account="cur")           # movement debit
+    free_leg = doc("Income", 100, debit=False, day=2, account="pot")  # its incoming leg, tagged Income
+    business = doc("Business", 100, day=3, account="card-c")
+    # the movement debit claims its leg first, so the Business debit finds no partner
+    assert find_own_move_ids([business, savings_out, free_leg], KINDS, IDENTITY) == set()
+    # and a Transfer-categorised free leg is claimed the same way
+    leg2 = doc("Transfer", 100, debit=False, day=2, account="pot")
+    assert find_own_move_ids([business, savings_out, leg2], KINDS, IDENTITY) == set()
+
+
+def test_the_closest_dated_partner_is_preferred():
+    out = doc("Business", 250, day=5, account="cur")
+    far = doc("Transfer", 250, debit=False, day=1, account="tide-acc")
+    near = doc("Transfer", 250, debit=False, day=5, account="tide-acc")
+    other_debit = doc("Business", 250, day=1, account="cur")
+    # `out` (day 5) must take the day-5 credit, leaving the day-1 credit for the day-1 debit.
+    own = find_own_move_ids([far, near, out, other_debit], KINDS, IDENTITY)
+    assert own == {out["_id"], other_debit["_id"]}
+
+
+def test_runway_burn_excludes_own_account_moves():
+    from app.routers.analytics import _avg_monthly_burn
+    debits = [
+        {"_id": "a", "amount": 1000.0, "date": datetime.now() - timedelta(days=40), "category": "Shopping"},
+        {"_id": "b", "amount": 15000.0, "date": datetime.now() - timedelta(days=39), "category": "Business"},
+    ]
+    with_move = _avg_monthly_burn(debits, own_move_ids={"b"})
+    without = _avg_monthly_burn(debits[:1])
+    assert with_move == pytest.approx(without)
+    assert _avg_monthly_burn(debits) > with_move
 
 
 def test_a_linked_row_is_own_account():
@@ -435,3 +489,35 @@ def test_build_spending_context_reads_identity_and_window(monkeypatch):
     ctx = asyncio.run(spending.build_spending_context(UID, _dt(0), _dt(9), kinds=KINDS))
     own = next(d for d in docs if d["description"] == "AURIQ AURIQ TIDE")
     assert ctx.is_own_move(own["_id"])
+
+
+def test_statement_import_rows_get_zero_spend_amount(monkeypatch):
+    stmt = doc("Shopping", 77, desc="STATEMENT ROW")
+    bank = doc("Shopping", 23, desc="BANK ROW")
+
+    class Col:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def find(self, query):
+            rows = self.rows
+
+            class C:
+                async def to_list(self, n):
+                    return list(rows)
+            return C()
+
+    async def fake_kinds(uid):
+        return KINDS
+
+    async def fake_identity(uid):
+        return IDENTITY
+
+    monkeypatch.setattr(transactions_router, "transactions_col", Col([bank]))
+    monkeypatch.setattr(transactions_router, "yapily_transactions_col", Col([]))
+    monkeypatch.setattr(transactions_router, "statement_transactions_col", Col([stmt]))
+    monkeypatch.setattr(transactions_router, "get_category_kinds", fake_kinds)
+    monkeypatch.setattr(transactions_router, "user_identity", fake_identity)
+    out = asyncio.run(transactions_router.all_transactions(days=365, user={"email": UID}))
+    by_desc = {t.description: t.spend_amount for t in out}
+    assert by_desc == {"BANK ROW": 23.0, "STATEMENT ROW": 0.0}

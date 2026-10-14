@@ -95,7 +95,9 @@ _MAX_TIME_MS = 500
 # estimated to each account_eligibility entry.
 # 4: G238 clamp: entries gain low_point / low_point_and_plans and spend_from_headroom
 # is min(after payments and plans, low point and plans) before the pool cap.
-SHAPE_VERSION = 4
+# 5: G268 spending definition: Out, pace, notables and category totals now follow
+# app.services.spending (own-account moves and card repayments out, refunds netted).
+SHAPE_VERSION = 5
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

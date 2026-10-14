@@ -212,8 +212,11 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
         *(c.find({"user_id": uid, "date": {"$gte": cutoff}}).to_list(None) for c in cols)
     )
     docs: list = []
-    for r in results:
+    statement_ids: set = set()
+    for c, r in zip(cols, results):
         docs += r
+        if c is statement_transactions_col:
+            statement_ids.update(d["_id"] for d in r)
     docs.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
     # G268: stamp each row with its contribution to spending under the one
     # definition, so the Spend charts (computed client-side from this list)
@@ -225,7 +228,9 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     for d in docs:
         currency = d.get("currency")
         foreign = bool(currency) and currency != "GBP"
-        amount = 0.0 if foreign else txn_flow(d, spend_ctx).signed(d.get("amount") or 0)
+        # Statement imports are not in Spend's Out (its loader reads the two
+        # bank-feed collections), so the charts must not count them either.
+        amount = 0.0 if (foreign or d["_id"] in statement_ids) else txn_flow(d, spend_ctx).signed(d.get("amount") or 0)
         out.append(_doc_to_tx({**d, "spend_amount": round(amount, 2)}))
     return out
 

@@ -107,6 +107,9 @@ async def monthly_cashflow(uid: str, cutoff: datetime) -> dict:
 
 
 _MONTHLY_CF_TTL_SECONDS = 6 * 3600
+# G268: bump when monthly_cashflow's maths changes, so a blob written by older
+# code is recomputed instead of served for up to six hours.
+MONTHLY_CF_VERSION = 2
 
 
 async def monthly_cashflow_cached(uid: str, cutoff: datetime) -> dict:
@@ -128,13 +131,14 @@ async def monthly_cashflow_cached(uid: str, cutoff: datetime) -> dict:
         isinstance(at, datetime)
         and (datetime.now() - at).total_seconds() < _MONTHLY_CF_TTL_SECONDS
         and blob.get("data")
+        and blob.get("version") == MONTHLY_CF_VERSION
     ):
         return blob["data"]
 
     data = await monthly_cashflow(uid, cutoff)
     await cashflow_cache_col.update_one(
         {"_id": uid},
-        {"$set": {"monthly_cf": {"data": data, "computed_at": datetime.now()}}},
+        {"$set": {"monthly_cf": {"data": data, "computed_at": datetime.now(), "version": MONTHLY_CF_VERSION}}},
         upsert=True,
     )
     return data

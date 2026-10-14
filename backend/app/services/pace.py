@@ -299,6 +299,9 @@ def _total_baseline(
 # processes.
 
 _BASELINE_TTL_SECONDS = 6 * 3600
+# G268: bump when the spending definition changes, so memoised baselines and
+# shape curves built under the old one are recomputed rather than served.
+_SPEND_DEF_VERSION = 2
 
 
 async def _read_cached_baseline(
@@ -325,6 +328,8 @@ async def _read_cached_baseline(
     at = blob.get("computed_at")
     if not isinstance(at, datetime):
         return None
+    if blob.get("v") != _SPEND_DEF_VERSION:
+        return None
     if (datetime.now() - at).total_seconds() >= _BASELINE_TTL_SECONDS:
         return None
 
@@ -347,7 +352,7 @@ async def _write_cached_baseline(
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": {f"total_baselines.{window_key}": {
-                "data": baseline, "months": months, "computed_at": datetime.now(),
+                "data": baseline, "months": months, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,
             }}},
             upsert=True,
         )
@@ -1239,6 +1244,8 @@ async def _read_cached_shape(uid: str, window_key: str) -> dict | None:
     if not isinstance(blob, dict):
         return None
 
+    if blob.get("v") != _SPEND_DEF_VERSION:
+        return None
     at = blob.get("computed_at")
     if not isinstance(at, datetime):
         return None
@@ -1261,7 +1268,7 @@ async def _write_cached_shape(uid: str, window_key: str, bundle: dict) -> None:
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": {f"shape_profiles.{window_key}": {
-                "data": bundle, "computed_at": datetime.now(),
+                "data": bundle, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,
             }}},
             upsert=True,
         )

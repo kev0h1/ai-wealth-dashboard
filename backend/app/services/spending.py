@@ -33,11 +33,13 @@ Own-account detection (``find_own_move_ids``), strongest evidence first:
     2. its text carries the number or sort code of ANOTHER of the user's
        accounts,
     3. a transfer-pair match: a credit of the same amount (within 2p), on a
-       DIFFERENT account of the user's, within five days, that is not itself
-       spending (income, movement or unplaced) and is not already paired,
-    4. the user's own name in the text, but only for Business and Other rows
-       (a mortgage reference that happens to carry the user's name is still a
-       mortgage).
+       DIFFERENT account of the user's, within five days (the closest date
+       wins), categorised Transfer/movement or unplaced (never Income), not
+       already paired, and only for Business, Other or transfer-like rows
+       (text that says transfer or carries the user's name). Debits that are
+       already movements claim their partner credits first,
+    4. the user's own name in the text counts only together with a pair match
+       (never alone: "MR K MAINGI RENT REF" is a rent payment).
 A payee that is merely called the same as a provider ("TIDE PLATFORM LIMI", a
 fee) is NOT evidence: only an account number, a pair or a link is.
 
@@ -157,63 +159,90 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
     identity = identity or {"name_tokens": [], "own_ids": set(), "own_map": {}}
     own: set[str] = set()
 
-    # Credits that could be the other leg of an own-account move. A credit in a
-    # spend category is a refund and never a partner; one that is unplaced
-    # ("Other") can be, because the bank rarely labels the incoming leg.
-    credit_pool: dict[int, list[dict]] = {}
+    # Candidate partner credits, by amount in pence. A credit in a spend
+    # category is a refund and never a partner. Income is a partner only for a
+    # debit that is already a movement (the free leg of a savings transfer is
+    # often tagged Income); a spend-kind debit never pairs with Income, so a
+    # purchase cannot be absorbed by a coincidentally equal salary credit.
+    pool: dict[int, list[dict]] = {}
     for d in docs:
         if _is_debit(d) or not isinstance(d.get("date"), datetime):
             continue
         cat = _effective_category(d)
-        if kind_of(kinds, cat) not in (INCOME, MOVEMENT) and normalise_name(cat) != "other":
+        kind = kind_of(kinds, cat)
+        if kind not in (INCOME, MOVEMENT) and normalise_name(cat) != "other":
             continue
-        cents = round(abs(float(d.get("amount") or 0)) * 100)
-        credit_pool.setdefault(cents, []).append(d)
+        pool.setdefault(round(abs(float(d.get("amount") or 0)) * 100), []).append(d)
 
     used: set[str] = set()
-    debits = sorted(
+
+    def closest_partner(d: dict, allow_income: bool) -> dict | None:
+        amt = abs(float(d.get("amount") or 0))
+        cents = round(amt * 100)
+        best, best_gap = None, None
+        for c in (cents - 2, cents - 1, cents, cents + 1, cents + 2):
+            for cr in pool.get(c, ()):
+                if _txn_id(cr) in used or cr.get("account_id") == d.get("account_id"):
+                    continue
+                if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
+                    continue
+                if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
+                    continue
+                gap = abs((cr["date"] - d["date"]).days)
+                if gap > PAIR_WINDOW_DAYS:
+                    continue
+                if best is None or gap < best_gap:
+                    best, best_gap = cr, gap
+        return best
+
+    dated = sorted(
         (d for d in docs if _is_debit(d) and isinstance(d.get("date"), datetime)),
         key=lambda d: d["date"],
     )
-    for d in debits:
+
+    # Pass 1: debits that are already movements claim their partner credits
+    # first, so those credits are not left free to pair with a spend debit.
+    for d in dated:
+        if kind_of(kinds, _effective_category(d)) in (INCOME, MOVEMENT):
+            partner = closest_partner(d, allow_income=True)
+            if partner is not None:
+                used.add(_txn_id(partner))
+
+    # Pass 2: spend-kind debits.
+    for d in dated:
         cat = _effective_category(d)
         if kind_of(kinds, cat) in (INCOME, MOVEMENT):
             continue  # already not spending; no evidence needed
         did = _txn_id(d)
-        account_id = d.get("account_id")
 
         if d.get("linked_offline_account_id") or d.get("linked_goal_id"):
             own.add(did)
             continue
 
-        evidence = own_transfer_evidence(_text(d), identity, own_account_id=account_id)
-        if evidence is not None:
-            if evidence["kind"] == "account" or normalise_name(cat) in NAME_EVIDENCE_CATEGORIES:
-                own.add(did)
-                continue
-
-        amt = abs(float(d.get("amount") or 0))
-        cents = round(amt * 100)
-        partner = None
-        for c in (cents - 2, cents - 1, cents, cents + 1, cents + 2):
-            for cr in credit_pool.get(c, ()):
-                cid = _txn_id(cr)
-                if cid in used or cr.get("account_id") == account_id:
-                    continue
-                if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
-                    continue
-                if abs((cr["date"] - d["date"]).days) > PAIR_WINDOW_DAYS:
-                    continue
-                partner = cr
-                break
-            if partner is not None:
-                break
-        if partner is not None:
-            cid = _txn_id(partner)
-            used.add(cid)
+        evidence = own_transfer_evidence(_text(d), identity, own_account_id=d.get("account_id"))
+        if evidence is not None and evidence["kind"] == "account":
             own.add(did)
-            if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT):
-                own.add(cid)  # an unplaced credit leg is a move too, not a refund
+            continue
+
+        # A pair is only considered for rows that could plausibly be a move:
+        # Business and Other, or text that says transfer or names the user. A
+        # Groceries or Shopping debit never becomes a movement by coincidence
+        # of amount.
+        text = _text(d).lower()
+        transfer_like = (
+            normalise_name(cat) in NAME_EVIDENCE_CATEGORIES
+            or "transfer" in text
+            or evidence is not None
+        )
+        if not transfer_like:
+            continue
+        partner = closest_partner(d, allow_income=False)
+        if partner is None:
+            continue  # the user's name alone never flags a row
+        used.add(_txn_id(partner))
+        own.add(did)
+        if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT):
+            own.add(_txn_id(partner))  # an unplaced credit leg is a move too, not a refund
     return own
 
 
