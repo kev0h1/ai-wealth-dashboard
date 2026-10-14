@@ -133,7 +133,7 @@ def default_sources() -> list[PriceSource]:
 # ── Store ───────────────────────────────────────────────────────────────────
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)  # naive-ok: tz-aware persisted timestamp
 
 
 def _same_day(dt: datetime | None, today: date) -> bool:
