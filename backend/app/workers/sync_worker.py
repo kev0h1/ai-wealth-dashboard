@@ -26,8 +26,8 @@ from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
 from app.core.subscription import TIER_BILLING_PRICES_GBP, get_subscription, open_banking_paused
-from app.db.collections import investment_accounts_col, subscriptions_col
-from app.services.investment_prices import refresh_account_prices
+from app.db.collections import subscriptions_col
+from app.services.investment_prices import refresh_all_instruments
 from app.workers.ai_worker import task_refresh_savings_insights
 from app.services.retention import run_retention_sweep
 from app.services.safe_to_spend_history import run_safe_to_spend_snapshot
@@ -613,36 +613,30 @@ async def task_period_digests(ctx):
 
 
 async def task_refresh_investment_prices(ctx):
-    """Refresh live prices for all investment accounts that have holdings.
+    """Refresh shared instrument prices (G270).
 
-    Runs daily at 06:30 UTC. Per-account exceptions are swallowed so one
-    stale fetch doesn't abort the whole run.
+    Runs daily at 06:30 UTC. Iterates DISTINCT instruments, not users or
+    accounts, so a fund held by many users costs one fetch, and each
+    instrument is attempted at most once a day. A failed fetch keeps the last
+    price and its date. Account totals are then recomputed from the shared
+    prices.
     """
     import logging
     logger = logging.getLogger(__name__)
     from app.services import data_version
 
-    all_accs = await investment_accounts_col.find({}).to_list(None)
-    changed_users: set = set()
-    for acc in all_accs:
-        account_id = acc["_id"]
-        provider   = acc.get("provider", "Unknown")
-        try:
-            result = await refresh_account_prices(acc)
-            logger.info(
-                "investment price refresh: account=%s provider=%s updated=%s new_total=%.2f",
-                account_id, provider, result["updated"], result["new_total"],
-            )
-            # A changed price feeds Grow's investment display and any
-            # cached net-worth-adjacent figure — bump once per affected user
-            # below rather than per account (a user's several holdings would
-            # otherwise re-bump redundantly).
-            if result.get("updated") and acc.get("user_id"):
-                changed_users.add(acc["user_id"])
-        except Exception as e:
-            logger.warning("investment price refresh failed for %s (%s): %s", account_id, provider, e)
-
-    for uid in changed_users:
+    try:
+        result = await refresh_all_instruments()
+    except Exception:
+        logger.exception("investment price refresh failed")
+        return
+    logger.info(
+        "investment price refresh: instruments=%s fetched=%s failed=%s",
+        result["instruments"], result["fetched"], result["failed"],
+    )
+    # A changed price feeds Grow's investment display and any cached
+    # net-worth-adjacent figure: bump once per affected user.
+    for uid in result["changed_users"]:
         try:
             await data_version.bump(uid)
         except Exception:
