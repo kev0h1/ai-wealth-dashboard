@@ -265,9 +265,9 @@ def test_tools_list_excludes_search_transactions_and_every_propose_tool():
     assert "get_spend_verdict" in names
     # B17 (2026-09-08, B12 stage 5) added `preview_trend_intent` to
     # TOOL_SCHEMAS as a read tool, scoped "insights:read" in mcp.py's own
-    # TOOL_SCOPES — 18 + 1 = 19.
+    # TOOL_SCOPES — 18 + 1 + 1 (get_investment_growth, G271) = 20.
     assert "preview_trend_intent" in names
-    assert len(names) == 19
+    assert len(names) == 20
 
 
 def test_tools_list_entries_carry_scope_text_and_input_schema():

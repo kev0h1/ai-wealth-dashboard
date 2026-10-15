@@ -477,6 +477,32 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "get_investment_growth",
+            "description": (
+                "How the user's investment accounts (an ISA, a pension) have done "
+                "since tracking began: current value, money paid in, growth in "
+                "pounds and percent (simple: value minus money paid in) and the "
+                "as-of date, from end-of-day valuation snapshots. Use this for "
+                "'how has my ISA done', 'how much have my investments grown' and "
+                "'am I up or down'. `account` is optional free text naming one "
+                "account (e.g. 'ISA', 'Vanguard'); omit it for all of them. "
+                "Always carry the returned `capital_at_risk` line in the answer, "
+                "never call a fall bad or a rise a promise, and never say whether "
+                "to buy or sell. Figures are authoritative: quote them verbatim, "
+                "never recompute, derive, or round them yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account": {"type": "string", "description": "Optional account name or provider to narrow to one account."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "check_affordability",
             "description": (
                 "Check whether the user can afford a specific £ amount, right now "
@@ -3574,6 +3600,52 @@ async def _exec_get_goals(uid: str) -> dict:
         result["capped"] = capped
         logger.info("penny_tools: get_goals capped %d goals for %s", capped, uid)
     return result
+
+
+# ── get_investment_growth (G271) ─────────────────────────────────────────
+_GROWTH_ACCOUNT_CAP = 5
+_GROWTH_RISK_LINE = (
+    "Capital at risk. Past performance is not a guide to future returns. "
+    "Prices are end of day and may be delayed."
+)
+
+
+async def _exec_get_investment_growth(uid: str, account) -> dict:
+    """Read only. One entry per investment account from the same growth helper
+    the Accounts card uses, so the chat and the screen can never disagree."""
+    try:
+        from app.db.collections import investment_accounts_col
+        from app.services.investment_growth import account_growth
+        accs = await investment_accounts_col.find({"user_id": uid}).to_list(None)
+        needle = str(account).strip() if isinstance(account, str) else ""
+        if needle:
+            accs = [
+                a for a in accs
+                if _name_matches(needle, f"{a.get('provider') or ''} {a.get('account_type') or ''}")
+            ]
+        results = []
+        for a in accs[:_GROWTH_ACCOUNT_CAP]:
+            g = await account_growth(a, "all")
+            label = " ".join(x for x in (a.get("provider"), a.get("account_type")) if x) or "Investment account"
+            if g.get("value") is None:
+                results.append({"account": label, "status": "no_daily_values_yet"})
+                continue
+            results.append({
+                "account": label,
+                "value": _money(g["value"], 2),
+                "paid_in": _money(g["paid_in"], 2),
+                "growth": _money(g["growth_abs"], 2),
+                "growth_pct": g.get("growth_pct"),
+                "since": g.get("since"),
+                "as_of": g.get("as_of"),
+                "method": g.get("method_label"),
+            })
+    except Exception:
+        logger.exception("penny_tools: get_investment_growth failed for %s", uid)
+        return _tool_error("investment growth lookup failed")
+    if not results:
+        return {"accounts": [], "note": "No investment account matches.", "capital_at_risk": _GROWTH_RISK_LINE}
+    return {"accounts": results, "capital_at_risk": _GROWTH_RISK_LINE}
 
 
 # ── check_affordability ──────────────────────────────────────────────────
@@ -7998,6 +8070,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_get_debt_position(uid)
         if name == "get_goals":
             return await _exec_get_goals(uid)
+        if name == "get_investment_growth":
+            return await _exec_get_investment_growth(uid, args.get("account"))
         if name == "check_affordability":
             return await _exec_check_affordability(uid, args.get("amount"), args.get("timeframe"))
         if name == "get_category_spend":
