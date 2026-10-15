@@ -1,19 +1,20 @@
-// G269 design round: the pieces "How your pay was split" needs when spending
-// can go past take-home. Shared by components/SpendShapeCard.tsx and
-// app/spend/shape/MoneyShapeHero.tsx, both of which render exactly what they
-// rendered before unless they are handed a `beyondView`. Colours arrive as
-// props (JOB_COLOR lives in MoneyShapeHero, which imports this file).
+// G269 (A Tail, Kevin 2026-10-15): the one pay-split bar. Shared by
+// components/SpendShapeCard.tsx and app/spend/shape/MoneyShapeHero.tsx, so the
+// card and the hero it opens can never draw the instrument differently. One
+// bar scaled to the larger of take-home and outgoings, a slate tick where
+// take-home ends and, when spending went past it, a striped tail with an amber
+// hairline beneath. Under take-home it is the plain four-segment bar with Left.
+// Colours arrive as props (JOB_COLOR lives in MoneyShapeHero, which imports
+// this file).
 //
 // Rules held here (DESIGN.md): figures are ink, amber lives in the signifier
 // (a hairline, a dot, a ring), never in text; red is never used because going
 // past take-home is not a payment at risk. Facts come from the engine
 // (total_out, beyond, beyond_source, card_growth); nothing is computed or
 // guessed in the browser beyond scaling the bar.
-import type { ReactNode } from "react";
 import MoneyText from "@/components/MoneyText";
-import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
+import type { MoneyShapeJob } from "@/lib/api";
 
-export type BeyondView = "tail" | "lanes" | "detached";
 export type BeyondSource = "cards" | "savings" | "cards_and_savings" | null;
 
 export type BeyondFigures = {
@@ -106,89 +107,39 @@ function Segments({ segs, scale }: { segs: Seg[]; scale: number }) {
   );
 }
 
-/** Split the outgoings segments at the take-home mark: what fits inside it,
- *  and what lies past it. */
-function splitAt(segs: Seg[], mark: number): { head: Seg[]; tail: Seg[] } {
-  const head: Seg[] = [];
-  const tail: Seg[] = [];
-  let used = 0;
-  for (const s of segs) {
-    const inHead = Math.max(0, Math.min(s.amount, mark - used));
-    if (inHead > 0) head.push({ ...s, amount: inHead });
-    if (s.amount - inHead > 1e-9) tail.push({ ...s, amount: s.amount - inHead });
-    used += s.amount;
-  }
-  return { head, tail };
-}
-
 const TRACK = "bg-slate-100 dark:bg-slate-800";
 const TICK = "bg-slate-900 dark:bg-slate-100";
 
 export function PaySplitBar({
   segs,
   figures,
-  view,
   size,
   money = gbp,
 }: {
   segs: Seg[];
   figures: BeyondFigures;
-  view: BeyondView;
   size: "card" | "hero";
   money?: (n: number) => string;
 }) {
   const { takeHome, totalOut, beyond } = figures;
+  const hasBeyond = beyond >= 1;
   const scale = Math.max(takeHome, totalOut);
   const tick = pct(takeHome, scale);
   const tailPct = 100 - tick;
   const h = size === "card" ? "h-2.5" : "h-3";
-  const hasBeyond = beyond >= 1;
-  const ordered = segs.filter((s) => s.id !== "left");
+  // Overspent: Left has no width, so it is dropped and the tail shows the
+  // overshoot. Otherwise Left is a segment like the others (the four-segment
+  // bar of old), through this same component.
+  const drawn = hasBeyond ? segs.filter((s) => s.id !== "left") : segs;
 
-  let bar: ReactNode;
-  if (view === "lanes") {
-    bar = (
-      <div className="relative space-y-1.5">
-        <div className={`flex w-full overflow-hidden rounded-full ${TRACK} ${h}`}>
-          <div className="bg-slate-300 dark:bg-slate-600" style={{ width: `${tick}%` }} />
-        </div>
-        <div className={`flex w-full overflow-hidden rounded-full ${TRACK} ${h}`}>
-          <Segments segs={ordered} scale={scale} />
-        </div>
-        {hasBeyond && (
-          <>
-            <span className={`absolute -top-1 -bottom-1 w-0.5 rounded-full ${TICK}`} style={{ left: `calc(${tick}% - 1px)` }} />
-            <span className="absolute bottom-[-5px] h-[2px] rounded-full bg-amber-500" style={{ left: `${tick}%`, right: 0 }} />
-          </>
-        )}
-      </div>
-    );
-  } else if (view === "detached" && hasBeyond) {
-    const { head, tail } = splitAt(ordered, takeHome);
-    const headTotal = head.reduce((a, s) => a + s.amount, 0);
-    const tailTotal = tail.reduce((a, s) => a + s.amount, 0);
-    bar = (
-      <div className="flex w-full gap-2 px-px">
-        <div className={`flex overflow-hidden rounded-full ${TRACK} ${h}`} style={{ flexGrow: tick, flexBasis: 0 }}>
-          <Segments segs={head} scale={headTotal} />
-        </div>
-        <div
-          className={`flex overflow-hidden rounded-full ring-1 ring-amber-500 ring-offset-2 ring-offset-transparent ${h}`}
-          style={{ flexGrow: tailPct, flexBasis: 0 }}
-        >
-          <Segments segs={tail} scale={tailTotal} />
-        </div>
-      </div>
-    );
-  } else {
-    // "tail" (and the quiet states of "detached"): one bar, scaled to the
-    // larger of take-home and outgoings. Past the mark the segments keep
-    // their colours under a stripe, with an amber hairline beneath.
-    bar = (
-      <div className="relative pb-1">
+  return (
+    <div className={size === "card" ? "mt-2" : "mt-3"}>
+      <div aria-hidden="true" className="relative pb-1">
         <div className={`relative flex w-full overflow-hidden rounded-full ${TRACK} ${h}`}>
-          <Segments segs={ordered} scale={scale} />
+          <Segments segs={drawn} scale={scale} />
           {hasBeyond && (
+            // The stripes are a repeating white-alpha texture, not a colour
+            // gradient: the segment colours still read through them.
             <div className="absolute inset-y-0 right-0" style={{ width: `${tailPct}%`, backgroundImage: STRIPES }} />
           )}
         </div>
@@ -199,38 +150,18 @@ export function PaySplitBar({
           </>
         )}
       </div>
-    );
-  }
-
-  return (
-    <div className={size === "card" ? "mt-2" : "mt-3"}>
-      <div aria-hidden="true" className={hasBeyond && view !== "detached" ? "px-0" : ""}>{bar}</div>
-      <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-        <span className="inline-flex items-center gap-1">
-          {hasBeyond || view === "lanes" ? (
-            view === "lanes" ? (
-              <span className="inline-block h-1.5 w-3 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden="true" />
-            ) : (
-              <span className={`inline-block h-3 w-0.5 rounded-full ${TICK}`} aria-hidden="true" />
-            )
-          ) : null}
-          <MoneyText text={`Came in ${money(takeHome)}`} />
-        </span>
-        {view === "lanes" && (
+      {hasBeyond && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-slate-500 dark:text-slate-400">
           <span className="inline-flex items-center gap-1">
-            <span className="inline-flex h-1.5 w-4 overflow-hidden rounded-full" aria-hidden="true">
-              {ordered.map((s) => <span key={s.id} className={`flex-1 ${s.bg}`} />)}
-            </span>
-            <MoneyText text={`Went out ${money(totalOut)}`} />
+            <span className={`inline-block h-3 w-0.5 rounded-full ${TICK}`} aria-hidden="true" />
+            <MoneyText text={`Came in ${money(takeHome)}`} />
           </span>
-        )}
-        {hasBeyond && (
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
             <MoneyText text={`${money(beyond)} beyond it`} />
           </span>
-        )}
-      </p>
+        </p>
+      )}
     </div>
   );
 }
