@@ -264,13 +264,13 @@ def test_failed_first_fetch_premigration_keeps_legacy_total(cols):
     assert ip.holding_value(holdings.docs["h1"], inst.docs[ISIN]) == 25.0
 
 
-def test_over_bound_first_refresh_premigration_keeps_legacy_total(cols):
+def test_first_real_quote_replaces_legacy_seed_regardless_of_size(cols):
     inst, holdings, accs = cols
     _legacy(holdings, accs, datetime(2026, 10, 12, 12, tzinfo=timezone.utc))
-    # linking seeds 12.5; a 100.0 quote is beyond the bound and is rejected
+    # the seed (12.5) is not a real quote, so a far-off first real quote is accepted
     run(ip.refresh_account_prices(accs.docs["a1"], [_Src(price=100.0)]))
-    assert inst.docs[ISIN]["price"] == 12.5
-    assert accs.docs["a1"]["total_value"] == 25.0
+    assert inst.docs[ISIN]["price"] == 100.0 and inst.docs[ISIN]["source"] == "fake"
+    assert accs.docs["a1"]["total_value"] == 200.0
 
 
 def test_link_seeds_instrument_from_legacy(cols):
