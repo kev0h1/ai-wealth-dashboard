@@ -53,19 +53,18 @@ function Dot({ children }: { children: ReactNode }) {
 
 /* ── Display and tips (G189 adds the Tips switch) ── */
 export function DisplayBlock() {
-  const { mode } = usePreview();
-  const [dark, setDark] = useState(mode === "dark");
-  const [tips, setTips] = useState(true);
+  const { prefs, setPrefs } = usePreview();
   return (
     <List>
-      <SwitchRow label="Dark mode" helper="Easier on the eyes at night." checked={dark} onChange={() => setDark(!dark)} />
-      <SwitchRow label="Saving tips" helper="Show saving tips on Spend, Transactions and Home." checked={tips} onChange={() => setTips(!tips)} />
+      <SwitchRow label="Dark mode" helper="Easier on the eyes at night." checked={prefs.dark} onChange={() => setPrefs({ ...prefs, dark: !prefs.dark })} />
+      <SwitchRow label="Hide balances" helper="Mask balances across Sorted, including on other devices." checked={prefs.hideBalances} onChange={() => setPrefs({ ...prefs, hideBalances: !prefs.hideBalances })} />
+      <SwitchRow label="Show tips on Spend and Transactions" helper="Show ways to save on Home, Spend and Transactions." checked={prefs.showTips} onChange={() => setPrefs({ ...prefs, showTips: !prefs.showTips })} />
     </List>
   );
 }
 
 /* ── Penny setting-things-up consent ── */
-export function PennyBlock({ asSwitch = false }: { asSwitch?: boolean }) {
+export function PennyBlock() {
   const [on, setOn] = useState(true);
   const [ask, setAsk] = useState(false);
   const chip = (
@@ -76,9 +75,6 @@ export function PennyBlock({ asSwitch = false }: { asSwitch?: boolean }) {
   return (
     <>
       <List>
-        {asSwitch ? (
-          <SwitchRow lead={chip} label="Penny: setting things up" helper="Penny can set up envelopes and goals. You confirm every change." checked={on} onChange={() => setAsk(true)} />
-        ) : (
           <div className="flex items-start gap-3 px-4 py-3.5">
             {chip}
             <div className="min-w-0 flex-1">
@@ -93,16 +89,13 @@ export function PennyBlock({ asSwitch = false }: { asSwitch?: boolean }) {
               <button type="button" onClick={() => setAsk(true)} className={BTN_QUIET}>Turn off</button>
             )}
           </div>
-        )}
       </List>
       <ConfirmDialog
         open={ask}
-        title={on ? "Turn off setting things up?" : "Turn on setting things up?"}
-        message={on
-          ? "Penny will stop proposing changes and any proposals you have not confirmed will be cancelled. You can turn it back on from chat at any time."
-          : "Penny will be able to propose envelopes, goals and one-off payments. Nothing changes until you confirm it."}
-        confirmLabel={on ? "Turn off" : "Turn on"}
-        onConfirm={() => { setOn(!on); setAsk(false); }}
+        title="Turn off setting things up?"
+        message="Penny will stop proposing changes and any proposals you have not confirmed will be cancelled. You can turn it back on from chat at any time."
+        confirmLabel="Turn off"
+        onConfirm={() => { setOn(false); setAsk(false); }}
         onCancel={() => setAsk(false)}
       />
     </>
@@ -121,23 +114,21 @@ export function QuickControls() {
       <List>
         <SwitchRow label="Dark mode" checked={dark} onChange={() => setDark(!dark)} />
         <SwitchRow label="Saving tips" helper="Show saving tips on Spend, Transactions and Home." checked={tips} onChange={() => setTips(!tips)} />
-        <SwitchRow
+        {penny && <SwitchRow
           lead={<span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"><PennyMark size={16} /></span>}
           label="Penny: setting things up"
           helper="Changes need your confirmation."
           checked={penny}
           onChange={() => setAsk(true)}
-        />
+        />}
         <NavRow page="notifications" label="Notifications" value={model.notifBlocked ? "Blocked" : "On · 5 topics"} dot={model.notifBlocked} />
       </List>
       <ConfirmDialog
         open={ask}
-        title={penny ? "Turn off setting things up?" : "Turn on setting things up?"}
-        message={penny
-          ? "Penny will stop proposing changes and any proposals you have not confirmed will be cancelled. You can turn it back on from chat at any time."
-          : "Penny will be able to propose envelopes, goals and one-off payments. Nothing changes until you confirm it."}
-        confirmLabel={penny ? "Turn off" : "Turn on"}
-        onConfirm={() => { setPenny(!penny); setAsk(false); }}
+        title="Turn off setting things up?"
+        message="Penny will stop proposing changes and any proposals you have not confirmed will be cancelled. You can turn it back on from chat at any time."
+        confirmLabel="Turn off"
+        onConfirm={() => { setPenny(false); setAsk(false); }}
         onCancel={() => setAsk(false)}
       />
     </>
@@ -159,32 +150,21 @@ export function NotificationsBlock() {
   const { model } = usePreview();
   const [topics, setTopics] = useState(Object.fromEntries(TOPICS.map((t) => [t.key, t.on])));
   const [master, setMaster] = useState(true);
+  const [registered, setRegistered] = useState(false);
+  const permissionBlocked = model.notifBlocked;
+  const needsRegistration = model.notifDeliveryNeedsRetry && !registered;
+  const deliveryLabel = permissionBlocked ? "Off until permission is allowed" : needsRegistration ? "Needs registering" : "Ready";
   return (
     <>
       <List>
-        {model.notifBlocked ? (
-          <div className="flex items-start gap-3 px-4 py-3.5">
-            <BellOff size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
-            <div className="min-w-0 flex-1 space-y-1">
-              <p className={`text-sm font-semibold ${INK}`}>Push notifications</p>
-              <Dot>Notifications are blocked on this device.</Dot>
-              <p className={`text-xs leading-snug ${SOFT}`}>Allow notifications for Sorted in your phone&apos;s Settings app.</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <SwitchRow lead={<Bell size={16} aria-hidden="true" className="shrink-0 text-indigo-500" />} label="Push notifications" helper="Allow alerts on this device." checked={master} onChange={() => setMaster(!master)} />
-            {model.native && master && (
-              <div className={`px-4 py-2 ${SEP}`}>
-                <button type="button" className={BTN_QUIET}>Send a test notification</button>
-              </div>
-            )}
-          </>
-        )}
+        <div className="flex items-start gap-3 px-4 py-3.5"><BellOff size={16} aria-hidden="true" className={`mt-0.5 shrink-0 ${permissionBlocked ? "text-amber-500" : "text-indigo-500"}`} /><div className="min-w-0 flex-1"><p className={`text-sm font-semibold ${INK}`}>Device permission</p><p className={`mt-0.5 text-xs ${SOFT}`}>{permissionBlocked ? "Blocked. Allow notifications for Sorted in your device settings." : "Allowed"}</p></div></div>
+        <div className={`flex items-start gap-3 border-t border-slate-100 px-4 py-3.5 dark:border-slate-700`}><Bell size={16} aria-hidden="true" className={`mt-0.5 shrink-0 ${needsRegistration ? "text-amber-500" : "text-indigo-500"}`} /><div className="min-w-0 flex-1 space-y-1"><p className={`text-sm font-semibold ${INK}`}>Alert delivery</p><p className={`text-xs ${SOFT}`}>{deliveryLabel}</p>{needsRegistration && <><Dot>This device needs registering before it can receive alerts.</Dot><button type="button" onClick={() => setRegistered(true)} className={BTN_QUIET}>Register this device</button></>}</div></div>
+        {!permissionBlocked && <SwitchRow lead={<Bell size={16} aria-hidden="true" className="shrink-0 text-indigo-500" />} label="Push notifications" helper="Allow alerts on this device." checked={master} onChange={() => setMaster(!master)} />}
+        {model.native && master && !permissionBlocked && !needsRegistration && <div className={`px-4 py-2 ${SEP}`}><button type="button" className={BTN_QUIET}>Send a test notification</button></div>}
       </List>
       <h2 className={`mt-6 text-base font-bold ${INK}`}>Notify me about</h2>
       <p className={`mt-1 text-[13px] leading-5 ${SOFT}`}>
-        {model.notifBlocked ? "Your choices are saved and apply once notifications are allowed." : "These choices apply while notifications are on."}
+        {permissionBlocked ? "Your choices are saved and apply once notifications are allowed." : "These choices apply while notifications are on."}
       </p>
       <div className="mt-3">
         <List>
@@ -434,15 +414,15 @@ export function CoverPlanBlock() {
   return (
     <>
       <div className="rounded-2xl border border-dashed border-slate-400 p-4 dark:border-slate-500">
-        <p className={`text-sm font-semibold ${INK}`}>Design round placeholder</p>
+        <p className={`text-sm font-semibold ${INK}`}>Cover-plan safeguards</p>
         <p className={`mt-1 text-xs leading-5 ${SOFT}`}>
-          This page is reserved for the safeguards card that G200 is redesigning. The hub row, back control and page frame are what this round decides. See G200&apos;s own preview for the card itself.
+          This preview shows how you reach safeguards. The account choices below are local examples only.
         </p>
         <p className={`mt-2 flex flex-wrap items-center gap-x-2 text-sm ${INK}`}>
           <Link href="/design/cover-plan-safeguards" className="inline-flex min-h-11 items-center font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
-            Open the G200 preview
+            See safeguard examples
           </Link>
-          <span className={`text-xs ${SOFT}`}>(available once G200&apos;s round is on UAT)</span>
+          <span className={`text-xs ${SOFT}`}>Preview only</span>
           <Link href="/design/cover-plan-sources-scale" className="inline-flex min-h-11 items-center text-xs font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">
             or the earlier cover plan preview
           </Link>
@@ -463,12 +443,14 @@ export function CoverPlanBlock() {
 /* ── Exits: sign out, then delete on its own screen ── */
 export function Exits() {
   const { href } = usePreview();
+  const [signedOut, setSignedOut] = useState(false);
   return (
     <div className="mt-10 border-t border-slate-300/80 pt-2 dark:border-slate-700">
-      <button type="button" className="flex min-h-12 w-full items-center gap-3 rounded-xl px-1 text-left text-sm font-semibold text-slate-800 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100">
+      <button type="button" onClick={() => setSignedOut(true)} className="flex min-h-12 w-full items-center gap-3 rounded-xl px-1 text-left text-sm font-semibold text-slate-800 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100">
         <LogOut size={16} aria-hidden="true" />
-        Sign out
+        {signedOut ? "Signed out in this preview" : "Sign out"}
       </button>
+      {signedOut && <p role="status" className={`px-1 text-xs ${SOFT}`}>Fixture outcome only. Your real session is unchanged.</p>}
       <div className="mt-6 border-t border-slate-200 pt-2 dark:border-slate-700">
         <Link href={href("delete")} className="flex min-h-12 w-full items-center rounded-xl px-1 text-sm font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">
           Delete account and all data
@@ -481,6 +463,7 @@ export function Exits() {
 /* ── Delete screen: its own page. Red is allowed here, on the one real button. ── */
 export function DeleteScreen() {
   const [typed, setTyped] = useState("");
+  const [deleted, setDeleted] = useState(false);
   return (
     <>
       <Group title="What this erases" intro="This is permanent and cannot be undone.">
@@ -495,11 +478,13 @@ export function DeleteScreen() {
         <input id="so-delete" className={FIELD} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="DELETE" autoCapitalize="characters" />
         <button
           type="button"
-          disabled={typed !== "DELETE"}
+          disabled={typed !== "DELETE" || deleted}
+          onClick={() => setDeleted(true)}
           className="mt-3 min-h-11 w-full rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-40 dark:focus-visible:ring-offset-slate-900"
         >
-          Delete my account
+          {deleted ? "Deleted in this preview" : "Delete my account"}
         </button>
+        {deleted && <p role="status" className={`mt-2 text-xs ${SOFT}`}>Fixture outcome only. No account or data was changed.</p>}
       </Group>
     </>
   );
