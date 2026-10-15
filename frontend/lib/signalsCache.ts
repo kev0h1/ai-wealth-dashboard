@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 // module directly) does not elide a type name sitting in a value import
 // clause across module boundaries — see lib/openBankingAccess.ts's header
 // comment for the fuller version of this same note.
-import type { CategorySignal } from "@/lib/api";
+import type { CategorySignal, Checkpoint } from "@/lib/api";
 
 // ── Category-signal cache (module level, per period offset) ──────────────────
 // Lives here (rather than inline in SpendPage.tsx) so it can be invalidated
@@ -51,4 +51,13 @@ export function fetchSignals(offset: number, force = false): Promise<SignalMap> 
     .finally(() => { signalsInflight.delete(offset); });
   signalsInflight.set(offset, p);
   return p;
+}
+
+// G275 (Kevin 2026-10-15): an aim set, edited or cancelled from the Spend sheet
+// paints its ring at once from this change, then a forced refetch confirms it.
+export interface AimChange { category: string; checkpoint: Checkpoint | null }
+
+export function applyAimChange(signals: SignalMap, change: AimChange): SignalMap {
+  const base = signals[change.category] ?? ({ suggested_aim: null } as CategorySignal);
+  return { ...signals, [change.category]: { ...base, checkpoint: change.checkpoint } as CategorySignal };
 }
