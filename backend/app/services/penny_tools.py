@@ -108,7 +108,7 @@ from app.services import penny_chart, penny_period, penny_search, penny_table
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.safe_calc import future_value as _safe_calc_future_value
 from app.services.spend_verdict import _load_period_txns, bucket_transactions, compute_spend_verdict
-from app.services.spending import build_spending_context, try_build_spending_context
+from app.services.spending import build_spending_context, classify_flow, try_build_spending_context
 from app.services.sync_freshness import last_bank_sync
 
 logger = logging.getLogger(__name__)
@@ -2999,7 +2999,12 @@ def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> di
             # G268: spend vs movement is the one definition
             # (app.services.spending): a debit to the user's own account is
             # movement even when its category is a spend one.
-            if is_non_spend(kind_map, cat) or (ctx is not None and ctx.is_own_move(str(d.get("_id") or ""))):
+            did = str(d.get("_id") or "")
+            if ctx is not None:
+                counts = classify_flow(kind_map, cat, True, ctx.is_own_move(did), ctx.is_card_repayment(did)).kind == "spend"
+            else:
+                counts = not is_non_spend(kind_map, cat)
+            if not counts:
                 money_out_movement += amt
             else:
                 money_out_spend += amt
@@ -3627,7 +3632,8 @@ async def _category_txn_rows(uid: str, category: str, start: datetime, end: date
                 continue
             doc_category = doc.get("custom_category") or doc.get("category") or "Other"
             if doc_category == category or normalise_name(doc_category) == normalise_name(category):
-                if ctx is not None and ctx.is_own_move(str(doc.get("_id") or "")):
+                did = str(doc.get("_id") or "")
+                if ctx is not None and (ctx.is_own_move(did) or ctx.is_card_repayment(did)):
                     continue
                 rows.append(doc)
     return rows

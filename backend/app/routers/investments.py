@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
-from app.core.config import TAVILY_API_KEY
 from app.core import timeutil
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
-from app.services.investment_prices import refresh_account_prices
+from app.core.timeutil import as_utc, to_user_date
+from app.services.investment_prices import (
+    get_instruments, holding_value, legacy_price, instrument_key, refresh_account_prices,
+)
 
 router = APIRouter(tags=["investments"])
 
@@ -209,9 +211,10 @@ async def investment_upload(
                     "account_id": acc_id, "user_id": uid, "name": name,
                     "isin": h.get("isin"), "type": str(h.get("type") or "Fund"),
                     "units": h.get("units"), "price_per_unit": h.get("price_per_unit"),
-                    "statement_value": val, "current_price": None,
-                    "current_value": None, "last_refreshed": None,
-                }},
+                    "statement_value": val,
+                    # G270: the price lives once per instrument in instrument_prices
+                    "instrument_key": instrument_key(h.get("isin"), h.get("ticker"), name),
+                }, "$unset": {"current_price": "", "current_value": "", "last_refreshed": ""}},
                 upsert=True,
             )
             holdings_saved += 1
@@ -497,16 +500,29 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
     if not acc:
         raise HTTPException(404, "Investment account not found")
     holdings = await investment_holdings_col.find({"account_id": account_id}).to_list(None)
-    return [
-        {
+    insts = await get_instruments(h.get("instrument_key") for h in holdings)
+    out = []
+    for h in holdings:
+        inst = insts.get(h.get("instrument_key"))
+        if inst and inst.get("price"):
+            price, value = inst["price"], holding_value(h, inst)
+            price_date, source, conf = inst.get("price_date"), inst.get("source"), inst.get("confidence")
+            fetched = inst.get("fetched_at")
+        else:
+            # Not yet linked or priced: fall back to any legacy per-holding price.
+            price, value = legacy_price(h), holding_value(h, None)
+            price_date = to_user_date(as_utc(h["last_refreshed"])).isoformat() if price and h.get("last_refreshed") else None
+            source, conf = ("legacy" if price else None), ("low" if price else None)
+            fetched = h.get("last_refreshed")
+        out.append({
             "id": h["_id"], "name": h.get("name"), "isin": h.get("isin"),
             "type": h.get("type", "Fund"), "units": h.get("units"),
             "price_per_unit": h.get("price_per_unit"), "statement_value": h.get("statement_value", 0),
-            "current_price": h.get("current_price"), "current_value": h.get("current_value"),
-            "last_refreshed": h.get("last_refreshed").isoformat() if h.get("last_refreshed") else None,
-        }
-        for h in holdings
-    ]
+            "current_price": price, "current_value": value,
+            "price_date": price_date, "price_source": source, "price_confidence": conf,
+            "last_refreshed": fetched.isoformat() if fetched else None,
+        })
+    return out
 
 
 @router.delete("/investment/accounts/{account_id}")
@@ -527,7 +543,5 @@ async def refresh_investment_prices(account_id: str, user: dict = Depends(curren
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:
         raise HTTPException(404, "Investment account not found")
-    if not TAVILY_API_KEY:
-        raise HTTPException(422, "Tavily API key not configured, add TAVILY_API_KEY to backend/.env")
     result = await refresh_account_prices(acc)
     return result

@@ -29,7 +29,7 @@ from app.services.categorisation import (
 )
 from app.services.categories import get_category_kinds, is_non_spend
 from app.services.categorisation import user_identity
-from app.services.spending import SpendingContext, txn_flow
+from app.services.spending import SpendingContext, load_card_accounts, txn_flow
 from app.services import response_cache
 
 router = APIRouter(tags=["transactions"])
@@ -222,8 +222,10 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     # definition, so the Spend charts (computed client-side from this list)
     # reconcile with Spend's Out. A foreign-currency row is 0, as it is for
     # the verdict's own loader.
-    kinds, identity = await asyncio.gather(get_category_kinds(uid), user_identity(uid))
-    spend_ctx = SpendingContext.from_docs(docs, kinds, identity)
+    kinds, identity, cards = await asyncio.gather(
+        get_category_kinds(uid), user_identity(uid), load_card_accounts(uid),
+    )
+    spend_ctx = SpendingContext.from_docs(docs, kinds, identity, cards)
     out = []
     for d in docs:
         currency = d.get("currency")

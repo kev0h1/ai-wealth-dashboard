@@ -62,7 +62,7 @@ def build_period_txns():
         txn("Other", 1020, merchant="WISE", d=date(2026, 8, 4)),
         # Movement
         txn("Savings", 2724, merchant="Monzo Pot"),
-        txn("Debt", 834, merchant="Barclaycard"),
+        {**txn("Debt", 834, merchant="Barclaycard"), "card_repayment": True},
         txn("Investment", 400, merchant="Vanguard"),
         # Income
         txn("Income", 253, merchant="Employer", debit=False),

@@ -1,16 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Target, Wallet, Receipt } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Target, Wallet, Receipt, Pencil } from "lucide-react";
 import { api, Account, Allocation } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import {
-  AccountRadioPicker,
   EffectiveDateField,
   FillRulePicker,
   RhythmToggle,
   type AllocationRhythm,
   type FillRuleValue,
 } from "@/components/AllocationFields";
+import { AccountRadioPicker } from "@/components/AccountRadioPicker";
+import { isPlanSourceAccount } from "@/lib/upcomingPlans";
+import { PlanAffordability, PlanContribution, PlanRouteSummary, PlanTrackingSummary } from "@/components/plans/PlanEditorSummary";
+import { tidyAccountName } from "@/lib/accountName";
 
 // The ONE door replacing Planning's three creation affordances ("+ Plan a
 // big expense", "+ Allocation", "+ Plan a one-off") — Variant A from
@@ -53,6 +56,8 @@ interface SetAsideSheetProps {
   onSavedAllocation: (item: Allocation) => void;
   /** Limits the first step to period-scoped choices on Upcoming. */
   scope?: "all" | "upcoming";
+  /** Injectable for fixture-only editor verification. */
+  operations?: Pick<typeof api, "createAllocation" | "allocationFillCandidates">;
 }
 
 export default function SetAsideSheet({
@@ -63,18 +68,30 @@ export default function SetAsideSheet({
   onSelectSingle,
   onSavedAllocation,
   scope = "all",
+  operations = api,
 }: SetAsideSheetProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const [step, setStep] = useState<"kind" | "envelope">("kind");
+  const [view, setView] = useState<"main" | "details" | "route" | "destination" | "tracking">("main");
+  const detailFocus = useRef<HTMLButtonElement>(null);
+  const routeFocus = useRef<HTMLButtonElement>(null);
+  const destinationFocus = useRef<HTMLButtonElement>(null);
+  const trackingFocus = useRef<HTMLButtonElement>(null);
+  const showEditor = step === "envelope" && view !== "main";
+  const returnKey = useRef<"details" | "route" | "destination" | "tracking">("details");
+  const backToMain = () => { setView("main"); requestAnimationFrame(() => { const targets = { details: detailFocus, route: routeFocus, destination: destinationFocus, tracking: trackingFocus }; targets[returnKey.current].current?.focus(); }); };
 
   // ── Envelope fields (step 2 of the "An envelope" path only) ──────────────
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [rhythm, setRhythm] = useState<AllocationRhythm>("every_period");
   const [accountId, setAccountId] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [trackingMode, setTrackingMode] = useState<"existing_payment" | "manual">("existing_payment");
   const [rule, setRule] = useState<FillRuleValue>({ match_type: "description_contains", match_value: "", fill_display_name: "" });
+  const sourceAccounts = accounts.filter((account) => (trackingMode === "manual" || account.id !== accountId) && isPlanSourceAccount(account) && account.include_in_safe_to_spend !== false && !/saving|isa|credit/.test(`${account.type} ${account.subtype ?? ""}`.toLowerCase()));
   const [effectiveFrom, setEffectiveFrom] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,8 +118,8 @@ export default function SetAsideSheet({
     !saving &&
     name.trim().length > 0 &&
     amountValid &&
-    accountId !== "" &&
-    rule.match_value.trim().length > 0;
+    sourceAccounts.some(account => account.id === sourceId) &&
+    (trackingMode === "manual" || (accountId !== "" && rule.match_value.trim().length > 0));
 
   async function handleSubmit(e: React.FormEvent, close: () => void) {
     e.preventDefault();
@@ -110,13 +127,15 @@ export default function SetAsideSheet({
     setSaving(true);
     setError(null);
     try {
-      const item = await api.createAllocation({
+      const item = await operations.createAllocation({
         name: name.trim(),
         amount_per_period: parsedAmount,
-        fill_account_id: accountId,
-        match_type: rule.match_type,
-        match_value: rule.match_value,
-        fill_display_name: rule.fill_display_name || undefined,
+        source_account_id: sourceId,
+        fill_account_id: trackingMode === "manual" ? "" : accountId,
+        match_type: trackingMode === "manual" ? "description_contains" : rule.match_type,
+        match_value: trackingMode === "manual" ? "" : rule.match_value,
+        fill_display_name: trackingMode === "manual" ? "" : rule.fill_display_name || undefined,
+        tracking_mode: trackingMode,
         recurrence: rhythm,
         ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
       });
@@ -140,11 +159,11 @@ export default function SetAsideSheet({
       description={subtitle}
       onClose={onClose}
       dismissDisabled={saving}
-      onBack={step === "envelope" ? () => setStep("kind") : undefined}
+      onBack={step === "envelope" ? (view === "main" ? () => setStep("kind") : backToMain) : undefined}
       footer={step === "envelope" ? ({ close }) => (
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={close} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 dark:border-slate-600 dark:text-slate-200">Cancel</button>
-          <button type="submit" form="set-aside-envelope-form" disabled={!canSave} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : rhythm === "once" ? "Save this period" : "Save envelope"}</button>
+          <button key={view === "main" ? "confirm" : "keep-draft"} type={view === "main" ? "submit" : "button"} onClick={view === "main" ? undefined : (event) => { event.preventDefault(); backToMain(); }} form={view === "main" ? "set-aside-envelope-form" : undefined} disabled={view === "main" ? !canSave : false} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : view === "main" ? (rhythm === "once" ? "Confirm this period" : "Confirm set-aside") : "Keep these changes"}</button>
         </div>
       ) : undefined}
     >
@@ -176,12 +195,25 @@ export default function SetAsideSheet({
 
             {step === "envelope" && (
               <form id="set-aside-envelope-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3">
+                {view === "main" && <>
+                  <PlanContribution amount={amountValid ? parsedAmount : null} cadence={rhythm === "once" ? "this pay period" : "each pay period"} />
+                  <PlanAffordability>This is a planned set-aside, not a bank payment. Check Upcoming for its effect on available cash.</PlanAffordability>
+                  <button ref={detailFocus} type="button" onClick={() => { returnKey.current = "details"; setView("details"); }} className="w-full border-y border-slate-200 py-4 text-left dark:border-slate-700"><span className="flex items-center justify-between gap-3"><span><strong className="block text-sm">{name || "Add a name"}</strong><small className="mt-1 block text-xs text-slate-500">{rhythm === "once" ? "Just this period" : "Every pay period"}</small></span><Pencil size={16} className="text-slate-400" /></span></button>
+                  <PlanRouteSummary sourceAccount={accounts.find((account) => account.id === sourceId)} destinationAccount={trackingMode === "existing_payment" ? accounts.find((account) => account.id === accountId) : undefined} buttonRef={routeFocus} destinationButtonRef={destinationFocus} source={accounts.find((account) => account.id === sourceId) ? tidyAccountName(accounts.find((account) => account.id === sourceId)!.name) : "Choose a paying account"} destination={trackingMode === "manual" ? "Reserve in this account" : accounts.find((account) => account.id === accountId) ? tidyAccountName(accounts.find((account) => account.id === accountId)!.name) : "Choose a receiving account"} onEdit={() => { returnKey.current = "route"; setView("route"); }} onDestinationEdit={() => { returnKey.current = "destination"; setView("destination"); }} />
+                  <PlanTrackingSummary buttonRef={trackingFocus} label={trackingMode === "manual" ? "Check it yourself" : rule.fill_display_name || "Choose a matching transfer"} detail={trackingMode === "manual" ? "The full amount stays reserved. No payment is matched automatically." : "Only a matching incoming transfer at the receiving account counts towards this set-aside."} onEdit={() => { returnKey.current = "tracking"; setView("tracking"); }} />
+                  <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Confirming saves every choice. It does not move money.</p>
+                </>}
+                {showEditor && <>
+                <button type="button" onClick={backToMain} className="min-h-11 text-sm font-semibold text-indigo-600 dark:text-indigo-400">Back to summary</button>
+                <PlanContribution amount={amountValid ? parsedAmount : null} cadence={rhythm === "once" ? "this pay period" : "each pay period"} />
+                {view === "details" && <>
                 {/* Name */}
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
+                  <label htmlFor="set-aside-name" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                     Name
                   </label>
                   <input
+                    id="set-aside-name"
                     type="text"
                     value={name}
                     onChange={(e) => { setName(e.target.value); setError(null); }}
@@ -194,12 +226,13 @@ export default function SetAsideSheet({
 
                 {/* Amount per period */}
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
+                  <label htmlFor="set-aside-amount" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                     Amount per period
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">£</span>
                     <input
+                      id="set-aside-amount"
                       type="text"
                       inputMode="decimal"
                       value={amount}
@@ -212,24 +245,26 @@ export default function SetAsideSheet({
                 </div>
 
                 <RhythmToggle value={rhythm} onChange={setRhythm} />
+                </>}
 
-                <AccountRadioPicker accounts={accounts} value={accountId} onChange={pickAccount} />
+                {view === "route" && <div id="allocation-route" className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+                  <AccountRadioPicker accounts={sourceAccounts} value={sourceId} onChange={(id) => { setSourceId(id); setRule({ match_type: "description_contains", match_value: "", fill_display_name: "" }); setError(null); }} label="Pay from" />
+                </div>}
+                {view === "destination" && (trackingMode === "existing_payment" ? <AccountRadioPicker accounts={accounts.filter((account) => account.id !== sourceId)} value={accountId} onChange={pickAccount} label="Receiving account" /> : <><p className="text-sm leading-6 text-slate-600 dark:text-slate-300">This set-aside stays in the paying account. It has no receiving account.</p><button type="button" onClick={() => setView("tracking")} className="min-h-11 text-sm font-semibold text-indigo-600 dark:text-indigo-400">Change tracking</button></>)}
+                {view === "tracking" && <><fieldset><legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tracking</legend><div className="mt-2 grid grid-cols-2 gap-2"><button type="button" aria-pressed={trackingMode === "existing_payment"} onClick={() => setTrackingMode("existing_payment")} className="min-h-11 rounded-xl border border-slate-200 px-3 text-left text-sm font-semibold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 dark:border-slate-700 dark:aria-pressed:bg-indigo-950/30">Match a transfer</button><button type="button" aria-pressed={trackingMode === "manual"} onClick={() => setTrackingMode("manual")} className="min-h-11 rounded-xl border border-slate-200 px-3 text-left text-sm font-semibold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 dark:border-slate-700 dark:aria-pressed:bg-indigo-950/30">Reserve in account</button></div></fieldset>{trackingMode === "existing_payment" && accountId !== "" && <><p className="text-xs text-slate-500">Suggested payment, or choose a different payment below.</p><FillRulePicker accountId={accountId} value={rule} onChange={setRule} loadCandidates={operations.allocationFillCandidates} /></>}</>}
 
-                {accountId !== "" && (
-                  <FillRulePicker accountId={accountId} value={rule} onChange={setRule} />
-                )}
-
-                <EffectiveDateField
+                {view === "details" && <EffectiveDateField
                   value={effectiveFrom}
                   periodStartLabel={periodStartLabel}
                   todayIso={todayIso()}
                   onChange={setEffectiveFrom}
-                />
+                />}
 
                 {error && (
                   <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
                 )}
 
+                </>}
               </form>
             )}
         </>;

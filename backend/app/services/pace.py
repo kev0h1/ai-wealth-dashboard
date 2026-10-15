@@ -32,7 +32,7 @@ from app.db.collections import (
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
 from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
-from app.services.spending import REFUND, SPEND, build_spending_context, try_build_spending_context, txn_flow
+from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,8 @@ async def _mark_own_moves(uid: str, txns: list[_Txn], start: datetime, kind_map:
     for t in txns:
         if ctx.is_own_move(t.get("id")):
             t["own_move"] = True
+        if ctx.is_card_repayment(t.get("id")):
+            t["card_repayment"] = True
 
 
 def _classify(
@@ -158,7 +160,7 @@ def _classify(
         cat = t["category"]
         # G268: an own-account move (t["own_move"], set from the spending
         # context) is not spending whatever category it carries.
-        if is_non_spend(kind_map, cat) or t.get("own_move"):
+        if classify_flow(kind_map, cat, True, bool(t.get("own_move")), bool(t.get("card_repayment"))).kind not in (SPEND, REFUND):
             non_spend.append(t)
         elif t["planned"]:
             planned.append(t)

@@ -22,7 +22,10 @@ from app.core import timeutil
 from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
 from app.services.money_shape import bucket_period
 from app.services.spending import (
+    CardAccount,
     SpendingContext,
+    card_accounts_from_docs,
+    find_card_repayment_ids,
     classify_flow,
     find_own_move_ids,
     is_spending,
@@ -61,8 +64,14 @@ def doc(category, amount, *, debit=True, day=1, desc="", merchant="", account="c
     }
 
 
-def ctx_for(docs, identity=IDENTITY):
-    return SpendingContext.from_docs(docs, KINDS, identity)
+# The user's connected NatWest World Mastercard.
+CARDS = card_accounts_from_docs([
+    {"_id": "card-nw", "name": "World Mastercard", "provider": "NATWEST", "account_number": "40001234"},
+])
+
+
+def ctx_for(docs, identity=IDENTITY, cards=CARDS):
+    return SpendingContext.from_docs(docs, KINDS, identity, cards)
 
 
 # ── One test per row of Kevin's table ────────────────────────────────────────
@@ -110,9 +119,43 @@ def test_row_savings_investment_and_pension_do_not_count():
 
 
 def test_row_credit_card_repayment_does_not_count():
-    d = doc("Debt", 300, desc="NW WORLD MASTERCARD PAYMENT")
+    d = doc("Debt", 300, desc="NW WORLD MASTERCAR")
     flow = txn_flow(d, ctx_for([d]))
     assert not flow.counts_as_spend and flow.reason == "card_repayment"
+
+
+def test_a_debt_loan_repayment_counts():
+    loan = doc("Debt", 180, desc="STUDENT LOANS CO SLC")
+    flow = txn_flow(loan, ctx_for([loan]))
+    assert flow.counts_as_spend and flow.reason == "loan_repayment"
+    assert spend_amount(loan, ctx_for([loan])) == pytest.approx(180)
+    # a loan whose text names the user's card provider is still a loan
+    lloyds_style = doc("Debt", 90, desc="NATWEST PERSONAL LOAN")
+    assert is_spending(lloyds_style, ctx_for([lloyds_style]))
+
+
+def test_a_debt_row_with_a_credit_landing_on_a_card_is_excluded():
+    pay = doc("Debt", 250, day=2, desc="STO 0123")
+    landed = doc("Transfer", 250, debit=False, day=2, account="card-nw", desc="PAYMENT RECEIVED")
+    ctx = ctx_for([pay, landed], cards=[CardAccount("card-nw", frozenset(), frozenset(), None)])
+    assert txn_flow(pay, ctx).reason == "card_repayment"
+
+
+def test_a_debt_row_whose_text_has_the_card_last_four_is_excluded():
+    d = doc("Debt", 120, desc="TO CARD ENDING 1234")
+    assert txn_flow(d, ctx_for([d])).reason == "card_repayment"
+
+
+def test_a_debt_row_with_no_evidence_and_no_card_accounts_counts():
+    d = doc("Debt", 75, desc="SOME CREDITOR")
+    ctx = ctx_for([d], cards=[])
+    assert txn_flow(d, ctx).counts_as_spend
+    assert find_card_repayment_ids([d], KINDS, []) == set()
+
+
+def test_a_debt_debit_leaving_a_card_is_not_a_repayment():
+    d = doc("Debt", 60, account="card-nw", desc="NW WORLD MASTERCAR")
+    assert find_card_repayment_ids([d], KINDS, CARDS) == set()
 
 
 def test_row_refund_nets_off_spending():
@@ -194,6 +237,23 @@ def test_the_users_name_with_a_pair_match_flags_the_row():
     assert find_own_move_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
 
 
+def test_a_name_bearing_debit_pairs_only_with_a_credit_that_carries_evidence():
+    rent = doc("Bills", 900, day=2, account="cur", desc="MR K MAINGI RENT REF 7")
+    plain = doc("Other", 900, debit=False, day=3, account="x", desc="REFUND FROM SHOP")
+    assert find_own_move_ids([rent, plain], KINDS, IDENTITY) == set()
+    evidenced = doc("Other", 900, debit=False, day=3, account="x", desc="KEVIN MAINGI")
+    assert rent["_id"] in find_own_move_ids([rent, evidenced], KINDS, IDENTITY)
+
+
+def test_a_card_refund_does_not_make_a_loan_payment_a_card_repayment():
+    loan = doc("Debt", 250, day=2, desc="CAR FINANCE CO")
+    refund = doc("Shopping", 250, debit=False, day=2, account="card-nw", desc="MERCHANT REFUND")
+    cards = [CardAccount("card-nw", frozenset(), frozenset(), None)]
+    assert find_card_repayment_ids([loan, refund], KINDS, cards) == set()
+    received = doc("Income", 250, debit=False, day=2, account="card-nw", desc="PAYMENT RECEIVED THANK YOU")
+    assert find_card_repayment_ids([loan, received], KINDS, cards) == {loan["_id"]}
+
+
 def test_a_purchase_does_not_pair_with_a_salary_credit_of_the_same_amount():
     purchase = doc("Shopping", 100, day=2, account="card-c")
     salary = doc("Income", 100, debit=False, day=3, account="cur")
@@ -228,6 +288,29 @@ def test_the_closest_dated_partner_is_preferred():
     # `out` (day 5) must take the day-5 credit, leaving the day-1 credit for the day-1 debit.
     own = find_own_move_ids([far, near, out, other_debit], KINDS, IDENTITY)
     assert own == {out["_id"], other_debit["_id"]}
+
+
+def test_a_business_payment_does_not_pair_with_an_unrelated_other_credit():
+    acme = doc("Business", 500, day=2, account="A", desc="ACME SUPPLIES LTD")
+    stray = doc("Other", 500, debit=False, day=3, account="B", desc="PAYMENT FROM SOMEONE")
+    assert find_own_move_ids([acme, stray], KINDS, IDENTITY) == set()
+
+
+def test_money_out_and_back_from_a_friend_is_not_a_move():
+    out = doc("Other", 20, day=2, account="A", desc="PAID TO FRIEND")
+    back = doc("Other", 20, debit=False, day=4, account="B", desc="FRIEND PAID BACK")
+    assert find_own_move_ids([out, back], KINDS, IDENTITY) == set()
+
+
+def test_a_genuine_tide_pair_with_evidence_is_found_by_transfer_category_name_or_number():
+    for credit_kwargs in (
+        {"category": "Transfer", "desc": "FASTER PAYMENT"},
+        {"category": "Other", "desc": "KEVIN MAINGI"},
+        {"category": "Other", "desc": "FROM 20202020"},
+    ):
+        out = doc("Business", 15000, day=4, account="cur", desc="AURIQ AURIQ TIDE")
+        inn = doc(credit_kwargs["category"], 15000, debit=False, day=5, account="tide-acc", desc=credit_kwargs["desc"])
+        assert out["_id"] in find_own_move_ids([out, inn], KINDS, IDENTITY), credit_kwargs
 
 
 def test_runway_burn_excludes_own_account_moves():
@@ -270,7 +353,7 @@ def _period_docs():
         own, credit,                                          # moved, not spent
         doc("Savings", 200, day=2),
         doc("Investment", 400, day=3),
-        doc("Debt", 300, day=4, desc="CARD PAYMENT"),
+        doc("Debt", 300, day=4, desc="NW WORLD MASTERCAR"),
         doc("Transfer", 150, day=4),
         doc("Income", 3000, debit=False, day=0),
     ]
@@ -283,6 +366,7 @@ def _verdict_txns(docs, ctx):
         "debit": d["transaction_type"] == "debit", "description": d["description"],
         "merchant_name": d["merchant_name"], "merchant_key": "", "id": d["_id"],
         "account_id": d["account_id"], "own_move": ctx.is_own_move(d["_id"]),
+        "card_repayment": ctx.is_card_repayment(d["_id"]),
     } for d in docs]
 
 
@@ -325,7 +409,7 @@ def test_every_surface_reconciles_to_one_out_figure(monkeypatch):
         "date": d["date"].date().isoformat(), "account_id": d["account_id"],
         "is_debit": d["transaction_type"] == "debit",
     } for d in docs]
-    shape = bucket_period(ms_txns, KINDS, set(), START, TODAY, ctx.own_move_ids)
+    shape = bucket_period(ms_txns, KINDS, set(), START, TODAY, ctx.own_move_ids, ctx.card_repayment_ids)
     assert shape["fixed"] + shape["free"] == pytest.approx(spend_out)
 
     # Penny's multi-month aggregate (G265) and its stacked chart read the same bucketing.
@@ -455,6 +539,11 @@ def test_transactions_api_stamps_spend_amount(monkeypatch):
     monkeypatch.setattr(transactions_router, "statement_transactions_col", Col([]))
     monkeypatch.setattr(transactions_router, "get_category_kinds", fake_kinds)
     monkeypatch.setattr(transactions_router, "user_identity", fake_identity)
+
+    async def fake_cards(uid):
+        return CARDS
+
+    monkeypatch.setattr(transactions_router, "load_card_accounts", fake_cards)
     out = asyncio.run(transactions_router.all_transactions(days=365, user={"email": UID}))
     by_desc = {t.description or t.category: t for t in out}
     assert sum(t.spend_amount for t in out) == pytest.approx(EXPECTED_OUT)
@@ -486,6 +575,11 @@ def test_build_spending_context_reads_identity_and_window(monkeypatch):
     monkeypatch.setattr(spending, "transactions_col", Col(docs))
     monkeypatch.setattr(spending, "yapily_transactions_col", Col([]))
     monkeypatch.setattr(spending, "user_identity", fake_identity)
+
+    async def fake_cards(uid):
+        return CARDS
+
+    monkeypatch.setattr(spending, "load_card_accounts", fake_cards)
     ctx = asyncio.run(spending.build_spending_context(UID, _dt(0), _dt(9), kinds=KINDS))
     own = next(d for d in docs if d["description"] == "AURIQ AURIQ TIDE")
     assert ctx.is_own_move(own["_id"])
@@ -518,6 +612,11 @@ def test_statement_import_rows_get_zero_spend_amount(monkeypatch):
     monkeypatch.setattr(transactions_router, "statement_transactions_col", Col([stmt]))
     monkeypatch.setattr(transactions_router, "get_category_kinds", fake_kinds)
     monkeypatch.setattr(transactions_router, "user_identity", fake_identity)
+
+    async def fake_cards(uid):
+        return CARDS
+
+    monkeypatch.setattr(transactions_router, "load_card_accounts", fake_cards)
     out = asyncio.run(transactions_router.all_transactions(days=365, user={"email": UID}))
     by_desc = {t.description: t.spend_amount for t in out}
     assert by_desc == {"BANK ROW": 23.0, "STATEMENT ROW": 0.0}

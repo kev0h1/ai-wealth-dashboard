@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "plan-editor",
-    name: "Plan and set-aside editor · G267",
-    description: "Two working proposals: A editable summary, B three short steps. Suggested paying account, receiving pots and matching transfers, with alternatives on demand. Six accounts, five pots and forty fictional transactions; no live changes. Close the sheet to switch examples or themes.",
-    states: [{ label: "Suggested", value: "suggested" }, { label: "Tight", value: "tight" }, { label: "No match", value: "no-match" }, { label: "Unassigned", value: "unassigned" }, { label: "Partial period", value: "partial" }],
-    variants: [{ label: "A · Editable summary", value: "a" }, { label: "B · Three short steps", value: "b" }],
-    group: "current",
-  },
-  {
     slug: "spend-tips",
     name: "spend-tips",
     description:
@@ -150,15 +142,6 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G217 fold-in of Kevin's pick (A, same anatomy lighter; revised 2026-10-06; materiality floor £5): the PRODUCTION AllocationShortfallCard rendered through props under the production MoveCard, as they stack on Home · ink figure in mono, neutral icon, no red, no amber, no Penny gradient · the move is a recommendation sentence (\"You could move £X from Savings, which looks able to spare it\"), never a button, because the app does not move money; one full-width action, Adjust set-aside; with no source a line saying why · the paying account is hedged (\"based on recent transfers\") when inferred · Adjust set-aside opens the this-period sheet, with Change every period leading to the full editor",
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
-  },
-  {
-    slug: "statement-flow",
-    name: "Upload statement flow graphic · G272",
-    description:
-      "G272: three fresh statement-flow options inside the real upload sheet. C paper to portfolio, D an annotated account example, E a step-through explainer. Earlier A/B retained for comparison. Fixture-only imports, light and dark themes · ?variant=c|d|e&mode=light|dark",
-    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "C · Paper to portfolio", value: "c" }, { label: "D · The account view", value: "d" }, { label: "E · Step through", value: "e" }],
-    group: "current",
   },
   {
     slug: "sync-loading",

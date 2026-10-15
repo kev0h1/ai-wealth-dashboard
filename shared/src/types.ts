@@ -565,6 +565,12 @@ export interface InvestmentHolding {
   current_price: number | null;
   current_value: number | null;
   last_refreshed: string | null;
+  /** G270: the day the shared instrument price is for (YYYY-MM-DD). */
+  price_date: string | null;
+  /** G270: where the price came from, e.g. "web_search". */
+  price_source: string | null;
+  /** G270: "high" | "medium" | "low". */
+  price_confidence: string | null;
 }
 
 export interface BudgetItem {

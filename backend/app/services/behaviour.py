@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from app.db.collections import transactions_col, accounts_col, behaviour_portrait_col
-from app.services.categories import get_category_kinds, is_discretionary, is_non_spend
-from app.services.spending import build_spending_context
+from app.services.categories import get_category_kinds, is_discretionary
+from app.services.spending import SPEND, build_spending_context, classify_flow
 
 # "Real spend" and "discretionary" are no longer local sets. They come from the
 # declared kind on each category (app.services.categories), fetched ONCE per
@@ -218,6 +218,7 @@ async def compute_portrait(uid: str) -> dict:
             "is_debit": (t.get("transaction_type") == "debit"),
             "is_credit_card": acc_id in credit_account_ids,
             "own_move": spend_ctx.is_own_move(str(t.get("_id") or "")),
+            "card_repayment": spend_ctx.is_card_repayment(str(t.get("_id") or "")),
         })
 
     traits = []
@@ -225,7 +226,8 @@ async def compute_portrait(uid: str) -> dict:
     # ── TRAIT 1: Front-loading ────────────────────────────────────────────────
     spend_txns = [
         t for t in txns
-        if t["is_debit"] and not is_non_spend(kind_map, t["category"]) and not t["own_move"]
+        if t["is_debit"]
+        and classify_flow(kind_map, t["category"], True, t["own_move"], t["card_repayment"]).kind == SPEND
     ]
     early_spend = 0.0
     late_spend = 0.0

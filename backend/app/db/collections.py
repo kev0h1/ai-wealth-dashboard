@@ -79,6 +79,9 @@ manual_account_mirrors_col = db["manual_account_mirrors"]
 # Investments
 investment_accounts_col = db["investment_accounts"]
 investment_holdings_col = db["investment_holdings"]
+# G270: shared per-instrument price table (_id = ISIN, else TICKER:<t>, else NAME:<n>).
+# Holds NO user data: never write a user id here.
+instrument_prices_col   = db["instrument_prices"]
 investment_notes_col    = db["investment_contract_notes"]  # per-trade contract notes, additive between statements
 
 # Grocery receipts / price intelligence
@@ -549,6 +552,12 @@ ERASURE_MANIFEST = frozenset({
     "oauth_clients_col", "oauth_codes_col", "oauth_tokens_col",
     "safe_to_spend_history_col", "session_tombstones_col",
     "income_payer_attachments_col",
+    # G270: the shared instrument price table holds no user data at all (keyed
+    # by ISIN/ticker, never a user id), so erase_user's `user_id`/`_id == uid`
+    # sweep deliberately matches nothing in it. Listed so the manifest guard
+    # sees the binding was decided on; erasing a user must never delete prices
+    # other users' holdings read.
+    "instrument_prices_col",
     # A106: holds only a sha256 user hash and a consent id, keyed `_id ==
     # consent_id`, so erase_user's `user_id`/`_id == uid` sweep deliberately
     # never matches it: a marker must SURVIVE the erasure it was written
