@@ -49,6 +49,7 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
+import InvestmentGrowthSection from "@/components/InvestmentGrowthSection";
 import CountTowardsSafeToSpendRow from "@/components/CountTowardsSafeToSpendRow";
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
@@ -3726,6 +3727,11 @@ export default function AccountsPage() {
                           </p>
                         </div>
                       )}
+
+                      {/* G271 C (Kevin 2026-10-15): value against money paid in. */}
+                      {!isLoadingH && holdings.length > 0 ? (
+                        <InvestmentGrowthSection accountId={inv.id} hidden={hideNetWorth} />
+                      ) : null}
                     </div>
                   )}
                 </div>
