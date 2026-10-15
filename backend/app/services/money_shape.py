@@ -148,7 +148,8 @@ def _union_categories(periods_full: list[dict], job_id: str) -> list[str]:
 
 
 def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _date,
-                  own_move_ids: frozenset | set = frozenset()) -> dict:
+                  own_move_ids: frozenset | set = frozenset(),
+                  card_repayment_ids: frozenset | set = frozenset()) -> dict:
     """Split one pay period's transactions into the four jobs.
 
     ``txns`` is the FULL normalised transaction list (compute_portrait shape:
@@ -181,14 +182,15 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     take_home = sum(abs(t["amount"]) for t in income_txns)
 
     flows = [
-        (t, classify_flow(kinds, t["category"], t["is_debit"], t.get("_id") in own_move_ids))
+        (t, classify_flow(kinds, t["category"], t["is_debit"], t.get("_id") in own_move_ids,
+                          t.get("_id") in card_repayment_ids))
         for t in period_txns
     ]
     # Signed copies: +payment, -refund. A job's total and its category
     # evidence are both the net figure, exactly what Spend's Out nets.
     fixed_txns = [
         {**t, "amount": f.signed(t["amount"])} for t, f in flows
-        if f.kind in (SPEND, REFUND) and is_commitment(kinds, t["category"])
+        if f.kind in (SPEND, REFUND) and (is_commitment(kinds, t["category"]) or f.reason == "loan_repayment")
     ]
     fixed = sum(t["amount"] for t in fixed_txns)
 
@@ -615,10 +617,11 @@ async def compute_money_shape(uid: str) -> dict:
         uid, cutoff_dt, None, kinds=kinds, collections=(transactions_col,),
     )
     own_move_ids = spend_ctx.own_move_ids if spend_ctx is not None else set()
+    card_repayment_ids = spend_ctx.card_repayment_ids if spend_ctx is not None else set()
 
     valid_periods_full: list[dict] = []  # newest → oldest, FULL bucket_period dicts
     for s, e in period_bounds:
-        b = bucket_period(txns, kinds, saving_ids, s, e, own_move_ids)
+        b = bucket_period(txns, kinds, saving_ids, s, e, own_move_ids, card_repayment_ids)
         if b["take_home"] > 0:
             b["label"] = _period_label(s, e, rhythm)
             valid_periods_full.append(b)

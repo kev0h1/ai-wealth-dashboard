@@ -194,6 +194,7 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
             "id":            str(doc.get("_id") or ""),
             "account_id":    str(doc.get("account_id") or ""),
             "own_move":      bool(spend_ctx and spend_ctx.is_own_move(str(doc.get("_id") or ""))),
+            "card_repayment": bool(spend_ctx and spend_ctx.is_card_repayment(str(doc.get("_id") or ""))),
         })
     return out
 
@@ -238,7 +239,7 @@ def bucket_transactions(txns: list[dict], kind_map: dict) -> tuple[dict, dict, f
     for t in txns:
         cat = t["category"]
         # G268: the one definition of spending (app.services.spending).
-        flow = classify_flow(kind_map, cat, t["debit"], bool(t.get("own_move")))
+        flow = classify_flow(kind_map, cat, t["debit"], bool(t.get("own_move")), bool(t.get("card_repayment")))
 
         if flow.kind == INCOME_FLOW:
             income_total += t["amount"] if t["debit"] is False else -t["amount"]
@@ -758,7 +759,7 @@ def build_pace_series(
         # included), so "Day N: £X so far" always reconciles to Out on the last
         # day. The `usual` line is unchanged: it never learns Other, and the
         # frontend already reads the gap as Out minus usual.
-        flow = classify_flow(kind_map, t["category"], t["debit"], bool(t.get("own_move")))
+        flow = classify_flow(kind_map, t["category"], t["debit"], bool(t.get("own_move")), bool(t.get("card_repayment")))
         if flow.kind not in (SPEND, REFUND):
             continue
         day = (t["date"] - start).days + 1

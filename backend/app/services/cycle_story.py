@@ -33,8 +33,8 @@ from app.services.behaviour import (
     savings_account_ids,
     classify_saving_flow,
 )
-from app.services.categories import get_category_kinds, is_non_spend
-from app.services.spending import try_build_spending_context
+from app.services.categories import get_category_kinds
+from app.services.spending import classify_flow, try_build_spending_context, SPEND
 from app.services.needle import (
     _txns_for_period,
     _credit_card_account_ids,
@@ -129,6 +129,7 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
             "is_credit": not is_debit,
             "is_credit_card": is_credit_card,
             "own_move": bool(spend_ctx and spend_ctx.is_own_move(str(t.get("_id") or ""))),
+            "card_repayment": bool(spend_ctx and spend_ctx.is_card_repayment(str(t.get("_id") or ""))),
         })
 
     period_start_str = period_start.isoformat()
@@ -138,7 +139,8 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     # Real spend = debits whose category kind is not movement/income (any account)
     real_spend_all = [
         t for t in txns
-        if t["is_debit"] and not is_non_spend(kind_map, t["category"]) and not t["own_move"]
+        if t["is_debit"]
+        and classify_flow(kind_map, t["category"], True, t["own_move"], t["card_repayment"]).kind == SPEND
     ]
 
     # ── Chapter 1: Opening ────────────────────────────────────────────────────
