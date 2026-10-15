@@ -7,7 +7,7 @@ import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
 import { PurchaseRows, SinceStatementLine, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { cardSurface } from "./PortfolioGrowthCard";
-import { chartReady, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, valueNoteText, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 /** Drill-in for one investment account (G271): a taller chart, the paid-in and
  *  growth split, each holding's change since the last statement, how growth is
@@ -50,7 +50,7 @@ export default function PortfolioGrowthDetail({
         <p className={`text-[13px] ${whisper}`}>{CHART_WAITING}</p>
       )}
 
-      {growth.value_note ? <p className={`text-[12px] leading-snug ${whisper}`}>{growth.value_note}</p> : null}
+      {valueNoteText(growth, hidden) ? <p className={`text-[12px] leading-snug ${whisper}`}>{valueNoteText(growth, hidden)}</p> : null}
 
       <LifetimeBlock g={growth} hidden={hidden} onAnchor={onAnchor} onOverride={onOverride} detail />
       <SinceStatementLine g={growth} hidden={hidden} />

@@ -6,7 +6,7 @@ import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
 import { SinceStatementLine } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
-import { chartReady, CHART_WAITING, money, NO_COST_LINE, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, valueNoteText, CHART_WAITING, money, NO_COST_LINE, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 export interface PortfolioGrowthCardProps {
   title: string;
@@ -61,8 +61,8 @@ export default function PortfolioGrowthCard({
         <p className={`mt-2 text-[14px] ${ink}`}>Growth starts once we have a daily value for this account.</p>
       )}
 
-      {growth.value !== null && growth.value_note ? (
-        <p className={`mt-1 text-[12px] leading-snug ${whisper}`}>{growth.value_note}</p>
+      {growth.value !== null && valueNoteText(growth, hidden) ? (
+        <p className={`mt-1 text-[12px] leading-snug ${whisper}`}>{valueNoteText(growth, hidden)}</p>
       ) : null}
 
       {growth.value !== null ? (

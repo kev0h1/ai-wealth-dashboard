@@ -506,10 +506,10 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
                 p["value"] = anchor["provider_value"]
     # Header value (the Accounts row) counts later contract notes at cost; say so when it differs.
     header = round((acc.get("total_value") or 0.0) + ia_after_statement(notes, stmt), 2) if stmt else None
-    value_note = None
+    # No pre-formatted pounds: the client builds the sentence so hide-balances can mask it.
+    value_note_kind = None
     if header is not None and growth["value"] is not None and abs(header - value_now) >= 0.01:
-        value_note = (f"The account header shows {_money(header)} because it counts contract notes since your statement "
-                      f"at what you paid. This figure prices them at end-of-day prices.")
+        value_note_kind = "notes_at_cost"
     if growth["value"] is not None:
         growth["value"] = value_now
     periods_out = [g for g in (ia.period_growth(p) for p in sorted(periods, key=lambda p: p.get("closing_date") or "")) if g]
@@ -518,7 +518,8 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
         "statement_date": stmt.isoformat() if stmt else None,
         **growth,
         "value_source": "provider" if override and anchor_d == today else "sorted",
-        "header_value": header, "value_note": value_note,
+        "header_value": header, "value_note_kind": value_note_kind,
+        "undated_payment_lines": _undated_lines(periods),
         "lifetime": lifetime, "anchor": ({k: v for k, v in anchor.items()} if anchor else None),
         "anchor_history": acc.get("anchor_history") or [],
         "since_statement": since_statement(pos, holdings, notes, ia.all_fee_lines(periods)),
@@ -527,6 +528,16 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
         "purchases": build_purchases(periods, notes, pos["rows"], insts),
         "holdings": public_rows(pos),
     }
+
+
+def _undated_lines(periods: list[dict]) -> int:
+    """Statement payment lines with no date: they cannot be placed against the
+    anchor date, so they are not counted as contributions, and the count is surfaced."""
+    n = sum(1 for p in periods for k in ("payments_in_lines", "withdrawal_lines")
+            for ln in (p.get(k) or []) if _as_date(ln.get("date")) is None)
+    if n:
+        logger.debug("investment growth: %d undated statement payment line(s) not counted", n)
+    return n
 
 
 def ia_after_statement(notes: list[dict], stmt: date | None) -> float:

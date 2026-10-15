@@ -109,7 +109,10 @@ export interface InvestmentGrowth {
   /** G278 */
   value_source?: "sorted" | "provider";
   header_value?: number | null;
-  value_note?: string | null;
+  /** Why the Accounts header shows a different figure; the sentence is built client-side so it can mask. */
+  value_note_kind?: "notes_at_cost" | "price_date" | "cash" | null;
+  /** Statement payment lines with no date, not counted as contributions. */
+  undated_payment_lines?: number;
   lifetime?: GrowthLifetime | null;
   anchor?: GrowthAnchor | null;
   since_statement?: SinceStatement | null;
@@ -134,6 +137,15 @@ export const ANCHOR_PROMPT = "Anchor from your provider to see lifetime growth";
 export const ANCHOR_EDIT = "Edit anchor";
 export const ANCHOR_USER_NOTE = "Entered by you. You can edit or clear it at any time.";
 export const RATE_NOTE = "Money-weighted, as shown by your provider. Sorted does not recompute it.";
+
+/** Why the header and the card differ, built here so hide-balances masks the figure. */
+export function valueNoteText(g: Pick<InvestmentGrowth, "value_note_kind" | "header_value">, hidden?: boolean): string | null {
+  if (!g.value_note_kind || g.header_value == null) return null;
+  const head = `The account header shows ${money(g.header_value, { hidden })}`;
+  if (g.value_note_kind === "notes_at_cost") return `${head} because it counts contract notes since your statement at what you paid. This figure prices them at end-of-day prices.`;
+  if (g.value_note_kind === "price_date") return `${head} because it uses an older price date. This figure uses the latest end-of-day prices.`;
+  return `${head} because it leaves out cash. This figure includes it.`;
+}
 
 /** The provider's own name for the rate line, "from Vanguard". */
 export function fromProvider(provider: string | null | undefined): string {
