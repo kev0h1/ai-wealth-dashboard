@@ -3,28 +3,30 @@
 // TEMPORARY PREVIEW, G200 cover plan safeguards redesign round.
 // Static fixtures only. No API requests and no production settings changes.
 //
-// Three art directions for the card (A Permission slip, B Cover route,
-// C Permission ledger) plus "now", the shipped component rendered through its
-// real props with a live move, as the comparison. A, B and C take the same
-// props as CoverPlanSourcesCard, so the picked one can replace it in place.
+// A to C are earlier references. D Account directory, E Bank folders and F
+// Allowed list are the fresh round. "Now" renders the shipped component
+// through its real props for comparison. The fresh directions use local
+// fixture state only and never present a transfer as automated.
 // The fixture is the 17-account estate from cover-plan-sources-scale plus the
 // two upper-case names from the owner's own screenshot.
 //
-// /design/cover-plan-safeguards?variant=a|b|c|now
-//   &state=default|all|none|stuck  (which accounts the user turned off)
+// /design/cover-plan-safeguards?variant=a|b|c|d|e|f|now
+//   &state=default|all|none|stuck|loading|error|save-error
 //   &estate=std|long               (long: ten accounts cannot spare anything today)
 //   &frame=inline|page             (inside Settings, or as its own drill-in page)
 //   &mode=light|dark
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { ChevronLeft, ShieldCheck } from "lucide-react";
 import type { Account } from "@/lib/api";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { CoverRoute, PermissionLedger, PermissionSlip } from "./variants";
+import { AccountDirectory, AllowedListEditor, BankFolders, type FreshProps } from "./fresh";
 
-type Variant = "a" | "b" | "c" | "now";
-type State = "default" | "all" | "none" | "stuck";
+type Variant = "a" | "b" | "c" | "d" | "e" | "f" | "now";
+type State = "default" | "all" | "none" | "stuck" | "loading" | "error" | "save-error";
 type Estate = "std" | "long";
 type Frame = "inline" | "page";
 type Mode = "light" | "dark";
@@ -100,17 +102,23 @@ const LIVE_ROUTE: LiveCoverRoute = {
 };
 
 const VARIANTS: Array<{ id: Variant; label: string }> = [
+  { id: "d", label: "D Account directory" },
+  { id: "e", label: "E Bank folders" },
+  { id: "f", label: "F Allowed list" },
   { id: "a", label: "A Permission slip" },
   { id: "b", label: "B Cover route" },
   { id: "c", label: "C Permission ledger" },
   { id: "now", label: "Shipped today" },
 ];
-const STATES: State[] = ["default", "all", "none", "stuck"];
+const STATES: State[] = ["default", "all", "none", "stuck", "loading", "error", "save-error"];
 const STATE_LABEL: Record<State, string> = {
   default: "Two turned off",
   all: "Nothing turned off",
   none: "Everything off",
   stuck: "Only cannot-spare left",
+  loading: "Loading",
+  error: "Availability error",
+  "save-error": "Save error",
 };
 
 const CHIP =
@@ -126,8 +134,7 @@ function Controls({ variant, state, estate, frame, mode }: { variant: Variant; s
   return (
     <nav
       aria-label="Preview controls"
-      className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-2"
-      style={{ bottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+      className="flex flex-wrap justify-center px-2 pb-4 pt-2"
     >
       <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-0.5 rounded-3xl border border-white/15 bg-slate-950/95 p-1 shadow-xl">
         <a href={href({ variant: nextVariant })} className={CHIP}>{VARIANTS.find((v) => v.id === variant)?.label}</a>
@@ -161,54 +168,97 @@ export default function CoverPlanSafeguardsClient() {
     const raw = params.get(key) ?? "";
     return (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
   };
-  const variant = pick<Variant>("variant", ["a", "b", "c", "now"], "a");
+  const variant = pick<Variant>("variant", ["a", "b", "c", "d", "e", "f", "now"], "d");
   const state = pick<State>("state", STATES, "default");
   const estate = pick<Estate>("estate", ["std", "long"], "std");
   const frame = pick<Frame>("frame", ["inline", "page"], "inline");
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
-  const seedKey = `${state}-${estate}`;
+  const seedState: State = ["loading", "error", "save-error"].includes(state) ? "default" : state;
+  const seedKey = `${seedState}-${estate}`;
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set(exclusionsFor(state, estate)));
   const [lastKey, setLastKey] = useState(seedKey);
   if (seedKey !== lastKey) {
     setLastKey(seedKey);
-    setExcluded(new Set(exclusionsFor(state, estate)));
+    setExcluded(new Set(exclusionsFor(seedState, estate)));
   }
   const shortIds = shortIdsFor(estate);
-  const toggle = (id: string) =>
-    setExcluded((previous) => {
-      const next = new Set(previous);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [availabilityRetried, setAvailabilityRetried] = useState(false);
+  const [failedId, setFailedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const applyToggle = (id: string, shouldFail: boolean) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    const wasExcluded = excluded.has(id);
+    setFailedId(null);
+    setExcluded(current => {
+      const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    setSaveMessage("Saving change in this preview…");
+    if (shouldFail) {
+      window.setTimeout(() => {
+        setExcluded(current => {
+          const next = new Set(current);
+          if (wasExcluded) next.add(id);
+          else next.delete(id);
+          return next;
+        });
+        setSaveMessage("Could not save that change. Your previous choice has been restored.");
+        setFailedId(id);
+        savingRef.current = false;
+        setSaving(false);
+      }, 450);
+    } else {
+      window.setTimeout(() => {
+        setSaveMessage("Saved in this preview.");
+        savingRef.current = false;
+        setSaving(false);
+      }, 450);
+    }
+  };
+  const toggle = (id: string) => applyToggle(id, state === "save-error");
+  const retrySave = () => {
+    if (!failedId) return;
+    applyToggle(failedId, false);
+  };
 
   const props = { liveRoute: LIVE_ROUTE, accounts: ACCOUNTS, excludedIds: excluded, shortAccountIds: shortIds, hideAmounts: false, onToggle: toggle };
+  const freshStatus: FreshProps["status"] = state === "loading" ? "loading" : state === "error" && !availabilityRetried ? "error" : state === "save-error" ? "save-error" : "ready";
+  const freshProps: FreshProps = { accounts: ACCOUNTS, excludedIds: excluded, shortAccountIds: shortIds, hideAmounts: false, onToggle: toggle, status: freshStatus, saveMessage, retry: () => { setAvailabilityRetried(true); setSaveMessage("Availability checked in this preview."); }, retrySave, saving, themeClass: mode === "dark" ? "dark" : undefined };
 
   return (
     <div className={mode === "dark" ? "dark" : ""}>
-      <main className="min-h-dvh bg-[#f0f2f7] pb-40 pt-5 dark:bg-[#0f172a]">
-        <div className="mx-auto w-full max-w-[430px] space-y-5 px-4">
+      <main className="min-h-dvh bg-[#f0f2f7] pb-10 pt-5 dark:bg-[#0f172a]">
+        <div className="mx-auto w-full max-w-5xl space-y-5 px-4">
           <header className="flex items-center gap-3">
-            <button
-              type="button"
+            <Link
+              href="/design"
               aria-label="Back"
               className="grid size-11 shrink-0 place-items-center rounded-full text-slate-600 active:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:active:bg-slate-800"
             >
               <ChevronLeft size={21} aria-hidden="true" />
-            </button>
+            </Link>
             <h1 className="text-[21px] font-bold text-slate-950 dark:text-white">
               {frame === "page" ? "Cover plan" : "Settings"}
             </h1>
           </header>
           <p className="rounded-xl border border-slate-200 bg-white/60 px-3 py-2 text-[12px] leading-snug text-slate-600 dark:border-slate-700 dark:bg-white/[0.04] dark:text-slate-300">
-            Preview note: A, B and C are hand-authored explorations. &ldquo;Shipped today&rdquo; renders the
-            production CoverPlanSourcesCard through its real props.
+            Preview note: D, E and F are fresh fixture-only permission explorations. A, B and C are earlier
+            references. &ldquo;Shipped today&rdquo; renders the production CoverPlanSourcesCard through its real props.
           </p>
           {frame === "inline" && <SettingsNeighbour />}
           {variant === "a" && <PermissionSlip {...props} />}
           {variant === "b" && <CoverRoute {...props} />}
           {variant === "c" && <PermissionLedger {...props} />}
+          {variant === "d" && <AccountDirectory {...freshProps} />}
+          {variant === "e" && <BankFolders {...freshProps} />}
+          {variant === "f" && <AllowedListEditor {...freshProps} />}
           {variant === "now" && (
             <CoverPlanSourcesCard
               accounts={ACCOUNTS}
