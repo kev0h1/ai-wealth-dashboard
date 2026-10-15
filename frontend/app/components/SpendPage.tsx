@@ -9,7 +9,7 @@ import { loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
 import SpendShapeCard from "@/components/SpendShapeCard";
 import { useAllTransactions } from "@/lib/useAllTransactions";
 import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/verdictCache";
-import { cachedSignals, fetchSignals, invalidateSignalsCache, SignalMap } from "@/lib/signalsCache";
+import { cachedSignals, fetchSignals, invalidateSignalsCache, applyAimChange, SignalMap, type AimChange } from "@/lib/signalsCache";
 import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
 import { useColours } from "@/components/ColourProvider";
 import {
@@ -370,8 +370,26 @@ export default function SpendPage() {
     if (force) invalidateSignalsCache();
     fetchSignals(periodOffset, force)
       .then(data => setFetchedSignals((current) => ({ ...current, [periodOffset]: data })))
-      .catch(() => setFetchedSignals((current) => ({ ...current, [periodOffset]: {} })));
+      // G275: a failed fetch leaves whatever is on screen (or nothing) alone. It
+      // used to write {} here, which then shadowed a good cache entry as "no aims".
+      .catch(() => {});
   }, [periodOffset]);
+  // G275 (Kevin 2026-10-15): Spend asks for its own aims and signals on load, in
+  // parallel with the verdict fetch and never blocking first paint. Before this
+  // only the Mirror ever populated the cache, so the rings needed a Mirror visit.
+  // fetchSignals dedupes through the shared cache and in-flight map, and the
+  // effect re-runs per period, so a swipe loads that period's own aims.
+  useEffect(() => { refetchSignals(false); }, [refetchSignals]);
+  // An aim set, edited or cancelled in the sheet paints at once, then is confirmed.
+  const handleAimChanged = useCallback((change?: AimChange) => {
+    if (change) {
+      setFetchedSignals((current) => ({
+        ...current,
+        [periodOffset]: applyAimChange(current[periodOffset] ?? cachedSignals(periodOffset) ?? {}, change),
+      }));
+    }
+    refetchSignals();
+  }, [periodOffset, refetchSignals]);
 
   // ── /spend/verdict — the reading + notable cards + ask/unresolved +
   // majority rows + money-you-moved. Seeded from the module-level cache
@@ -1194,7 +1212,7 @@ export default function SpendPage() {
                 signals={signals}
                 mirrorRoute={mirrorReady}
                 sym={sym}
-                onAimChanged={refetchSignals}
+                onAimChanged={handleAimChanged}
                 onIntent={(category, answer) => api.recordTrendIntent(category, answer)
                   // G83 fix-round: same "the cache would otherwise repaint
                   // the pre-decision verdict" gap as handleUndo/
