@@ -2,7 +2,7 @@
 
 // TEMPORARY PREVIEW, G201 settings overhaul design round.
 // Static fixtures only. No API requests, nothing saves, no production edits.
-// /design/settings-overhaul?variant=a|b|c&page=hub|<page>&state=ready|attention|relay|empty&mode=light|dark[&sheet=pay-period|financial][&chrome=0]
+// /design/settings-overhaul?variant=d|e|f&page=hub|<page>&state=ready|attention|relay|empty&mode=light|dark[&sheet=pay-period|financial][&chrome=0]
 //
 // Production components rendered here through props: Toggle, ConfirmDialog,
 // SheetFrame, PayPeriodSettingsSheet, YourPlanCard, CoverPlanSourcesCard and
@@ -22,10 +22,11 @@ import { buildModel, INK, PreviewCtx, SOFT, type Mode, type PState, type Variant
 import { FinancialBlock } from "./sections";
 import { HUBS, PAGES, PageView, VARIANT_NOTES } from "./variants";
 
-const VARIANTS: VariantId[] = ["a", "b", "c"];
+const VARIANTS: VariantId[] = ["d", "e", "f", "a", "b", "c"];
 const STATES: { id: PState; label: string }[] = [
   { id: "ready", label: "Ready" },
   { id: "attention", label: "Alert" },
+  { id: "blocked", label: "Blocked" },
   { id: "relay", label: "Apple relay" },
   { id: "empty", label: "New, web" },
 ];
@@ -50,7 +51,7 @@ const pill = "flex min-h-11 items-center rounded-lg px-3 text-xs font-semibold f
 export default function SettingsOverhaulClient() {
   const params = useSearchParams();
   const rawV = params.get("variant");
-  const variant: VariantId = VARIANTS.includes(rawV as VariantId) ? (rawV as VariantId) : "a";
+  const variant: VariantId = VARIANTS.includes(rawV as VariantId) ? (rawV as VariantId) : "d";
   const rawS = params.get("state");
   const state: PState = STATES.some((s) => s.id === rawS) ? (rawS as PState) : "ready";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
@@ -60,25 +61,34 @@ export default function SettingsOverhaulClient() {
 
   const [sheet, setSheet] = useState<string | null>(params.get("sheet"));
   const [pay, setPay] = useState<PayPeriodConfig>({ type: "monthly_pay_date", day: 25 });
+  const [search, setSearch] = useState("");
+  const [prefs, setPrefs] = useState({ dark: mode === "dark", hideBalances: true, showTips: true });
+  const [openChapter, setOpenChapter] = useState<string | null>(null);
+  const [returnY, setReturnY] = useState(0);
+  const effectiveMode: Mode = prefs.dark ? "dark" : "light";
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", mode === "dark");
-    document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", mode);
-  }, [mode]);
+    document.documentElement.classList.toggle("dark", effectiveMode === "dark");
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", effectiveMode);
+  }, [effectiveMode]);
+
+  useEffect(() => {
+    if (page === "hub" && returnY) window.requestAnimationFrame(() => window.scrollTo({ top: returnY, behavior: "auto" }));
+  }, [page, returnY]);
 
   const model = useMemo(() => buildModel(state), [state]);
   const href = (p: string, extra?: Record<string, string>) => {
     const q = new URLSearchParams({ variant, page: p, state, mode, ...(showChrome ? {} : { chrome: "0" }), ...extra });
     return `?${q.toString()}`;
   };
-  const ctx = { variant, state, mode, model, href, openSheet: setSheet, payLabel: payLabelOf(pay) };
+  const ctx = { variant, page, state, mode: effectiveMode, model, href, openSheet: setSheet, payLabel: payLabelOf(pay), search, setSearch, prefs, setPrefs, openChapter, setOpenChapter, returnY, setReturnY };
   const Hub = HUBS[variant];
   const note = VARIANT_NOTES[variant];
   const hubVisible = page === "hub";
 
   return (
     <PreviewCtx.Provider value={ctx}>
-      <div className={mode === "dark" ? "dark" : ""}>
+      <div className={effectiveMode === "dark" ? "dark" : ""}>
         <div className="min-h-dvh overflow-x-hidden bg-[#f0f2f7] pb-16 text-slate-900 dark:bg-[#0f172a] dark:text-slate-100">
           {showChrome && (
             <nav aria-label="Preview controls" className="mx-auto w-full max-w-5xl px-4 pt-4">
@@ -122,7 +132,7 @@ export default function SettingsOverhaulClient() {
           </main>
 
           {showChrome && (
-            <aside className="mx-auto mt-12 w-full max-w-md px-4 lg:max-w-5xl" aria-label="About this direction">
+            <div className="mx-auto mt-12 w-full max-w-md px-4 lg:max-w-5xl" role="region" aria-label="About this direction">
               <div className="border-t border-slate-300/80 pt-5 dark:border-slate-700">
                 <h2 className={`text-base font-bold ${INK}`}>{note.name}</h2>
                 <p className={`mt-2 text-sm leading-6 ${INK}`}>{note.thesis}</p>
@@ -130,11 +140,12 @@ export default function SettingsOverhaulClient() {
                 <p className={`mt-2 text-sm leading-6 ${SOFT}`}>{note.inline}</p>
                 <p className={`mt-2 text-sm leading-6 ${SOFT}`}>{note.exits}</p>
                 <p className={`mt-4 text-xs leading-5 ${SOFT}`}>
-                  Rendered from production: switches, confirm dialogs, sheet frame, the Pay period sheet, the plan card, today&apos;s cover plan card and the real tour list. Hand-authored stand-ins: hub rows, groups and page frames, and the notification, sign-in, profile, financial, biometric, data and delete blocks, which are inline in SettingsPage.tsx today. Fixtures only, nothing saves. The dark mode switch here is inert, use the Dark control above. Placeholder copy pending G189, Kevin to confirm: the in-app switch "Saving tips" and the relabelled push topic "Tip alerts". Connected assistants is flag-gated (MCP_CONNECTOR, off in production) and shown here in every state except New, web. Directions drafted with Astra (openai/gpt-6-astra) and rewritten to DESIGN.md.
+                  Fixture preview only. It makes no API calls and never saves a preference, sends a notification, changes a sign-in method, signs out or deletes an account. Production components rendered through local props: switches, confirm dialogs, sheet frame, the Pay period sheet, plan card, cover-plan card and tour list. Inline Settings blocks are honestly represented as local stand-ins. Connected assistants remains flag-gated and is off in production.
                 </p>
               </div>
-            </aside>
+            </div>
           )}
+          {!showChrome && <p role="note" className={`mx-auto mt-6 w-full max-w-md px-4 text-xs leading-5 ${SOFT}`}>Fixture preview only. Nothing here saves, sends a notification, changes sign-in, signs out or deletes an account.</p>}
 
           {sheet === "pay-period" && (
             <PayPeriodSettingsSheet current={pay} onClose={() => setSheet(null)} onSave={(c) => { setPay(c); setSheet(null); }} />
@@ -143,7 +154,7 @@ export default function SettingsOverhaulClient() {
             <SheetFrame
               title="Financial profile"
               onClose={() => setSheet(null)}
-              themeClass={mode === "dark" ? "dark" : undefined}
+              themeClass={effectiveMode === "dark" ? "dark" : undefined}
               bodyClassName="px-0 py-2"
               footer={
                 <button type="button" onClick={() => setSheet(null)} className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors active:scale-[0.98]">
