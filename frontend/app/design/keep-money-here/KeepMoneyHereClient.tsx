@@ -82,7 +82,7 @@ function ReserveEditor({ variant, scenario, editing, empty, state, onClose, onSa
     if (next !== transfer) { setDestinationId(""); setRule(""); }
     setTransfer(next); setError("");
   }
-  async function confirm() {
+  async function confirmReserve() {
     if (!valid || busy) return;
     setBusy(true); setError("");
     await new Promise(resolve => setTimeout(resolve, 650));
@@ -118,7 +118,7 @@ function ReserveEditor({ variant, scenario, editing, empty, state, onClose, onSa
     onBack={subview ? back : page === "review" ? () => setPage("details") : undefined}
     footer={({ close }) => saved ? <button type="button" className={s.primary} onClick={close}>Done</button> : loadFailed ? <button type="button" className={s.primary} onClick={() => setLoadFailed(false)}>Try loading accounts again</button> : <div className={s.footer}>
       <button type="button" className={s.secondary} onClick={subview ? back : close} disabled={busy}>{subview ? "Back" : "Cancel"}</button>
-      <button type="button" className={s.primary} onClick={subview ? back : variant === "b" && page === "details" ? () => setPage("review") : () => void confirm()}
+      <button type="button" className={s.primary} onClick={subview ? back : variant === "b" && page === "details" ? () => setPage("review") : () => void confirmReserve()}
         disabled={busy || (!subview && !(variant === "b" && page === "details" ? detailsValid && sources.length > 0 : valid))}>
         {busy ? "Confirming…" : subview ? "Use this choice" : variant === "b" && page === "details" ? "Review set-aside" : "Confirm set-aside"}
       </button>
