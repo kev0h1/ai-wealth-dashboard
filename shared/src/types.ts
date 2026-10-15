@@ -539,13 +539,19 @@ export interface InvestmentAccount {
   updated_at: string;
   added_since: number;
   notes_since: number;
+  /** G278: money paid in since the statement (contract notes, a fee-driven sale excluded). */
+  paid_in_since?: number;
+  /** G278: the user has entered a provider anchor for lifetime growth. */
+  has_anchor?: boolean;
   display_value: number;
 }
 
 export interface InvestmentNote {
   id: string;
   trade_date: string;
-  kind: "purchase" | "sale";
+  kind: "purchase" | "sale" | "fee";
+  /** G278: a fee-driven sale; shown as a fee, not a purchase or a sale. */
+  is_fee?: boolean;
   amount: number;  // signed: + purchase, - sale
   fund_name: string;
   units: number | null;
@@ -571,6 +577,11 @@ export interface InvestmentHolding {
   price_source: string | null;
   /** G270: "high" | "medium" | "low". */
   price_confidence: string | null;
+  /** G278: a fund that exists only through contract notes (no statement row). */
+  from_contract_notes?: boolean;
+  /** G278: value minus cost, when the cost is known. */
+  gain_abs?: number | null;
+  gain_pct?: number | null;
 }
 
 export interface BudgetItem {

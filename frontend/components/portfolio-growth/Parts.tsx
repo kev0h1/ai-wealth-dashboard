@@ -72,7 +72,11 @@ export function RiskLines({ className = "" }: { className?: string }) {
 }
 
 export function growthSummary(g: InvestmentGrowth, hidden?: boolean): string {
-  if (g.value === null || g.growth_abs === null) return "Not enough information to chart yet.";
+  if (g.value === null) return "Not enough information to chart yet.";
+  if (g.lifetime) {
+    return `Value ${money(g.value, { hidden })}, lifetime growth ${money(g.lifetime.growth_abs, { sign: true, hidden })} since your ${shortDate(g.lifetime.since, true)} anchor.`;
+  }
+  if (g.growth_abs === null) return `Value ${money(g.value, { hidden })}.`;
   const since = g.since ? ` since ${shortDate(g.since, true)}` : "";
   const cover = g.cost_coverage ? `, ${g.cost_coverage}` : "";
   return `Value ${money(g.value, { hidden })}, money paid in ${money(g.paid_in ?? 0, { hidden })}, growth ${money(g.growth_abs, { sign: true, hidden })}${cover}${since}.`;

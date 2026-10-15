@@ -3,15 +3,17 @@
 import GrowthChart from "./portfolio-growth/GrowthChart";
 import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import HoldingRows from "./portfolio-growth/HoldingRows";
+import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
+import { PurchaseRows, SinceStatementLine, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { cardSurface } from "./PortfolioGrowthCard";
-import { chartReady, CHART_WAITING, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 /** Drill-in for one investment account (G271): a taller chart, the paid-in and
  *  growth split, each holding's change since the last statement, how growth is
  *  worked out, and the risk lines. Data arrives through props. */
 export default function PortfolioGrowthDetail({
-  title, growth, range, onRangeChange, hidden, bare,
+  title, growth, range, onRangeChange, hidden, bare, onAnchor, onOverride,
 }: {
   title: string;
   growth: InvestmentGrowth;
@@ -20,6 +22,8 @@ export default function PortfolioGrowthDetail({
   hidden?: boolean;
   /** Drop the card surface when the host (a sheet) already provides one. */
   bare?: boolean;
+  onAnchor?: () => void;
+  onOverride?: (on: boolean) => void;
 }) {
   return (
     <article className={`${bare ? "" : cardSurface} space-y-5`} aria-label={`${title} detail`}>
@@ -46,13 +50,21 @@ export default function PortfolioGrowthDetail({
         <p className={`text-[13px] ${whisper}`}>{CHART_WAITING}</p>
       )}
 
-      <GrowthSplit g={growth} hidden={hidden} />
+      {growth.value_note ? <p className={`text-[12px] leading-snug ${whisper}`}>{growth.value_note}</p> : null}
+
+      <LifetimeBlock g={growth} hidden={hidden} onAnchor={onAnchor} onOverride={onOverride} detail />
+      <SinceStatementLine g={growth} hidden={hidden} />
+      {!growth.lifetime && !growth.cost_coverage ? <GrowthSplit g={growth} hidden={hidden} /> : null}
 
       <HoldingRows holdings={growth.holdings} hidden={hidden} />
 
+      <PurchaseRows g={growth} hidden={hidden} />
+
+      <StatementPeriods g={growth} hidden={hidden} />
+
       <section aria-labelledby="pg-how">
         <h3 id="pg-how" className={label}>How this is worked out</h3>
-        <p className={`mt-1 text-[13px] leading-snug ${whisper}`}>{METHOD_NOTE} This is not advice.</p>
+        <p className={`mt-1 text-[13px] leading-snug ${whisper}`}>{METHOD_NOTE}{growth.lifetime ? ` ${LIFETIME_NOTE}` : ""} Simple gain, not a time-weighted return. This is not advice.</p>
       </section>
 
       <RiskLines />

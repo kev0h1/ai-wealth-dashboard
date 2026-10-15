@@ -20,6 +20,10 @@ export interface GrowthHolding {
   name: string | null;
   isin: string | null;
   type: string;
+  /** G278: units held now (statement units plus later contract notes), or null. */
+  units: number | null;
+  /** G278: end-of-day price, or null which reads "No price yet". */
+  price: number | null;
   value: number;
   statement_value: number;
   change_abs: number | null;
@@ -30,6 +34,56 @@ export interface GrowthHolding {
   gain_abs: number | null;
   gain_pct: number | null;
   price_date: string | null;
+}
+
+/** G278: what the provider shows on a date, entered by the user. */
+export interface GrowthAnchor {
+  date: string;
+  provider_value: number;
+  provider_return: number | null;
+  total_paid_in: number | null;
+  provider_rate_of_return_pct: number | null;
+  source: "user";
+  entered_at?: string;
+  use_provider_value?: boolean;
+}
+
+export interface AnchorInput {
+  date: string;
+  provider_value: number;
+  provider_return?: number | null;
+  total_paid_in?: number | null;
+  provider_rate_of_return_pct?: number | null;
+}
+
+/** G278: the PRIMARY lifetime figure, from the anchor. */
+export interface GrowthLifetime {
+  anchor: GrowthAnchor;
+  provider: string;
+  net_paid_in_at_anchor: number;
+  paid_in_after: number;
+  withdrawn_after: number;
+  paid_in: number;
+  growth_abs: number;
+  growth_pct: number | null;
+  since: string;
+  rate_of_return: { pct: number; as_of: string; label: string; note: string } | null;
+  reconciliation: { date: string; ours: number; provider_value: number; difference: number; override: boolean; text?: string } | null;
+}
+
+export interface SinceStatement { date: string; closing_value: number; paid_in: number; growth_abs: number; fees: number }
+
+export interface StatementPeriodGrowth {
+  from: string | null; to: string; opening_value: number; closing_value: number; payments_in: number; withdrawals: number;
+  growth_abs: number; growth_pct: number | null; fees: number; interest: number; before_fees_and_interest: number;
+}
+
+export interface PeriodsChain { from: string | null; to: string; periods: number; growth_abs: number; fees: number; interest: number; payments_in: number }
+
+export interface GrowthPurchase {
+  date: string | null; fund_name: string; units: number | null; amount: number;
+  price: number | null; value: number | null; gain_abs: number | null; gain_pct: number | null;
+  source: "statement" | "contract_note";
 }
 
 export interface InvestmentGrowth {
@@ -51,6 +105,17 @@ export interface InvestmentGrowth {
   /** "over 2 of 3 holdings" when only some holdings have a known cost. */
   cost_coverage: string | null;
   holdings: GrowthHolding[];
+  provider?: string | null;
+  /** G278 */
+  value_source?: "sorted" | "provider";
+  header_value?: number | null;
+  value_note?: string | null;
+  lifetime?: GrowthLifetime | null;
+  anchor?: GrowthAnchor | null;
+  since_statement?: SinceStatement | null;
+  statement_periods?: StatementPeriodGrowth[];
+  periods_chain?: PeriodsChain | null;
+  purchases?: GrowthPurchase[];
 }
 
 /** The three risk lines, verbatim, on every growth surface. */
@@ -61,11 +126,29 @@ export const RISK_LINES = [
 ] as const;
 
 export const METHOD_NOTE = "Growth is simple: what each holding is worth now minus what you paid for it. Cost comes from your contract notes and from the book cost on a statement, where it shows one. A holding with no known cost adds nothing to the gain.";
+export const LIFETIME_NOTE = "Lifetime growth starts from the value and return your provider showed on the anchor date, then adds what you paid in after it from contract notes and statements, and takes off any withdrawals. Fees are part of growth, not money paid in.";
 
 export const COST_UNKNOWN = "Cost not known";
+export const NO_PRICE_YET = "No price yet";
+export const ANCHOR_PROMPT = "Anchor from your provider to see lifetime growth";
+export const ANCHOR_EDIT = "Edit anchor";
+export const ANCHOR_USER_NOTE = "Entered by you. You can edit or clear it at any time.";
+export const RATE_NOTE = "Money-weighted, as shown by your provider. Sorted does not recompute it.";
+
+/** The provider's own name for the rate line, "from Vanguard". */
+export function fromProvider(provider: string | null | undefined): string {
+  return `from ${provider && provider.trim() ? provider.trim() : "your provider"}`;
+}
+
+/** "Sorted shows £20,342.64, Vanguard showed £20,313.61 on 15 Oct, likely price timing." */
+export function reconciliationText(rc: { ours: number; provider_value: number; date: string }, provider: string | null | undefined, hidden?: boolean): string {
+  const who = provider && provider.trim() ? provider.trim() : "Your provider";
+  return `Sorted shows ${money(rc.ours, { hidden })}, ${who} showed ${money(rc.provider_value, { hidden })} on ${shortDate(rc.date)}, likely price timing.`;
+}
 export const SIMPLE_GAIN_NOTE = "Simple gain, not a time-weighted return.";
+export const SIMPLE_GAIN_LABEL = "Simple gain, not a time-weighted return";
 export const CHART_WAITING = "Chart fills in as daily prices arrive.";
-export const NO_COST_LINE = "Growth shows once we know what was paid. Add a contract note, or a statement that shows book cost.";
+export const NO_COST_LINE = "Growth shows once we know what was paid. Anchor from your provider, add a contract note, or add a statement that shows book cost.";
 
 /** G277: the card shows at once when any holding has a known cost. It never
  *  waits for two daily snapshots. */
@@ -150,4 +233,19 @@ export function chartGeometry(points: GrowthPoint[], width: number, height: numb
 
 export function linePath(xs: number[], ys: number[]): string {
   return xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(" ");
+}
+
+/** "£20,313.61", "20313.61" or "−1,341.92" to a number; null when it is not one. */
+export function parseMoneyInput(raw: string): number | null {
+  const t = raw.replace(/[£,\s]/g, "").replace(/[−–]/g, "-");
+  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** "14.61" or "14.61%" to a number; null when blank or not a number. */
+export function parsePercentInput(raw: string): number | null {
+  const t = raw.replace(/[%\s]/g, "").replace(/[−–]/g, "-");
+  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
+  return Number(t);
 }
