@@ -210,7 +210,7 @@ def test_value_is_priced_and_header_difference_is_named(monkeypatch):
     assert g["value"] == expect
     header = round(15096.06 + 400 + 4908.98, 2)
     assert g["header_value"] == header
-    assert g["value_note"] and "counts contract notes since your statement at what you paid" in g["value_note"]
+    assert g["value_note_kind"] == "notes_at_cost" and "value_note" not in g
 
 
 def test_lifetime_is_primary_and_uses_the_anchor(monkeypatch):
@@ -454,3 +454,20 @@ def test_reparse_script_is_honest_about_what_is_stored():
     assert "does not keep the PDF" in inspect.getsource(rp)
     # the upload itself stores no text: nothing in investment_upload writes statement_text
     assert "statement_text" not in inspect.getsource(router.investment_upload)
+
+
+def test_undated_statement_lines_are_counted_not_silently_lost(monkeypatch):
+    p = kevin_period()
+    p["payments_in_lines"] = p["payments_in_lines"] + [{"date": None, "amount": 250.0}]
+    g = asyncio.run(ig.account_growth(_patch(monkeypatch, kevin_acc(statement_periods=[p])), "all"))
+    assert g["undated_payment_lines"] == 1
+    # an undated line is never counted as a contribution after the anchor
+    life = ia.build_lifetime(_anchor(date="2026-06-01", provider_value=14000.0, provider_return=500.0), 15000.0, [], [p], date(2026, 9, 10), "Vanguard", None)
+    assert life["paid_in_after"] == 1200.0
+
+
+def test_display_flags_whether_the_statement_was_read_for_periods():
+    d = asyncio.run(router._investment_display(kevin_acc(), []))
+    assert d["has_statement_periods"] is True
+    bare = {k: v for k, v in kevin_acc().items() if k != "statement_periods"}
+    assert asyncio.run(router._investment_display(bare, []))["has_statement_periods"] is False

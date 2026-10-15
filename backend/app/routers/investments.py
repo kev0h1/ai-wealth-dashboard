@@ -82,6 +82,7 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
         "added_since":       round(added_since, 2),
         "paid_in_since":     round(paid_in_since, 2),
         "has_anchor":        bool(acc.get("anchor")),
+        "has_statement_periods": bool(acc.get("statement_periods")),
         "notes_since":       notes_since,
         "display_value":     display_value,
         "statement_date":    acc.get("statement_date").isoformat() if acc.get("statement_date") else None,

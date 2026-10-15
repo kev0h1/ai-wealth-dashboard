@@ -3666,6 +3666,11 @@ export default function AccountsPage() {
                               );
                             })}
                           </div>
+                          {!inv.has_statement_periods && activeNotes.some(n => n.kind === "sale" && !n.is_fee && Math.abs(n.amount) < 50) && (
+                            <p className="mt-1.5 px-1 text-xs text-slate-500 dark:text-slate-400">
+                              Upload your latest statement again so fees are recognised.
+                            </p>
+                          )}
                           {activeNotes.length > 6 && (
                             <button
                               onClick={() => setExpandedNotes(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))}

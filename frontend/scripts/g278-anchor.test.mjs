@@ -71,6 +71,15 @@ assert.ok(!html.includes("Anchor from your provider to see lifetime growth"), "n
 const masked = renderToStaticMarkup(h(PortfolioGrowthCard, { title: "Value", growth: withAnchor, range: "all", status: "ready", hidden: true, onAnchor: noop }));
 assert.ok(!masked.includes("20,342.64") && !masked.includes("1,370.95") && !masked.includes("18,971.69"), "figures mask with hide balances");
 
+// The header-difference note is built client-side, so it masks with hide balances (reviewer fix).
+const noted = { ...withAnchor, header_value: 20342.64, value_note_kind: "notes_at_cost" };
+const notedHtml = renderToStaticMarkup(h(PortfolioGrowthCard, { title: "Value", growth: noted, range: "all", status: "ready", onAnchor: noop }));
+assert.ok(notedHtml.includes("The account header shows £20,342.64 because it counts contract notes"), "value note builds client-side");
+const notedMasked = renderToStaticMarkup(h(PortfolioGrowthCard, { title: "Value", growth: noted, range: "all", status: "ready", hidden: true, onAnchor: noop }));
+assert.ok(notedMasked.includes("The account header shows £••••") && !notedMasked.includes("20,342.64"), "value note masks under hidden");
+const notedDetail = renderToStaticMarkup(h(PortfolioGrowthDetail, { title: "Value", growth: noted, range: "all", bare: true, hidden: true }));
+assert.ok(!notedDetail.includes("20,342.64") && !notedDetail.includes("20,313.61") && !notedDetail.includes("18,971.69"), "detail masks every figure under hidden");
+
 // Override active reads as a display override for that date only.
 const ov = { ...withAnchor, lifetime: { ...life, reconciliation: { ...life.reconciliation, override: true } } };
 const ovHtml = renderToStaticMarkup(h(PortfolioGrowthCard, { title: "Value", growth: ov, range: "all", status: "ready", onAnchor: noop, onOverride: noop }));
@@ -103,6 +112,8 @@ const sheet = read("../components/portfolio-growth/AnchorSheet.tsx");
 assert.ok(sheet.includes("SheetFrame") && sheet.includes("Anchor from your provider"), "the anchor sheet is a SheetFrame");
 assert.ok(sheet.includes("min-h-[44px]") && !sheet.includes("min-h-[40px]"), "44px targets");
 assert.ok(sheet.includes("Personal rate of return") && sheet.includes("Total paid in") && sheet.includes("Clear anchor"), "fields and clear");
+assert.ok(sheet.includes("Show to edit") && sheet.includes("hidden") && !/20,313|1,341\.92|18,971|14\.61/.test(sheet), "hidden anchor is not prefilled in clear text and placeholders are neutral");
+assert.ok(accounts.includes("Upload your latest statement again so fees are recognised."), "fee hint on the notes list");
 assert.ok(read("../lib/api.ts").includes("/anchor/override"), "override endpoint");
 
 for (const f of ["../lib/investmentGrowth.ts", "../components/portfolio-growth/AnchorSheet.tsx", "../components/portfolio-growth/LifetimeBlock.tsx", "../components/portfolio-growth/SecondaryGrowth.tsx", "../components/PortfolioGrowthCard.tsx", "../components/PortfolioGrowthDetail.tsx", "../components/portfolio-growth/HoldingRows.tsx"]) {

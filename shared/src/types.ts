@@ -543,6 +543,8 @@ export interface InvestmentAccount {
   paid_in_since?: number;
   /** G278: the user has entered a provider anchor for lifetime growth. */
   has_anchor?: boolean;
+  /** G278: the latest statement was read by the period parser, so fees can be recognised. */
+  has_statement_periods?: boolean;
   display_value: number;
 }
 
