@@ -341,6 +341,7 @@ export default function AccountsPage() {
   const [investmentHoldings, setInvestmentHoldings] = useState<Record<string, InvestmentHolding[]>>({});
   const [loadingHoldings, setLoadingHoldings] = useState<string | null>(null);
   const [refreshingInvestment, setRefreshingInvestment] = useState<string | null>(null);
+  const [investmentRefreshNote, setInvestmentRefreshNote] = useState<Record<string, string>>({});
   const [deletingInvestment, setDeletingInvestment] = useState<string | null>(null);
   const [investmentNotes, setInvestmentNotes] = useState<Record<string, InvestmentNote[]>>({});
   const [loadingNotes, setLoadingNotes] = useState<string | null>(null);
@@ -1385,9 +1386,18 @@ export default function AccountsPage() {
     setRefreshingInvestment(id);
     try {
       const res = await api.refreshInvestmentPrices(id);
-      setInvestmentAccounts(prev =>
-        prev.map(a => a.id === id ? { ...a, total_value: res.new_total, last_refreshed: new Date().toISOString() } : a)
-      );
+      const note =
+        res.status === "unavailable" ? "Price check unavailable right now"
+        : res.status === "skipped" ? "Prices already checked today"
+        : res.status === "failed" ? "Price check unavailable right now"
+        : "";
+      setInvestmentRefreshNote(prev => ({ ...prev, [id]: note }));
+      // Only a real update moves the account figures and the refreshed stamp.
+      if (res.status === "updated") {
+        setInvestmentAccounts(prev =>
+          prev.map(a => a.id === id ? { ...a, total_value: res.new_total, last_refreshed: new Date().toISOString() } : a)
+        );
+      }
       // Reload holdings to reflect updated prices
       const h = await api.getInvestmentHoldings(id);
       setInvestmentHoldings(prev => ({ ...prev, [id]: h }));
@@ -3676,6 +3686,13 @@ export default function AccountsPage() {
                             const hDisplayValue = h.current_value ?? h.statement_value;
                             const displayPrice = h.current_price ?? h.price_per_unit;
                             const hasLivePrice = h.current_price !== null;
+                            // G270: a dated end-of-day price, never "Live".
+                            const priceAsOf = h.price_date
+                              ? (() => {
+                                  const [y, m, d] = h.price_date.split("-").map(Number);
+                                  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                                })()
+                              : null;
                             return (
                               <div key={h.id} className="px-4 py-3">
                                 <div className="flex items-start justify-between gap-2">
@@ -3689,7 +3706,7 @@ export default function AccountsPage() {
                                     {displayPrice && (
                                       <p className="text-xs mt-0.5">
                                         <span className={hasLivePrice ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-slate-400"}>
-                                          {hasLivePrice ? "Live " : ""}<span className="font-mono tabular-nums">£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span> / unit
+                                          {hasLivePrice ? (priceAsOf ? `Price as of ${priceAsOf} ` : "Price ") : "Statement price "}<span className="font-mono tabular-nums">£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span> / unit
                                         </span>
                                       </p>
                                     )}
@@ -3701,6 +3718,12 @@ export default function AccountsPage() {
                               </div>
                             );
                           })}
+                          {investmentRefreshNote[inv.id] && (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pt-2" role="status">{investmentRefreshNote[inv.id]}</p>
+                          )}
+                          <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pb-3 pt-2">
+                            Prices are end of day and may be delayed. Your provider shows the exact value.
+                          </p>
                         </div>
                       )}
                     </div>

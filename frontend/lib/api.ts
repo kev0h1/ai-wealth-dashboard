@@ -3533,7 +3533,7 @@ export const api = {
       const b = await r.json().catch(() => ({})) as Record<string, unknown>;
       throw new Error((b?.detail as string) || `Error ${r.status}`);
     }
-    return r.json() as Promise<{ updated: number; new_total: number }>;
+    return r.json() as Promise<{ updated: number; new_total: number; status: "updated" | "skipped" | "failed" | "unavailable" }>;
   },
 
   investmentNotes: (accountId: string) =>
