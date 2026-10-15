@@ -135,15 +135,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
   },
   {
-    slug: "statement-flow",
-    name: "Upload statement flow graphic · G272",
-    description:
-      "G272: three fresh statement-flow options inside the real upload sheet. C paper to portfolio, D an annotated account example, E a step-through explainer. Earlier A/B retained for comparison. Fixture-only imports, light and dark themes · ?variant=c|d|e&mode=light|dark",
-    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "C · Paper to portfolio", value: "c" }, { label: "D · The account view", value: "d" }, { label: "E · Step through", value: "e" }],
-    group: "current",
-  },
-  {
     slug: "sync-loading",
     name: "Sync loading state · G214 · approved B, folded in",
     description:
