@@ -1,16 +1,18 @@
-# G272 statement-flow graphic, second design round
+# G272 investment statement graphic, approved C
 
-Mode: Operate with a short Read explanation. Scope: the optional explainer below the investment-statement file picker, not a new upload journey or visual identity.
+Mode: Operate with a short Read explanation. Scope: the explainer below the investment-statement file picker, not a new upload journey or visual identity. Kevin chose C, Paper to portfolio, on 15 October 2026.
 
 Kevin requested more options after rejecting the first graphics. Preserve the Calm Cockpit surfaces, Lucide family, indigo actions, existing providers, upload controls and sticky footer. Use repo-native HTML/CSS rather than a raster illustration: the small diagram needs selectable text, first-class dark mode and no image-loading cost.
 
-## Options
+## Approved production contract
 
-- C, Paper to portfolio: a statement and contract note combine into a holding, beside the daily price check. Three short steps remain readable without interaction.
-- D, The account view: a worked unit ledger makes the relationship concrete. Twelve units plus two bought gives fourteen units; daily prices change their value, not the unit count.
-- E, One step at a time: labelled tabs reveal one stage, using keyboard arrows, Home and End. No autoplay or decorative looping motion.
+- `InvestmentUpload` renders `InvestmentFlow` by default below the file picker, through the unchanged `SheetFrame`. The Accounts page needs no preview prop or query parameter to enable it.
+- The exact approved C layout is moved into `components/InvestmentFlow.tsx` and its scoped CSS: two paper documents, one holding of 14 units and the daily price-check icon, followed by the three readable steps.
+- The graphic is decorative to assistive technology. The adjacent sentence contains the complete, explicitly illustrative calculation: 12 units + 2 bought = 14 units. The ordered steps retain list semantics in Safari.
+- Keep the new-statement disclosure and the shared privacy line beneath it. Keep the existing providers, password and file controls, import action, loading/error/success handling and dismissal behaviour.
+- Both themes and the approved narrow-screen adjustment are retained. No autoplay, external image request, global token change, new status colour or Penny gradient. The unit-count typography is copied from the approved illustration, not a new app-wide number style.
 
-Examples are fictional and labelled illustrative. A/B stay available as earlier references. Default preview is C. Each is shown in the real `InvestmentUpload` through the existing optional explainer prop; no option is enabled on the product page by this round.
+The other options and temporary preview are removed at fold-in under H113. Their history remains in design-round commit `05ce610e`. No production code, marketing output, compliance pack or other open item imports the preview.
 
 ## Product truth
 
@@ -20,10 +22,10 @@ Shared copy stays in `lib/investmentFlow.ts`, also used on the investment accoun
 
 ## Safety and verification
 
-The preview injects a local uploader into the real sheet. Files are never sent, even when Import Statement is pressed. Production retains its default real API operation. Browser checks additionally abort unexpected API requests.
+Local browser verification uses the actual production-default `InvestmentUpload`, with only its uploader replaced by an inert fixture. It also compares that render with the approved C markup before the temporary route is removed. The default production operation remains `api.uploadInvestmentStatement`. All unexpected API requests are aborted during browser verification, so no selected test PDF is sent.
 
-Acceptance: C/D/E distinguish statement, notes and price checks; import remains primary; both themes at 390px; no clipping at 320px or short viewports; sticky action visible; E keyboard tabs, file/password controls, local success/loading/error and close/reopen work. Run `frontend/app/design/statement-flow/check_preview.py` against a local production build.
+Acceptance: exact C parity; import remains primary; both themes at 320px, 390px, short phone and desktop viewports; no clipping or horizontal overflow; sticky action visible; keyboard disclosure, file/password controls, local success/loading/error and close/reopen work. `npm run check:g272-investment-flow` pins the production default, canonical copy, accessible calculation and list, plus theme and focus rules without depending on a preview directory.
 
 Skills: Impeccable, manual workflow because its launcher was unavailable, followed by Web Design Guidelines and independent review. No global token or identity changes.
 
-Evidence and review results are recorded in the preview README after verification. Real iOS keyboard and device gestures remain device-QA limitations, not proven by desktop emulation.
+Local verification evidence is stored in the ignored `frontend/.impeccable/review/g272-fold/` directory and summarised on the board after checks complete. Real iOS keyboard and device gestures remain device-QA limitations, not proven by desktop emulation.

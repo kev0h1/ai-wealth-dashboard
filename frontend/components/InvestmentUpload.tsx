@@ -4,17 +4,18 @@ import { useRef, useState, type ReactNode } from "react";
 import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "lucide-react";
 import { api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
+import InvestmentFlow from "@/components/InvestmentFlow";
 
 interface InvestmentUploadProps {
   onSuccess: () => void;
   onClose: () => void;
-  /** G272: optional explainer rendered below the file picker. Omitted, the sheet is unchanged. */
+  /** Optional override for local design fixtures. Production renders approved G272 C. */
   explainer?: ReactNode;
   /** Dependency injection for fixture-only design reviews. Production keeps the real uploader. */
   uploadStatement?: typeof api.uploadInvestmentStatement;
 }
 
-export default function InvestmentUpload({ onSuccess, onClose, explainer, uploadStatement = api.uploadInvestmentStatement }: InvestmentUploadProps) {
+export default function InvestmentUpload({ onSuccess, onClose, explainer = <InvestmentFlow />, uploadStatement = api.uploadInvestmentStatement }: InvestmentUploadProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
