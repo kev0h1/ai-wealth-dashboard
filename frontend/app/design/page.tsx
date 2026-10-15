@@ -75,15 +75,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "pay-split",
-    name: "How your pay was split, beyond take-home · G269 · design round",
-    description:
-      "G269, skills: impeccable, design-taste-frontend (directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md), web-design-guidelines as the gate · when spending goes past take-home the bar is scaled to the larger of take-home and outgoings, a mark shows where take-home ends, Beyond is drawn past it and one plain sentence says where it came from (cards, savings, both, or not known) · shares are of what went out once Beyond is present, of what came in otherwise · with the saving-habit consent on, one calm paradox line · A Tail (striped, amber hairline) / B Lanes (came in above went out) / C Detached (amber-ringed continuation) · renders the production SpendShapeCard and ShapePage through props with invented fixtures · ?variant=current|a|b|c&fixture=under|at|beyond&surface=card|page&source=cards|savings|both|unknown&consent=on|off&mode=light|dark&chrome=0 (hides the switcher, used for screenshots)",
-    states: [{ label: "Beyond", value: "beyond" }, { label: "At take-home", value: "at" }, { label: "Under", value: "under" }],
-    variants: [{ label: "A · Tail", value: "a" }, { label: "B · Lanes", value: "b" }, { label: "C · Detached", value: "c" }],
-    group: "current",
-  },
-  {
     slug: "plan-deferral",
     name: "Ease a goal plan for one period · G228 · shipped look",
     description:
