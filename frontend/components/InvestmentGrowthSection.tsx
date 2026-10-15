@@ -11,7 +11,7 @@ import { SheetFrame } from "./SheetFrame";
  *  2026-10-15). Owns the fetch (api.getInvestmentGrowth) and the range; the
  *  card and the drill-in sheet only take props. With fewer than two valuation
  *  points there is nothing to chart, so one quiet line stands in. */
-export default function InvestmentGrowthSection({ accountId, hidden }: { accountId: string; hidden: boolean }) {
+export default function InvestmentGrowthSection({ accountId, hidden, onShownChange }: { accountId: string; hidden: boolean; onShownChange?: (shown: boolean) => void }) {
   const [range, setRange] = useState<GrowthRange>("all");
   const [growth, setGrowth] = useState<InvestmentGrowth | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -35,6 +35,14 @@ export default function InvestmentGrowthSection({ accountId, hidden }: { account
   }, [accountId]);
 
   useEffect(() => { load(range); }, [load, range]);
+
+  // The card carries the end-of-day risk line, so the host can drop its own copy.
+  const shownCb = useRef(onShownChange);
+  shownCb.current = onShownChange;
+  useEffect(() => {
+    shownCb.current?.(hasHistory === true);
+  }, [hasHistory]);
+  useEffect(() => () => shownCb.current?.(false), []);
 
   if (hasHistory === false) {
     return (

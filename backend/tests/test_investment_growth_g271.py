@@ -211,7 +211,7 @@ def test_penny_investment_growth_tool_reads_snapshots(monkeypatch):
     row = out["accounts"][0]
     assert row["account"] == "Vanguard ISA"
     assert row["value"]["raw"] == 46000.0 and row["paid_in"]["raw"] == 40000.0
-    assert row["growth"]["raw"] == 6000.0 and row["growth_pct"] == 15.0
+    assert row["growth"]["raw"] == 6000.0 and row["growth_pct"] == {"raw": 15.0, "formatted": "+15.00%"}
     assert row["as_of"] == "2026-10-13"
     assert "Capital at risk" in out["capital_at_risk"]
     assert "not a guide to future returns" in out["capital_at_risk"]

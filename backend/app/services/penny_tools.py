@@ -3635,7 +3635,10 @@ async def _exec_get_investment_growth(uid: str, account) -> dict:
                 "value": _money(g["value"], 2),
                 "paid_in": _money(g["paid_in"], 2),
                 "growth": _money(g["growth_abs"], 2),
-                "growth_pct": g.get("growth_pct"),
+                "growth_pct": (
+                    {"raw": g["growth_pct"], "formatted": f'{g["growth_pct"]:+.2f}%'.replace("-", "−")}
+                    if g.get("growth_pct") is not None else None
+                ),
                 "since": g.get("since"),
                 "as_of": g.get("as_of"),
                 "method": g.get("method_label"),

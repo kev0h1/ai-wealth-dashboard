@@ -339,6 +339,11 @@ export default function AccountsPage() {
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
   const [showInvestmentUpload, setShowInvestmentUpload] = useState(false);
   const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
+  // G271: accounts whose growth card (with its own risk lines) is on screen.
+  const [growthShown, setGrowthShown] = useState<Record<string, boolean>>({});
+  const setGrowthShownFor = useCallback((id: string, shown: boolean) => {
+    setGrowthShown(prev => (prev[id] === shown ? prev : { ...prev, [id]: shown }));
+  }, []);
   const [investmentHoldings, setInvestmentHoldings] = useState<Record<string, InvestmentHolding[]>>({});
   const [loadingHoldings, setLoadingHoldings] = useState<string | null>(null);
   const [refreshingInvestment, setRefreshingInvestment] = useState<string | null>(null);
@@ -3723,14 +3728,14 @@ export default function AccountsPage() {
                             <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pt-2" role="status">{investmentRefreshNote[inv.id]}</p>
                           )}
                           <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pb-3 pt-2">
-                            Prices are end of day and may be delayed. Your provider shows the exact value.
+                            {growthShown[inv.id] ? "" : "Prices are end of day and may be delayed. "}Your provider shows the exact value.
                           </p>
                         </div>
                       )}
 
                       {/* G271 C (Kevin 2026-10-15): value against money paid in. */}
                       {!isLoadingH && holdings.length > 0 ? (
-                        <InvestmentGrowthSection accountId={inv.id} hidden={hideNetWorth} />
+                        <InvestmentGrowthSection accountId={inv.id} hidden={hideNetWorth} onShownChange={(shown) => setGrowthShownFor(inv.id, shown)} />
                       ) : null}
                     </div>
                   )}

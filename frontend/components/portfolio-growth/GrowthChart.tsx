@@ -79,10 +79,8 @@ export default function GrowthChart({
             <line x1="0" x2={W} y1={height - 0.5} y2={height - 0.5} className="stroke-slate-200 dark:stroke-slate-700" strokeWidth="1" />
             <path d={linePath(geo.xs, geo.paidYs)} fill="none" className="stroke-slate-400 dark:stroke-slate-500" strokeWidth="1.5" strokeDasharray="4 4" strokeLinejoin="round" />
             <path d={linePath(geo.xs, geo.ys)} fill="none" className="stroke-indigo-600 dark:stroke-indigo-400" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-            <>
-                <text x={W} y={geo.ys[last] + (valueAbove ? -8 : 15)} textAnchor="end" className="fill-indigo-700 stroke-white text-[10px] font-semibold dark:fill-indigo-300 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Value</text>
-                <text x={W} y={geo.paidYs[last] + (valueAbove ? 15 : -8)} textAnchor="end" className="fill-slate-600 stroke-white text-[10px] font-semibold dark:fill-slate-400 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Paid in</text>
-            </>
+            <text x={W} y={geo.ys[last] + (valueAbove ? -8 : 15)} textAnchor="end" className="fill-indigo-700 stroke-white text-[10px] font-semibold dark:fill-indigo-300 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Value</text>
+            <text x={W} y={geo.paidYs[last] + (valueAbove ? 15 : -8)} textAnchor="end" className="fill-slate-600 stroke-white text-[10px] font-semibold dark:fill-slate-400 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Paid in</text>
             {sel && idx !== null ? (
               <>
                 <line x1={geo.xs[idx]} x2={geo.xs[idx]} y1="0" y2={height} className="stroke-slate-300 dark:stroke-slate-600" strokeWidth="1" />
