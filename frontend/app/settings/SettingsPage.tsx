@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   RotateCcw,
   LogOut,
@@ -10,19 +9,11 @@ import {
   Bell,
   BellOff,
   ChevronRight,
-  Moon,
-  Landmark,
-  ShieldCheck,
-  Database,
   UserRound,
-  HelpCircle,
-  AlertTriangle,
-  KeyRound,
 } from "lucide-react";
-import PennyMark from "@/components/PennyMark";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection } from "@/lib/api";
+import { api, NotificationPrefs, Account, IdentitiesResponse } from "@/lib/api";
 import type { CompanionItem, AccountEligibility } from "@/lib/api";
 import ConnectedAssistantsCard, { ConnectionsState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
@@ -44,58 +35,37 @@ import Toggle from "@/components/Toggle";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import CoverPlanSourcesCard, { type LiveCoverRoute } from "@/components/CoverPlanSourcesCard";
 import { createSerialQueue } from "@/lib/serialQueue";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { clearOnboarded } from "@/lib/onboardingGate";
+import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
+import { SettingsDirectory, resolveSettingsSection, type SettingsSection } from "@/components/settings/SettingsDirectory";
+import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "@/lib/settingsNavigation";
 
-const INDIGO = "#4f46e5";
-const EMERALD = "#10b981";
-const AMBER = "#f59e0b";
-const RED = "#ef4444";
-
-const SECTION_ACCOUNTS = "settings-accounts";
-const SECTION_SECURITY = "settings-security";
-
-function jumpTo(id: string) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
-}
-
-// ~15%-alpha tinted icon chip — the Category Voice Rule (DESIGN.md): colour
-// as a tinted chip + full-strength icon, never a flooded surface.
-function IconChip({ icon: Icon, hex }: { icon: LucideIcon | typeof PennyMark; hex: string }) {
-  return (
-    <span
-      className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-      style={{ background: `${hex}26` }}
-      aria-hidden="true"
-    >
-      <Icon size={16} style={{ color: hex }} />
-    </span>
-  );
-}
-
-function SectionHeader({
-  icon,
-  hex,
-  title,
-  subtitle,
-}: {
-  icon: LucideIcon | typeof PennyMark;
-  hex: string;
-  title: string;
-  subtitle?: string;
+// D keeps orientation on the canvas; only related controls share a surface.
+function SettingsGroup({ visible, title, intro, children, surface = true }: {
+  visible: boolean; title: string; intro?: string; children: ReactNode; surface?: boolean;
 }) {
-  return (
-    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-start gap-2.5">
-      <IconChip icon={icon} hex={hex} />
-      <div className="min-w-0 pt-0.5">
-        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{title}</p>
-        {subtitle && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
-      </div>
-    </div>
-  );
+  return <section hidden={!visible} className={visible ? "mt-8" : "hidden"}>
+    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+    {intro && <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">{intro}</p>}
+    <div className={surface ? "glass-card mt-3 overflow-hidden rounded-2xl" : "mt-3"}>{children}</div>
+  </section>;
+}
+
+// Only mounted on the deletion page: leaving it clears typed confirmation
+// without an effect-driven render or retaining an armed destructive button.
+function DeleteConfirmation({ deleting, error, onDelete }: {
+  deleting: boolean; error: string | null; onDelete: (confirmation: string) => Promise<void>;
+}) {
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [attempted, setAttempted] = useState(false);
+  return <>
+    <label htmlFor="settings-delete-confirm" className="sr-only">Type DELETE to confirm</label>
+    <input id="settings-delete-confirm" name="delete-confirmation" autoComplete="off" spellCheck={false} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)} autoCapitalize="characters" placeholder="DELETE" />
+    <button type="button" onClick={() => { setAttempted(true); void onDelete(deleteConfirm); }} disabled={deleteConfirm !== "DELETE" || deleting} className="mt-3 min-h-11 w-full rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition-transform hover:bg-red-700 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-40 dark:focus-visible:ring-offset-slate-900">{deleting ? "Deleting…" : "Delete my account"}</button>
+    {attempted && error && <p role="status" className="mt-2 text-xs font-medium text-slate-700 dark:text-slate-200">{error}</p>}
+  </>;
 }
 
 type CoverPlanView = {
@@ -168,12 +138,30 @@ function coverPlanView(
 
 export default function SettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, logout, clearLocalSession } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips, payPeriodConfig, setPayPeriodConfig } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [syncHistoryMsg, setSyncHistoryMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [payPeriodOpen, setPayPeriodOpen] = useState(false);
+  const [settingsSearch, setSettingsSearch] = useState("");
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const directoryHeadingRef = useRef<HTMLHeadingElement>(null);
+  const previousSectionRef = useRef<SettingsSection | null>(null);
+  const directoryScrollRef = useRef(0);
+  const activeSection = resolveSettingsSection(searchParams, MCP_CONNECTOR);
+  useEffect(() => {
+    if (activeSection) {
+      detailHeadingRef.current?.focus({ preventScroll: true });
+      window.scrollTo({ top: 0, behavior: "instant" });
+    } else if (previousSectionRef.current) {
+      directoryHeadingRef.current?.focus({ preventScroll: true });
+      window.scrollTo({ top: directoryScrollRef.current, behavior: "instant" });
+    }
+    previousSectionRef.current = activeSection;
+  }, [activeSection]);
 
   type NotifPermission = "granted" | "denied" | "default" | "unsupported" | "native";
   const [notifPermission, setNotifPermission] = useState<NotifPermission>("unsupported");
@@ -332,6 +320,7 @@ export default function SettingsPage() {
   // "Hide My Email" relay link (created via OPEN_SIGNUP), not linked from an
   // existing Google account.
   const isRelayPrimaryAccount = identities?.primary_email?.endsWith("@privaterelay.appleid.com") ?? false;
+  const identityState = settingsIdentityState(identities);
 
   async function handleLinkApple() {
     setAppleLinking(true);
@@ -380,13 +369,14 @@ export default function SettingsPage() {
   }
 
   // Account deletion
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Cover-plan source accounts
   const [coverAccounts, setCoverAccounts] = useState<Account[]>([]);
+  const [accountCount, setAccountCount] = useState<number | null>(null);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [accountsError, setAccountsError] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [coverPlan, setCoverPlan] = useState<CoverPlanView>({
     liveRoute: null,
@@ -487,7 +477,7 @@ export default function SettingsPage() {
         setCoverEligibilityStatus("error");
       });
   }, []);
-  useEffect(() => {
+  const loadSettingsAccounts = useCallback(() => {
     getAccountsCached(true).then(accs => {
       // G55: cover_source_eligible is now computed backend-side from the
       // SAME classifier companion.py's source_capacity build uses
@@ -496,11 +486,14 @@ export default function SettingsPage() {
       // had no guaranteed correspondence to the engine's own rule.
       const eligible = accs.filter(acc => acc.cover_source_eligible !== false);
       setCoverAccounts(eligible);
+      setAccountCount(accs.length);
       setAccountsLoaded(true);
     }).catch(() => {
+      setAccountsError(true);
       setAccountsLoaded(true);
     });
   }, []);
+  useEffect(() => { loadSettingsAccounts(); }, [loadSettingsAccounts]);
   useEffect(() => {
     refreshCoverPlan();
   }, [refreshCoverPlan]);
@@ -637,9 +630,10 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleDeleteAccount() {
+  async function handleDeleteAccount(deleteConfirm: string) {
     if (deleteConfirm !== "DELETE" || deleting) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       await api.deleteUserAccount();
       // Account deletion already revoked every session server-side, so a
@@ -648,7 +642,7 @@ export default function SettingsPage() {
       clearLocalSession();
     } catch {
       setDeleting(false);
-      setProfileMsg({ text: "Deletion failed, try again", ok: false });
+      setDeleteError("Could not confirm deletion. Try again.");
     }
   }
 
@@ -1062,23 +1056,6 @@ export default function SettingsPage() {
     }
   }
 
-  const deleteDialogMessage = (
-    <div className="space-y-3">
-      <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-        This permanently erases everything: bank connections, transactions, budgets, plans,
-        insights and chat history. It cannot be undone. Type{" "}
-        <span className="font-bold text-slate-700 dark:text-slate-200">DELETE</span> to confirm.
-      </p>
-      <input
-        className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 border border-red-200 dark:border-red-800 focus:outline-none focus:ring-2 focus:ring-red-500"
-        value={deleteConfirm}
-        onChange={e => setDeleteConfirm(e.target.value)}
-        placeholder="DELETE"
-        autoCapitalize="characters"
-      />
-    </div>
-  );
-
   // D7: prefer the persisted profile name (profileLoaded.name — set on load
   // and after a successful save, so it stays put while the user is
   // mid-edit in the form below) over the session name, and never fall
@@ -1091,81 +1068,94 @@ export default function SettingsPage() {
     email: user?.email,
   });
   const initials = initialsOf(settingsDisplayName) ?? "";
-  const bioLabel = bioState?.enabled ? "Face ID on" : "Face ID off";
+  const detailCopy: Record<SettingsSection, { title: string; intro: string }> = {
+    financial: { title: "Financial profile", intro: "Tax details behind your plan." },
+    cover: { title: "Cover-plan safeguards", intro: "Choose which accounts Sorted can consider for a cover plan." },
+    display: { title: "Display and privacy", intro: "Choose what you see and what Sorted highlights." },
+    notifications: { title: "Notifications", intro: "Permission, delivery and the alerts you receive." },
+    account: { title: "Your account", intro: "Your details, access and transaction history." },
+    "penny-plan": { title: "Penny and your plan", intro: "Your plan, Penny usage and what Penny may propose." },
+    assistants: { title: "Connected assistants", intro: "Choose which assistants can read your Sorted data." },
+    help: { title: "Help and information", intro: "Replay a tour or read the small print." },
+    delete: { title: "Delete account and all data", intro: "This cannot be undone." },
+  };
+  const providerCount = new Set([...(identities?.linked.map(l => l.provider) ?? []), ...(identityState.googlePrimary ? ["google"] : [])]).size;
+  const notificationBlocked = notifPermission === "denied" || nativePushStatus === "denied";
+  const notificationAllowed = notifPermission === "native" ? nativePushStatus === "granted" : notifEnabled;
+  const notificationTopicCount = notifPrefs ? Object.values(notifPrefs).filter(Boolean).length : null;
+  const accountCountLabel = accountsError ? "Could not load accounts" : accountCount === null ? "Checking…" : `${accountCount} ${accountCount === 1 ? "account" : "accounts"} connected`;
+  const planName = pennyUsage.info ? `${pennyUsage.info.tier.charAt(0).toUpperCase()}${pennyUsage.info.tier.slice(1)} plan` : pennyUsageAttempted ? "Plan unavailable" : "Checking plan…";
+  const directoryStatus = {
+    accountSummary: bioState?.supported ? `Biometric unlock ${bioState.enabled ? "on" : "off"}` : identitiesLoading ? "Checking…" : identitiesError ? "Could not load sign-in" : `${providerCount} sign-in ${providerCount === 1 ? "method" : "methods"}`,
+    financialSummary: rawPrefs === null ? "Checking…" : incomeInput ? "Income added" : "Not added",
+    notificationSummary: notificationBlocked ? "Blocked" : notifPermission === "native" && nativePushStatus === null ? "Checking…" : notifPermission === "unsupported" ? "Not supported here" : !notificationAllowed ? "Off" : notificationTopicCount === null ? "Checking…" : `${notificationTopicCount} topics on`,
+    notificationAttention: notificationBlocked,
+    planSummary: settingsPlanLabel(pennyUsage.info, pennyUsageAttempted),
+    coverSummary: accountsError ? "Could not load accounts" : !accountsLoaded ? "Checking…" : coverAccounts.length ? "Review settings" : "Connect an account",
+    payPeriodSummary: preferencesReady ? settingsPayPeriodLabel(payPeriodConfig) : "Checking…",
+    helpSummary: `${TUTORIAL_FLOWS.length} tours`,
+    assistantsVisible: MCP_CONNECTOR,
+  };
+  const IdentityHeading = activeSection ? "h2" : "h1";
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      <div className="px-4 pt-6 pb-2">
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
-      </div>
-
-      <div className="px-4 pt-4">
-        {/* ── Account identity hero ── */}
-        <div className="glass-hero rounded-3xl p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <span
-              className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-base font-bold bg-indigo-500/15 dark:bg-indigo-400/20 text-indigo-600 dark:text-indigo-300"
-              aria-hidden="true"
-            >
-              {initials || <UserRound size={20} />}
-            </span>
-            <div className="min-w-0">
-              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{settingsDisplayName || "—"}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
-            </div>
-          </div>
-
-          {(accountsLoaded || bioState?.supported) && (
-            <div className={`grid gap-2 ${accountsLoaded && bioState?.supported ? "grid-cols-2" : "grid-cols-1"}`}>
-              {accountsLoaded && (
-                <button
-                  type="button"
-                  onClick={() => jumpTo(SECTION_ACCOUNTS)}
-                  aria-label={`${coverAccounts.length} accounts connected, jump to Where money can come from`}
-                  className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Accounts</p>
-                  <p className="text-[13px] font-bold text-slate-900 dark:text-slate-100 mt-1 leading-tight">
-                    {coverAccounts.length} connected
-                  </p>
-                </button>
-              )}
-              {bioState?.supported && (
-                <button
-                  type="button"
-                  onClick={() => jumpTo(SECTION_SECURITY)}
-                  aria-label={`${bioLabel}, jump to Security`}
-                  className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Security</p>
-                  <p
-                    className="text-[13px] font-bold mt-1 leading-tight"
-                    style={{ color: bioState.enabled ? EMERALD : AMBER }}
-                  >
-                    {bioLabel}
-                  </p>
-                </button>
-              )}
-            </div>
-          )}
+    <div className="mx-auto min-h-dvh max-w-5xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] pt-6 lg:pb-12" style={{ paddingTop: "max(24px, env(safe-area-inset-top, 0px))" }}>
+      <div className={`grid gap-14 ${activeSection ? "lg:grid-cols-[400px_minmax(0,1fr)]" : "mx-auto max-w-xl"}`}>
+      <aside className={activeSection ? "hidden lg:block" : "block"} onClickCapture={() => { if (!activeSection) directoryScrollRef.current = window.scrollY; }}>
+        <IdentityHeading ref={directoryHeadingRef} tabIndex={-1} className="mb-5 text-xl font-bold text-slate-900 outline-none dark:text-slate-100">Account</IdentityHeading>
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 text-base font-bold text-indigo-600 dark:bg-indigo-400/20 dark:text-indigo-300" aria-hidden="true">{initials || <UserRound size={20} />}</span>
+          <div className="min-w-0"><p className="truncate text-base font-bold text-slate-900 dark:text-slate-100">{settingsDisplayName || "Your account"}</p><p className="truncate text-xs text-slate-500 dark:text-slate-400">{user?.email}</p></div>
         </div>
-      </div>
+        <div className="mt-3 flex flex-wrap gap-2" aria-label="Sign-in methods">
+          {identitiesLoading ? <span className="text-xs text-slate-600 dark:text-slate-400">Checking sign-in methods…</span> : identitiesError ? <span className="text-xs text-slate-600 dark:text-slate-400">Could not load sign-in methods</span> : <>{identityState.googlePrimary && <span className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300">Google: primary</span>}{appleIdentity && <span className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300">Apple: {identityState.applePrimary ? "primary" : "linked"}</span>}</>}
+        </div>
+        <div className="-ml-2 mt-1 flex flex-wrap items-center">
+          <Link href="/settings?section=penny-plan" className="inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10">{planName}<ChevronRight size={14} aria-hidden="true" /></Link>
+          <Link href="/accounts" className="inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10">{accountCountLabel}<ChevronRight size={14} aria-hidden="true" /></Link>
+          {bioState?.supported && <Link href="/settings?section=account" className="inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-indigo-300">{bioState.enabled ? "Biometric unlock on" : "Biometric unlock off"}<ChevronRight size={14} aria-hidden="true" /></Link>}
+        </div>
+        <SettingsDirectory active={activeSection} status={directoryStatus} search={settingsSearch} onSearchChange={setSettingsSearch} onPayPeriod={() => setPayPeriodOpen(true)} />
+        {preferencesSaveError?.field === "pay_period_config" && <p role="status" className="mt-3 text-xs font-medium text-slate-700 dark:text-slate-300">{preferencesSaveError.message}</p>}
+        <div className="mt-10 border-t border-slate-200 pt-2 dark:border-slate-700">
+          <button type="button" onClick={() => void logout()} className="flex min-h-11 items-center gap-2 rounded-xl px-1 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800"><LogOut size={16} aria-hidden="true" />Sign out</button>
+          <div className="mt-6 border-t border-slate-200 pt-2 dark:border-slate-700"><Link href="/settings?section=delete" className="inline-flex min-h-11 items-center rounded-xl px-1 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800">Delete account and all data</Link></div>
+        </div>
+      </aside>
 
-      <div className="px-4 pt-3 space-y-3">
+      <div className={activeSection ? "min-w-0" : "hidden"}>
+      {activeSection && <><Link href="/settings" className="-ml-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10"><ChevronRight size={18} aria-hidden="true" className="rotate-180" />Account</Link><h1 ref={detailHeadingRef} tabIndex={-1} className="mt-2 text-xl font-bold text-slate-900 outline-none dark:text-slate-100">{detailCopy[activeSection].title}</h1><p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">{detailCopy[activeSection].intro}</p></>}
+      <div>
+
+        <SettingsGroup visible={activeSection === "account"} title="Profile" intro="Used to recognise transfers and local fuel prices.">
+          <div className="space-y-3 p-4">
+            <div>
+              <label htmlFor="settings-name" className="mb-1 block text-xs text-slate-600 dark:text-slate-400">Full name</label>
+              <input id="settings-name" name="full-name" autoComplete="name" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="First Last" />
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Used to recognise transfers between your own accounts.</p>
+            </div>
+            <div>
+              <label htmlFor="settings-postcode" className="mb-1 block text-xs text-slate-600 dark:text-slate-400">Home postcode</label>
+              <input id="settings-postcode" name="postcode" autoComplete="postal-code" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" value={profilePostcode} onChange={e => setProfilePostcode(e.target.value)} placeholder="e.g. B91 2AB" />
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Used for local fuel prices.</p>
+            </div>
+            <button type="button" onClick={saveProfile} disabled={!profileDirty || profileSaving} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition-transform hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:focus-visible:ring-offset-slate-800">{profileSaving ? "Saving…" : "Save profile"}</button>
+            {profileMsg && <p role="status" className="text-xs font-medium text-slate-700 dark:text-slate-200">{profileMsg.text}</p>}
+          </div>
+        </SettingsGroup>
 
         {/* ── Sign-in methods ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={KeyRound} hex={INDIGO} title="Sign-in methods" />
+        <SettingsGroup visible={activeSection === "account"} title="Sign-in methods" intro="Choose how you sign in to Sorted.">
 
-          {/* Google — always present, this account always has one */}
+          {/* Relay-primary Apple accounts do not have a Google identity. */}
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 dark:border-slate-700">
             <div className="min-w-0">
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Google</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{user?.email}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{identitiesLoading ? "Checking…" : identitiesError ? "Could not load sign-in methods" : identityState.googlePrimary ? identities?.primary_email : "Not linked. Google cannot be linked here."}</p>
             </div>
-            <span className="flex-shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-full px-2.5 py-1">
+            {!identitiesLoading && !identitiesError && identityState.googlePrimary && <span className="flex-shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-full px-2.5 py-1">
               Primary
-            </span>
+            </span>}
           </div>
 
           {/* Apple */}
@@ -1189,7 +1179,7 @@ export default function SettingsPage() {
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">This account was created with Hide My Email. If you already use Sorted with Google, sign in with Google and link your Apple ID there to keep one account.</p>
                   )}
                 </div>
-                {appleIdentity.auto && isRelayPrimaryAccount ? (
+                {identityState.applePrimary ? (
                   <span className="flex-shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-full px-2.5 py-1">
                     Primary
                   </span>
@@ -1228,11 +1218,10 @@ export default function SettingsPage() {
               </p>
             )}
           </div>
-        </div>
+        </SettingsGroup>
 
         {/* ── Display ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={Moon} hex={INDIGO} title="Display" />
+        <SettingsGroup visible={activeSection === "display"} title="Display" intro="How Sorted looks and what it shows.">
           <div className="flex items-center justify-between px-4 py-3.5">
             <div>
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Dark Mode</p>
@@ -1315,7 +1304,7 @@ export default function SettingsPage() {
               <span>{preferencesSaveError.message}</span>
             </p>
           )}
-        </div>
+        </SettingsGroup>
 
         {/* ── Your plan (B5) ── */}
         {/* Tier, price and (once billing is live) a "Manage plan" link into
@@ -1325,7 +1314,11 @@ export default function SettingsPage() {
             allowance reads more naturally next to the tier itself. Placed
             directly above the Penny card since both are about the same
             account-level relationship (what plan, what Penny can do). */}
-        <YourPlanCard info={pennyUsage.info} error={pennyUsageError} />
+        <SettingsGroup visible={activeSection === "penny-plan"} title="Your plan" surface={false}>
+          {/* Re-run the card's existing URL auto-open when a resubscribe
+              link arrives while the plan section is already mounted. */}
+          {activeSection === "penny-plan" && <YourPlanCard key={searchParams.get("plans") === "1" ? "resubscribe" : "plan"} info={pennyUsage.info} error={pennyUsageError} />}
+        </SettingsGroup>
 
         {/* ── Penny (agent mode v1) ── */}
         {/* Consent-state row for Penny's agent mode (setting up envelopes/
@@ -1348,25 +1341,9 @@ export default function SettingsPage() {
             GET /preferences after a successful revoke so `rawPrefs` (and
             this row) flips to the off branch without a page reload.
 
-            Placement: this doesn't nest inside an existing card (no
-            existing section is both an unconditional render and a clean
-            semantic fit for "can Penny act on my behalf at all" — "Where
-            money can come from" is conditional on having eligible accounts
-            and is specifically about SOURCE accounts, a narrower and
-            different permission). A small dedicated card, same
-            glass-card/SectionHeader family as every other section here,
-            was the more honest fit than forcing this into a card about
-            something else. Icon is a plain INDIGO-tinted IconChip carrying
-            Penny's own mark (PennyMark, not the generic Wand2 lucide icon),
-            not the Penny gradient: DESIGN.md's Penny Gradient Rule reserves
-            that gradient for surfaces that give advice, and Settings isn't
-            one. That reasoning still holds, only the glyph inside the chip
-            changed (G32, 2026-09-10) so Penny's identity mark shows up here
-            too, same tint as every other row on this page. B5: Penny
-            messages usage now lives in the "Your plan" card above, not
-            here. */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={PennyMark} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
+            G201 D keeps this permission separate from plan billing and
+            cover-source permissions. Penny usage remains in Your plan. */}
+        <SettingsGroup visible={activeSection === "penny-plan"} title="Penny" intro="Penny can answer questions. Setting things up can only be switched off here when already on.">
 
           <div className="px-4 py-3.5">
             {rawPrefs?.penny_agent_consent ? (
@@ -1399,11 +1376,11 @@ export default function SettingsPage() {
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">{pennyConsentMsg}</p>
             )}
           </div>
-        </div>
+        </SettingsGroup>
 
         {/* ── Connected assistants (F4) ── A17: hidden entirely (no render,
             no fetch) unless the MCP connector is turned on. */}
-        {MCP_CONNECTOR && (
+        {MCP_CONNECTOR && activeSection === "assistants" && (
           <ConnectedAssistantsCard
             state={connectionsState}
             onDisconnect={handleDisconnectAssistant}
@@ -1416,8 +1393,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Notifications ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
+        <SettingsGroup visible={activeSection === "notifications"} title="Device permission and delivery">
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
               // No master toggle here, deliberately: on native, the OS
@@ -1540,11 +1516,10 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {notifPrefs && (
-            <div className="border-t border-slate-100 dark:border-slate-700">
-              <div className="px-4 pt-3 pb-1">
-                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notify me about</p>
-              </div>
+        </SettingsGroup>
+        <SettingsGroup visible={activeSection === "notifications"} title="Notify me about" intro={notificationBlocked ? "Your choices are saved and apply once notifications are allowed." : "These choices apply while notifications are on."}>
+          {notifPrefs ? (
+            <div>
               {([
                 { key: "insights", title: "Tips and insights notifications", desc: "Alerts about ways to save money we spot for you" },
                 { key: "category_pace", title: "Category running hot", desc: "When a category is well above your usual pace" },
@@ -1577,12 +1552,15 @@ export default function SettingsPage() {
                 </p>
               )}
             </div>
-          )}
-        </div>
+          ) : <p role="status" className="p-4 text-sm text-slate-600 dark:text-slate-400">{rawPrefs === null ? "Checking notification choices…" : "Could not load notification choices. Try reopening Settings."}</p>}
+        </SettingsGroup>
 
         {/* ── Where money can come from ── */}
-        {coverAccounts.length > 0 && (
-          <div id={SECTION_ACCOUNTS} className="scroll-mt-4">
+        {activeSection === "cover" && (accountsError || !accountsLoaded || coverAccounts.length === 0) && <div role="status" className="glass-card mt-4 rounded-2xl p-4 text-sm text-slate-600 dark:text-slate-400">
+          {accountsError ? <><p>Could not load your accounts. Try again.</p><button type="button" onClick={() => { setAccountsLoaded(false); setAccountsError(false); loadSettingsAccounts(); }} className="mt-2 min-h-11 rounded-xl px-3 font-semibold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10">Try again</button></> : !accountsLoaded ? "Checking your accounts…" : <><p>No accounts are available for cover yet.</p><Link href="/accounts" className="mt-2 inline-flex min-h-11 items-center rounded-xl px-3 font-semibold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10">View accounts</Link></>}
+        </div>}
+        {activeSection === "cover" && coverAccounts.length > 0 && (
+          <div className="scroll-mt-4">
             <CoverPlanSourcesCard
               accounts={coverAccounts}
               excludedIds={excludedIds}
@@ -1611,13 +1589,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Financial profile ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader
-            icon={Landmark}
-            hex={INDIGO}
-            title="Financial profile"
-            subtitle="Self-declared: unlocks personalised tax insights"
-          />
+        <SettingsGroup visible={activeSection === "financial"} title="Financial profile" intro="Self-declared details to personalise your tax insights.">
 
           <div className="px-4 py-3.5">
                 <label htmlFor="settings-income" className="text-sm font-medium text-slate-800 dark:text-slate-100 block mb-1">
@@ -1708,12 +1680,11 @@ export default function SettingsPage() {
               <ChevronRight size={16} />
             </button>
           )}
-        </div>
+        </SettingsGroup>
 
         {/* ── Security (app shell only) ── */}
-        {bioState?.supported && (
-          <div id={SECTION_SECURITY} className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
-            <SectionHeader icon={ShieldCheck} hex={EMERALD} title="Security" />
+        {activeSection === "account" && bioState?.supported && (
+          <SettingsGroup visible title="Security" intro="Control access to Sorted on this phone.">
             <div className="flex items-center justify-between px-4 py-3.5">
               <div>
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Biometric unlock</p>
@@ -1725,12 +1696,11 @@ export default function SettingsPage() {
                 label="Biometric login"
               />
             </div>
-          </div>
+          </SettingsGroup>
         )}
 
         {/* ── Data ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={Database} hex={INDIGO} title="Data" />
+        <SettingsGroup visible={activeSection === "account"} title="Data" intro="Manage your history and excluded payments.">
           <div className="px-4 py-3.5">
             <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Sync all history</p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-3">Re-fetch the last 90 days from all connected banks.</p>
@@ -1757,68 +1727,10 @@ export default function SettingsPage() {
             </span>
             <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
           </button>
-        </div>
-
-        {/* ── Account ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700 flex items-start gap-2.5">
-            <IconChip icon={UserRound} hex={INDIGO} />
-            <div className="min-w-0 pt-0.5">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Account</p>
-              {user?.email && <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.email}</p>}
-            </div>
-          </div>
-
-          {/* Profile — full name feeds transfer categorisation, postcode feeds fuel prices */}
-          <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700 space-y-3">
-            <div>
-              <label htmlFor="settings-name" className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
-                Full name <span className="opacity-70">(used to recognise transfers between your own accounts)</span>
-              </label>
-              <input
-                id="settings-name"
-                className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                value={profileName}
-                onChange={e => setProfileName(e.target.value)}
-                placeholder="First Last"
-              />
-            </div>
-            <div>
-              <label htmlFor="settings-postcode" className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
-                Home postcode <span className="opacity-70">(used for local fuel prices)</span>
-              </label>
-              <input
-                id="settings-postcode"
-                className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                value={profilePostcode}
-                onChange={e => setProfilePostcode(e.target.value)}
-                placeholder="e.g. B91 2AB"
-              />
-            </div>
-            {profileDirty && (
-              <button
-                onClick={saveProfile}
-                disabled={profileSaving}
-                className="w-full py-2 rounded-xl text-sm font-semibold text-white bg-indigo-600 active:scale-[0.98] transition-transform disabled:opacity-50"
-              >
-                {profileSaving ? "Saving…" : "Save profile"}
-              </button>
-            )}
-            {profileMsg && <p className={`text-xs font-medium ${profileMsg.ok ? "text-emerald-500" : "text-slate-700 dark:text-slate-200"}`}>{profileMsg.text}</p>}
-          </div>
-
-          <button
-            onClick={() => void logout()}
-            className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
-          >
-            <LogOut size={16} />
-            <span className="text-sm font-medium">Sign out</span>
-          </button>
-        </div>
+        </SettingsGroup>
 
         {/* ── How Sorted works (tutorial replay, one row per per-screen flow) ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={HelpCircle} hex={INDIGO} title="How Sorted works" subtitle="Replay any screen's tour" />
+        <SettingsGroup visible={activeSection === "help"} title="How Sorted works" intro="Replay a tour of any screen.">
           {TUTORIAL_FLOWS.map((flow, i) => (
             <button
               key={flow.id}
@@ -1835,11 +1747,10 @@ export default function SettingsPage() {
               <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
             </button>
           ))}
-        </div>
+        </SettingsGroup>
 
         {/* ── Help ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={HelpCircle} hex={INDIGO} title="Help" />
+        <SettingsGroup visible={activeSection === "help"} title="Help" intro="Read the small print.">
           <button
             type="button"
             onClick={() => router.push("/terms")}
@@ -1856,37 +1767,20 @@ export default function SettingsPage() {
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Privacy Policy</span>
             <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
           </button>
-        </div>
+        </SettingsGroup>
 
-        {/* ── Danger zone ── */}
-        <div className="glass-card rounded-2xl overflow-hidden border border-red-100 dark:border-red-900/40">
-          <div className="px-4 py-3 flex items-start gap-2.5">
-            <IconChip icon={AlertTriangle} hex={RED} />
-            <div className="min-w-0 pt-0.5">
-              <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wide mb-1">Danger zone</p>
-              <button
-                onClick={() => setDeleteOpen(true)}
-                className="min-h-[44px] px-4 py-2.5 -ml-4 text-sm font-medium text-red-500 dark:text-red-400 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 active:bg-red-100 transition-colors"
-              >
-                Delete account &amp; all data…
-              </button>
-            </div>
-          </div>
-        </div>
+        <SettingsGroup visible={activeSection === "delete"} title="What this erases" intro="This is permanent and cannot be undone." surface={false}>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-900 dark:text-slate-100"><li>Bank connections and all transactions</li><li>Budgets, plans and goals</li><li>Insights and chat history with Penny</li></ul>
+        </SettingsGroup>
+        <SettingsGroup visible={activeSection === "delete"} title="Confirm" intro="Type DELETE to confirm." surface={false}>
+          {activeSection === "delete" && <DeleteConfirmation deleting={deleting} error={deleteError} onDelete={handleDeleteAccount} />}
+        </SettingsGroup>
 
       </div>
+      </div>
+      </div>
 
-      {/* Delete account confirmation dialog */}
-      <ConfirmDialog
-        open={deleteOpen}
-        title="Delete everything?"
-        message={deleteDialogMessage}
-        confirmLabel="Delete my account"
-        destructive
-        confirmDisabled={deleteConfirm !== "DELETE"}
-        onConfirm={handleDeleteAccount}
-        onCancel={() => { setDeleteOpen(false); setDeleteConfirm(""); }}
-      />
+      {payPeriodOpen && <PayPeriodSettingsSheet current={payPeriodConfig} onClose={() => setPayPeriodOpen(false)} onSave={(config) => { setPayPeriodConfig(config); setPayPeriodOpen(false); }} />}
 
       {/* Unlink Apple ID confirmation dialog */}
       <ConfirmDialog

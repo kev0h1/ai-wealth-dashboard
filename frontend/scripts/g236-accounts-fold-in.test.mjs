@@ -63,7 +63,7 @@ assert.ok(page.includes("preferencesReady") && /hideNetWorthPref \|\| !preferenc
 // 4. Settings.
 {
   const s = read("../app/settings/SettingsPage.tsx");
-  const display = s.slice(s.indexOf('title="Display"'), s.indexOf("{/* ── Your plan"));
+  const display = s.slice(s.indexOf('<SettingsGroup visible={activeSection === "display"}'), s.indexOf("{/* ── Your plan"));
   assert.ok(display.includes("Hide balances") && display.includes("Mask balances across the app until you choose to show them."), "Hide balances row in Display");
   assert.ok(/checked=\{hideNetWorth\}[\s\S]{0,120}setHideNetWorth\(!hideNetWorth\)/.test(display), "bound to hideNetWorth / setHideNetWorth");
   assert.ok(display.includes('preferencesSaveError?.field === "hide_net_worth"'), "save-error line");
