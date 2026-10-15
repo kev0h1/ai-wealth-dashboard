@@ -1,0 +1,10 @@
+.permissions button[role="switch"] {
+  /* SheetFrame's general button target rule must not distort Toggle's track. */
+  min-height: 24px !important;
+}
+
+.permissions button[role="switch"]::after {
+  content: "";
+  position: absolute;
+  inset: -10px 0;
+}

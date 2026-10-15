@@ -190,7 +190,7 @@ export function Rules() {
         accounts as it can.
       </p>
       <p>
-        Every account keeps <MoneyText text="£10" />, and its own bills and set-asides stay protected.
+        Suggestions leave a <MoneyText text="£10" /> buffer after the account&rsquo;s own bills and plans.
       </p>
       <p>A manual account follows the same rules in its own group. You would make that transfer yourself.</p>
     </div>
@@ -221,6 +221,8 @@ export function AccountRow({
   showBalance,
   hideAmounts,
   onToggle,
+  availability,
+  disabled = false,
 }: {
   account: Account;
   allowed: boolean;
@@ -228,6 +230,9 @@ export function AccountRow({
   showBalance: boolean;
   hideAmounts: boolean;
   onToggle: (id: string) => void;
+  /** A neutral present-availability note owned by the preview direction. */
+  availability?: ReactNode;
+  disabled?: boolean;
 }) {
   const name = displayName(account.name);
   return (
@@ -239,8 +244,9 @@ export function AccountRow({
         </span>
         <span className={`block text-[12px] leading-snug ${SECONDARY}`}>
           {account.manual ? "You move this yourself" : account.provider}
-          {!allowed ? " · Turned off by you" : ""}
+          {` · ${allowed ? "Allowed for cover" : "Excluded from cover"}`}
         </span>
+        {availability}
         {reason && <span className={`block text-[12px] leading-snug ${SECONDARY}`}>{unusableCopy(reason)}</span>}
       </span>
       {showBalance && (
@@ -252,6 +258,7 @@ export function AccountRow({
         checked={allowed}
         onChange={() => onToggle(account.id)}
         label={`${allowed ? "Turn off" : "Allow"} ${name} as a cover source`}
+        disabled={disabled}
       />
     </li>
   );

@@ -73,7 +73,7 @@ export function PermissionSlip(props: CoverSafeguardsProps) {
             )}
           </div>
 
-          <Disclosure title="Current accounts first, £10 kept in each" detail="How Sorted picks, in plain words">
+          <Disclosure title="Current accounts first, with a £10 buffer" detail="How Sorted picks, in plain words">
             <Rules />
           </Disclosure>
 
@@ -192,7 +192,7 @@ export function CoverRoute(props: CoverSafeguardsProps) {
             <ShieldCheck aria-hidden="true" size={20} className="text-slate-600 dark:text-slate-300" />
             <div>
               <h3 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">
-                £10 stays in every account
+                Suggestions leave a £10 buffer
               </h3>
               <p className={`mt-1 text-[13px] leading-snug ${SECONDARY}`}>
                 Its own bills and set-asides stay protected. Within each step, the account with the most to spare
