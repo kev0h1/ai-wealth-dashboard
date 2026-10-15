@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
+import { DateField } from "@/components/DatePicker";
 import { ANCHOR_USER_NOTE, parseMoneyInput, parsePercentInput, type GrowthAnchor, type InvestmentGrowth } from "@/lib/investmentGrowth";
 import { ink, label, whisper } from "./Parts";
 
@@ -90,8 +91,8 @@ export default function AnchorSheet({ accountId, provider, anchor, todayIso, hid
     >
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void save(); }} noValidate>
         <div>
-          <label htmlFor="anchor-date" className={label}>Date shown</label>
-          <input id="anchor-date" type="date" max={todayIso} value={date} onChange={(e) => setDate(e.target.value)} className={field} />
+          <p className={label}>Date shown</p>
+          <DateField mode="day" label="Date shown" max={todayIso} value={date} onChange={setDate} required className="mt-1" />
         </div>
         <div>
           <label htmlFor="anchor-value" className={label}>Account value</label>
