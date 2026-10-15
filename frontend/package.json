@@ -24,6 +24,7 @@
     "check:g251-penny-table": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g251-penny-table.test.mjs",
     "check:g248-penny-session": "node --no-warnings --experimental-strip-types scripts/g248-penny-session.test.mjs",
     "check:g189-show-tips": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g189-show-tips.test.mjs",
+    "check:g201-settings-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g201-settings-directory.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:design-stale": "node scripts/check-design-stale.mjs --strict",
     "check:design-stale-detect": "node scripts/design-stale-detect.test.mjs",

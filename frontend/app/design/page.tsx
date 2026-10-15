@@ -178,14 +178,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "settings-overhaul",
-    name: "Settings overhaul · G201",
-    description:
-      "Fresh G201 round: D Task directory, E Quick preferences and deeper tasks, F Expandable task chapters. Complete current Settings inventory, focused drill-ins, G200 cover destination and isolated sign out/delete. Production controls through inert props where injectable, inline blocks represented honestly as local fixtures. Earlier A/B/C retained for reference. No real saves, auth or deletion · ?variant=d|e|f&page=hub|money|financial|cover|display|notifications|account|penny-plan|assistants|help|delete&state=ready|attention|blocked|relay|empty&mode=light|dark",
-    states: [{ label: "Ready", value: "ready" }, { label: "Device needs registering", value: "attention" }, { label: "Permission blocked", value: "blocked" }, { label: "Apple relay account", value: "relay" }, { label: "New account, web", value: "empty" }],
-    variants: [{ label: "D · Task directory", value: "d" }, { label: "E · Quick preferences", value: "e" }, { label: "F · Task chapters", value: "f" }, { label: "A · Earlier directory", value: "a" }, { label: "B · Earlier five jobs", value: "b" }, { label: "C · Earlier quick adjustments", value: "c" }],
-  },
-  {
     slug: "signin-handoff",
     name: "Sign-in hand-off page · G199 · approved B, folded in",
     description:

@@ -1,5 +1,7 @@
 # G201 fresh Settings round
 
+> **Historical status, 2026-10-15:** This preview/query round is closed and retained for historical context only. Kevin approved D and the production fold-in is documented in [G201-production.md](G201-production.md). The old preview and its index entry were removed under H113. Do not treat this document's fixture queries or stand-ins as production behaviour or current QA evidence.
+
 ## Factual brief, pending direction
 
 The external Astra request was waived by Kevin on 2026-10-15. The helper and launcher were unavailable (permission denied), so these directions are a local code-led review against the incumbent system. This is a navigation round inside the Calm Cockpit world, not a visual-identity reset.
