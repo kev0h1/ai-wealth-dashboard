@@ -223,6 +223,8 @@ async def refresh_instrument(key: str, sources: list[PriceSource] | None = None,
     if not usable:
         return "unavailable"
     last = doc.get("price")
+    if doc.get("source") in ("legacy", "migrated"):
+        last = None  # a seed is not a real quote: the first real one replaces it, the bound applies after
     for src in usable:
         try:
             quote = await src.fetch(doc)

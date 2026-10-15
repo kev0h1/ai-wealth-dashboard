@@ -312,3 +312,13 @@ def test_london_date_conversion_in_migration(cols):
     holdings.docs["h1"].update(current_price=9.0, last_refreshed=datetime(2026, 7, 1, 23, 30))  # naive UTC, BST
     run(mig.migrate(holdings, inst, apply=True))
     assert inst.docs[ISIN]["price_date"] == "2026-07-02"
+
+
+def test_bound_not_applied_against_seeded_price(cols):
+    inst, *_ = cols
+    _old(inst, 12.5)
+    inst.docs[ISIN]["source"] = "legacy"
+    assert run(ip.refresh_instrument(ISIN, [_Src(price=1250.0)])) == "fetched"
+    assert inst.docs[ISIN]["price"] == 1250.0 and inst.docs[ISIN]["source"] == "fake"
+    inst.docs[ISIN]["fetched_at"] = inst.docs[ISIN]["last_attempt_at"] = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+    assert run(ip.refresh_instrument(ISIN, [_Src(price=2500.0)])) == "failed"  # bound applies now
