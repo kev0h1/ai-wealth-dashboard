@@ -55,7 +55,9 @@ def test_bucket_period_splits_income_fixed_free_moved_left():
         # excluded from fixed/free just like Debt/Transfer everywhere else
         txn("t9", 50.0, "Transfer", "2026-07-25", account_id="savings1"),
     ]
-    b = bucket_period(txns, KINDS, SAVING_IDS, start, end)
+    # G268: t6 is a card repayment (evidence supplied); a Debt row without
+    # evidence would be a loan repayment and count as Fixed.
+    b = bucket_period(txns, KINDS, SAVING_IDS, start, end, card_repayment_ids={"t6"})
     assert b["take_home"] == 2000.0
     assert b["fixed"] == 800.0
     assert b["free"] == 150.0
@@ -636,3 +638,13 @@ def test_router_has_no_horizon_param_and_returns_cached_blob_verbatim():
         money_shape_router.get_money_shape_cached = original
 
     assert result == {"status": "ok", "fake_marker": "kevin"}
+
+
+def test_g268_debt_loan_repayment_without_card_evidence_counts_as_fixed():
+    start, end = date(2026, 7, 1), date(2026, 7, 31)
+    txns = [
+        txn("t1", 2000.0, "Income", "2026-07-01", is_debit=False),
+        txn("t6", 200.0, "Debt", "2026-07-05"),
+    ]
+    b = bucket_period(txns, KINDS, SAVING_IDS, start, end)
+    assert b["fixed"] == 200.0
