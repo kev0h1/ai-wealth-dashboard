@@ -122,6 +122,7 @@ _MAX_DISPLAY_NAME = 60
 _MAX_MATCH_VALUE = 120
 _FILL_CANDIDATES_WINDOW_DAYS = 90
 _MATCH_TYPES = {"description_equals", "description_contains"}
+_TRACKING_MODES = {"existing_payment", "manual"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -217,6 +218,14 @@ def _validate_recurrence(raw) -> str:
     if val not in _RECURRENCES:
         raise HTTPException(400, "recurrence must be 'every_period' or 'once'")
     return val
+
+
+def _tracking_mode(raw) -> str:
+    """An absent legacy key is the original payment-tracked allocation."""
+    mode = "existing_payment" if raw is None else str(raw).strip()
+    if mode not in _TRACKING_MODES:
+        raise HTTPException(400, "tracking_mode must be existing_payment or manual")
+    return mode
 
 
 def _is_completed(doc: dict) -> bool:
@@ -325,6 +334,7 @@ def _period_override_pence(doc: dict, period_end: date) -> int | None:
 async def _serialise(doc: dict, start: date, end: date) -> dict:
     amount = float(doc.get("amount_per_period") or 0)
     recurrence = doc.get("recurrence", "every_period")
+    tracking_mode = _tracking_mode(doc.get("tracking_mode"))
 
     # "once" allocations use their OWN fixed boundary (persisted at create
     # time), never the caller's current-period start/end — that's the whole
@@ -358,7 +368,7 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
     # `filled_this_period` is always computed truthfully, completed or not —
     # only `remaining` is forced to 0 for completed/pending allocations (the
     # double-count guard: see module docstring).
-    filled = await filled_this_period(
+    filled = 0.0 if tracking_mode == "manual" else await filled_this_period(
         doc["user_id"], doc["fill_account_id"],
         doc.get("match_type"), doc.get("match_value", ""),
         window_start, window_end,
@@ -372,6 +382,7 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         "id":                  str(doc["_id"]),
         "name":                doc.get("name"),
         "amount_per_period":   amount,
+        "tracking_mode":       tracking_mode,
         # G217: what THIS pay period asks for. Equals amount_per_period unless
         # the user reduced this period only (period_override, in pounds).
         "period_amount":       period_amount,
@@ -492,6 +503,25 @@ async def list_account_plans(user: dict = Depends(current_user)):
 
     for doc in allocation_docs:
         serial = await _serialise(doc, start, end)
+        if _tracking_mode(doc.get("tracking_mode")) == "manual":
+            source_id, basis = chosen_source(doc, account_map, set())
+            items.append({
+                "id": f"allocation:{doc['_id']}",
+                "record_id": str(doc["_id"]),
+                "kind": "allocation",
+                "name": doc.get("name"),
+                "destination": "Kept in paying account",
+                "destination_account_ids": [],
+                "source_account_id": source_id,
+                "source_basis": basis,
+                "inferred": False,
+                "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
+                "period_amount": serial.get("period_amount", serial["amount_per_period"]),
+                "filled_amount": 0.0,
+                "remaining": serial["remaining"],
+                "active": bool(serial["active"]) and not serial["completed"] and not serial["pending"],
+            })
+            continue
         destination_id = str(doc.get("fill_account_id") or "")
         source_id, basis = chosen_source(doc, account_map, {destination_id})
         if basis == "legacy":
@@ -663,26 +693,48 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
     uid = user["email"]
     name = _validate_name(body.get("name"))
     amount = _validate_amount(body.get("amount_per_period"))
+    tracking_mode = _tracking_mode(body.get("tracking_mode"))
+    recurrence = _validate_recurrence(body.get("recurrence"))
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    effective_from = _validate_effective_from(body.get("effective_from"), start)
+    if tracking_mode == "manual":
+        sources = await owned_account_map(uid)
+        source_id = validate_source_account(body.get("source_account_id"), sources, set())
+        if source_id is None:
+            raise HTTPException(400, "source_account_id required for manual tracking")
+        doc = {
+            "user_id": uid, "name": name, "amount_per_period": amount,
+            "tracking_mode": "manual", "fill_account_id": "",
+            "match_type": "description_contains", "match_value": "", "fill_display_name": "",
+            "source_account_id": source_id,
+            "effective_from": datetime(effective_from.year, effective_from.month, effective_from.day),
+            "recurrence": recurrence, "active": True, "created_at": datetime.now(timezone.utc),  # naive-ok: persisted UTC audit timestamp, not a calendar reading
+        }
+        if recurrence == "once":
+            doc["created_period_start"] = datetime(start.year, start.month, start.day)
+            doc["created_period_end"] = datetime(end.year, end.month, end.day, 23, 59, 59)
+        result = await allocations_col.insert_one(doc)
+        doc["_id"] = result.inserted_id
+        await response_cache.ainvalidate(uid)
+        return await _serialise(doc, start, end)
+
     fill_account_id = str(body.get("fill_account_id") or "").strip()
     if not fill_account_id:
         raise HTTPException(400, "fill_account_id required")
     match_type = _validate_match_type(body.get("match_type"))
     match_value = _validate_match_value(body.get("match_value"))
     fill_display_name = _validate_display_name(body.get("fill_display_name"), match_value)
-    recurrence = _validate_recurrence(body.get("recurrence"))
     if not await _account_owned(uid, fill_account_id):
         raise HTTPException(400, "fill account not found")
     if await _conflicts(uid, fill_account_id, match_type, match_value):
         raise HTTPException(400, "an active allocation already fills from this payment")
 
-    cfg = await _pay_cfg(uid)
-    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
-    effective_from = _validate_effective_from(body.get("effective_from"), start)
-
     doc = {
         "user_id":            uid,
         "name":               name,
         "amount_per_period":  amount,
+        "tracking_mode":      "existing_payment",
         "fill_account_id":    fill_account_id,
         "match_type":         match_type,
         "match_value":        match_value,
@@ -719,8 +771,10 @@ async def update_allocation(
 ):
     uid = user["email"]
     doc = await _get_owned(uid, allocation_id)
+    current_mode = _tracking_mode(doc.get("tracking_mode"))
+    target_mode = _tracking_mode(body.get("tracking_mode", current_mode))
     update_filter = {"_id": doc["_id"], "user_id": uid}
-    if "source_account_id" in body or "fill_account_id" in body:
+    if target_mode == "manual" or "source_account_id" in body or "fill_account_id" in body:
         update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id"))
 
     updates: dict = {}
@@ -728,27 +782,43 @@ async def update_allocation(
         updates["name"] = _validate_name(body.get("name"))
     if "amount_per_period" in body:
         updates["amount_per_period"] = _validate_amount(body.get("amount_per_period"))
-    if "fill_account_id" in body:
+    if target_mode == "manual":
+        # A source-only reserve cannot retain a stale payment rule or a fake
+        # destination. Revalidate its source on every manual-mode write.
+        sources = await owned_account_map(uid)
+        source_id = validate_source_account(
+            body.get("source_account_id", doc.get("source_account_id")), sources, set(),
+        )
+        if source_id is None:
+            raise HTTPException(400, "source_account_id required for manual tracking")
+        updates.update({
+            "tracking_mode": "manual", "fill_account_id": "",
+            "match_type": "description_contains", "match_value": "", "fill_display_name": "",
+            "source_account_id": source_id,
+        })
+    elif "tracking_mode" in body:
+        updates["tracking_mode"] = "existing_payment"
+    if target_mode == "existing_payment" and "fill_account_id" in body:
         fid = str(body.get("fill_account_id") or "").strip()
         if not fid:
             raise HTTPException(400, "fill_account_id required")
         if not await _account_owned(uid, fid):
             raise HTTPException(400, "fill account not found")
         updates["fill_account_id"] = fid
-    if "source_account_id" in body:
+    if target_mode == "existing_payment" and "source_account_id" in body:
         sources = await owned_account_map(uid)
         destination = str(updates.get("fill_account_id", doc.get("fill_account_id")) or "")
         updates["source_account_id"] = validate_source_account(
             body.get("source_account_id"), sources, {destination},
         )
-    elif "fill_account_id" in updates and doc.get("source_account_id") == updates["fill_account_id"]:
+    elif target_mode == "existing_payment" and "fill_account_id" in updates and doc.get("source_account_id") == updates["fill_account_id"]:
         # Keep the persisted invariant when a destination is re-linked.
         updates["source_account_id"] = None
-    if "match_type" in body:
+    if target_mode == "existing_payment" and "match_type" in body:
         updates["match_type"] = _validate_match_type(body.get("match_type"))
-    if "match_value" in body:
+    if target_mode == "existing_payment" and "match_value" in body:
         updates["match_value"] = _validate_match_value(body.get("match_value"))
-    if "fill_display_name" in body:
+    if target_mode == "existing_payment" and "fill_display_name" in body:
         fallback = updates.get("match_value", doc.get("match_value", ""))
         updates["fill_display_name"] = _validate_display_name(body.get("fill_display_name"), fallback)
     if "effective_from" in body:
@@ -776,6 +846,20 @@ async def update_allocation(
     if not updates:
         raise HTTPException(400, "no recognised fields to update")
 
+    if target_mode == "existing_payment":
+        # A manual record deliberately has blank payment-tracking fields.
+        # Switching back therefore requires a complete valid rule in this
+        # request rather than allowing a stale or fabricated matcher.
+        eff_fill = updates.get("fill_account_id", doc.get("fill_account_id"))
+        eff_type = updates.get("match_type", doc.get("match_type"))
+        eff_value = updates.get("match_value", doc.get("match_value"))
+        if not eff_fill:
+            raise HTTPException(400, "fill_account_id required for existing_payment tracking")
+        if not await _account_owned(uid, eff_fill):
+            raise HTTPException(400, "fill account not found")
+        _validate_match_type(eff_type)
+        _validate_match_value(eff_value)
+
     # Re-check the one-active-allocation-per-rule rule whenever the
     # effective (fill_account_id, match_type, match_value, active,
     # recurrence) tuple changes — covers re-linking to a rule another active
@@ -787,7 +871,7 @@ async def update_allocation(
     eff_match_type  = updates.get("match_type", doc.get("match_type"))
     eff_match_value = updates.get("match_value", doc.get("match_value"))
     eff_active      = updates.get("active", doc.get("active", True))
-    if eff_active and (
+    if target_mode == "existing_payment" and eff_active and (
         "fill_account_id" in updates or "match_type" in updates or "match_value" in updates
         or "active" in updates or "recurrence" in updates
     ):

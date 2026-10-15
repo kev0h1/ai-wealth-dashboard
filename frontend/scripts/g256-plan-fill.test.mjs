@@ -1,6 +1,7 @@
 // G256 (2026-10-11): a goal plan's fill rule. Pins that the Edit plan sheet REUSES
 // the set-aside rule picker (no fork), the prefilled "Suggested from your transfers"
-// label, the fulfilled / partial row copy, and that nothing is applied for the user.
+// label, the fulfilled / partial row copy, and that nothing is saved before
+// final confirmation (G267 A now stages the suggested rule in the summary).
 //
 // Run: npm run -s check:g256-plan-fill
 import assert from "node:assert/strict";
@@ -24,14 +25,20 @@ for (const own of ["Exactly this", "Contains this", "Type it in myself", "Pick f
 }
 assert.match(fields, /Which payment fills it\?/, "the set-aside heading is unchanged");
 
-// 2. Suggestion label, prefilled but never applied.
+// 2. Suggestion is staged for final confirmation, never auto-saved.
 assert.match(sheet, /note=\{suggestedActive \? "Suggested from your transfers" : undefined\}/, "label shown only while the suggestion is untouched");
-assert.ok(!/useEffect\([^]*?setRule\(\(cur\)/.test(sheet), "suggestion is never prefilled into the rule");
-assert.match(sheet, /suggestedName=\{suggestedActive/, "suggestion is tagged, not selected");
-assert.match(sheet, /Nothing is saved until you do\./, "suggestion states it is not saved");
-assert.match(sheet, /if \(ruleTouched \|\| \(sourceTouched && !sourceId\)\) body\.fill_rule = ruleBody/, "edit sends a rule only when touched");
-assert.match(sheet, /\.\.\.\(ruleTouched \? \{ fill_rule: ruleBody \} : \{\}\)/, "create sends a rule only when touched");
+assert.match(sheet, /setRule\(\{ \.\.\.result\.suggestion,/, "suggestion is staged in the summary");
+assert.match(sheet, /suggestedName=\{suggestedActive/, "suggestion retains its label in the picker");
+assert.match(sheet, /Saving the plan confirms the displayed rule\./, "save explicitly confirms the staged rule");
+assert.match(sheet, /if \(ruleTouched \|\| suggestedActive \|\| \(sourceTouched && !sourceId\)\) body\.fill_rule = ruleBody/, "final edit sends touched or confirmed suggestion");
+assert.match(sheet, /\.\.\.\(ruleTouched \|\| suggestedActive \? \{ fill_rule: ruleBody \} : \{\}\)/, "final create sends touched or confirmed suggestion");
+assert.match(sheet, /if \(stale\) return/, "late suggestions cannot overwrite a changed route");
+assert.match(sheet, /function togglePot\([^)]*\)\s*\{[^]*?setRule\(EMPTY_RULE\)/, "changing destination clears the old matching rule");
+assert.match(sheet, /setPots\(\[\]\); setSuggestion\(null\); setRule\(EMPTY_RULE\); setRuleTouched\(true\)/, "removing the sink clears its rule and saves the clear");
 assert.ok(!/useEffect\([^)]*updateCommitment/.test(sheet), "no auto-save of the suggestion");
+const setAside = read("../components/SetAsideSheet.tsx");
+assert.match(setAside, /key=\{view === "main" \? "confirm" : "keep-draft"\}/, "keep and confirm cannot reuse a mutable submit button");
+assert.match(setAside, /event\.preventDefault\(\); backToMain\(\)/, "keeping a draft cancels the click default before returning to main");
 const noop = () => {};
 const html = renderToStaticMarkup(React.createElement(FillRulePicker, {
   accountId: "current", value: { match_type: "description_contains", match_value: "Japan pot", fill_display_name: "Japan pot" },
