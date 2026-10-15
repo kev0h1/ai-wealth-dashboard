@@ -1,3 +1,4 @@
+import type { GrowthRange, InvestmentGrowth } from "@/lib/investmentGrowth";
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
 import { isAppLocked } from "./appLock";
@@ -3513,6 +3514,9 @@ export const api = {
     }
     return r.json() as Promise<{ account_id: string; provider: string; account_type: string; total_value: number; holdings_count: number }>;
   },
+
+  getInvestmentGrowth: (id: string, range: GrowthRange = "all") =>
+    get<InvestmentGrowth>(`/investment/accounts/${encodeURIComponent(id)}/growth?range=${range}`),
 
   getInvestmentHoldings: (id: string) =>
     get<InvestmentHolding[]>(`/investment/accounts/${encodeURIComponent(id)}/holdings`),

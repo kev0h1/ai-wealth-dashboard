@@ -27,6 +27,7 @@ from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
 from app.core.subscription import TIER_BILLING_PRICES_GBP, get_subscription, open_banking_paused
 from app.db.collections import subscriptions_col
+from app.services.investment_growth import snapshot_all_accounts
 from app.services.investment_prices import refresh_all_instruments
 from app.workers.ai_worker import task_refresh_savings_insights
 from app.services.retention import run_retention_sweep
@@ -634,6 +635,13 @@ async def task_refresh_investment_prices(ctx):
         "investment price refresh: instruments=%s fetched=%s failed=%s",
         result["instruments"], result["fetched"], result["failed"],
     )
+    # G271: record today's value per account from the refreshed prices. Runs
+    # even when every fetch failed, so the series keeps one point per day.
+    try:
+        snap = await snapshot_all_accounts()
+        logger.info("investment valuation snapshots: written=%s failed=%s", snap["written"], snap["failed"])
+    except Exception:
+        logger.exception("investment valuation snapshot failed")
     # A changed price feeds Grow's investment display and any cached
     # net-worth-adjacent figure: bump once per affected user.
     for uid in result["changed_users"]:
