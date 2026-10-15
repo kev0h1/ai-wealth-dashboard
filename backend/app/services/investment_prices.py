@@ -22,7 +22,7 @@ import httpx
 
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
-from app.core.timeutil import user_today
+from app.core.timeutil import as_utc, to_user_date, user_today
 from app.db.collections import (
     instrument_prices_col, investment_accounts_col, investment_holdings_col,
 )
@@ -157,11 +157,17 @@ def _same_day(dt: datetime | None, today: date) -> bool:
     return dt.astimezone(LONDON).date() == today
 
 
-async def ensure_instrument(key: str, *, isin=None, ticker=None, name=None, currency="GBP") -> dict:
-    """Create the instrument document if absent (no price yet). Never takes a
+async def ensure_instrument(key: str, *, isin=None, ticker=None, name=None, currency="GBP", seed: dict | None = None) -> dict:
+    """Create the instrument document if absent, optionally seeded from a
+    holding's legacy price (see legacy_seed). An existing document with no
+    price is seeded too; one with a price is never overwritten. Never takes a
     user id."""
     doc = await instrument_prices_col.find_one({"_id": key})
     if doc:
+        if seed and not doc.get("price"):
+            hist = [{"price_date": seed["price_date"], "price": seed["price"], "source": seed["source"]}]
+            await instrument_prices_col.update_one({"_id": key}, {"$set": {**seed, "history": hist}})
+            doc = {**doc, **seed, "history": hist}
         return doc
     doc = {
         "_id": key,
@@ -171,6 +177,9 @@ async def ensure_instrument(key: str, *, isin=None, ticker=None, name=None, curr
         "price": None, "price_date": None, "source": None, "confidence": None,
         "fetched_at": None, "last_attempt_at": None, "history": [],
     }
+    if seed:
+        doc.update(seed)
+        doc["history"] = [{"price_date": seed["price_date"], "price": seed["price"], "source": seed["source"]}]
     await instrument_prices_col.update_one({"_id": key}, {"$setOnInsert": {k: v for k, v in doc.items() if k != "_id"}}, upsert=True)
     return doc
 
@@ -242,12 +251,40 @@ async def get_instruments(keys) -> dict:
     return {d["_id"]: d for d in docs}
 
 
+def legacy_price(h: dict) -> float | None:
+    """The per-holding price the app stored before G270, if any."""
+    p = h.get("current_price")
+    if p:
+        return p
+    units, val = h.get("units"), h.get("current_value")
+    return round(val / units, 6) if units and val else None
+
+
+def legacy_seed(h: dict, source: str = "legacy") -> dict | None:
+    """Instrument fields that carry what the user already saw: the legacy
+    price, dated as the London day of its last refresh, confidence "low"."""
+    price, lr = legacy_price(h), h.get("last_refreshed")
+    if not price or not lr:
+        return None
+    lr_utc = as_utc(lr)
+    return {"price": price, "price_date": to_user_date(lr_utc).isoformat(), "source": source,
+            "confidence": "low", "fetched_at": lr_utc}
+
+
 def holding_value(h: dict, inst: dict | None) -> float | None:
-    """units x shared price, or None when either is missing."""
+    """units x shared price. With no shared price, fall back to the holding's
+    legacy current_value, then legacy price x units, so an unpriced instrument
+    never drops the figure below what the user already saw. None when nothing
+    is known (callers then use statement_value)."""
     units = h.get("units")
     price = (inst or {}).get("price")
     if units and price:
         return round(units * price, 2)
+    if h.get("current_value") is not None:
+        return h["current_value"]
+    lp = legacy_price(h)
+    if units and lp:
+        return round(units * lp, 2)
     return None
 
 
@@ -272,7 +309,8 @@ async def _link_holdings(holdings: list[dict]) -> None:
         if h.get("instrument_key") != key:
             await investment_holdings_col.update_one({"_id": h["_id"]}, {"$set": {"instrument_key": key}})
             h["instrument_key"] = key
-        await ensure_instrument(key, isin=h.get("isin"), ticker=h.get("ticker"), name=h.get("name"))
+        await ensure_instrument(key, isin=h.get("isin"), ticker=h.get("ticker"), name=h.get("name"),
+                                seed=legacy_seed(h))
 
 
 async def _recompute_for_keys(keys: set, insts: dict) -> set:
