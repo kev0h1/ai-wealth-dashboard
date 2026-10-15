@@ -237,6 +237,23 @@ def test_the_users_name_with_a_pair_match_flags_the_row():
     assert find_own_move_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
 
 
+def test_a_name_bearing_debit_pairs_only_with_a_credit_that_carries_evidence():
+    rent = doc("Bills", 900, day=2, account="cur", desc="MR K MAINGI RENT REF 7")
+    plain = doc("Other", 900, debit=False, day=3, account="x", desc="REFUND FROM SHOP")
+    assert find_own_move_ids([rent, plain], KINDS, IDENTITY) == set()
+    evidenced = doc("Other", 900, debit=False, day=3, account="x", desc="KEVIN MAINGI")
+    assert rent["_id"] in find_own_move_ids([rent, evidenced], KINDS, IDENTITY)
+
+
+def test_a_card_refund_does_not_make_a_loan_payment_a_card_repayment():
+    loan = doc("Debt", 250, day=2, desc="CAR FINANCE CO")
+    refund = doc("Shopping", 250, debit=False, day=2, account="card-nw", desc="MERCHANT REFUND")
+    cards = [CardAccount("card-nw", frozenset(), frozenset(), None)]
+    assert find_card_repayment_ids([loan, refund], KINDS, cards) == set()
+    received = doc("Income", 250, debit=False, day=2, account="card-nw", desc="PAYMENT RECEIVED THANK YOU")
+    assert find_card_repayment_ids([loan, received], KINDS, cards) == {loan["_id"]}
+
+
 def test_a_purchase_does_not_pair_with_a_salary_credit_of_the_same_amount():
     purchase = doc("Shopping", 100, day=2, account="card-c")
     salary = doc("Income", 100, debit=False, day=3, account="cur")

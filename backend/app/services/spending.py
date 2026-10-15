@@ -265,7 +265,7 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
         transfer_like = biz_other or "transfer" in _text(d).lower() or evidence is not None
         if not transfer_like:
             continue
-        need = biz_other or evidence is None
+        need = True  # a name-bearing debit still needs the credit's own evidence
         partner = closest_partner(d, allow_income=False, need_evidence=need)
         if partner is None:
             continue  # the user's name alone never flags a row
@@ -350,6 +350,21 @@ def text_matches_card(text: str, card: CardAccount) -> bool:
     return bool(_CARD_WORDS.search(low)) and any(_word_hit(t, words) for t in card.provider_tokens)
 
 
+_PAYMENT_WORDING = re.compile(r"payment|thank you|direct debit|faster payment", re.I)
+
+
+def _looks_like_card_payment(credit: dict, kinds) -> bool:
+    """A credit on a card account that reads as a repayment, never a merchant
+    refund: a credit in a spend category is a refund and is out; a movement
+    category (Transfer, Debt) qualifies; otherwise the text must say payment."""
+    kind = kind_of(kinds, _effective_category(credit))
+    if kind == MOVEMENT:
+        return True
+    if kind != INCOME:
+        return False
+    return bool(_PAYMENT_WORDING.search(_text(credit)))
+
+
 def find_card_repayment_ids(docs: list[dict], kinds, cards: list[CardAccount]) -> set[str]:
     """Ids of Debt debits that pay one of the user's credit cards. Evidence,
     either of: a credit of the same amount (within 2p, five days, closest
@@ -362,7 +377,8 @@ def find_card_repayment_ids(docs: list[dict], kinds, cards: list[CardAccount]) -
     card_ids = {c.account_id for c in cards}
     credits: dict[int, list[dict]] = {}
     for d in docs:
-        if not _is_debit(d) and str(d.get("account_id") or "") in card_ids and isinstance(d.get("date"), datetime):
+        if (not _is_debit(d) and str(d.get("account_id") or "") in card_ids
+                and isinstance(d.get("date"), datetime) and _looks_like_card_payment(d, kinds)):
             credits.setdefault(round(abs(float(d.get("amount") or 0)) * 100), []).append(d)
     used: set[str] = set()
     out: set[str] = set()
