@@ -5,7 +5,7 @@ import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import HoldingRows from "./portfolio-growth/HoldingRows";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { cardSurface } from "./PortfolioGrowthCard";
-import { METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, CHART_WAITING, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 /** Drill-in for one investment account (G271): a taller chart, the paid-in and
  *  growth split, each holding's change since the last statement, how growth is
@@ -35,16 +35,20 @@ export default function PortfolioGrowthDetail({
         ) : null}
       </header>
 
-      <div>
-        <RangeChips range={range} onChange={onRangeChange} />
-        <div className="mt-1">
-          <GrowthChart points={growth.points} height={180} hidden={hidden} summary={growthSummary(growth, hidden)} />
+      {chartReady(growth.points) ? (
+        <div>
+          <RangeChips range={range} onChange={onRangeChange} />
+          <div className="mt-1">
+            <GrowthChart points={growth.points} height={180} hidden={hidden} summary={growthSummary(growth, hidden)} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className={`text-[13px] ${whisper}`}>{CHART_WAITING}</p>
+      )}
 
       <GrowthSplit g={growth} hidden={hidden} />
 
-      <HoldingRows holdings={growth.holdings} hidden={hidden} statementDate={growth.statement_date} />
+      <HoldingRows holdings={growth.holdings} hidden={hidden} />
 
       <section aria-labelledby="pg-how">
         <h3 id="pg-how" className={label}>How this is worked out</h3>

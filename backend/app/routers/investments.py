@@ -21,6 +21,15 @@ from app.services.investment_prices import (
 router = APIRouter(tags=["investments"])
 
 
+def clean_book_cost(v) -> float | None:
+    """G277: the statement's book cost for one holding, or None. Zero, negative,
+    non-numeric and non-finite values read as not shown, never as a cost."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return round(f, 2) if f == f and f not in (float("inf"),) and f > 0 else None
+
+
 async def _notes_for_account(account_id: str, statement_date: datetime | None) -> list[dict]:
     """Return all contract notes for this account, newest first."""
     return await investment_notes_col.find({"account_id": account_id}).sort("trade_date", -1).to_list(None)
@@ -208,6 +217,7 @@ async def investment_upload(
                 val = float(h.get("value") or 0)
             except (TypeError, ValueError):
                 val = 0.0
+            book_cost = clean_book_cost(h.get("book_cost"))
             await investment_holdings_col.update_one(
                 {"_id": holding_id},
                 {"$set": {
@@ -215,6 +225,9 @@ async def investment_upload(
                     "isin": h.get("isin"), "type": str(h.get("type") or "Fund"),
                     "units": h.get("units"), "price_per_unit": h.get("price_per_unit"),
                     "statement_value": val,
+                    # G277: only what the statement itself shows, never inferred
+                    "book_cost": book_cost,
+                    "book_cost_source": "statement" if book_cost is not None else None,
                     # G270: the price lives once per instrument in instrument_prices
                     "instrument_key": instrument_key(h.get("isin"), h.get("ticker"), name),
                 }, "$unset": {"current_price": "", "current_value": "", "last_refreshed": ""}},
@@ -521,6 +534,7 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
             "id": h["_id"], "name": h.get("name"), "isin": h.get("isin"),
             "type": h.get("type", "Fund"), "units": h.get("units"),
             "price_per_unit": h.get("price_per_unit"), "statement_value": h.get("statement_value", 0),
+            "book_cost": h.get("book_cost"), "book_cost_source": h.get("book_cost_source"),
             "current_price": price, "current_value": value,
             "price_date": price_date, "price_source": source, "price_confidence": conf,
             "last_refreshed": fetched.isoformat() if fetched else None,

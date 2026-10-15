@@ -2,20 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { GrowthRange, InvestmentGrowth } from "@/lib/investmentGrowth";
+import { hasKnownCost, NO_COST_LINE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 import PortfolioGrowthCard from "./PortfolioGrowthCard";
 import PortfolioGrowthDetail from "./PortfolioGrowthDetail";
 import { SheetFrame } from "./SheetFrame";
 
 /** Growth under one investment account's holdings (G271, variant C approved
  *  2026-10-15). Owns the fetch (api.getInvestmentGrowth) and the range; the
- *  card and the drill-in sheet only take props. With fewer than two valuation
- *  points there is nothing to chart, so one quiet line stands in. */
+ *  card and the drill-in sheet only take props. G277: the card shows at once
+ *  when any holding has a known cost (value minus cost needs no history); the
+ *  chart inside it waits for two points. With no known cost one quiet line
+ *  stands in. */
 export default function InvestmentGrowthSection({ accountId, hidden, onShownChange }: { accountId: string; hidden: boolean; onShownChange?: (shown: boolean) => void }) {
   const [range, setRange] = useState<GrowthRange>("all");
   const [growth, setGrowth] = useState<InvestmentGrowth | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [hasHistory, setHasHistory] = useState<boolean | null>(null);
+  const [costKnown, setCostKnown] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const seq = useRef(0);
 
@@ -26,9 +28,8 @@ export default function InvestmentGrowthSection({ accountId, hidden, onShownChan
       .then((g) => {
         if (mine !== seq.current) return;
         setGrowth(g);
-        // The gate is read from the whole history, so a short range with a
-        // single point never swaps the card for the quiet line.
-        if (r === "all") setHasHistory(g.points.length >= 2);
+        // Cost is a property of the holdings, not of the range.
+        setCostKnown(hasKnownCost(g));
         setStatus("ready");
       })
       .catch(() => { if (mine === seq.current) setStatus("error"); });
@@ -40,14 +41,14 @@ export default function InvestmentGrowthSection({ accountId, hidden, onShownChan
   const shownCb = useRef(onShownChange);
   shownCb.current = onShownChange;
   useEffect(() => {
-    shownCb.current?.(hasHistory === true);
-  }, [hasHistory]);
+    shownCb.current?.(costKnown === true);
+  }, [costKnown]);
   useEffect(() => () => shownCb.current?.(false), []);
 
-  if (hasHistory === false) {
+  if (costKnown === false) {
     return (
       <p className="px-4 pb-3 pt-1 text-[12px] text-slate-600 dark:text-slate-400">
-        Growth appears after a day or two of prices.
+        {NO_COST_LINE}
       </p>
     );
   }

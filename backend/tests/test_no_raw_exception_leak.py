@@ -108,21 +108,21 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 5114),
-    ("app/services/penny_tools.py", 5279),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 5788),
-    ("app/services/penny_tools.py", 5808),
-    ("app/services/penny_tools.py", 5844),
-    ("app/services/penny_tools.py", 5867),
-    ("app/services/penny_tools.py", 6009),
-    ("app/services/penny_tools.py", 6014),
-    ("app/services/penny_tools.py", 6019),
-    ("app/services/penny_tools.py", 6117),
-    ("app/services/penny_tools.py", 6122),
-    ("app/services/penny_tools.py", 6127),
-    ("app/services/penny_tools.py", 7068),
-    ("app/services/penny_tools.py", 7723),
-    ("app/services/penny_tools.py", 7737),
+    ("app/services/penny_tools.py", 5127),
+    ("app/services/penny_tools.py", 5292),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 5801),
+    ("app/services/penny_tools.py", 5821),
+    ("app/services/penny_tools.py", 5857),
+    ("app/services/penny_tools.py", 5880),
+    ("app/services/penny_tools.py", 6022),
+    ("app/services/penny_tools.py", 6027),
+    ("app/services/penny_tools.py", 6032),
+    ("app/services/penny_tools.py", 6130),
+    ("app/services/penny_tools.py", 6135),
+    ("app/services/penny_tools.py", 6140),
+    ("app/services/penny_tools.py", 7081),
+    ("app/services/penny_tools.py", 7736),
+    ("app/services/penny_tools.py", 7750),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

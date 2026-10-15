@@ -33,6 +33,7 @@ export default function GrowthSplit({ g, hidden }: { g: InvestmentGrowth; hidden
           {pct ? <span className={`text-[12px] ${whisper}`}>{pct} of paid in</span> : null}
         </dd>
       </div>
+      {g.cost_coverage ? <p className={`col-span-2 mt-1 text-[12px] ${whisper}`}>Gain is {g.cost_coverage}. The rest read Cost not known.</p> : null}
     </dl>
   );
 }

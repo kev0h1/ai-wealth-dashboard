@@ -24,7 +24,7 @@ from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
 from app.core.timeutil import as_utc, to_user_date, user_today
 from app.db.collections import (
-    instrument_prices_col, investment_accounts_col, investment_holdings_col,
+    instrument_prices_col, investment_accounts_col, investment_holdings_col, investment_notes_col,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,55 @@ def instrument_key(isin: str | None, ticker: str | None = None, name: str | None
         return f"TICKER:{t}"
     n = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
     return f"NAME:{n}" if n else None
+
+
+def norm_name(name: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+
+
+def _same_fund(a: str, b: str) -> bool:
+    """Contract notes carry a fund name, not an ISIN, so match on the
+    normalised name (equal, or one contained in the other)."""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 8 and short in long_
+
+
+def best_match(nk: str, names: list[str]) -> int | None:
+    """Index of the best name match: an exact match wins, otherwise the
+    longest matching name, otherwise the first of equals."""
+    best, best_len = None, -1
+    for i, n in enumerate(names):
+        if not _same_fund(nk, n):
+            continue
+        if n == nk:
+            return i
+        if len(n) > best_len:
+            best, best_len = i, len(n)
+    return best
+
+
+def note_only_instruments(stmt_date, holdings: list[dict], notes: list[dict]) -> list[tuple[str, str]]:
+    """(instrument key, fund name) for every fund bought by a contract note
+    dated after the statement that matches no holding. Shared by the growth
+    helper and both price refresh paths so such a fund is actually priced."""
+    sd = stmt_date.date() if isinstance(stmt_date, datetime) else stmt_date
+    names = [norm_name(h.get("name")) for h in holdings]
+    out: list[tuple[str, str]] = []
+    for n in sorted(notes, key=lambda x: str(x.get("trade_date"))):
+        td = n.get("trade_date")
+        d = td.date() if isinstance(td, datetime) else td
+        if sd is not None and d is not None and d <= sd:
+            continue
+        nk = norm_name(n.get("fund_name"))
+        if not nk or (n.get("amount") or 0) <= 0 or best_match(nk, names) is not None:
+            continue
+        names.append(nk)
+        out.append((instrument_key(None, None, n.get("fund_name")), n.get("fund_name")))
+    return out
 
 
 def sanitise_name(name: str | None, limit: int = 80) -> str:
@@ -353,6 +402,14 @@ def _status(outcomes: list[str]) -> str:
     return "failed" if "failed" in outcomes else "skipped"
 
 
+async def _link_note_only(acc: dict, holdings: list[dict], notes: list[dict]) -> set:
+    keys = set()
+    for key, name in note_only_instruments(acc.get("statement_date"), holdings, notes):
+        await ensure_instrument(key, name=sanitise_name(name))
+        keys.add(key)
+    return keys
+
+
 async def refresh_account_prices(acc: dict, sources: list[PriceSource] | None = None) -> dict:
     """User-triggered refresh for one account: refreshes only the instruments
     it holds (each at most once a day, shared), then recomputes the total of
@@ -362,6 +419,8 @@ async def refresh_account_prices(acc: dict, sources: list[PriceSource] | None = 
     holdings = await investment_holdings_col.find({"account_id": acc["_id"]}).to_list(None)
     await _link_holdings(holdings)
     keys = {h["instrument_key"] for h in holdings if h.get("instrument_key")}
+    notes = await investment_notes_col.find({"account_id": acc["_id"]}).to_list(None)
+    keys |= await _link_note_only(acc, holdings, notes)  # G277
     outcomes = [await refresh_instrument(key, sources) for key in sorted(keys)]
     insts = await get_instruments(keys)
     changed = await _recompute_for_keys(keys, insts) if keys else set()
@@ -377,6 +436,15 @@ async def refresh_all_instruments(sources: list[PriceSource] | None = None) -> d
     holdings = await investment_holdings_col.find({}).to_list(None)
     await _link_holdings(holdings)
     keys = {h["instrument_key"] for h in holdings if h.get("instrument_key")}
+    all_notes = await investment_notes_col.find({}).to_list(None)
+    notes_by_acc: dict[str, list[dict]] = {}
+    for n in all_notes:
+        notes_by_acc.setdefault(n.get("account_id"), []).append(n)
+    hold_by_acc: dict[str, list[dict]] = {}
+    for h in holdings:
+        hold_by_acc.setdefault(h["account_id"], []).append(h)
+    for acc_ in await investment_accounts_col.find({}).to_list(None):  # G277: note-only funds
+        keys |= await _link_note_only(acc_, hold_by_acc.get(acc_["_id"], []), notes_by_acc.get(acc_["_id"], []))
     outcomes = [await refresh_instrument(key, sources) for key in sorted(keys)]
     insts = await get_instruments(keys)
     by_acc: dict[str, list[dict]] = {}

@@ -3,7 +3,7 @@
 import { useRef, type KeyboardEvent } from "react";
 import MoneyText from "@/components/MoneyText";
 import {
-  direction, GROWTH_RANGES, money, percent, RISK_LINES, shortDate,
+  COST_UNKNOWN, direction, GROWTH_RANGES, money, percent, RISK_LINES, shortDate,
   type GrowthHolding, type GrowthRange, type InvestmentGrowth,
 } from "@/lib/investmentGrowth";
 
@@ -72,15 +72,18 @@ export function RiskLines({ className = "" }: { className?: string }) {
 }
 
 export function growthSummary(g: InvestmentGrowth, hidden?: boolean): string {
-  if (g.value === null || g.growth_abs === null) return "Not enough daily values to chart yet.";
+  if (g.value === null || g.growth_abs === null) return "Not enough information to chart yet.";
   const since = g.since ? ` since ${shortDate(g.since, true)}` : "";
-  return `Value ${money(g.value, { hidden })}, money paid in ${money(g.paid_in ?? 0, { hidden })}, growth ${money(g.growth_abs, { sign: true, hidden })}${since}.`;
+  const cover = g.cost_coverage ? `, ${g.cost_coverage}` : "";
+  return `Value ${money(g.value, { hidden })}, money paid in ${money(g.paid_in ?? 0, { hidden })}, growth ${money(g.growth_abs, { sign: true, hidden })}${cover}${since}.`;
 }
 
-export function holdingChange(h: GrowthHolding, hidden?: boolean): string {
-  if (h.change_abs === null) return "Price not yet available";
-  const pct = h.change_pct === null ? "" : ` (${percent(h.change_pct, { hidden })})`;
-  return `${money(h.change_abs, { sign: true, hidden })}${pct}`;
+/** Per-holding gain: value minus cost, with its percent. No known cost reads
+ *  "Cost not known" and carries no gain. */
+export function holdingGain(h: GrowthHolding, hidden?: boolean): string {
+  if (h.gain_abs === null) return COST_UNKNOWN;
+  const pct = h.gain_pct === null ? "" : ` (${percent(h.gain_pct, { hidden })})`;
+  return `${money(h.gain_abs, { sign: true, hidden })}${pct}`;
 }
 
 export function Money({ text, className }: { text: string; className?: string }) {

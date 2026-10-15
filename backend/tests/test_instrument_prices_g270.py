@@ -85,6 +85,7 @@ def cols(monkeypatch):
         monkeypatch.setattr(mod, "instrument_prices_col", inst)
         monkeypatch.setattr(mod, "investment_holdings_col", holdings)
         monkeypatch.setattr(mod, "investment_accounts_col", accs)
+    monkeypatch.setattr(ip, "investment_notes_col", _Col())
     monkeypatch.setattr(ip, "user_today", lambda: TODAY)
     # Frozen "now" on TODAY so same-day checks never depend on the real clock.
     monkeypatch.setattr(ip, "_utcnow", lambda: datetime(2026, 10, 14, 7, tzinfo=timezone.utc))
