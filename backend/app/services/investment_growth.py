@@ -1,16 +1,15 @@
-"""Portfolio growth over time for investment accounts (G271).
+"""Portfolio growth for investment accounts (G271, reworked by G277).
 
-A daily valuation snapshot per account (what the holdings are worth at the
-shared end-of-day prices, plus anything bought since the statement) is
-written by the daily price worker after prices refresh. Each snapshot also
-carries `paid_in_to_date`, the money put in so far, so growth is the simple
-difference: value minus paid in. That is deliberately not a money-weighted
-return; the API labels it "simple".
+Headline growth is cost versus value (G277): paid in is the sum of known
+costs (a statement's book cost, plus contract notes dated after it), current
+value is units x the shared price, and gain is the difference over the holdings
+whose cost is known. A holding with no known cost reads "Cost not known" and
+adds no gain. A sale removes its proportional share of cost, not its proceeds.
+That is deliberately not a time-weighted return; the API labels it "simple".
 
-What "paid in" means here, honestly: a statement states a value, not what was
-deposited to reach it. The first statement value is therefore the opening
-paid-in figure (the point tracking starts from), and every contract note
-dated after it (a purchase adds, a sale subtracts) moves paid in from there.
+A daily valuation snapshot per account is still written by the daily price
+worker after prices refresh; it feeds the chart series. Its `paid_in_to_date`
+is no longer read for the headline and is kept only for the G276 reset.
 
 One snapshot per account per London day: the document id is
 `<account_id>|<YYYY-MM-DD>`, so a re-run the same day overwrites rather than
@@ -25,7 +24,9 @@ from app.db.collections import (
     investment_accounts_col, investment_holdings_col, investment_notes_col,
     investment_valuations_col,
 )
-from app.services.investment_prices import get_instruments, holding_value, instrument_key
+from app.services.investment_prices import (
+    best_match, get_instruments, holding_value, instrument_key, norm_name as _norm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ async def snapshot_account(acc: dict, holdings: list[dict], insts: dict, today: 
     doc = {
         "_id": _doc_id(account_id, today), "user_id": acc.get("user_id"),
         "account_id": account_id, "date": today.isoformat(),
+        # Kept for the G276 reset; the headline no longer reads it (G277).
         "value": round(value, 2), "paid_in_to_date": round(paid_in, 2),
     }
     await investment_valuations_col.update_one({"_id": doc["_id"]}, {"$set": doc}, upsert=True)
@@ -136,21 +138,6 @@ async def snapshot_all_accounts(today: date | None = None) -> dict:
             failed += 1
             logger.exception("investment snapshot failed for %s", acc.get("_id"))
     return {"written": written, "failed": failed}
-
-
-def _norm(name: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
-
-
-def _same_fund(a: str, b: str) -> bool:
-    """Contract notes carry a fund name, not an ISIN, so match on the
-    normalised name (equal, or one contained in the other)."""
-    if not a or not b:
-        return False
-    if a == b:
-        return True
-    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
-    return len(short) >= 8 and short in long_
 
 
 def _num(v) -> float | None:
@@ -180,7 +167,7 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
             "cost": cost, "cost_source": (h.get("book_cost_source") or "statement") if cost is not None else None,
             "_nk": _norm(h.get("name")), "_contribs": [(None, cost)] if cost is not None else [],
             "_units": h.get("units"), "_key": h.get("instrument_key"), "_parts": [], "_known": cost is not None,
-            "_cost_date": None,
+            "_cost_date": None, "_held": h.get("units") or None,
         })
     adj_value = 0.0
     for n in sorted(notes, key=lambda x: str(x.get("trade_date"))):
@@ -189,14 +176,15 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
             continue  # already inside the statement's value
         amt = n.get("amount") or 0.0
         nk = _norm(n.get("fund_name"))
-        row = next((r for r in rows if _same_fund(nk, r["_nk"])), None)
+        idx = best_match(nk, [r["_nk"] for r in rows])
+        row = rows[idx] if idx is not None else None
         if row is None and amt > 0 and nk:
             key = instrument_key(None, None, n.get("fund_name"))
             row = {
                 "id": f"note:{key}", "name": n.get("fund_name"), "isin": None, "type": "Fund", "value": 0.0,
                 "statement_value": 0, "price_date": None, "cost": 0.0, "cost_source": "contract_notes",
                 "_nk": nk, "_contribs": [], "_units": None, "_key": key, "_parts": [], "_known": True,
-                "_cost_date": None,
+                "_cost_date": None, "_held": 0.0,
             }
             rows.append(row)
         if row is None:
@@ -205,15 +193,40 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
         inst = insts.get(row["_key"]) or insts.get(instrument_key(None, None, n.get("fund_name")))
         units, price = _num(n.get("units")), (inst or {}).get("price")
         part = round(units * price, 2) if units and price and amt > 0 else amt
+        value_before = row["value"]
         row["value"] = round(row["value"] + part, 2)
         row["_parts"].append((d, n.get("units"), amt))
+        n_units = _num(n.get("units"))
+        held_before = row["_held"]
+        if amt > 0:
+            row["_held"] = held_before + n_units if held_before is not None and n_units else None
         if row["_known"]:
-            row["cost"] = round((row["cost"] or 0.0) + amt, 2)
-            row["_contribs"].append((d, amt))
-            if row["cost_source"] is None:
-                row["cost_source"] = "contract_notes"
-            if d is not None and (row["_cost_date"] is None or d < row["_cost_date"]):
-                row["_cost_date"] = d
+            if amt > 0:
+                row["cost"] = round((row["cost"] or 0.0) + amt, 2)
+                row["_contribs"].append((d, amt))
+                if row["cost_source"] is None:
+                    row["cost_source"] = "contract_notes"
+                if d is not None and (row["_cost_date"] is None or d < row["_cost_date"]):
+                    row["_cost_date"] = d
+            else:
+                # A sale removes its share of the cost, not the proceeds:
+                # units sold over units held, else proceeds over value before.
+                if n_units and held_before:
+                    ratio = min(1.0, n_units / held_before)
+                elif value_before > 0:
+                    ratio = min(1.0, -amt / value_before)
+                else:
+                    ratio = None
+                if ratio is None:
+                    row["_known"] = False
+                else:
+                    cut = round((row["cost"] or 0.0) * ratio, 2)
+                    row["cost"] = max(0.0, round((row["cost"] or 0.0) - cut, 2))
+                    row["_contribs"].append((d, -cut))
+                    if held_before:
+                        row["_held"] = max(0.0, held_before - n_units) if n_units else None
+        elif amt < 0 and held_before and n_units:
+            row["_held"] = max(0.0, held_before - n_units)
         if inst and inst.get("price_date") and not row["price_date"]:
             row["price_date"] = inst["price_date"]
     for r in rows:
@@ -288,7 +301,8 @@ def backfill_values(rows: list[dict], insts: dict, start: date, end: date) -> di
     out: dict[str, float] = {}
     for iso in sorted(dates):
         d = date.fromisoformat(iso)
-        total = 0.0
+        # holdings with no units (cash, unpriced) stay at their statement value
+        total = sum(r["statement_value"] for r in rows if not r["_units"])
         for r, at, has in lookups:
             px = at(d) if has else None
             if r["_units"]:
@@ -313,8 +327,8 @@ def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
     rows = pos["rows"]
     by_date = {p["date"]: p["value"] for p in snapshots}
     cost_dates = [r["_cost_date"] for r in rows if r["_cost_date"]]
-    first_snap = min(by_date) if by_date else None
-    start = min(cost_dates) if cost_dates else (date.fromisoformat(first_snap) if first_snap else today)
+    # No dated cost: use all the shared history there is (it only exists since tracking began).
+    start = min(cost_dates) if cost_dates else date.min
     for iso, v in backfill_values(rows, insts, start, today).items():
         by_date.setdefault(iso, v)
     by_date[today.isoformat()] = pos["value"]  # today is always the live figure
