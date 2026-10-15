@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "plan-editor",
-    name: "Plan and set-aside editor · G267",
-    description: "Two working proposals: A editable summary, B three short steps. Suggested paying account, receiving pots and matching transfers, with alternatives on demand. Six accounts, five pots and forty fictional transactions; no live changes. Close the sheet to switch examples or themes.",
-    states: [{ label: "Suggested", value: "suggested" }, { label: "Tight", value: "tight" }, { label: "No match", value: "no-match" }, { label: "Unassigned", value: "unassigned" }, { label: "Partial period", value: "partial" }],
-    variants: [{ label: "A · Editable summary", value: "a" }, { label: "B · Three short steps", value: "b" }],
-    group: "current",
-  },
-  {
     slug: "spend-tips",
     name: "spend-tips",
     description:
@@ -141,15 +133,6 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G217 fold-in of Kevin's pick (A, same anatomy lighter; revised 2026-10-06; materiality floor £5): the PRODUCTION AllocationShortfallCard rendered through props under the production MoveCard, as they stack on Home · ink figure in mono, neutral icon, no red, no amber, no Penny gradient · the move is a recommendation sentence (\"You could move £X from Savings, which looks able to spare it\"), never a button, because the app does not move money; one full-width action, Adjust set-aside; with no source a line saying why · the paying account is hedged (\"based on recent transfers\") when inferred · Adjust set-aside opens the this-period sheet, with Change every period leading to the full editor",
     states: [{ label: "Estimated account", value: "estimated" }, { label: "Known account", value: "known" }, { label: "No source", value: "no-source" }],
-  },
-  {
-    slug: "statement-flow",
-    name: "Upload statement flow graphic · G272",
-    description:
-      "G272: the Upload Investment Statement sheet gains a small three-step graphic (statement sets holdings and units, contract notes add trades between statements, prices refresh daily) and a one-line note on what happens to the file · A is a vertical three-step list, B a compact three-chip strip with a caption · renders the production InvestmentUpload through its explainer prop · ?variant=a|b&mode=light|dark",
-    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "A · Vertical list", value: "a" }, { label: "B · Chip strip", value: "b" }],
-    group: "current",
   },
   {
     slug: "sync-loading",

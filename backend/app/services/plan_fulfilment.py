@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -97,7 +98,13 @@ async def _load(uid: str, account_ids: list[str], kind: str, start: date, end: d
     lo, hi = _bounds(start, end)
     q = {"user_id": uid, "account_id": {"$in": account_ids}, "transaction_type": kind,
          "date": {"$gte": lo, "$lte": hi}}
-    proj = {"account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1}
+    proj = {
+        "account_id": 1, "amount": 1, "merchant_name": 1, "description": 1, "date": 1,
+        # The candidate gate uses the same persisted classification fields
+        # that sync/categorisation writes. Keep them in the projection rather
+        # than silently falling through to a loose text heuristic.
+        "category": 1, "custom_category": 1,
+    }
     out: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
         out += await col.find(q, proj).to_list(None)
@@ -188,11 +195,14 @@ async def period_fulfilment(
 async def fill_candidates(
     uid: str, source_id: str, pot_ids: list[str], account_map: dict[str, dict],
 ) -> dict:
-    """Recent (90d) DEBIT series leaving `source_id`, in the shape the shared
-    rule picker already reads, plus a suggested rule: the debit series whose
-    transfers (same day, same amount) landed in one of the plan's pots, i.e.
-    the very pairing G230 uses to infer the source. Never applied for the
-    user; the sheet shows it prefilled for confirmation."""
+    """Recent debit series that have corroborated own-transfer legs in a pot.
+
+    A goal rule must never be suggested from ordinary purchases. Pairing stays
+    deliberately conservative: distinct owned source/pot accounts, same-day
+    exact amount, and transfer evidence on both legs. The latter makes
+    an amount coincidence between unrelated accounts a miss, not an invented
+    transfer identity.
+    """
     today = timeutil.user_today()
     start = today - timedelta(days=CANDIDATE_WINDOW_DAYS)
     debits = await _load(uid, [source_id], "debit", start, today)
@@ -201,35 +211,77 @@ async def fill_candidates(
     groups: dict[str, list[dict]] = defaultdict(list)
     for t in debits:
         groups[series_key(t)].append(t)
-    credit_keys: dict[tuple, int] = defaultdict(int)
+
+    def _account_tokens(account_ids: list[str]) -> set[str]:
+        tokens: set[str] = set()
+        for account_id in account_ids:
+            account = account_map.get(str(account_id)) or {}
+            for raw in (account_id, account.get("name"), account.get("display_name")):
+                token = re.sub(r"[^a-z0-9]", "", str(raw or "").lower())
+                if len(token) >= 4:
+                    tokens.add(token)
+        return tokens
+
+    def transfer_evidence(t: dict, counterpart_ids: list[str]) -> bool:
+        category = t.get("custom_category") or t.get("category")
+        if category in {"Transfer", "Savings", "Debt", "Investment"}:
+            return True
+        # Free text is evidence only when it names a known counterpart AND
+        # names a bank-transfer rail. A generic "from" or "to" appears in
+        # plenty of purchase narratives and must not turn an amount/date
+        # coincidence into an own transfer.
+        text = re.sub(r"[^a-z0-9]", "", f"{t.get('merchant_name') or ''} {t.get('description') or ''}".lower())
+        raw = f"{t.get('merchant_name') or ''} {t.get('description') or ''}".lower()
+        rail = re.search(r"\b(?:transfer|standing\s+order|faster\s+payment)\b", raw)
+        return bool(rail and any(token in text for token in _account_tokens(counterpart_ids)))
+
+    credits_by_key: dict[tuple, list[dict]] = defaultdict(list)
     for c in credits:
-        credit_keys[(_day(c), round(abs(float(c.get("amount") or 0)), 2))] += 1
+        credits_by_key[(_day(c), round(abs(float(c.get("amount") or 0)), 2))].append(c)
 
     items: list[dict] = []
     best = None
     for key, members in groups.items():
         members.sort(key=lambda t: t["date"], reverse=True)
         latest = members[0]
+        matched_pots: set[str] = set()
         paired = 0
-        pending = dict(credit_keys)
+        pending = {pair_key: list(pair_credits) for pair_key, pair_credits in credits_by_key.items()}
         for m in members:
             k = (_day(m), round(abs(float(m.get("amount") or 0)), 2))
-            if pending.get(k, 0) > 0:
-                pending[k] -= 1
+            pool = pending.get(k, [])
+            if not transfer_evidence(m, pot_ids):
+                continue
+            match_index = next((
+                i for i, c in enumerate(pool)
+                if str(c.get("account_id") or "") in pot_ids and transfer_evidence(c, [source_id])
+            ), None)
+            if match_index is not None:
+                credit = pool.pop(match_index)
+                matched_pots.add(str(credit.get("account_id")))
                 paired += 1
+        if not paired:
+            continue
         item = {
             "series_key": key,
             "display_name": display_name(latest) or key,
             "last_amount": round(abs(float(latest.get("amount") or 0)), 2),
             "last_date": _day(latest).isoformat(),
             "occurrences_90d": len(members),
+            "is_transfer": True,
+            "matched_pot_ids": [pot_id for pot_id in pot_ids if pot_id in matched_pots],
         }
         items.append(item)
-        if paired:
-            score = (paired, item["last_date"])
-            if best is None or score > best[0]:
-                best = (score, item, members)
-    items.sort(key=lambda c: c["last_date"], reverse=True)
+        # `pot_ids` preserves the selected pot first. A matching selected
+        # sink wins over a more frequent alternate transfer series.
+        selected = bool(pot_ids and pot_ids[0] in matched_pots)
+        score = (selected, paired, item["last_date"])
+        if best is None or score > best[0]:
+            best = (score, item, members)
+    items.sort(
+        key=lambda c: (bool(pot_ids and pot_ids[0] in c["matched_pot_ids"]), c["last_date"]),
+        reverse=True,
+    )
 
     suggestion = None
     if best is not None:
