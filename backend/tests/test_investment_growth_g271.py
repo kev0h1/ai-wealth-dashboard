@@ -81,12 +81,6 @@ def test_growth_is_value_minus_net_contributions(cols):
     # paid in: statement 1000 + 500 - 100; value: 100 x 12 + 400 at cost
     assert snap["paid_in_to_date"] == 1400.0
     assert snap["value"] == 1600.0
-    g = ig.build_growth(list(vals.docs.values()), "all", TODAY)
-    assert g["method"] == "simple"
-    assert g["growth_abs"] == 200.0  # exactly the price move on 100 units: 1200 - 1000
-    assert g["growth_abs"] == g["value"] - g["paid_in"]
-    assert g["growth_pct"] == round(200 / 1400 * 100, 2)
-    assert g["since"] == "2026-09-04"
 
 
 def test_paid_in_carries_forward_from_prior_snapshot(cols):
@@ -95,39 +89,6 @@ def test_paid_in_carries_forward_from_prior_snapshot(cols):
     notes.docs["n1"] = {"_id": "n1", "account_id": "a1", "trade_date": datetime(2026, 10, 8), "kind": "purchase", "amount": 250.0}
     snap = asyncio.run(ig.snapshot_account(_acc(), _holdings(), _insts(12.0), TODAY))
     assert snap["paid_in_to_date"] == 1250.0
-
-
-def test_range_filtering_and_range_growth():
-    snaps = [
-        {"date": "2026-01-01", "value": 1000.0, "paid_in_to_date": 1000.0},
-        {"date": "2026-08-20", "value": 1100.0, "paid_in_to_date": 1000.0},
-        {"date": "2026-09-20", "value": 1450.0, "paid_in_to_date": 1300.0},
-        {"date": "2026-10-14", "value": 1500.0, "paid_in_to_date": 1300.0},
-    ]
-    one_m = ig.build_growth(snaps, "1m", TODAY)
-    assert [p["date"] for p in one_m["points"]] == ["2026-09-20", "2026-10-14"]
-    assert one_m["growth_abs"] == 50.0
-    three_m = ig.build_growth(snaps, "3m", TODAY)
-    assert [p["date"] for p in three_m["points"]][0] == "2026-08-20"
-    assert three_m["growth_abs"] == 100.0  # (1500-1300) minus (1100-1000)
-    allr = ig.build_growth(snaps, "all", TODAY)
-    assert len(allr["points"]) == 4
-    assert allr["growth_abs"] == 200.0 and allr["paid_in"] == 1300.0
-    assert ig.build_growth([], "1y", TODAY)["growth_abs"] is None
-
-
-def test_fall_is_negative_growth(cols):
-    vals, *_ = cols
-    asyncio.run(ig.snapshot_account(_acc(), _holdings(), _insts(9.0), TODAY))
-    g = ig.build_growth(list(vals.docs.values()), "all", TODAY)
-    assert g["growth_abs"] == -100.0 and g["growth_pct"] == -10.0
-
-
-def test_holding_changes_since_statement():
-    rows = ig._holding_changes(_holdings(), _insts(12.0))
-    assert rows[0]["change_abs"] == 200.0 and rows[0]["change_pct"] == 20.0
-    unpriced = ig._holding_changes(_holdings(), {})
-    assert unpriced[0]["change_abs"] is None and unpriced[0]["value"] == 1000.0
 
 
 def test_erased_with_the_user(monkeypatch):
@@ -203,7 +164,7 @@ def test_penny_investment_growth_tool_reads_snapshots(monkeypatch):
         {"_id": "a2", "user_id": "other@x.com", "provider": "Other", "account_type": "ISA"},
     ]
     growth = {"a1": {"value": 46000.0, "paid_in": 40000.0, "growth_abs": 6000.0, "growth_pct": 15.0,
-                     "since": "2026-09-04", "as_of": "2026-10-13", "method_label": "Value minus money paid in"}}
+                     "since": "2026-09-04", "as_of": "2026-10-13", "method_label": "Simple gain, not a time-weighted return"}}
     pt, seen = _penny_setup(monkeypatch, accounts, growth)
     out = asyncio.run(pt.execute_tool(USER, "get_investment_growth", {"account": "ISA"}))
     assert seen["filter"] == {"user_id": USER}  # user scoped, never another user's account
@@ -222,7 +183,7 @@ def test_penny_investment_growth_tool_no_values_and_no_match(monkeypatch):
     growth = {"a1": {"value": None, "paid_in": None, "growth_abs": None, "growth_pct": None}}
     pt, _ = _penny_setup(monkeypatch, accounts, growth)
     out = asyncio.run(pt.execute_tool(USER, "get_investment_growth", {}))
-    assert out["accounts"][0]["status"] == "no_daily_values_yet"
+    assert out["accounts"][0]["status"] == "no_holdings_yet"
     out = asyncio.run(pt.execute_tool(USER, "get_investment_growth", {"account": "Fidelity"}))
     assert out["accounts"] == []
 

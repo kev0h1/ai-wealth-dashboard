@@ -113,7 +113,8 @@ async def llm_parse_investment_statement(text: str, uid: str | None = None) -> d
         '      "type": "<Fund, ETF, Share, Bond, Infrastructure, Property, Cash>",\n'
         '      "units": <units/shares held as number, or null>,\n'
         '      "price_per_unit": <price per unit in statement currency, or null>,\n'
-        '      "value": <total value of this holding as a number>\n'
+        '      "value": <total value of this holding as a number>,\n'
+        '      "book_cost": <total amount paid for this holding (book cost / cost basis) as a number, only if the statement shows it, else null>\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
@@ -121,7 +122,9 @@ async def llm_parse_investment_statement(text: str, uid: str | None = None) -> d
         "- Include cash holdings if they have a non-zero value.\n"
         "- total_value should be the closing portfolio value shown in the statement.\n"
         "- If units or price_per_unit are not present, set them to null.\n"
-        "- Extract ALL holdings shown in the statement.\n\n"
+        "- Extract ALL holdings shown in the statement.\n"
+        "- book_cost is the money paid for the holding as printed on the statement (often labelled book cost, cost, or amount invested). "
+        "Never estimate or derive it from value or price; if the statement does not show it for a holding, set it to null.\n\n"
         "STATEMENT TEXT:\n" + text[:15000]
     )
     try:

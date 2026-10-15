@@ -480,9 +480,11 @@ TOOL_SCHEMAS = [
             "name": "get_investment_growth",
             "description": (
                 "How the user's investment accounts (an ISA, a pension) have done "
-                "since tracking began: current value, money paid in, growth in "
-                "pounds and percent (simple: value minus money paid in) and the "
-                "as-of date, from end-of-day valuation snapshots. Use this for "
+                "so far: current value, money paid in (the known cost of the "
+                "holdings), gain in pounds and percent (simple: value minus cost, "
+                "not a time-weighted return) and the as-of date, from the end-of-day "
+                "prices. When only some holdings have a known cost the result says "
+                "'over N of M holdings'; quote that. Use this for "
                 "'how has my ISA done', 'how much have my investments grown' and "
                 "'am I up or down'. `account` is optional free text naming one "
                 "account (e.g. 'ISA', 'Vanguard'); omit it for all of them. "
@@ -3628,9 +3630,16 @@ async def _exec_get_investment_growth(uid: str, account) -> dict:
             g = await account_growth(a, "all")
             label = " ".join(x for x in (a.get("provider"), a.get("account_type")) if x) or "Investment account"
             if g.get("value") is None:
-                results.append({"account": label, "status": "no_daily_values_yet"})
+                results.append({"account": label, "status": "no_holdings_yet"})
                 continue
-            results.append({
+            if g.get("growth_abs") is None:
+                results.append({
+                    "account": label, "value": _money(g["value"], 2), "status": "cost_not_known",
+                    "note": "Cost not known for these holdings, so no gain can be shown. A contract note, or a statement that shows book cost, adds it.",
+                    "as_of": g.get("as_of"),
+                })
+                continue
+            entry = {
                 "account": label,
                 "value": _money(g["value"], 2),
                 "paid_in": _money(g["paid_in"], 2),
@@ -3642,7 +3651,11 @@ async def _exec_get_investment_growth(uid: str, account) -> dict:
                 "since": g.get("since"),
                 "as_of": g.get("as_of"),
                 "method": g.get("method_label"),
-            })
+            }
+            if g.get("cost_coverage"):
+                entry["cost_coverage"] = g["cost_coverage"]
+                entry["note"] = f"Gain is {g['cost_coverage']}; the rest read Cost not known."
+            results.append(entry)
     except Exception:
         logger.exception("penny_tools: get_investment_growth failed for %s", uid)
         return _tool_error("investment growth lookup failed")
