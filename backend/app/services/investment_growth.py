@@ -242,7 +242,7 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
                            if r["change_abs"] is not None and r["statement_value"] > 0 else None)
     known_rows = [r for r in rows if r["cost"] is not None]
     value = round(sum(r["value"] for r in rows) + adj_value, 2)
-    out = {"rows": rows, "value": value, "adj": round(adj_value, 2),
+    out = {"rows": rows, "value": value, "adj": round(adj_value, 2), "stmt_date": stmt_date,
            "holdings_total": len(rows), "holdings_with_cost": len(known_rows)}
     if known_rows:
         paid_in = round(sum(r["cost"] for r in known_rows) + adj_value, 2)
@@ -327,8 +327,13 @@ def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
     rows = pos["rows"]
     by_date = {p["date"]: p["value"] for p in snapshots}
     cost_dates = [r["_cost_date"] for r in rows if r["_cost_date"]]
-    # No dated cost: use all the shared history there is (it only exists since tracking began).
-    start = min(cost_dates) if cost_dates else date.min
+    # The chart starts where the user's holding starts: the statement date, or
+    # an earlier note date; with neither, the first stored snapshot, else today.
+    anchors = ([pos["stmt_date"]] if pos.get("stmt_date") else []) + cost_dates
+    if anchors:
+        start = min(anchors)
+    else:
+        start = date.fromisoformat(min(by_date)) if by_date else today
     for iso, v in backfill_values(rows, insts, start, today).items():
         by_date.setdefault(iso, v)
     by_date[today.isoformat()] = pos["value"]  # today is always the live figure

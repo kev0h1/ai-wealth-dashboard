@@ -254,3 +254,14 @@ def test_ambiguous_match_prefers_the_longest_name():
     pos = ig.build_positions(STMT, holds, [_note(100.0, date(2026, 10, 13), "FTSE Global All Cap Index Fund")], {})
     by = {r["id"]: r for r in pos["rows"]}
     assert by["h2"]["cost"] == 500.0 and by["h1"]["cost"] == 400.0
+
+
+def test_backfill_starts_at_the_statement_date_not_at_old_history():
+    from datetime import timedelta
+    hist = [{"price_date": (TODAY - timedelta(days=i)).isoformat(), "price": 100.0} for i in range(400, -1, -1)]
+    inst = {"_id": "ISINA", "price": 100.0, "price_date": TODAY.isoformat(), "history": hist}
+    holds = [_h("h1", "Fund A", 10.0, 1000.0, book_cost=900.0, key="ISINA")]
+    stmt = date(2026, 9, 10)
+    pos = ig.build_positions(stmt, holds, [], {"ISINA": inst})
+    pts = ig.build_series([], pos, {"ISINA": inst}, "all", TODAY)
+    assert pts[0]["date"] == "2026-09-10" and len(pts) == 36
