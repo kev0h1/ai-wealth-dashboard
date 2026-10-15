@@ -62,6 +62,7 @@ assert.match(page, /identityState\.applePrimary \?/, "Apple primary protection u
 assert.match(page, /if \(MCP_CONNECTOR\) fetchConnections\(\)/, "feature-off connector performs no background fetch");
 assert.match(page, /deleteConfirm !== "DELETE" \|\| deleting/, "typed guard and duplicate-request guard retained");
 assert.match(page, /await api\.deleteUserAccount\(\)/);
+assert.match(page, /Could not confirm deletion\. Try again\./, "a failed response must not assert the account was not deleted");
 assert.match(page, /clearOnboarded\(localStorage, user\?\.email\)/);
 assert.match(page, /<PayPeriodSettingsSheet[\s\S]*?current=\{payPeriodConfig\}[\s\S]*?setPayPeriodConfig/, "pay period uses the real shared preference saver");
 for (const handler of ["saveProfile", "handleLinkApple", "handleUnlinkApple", "handleTurnOffPennyConsent", "toggleBiometrics", "handleSyncHistory", "toggleCoverAccount", "toggleNotifPref", "handleRegisterDevice", "handleTestPush", "handleIncomeBlur", "handlePensionBlur", "handleChildBenefitToggle"]) {

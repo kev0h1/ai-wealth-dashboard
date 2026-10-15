@@ -646,7 +646,7 @@ export default function SettingsPage() {
       clearLocalSession();
     } catch {
       setDeleting(false);
-      setDeleteError("Deletion failed. Your account has not been deleted. Try again.");
+      setDeleteError("Could not confirm deletion. Try again.");
     }
   }
 
