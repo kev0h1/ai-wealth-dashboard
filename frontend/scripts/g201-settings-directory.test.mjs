@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SettingsDirectory, buildSettingsGroups, isSettingsSection, SETTINGS_SECTIONS } from "../components/settings/SettingsDirectory.tsx";
+import { SettingsDirectory, buildSettingsGroups, isSettingsSection, resolveSettingsSection, SETTINGS_SECTIONS } from "../components/settings/SettingsDirectory.tsx";
 import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "../lib/settingsNavigation.ts";
 
 const status = {
@@ -40,6 +40,17 @@ assert.match(html, /Standard · 113 messages left/);
 assert.match(html, /Monthly · 25th/);
 for (const input of [null, "", "money", "__proto__", "../../account", "delete&confirm=true"]) assert.equal(isSettingsSection(input), false);
 for (const section of SETTINGS_SECTIONS) assert.equal(isSettingsSection(section), true);
+const resolve = (query, assistantsVisible = false) => resolveSettingsSection(new URLSearchParams(query), assistantsVisible);
+assert.equal(resolve(""), null, "bare Settings opens the directory");
+assert.equal(resolve("section=not-a-setting"), null, "invalid sections return to the directory");
+assert.equal(resolve("section=display"), "display", "recognised sections remain addressable");
+assert.equal(resolve("plans=1"), "penny-plan", "legacy resubscribe opens the visible plan section");
+assert.equal(resolve("plans=1&section=display"), "display", "a valid explicit section wins over legacy billing parameters");
+assert.equal(resolve("billing=success"), "penny-plan", "successful billing returns open the plan section");
+assert.equal(resolve("billing=cancelled"), "penny-plan", "cancelled billing returns open the plan section");
+assert.equal(resolve("billing=unknown"), null, "unknown billing results return to the directory");
+assert.equal(resolve("section=assistants"), null, "MCP-disabled assistant links return to the directory");
+assert.equal(resolve("section=assistants", true), "assistants", "MCP-enabled assistant links remain available");
 assert.ok(!html.includes("—"), "new directory copy follows British English/no em dash rules");
 assert.equal(settingsPayPeriodLabel({type:"last_weekday_of_month",weekday:1}), "Last Monday");
 assert.equal(settingsPayPeriodLabel({type:"monthly_pay_date",day:11}), "Monthly · 11th");
@@ -57,6 +68,9 @@ assert.deepEqual(settingsIdentityState({primary_email:"sam@example.com",linked:[
 
 const page = readFileSync(new URL("../app/settings/SettingsPage.tsx", import.meta.url), "utf8");
 assert.ok(page.includes("<SettingsDirectory"), "real page imports the tested directory");
+assert.match(page, /resolveSettingsSection\(searchParams, MCP_CONNECTOR\)/, "the page uses the tested query resolver");
+assert.match(page, /activeSection === "penny-plan" && <YourPlanCard/, "plan card mounts when its visible section opens so warm resubscribe navigation re-runs its existing URL effect");
+assert.match(page, /<YourPlanCard key=\{searchParams\.get\("plans"\) === "1" \? "resubscribe" : "plan"\}/, "resubscribe also re-runs the URL effect from an already-open plan section");
 assert.match(page, /identityState\.googlePrimary && <span[\s\S]*?Primary/, "Google primary badge gated by the tested identity model");
 assert.match(page, /identityState\.applePrimary \?/, "Apple primary protection uses the same identity model");
 assert.match(page, /if \(MCP_CONNECTOR\) fetchConnections\(\)/, "feature-off connector performs no background fetch");

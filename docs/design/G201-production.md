@@ -57,3 +57,9 @@ Five-line system summary:
 5. Rules: navigation changes no preference; gates and rollback stay real; deletion is isolated and requires typed `DELETE`.
 
 Defects and drift not canonised: the removed preview's stand-ins, corrected relay identity defect and six inherited lint errors are not design-system rules. No unrelated financial, notification or authentication refactor was introduced to clear existing lint debt.
+
+## Rejection correction, 2026-10-15
+
+The legacy Accounts resubscribe URL, `/settings?plans=1`, now resolves to the visible Penny and plan detail. The existing plan card mounts only in that section and resets its mount when the resubscribe marker changes, so its unchanged auto-open effect also works when arriving from another detail or an already-open plan section. Billing success and cancellation returns open the same detail without automatically opening the picker. Valid explicit sections retain precedence, and unavailable assistant links still return to the directory. No billing action, preference handler or approved D presentation changed.
+
+Impeccable's hardening checks guided the URL and hidden-state regression audit. The focused regression gate and TypeScript passed. An independent production diff review found no blockers. Actual Settings, plan card and picker JSX passed inert-context browser checks for cold and warm links, delayed plan information, close/back/history, billing returns and invalid or gated queries in both themes, with 320px/390px/1440px bounds and keyboard dismissal. Six new captures were visually inspected. This is component-level evidence, not authenticated UAT or physical-device proof; all API and billing writes were inert or blocked. The existing URL resolver regression cases are permanent; the component browser harness is local verification evidence.

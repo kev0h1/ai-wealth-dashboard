@@ -10,6 +10,23 @@ export function isSettingsSection(value: string | null): value is SettingsSectio
   return SETTINGS_SECTIONS.includes(value as SettingsSection);
 }
 
+type SettingsQuery = Pick<URLSearchParams, "get">;
+
+/**
+ * Resolves Settings' addressable detail pages and the two billing return
+ * routes. An explicit valid section wins so a caller can deliberately link
+ * to another Settings task without a stale billing parameter taking over.
+ */
+export function resolveSettingsSection(query: SettingsQuery, assistantsVisible: boolean): SettingsSection | null {
+  const requestedSection = query.get("section");
+  if (isSettingsSection(requestedSection)) {
+    return requestedSection === "assistants" && !assistantsVisible ? null : requestedSection;
+  }
+  if (query.get("plans") === "1") return "penny-plan";
+  const billing = query.get("billing");
+  return billing === "success" || billing === "cancelled" ? "penny-plan" : null;
+}
+
 export type SettingsDirectoryStatus = {
   accountSummary: string;
   financialSummary: string;

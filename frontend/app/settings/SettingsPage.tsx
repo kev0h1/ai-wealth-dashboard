@@ -39,7 +39,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { clearOnboarded } from "@/lib/onboardingGate";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
-import { SettingsDirectory, isSettingsSection, type SettingsSection } from "@/components/settings/SettingsDirectory";
+import { SettingsDirectory, resolveSettingsSection, type SettingsSection } from "@/components/settings/SettingsDirectory";
 import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "@/lib/settingsNavigation";
 
 // D keeps orientation on the canvas; only related controls share a surface.
@@ -151,11 +151,7 @@ export default function SettingsPage() {
   const directoryHeadingRef = useRef<HTMLHeadingElement>(null);
   const previousSectionRef = useRef<SettingsSection | null>(null);
   const directoryScrollRef = useRef(0);
-  const rawSection = searchParams.get("section");
-  const requestedSection = isSettingsSection(rawSection) ? rawSection : null;
-  // An assistant page must not make the gated connection request merely
-  // because someone edited the URL. Treat that unavailable route as the hub.
-  const activeSection: SettingsSection | null = requestedSection === "assistants" && !MCP_CONNECTOR ? null : requestedSection;
+  const activeSection = resolveSettingsSection(searchParams, MCP_CONNECTOR);
   useEffect(() => {
     if (activeSection) {
       detailHeadingRef.current?.focus({ preventScroll: true });
@@ -1318,7 +1314,11 @@ export default function SettingsPage() {
             allowance reads more naturally next to the tier itself. Placed
             directly above the Penny card since both are about the same
             account-level relationship (what plan, what Penny can do). */}
-        <SettingsGroup visible={activeSection === "penny-plan"} title="Your plan" surface={false}><YourPlanCard info={pennyUsage.info} error={pennyUsageError} /></SettingsGroup>
+        <SettingsGroup visible={activeSection === "penny-plan"} title="Your plan" surface={false}>
+          {/* Re-run the card's existing URL auto-open when a resubscribe
+              link arrives while the plan section is already mounted. */}
+          {activeSection === "penny-plan" && <YourPlanCard key={searchParams.get("plans") === "1" ? "resubscribe" : "plan"} info={pennyUsage.info} error={pennyUsageError} />}
+        </SettingsGroup>
 
         {/* ── Penny (agent mode v1) ── */}
         {/* Consent-state row for Penny's agent mode (setting up envelopes/
