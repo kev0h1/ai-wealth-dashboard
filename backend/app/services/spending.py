@@ -15,8 +15,10 @@ DOES NOT COUNT
     * transfers between the user's own accounts (kind ``movement``, or a debit
       the own-account detector below recognises, whatever its category),
     * savings, investment and pension contributions (kind ``movement``),
-    * credit card repayments (kind ``movement``; the purchases were already
-      counted, so counting the repayment would count them twice),
+    * credit card repayments (a Debt debit with card evidence, see
+      ``find_card_repayment_ids``; the purchases were already counted, so
+      counting the repayment would count them twice). A Debt debit WITHOUT
+      that evidence is a loan repayment and counts,
     * refunds: a credit in a spend category NETS OFF that category's spend
       rather than being income,
     * income (kind ``income``).
@@ -35,9 +37,11 @@ Own-account detection (``find_own_move_ids``), strongest evidence first:
     3. a transfer-pair match: a credit of the same amount (within 2p), on a
        DIFFERENT account of the user's, within five days (the closest date
        wins), categorised Transfer/movement or unplaced (never Income), not
-       already paired, and only for Business, Other or transfer-like rows
-       (text that says transfer or carries the user's name). Debits that are
-       already movements claim their partner credits first,
+       already paired, whose own text/category carries own-account evidence
+       (Transfer or movement kind, a link, the user's name, an own account
+       number), and only for Business, Other or transfer-like rows. Never on
+       amount and date alone. Debits that are already movements claim their
+       partner credits first,
     4. the user's own name in the text counts only together with a pair match
        (never alone: "MR K MAINGI RENT REF" is a rent payment).
 A payee that is merely called the same as a provider ("TIDE PLATFORM LIMI", a
