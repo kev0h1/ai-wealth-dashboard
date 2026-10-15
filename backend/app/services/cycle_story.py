@@ -33,7 +33,8 @@ from app.services.behaviour import (
     savings_account_ids,
     classify_saving_flow,
 )
-from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categories import get_category_kinds
+from app.services.spending import classify_flow, try_build_spending_context, SPEND
 from app.services.needle import (
     _txns_for_period,
     _credit_card_account_ids,
@@ -94,6 +95,14 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
 
     raw_accounts = await accounts_col.find({"user_id": uid}).to_list(None)
 
+    # G268: own-account moves are not spending (app.services.spending).
+    spend_ctx = await try_build_spending_context(
+        uid,
+        datetime(period_start.year, period_start.month, period_start.day),
+        datetime(fetch_end.year, fetch_end.month, fetch_end.day, 23, 59, 59),
+        kinds=kind_map,
+    )
+
     # Account classification
     cc_ids = await _credit_card_account_ids(uid)
     current_acc_docs = await _current_account_ids(uid)
@@ -119,6 +128,8 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
             "is_debit": is_debit,
             "is_credit": not is_debit,
             "is_credit_card": is_credit_card,
+            "own_move": bool(spend_ctx and spend_ctx.is_own_move(str(t.get("_id") or ""))),
+            "card_repayment": bool(spend_ctx and spend_ctx.is_card_repayment(str(t.get("_id") or ""))),
         })
 
     period_start_str = period_start.isoformat()
@@ -128,7 +139,8 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     # Real spend = debits whose category kind is not movement/income (any account)
     real_spend_all = [
         t for t in txns
-        if t["is_debit"] and not is_non_spend(kind_map, t["category"])
+        if t["is_debit"]
+        and classify_flow(kind_map, t["category"], True, t["own_move"], t["card_repayment"]).kind == SPEND
     ]
 
     # ── Chapter 1: Opening ────────────────────────────────────────────────────

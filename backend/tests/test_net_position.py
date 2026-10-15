@@ -359,7 +359,7 @@ def test_period_net_excludes_movement_from_income_and_outflow(monkeypatch):
         txn("Groceries", 50.0, merchant="Tesco"),
         txn("Income", 1000.0, merchant="Employer", debit=False),
         txn("Savings", 300.0, merchant="Pot"),        # MOVEMENT — excluded from both
-        txn("Debt", 150.0, merchant="Barclaycard"),    # MOVEMENT — excluded from both
+        {**txn("Debt", 150.0, merchant="Barclaycard"), "card_repayment": True},  # card repayment — excluded from both
     ]
 
     async def fake_load(uid, start, end):

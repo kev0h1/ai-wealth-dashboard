@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from app.db.collections import transactions_col, accounts_col, behaviour_portrait_col
-from app.services.categories import get_category_kinds, is_discretionary, is_non_spend
+from app.services.categories import get_category_kinds, is_discretionary
+from app.services.spending import SPEND, build_spending_context, classify_flow
 
 # "Real spend" and "discretionary" are no longer local sets. They come from the
 # declared kind on each category (app.services.categories), fetched ONCE per
@@ -136,6 +137,10 @@ async def compute_portrait(uid: str) -> dict:
     # Category kinds — ONE read for the whole portrait. Every use below is
     # inside a per-transaction loop, so it must never be re-fetched there.
     kind_map = await get_category_kinds(uid)
+    # G268: own-account moves are not spending (app.services.spending).
+    spend_ctx = await build_spending_context(
+        uid, cutoff_naive, None, kinds=kind_map, collections=(transactions_col,),
+    )
 
     # Fetch all transactions in window (all sources — TrueLayer only for now,
     # structured generically so adding Finexer collections is trivial)
@@ -212,12 +217,18 @@ async def compute_portrait(uid: str) -> dict:
             "account_id": acc_id,
             "is_debit": (t.get("transaction_type") == "debit"),
             "is_credit_card": acc_id in credit_account_ids,
+            "own_move": spend_ctx.is_own_move(str(t.get("_id") or "")),
+            "card_repayment": spend_ctx.is_card_repayment(str(t.get("_id") or "")),
         })
 
     traits = []
 
     # ── TRAIT 1: Front-loading ────────────────────────────────────────────────
-    spend_txns = [t for t in txns if t["is_debit"] and not is_non_spend(kind_map, t["category"])]
+    spend_txns = [
+        t for t in txns
+        if t["is_debit"]
+        and classify_flow(kind_map, t["category"], True, t["own_move"], t["card_repayment"]).kind == SPEND
+    ]
     early_spend = 0.0
     late_spend = 0.0
     day_totals: dict[int, float] = defaultdict(float)

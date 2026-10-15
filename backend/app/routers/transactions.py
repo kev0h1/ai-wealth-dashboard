@@ -28,6 +28,8 @@ from app.services.categorisation import (
     teaching_decision_times,
 )
 from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categorisation import user_identity
+from app.services.spending import SpendingContext, load_card_accounts, txn_flow
 from app.services import response_cache
 
 router = APIRouter(tags=["transactions"])
@@ -210,10 +212,29 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
         *(c.find({"user_id": uid, "date": {"$gte": cutoff}}).to_list(None) for c in cols)
     )
     docs: list = []
-    for r in results:
+    statement_ids: set = set()
+    for c, r in zip(cols, results):
         docs += r
+        if c is statement_transactions_col:
+            statement_ids.update(d["_id"] for d in r)
     docs.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
-    return [_doc_to_tx(d) for d in docs]
+    # G268: stamp each row with its contribution to spending under the one
+    # definition, so the Spend charts (computed client-side from this list)
+    # reconcile with Spend's Out. A foreign-currency row is 0, as it is for
+    # the verdict's own loader.
+    kinds, identity, cards = await asyncio.gather(
+        get_category_kinds(uid), user_identity(uid), load_card_accounts(uid),
+    )
+    spend_ctx = SpendingContext.from_docs(docs, kinds, identity, cards)
+    out = []
+    for d in docs:
+        currency = d.get("currency")
+        foreign = bool(currency) and currency != "GBP"
+        # Statement imports are not in Spend's Out (its loader reads the two
+        # bank-feed collections), so the charts must not count them either.
+        amount = 0.0 if (foreign or d["_id"] in statement_ids) else txn_flow(d, spend_ctx).signed(d.get("amount") or 0)
+        out.append(_doc_to_tx({**d, "spend_amount": round(amount, 2)}))
+    return out
 
 
 def _parse_date_bound(value: Optional[str], end_of_day: bool = False) -> Optional[datetime]:

@@ -108,6 +108,7 @@ from app.services import penny_chart, penny_period, penny_search, penny_table
 from app.services.safe_calc import evaluate as _safe_calc_evaluate
 from app.services.safe_calc import future_value as _safe_calc_future_value
 from app.services.spend_verdict import _load_period_txns, bucket_transactions, compute_spend_verdict
+from app.services.spending import build_spending_context, classify_flow, try_build_spending_context
 from app.services.sync_freshness import last_bank_sync
 
 logger = logging.getLogger(__name__)
@@ -2980,7 +2981,7 @@ async def _account_activity_rows(uid: str, account_id: str, start: datetime, end
     return rows
 
 
-def _summarise_account_activity(acc, rows: list[dict], kind_map) -> dict:
+def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> dict:
     """Server-side aggregation only — the model must never sum these rows
     itself. Money out is split spend vs movement using the same declared
     category kind (`app.services.categories.is_non_spend`) every other
@@ -2995,7 +2996,15 @@ def _summarise_account_activity(acc, rows: list[dict], kind_map) -> dict:
             money_in += amt
         elif ttype == "debit":
             cat = d.get("custom_category") or d.get("category") or "Other"
-            if is_non_spend(kind_map, cat):
+            # G268: spend vs movement is the one definition
+            # (app.services.spending): a debit to the user's own account is
+            # movement even when its category is a spend one.
+            did = str(d.get("_id") or "")
+            if ctx is not None:
+                counts = classify_flow(kind_map, cat, True, ctx.is_own_move(did), ctx.is_card_repayment(did)).kind == "spend"
+            else:
+                counts = not is_non_spend(kind_map, cat)
+            if not counts:
                 money_out_movement += amt
             else:
                 money_out_spend += amt
@@ -3103,9 +3112,10 @@ async def _exec_get_account_activity(
         start_dt = from_dt or (end_dt - timedelta(days=days))
         targets = [target] if target else accs[:_ACTIVITY_ACCOUNT_CAP]
         summaries = []
+        spend_ctx = await try_build_spending_context(uid, start_dt, end_dt, kinds=kind_map)
         for acc in targets:
             rows = await _account_activity_rows(uid, acc.id, start_dt, end_dt, home_currency)
-            summaries.append(_summarise_account_activity(acc, rows, kind_map))
+            summaries.append(_summarise_account_activity(acc, rows, kind_map, spend_ctx))
     except Exception:
         logger.exception("penny_tools: get_account_activity aggregation failed for %s", uid)
         return _tool_error("account activity lookup failed")
@@ -3595,25 +3605,56 @@ async def _exec_check_affordability(uid: str, amount, timeframe) -> dict:
 # the exact same category — reusing the identical home-currency mechanism
 # _load_period_txns uses, not a re-derived approximation of it.
 async def _category_txn_rows(uid: str, category: str, start: datetime, end: datetime) -> list[dict]:
+    """G268: the same definition of spending as the Spend page
+    (app.services.spending). For a spend-kind category the rows are its debits
+    plus its refund credits (netted by `_row_signed`), and a debit that is
+    really a move to the user's own account is left out. A movement or income
+    category (someone asking about Savings) keeps its debits as before."""
     home_currency = "GBP"
+    ctx = None
+    spend_kind = True
+    try:
+        kinds = await get_category_kinds(uid)
+        ctx = await build_spending_context(uid, start, end, kinds=kinds)
+        spend_kind = not is_non_spend(kinds, category)
+    except Exception:
+        logger.exception("penny_tools: category row spending context failed for %s", uid)
+    types = ["debit", "credit"] if spend_kind else ["debit"]
     rows: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
         async for doc in col.find(
-            {"user_id": uid, "transaction_type": "debit", "date": {"$gte": start, "$lte": end}},
-            {"amount": 1, "category": 1, "custom_category": 1, "merchant_name": 1, "description": 1, "currency": 1, "date": 1},
+            {"user_id": uid, "transaction_type": {"$in": types}, "date": {"$gte": start, "$lte": end}},
+            {"amount": 1, "category": 1, "custom_category": 1, "merchant_name": 1, "description": 1, "currency": 1, "date": 1,
+             "transaction_type": 1},
         ):
             txn_currency = doc.get("currency")
             if txn_currency and txn_currency != home_currency:
                 continue
             doc_category = doc.get("custom_category") or doc.get("category") or "Other"
             if doc_category == category or normalise_name(doc_category) == normalise_name(category):
+                did = str(doc.get("_id") or "")
+                if ctx is not None and (ctx.is_own_move(did) or ctx.is_card_repayment(did)):
+                    continue
                 rows.append(doc)
     return rows
+
+
+def _row_signed(d: dict) -> float:
+    """+amount for a payment, -amount for a refund credit (a row with no
+    transaction_type is a payment, as before G268)."""
+    amt = abs(float(d.get("amount") or 0))
+    return -amt if d.get("transaction_type") == "credit" else amt
+
+
+def _is_payment(d: dict) -> bool:
+    return d.get("transaction_type") != "credit"
 
 
 def _top_merchants(rows: list[dict], n: int = 3) -> list[dict]:
     totals: dict[str, float] = {}
     for d in rows:
+        if not _is_payment(d):
+            continue  # a refund is never a "top merchant"
         name = d.get("merchant_name") or d.get("description") or "Unknown"
         totals[name] = totals.get(name, 0.0) + abs(float(d.get("amount") or 0))
     ranked = sorted(totals.items(), key=lambda kv: -kv[1])[:n]
@@ -3994,7 +4035,7 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
         window_period = None
 
     if months and window_period:
-        total = sum(abs(float(d.get("amount") or 0)) for d in rows_raw)
+        total = sum(_row_signed(d) for d in rows_raw)
         # The window is what the table, chart and any "last N months" claim
         # cover, so it is the headline period; the pay period stays on
         # this_period.
@@ -4002,7 +4043,7 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
         result["last_n_months"] = {
             "months": months,
             "spent": _money(total),
-            "payments_count": len(rows_raw),
+            "payments_count": sum(1 for d in rows_raw if _is_payment(d)),
             "monthly_average": _money(total / months, 2),
             "period": window_period,
             # G241: the window the total covers, so a per-week or per-month
@@ -4056,8 +4097,9 @@ def _category_months_table(category: str, rows_raw: list[dict], start_d: date, e
             continue
         b = buckets.get((raw_date.year, raw_date.month))
         if b is not None:
-            b[0] += abs(float(d.get("amount") or 0))
-            b[1] += 1
+            b[0] += _row_signed(d)
+            if _is_payment(d):
+                b[1] += 1
     if not buckets or len(buckets) > penny_table.MAX_ROWS:
         return None
     return penny_table.validate_or_none({

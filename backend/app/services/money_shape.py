@@ -46,6 +46,7 @@ from app.db.collections import (
 from app.services.behaviour import classify_saving_flow, savings_account_ids
 from app.services.categories import MOVEMENT, get_category_kinds, is_commitment, is_discretionary, is_income, kind_of
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label, prev_pay_period
+from app.services.spending import REFUND, SPEND, classify_flow, try_build_spending_context
 
 # How far back (in months) to walk hunting for valid completed pay periods,
 # and the hard iteration cap that bounds the walk regardless of rhythm. A
@@ -75,7 +76,7 @@ _N_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 #: Bump whenever the cached response shape changes, so a stale doc from a
 #: previous shape (e.g. the old horizon-sliced "trend"/"trend_summary") is
 #: never served even if its computed_at TTL hasn't expired yet.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -113,13 +114,15 @@ def shares_of(fixed: float, moved: float, free: float, left: float, overspent: f
     return _largest_remainder_pct(amounts, total)
 
 
-def _category_totals(txns: list[dict]) -> dict[str, float]:
-    """Effective category -> summed abs(amount) among ``txns``. Insertion
-    order follows first appearance (used as the tie-break when sorting)."""
+def _category_totals(txns: list[dict], signed: bool = False) -> dict[str, float]:
+    """Effective category -> summed abs(amount) among ``txns`` (or the summed
+    signed amount when ``signed``, for the spend jobs whose rows already carry
+    +payment/-refund). Insertion order follows first appearance (used as the
+    tie-break when sorting)."""
     totals: dict[str, float] = {}
     for t in txns:
         cat = t["category"]
-        totals[cat] = totals.get(cat, 0.0) + abs(t["amount"])
+        totals[cat] = totals.get(cat, 0.0) + (t["amount"] if signed else abs(t["amount"]))
     return totals
 
 
@@ -144,7 +147,9 @@ def _union_categories(periods_full: list[dict], job_id: str) -> list[str]:
     return _sorted_by_contribution(totals)
 
 
-def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _date) -> dict:
+def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _date,
+                  own_move_ids: frozenset | set = frozenset(),
+                  card_repayment_ids: frozenset | set = frozenset()) -> dict:
     """Split one pay period's transactions into the four jobs.
 
     ``txns`` is the FULL normalised transaction list (compute_portrait shape:
@@ -176,11 +181,26 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     ]
     take_home = sum(abs(t["amount"]) for t in income_txns)
 
-    fixed_txns = [t for t in period_txns if t["is_debit"] and is_commitment(kinds, t["category"])]
-    fixed = sum(abs(t["amount"]) for t in fixed_txns)
+    flows = [
+        (t, classify_flow(kinds, t["category"], t["is_debit"], t.get("_id") in own_move_ids,
+                          t.get("_id") in card_repayment_ids))
+        for t in period_txns
+    ]
+    # Signed copies: +payment, -refund. A job's total and its category
+    # evidence are both the net figure, exactly what Spend's Out nets.
+    fixed_txns = [
+        {**t, "amount": f.signed(t["amount"])} for t, f in flows
+        if f.kind in (SPEND, REFUND) and (is_commitment(kinds, t["category"]) or f.reason == "loan_repayment")
+    ]
+    fixed = sum(t["amount"] for t in fixed_txns)
 
-    free_txns = [t for t in period_txns if t["is_debit"] and is_discretionary(kinds, t["category"])]
-    free = sum(abs(t["amount"]) for t in free_txns)
+    free_txns = [
+        {**t, "amount": f.signed(t["amount"])} for t, f in flows
+        if f.kind in (SPEND, REFUND) and is_discretionary(kinds, t["category"])
+    ]
+    free = sum(t["amount"] for t in free_txns)
+    # Own-account moves that carry a spend category: moved, never spent.
+    own_move_txns = [t for t, f in flows if f.kind == "movement" and f.reason == "own_account" and t["is_debit"]]
 
     # Investment-category debits, added on top of the saving flow. type1 is
     # strictly `category == "Savings"` debits (see classify_saving_flow), so
@@ -188,7 +208,7 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     # one value, the two filters are mutually exclusive by construction. No
     # id-based dedupe is needed or reachable here.
     investment_extra = [t for t in period_txns if t["is_debit"] and t["category"] == "Investment"]
-    moved_txns = type1 + type2 + investment_extra
+    moved_txns = type1 + type2 + investment_extra + own_move_txns
     moved = sum(abs(t["amount"]) for t in moved_txns)
 
     left_raw = take_home - fixed - free - moved
@@ -205,10 +225,10 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     # calm_start: discretionary spend in the first 3 days (start .. start+2).
     day3_end_s = (start + timedelta(days=2)).isoformat()
     first3_discretionary = sum(
-        abs(t["amount"]) for t in free_txns if start_s <= t["date"] <= day3_end_s
+        t["amount"] for t in free_txns if start_s <= t["date"] <= day3_end_s
     )
 
-    fixed_totals = _category_totals(fixed_txns)
+    fixed_totals = _category_totals(fixed_txns, signed=True)
     # moved_txns can include a type2 credit the categoriser tagged something
     # other than a movement category -- most dangerously "Income" (a salary
     # paid straight into a savings account). Its amount still counts in the
@@ -219,7 +239,7 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     # ("Savings"/"Investment"), so this filter only ever removes type2
     # stragglers.
     moved_totals = _category_totals([t for t in moved_txns if kind_of(kinds, t["category"]) == MOVEMENT])
-    free_totals = _category_totals(free_txns)
+    free_totals = _category_totals(free_txns, signed=True)
     # income_txns are already is_income(...)-filtered above, so every entry
     # here is INCOME-kind by construction -- nothing further to filter.
     left_totals = _category_totals(income_txns)
@@ -592,9 +612,16 @@ async def compute_money_shape(uid: str) -> dict:
             "is_debit": (t.get("transaction_type") == "debit"),
         })
 
+    # G268: own-account moves, so Fixed + Free is Spend's Out.
+    spend_ctx = await try_build_spending_context(
+        uid, cutoff_dt, None, kinds=kinds, collections=(transactions_col,),
+    )
+    own_move_ids = spend_ctx.own_move_ids if spend_ctx is not None else set()
+    card_repayment_ids = spend_ctx.card_repayment_ids if spend_ctx is not None else set()
+
     valid_periods_full: list[dict] = []  # newest → oldest, FULL bucket_period dicts
     for s, e in period_bounds:
-        b = bucket_period(txns, kinds, saving_ids, s, e)
+        b = bucket_period(txns, kinds, saving_ids, s, e, own_move_ids, card_repayment_ids)
         if b["take_home"] > 0:
             b["label"] = _period_label(s, e, rhythm)
             valid_periods_full.append(b)
