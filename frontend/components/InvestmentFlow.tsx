@@ -1,61 +1,44 @@
-import { FileText, Receipt, TrendingUp, ShieldCheck } from "lucide-react";
-import { STATEMENT_FLOW_STEPS, STATEMENT_PRIVACY_LINE } from "@/lib/investmentFlow";
+import { ArrowRight, FileText, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react";
+import { STATEMENT_FLOW_STEPS, STATEMENT_PRIVACY_LINE, STAY_CURRENT_COPY } from "@/lib/investmentFlow";
+import s from "./InvestmentFlow.module.css";
 
-const ICONS = { statement: FileText, notes: Receipt, prices: TrendingUp } as const;
+function Paper({ note = false }: { note?: boolean }) {
+  return <div className={`${s.paper} ${note ? s.note : ""}`} aria-hidden="true">
+    {note ? <ReceiptText size={19} /> : <FileText size={22} />}
+    <span className={s.paperTitle}>{note ? "Contract note" : "Statement"}</span>
+    <span className={s.inkLine} /><span className={s.inkLine} />
+    <span className={s.paperValue}>{note ? "+2 bought" : "12 units"}</span>
+  </div>;
+}
 
-export type InvestmentFlowVariant = "list" | "strip";
-
-/** G272: the statement, contract notes, daily prices graphic plus the file privacy note. */
-export default function InvestmentFlow({ variant }: { variant: InvestmentFlowVariant }) {
-  return (
-    <section aria-label="How your investment account stays current" className="space-y-3">
-      {variant === "list" ? (
-        <ol className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-700/50">
-          {STATEMENT_FLOW_STEPS.map((s, i) => {
-            const Icon = ICONS[s.key];
-            return (
-              <li key={s.key} className="relative flex items-start gap-3 py-2">
-                {i < STATEMENT_FLOW_STEPS.length - 1 && (
-                  <span aria-hidden="true" className="absolute left-4 top-10 -bottom-2 w-px bg-slate-200 dark:bg-slate-600" />
-                )}
-                <span className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-900/40">
-                  <Icon size={16} aria-hidden="true" className="text-indigo-600 dark:text-indigo-400" />
-                </span>
-                <span className="min-w-0 pt-0.5 text-xs leading-snug text-slate-600 dark:text-slate-300">
-                  <span className="font-semibold text-slate-800 dark:text-slate-100">{i + 1}. {s.label}.</span>{" "}
-                  {s.line}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-      ) : (
-        <div>
-          <ol className="flex items-stretch gap-1.5">
-            {STATEMENT_FLOW_STEPS.map((s, i) => {
-              const Icon = ICONS[s.key];
-              return (
-                <li key={s.key} className="flex min-w-0 flex-1 items-center gap-1.5">
-                  <span className="flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border border-slate-100 bg-slate-50 px-2 py-3 text-center dark:border-slate-700 dark:bg-slate-700/50">
-                    <Icon size={16} aria-hidden="true" className="text-indigo-600 dark:text-indigo-400" />
-                    <span className="text-[11px] font-semibold leading-tight text-slate-800 dark:text-slate-100">{s.label}</span>
-                  </span>
-                  {i < STATEMENT_FLOW_STEPS.length - 1 && (
-                    <span aria-hidden="true" className="flex-shrink-0 text-xs text-slate-400 dark:text-slate-500">›</span>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-          <p className="mt-2 text-xs leading-snug text-slate-600 dark:text-slate-300">
-            A statement sets your holdings and units, contract notes add trades between statements, and prices then refresh daily.
-          </p>
-        </div>
-      )}
-      <p className="flex items-start gap-2 text-xs leading-snug text-slate-500 dark:text-slate-400">
-        <ShieldCheck size={14} aria-hidden="true" className="mt-px flex-shrink-0" />
-        {STATEMENT_PRIVACY_LINE}
-      </p>
-    </section>
-  );
+/** G272: approved C, Paper to portfolio. Keep the complete example accessible. */
+export default function InvestmentFlow() {
+  return <section className={s.root} aria-label="How statement imports work">
+    <h3 className={s.heading}>From a PDF to your portfolio</h3>
+    <div className={s.bridge} aria-hidden="true">
+      <div className={s.papers}><Paper /><Paper note /></div>
+      <ArrowRight className={s.bridgeArrow} size={19} />
+      <div className={s.portfolio}>
+        <span className={s.portfolioLabel}>Your holdings</span>
+        <strong>14 <span>units</span></strong>
+        <span className={s.refresh}><RefreshCw size={14} />Daily prices</span>
+      </div>
+    </div>
+    <p className={s.example}>Illustrative example: 12 units + 2 bought = 14 units.</p>
+    <ol className={s.steps} role="list">
+      {STATEMENT_FLOW_STEPS.map((step, i) => <li key={step.key}>
+        <span className={s.stepNumber} aria-hidden="true">{i + 1}</span>
+        <div><strong>{step.label}</strong><span>{step.line}</span></div>
+      </li>)}
+    </ol>
+    <p className={s.caveat}>Add contract notes when you trade. Prices may be delayed.</p>
+    <details className={s.details}>
+      <summary>When you add a new statement</summary>
+      <p>{STAY_CURRENT_COPY}</p>
+    </details>
+    <p className={s.privacy}>
+      <ShieldCheck size={18} aria-hidden="true" />
+      <span>{STATEMENT_PRIVACY_LINE}</span>
+    </p>
+  </section>;
 }

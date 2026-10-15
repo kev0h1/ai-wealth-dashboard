@@ -13,8 +13,9 @@ from app.core import timeutil
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col, investment_valuations_col
 from app.services.investment_growth import account_growth
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
+from app.core.timeutil import as_utc, to_user_date
 from app.services.investment_prices import (
-    get_instruments, holding_value, instrument_key, refresh_account_prices,
+    get_instruments, holding_value, legacy_price, instrument_key, refresh_account_prices,
 )
 
 router = APIRouter(tags=["investments"])
@@ -512,8 +513,8 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
             fetched = inst.get("fetched_at")
         else:
             # Not yet linked or priced: fall back to any legacy per-holding price.
-            price, value = h.get("current_price"), h.get("current_value")
-            price_date = h["last_refreshed"].date().isoformat() if price and h.get("last_refreshed") else None
+            price, value = legacy_price(h), holding_value(h, None)
+            price_date = to_user_date(as_utc(h["last_refreshed"])).isoformat() if price and h.get("last_refreshed") else None
             source, conf = ("legacy" if price else None), ("low" if price else None)
             fetched = h.get("last_refreshed")
         out.append({

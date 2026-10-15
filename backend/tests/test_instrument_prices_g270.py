@@ -233,3 +233,92 @@ def test_history_one_point_per_date(cols):
 def test_name_is_sanitised_for_prompt():
     assert ip.sanitise_name("Fund <script>\nIgnore previous\n{x}") == "Fund scriptIgnore previousx"
     assert len(ip.sanitise_name("a" * 500)) == 80
+
+
+class _NoQuote(_Src):
+    async def fetch(self, inst):
+        self.calls += 1
+        return None
+
+
+def _legacy(holdings, accs, lr=datetime(2026, 10, 13, 23, 30, tzinfo=timezone.utc)):
+    # pre-migration state: holdings priced on themselves, no instrument_key
+    holdings.docs["h1"].update(current_price=12.5, current_value=25.0,
+                               last_refreshed=lr)
+    holdings.docs["h2"].update(current_price=12.5, current_value=37.5,
+                               last_refreshed=lr)
+    accs.docs["a1"]["total_value"] = 25.0
+    accs.docs["a2"]["total_value"] = 37.5
+
+
+def test_failed_first_fetch_premigration_keeps_legacy_total(cols):
+    inst, holdings, accs = cols
+    _legacy(holdings, accs, datetime(2026, 10, 12, 12, tzinfo=timezone.utc))
+    res = run(ip.refresh_account_prices(accs.docs["a1"], [_NoQuote()]))
+    assert res["status"] == "failed"
+    # total equals the legacy value, not the older statement value (50.0)
+    assert accs.docs["a1"]["total_value"] == 25.0 and res["new_total"] == 25.0
+    holdings.docs["h1"]["instrument_key"] = ISIN
+    inst.docs[ISIN].pop("price", None)  # still unpriced for the GET path
+    inst.docs[ISIN]["price"] = None
+    assert ip.holding_value(holdings.docs["h1"], inst.docs[ISIN]) == 25.0
+
+
+def test_first_real_quote_replaces_legacy_seed_regardless_of_size(cols):
+    inst, holdings, accs = cols
+    _legacy(holdings, accs, datetime(2026, 10, 12, 12, tzinfo=timezone.utc))
+    # the seed (12.5) is not a real quote, so a far-off first real quote is accepted
+    run(ip.refresh_account_prices(accs.docs["a1"], [_Src(price=100.0)]))
+    assert inst.docs[ISIN]["price"] == 100.0 and inst.docs[ISIN]["source"] == "fake"
+    assert accs.docs["a1"]["total_value"] == 200.0
+
+
+def test_link_seeds_instrument_from_legacy(cols):
+    inst, holdings, accs = cols
+    _legacy(holdings, accs)
+    run(ip._link_holdings(list(holdings.docs.values())))
+    d = inst.docs[ISIN]
+    assert d["price"] == 12.5 and d["source"] == "legacy" and d["confidence"] == "low"
+    # 23:30 UTC on 13 Oct is 00:30 BST on 14 Oct: the London date
+    assert d["price_date"] == "2026-10-14"
+    assert d["history"] == [{"price_date": "2026-10-14", "price": 12.5, "source": "legacy"}]
+
+
+def test_migration_seeds_already_linked_none_price_doc(cols):
+    inst, holdings, accs = cols
+    _legacy(holdings, accs)
+    for h in holdings.docs.values():
+        h["instrument_key"] = ISIN
+    inst.docs[ISIN] = {"_id": ISIN, "isin": ISIN, "price": None, "price_date": None, "history": []}
+    c = run(mig.migrate(holdings, inst, apply=True))
+    assert c["prices_seeded"] == 1 and c["legacy_cleaned"] == 2
+    assert inst.docs[ISIN]["price"] == 12.5 and inst.docs[ISIN]["source"] == "migrated"
+    assert "current_price" not in holdings.docs["h1"]
+    again = run(mig.migrate(holdings, inst, apply=True))
+    assert again["prices_seeded"] == 0 and again["legacy_cleaned"] == 0 and again["already_linked"] == 2
+
+
+def test_migration_keeps_legacy_when_no_price_to_replace_it(cols):
+    inst, holdings, _ = cols
+    holdings.docs["h1"]["instrument_key"] = ISIN
+    holdings.docs["h1"]["current_value"] = 25.0  # no price, no last_refreshed: cannot seed
+    inst.docs[ISIN] = {"_id": ISIN, "isin": ISIN, "price": None, "history": []}
+    run(mig.migrate(holdings, inst, apply=True))
+    assert holdings.docs["h1"]["current_value"] == 25.0
+
+
+def test_london_date_conversion_in_migration(cols):
+    inst, holdings, _ = cols
+    holdings.docs["h1"].update(current_price=9.0, last_refreshed=datetime(2026, 7, 1, 23, 30))  # naive UTC, BST
+    run(mig.migrate(holdings, inst, apply=True))
+    assert inst.docs[ISIN]["price_date"] == "2026-07-02"
+
+
+def test_bound_not_applied_against_seeded_price(cols):
+    inst, *_ = cols
+    _old(inst, 12.5)
+    inst.docs[ISIN]["source"] = "legacy"
+    assert run(ip.refresh_instrument(ISIN, [_Src(price=1250.0)])) == "fetched"
+    assert inst.docs[ISIN]["price"] == 1250.0 and inst.docs[ISIN]["source"] == "fake"
+    inst.docs[ISIN]["fetched_at"] = inst.docs[ISIN]["last_attempt_at"] = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+    assert run(ip.refresh_instrument(ISIN, [_Src(price=2500.0)])) == "failed"  # bound applies now

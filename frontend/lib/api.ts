@@ -975,6 +975,9 @@ export type CommitmentPreview = {
 export type Allocation = {
   /** Explicit paying account. Omitted legacy choices may be suggested separately. */
   source_account_id?: string | null;
+  /** Manual allocations reserve from their source but never auto-match an
+   * incoming payment.  Existing allocations retain payment matching. */
+  tracking_mode?: "manual" | "existing_payment";
   id: string;
   name: string;
   amount_per_period: number;
@@ -1033,6 +1036,8 @@ export type FillCandidate = {
   last_amount: number;
   last_date: string;
   occurrences_90d: number;
+  is_transfer?: boolean;
+  matched_pot_ids?: string[];
 };
 
 /** Hand-off from "Can I…?" — a ready-to-save commitment prefill. */
@@ -3131,6 +3136,7 @@ export const api = {
     effective_from?: string;
     /** Optional — defaults server-side to the cleaned match_value. */
     fill_display_name?: string;
+    tracking_mode?: "manual" | "existing_payment";
   }) => post<Allocation>("/allocations", body),
   updateAllocation: (id: string, body: {
     source_account_id?: string | null;
@@ -3140,6 +3146,7 @@ export const api = {
     match_type?: "description_equals" | "description_contains";
     match_value?: string;
     fill_display_name?: string;
+    tracking_mode?: "manual" | "existing_payment";
     effective_from?: string;
     recurrence?: "every_period" | "once";
     active?: boolean;

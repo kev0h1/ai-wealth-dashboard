@@ -462,6 +462,15 @@ def test_rhythm_card_category_total_matches_transactions_search(monkeypatch):
     monkeypatch.setattr(pace, "yapily_transactions_col", FakeCol([]))
 
     kind_map = CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
+
+    # G268: load_spend_txns now asks the spending definition for own-account
+    # moves; this fixture has none, so hand it an empty context rather than let
+    # it reach for a real database.
+    async def _empty_ctx(uid, start, end, **kw):
+        from app.services.spending import SpendingContext
+        return SpendingContext(kinds=kind_map)
+
+    monkeypatch.setattr(pace, "build_spending_context", _empty_ctx)
     spend_txns = asyncio.run(
         pace.load_spend_txns(UID, PERIOD_START, PERIOD_END, kind_map=kind_map)
     )

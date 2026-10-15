@@ -91,6 +91,11 @@ export interface Transaction {
   category?: string;
   transaction_type: "debit" | "credit";
   planned?: boolean;
+  /** G268: this row's signed contribution to spending under the one
+   *  definition (backend app/services/spending.py): +payment, -refund, 0 for
+   *  income, movement, own-account moves and foreign-currency rows. Only the
+   *  all-transactions route stamps it. */
+  spend_amount?: number | null;
 }
 
 export interface KPIs {

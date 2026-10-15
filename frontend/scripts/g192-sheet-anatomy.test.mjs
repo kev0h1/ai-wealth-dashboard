@@ -141,8 +141,8 @@ assert.match(flow, /!hasFooter && <div ref=\{fallbackFooterRef\}/, "Footerless f
 assert.match(flow, /useEffect\(retain, \[retain\]\)/, "Embedded action portals retain the pinned footer when present");
 assert.doesNotMatch(category, /<h2 className="text-base font-bold/, "SheetFrame owns the only sheet heading");
 assert.match(commitment, /onClose=\{handleSheetClose\}/);
-assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : undefined\}/);
-assert.match(commitment, /onBack=\{showConsent \? returnToDraft : undefined\}/);
+assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : editorView !== "main" \? returnToSummary : undefined\}/, "Consent and draft subviews return inside the same sheet");
+assert.match(commitment, /onBack=\{showConsent \? returnToDraft : editorView !== "main" \? returnToSummary : undefined\}/);
 assert.match(commitment, /key=\{sheetHistoryGeneration\}/, "Consent Back restores the SheetFrame history entry with the draft intact");
 assert.match(commitment, /allowConsentCloseRef\.current = true/, "A consent save or route handoff still closes the entire sheet");
 assert.match(insight, /setDone\(true\);\s+\/\/ The write has completed[\s\S]*setSaving\(false\);/, "Saved insight confirmation can be dismissed after the request finishes");

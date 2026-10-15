@@ -49,13 +49,13 @@ def _day(offset=0):
     return datetime.combine(timeutil.user_today() + timedelta(days=offset), datetime.min.time())
 
 
-def _debit(amount, desc="To Japan pot", offset=0, account="current", user=UID, kind="debit"):
+def _debit(amount, desc="To Japan pot", offset=0, account="current", user=UID, kind="debit", **extra):
     return {"user_id": user, "account_id": account, "transaction_type": kind,
-            "amount": amount, "date": _day(offset), "description": desc}
+            "amount": amount, "date": _day(offset), "description": desc, **extra}
 
 
-def _credit(amount, offset=0, account="saving"):
-    return _debit(amount, "From current", offset, account, kind="credit")
+def _credit(amount, offset=0, account="saving", **extra):
+    return _debit(amount, "From current", offset, account, kind="credit", **extra)
 
 
 def _goal(**extra):
@@ -258,13 +258,14 @@ def _suggest(txns):
 
 
 def test_suggestion_comes_from_the_transfer_that_reached_the_pot():
-    out = _suggest([_debit(80, offset=-3), _credit(80, offset=-3),
-                    _debit(80, offset=-33), _credit(80, offset=-33),
+    out = _suggest([_debit(80, offset=-3, category="Transfer"), _credit(80, offset=-3, category="Transfer"),
+                    _debit(80, offset=-33, category="Transfer"), _credit(80, offset=-33, category="Transfer"),
                     _debit(12.5, desc="Netflix", offset=-2)])
     s = out["suggestion"]
     assert s["match_type"] == "description_contains" and "japan pot" in s["match_value"].lower()
     assert s["occurrences_90d"] == 2 and s["last_amount"] == 80
-    assert {i["display_name"].lower() for i in out["items"]} >= {"netflix"}
+    # G267: ordinary purchases are not candidate transfer rules.
+    assert {i["display_name"].lower() for i in out["items"]} == {"to japan pot"}
 
 
 def test_suggestion_is_none_without_a_paired_transfer():
@@ -272,7 +273,7 @@ def test_suggestion_is_none_without_a_paired_transfer():
 
 
 def test_suggested_rule_matches_its_own_transfer():
-    out = _suggest([_debit(80, desc="  STANDING ORDER Japan   pot ", offset=-3), _credit(80, offset=-3)])
+    out = _suggest([_debit(80, desc="  STANDING ORDER Japan   pot ", offset=-3, category="Transfer"), _credit(80, offset=-3, category="Transfer")])
     rule = out["suggestion"]
     assert rule and pf.rule_matches(rule, _debit(80, desc="  STANDING ORDER Japan   pot "))
 

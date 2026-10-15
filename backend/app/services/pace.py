@@ -32,6 +32,7 @@ from app.db.collections import (
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
 from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
+from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,21 @@ def _norm(raw: dict) -> _Txn:
         "planned":    bool(raw.get("planned")),
         "id":         str(raw.get("_id") or ""),
     }
+
+
+async def _mark_own_moves(uid: str, txns: list[_Txn], start: datetime, kind_map: _KindMap) -> None:
+    """G268: flag `own_move` on normalised debits that are really a move
+    between the user's own accounts (app.services.spending), so `_classify`
+    files them as non-spend. Never raises: a lookup failure leaves the flags
+    off, i.e. today's kind-only behaviour."""
+    ctx = await try_build_spending_context(uid, start, None, kinds=kind_map)
+    if ctx is None:
+        return
+    for t in txns:
+        if ctx.is_own_move(t.get("id")):
+            t["own_move"] = True
+        if ctx.is_card_repayment(t.get("id")):
+            t["card_repayment"] = True
 
 
 def _classify(
@@ -142,7 +158,9 @@ def _classify(
 
     for t in txns:
         cat = t["category"]
-        if is_non_spend(kind_map, cat):
+        # G268: an own-account move (t["own_move"], set from the spending
+        # context) is not spending whatever category it carries.
+        if classify_flow(kind_map, cat, True, bool(t.get("own_move")), bool(t.get("card_repayment"))).kind not in (SPEND, REFUND):
             non_spend.append(t)
         elif t["planned"]:
             planned.append(t)
@@ -187,6 +205,10 @@ async def load_spend_txns(
     if end is not None:
         date_filter["$lte"] = datetime(end.year, end.month, end.day, 23, 59, 59)
 
+    spend_ctx = await build_spending_context(
+        uid, start_dt, date_filter.get("$lte"), kinds=kind_map,
+    )
+
     raw_docs: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
         try:
@@ -213,14 +235,14 @@ async def load_spend_txns(
             d_obj = timeutil.user_today()
 
         cat = doc.get("custom_category") or doc.get("category") or "Other"
-        if is_non_spend(kind_map, cat):
+        # G268: the one definition of spending (app.services.spending). A debit
+        # counts, a credit in a spend category is a refund and nets off, and
+        # movement, income and own-account moves contribute nothing.
+        flow = txn_flow(doc, spend_ctx)
+        if flow.kind not in (SPEND, REFUND):
             continue
 
-        amt = abs(float(doc.get("amount") or 0))
-        if doc.get("transaction_type") == "credit":
-            amt = -amt
-
-        result.append({"date": d_obj, "category": cat, "amount": amt})
+        result.append({"date": d_obj, "category": cat, "amount": flow.signed(doc.get("amount") or 0)})
 
     return result
 
@@ -279,6 +301,9 @@ def _total_baseline(
 # processes.
 
 _BASELINE_TTL_SECONDS = 6 * 3600
+# G268: bump when the spending definition changes, so memoised baselines and
+# shape curves built under the old one are recomputed rather than served.
+_SPEND_DEF_VERSION = 2
 
 
 async def _read_cached_baseline(
@@ -305,6 +330,8 @@ async def _read_cached_baseline(
     at = blob.get("computed_at")
     if not isinstance(at, datetime):
         return None
+    if blob.get("v") != _SPEND_DEF_VERSION:
+        return None
     if (datetime.now() - at).total_seconds() >= _BASELINE_TTL_SECONDS:
         return None
 
@@ -327,7 +354,7 @@ async def _write_cached_baseline(
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": {f"total_baselines.{window_key}": {
-                "data": baseline, "months": months, "computed_at": datetime.now(),
+                "data": baseline, "months": months, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,  # naive-ok: hour-scale cache stamp
             }}},
             upsert=True,
         )
@@ -470,6 +497,7 @@ async def compute_pace(
             logger.exception("pace: failed fetching from %s for %s", col.name, uid)
 
     all_txns = [_norm(d) for d in raw_docs]
+    await _mark_own_moves(uid, all_txns, db_cutoff_dt, kind_map)
 
     # Split by window in Python — no second DB round-trip needed.
     period_txns  = [t for t in all_txns if t["date"] >= period_start]
@@ -781,6 +809,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
             logger.exception("pace_detail: failed fetching from %s for %s", col.name, uid)
 
     all_txns     = [_norm(d) for d in raw_docs]
+    await _mark_own_moves(uid, all_txns, db_cutoff_dt, kind_map)
     period_txns  = [t for t in all_txns if period_start <= t["date"] <= period_end]
     history_txns = [t for t in all_txns if (period_start - timedelta(days=70)) <= t["date"] <= period_end]
 
@@ -1217,6 +1246,8 @@ async def _read_cached_shape(uid: str, window_key: str) -> dict | None:
     if not isinstance(blob, dict):
         return None
 
+    if blob.get("v") != _SPEND_DEF_VERSION:
+        return None
     at = blob.get("computed_at")
     if not isinstance(at, datetime):
         return None
@@ -1239,7 +1270,7 @@ async def _write_cached_shape(uid: str, window_key: str, bundle: dict) -> None:
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": {f"shape_profiles.{window_key}": {
-                "data": bundle, "computed_at": datetime.now(),
+                "data": bundle, "computed_at": datetime.now(), "v": _SPEND_DEF_VERSION,  # naive-ok: hour-scale cache stamp
             }}},
             upsert=True,
         )

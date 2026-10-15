@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CircleDashed } from "lucide-react";
+import { Check, CircleDashed, Pencil } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
@@ -13,6 +13,8 @@ import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { SheetFrame } from "@/components/SheetFrame";
 import { DateField } from "@/components/DatePicker";
+import { PlanAffordability, PlanContribution, PlanRouteSummary, PlanTrackingSummary } from "@/components/plans/PlanEditorSummary";
+import { tidyAccountName } from "@/lib/accountName";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -156,7 +158,7 @@ export default function CommitmentSheet({
   });
   const [pots, setPots] = useState<PotSelection[]>(() => potsFromCommitment(commitment));
   // G230 "Paid from": prefilled with the stored or inferred paying account.
-  // Nothing is written unless the user picks (an untouched inference is never saved).
+  // A displayed suggestion is persisted only by the final confirmation.
   const [sourceId, setSourceId] = useState<string>(commitment?.source_account_id ?? "");
   const [sourceTouched, setSourceTouched] = useState(false);
   // G256: the payment that fulfils each period's contribution, same rule shape
@@ -172,6 +174,13 @@ export default function CommitmentSheet({
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
+  const [editorView, setEditorView] = useState<"main" | "details" | "route" | "destination" | "tracking">("main");
+  const summaryFocus = useRef<HTMLButtonElement>(null);
+  const routeFocus = useRef<HTMLButtonElement>(null);
+  const trackingFocus = useRef<HTMLButtonElement>(null);
+  const destinationFocus = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<"details" | "route" | "destination" | "tracking">("details");
+  const returnToSummary = () => { setEditorView("main"); requestAnimationFrame(() => { const targets = { details: summaryFocus, route: routeFocus, destination: destinationFocus, tracking: trackingFocus }; targets[returnFocus.current].current?.focus(); }); };
   const allowConsentCloseRef = useRef(false);
 
   // Accounts — use the parent's list when given, otherwise self-fetch
@@ -215,7 +224,6 @@ export default function CommitmentSheet({
     (accountId: string) =>
       (operations.planFillCandidates ?? api.planFillCandidates)(accountId, potKey ? potKey.split(",") : [])
         .then((r) => {
-          setSuggestion(r.suggestion);
           // The suggestion is always a row the user can tap, unselected until they do.
           const s = r.suggestion;
           const has = s && r.items.some((c) => c.display_name === s.match_value);
@@ -226,10 +234,13 @@ export default function CommitmentSheet({
     [operations, potKey],
   );
   // Offered, never preselected: nothing is chosen until the user taps a row.
-  const suggestedActive = Boolean(suggestion && !ruleTouched && !commitment?.fill_rule && !rule.match_value);
-  const fulfilment = commitment?.fill_rule ? commitment.fulfilment ?? null : null;
+  const suggestedActive = Boolean(suggestion && !ruleTouched && !commitment?.fill_rule);
+  const fulfilment = commitment?.fill_rule && !ruleTouched && sourceId === commitment.source_account_id ? commitment.fulfilment ?? null : null;
 
   function togglePot(accountId: string) {
+    setSuggestion(null);
+    setRule(EMPTY_RULE);
+    setRuleTouched(true);
     setPots((prev) =>
       prev.some((p) => p.account_id === accountId)
         ? prev.filter((p) => p.account_id !== accountId)
@@ -306,25 +317,44 @@ export default function CommitmentSheet({
   // Live "≈ £X/period" estimate — remaining over pay periods left, ceiled to £5
   const periods = monthValid ? periodsLeftFor(month, payPeriodConfig) : null;
   const periodLabel = periodRhythmLabel(payPeriodConfig);
+  const contributionCadence = periodLabel === "monthly" ? "each month" : periodLabel === "weekly" ? "each week" : periodLabel?.startsWith("every ") ? periodLabel : "each pay period";
   const remaining = amountValid
     ? Math.max(0, parsedAmount - estimatedProgress)
     : null;
-  const slice =
-    periods != null && remaining != null && remaining > 0
-      ? ceil5(remaining / periods)
-      : null;
+  const slice = periods != null && remaining != null ? ceil5(remaining / periods) : null;
+
+  // Load a single sensible suggestion before showing the summary, rather
+  // than making users open the raw picker to discover it. Never apply a
+  // stale response after changing the source or the savings pots.
+  useEffect(() => {
+    let stale = false;
+    if (!sourceId || !potKey) return;
+    (operations.planFillCandidates ?? api.planFillCandidates)(sourceId, potKey.split(","))
+      .then(result => {
+        if (stale) return;
+        setSuggestion(result.suggestion);
+        if (!ruleTouched && !commitment?.fill_rule && result.suggestion) {
+          setRule({ ...result.suggestion, fill_display_name: "Suggested transfer" });
+        }
+      }).catch(() => { /* Manual reference and check-yourself remain available. */ });
+    return () => { stale = true; };
+  }, [sourceId, potKey, operations, commitment?.fill_rule, ruleTouched]);
 
   // Feasibility shown — with the stored pot set, trust the server's verdict
   // (it knows accrued growth the preview can't see), mirroring how
   // estimatedProgress trusts commitment.progress in the same branch.
+  const unchangedFinancials = commitment && !potsChanged && parsedAmount === commitment.amount && month === commitment.target_date.slice(0, 7);
+  const summarySlice = unchangedFinancials
+    ? fulfilment ? fulfilment.expected_pence / 100 : commitment.usual_slice ?? commitment.per_period_slice
+    : slice;
   const feasibility =
-    commitment && !potsChanged ? commitment.feasibility : preview?.feasibility;
+    unchangedFinancials ? commitment.feasibility : preview?.feasibility;
   const feasibilityNote =
-    commitment && !potsChanged
+    unchangedFinancials
       ? commitment.feasibility_note
       : preview?.feasibility_note;
   const feasibilityTone =
-    commitment && !potsChanged ? commitment.feasibility_tone : preview?.feasibility_tone;
+    unchangedFinancials ? commitment.feasibility_tone : preview?.feasibility_tone;
   const feasibilityCaution = feasibilityTone ? feasibilityTone === "caution" : feasibility === "stretch";
 
   async function doSave(close: () => void) {
@@ -353,8 +383,8 @@ export default function CommitmentSheet({
         if (potsChanged) {
           body.funding_pots = pots;
         }
-        if (sourceTouched) { body.source_account_id = sourceId || null; body.source_unset = !sourceId; }
-        if (ruleTouched || (sourceTouched && !sourceId)) body.fill_rule = ruleBody;
+        if (sourceTouched || sourceInferred) { body.source_account_id = sourceId || null; body.source_unset = !sourceId; }
+        if (ruleTouched || suggestedActive || (sourceTouched && !sourceId)) body.fill_rule = ruleBody;
         item = await operations.updateCommitment(commitment.id, body);
       } else {
         item = await operations.createCommitment({
@@ -363,8 +393,9 @@ export default function CommitmentSheet({
           target_date,
           funding_pots: pots,
           source,
-          ...(sourceTouched ? { source_account_id: sourceId || null, source_unset: !sourceId } : {}),
-          ...(ruleTouched ? { fill_rule: ruleBody } : {}),
+          source_account_id: sourceId,
+          source_unset: false,
+          ...(ruleTouched || suggestedActive ? { fill_rule: ruleBody } : {}),
         });
       }
       // G83 fix-round: a commitment create/edit can change the goal-name
@@ -387,7 +418,7 @@ export default function CommitmentSheet({
 
   function handleSubmit(e: React.FormEvent, close: () => void) {
     e.preventDefault();
-    if (!name.trim() || !amountValid || !monthValid || saving) return;
+    if (!name.trim() || !amountValid || !monthValid || saving || !sourceOptions.some(account => account.id === sourceId)) return;
     // Consent gate applies only on CREATE, never when editing an existing
     // plan — an edit's own preview already excludes the plan's prior self
     // from "others" (commitment_id is sent), and the user already made this
@@ -419,9 +450,12 @@ export default function CommitmentSheet({
 
   if (!mounted) return null;
 
-  const canSave = !saving && name.trim().length > 0 && amountValid && monthValid;
+  // A plan must name the account its contribution leaves. This remains an
+  // explicit confirmation even when the backend inferred a likely source.
+  const canSave = !saving && name.trim().length > 0 && amountValid && monthValid && sourceOptions.some(account => account.id === sourceId);
   const returnToDraft = () => {
     setShowConsent(false);
+    setEditorView("details");
     setTimeout(() => monthInputRef.current?.focus(), 0);
   };
   const returnToDraftAfterHistory = () => {
@@ -455,8 +489,8 @@ export default function CommitmentSheet({
       description="A goal you set money aside for, separate from single bills."
       onClose={handleSheetClose}
       dismissDisabled={saving}
-      onEscape={showConsent ? returnToDraft : undefined}
-      onBack={showConsent ? returnToDraft : undefined}
+      onEscape={showConsent ? returnToDraft : editorView !== "main" ? returnToSummary : undefined}
+      onBack={showConsent ? returnToDraft : editorView !== "main" ? returnToSummary : undefined}
       backLabel="Back to plan"
       footer={({ close, closeThen }) => {
         if (showConsent && consentSnapshot) {
@@ -475,6 +509,7 @@ export default function CommitmentSheet({
           );
         }
         return (
+          editorView !== "main" ? <button type="button" onClick={returnToSummary} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95">Keep these changes</button> :
           <div className="grid grid-cols-2 gap-2">
             <button type="button" disabled={saving} onClick={close} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">Cancel</button>
             <button type="submit" form="commitment-form" disabled={!canSave} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : commitment ? "Save changes" : "Save plan"}</button>
@@ -503,20 +538,41 @@ export default function CommitmentSheet({
               </div>
             ) : (
             <form id="commitment-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3">
+              {editorView === "main" ? <>
+              <PlanContribution amount={summarySlice} cadence={contributionCadence} progress={amountValid ? { current: estimatedProgress, target: parsedAmount } : undefined} />
+              {unchangedFinancials && fulfilment && <p className="pb-3 text-xs leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={`£${(fulfilment.matched_pence / 100).toLocaleString("en-GB")} paid this period · £${(fulfilment.unmet_pence / 100).toLocaleString("en-GB")} still to set aside`} /></p>}
+              {saveError && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
+              <PlanAffordability caution={feasibilityCaution}>{feasibilityNote ?? "We will check the contribution against your current plan before you save."}</PlanAffordability>
+              <button ref={summaryFocus} type="button" aria-label="Change details" onClick={() => { returnFocus.current = "details"; setEditorView("details"); }} className="flex min-h-12 w-full items-center justify-between border-y border-slate-200 py-3 text-left dark:border-slate-700"><span><strong className="block text-sm">{name || "Add a name"}</strong><small className="mt-1 block text-xs text-slate-600 dark:text-slate-300">{amountValid ? <MoneyText text={`Target £${parsedAmount.toLocaleString("en-GB")}`} /> : "Choose a target"} · by {new Date(`${month}-01T12:00:00`).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}</small></span><Pencil size={16} className="text-slate-400" aria-hidden="true" /></button>
+              <PlanRouteSummary
+                source={accountList.find((account) => account.id === sourceId) ? tidyAccountName(accountList.find((account) => account.id === sourceId)!.name) : "Choose a paying account"}
+                sourceAccount={accountList.find(account => account.id === sourceId)}
+                destinationAccount={pots.length === 1 ? accountList.find(account => account.id === pots[0].account_id) : undefined}
+                destination={pots.length ? pots.map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "Savings pot")).join(", ") : "Kept in the paying account"}
+                buttonRef={routeFocus} onEdit={() => { returnFocus.current = "route"; setEditorView("route"); }}
+                destinationButtonRef={destinationFocus} onDestinationEdit={() => { returnFocus.current = "destination"; setEditorView("destination"); }}
+              />
+              {sourceInferred && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Paying account suggested from recent transfers. Saving confirms this choice.</p>}
+              <PlanTrackingSummary buttonRef={trackingFocus} label={rule.match_value ? (suggestedActive ? "Suggested transfer to your savings pot" : "Your chosen transfer") : "Check it yourself"} detail={rule.match_value ? "A matching outgoing payment counts towards this period’s contribution, not as spending." : "No transfer rule is set. The contribution stays reserved until you change the plan."} onEdit={() => { returnFocus.current = "tracking"; setEditorView("tracking"); }} />
+              {rule.match_value && <details><summary className="min-h-11 cursor-pointer py-3 text-xs text-slate-600 dark:text-slate-300">Transfer reference</summary><p className="break-words pb-3 text-xs text-slate-600 dark:text-slate-300">{rule.match_value}</p></details>}
+              <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Confirming saves every choice. It does not move money.</p>
+              </> : <>
+              <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">{editorView === "details" ? "Plan details" : editorView === "route" ? "Choose a paying account" : editorView === "destination" ? "Choose savings pots" : "Recognise your transfer"}</h3>
               {/* G228: a quiet statement, no control. Changing the amount or the
                   date below ends the easing; that is the way back. */}
-              {commitment?.eased_this_period != null && (
+              {editorView === "details" && commitment?.eased_this_period != null && (
                 <p data-plan-eased className="text-xs leading-5 text-slate-600 dark:text-slate-400">
                   Eased to £{commitment.eased_this_period.toLocaleString("en-GB")} this period. Changing the amount or the date here ends the easing.
                 </p>
               )}
               {/* Name */}
+              {editorView === "details" && <>
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
+                <label htmlFor="commitment-name" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   Name
                 </label>
                 <input
-                  type="text"
+                  id="commitment-name" type="text" autoComplete="off"
                   value={name}
                   onChange={(e) => { setName(e.target.value); setSaveError(false); }}
                   placeholder="Summer holiday"
@@ -528,13 +584,13 @@ export default function CommitmentSheet({
 
               {/* Amount */}
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
+                <label htmlFor="commitment-amount" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   Total amount
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">£</span>
                   <input
-                    type="text"
+                    id="commitment-amount" type="text"
                     inputMode="decimal"
                     value={amount}
                     onChange={(e) => { setAmount(e.target.value); setSaveError(false); }}
@@ -556,18 +612,19 @@ export default function CommitmentSheet({
                   required
                 />
               </div>
+              </>}
 
               {/* Funding pots (optional, multi) — connected savings pots plus
                   offline manually-updated accounts. Offline pots are badged
                   and never receive automated payday-plan legs. */}
-              {potOptions.length > 0 && (
+              {editorView === "destination" && potOptions.length > 0 && (
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                    Fund it from savings pots?
+                    Set aside in savings pots
                   </label>
                   <div
                     role="group"
-                    aria-label="Fund it from savings pots?"
+                    aria-label="Set aside in savings pots"
                     className="rounded-xl border border-slate-200/70 dark:border-white/[0.08] divide-y divide-slate-100 dark:divide-white/[0.06] overflow-hidden"
                   >
                     {/* "No pot" — first row, clears the selection */}
@@ -575,13 +632,13 @@ export default function CommitmentSheet({
                       type="button"
                       role="checkbox"
                       aria-checked={pots.length === 0}
-                      onClick={() => setPots([])}
+                      onClick={() => { setPots([]); setSuggestion(null); setRule(EMPTY_RULE); setRuleTouched(true); }}
                       className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
                     >
                       <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-white/[0.06] ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex-shrink-0">
                         <CircleDashed size={16} className="text-slate-400 dark:text-slate-500" />
                       </span>
-                      <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">No pot, track it by hand</span>
+                      <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">Keep in the paying account</span>
                       <CheckDot selected={pots.length === 0} />
                     </button>
 
@@ -612,7 +669,7 @@ export default function CommitmentSheet({
                             />
                             <span className="flex-1 min-w-0">
                               <span className="flex items-center gap-1.5 min-w-0">
-                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
+                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{tidyAccountName(acc.name)}</span>
                                 {acc.manual && (
                                   <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.08] text-[10px] font-medium text-slate-500 dark:text-slate-400">
                                     offline, updated by you
@@ -674,18 +731,16 @@ export default function CommitmentSheet({
 
               {/* G230: the current account the contribution leaves each period.
                   Quiet and optional; "Not set" keeps the plan pooled-only. */}
-              {sourceOptions.length > 0 && (
-                <div data-testid="paid-from-field">
+              {editorView === "route" && sourceOptions.length > 0 && (
+                <div id="commitment-source-picker" data-testid="paid-from-field">
                   <AccountRadioPicker
                     accounts={sourceOptions}
                     value={sourceId}
-                    onChange={(id) => { setSourceId(id); setSourceTouched(true); setSaveError(false); }}
-                    label="Paid from"
-                    allowUnset
-                    unsetLabel="Not set"
+                    onChange={(id) => { setSourceId(id); setSourceTouched(true); setSuggestion(null); setRule(EMPTY_RULE); setRuleTouched(true); setSaveError(false); }}
+                    label="Pay from"
                     helperText={sourceInferred
-                      ? "Based on recent transfers. Pick an account to confirm it, or Not set to keep this plan out of any one account’s figures."
-                      : "The account this contribution leaves each period. Choosing one does not move money."}
+                      ? "Based on recent transfers. Saving the plan confirms this account."
+                      : "Choose the account this contribution leaves each period. This does not move money."}
                   />
                 </div>
               )}
@@ -693,8 +748,9 @@ export default function CommitmentSheet({
               {/* G256: the payment that fulfils each period's contribution. The
                   shared set-aside rule picker, reading payments leaving the
                   paying account. A suggestion is prefilled, never applied. */}
-              {sourceOptions.length > 0 && sourceId && (
+              {editorView === "tracking" && sourceOptions.length > 0 && sourceId && (
                 <div data-testid="plan-fill-rule-field" className="space-y-1.5">
+                  <button type="button" aria-pressed={!rule.match_value} onClick={() => { setRule(EMPTY_RULE); setRuleTouched(true); }} className="mb-3 flex min-h-11 w-full items-center justify-between rounded-xl border border-slate-200 px-3 text-left text-sm dark:border-slate-700">Check it yourself<span aria-hidden="true">{!rule.match_value ? "Selected" : ""}</span></button>
                   <FillRulePicker
                     accountId={sourceId}
                     value={rule}
@@ -702,9 +758,9 @@ export default function CommitmentSheet({
                     loadCandidates={loadFillCandidates}
                     note={suggestedActive ? "Suggested from your transfers" : undefined}
                     suggestedName={suggestedActive ? suggestion?.match_value : undefined}
-                    emptyText="No money has left this account in the last 90 days."
+                    emptyText="No suitable transfers found in the last 90 days."
                     helperText={suggestedActive
-                      ? "Tap it to confirm. Nothing is saved until you do. A matching payment from this account counts as this period’s contribution."
+                      ? "Saving the plan confirms the displayed rule. A matching payment from this account counts as this period’s contribution."
                       : "A matching payment from this account counts as this period’s contribution, not everything leaving the account."}
                   />
                   {fulfilment && fulfilment.state !== "unmet" && fulfilment.matched.length > 0 && (
@@ -720,7 +776,7 @@ export default function CommitmentSheet({
                       No matching payment yet this pay period.
                     </p>
                   )}
-                  {(rule.match_value.trim() !== "" && !suggestedActive) && (
+                  {rule.match_value.trim() !== "" && (
                     <button
                       type="button"
                       onClick={() => { setRule(EMPTY_RULE); setRuleTouched(true); }}
@@ -733,7 +789,7 @@ export default function CommitmentSheet({
               )}
 
               {/* Live per-period estimate — hedged, backend derives the real slice */}
-              {slice != null && (
+              {editorView === "details" && slice != null && (
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 num" aria-live="polite">
                   <MoneyText text={`≈ £${slice.toLocaleString("en-GB")} ${periodLabel ? `each pay period (${periodLabel})` : "a period"} · ${periods} ${periods === 1 ? "period" : "periods"}`} />
                 </p>
@@ -741,7 +797,7 @@ export default function CommitmentSheet({
 
               {/* Feasibility verdict — slate text always; amber dot signifier
                   when feasibility needs attention (savings or stretch), never red. */}
-              {slice != null && feasibility && feasibilityNote && (
+              {editorView === "details" && slice != null && feasibility && feasibilityNote && (
                 <p
                   className="text-[13px] leading-snug text-slate-500 dark:text-slate-400"
                   aria-live="polite"
@@ -764,7 +820,7 @@ export default function CommitmentSheet({
               )}
 
               {/* Cancel-commitment — edit mode only, quiet two-step confirm */}
-              {commitment && !confirmingCancel && (
+              {editorView === "details" && commitment && !confirmingCancel && (
                 <button
                   type="button"
                   disabled={saving}
@@ -774,7 +830,7 @@ export default function CommitmentSheet({
                   Cancel this plan
                 </button>
               )}
-              {commitment && confirmingCancel && (
+              {editorView === "details" && commitment && confirmingCancel && (
                 <div className="rounded-xl bg-slate-50 dark:bg-slate-700/50 px-4 py-3 space-y-2">
                   <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug">
                     Stop reserving for this? Money already set aside stays where it is.
@@ -799,6 +855,7 @@ export default function CommitmentSheet({
                   </div>
                 </div>
               )}
+              </>}
             </form>
             )}
       </>}
