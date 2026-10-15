@@ -31,6 +31,7 @@ const render = (el) => renderToStaticMarkup(h(AppRouterContext.Provider, { value
 const page = read("../app/components/SpendPage.tsx");
 assert.match(page, /useEffect\(\(\) => \{ refetchSignals\(false\); \}, \[refetchSignals\]\)/, "Spend requests signals on load and per period");
 assert.ok(!/catch\(\(\) => setFetchedSignals/.test(page), "a failed fetch must not write an empty map");
+assert.match(page, /signalsGenRef\.current\) return/, "older refetch generations are ignored");
 assert.match(page, /onAimChanged=\{handleAimChanged\}/);
 assert.match(page, /applyAimChange\(/);
 

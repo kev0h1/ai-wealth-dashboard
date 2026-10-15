@@ -366,10 +366,17 @@ export default function SpendPage() {
   const [fetchedSignals, setFetchedSignals] = useState<Record<number, SignalMap>>({});
   const signals = fetchedSignals[periodOffset] ?? cachedSignals(periodOffset) ?? {};
   // force = the Door or a category just changed, so the cached copy is dead.
+  // Generation counter: only the latest refetch's result is applied, so a slow
+  // non-forced mount fetch cannot overwrite the state after an aim change.
+  const signalsGenRef = useRef(0);
   const refetchSignals = useCallback((force = true) => {
     if (force) invalidateSignalsCache();
+    const gen = ++signalsGenRef.current;
     fetchSignals(periodOffset, force)
-      .then(data => setFetchedSignals((current) => ({ ...current, [periodOffset]: data })))
+      .then(data => {
+        if (gen !== signalsGenRef.current) return;
+        setFetchedSignals((current) => ({ ...current, [periodOffset]: data }));
+      })
       // G275: a failed fetch leaves whatever is on screen (or nothing) alone. It
       // used to write {} here, which then shadowed a good cache entry as "no aims".
       .catch(() => {});
