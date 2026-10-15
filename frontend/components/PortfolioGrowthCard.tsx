@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 import GrowthChart from "./portfolio-growth/GrowthChart";
 import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
-import { money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, CHART_WAITING, money, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 export interface PortfolioGrowthCardProps {
   title: string;
@@ -59,14 +59,20 @@ export default function PortfolioGrowthCard({
         <div className="mt-3"><GrowthSplit g={growth} hidden={hidden} /></div>
       ) : null}
 
-      <div className="mt-2">
-        <RangeChips range={range} onChange={onRangeChange} />
-      </div>
-      <div className="mt-1">
-        <GrowthChart points={growth.points} hidden={hidden} summary={growthSummary(growth, hidden)} />
-      </div>
+      {chartReady(growth.points) ? (
+        <>
+          <div className="mt-2">
+            <RangeChips range={range} onChange={onRangeChange} />
+          </div>
+          <div className="mt-1">
+            <GrowthChart points={growth.points} hidden={hidden} summary={growthSummary(growth, hidden)} />
+          </div>
+        </>
+      ) : (
+        <p className={`mt-3 text-[13px] ${whisper}`}>{CHART_WAITING}</p>
+      )}
 
-      {growth.value !== null ? <p className={`mt-2 text-[12px] ${whisper}`}>Value minus money paid in.</p> : null}
+      {growth.value !== null ? <p className={`mt-2 text-[12px] ${whisper}`}>{SIMPLE_GAIN_NOTE}</p> : null}
 
       <RiskLines className="mt-3" />
 

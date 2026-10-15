@@ -76,6 +76,7 @@
     "check:g229-by-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g229-by-account.test.mjs",
     "check:g219-accounts-route": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g219-accounts-route.test.mjs",
     "check:g236-accounts-header": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g236-accounts-header.test.mjs",
+    "check:g277-growth-at-once": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g277-growth-at-once.test.mjs",
     "check:g236-accounts-fold-in": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g236-accounts-fold-in.test.mjs",
     "check:g233-offline-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g233-offline-account.test.mjs",
     "check:g221-home-cleanup": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g221-home-cleanup.test.mjs",
