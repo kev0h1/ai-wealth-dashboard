@@ -18,7 +18,7 @@ import { ChevronRight } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { JOB_COLOR, JobDot, SHAPE_LEGEND } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
-import { PaySplitBar, beyondFigures, beyondSentence, percentBase, type BeyondView } from "@/components/PaySplitBeyond";
+import { PaySplitBar, beyondFigures, beyondSentence, percentBase } from "@/components/PaySplitBeyond";
 
 // SHAPE_LEGEND is imported from MoneyShapeHero.tsx (G13) so this card and
 // the hero it opens can never disagree on what a job means, structurally
@@ -35,16 +35,6 @@ const JOB_ORDER: MoneyShapeJob["id"][] = ["fixed", "moved", "free", "left"];
 
 function orderedJobs(jobs: MoneyShapeJob[]): MoneyShapeJob[] {
   return JOB_ORDER.map((id) => jobs.find((j) => j.id === id)).filter((j): j is MoneyShapeJob => !!j);
-}
-
-function ShapeBar({ jobs }: { jobs: MoneyShapeJob[] }) {
-  return (
-    <div className="mt-2 flex w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800 h-2" aria-hidden="true">
-      {orderedJobs(jobs).map((job) => (
-        <div key={job.id} className={JOB_COLOR[job.id].bg} style={{ width: `${Math.max(0, job.share)}%` }} />
-      ))}
-    </div>
-  );
 }
 
 // The trailing token off the period's own label, rather than a hardcoded
@@ -115,16 +105,10 @@ export default function SpendShapeCard({
   shape,
   hideValues,
   onOpen,
-  beyondView,
 }: {
   shape: MoneyShape | null | undefined;
   hideValues: boolean;
   onOpen: () => void;
-  /** G269 design round: when set, the bar is scaled to the larger of
-   *  take-home and outgoings with the take-home mark, Beyond is drawn past
-   *  it and a plain sentence says where it came from. Unset renders the
-   *  shipped card exactly. */
-  beyondView?: BeyondView;
 }) {
   if (shape === undefined) return <CardSkeleton />;
   if (shape === null || shape.status === "thin") return null;
@@ -134,42 +118,13 @@ export default function SpendShapeCard({
   const moved = jobs.find((j) => j.id === "moved");
   const free = jobs.find((j) => j.id === "free");
   const left = jobs.find((j) => j.id === "left");
-  const overspent = shape.overspent > 0;
-
-  if (beyondView) {
-    const figures = beyondFigures(shape);
-    const hasBeyond = figures.beyond >= 1;
-    const money = (n: number) => (hideValues ? "£••••" : `£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`);
-    const sentence = beyondSentence(figures, money);
-    const segs = jobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }));
-    return (
-      <button
-        type="button"
-        onClick={onOpen}
-        className="glass-card rounded-2xl p-4 w-full min-h-11 text-left active:scale-[0.98] transition-transform"
-      >
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <CardLabel shape={shape} />
-            <PaySplitBar segs={segs} figures={figures} view={beyondView} size="card" money={money} />
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              {fixed && <Cell dotId="fixed" label="Fixed" value={`${Math.round(fixed.share)}%`} />}
-              {moved && <Cell dotId="moved" label="Moved" value={`${Math.round(moved.share)}%`} />}
-              {free && <Cell dotId="free" label="Free" value={`${Math.round(free.share)}%`} />}
-              {hasBeyond ? (
-                <Cell dotId="left" amberDot label="Beyond" value={money(figures.beyond)} money />
-              ) : (
-                left && <Cell dotId="left" label="Left" value={`${Math.round(left.share)}%`} />
-              )}
-            </div>
-            {sentence && <MoneyText text={sentence} className="mt-2 block text-[13px] leading-snug text-slate-700 dark:text-slate-300 text-pretty" />}
-            <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">{SHAPE_LEGEND} {percentBase(hasBeyond)}</p>
-          </div>
-          <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-        </div>
-      </button>
-    );
-  }
+  const figures = beyondFigures(shape);
+  const hasBeyond = figures.beyond >= 1;
+  const money = (n: number) => (hideValues ? "£••••" : `£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`);
+  const sentence = beyondSentence(figures, money);
+  const segs = jobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }));
+  // The engine sends shares of what went out when overspent (the bar is
+  // outgoings) and of what came in otherwise; the caption says which.
 
   return (
     <button
@@ -180,23 +135,19 @@ export default function SpendShapeCard({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <CardLabel shape={shape} />
-          <ShapeBar jobs={shape.jobs ?? []} />
+          <PaySplitBar segs={segs} figures={figures} size="card" money={money} />
           <div className="mt-3 grid grid-cols-4 gap-2">
             {fixed && <Cell dotId="fixed" label="Fixed" value={`${Math.round(fixed.share)}%`} />}
             {moved && <Cell dotId="moved" label="Moved" value={`${Math.round(moved.share)}%`} />}
             {free && <Cell dotId="free" label="Free" value={`${Math.round(free.share)}%`} />}
-            {overspent ? (
-              <Cell
-                dotId="left"
-                label="Beyond"
-                value={hideValues ? "£••••" : `£${Math.round(shape.overspent).toLocaleString("en-GB")}`}
-                money
-              />
+            {hasBeyond ? (
+              <Cell dotId="left" amberDot label="Beyond" value={money(figures.beyond)} money />
             ) : (
               left && <Cell dotId="left" label="Left" value={`${Math.round(left.share)}%`} />
             )}
           </div>
-          <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">{SHAPE_LEGEND}</p>
+          {sentence && <MoneyText text={sentence} className="mt-2 block text-[13px] leading-snug text-slate-700 dark:text-slate-300 text-pretty" />}
+          <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">{SHAPE_LEGEND} {percentBase(hasBeyond)}</p>
         </div>
         <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       </div>

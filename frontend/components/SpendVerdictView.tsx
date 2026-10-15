@@ -43,7 +43,8 @@ import { formatDate } from "@/lib/payPeriod";
 import MoneyText from "@/components/MoneyText";
 import { openTipsFor, tipSubline } from "@/lib/spendTips";
 import SpendPaceEvidence from "@/components/SpendPaceEvidence";
-import { AimRing, aimSentence } from "@/components/AimProgress";
+import { AimRing, aimSentence, aimHint } from "@/components/AimProgress";
+import type { AimChange } from "@/lib/signalsCache";
 import MirrorRouteLink from "@/components/MirrorRouteLink";
 
 const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
@@ -127,7 +128,7 @@ interface AimBlockProps {
   suggestedAim: number | null;
   checkpoint: Checkpoint | null;
   sym: string;
-  onChanged: () => void;
+  onChanged: (change?: AimChange) => void;
 }
 
 function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged }: AimBlockProps) {
@@ -156,7 +157,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
             try {
               await api.cancelCheckpoint(id);
               setLocalCheckpoint(null);
-              onChanged();
+              onChanged({ category, checkpoint: null });
             } catch {
               // silent — user can try again
             }
@@ -200,7 +201,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
       setAimOpen(false);
       setCustomMode(false);
       setCustomValue("");
-      onChanged();
+      onChanged({ category, checkpoint: cp });
     } catch {
       setSaveError(true);
     } finally {
@@ -279,7 +280,7 @@ interface NotableCardProps {
   sym: string;
   suggestedAim: number | null;
   checkpoint: Checkpoint | null;
-  onAimChanged: () => void;
+  onAimChanged: (change?: AimChange) => void;
   // ── Resolve-in-place lifecycle (approved spend-bridge spec, ported) ──────
   // resolved — controlled resolved status for THIS card's category, mirrored
   // into local state below (same sync-from-prop pattern AimBlock already
@@ -420,7 +421,7 @@ function NotableCardBody({
   sym: string;
   suggestedAim: number | null;
   checkpoint: Checkpoint | null;
-  onAimChanged: () => void;
+  onAimChanged: (change?: AimChange) => void;
   onNewNormalRequest?: (category: string) => void;
   localResolved: "one_off" | "new_normal" | null;
   pending: "one_off" | null;
@@ -805,6 +806,8 @@ export function MajorityRowView({
           {suffix && <MoneyText text={` · ${suffix}`} />}
         </p>
         {aim && <p className="sr-only">{aimSentence(aim, periodDays, sym)}</p>}
+        {/* G275 (Kevin 2026-10-15): the visible hint, so the ring never has to be decoded. */}
+        {aim && <p aria-hidden="true" className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">{aimHint(aim, sym)}</p>}
       </div>
       {aim && <AimRing aim={aim} periodDays={periodDays} sym={sym} />}
       <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(row.spent)}</span>
@@ -985,7 +988,7 @@ export interface SpendVerdictViewProps {
   // rather than crashing.
   signals?: Record<string, { suggested_aim: number | null; checkpoint: Checkpoint | null }>;
   sym?: string;
-  onAimChanged?: () => void;
+  onAimChanged?: (change?: AimChange) => void;
   // "Tell me what this was" opens the teaching sheet directly on the
   // unresolved transaction (ENGINE.md — Ask tier). Optional so this preview
   // route and any caller that hasn't wired the sheet yet still falls back to

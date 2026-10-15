@@ -12,8 +12,8 @@ import { createContext, useContext, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-export type VariantId = "a" | "b" | "c";
-export type PState = "ready" | "attention" | "relay" | "empty";
+export type VariantId = "a" | "b" | "c" | "d" | "e" | "f";
+export type PState = "ready" | "attention" | "blocked" | "relay" | "empty";
 export type Mode = "light" | "dark";
 
 export type Provider = { id: "google" | "apple"; label: string; detail: string; primary?: boolean };
@@ -27,6 +27,7 @@ export type Model = {
   native: boolean;
   hasIncome: boolean;
   notifBlocked: boolean;
+  notifDeliveryNeedsRetry: boolean;
   assistants: boolean;
 };
 
@@ -47,19 +48,29 @@ export function buildModel(state: PState): Model {
     accounts: empty ? 0 : 3,
     native: !empty,
     hasIncome: !empty,
-    notifBlocked: state === "attention",
+    notifBlocked: state === "blocked",
+    notifDeliveryNeedsRetry: state === "attention",
     assistants: !empty,
   };
 }
 
 export type Ctx = {
   variant: VariantId;
+  page: string;
   state: PState;
   mode: Mode;
   model: Model;
   href: (page: string, extra?: Record<string, string>) => string;
   openSheet: (id: string) => void;
   payLabel: string;
+  search: string;
+  setSearch: (value: string) => void;
+  prefs: { dark: boolean; hideBalances: boolean; showTips: boolean };
+  setPrefs: (next: { dark: boolean; hideBalances: boolean; showTips: boolean }) => void;
+  openChapter: string | null;
+  setOpenChapter: (chapter: string | null) => void;
+  returnY: number;
+  setReturnY: (value: number) => void;
 };
 
 export const PreviewCtx = createContext<Ctx>(null as unknown as Ctx);
@@ -154,8 +165,7 @@ export function PageFrame({ title, intro, back = "Account", children }: { title:
         <ChevronLeft size={18} aria-hidden="true" />
         {back}
       </Link>
-      <h1 className={`mt-2 text-xl font-bold lg:hidden ${INK}`}>{title}</h1>
-      <h2 className={`mt-2 hidden text-xl font-bold lg:block ${INK}`}>{title}</h2>
+      <h1 className={`mt-2 text-xl font-bold ${INK}`}>{title}</h1>
       {intro && <p className={`mt-1 text-[13px] leading-5 ${SOFT}`}>{intro}</p>}
       {children}
     </div>

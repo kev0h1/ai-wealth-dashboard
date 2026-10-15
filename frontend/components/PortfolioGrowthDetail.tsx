@@ -1,28 +1,28 @@
 "use client";
 
 import GrowthChart from "./portfolio-growth/GrowthChart";
-import GrowthSplit, { type GrowthVariant } from "./portfolio-growth/GrowthSplit";
+import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import HoldingRows from "./portfolio-growth/HoldingRows";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
-import { CHART_MODE, cardSurface } from "./PortfolioGrowthCard";
-import { METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { cardSurface } from "./PortfolioGrowthCard";
+import { chartReady, CHART_WAITING, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 /** Drill-in for one investment account (G271): a taller chart, the paid-in and
  *  growth split, each holding's change since the last statement, how growth is
  *  worked out, and the risk lines. Data arrives through props. */
 export default function PortfolioGrowthDetail({
-  title, growth, range, onRangeChange, variant = "ledger", hidden,
+  title, growth, range, onRangeChange, hidden, bare,
 }: {
   title: string;
   growth: InvestmentGrowth;
   range: GrowthRange;
   onRangeChange?: (r: GrowthRange) => void;
-  variant?: GrowthVariant;
   hidden?: boolean;
+  /** Drop the card surface when the host (a sheet) already provides one. */
+  bare?: boolean;
 }) {
-  const roomy = variant === "breathing";
   return (
-    <article className={`${cardSurface} ${roomy ? "space-y-7" : "space-y-5"}`} aria-label={`${title} detail`}>
+    <article className={`${bare ? "" : cardSurface} space-y-5`} aria-label={`${title} detail`}>
       <header>
         <div className="flex items-baseline justify-between gap-2">
           <h2 className={label}>{title}</h2>
@@ -35,16 +35,20 @@ export default function PortfolioGrowthDetail({
         ) : null}
       </header>
 
-      <div>
-        <RangeChips range={range} onChange={onRangeChange} />
-        <div className="mt-1">
-          <GrowthChart points={growth.points} mode={CHART_MODE[variant]} height={180} hidden={hidden} summary={growthSummary(growth, hidden)} />
+      {chartReady(growth.points) ? (
+        <div>
+          <RangeChips range={range} onChange={onRangeChange} />
+          <div className="mt-1">
+            <GrowthChart points={growth.points} height={180} hidden={hidden} summary={growthSummary(growth, hidden)} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className={`text-[13px] ${whisper}`}>{CHART_WAITING}</p>
+      )}
 
-      <GrowthSplit g={growth} variant={variant} hidden={hidden} />
+      <GrowthSplit g={growth} hidden={hidden} />
 
-      <HoldingRows holdings={growth.holdings} variant={variant} hidden={hidden} statementDate={growth.statement_date} />
+      <HoldingRows holdings={growth.holdings} hidden={hidden} />
 
       <section aria-labelledby="pg-how">
         <h3 id="pg-how" className={label}>How this is worked out</h3>

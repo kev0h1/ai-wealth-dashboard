@@ -12,7 +12,8 @@ export const GROWTH_RANGES: { value: GrowthRange; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-export interface GrowthPoint { date: string; value: number; paid_in: number }
+/** paid_in is null when only some holdings have a known cost (no paid-in line is drawn). */
+export interface GrowthPoint { date: string; value: number; paid_in: number | null }
 
 export interface GrowthHolding {
   id: string;
@@ -23,6 +24,11 @@ export interface GrowthHolding {
   statement_value: number;
   change_abs: number | null;
   change_pct: number | null;
+  /** G277: what was paid, from a statement's book cost or contract notes; null is Cost not known. */
+  cost: number | null;
+  cost_source: "statement" | "contract_notes" | null;
+  gain_abs: number | null;
+  gain_pct: number | null;
   price_date: string | null;
 }
 
@@ -40,6 +46,10 @@ export interface InvestmentGrowth {
   paid_in: number | null;
   growth_abs: number | null;
   growth_pct: number | null;
+  holdings_with_cost: number;
+  holdings_total: number;
+  /** "over 2 of 3 holdings" when only some holdings have a known cost. */
+  cost_coverage: string | null;
   holdings: GrowthHolding[];
 }
 
@@ -50,7 +60,27 @@ export const RISK_LINES = [
   "Prices are end of day and may be delayed.",
 ] as const;
 
-export const METHOD_NOTE = "Growth is simple: value minus money paid in. Money paid in starts from your first statement, then adds contract notes.";
+export const METHOD_NOTE = "Growth is simple: what each holding is worth now minus what you paid for it. Cost comes from your contract notes and from the book cost on a statement, where it shows one. A holding with no known cost adds nothing to the gain.";
+
+export const COST_UNKNOWN = "Cost not known";
+export const SIMPLE_GAIN_NOTE = "Simple gain, not a time-weighted return.";
+export const CHART_WAITING = "Chart fills in as daily prices arrive.";
+export const NO_COST_LINE = "Growth shows once we know what was paid. Add a contract note, or a statement that shows book cost.";
+
+/** G277: the card shows at once when any holding has a known cost. It never
+ *  waits for two daily snapshots. */
+export function hasKnownCost(g: InvestmentGrowth | null): boolean {
+  return !!g && g.growth_abs !== null && g.paid_in !== null;
+}
+
+/** A chart needs two points; until then one quiet line stands in. */
+export function chartReady(points: GrowthPoint[]): boolean {
+  return points.length >= 2;
+}
+
+export function showsPaidLine(points: GrowthPoint[]): boolean {
+  return points.length > 0 && points.every((p) => p.paid_in !== null);
+}
 
 const MINUS = "−";
 
@@ -104,7 +134,7 @@ export interface ChartGeometry {
 /** Map points into an SVG box. The y domain covers value (and paid in when
  *  `includePaid`), padded so a flat series sits mid-chart rather than on an edge. */
 export function chartGeometry(points: GrowthPoint[], width: number, height: number, includePaid: boolean, pad = 10): ChartGeometry {
-  const vals = points.flatMap((p) => (includePaid ? [p.value, p.paid_in] : [p.value]));
+  const vals = points.flatMap((p) => (includePaid && p.paid_in !== null ? [p.value, p.paid_in] : [p.value]));
   let lo = Math.min(...vals);
   let hi = Math.max(...vals);
   if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
@@ -115,7 +145,7 @@ export function chartGeometry(points: GrowthPoint[], width: number, height: numb
   const y = (v: number) => pad + (1 - (v - lo) / (hi - lo)) * innerH;
   const n = points.length;
   const xs = points.map((_, i) => (n === 1 ? width / 2 : (i / (n - 1)) * width));
-  return { xs, ys: points.map((p) => y(p.value)), paidYs: points.map((p) => y(p.paid_in)), width, height };
+  return { xs, ys: points.map((p) => y(p.value)), paidYs: points.map((p) => y(p.paid_in ?? p.value)), width, height };
 }
 
 export function linePath(xs: number[], ys: number[]): string {

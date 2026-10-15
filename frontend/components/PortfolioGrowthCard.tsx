@@ -1,12 +1,10 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import GrowthChart, { type ChartMode } from "./portfolio-growth/GrowthChart";
-import GrowthSplit, { type GrowthVariant } from "./portfolio-growth/GrowthSplit";
+import GrowthChart from "./portfolio-growth/GrowthChart";
+import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
-import { money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
-
-export const CHART_MODE: Record<GrowthVariant, ChartMode> = { ledger: "line", breathing: "dots", pair: "pair" };
+import { chartReady, CHART_WAITING, money, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 export interface PortfolioGrowthCardProps {
   title: string;
@@ -17,20 +15,17 @@ export interface PortfolioGrowthCardProps {
   onRetry?: () => void;
   /** Opens the drill-in (holdings). Omit to hide the link. */
   onOpen?: () => void;
-  variant?: GrowthVariant;
   hidden?: boolean;
 }
 
 export const cardSurface = "rounded-2xl border border-slate-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none";
 
-/** Portfolio growth card (G271). Takes its data through props; the page that
+/** Portfolio growth card (G271, variant C "Contribution and Difference" approved 2026-10-15). Takes its data through props; the page that
  *  hosts it owns the fetch (api.getInvestmentGrowth). Prices are end of day,
  *  so the figure is stamped "as of" the last daily value, never "live". */
 export default function PortfolioGrowthCard({
-  title, growth, range, onRangeChange, status = "ready", onRetry, onOpen, variant = "ledger", hidden,
+  title, growth, range, onRangeChange, status = "ready", onRetry, onOpen, hidden,
 }: PortfolioGrowthCardProps) {
-  const roomy = variant === "breathing";
-
   if (status === "loading") {
     return <div className={`${cardSurface} h-[420px] animate-pulse`} aria-busy="true" aria-label="Loading portfolio growth" />;
   }
@@ -53,30 +48,33 @@ export default function PortfolioGrowthCard({
         {growth.as_of ? <span className={`shrink-0 text-[11px] ${whisper}`}>As of {shortDate(growth.as_of)}</span> : null}
       </div>
       {growth.value !== null ? (
-        <p className={roomy ? "mt-3" : "mt-1"}>
+        <p className="mt-1">
           <Money text={money(growth.value, { hidden })} className={`text-[30px] font-bold leading-tight tracking-tight ${ink}`} />
         </p>
       ) : (
         <p className={`mt-2 text-[14px] ${ink}`}>Growth starts once we have a daily value for this account.</p>
       )}
 
-      {variant === "pair" && growth.value !== null ? (
-        <div className="mt-3"><GrowthSplit g={growth} variant="pair" hidden={hidden} /></div>
+      {growth.value !== null ? (
+        <div className="mt-3"><GrowthSplit g={growth} hidden={hidden} /></div>
       ) : null}
 
-      <div className={roomy ? "mt-5" : "mt-2"}>
-        <RangeChips range={range} onChange={onRangeChange} />
-      </div>
-      <div className={roomy ? "mt-3" : "mt-1"}>
-        <GrowthChart points={growth.points} mode={CHART_MODE[variant]} hidden={hidden} summary={growthSummary(growth, hidden)} />
-      </div>
+      {chartReady(growth.points) ? (
+        <>
+          <div className="mt-2">
+            <RangeChips range={range} onChange={onRangeChange} />
+          </div>
+          <div className="mt-1">
+            <GrowthChart points={growth.points} hidden={hidden} summary={growthSummary(growth, hidden)} />
+          </div>
+        </>
+      ) : (
+        <p className={`mt-3 text-[13px] ${whisper}`}>{CHART_WAITING}</p>
+      )}
 
-      {variant !== "pair" && growth.value !== null ? (
-        <div className={roomy ? "mt-6" : "mt-3"}><GrowthSplit g={growth} variant={variant} hidden={hidden} /></div>
-      ) : null}
-      {growth.value !== null ? <p className={`mt-2 text-[12px] ${whisper}`}>Value minus money paid in.</p> : null}
+      {growth.value !== null ? <p className={`mt-2 text-[12px] ${whisper}`}>{SIMPLE_GAIN_NOTE}</p> : null}
 
-      <RiskLines className={roomy ? "mt-5" : "mt-3"} />
+      <RiskLines className="mt-3" />
 
       {onOpen ? (
         <button

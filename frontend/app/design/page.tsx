@@ -40,15 +40,6 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
-    slug: "portfolio-growth",
-    name: "Portfolio growth · G271",
-    description:
-      "Design round, skills: impeccable + design-taste-frontend (art directions drafted by openai/gpt-6-astra, rewritten to DESIGN.md) · Investment growth card and drill-in: value over time with 1M/3M/6M/1Y/All, money paid in against growth (simple: value minus money paid in), per-holding change since the last statement, and the three risk lines · Renders the production PortfolioGrowthCard and PortfolioGrowthDetail with invented fixtures · A fall is shown in ink, never red · ?variant=a|b|c&state=growing|flat|fallen&mode=light|dark",
-    states: [{ label: "Growing", value: "growing" }, { label: "Flat", value: "flat" }, { label: "Fallen", value: "fallen" }],
-    variants: [{ label: "A · The Quiet Ledger", value: "a" }, { label: "B · Breathing Room", value: "b" }, { label: "C · Contribution and Difference", value: "c" }],
-    group: "current",
-  },
-  {
     slug: "spend-tips",
     name: "spend-tips",
     description:
@@ -81,15 +72,6 @@ const ROUTES: PreviewRoute[] = [
       { label: "All clear", value: "clear" },
       { label: "Every account short", value: "all" },
     ],
-  },
-  {
-    slug: "pay-split",
-    name: "How your pay was split, beyond take-home · G269 · design round",
-    description:
-      "G269, skills: impeccable, design-taste-frontend (directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md), web-design-guidelines as the gate · when spending goes past take-home the bar is scaled to the larger of take-home and outgoings, a mark shows where take-home ends, Beyond is drawn past it and one plain sentence says where it came from (cards, savings, both, or not known) · shares are of what went out once Beyond is present, of what came in otherwise · with the saving-habit consent on, one calm paradox line · A Tail (striped, amber hairline) / B Lanes (came in above went out) / C Detached (amber-ringed continuation) · renders the production SpendShapeCard and ShapePage through props with invented fixtures · ?variant=current|a|b|c&fixture=under|at|beyond&surface=card|page&source=cards|savings|both|unknown&consent=on|off&mode=light|dark&chrome=0 (hides the switcher, used for screenshots)",
-    states: [{ label: "Beyond", value: "beyond" }, { label: "At take-home", value: "at" }, { label: "Under", value: "under" }],
-    variants: [{ label: "A · Tail", value: "a" }, { label: "B · Lanes", value: "b" }, { label: "C · Detached", value: "c" }],
-    group: "current",
   },
   {
     slug: "plan-deferral",
@@ -207,9 +189,9 @@ const ROUTES: PreviewRoute[] = [
     slug: "settings-overhaul",
     name: "Settings overhaul · G201",
     description:
-      "G201 settings overhaul design round (skills: impeccable, directions drafted with openai/gpt-6-astra and rewritten to DESIGN.md): the Account hub at /settings regrouped by the job the user is doing, with deep configuration on drill-ins and sign out and delete isolated at the end · A Clear directory: four groups, 13 status rows, one page each / B Five jobs: five destinations, the shortest hub, related controls together in workspaces / C Quick adjustments first: three switches on the hub, bounded edits in sheets · every variant has the hub plus drill-in pages (cover plan safeguards placeholder linking to G200, pay period via the real sheet, notifications, sign-in methods, delete on its own screen) · renders production Toggle, ConfirmDialog, SheetFrame, PayPeriodSettingsSheet, YourPlanCard and CoverPlanSourcesCard, hub rows and several blocks are hand-authored stand-ins · static fixtures, nothing saves · ?variant=a|b|c&page=hub|notifications|cover-plan|signin|delete|money|experience|account&state=ready|attention|relay|empty&mode=light|dark&sheet=pay-period|financial",
-    states: [{ label: "Ready", value: "ready" }, { label: "Notifications blocked", value: "attention" }, { label: "Apple relay account", value: "relay" }, { label: "New account, web", value: "empty" }],
-    variants: [{ label: "A · Clear directory", value: "a" }, { label: "B · Five jobs", value: "b" }, { label: "C · Quick adjustments first", value: "c" }],
+      "Fresh G201 round: D Task directory, E Quick preferences and deeper tasks, F Expandable task chapters. Complete current Settings inventory, focused drill-ins, G200 cover destination and isolated sign out/delete. Production controls through inert props where injectable, inline blocks represented honestly as local fixtures. Earlier A/B/C retained for reference. No real saves, auth or deletion · ?variant=d|e|f&page=hub|money|financial|cover|display|notifications|account|penny-plan|assistants|help|delete&state=ready|attention|blocked|relay|empty&mode=light|dark",
+    states: [{ label: "Ready", value: "ready" }, { label: "Device needs registering", value: "attention" }, { label: "Permission blocked", value: "blocked" }, { label: "Apple relay account", value: "relay" }, { label: "New account, web", value: "empty" }],
+    variants: [{ label: "D · Task directory", value: "d" }, { label: "E · Quick preferences", value: "e" }, { label: "F · Task chapters", value: "f" }, { label: "A · Earlier directory", value: "a" }, { label: "B · Earlier five jobs", value: "b" }, { label: "C · Earlier quick adjustments", value: "c" }],
   },
   {
     slug: "signin-handoff",
@@ -507,10 +489,13 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "cover-plan-safeguards",
-    name: "cover-plan-safeguards",
+    name: "Accounts allowed for cover · G200",
     description:
-      "G200 cover plan safeguards redesign (Kevin 2026-10-03, Android Settings screenshots): the shipped card mixes a live move, an opaque 0/0 to 2/3 strip, search, a Turned off group and a long skipped list with red dots into one wall of state · separates the user's choice (which accounts may fund cover) from the engine's current answer, with plain-English not-usable copy and no red outside the one genuine no-source case · A permission slip (verdict and exceptions lead, accounts behind one door, no live move, links to Upcoming) / B cover route (the engine's fixed order as two steps plus protections, one hedged sentence about today) / C permission ledger (search and Turned off/Allowed/All views, balances, built to stand alone as a drill-in page) · design drafted with openai/gpt-6-astra, rewritten to DESIGN.md · variants share the production card's props; 'now' renders the shipped CoverPlanSourcesCard with a live move for comparison · fixture data only · ?variant=a|b|c|now&state=default|all|none|stuck&estate=std|long&frame=inline|page&mode=light|dark",
+      "Fresh G200 round: D Account directory, E Bank folders, F Allowed list with account editor. Permission choices stay separate from today's ability to help, with fixed rules in plain language and no live move duplicated in Settings. Earlier A/B/C and shipped card retained for reference. Local fixture changes only, loading/error/rollback cases, long estate and both themes · ?variant=d|e|f&state=default|all|none|stuck|loading|error|save-error&estate=std|long&frame=page&mode=light|dark",
     variants: [
+      { label: "D · Account directory", value: "d" },
+      { label: "E · Bank folders", value: "e" },
+      { label: "F · Allowed list and editor", value: "f" },
       { label: "A Permission slip", value: "a" },
       { label: "B Cover route", value: "b" },
       { label: "C Permission ledger", value: "c" },
@@ -521,6 +506,9 @@ const ROUTES: PreviewRoute[] = [
       { label: "Nothing turned off", value: "all" },
       { label: "Everything off", value: "none" },
       { label: "Only cannot-spare left", value: "stuck" },
+      { label: "Checking availability", value: "loading" },
+      { label: "Availability unavailable", value: "error" },
+      { label: "Save failure and retry", value: "save-error" },
     ],
   },
   {

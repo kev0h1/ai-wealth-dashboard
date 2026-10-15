@@ -16,6 +16,11 @@ export function aimSentence(aim: Checkpoint, periodDays: number, sym = "£"): st
   return `${fmtWhole(aim.spent_so_far, sym)} of a ${fmtWhole(aim.aim_amount, sym)} aim, ${p.phrase}`;
 }
 
+/** G275: the short visible hint beside the ring, "£82 of a £100 aim". The pace phrase stays in the sentence for screen readers. */
+export function aimHint(aim: Checkpoint, sym = "£"): string {
+  return `${fmtWhole(aim.spent_so_far, sym)} of a ${fmtWhole(aim.aim_amount, sym)} aim`;
+}
+
 /** Compact ring beside the amount. Fill is spent against the aim; the dot sits at even pace. */
 export function AimRing({ aim, periodDays, sym = "£" }: { aim: Checkpoint; periodDays: number; sym?: string }) {
   const p = aimPace(aim, periodDays);
