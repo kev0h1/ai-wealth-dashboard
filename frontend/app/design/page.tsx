@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "keep-money-here",
+    name: "Keep money in this account · G274",
+    description: "G274: A Reserve here, B Details then review. Purpose and amount first, reserve in the paying account by default, optional receiving account and transfer rule. One/several/no-context/no-eligible-source fixtures, both themes, local draft confirmation only. No real changes · ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
+    variants: [{ label: "A · Reserve here", value: "a" }, { label: "B · Details then review", value: "b" }],
+    states: [{ label: "Ready", value: "ready" }, { label: "Load failure", value: "load-error" }, { label: "Save failure", value: "save-error" }],
+    group: "current",
+  },
+  {
     slug: "portfolio-growth",
     name: "Portfolio growth · G271",
     description:
