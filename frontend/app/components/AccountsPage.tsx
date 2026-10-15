@@ -3276,6 +3276,8 @@ export default function AccountsPage() {
               // Display value (display_value if available, else total_value)
               const displayValue = inv.display_value ?? inv.total_value;
               const addedSince = inv.added_since ?? 0;
+              // G278: the header line says paid in, never growth; a fee-driven sale is not paid in.
+              const paidInSince = inv.paid_in_since ?? addedSince;
               const notesSince = inv.notes_since ?? 0;
               const isProvisional = (inv as InvestmentAccount & { provisional?: boolean }).provisional === true;
 
@@ -3303,12 +3305,13 @@ export default function AccountsPage() {
                   // Prices refreshed after statement — provenance only;
                   // the headline £value already lives in the statement
                   // block above, so this line must not repeat it.
-                  if (notesSince > 0 && addedSince !== 0) {
-                    const sign = addedSince > 0 ? "+" : "−";
-                    const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  if (notesSince > 0 && paidInSince !== 0) {
+                    const sign = paidInSince > 0 ? "+" : "−";
+                    const absVal = Math.abs(paidInSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     const noteWord = notesSince === 1 ? "note" : "notes";
+                    const what = paidInSince > 0 ? "paid in" : "net taken out";
                     decomposedLine = (
-                      <span><MoneyText text={`Prices refreshed ${refreshDate} · ${sign}£${hideNetWorth ? "••••" : absVal} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
+                      <span><MoneyText text={`Prices refreshed ${refreshDate} · ${sign}£${hideNetWorth ? "••••" : absVal} ${what} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
                     );
                   } else {
                     decomposedLine = (
@@ -3318,9 +3321,9 @@ export default function AccountsPage() {
                 } else {
                   // No refresh since statement — keep existing form
                   if (notesSince > 0 && addedSince !== 0) {
-                    const sign = addedSince > 0 ? "+" : "−";
-                    const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    const verb = addedSince > 0 ? "added" : "net trades";
+                    const sign = paidInSince > 0 ? "+" : "−";
+                    const absVal = Math.abs(paidInSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const verb = paidInSince > 0 ? "paid in" : "net taken out";
                     const noteWord = notesSince === 1 ? "contract note" : "contract notes";
                     decomposedLine = (
                       <span><MoneyText text={`Valued £${(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on ${stmtDate} · ${sign}£${absVal} ${verb} since (${notesSince} ${noteWord})`} /></span>
@@ -3609,7 +3612,8 @@ export default function AccountsPage() {
                           <div className="bg-white dark:bg-slate-800 rounded-xl divide-y divide-slate-50 dark:divide-slate-700 border border-slate-100 dark:border-slate-700">
                             {(expandedNotes[inv.id] ? activeNotes : activeNotes.slice(-6)).map(note => {
                               const noteDate = new Date(note.trade_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-                              const isSale = note.kind === "sale";
+                              const isFee = note.is_fee === true || note.kind === "fee";
+                              const isSale = note.kind === "sale" && !isFee;
                               const absAmount = Math.abs(note.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                               const isConfirmingDelete = confirmDeleteNote === note.id;
                               const isDeletingThis = deletingNote === note.id;
@@ -3623,9 +3627,12 @@ export default function AccountsPage() {
                                       {isSale && (
                                         <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">sold</span>
                                       )}
+                                      {isFee && (
+                                        <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">fee</span>
+                                      )}
                                     </div>
-                                    <p className={`text-xs font-semibold mt-0.5 font-mono tabular-nums ${isSale ? "text-rose-500 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                      {isSale ? "−" : "+"}£{absAmount}
+                                    <p className={`text-xs font-semibold mt-0.5 font-mono tabular-nums ${isFee ? "text-slate-500 dark:text-slate-400" : isSale ? "text-rose-500 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                      {isSale || isFee ? "−" : "+"}£{absAmount}
                                     </p>
                                   </div>
                                   <div className="flex-shrink-0 flex items-center gap-1">
@@ -3659,6 +3666,11 @@ export default function AccountsPage() {
                               );
                             })}
                           </div>
+                          {!inv.has_statement_periods && activeNotes.some(n => n.kind === "sale" && !n.is_fee && Math.abs(n.amount) < 50) && (
+                            <p className="mt-1.5 px-1 text-xs text-slate-500 dark:text-slate-400">
+                              Upload your latest statement again so fees are recognised.
+                            </p>
+                          )}
                           {activeNotes.length > 6 && (
                             <button
                               onClick={() => setExpandedNotes(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))}
@@ -3709,6 +3721,9 @@ export default function AccountsPage() {
                                       <span className="capitalize">{h.type.toLowerCase()}</span>
                                       {h.units && <span className="ml-1.5">{h.units.toLocaleString("en-GB", { maximumFractionDigits: 4 })} units</span>}
                                     </p>
+                                    {!displayPrice && h.type.toLowerCase() !== "cash" && h.from_contract_notes && (
+                                      <p className="text-xs mt-0.5 text-slate-400">No price yet</p>
+                                    )}
                                     {displayPrice && (
                                       <p className="text-xs mt-0.5">
                                         <span className={hasLivePrice ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-slate-400"}>
@@ -3717,9 +3732,16 @@ export default function AccountsPage() {
                                       </p>
                                     )}
                                   </div>
-                                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
-                                    {hideNetWorth ? "••••" : `£${hDisplayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                                  </p>
+                                  <div className="flex-shrink-0 text-right">
+                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">
+                                      {hideNetWorth ? "••••" : `£${hDisplayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                    </p>
+                                    {h.gain_abs != null && (
+                                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+                                        {hideNetWorth ? "Gain ••••" : `Gain ${h.gain_abs < 0 ? "−" : "+"}£${Math.abs(h.gain_abs).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             );

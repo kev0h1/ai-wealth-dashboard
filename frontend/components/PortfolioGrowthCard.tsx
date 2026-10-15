@@ -3,8 +3,10 @@
 import { ChevronRight } from "lucide-react";
 import GrowthChart from "./portfolio-growth/GrowthChart";
 import GrowthSplit from "./portfolio-growth/GrowthSplit";
+import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
+import { SinceStatementLine } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
-import { chartReady, CHART_WAITING, money, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, valueNoteText, CHART_WAITING, money, NO_COST_LINE, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 export interface PortfolioGrowthCardProps {
   title: string;
@@ -15,6 +17,10 @@ export interface PortfolioGrowthCardProps {
   onRetry?: () => void;
   /** Opens the drill-in (holdings). Omit to hide the link. */
   onOpen?: () => void;
+  /** G278: opens the Anchor from your provider sheet (entry point and Edit anchor). */
+  onAnchor?: () => void;
+  /** G278: use (or stop using) the provider's value for the anchor date, display only. */
+  onOverride?: (on: boolean) => void;
   hidden?: boolean;
 }
 
@@ -24,7 +30,7 @@ export const cardSurface = "rounded-2xl border border-slate-100 bg-white p-4 sha
  *  hosts it owns the fetch (api.getInvestmentGrowth). Prices are end of day,
  *  so the figure is stamped "as of" the last daily value, never "live". */
 export default function PortfolioGrowthCard({
-  title, growth, range, onRangeChange, status = "ready", onRetry, onOpen, hidden,
+  title, growth, range, onRangeChange, status = "ready", onRetry, onOpen, onAnchor, onOverride, hidden,
 }: PortfolioGrowthCardProps) {
   if (status === "loading") {
     return <div className={`${cardSurface} h-[420px] animate-pulse`} aria-busy="true" aria-label="Loading portfolio growth" />;
@@ -55,8 +61,20 @@ export default function PortfolioGrowthCard({
         <p className={`mt-2 text-[14px] ${ink}`}>Growth starts once we have a daily value for this account.</p>
       )}
 
+      {growth.value !== null && valueNoteText(growth, hidden) ? (
+        <p className={`mt-1 text-[12px] leading-snug ${whisper}`}>{valueNoteText(growth, hidden)}</p>
+      ) : null}
+
       {growth.value !== null ? (
-        <div className="mt-3"><GrowthSplit g={growth} hidden={hidden} /></div>
+        <div className="mt-3 space-y-3">
+          <LifetimeBlock g={growth} hidden={hidden} onAnchor={onAnchor} onOverride={onOverride} />
+          <SinceStatementLine g={growth} hidden={hidden} />
+          {!growth.lifetime && growth.growth_abs !== null && !growth.cost_coverage ? <GrowthSplit g={growth} hidden={hidden} /> : null}
+          {!growth.lifetime && growth.growth_abs === null ? <p className={`text-[12px] ${whisper}`}>{NO_COST_LINE}</p> : null}
+          {!growth.lifetime && growth.growth_abs !== null && growth.cost_coverage ? (
+            <p className={`text-[12px] ${whisper}`}>Cost is known for {growth.holdings_with_cost} of {growth.holdings_total} holdings, so no whole-account gain is shown. The holdings list shows each one.</p>
+          ) : null}
+        </div>
       ) : null}
 
       {chartReady(growth.points) ? (

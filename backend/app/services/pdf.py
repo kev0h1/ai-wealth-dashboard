@@ -106,6 +106,15 @@ async def llm_parse_investment_statement(text: str, uid: str | None = None) -> d
         '  "statement_date": "<ISO date of statement end date, e.g. 2026-06-04>",\n'
         '  "currency": "<ISO code, e.g. GBP>",\n'
         '  "total_value": <total portfolio value as a number>,\n'
+        '  "period": {\n'
+        '    "start_date": "<ISO date the statement period starts, or null>",\n'
+        '    "opening_value": <opening portfolio value at the start of the period as a number, or null>,\n'
+        '    "payments_in": [{"date": "<ISO date>", "amount": <positive number>}],\n'
+        '    "withdrawals": [{"date": "<ISO date>", "amount": <positive number>}],\n'
+        '    "fees": [{"date": "<ISO date>", "amount": <positive number>}],\n'
+        '    "interest": [{"date": "<ISO date>", "amount": <positive number>}],\n'
+        '    "purchases": [{"date": "<ISO date>", "fund_name": "<fund bought>", "units": <units bought or null>, "amount": <positive cost>}]\n'
+        "  },\n"
         '  "holdings": [\n'
         "    {\n"
         '      "name": "<full fund/ETF/stock name>",\n'
@@ -124,7 +133,13 @@ async def llm_parse_investment_statement(text: str, uid: str | None = None) -> d
         "- If units or price_per_unit are not present, set them to null.\n"
         "- Extract ALL holdings shown in the statement.\n"
         "- book_cost is the money paid for the holding as printed on the statement (often labelled book cost, cost, or amount invested). "
-        "Never estimate or derive it from value or price; if the statement does not show it for a holding, set it to null.\n\n"
+        "Never estimate or derive it from value or price; if the statement does not show it for a holding, set it to null.\n"
+        "- period.opening_value and period.start_date are the opening figures printed for the statement period; null if not printed.\n"
+        "- period.payments_in lists each dated payment or deposit into the account (use [] if the statement shows none). "
+        "period.withdrawals, period.fees and period.interest list each dated line the statement shows; use [] when there are none. "
+        "Amounts are positive numbers whatever the sign printed.\n"
+        "- period.purchases lists every dated line such as 'Bought 1.3762 <fund> -£400.00' with its units and cost. "
+        "Never estimate a missing date, unit count or amount; skip a line that lacks them.\n\n"
         "STATEMENT TEXT:\n" + text[:15000]
     )
     try:
@@ -164,7 +179,7 @@ async def llm_parse_contract_note(text: str, uid: str | None = None) -> dict:
         '  "provider": "<e.g. Vanguard, Hargreaves Lansdown, Fidelity>",\n'
         '  "account_reference": "<plan/account reference number, or null if absent>",\n'
         '  "trade_date": "<ISO date of the trade, e.g. 2026-07-15>",\n'
-        '  "kind": "<\'purchase\' | \'sale\'>",\n'
+        '  "kind": "<\'purchase\' | \'sale\' | \'fee\'>",\n'
         '  "amount": <total consideration as a positive number — the money value of the trade>,\n'
         '  "fund_name": "<full fund/ETF/stock name>",\n'
         '  "units": <units/shares transacted as a number, or null>,\n'
@@ -174,6 +189,7 @@ async def llm_parse_contract_note(text: str, uid: str | None = None) -> dict:
         "Rules:\n"
         "- doc_type must be 'contract_note' if this is a per-trade confirmation; 'statement' if it looks like a periodic portfolio statement; 'other' otherwise.\n"
         "- amount is always positive regardless of whether this is a purchase or sale.\n"
+        "- kind is 'fee' when the trade is a sale of units made only to pay an account or platform fee; otherwise 'purchase' or 'sale'.\n"
         "- trade_date is the date the deal was executed, not the settlement date.\n"
         "- reference is the unique contract note or deal reference printed on the document; null if absent.\n\n"
         "DOCUMENT TEXT:\n" + text[:12000]

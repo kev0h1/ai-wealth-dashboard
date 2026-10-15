@@ -24,6 +24,7 @@ from app.db.collections import (
     investment_accounts_col, investment_holdings_col, investment_notes_col,
     investment_valuations_col,
 )
+from app.services import investment_anchor as ia
 from app.services.investment_prices import (
     best_match, get_instruments, holding_value, instrument_key, norm_name as _norm,
 )
@@ -146,7 +147,8 @@ def _num(v) -> float | None:
     return float(v)
 
 
-def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[dict], insts: dict) -> dict:
+def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[dict], insts: dict,
+                    fee_lines: list[dict] | None = None) -> dict:
     """Pure (G277). One row per holding, plus one per fund bought by contract
     note that is not a statement holding. Cost is only ever what is known:
     the statement's book cost, or the contract notes' amounts. A holding with
@@ -170,6 +172,7 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
             "_cost_date": None, "_held": h.get("units") or None,
         })
     adj_value = 0.0
+    fee_adj = 0.0  # fees taken by selling units: value falls, cost does not
     for n in sorted(notes, key=lambda x: str(x.get("trade_date"))):
         d = _as_date(n.get("trade_date"))
         if stmt_date is not None and d is not None and d <= stmt_date:
@@ -178,6 +181,17 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
         nk = _norm(n.get("fund_name"))
         idx = best_match(nk, [r["_nk"] for r in rows])
         row = rows[idx] if idx is not None else None
+        if ia.is_fee_note(n, fee_lines):
+            # G278: a fee-driven sale is a fee. It lowers value but is neither a
+            # withdrawal nor a sale that removes cost.
+            if row is None:
+                fee_adj += amt
+                continue
+            row["value"] = round(row["value"] + amt, 2)
+            fu = _num(n.get("units"))
+            if row["_held"] and fu:
+                row["_held"] = max(0.0, row["_held"] - fu)
+            continue
         if row is None and amt > 0 and nk:
             key = instrument_key(None, None, n.get("fund_name"))
             row = {
@@ -240,9 +254,14 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
         r["change_abs"] = round(r["value"] - r["statement_value"], 2) if r["price_date"] and r["statement_value"] else None
         r["change_pct"] = (round(r["change_abs"] / r["statement_value"] * 100, 2)
                            if r["change_abs"] is not None and r["statement_value"] > 0 else None)
+        # G278: every holding lists its units and price (None reads "no price yet")
+        held = r["_held"]
+        r["units"] = round(held, 4) if held is not None and held > 0 else None
+        px = (insts.get(r["_key"]) or {}).get("price")
+        r["price"] = px if px and r["units"] else None
     known_rows = [r for r in rows if r["cost"] is not None]
-    value = round(sum(r["value"] for r in rows) + adj_value, 2)
-    out = {"rows": rows, "value": value, "adj": round(adj_value, 2), "stmt_date": stmt_date,
+    value = round(sum(r["value"] for r in rows) + adj_value + fee_adj, 2)
+    out = {"rows": rows, "value": value, "adj": round(adj_value, 2), "stmt_date": stmt_date, "fees_after": round(fee_adj, 2),
            "holdings_total": len(rows), "holdings_with_cost": len(known_rows)}
     if known_rows:
         paid_in = round(sum(r["cost"] for r in known_rows) + adj_value, 2)
@@ -369,11 +388,80 @@ def build_growth(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
 
 
 def public_rows(pos: dict) -> list[dict]:
-    keys = ("id", "name", "isin", "type", "value", "statement_value", "cost", "cost_source",
+    keys = ("id", "name", "isin", "type", "units", "price", "value", "statement_value", "cost", "cost_source",
             "gain_abs", "gain_pct", "change_abs", "change_pct", "price_date")
     out = [{k: r[k] for k in keys} for r in pos["rows"]]
     out.sort(key=lambda r: -(r["value"] or 0))
     return out
+
+
+def since_statement(pos: dict, holdings: list[dict], notes: list[dict], fee_lines: list[dict]) -> dict | None:
+    """Growth since the last statement: value now minus the statement's value
+    minus money paid in since (contract notes dated after it, fees excluded,
+    sales counted as money out). Needs a statement date and statement values."""
+    sd = pos.get("stmt_date")
+    if sd is None or not holdings:
+        return None
+    closing = round(sum((h.get("statement_value") or 0) for h in holdings), 2)
+    paid = 0.0
+    for n in notes:
+        d = _as_date(n.get("trade_date"))
+        if d is None or d <= sd or ia.is_fee_note(n, fee_lines):
+            continue
+        paid += n.get("amount") or 0.0
+    paid = round(paid, 2)
+    growth = round(pos["value"] - closing - paid, 2)
+    return {"date": sd.isoformat(), "closing_value": closing, "paid_in": paid, "growth_abs": growth,
+            "fees": round(-pos.get("fees_after", 0.0), 2)}
+
+
+def build_purchases(periods: list[dict], notes: list[dict], rows: list[dict], insts: dict) -> list[dict]:
+    """Every dated purchase with units and cost: statement 'Bought' lines and
+    contract notes, de-duplicated on date and amount. Gain is units x today's
+    price minus the amount, only when both units and a price are known."""
+    fee_lines = ia.all_fee_lines(periods)
+    seen: set = set()
+    out: list[dict] = []
+
+    def add(d, name, units, amount, source):
+        key = (d.isoformat() if d else None, round(amount, 2))
+        if key in seen:
+            return
+        seen.add(key)
+        nk = _norm(name)
+        idx = best_match(nk, [r["_nk"] for r in rows]) if nk else None
+        inst = insts.get(rows[idx]["_key"]) if idx is not None else None
+        if inst is None and name:
+            inst = insts.get(instrument_key(None, None, name))
+        price = (inst or {}).get("price")
+        u = _num(units)
+        value = round(u * price, 2) if u and price else None
+        out.append({
+            "date": d.isoformat() if d else None, "fund_name": name, "units": u, "amount": round(amount, 2),
+            "price": price, "value": value,
+            "gain_abs": round(value - amount, 2) if value is not None else None,
+            "gain_pct": round((value - amount) / amount * 100, 2) if value is not None and amount > 0 else None,
+            "source": source,
+        })
+    for n in notes:
+        amt = _num(n.get("amount"))
+        if amt is None or amt <= 0 or ia.is_fee_note(n, fee_lines):
+            continue
+        add(_as_date(n.get("trade_date")), n.get("fund_name"), n.get("units"), amt, "contract_note")
+    for p in periods:
+        for b in p.get("purchases") or []:
+            add(_as_date(b.get("date")), b.get("fund_name"), b.get("units"), b["amount"], "statement")
+    out.sort(key=lambda x: x["date"] or "", reverse=True)
+    return out
+
+
+def _fmt_day(d: str) -> str:
+    dd = date.fromisoformat(d)
+    return f"{dd.day} {dd.strftime('%b')}"
+
+
+def _money(n: float) -> str:
+    return f"£{n:,.2f}"
 
 
 async def account_growth(acc: dict, range_key: str, today: date | None = None) -> dict:
@@ -384,10 +472,74 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
     keys = [h.get("instrument_key") for h in holdings] + [instrument_key(None, None, n.get("fund_name")) for n in notes]
     insts = await get_instruments(keys)
     stmt = _as_date(acc.get("statement_date"))
-    pos = build_positions(stmt, holdings, notes, insts)
+    periods = acc.get("statement_periods") or []
+    pos = build_positions(stmt, holdings, notes, insts, ia.all_fee_lines(periods))
+    anchor = acc.get("anchor") or None
+    anchor_d = _as_date(anchor.get("date")) if anchor else None
+    growth = build_growth(snaps, pos, insts, range_key, today)
+
+    # The anchor date's value on our side: today's figure, else the chart's.
+    ours_on_anchor = None
+    if anchor_d is not None:
+        if anchor_d >= today:
+            ours_on_anchor = pos["value"]
+        else:
+            full = growth["points"] if range_key == "all" else build_series(snaps, pos, insts, "all", today)
+            ours_on_anchor = next((p["value"] for p in full if p["date"] == anchor_d.isoformat()), None)
+    override = bool(anchor and anchor.get("use_provider_value") and anchor_d is not None)
+    value_now = pos["value"]
+    if override and anchor_d == today:
+        value_now = anchor["provider_value"]  # display only, for that date only
+    provider = acc.get("provider")
+    lifetime = ia.build_lifetime(anchor, pos["value"] if growth["value"] is not None else None, notes, periods,
+                                 today, provider, ours_on_anchor)
+    if lifetime and override and anchor_d == today:
+        lifetime = ia.build_lifetime(anchor, value_now, notes, periods, today, provider, ours_on_anchor)
+    if lifetime and lifetime["reconciliation"]:
+        rc = lifetime["reconciliation"]
+        who = provider or "Your provider"
+        rc["text"] = (f"Sorted shows {_money(rc['ours'])}, {who} showed {_money(rc['provider_value'])} "
+                      f"on {_fmt_day(rc['date'])}, likely price timing.")
+    if override and anchor_d is not None:
+        for p in growth["points"]:
+            if p["date"] == anchor_d.isoformat():
+                p["value"] = anchor["provider_value"]
+    # Header value (the Accounts row) counts later contract notes at cost; say so when it differs.
+    header = round((acc.get("total_value") or 0.0) + ia_after_statement(notes, stmt), 2) if stmt else None
+    # No pre-formatted pounds: the client builds the sentence so hide-balances can mask it.
+    value_note_kind = None
+    if header is not None and growth["value"] is not None and abs(header - value_now) >= 0.01:
+        value_note_kind = "notes_at_cost"
+    if growth["value"] is not None:
+        growth["value"] = value_now
+    periods_out = [g for g in (ia.period_growth(p) for p in sorted(periods, key=lambda p: p.get("closing_date") or "")) if g]
     return {
-        "account_id": acc["_id"], "currency": acc.get("currency", "GBP"),
+        "account_id": acc["_id"], "currency": acc.get("currency", "GBP"), "provider": provider,
         "statement_date": stmt.isoformat() if stmt else None,
-        **build_growth(snaps, pos, insts, range_key, today),
+        **growth,
+        "value_source": "provider" if override and anchor_d == today else "sorted",
+        "header_value": header, "value_note_kind": value_note_kind,
+        "undated_payment_lines": _undated_lines(periods),
+        "lifetime": lifetime, "anchor": ({k: v for k, v in anchor.items()} if anchor else None),
+        "anchor_history": acc.get("anchor_history") or [],
+        "since_statement": since_statement(pos, holdings, notes, ia.all_fee_lines(periods)),
+        "statement_periods": periods_out,
+        "periods_chain": ia.chain_periods(periods),
+        "purchases": build_purchases(periods, notes, pos["rows"], insts),
         "holdings": public_rows(pos),
     }
+
+
+def _undated_lines(periods: list[dict]) -> int:
+    """Statement payment lines with no date: they cannot be placed against the
+    anchor date, so they are not counted as contributions, and the count is surfaced."""
+    n = sum(1 for p in periods for k in ("payments_in_lines", "withdrawal_lines")
+            for ln in (p.get(k) or []) if _as_date(ln.get("date")) is None)
+    if n:
+        logger.debug("investment growth: %d undated statement payment line(s) not counted", n)
+    return n
+
+
+def ia_after_statement(notes: list[dict], stmt: date | None) -> float:
+    """What the Accounts row adds to the statement total: every contract note dated after it, at cost."""
+    return net_contributions(notes, stmt, date.max)

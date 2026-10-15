@@ -142,6 +142,7 @@ def test_stale_price_shows_its_date(cols, monkeypatch):
     monkeypatch.setattr(inv_router, "investment_holdings_col", holdings)
     monkeypatch.setattr(inv_router, "investment_accounts_col", accs)
     monkeypatch.setattr(inv_router, "get_instruments", ip.get_instruments)
+    monkeypatch.setattr(inv_router, "investment_notes_col", _Col())  # G278: the holdings list also reads note-only funds
     holdings.docs["h1"]["instrument_key"] = ISIN
     accs.docs["a1"]["user_id"] = "u1@x.com"
     out = run(inv_router.get_investment_holdings("a1", {"email": "u1@x.com"}))
