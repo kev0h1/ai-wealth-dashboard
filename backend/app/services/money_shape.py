@@ -43,6 +43,7 @@ from app.db.collections import (
     preferences_col,
     transactions_col,
 )
+from app.services.account_kinds import is_credit_card_account
 from app.services.behaviour import classify_saving_flow, savings_account_ids
 from app.services.categories import MOVEMENT, get_category_kinds, is_commitment, is_discretionary, is_income, kind_of
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label, prev_pay_period
@@ -76,7 +77,7 @@ _N_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 #: Bump whenever the cached response shape changes, so a stale doc from a
 #: previous shape (e.g. the old horizon-sliced "trend"/"trend_summary") is
 #: never served even if its computed_at TTL hasn't expired yet.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -114,6 +115,32 @@ def shares_of(fixed: float, moved: float, free: float, left: float, overspent: f
     return _largest_remainder_pct(amounts, total)
 
 
+def beyond_source_for(beyond: float, card_growth: float, savings_drawdown: float) -> str | None:
+    """Where an overshoot (spending past take-home) plausibly came from, or
+    None when the evidence does not cover it (G269). ``card_growth`` is the
+    net growth of credit-card balances in the period (purchases minus
+    repayments on card accounts), ``savings_drawdown`` the net outflow of
+    savings/ISA accounts. Only a source that covers the whole overshoot is
+    named: "cards" or "savings" when one alone covers it (the larger when both
+    do), "cards_and_savings" when neither alone covers it but together they
+    do, otherwise None. Never guessed, never partial."""
+    if beyond < 1.0:
+        return None
+    cards = max(0.0, card_growth)
+    savings = max(0.0, savings_drawdown)
+    cards_ok = cards >= beyond
+    savings_ok = savings >= beyond
+    if cards_ok and savings_ok:
+        return "cards" if cards >= savings else "savings"
+    if cards_ok:
+        return "cards"
+    if savings_ok:
+        return "savings"
+    if cards > 0 and savings > 0 and cards + savings >= beyond:
+        return "cards_and_savings"
+    return None
+
+
 def _category_totals(txns: list[dict], signed: bool = False) -> dict[str, float]:
     """Effective category -> summed abs(amount) among ``txns`` (or the summed
     signed amount when ``signed``, for the spend jobs whose rows already carry
@@ -149,7 +176,8 @@ def _union_categories(periods_full: list[dict], job_id: str) -> list[str]:
 
 def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _date,
                   own_move_ids: frozenset | set = frozenset(),
-                  card_repayment_ids: frozenset | set = frozenset()) -> dict:
+                  card_repayment_ids: frozenset | set = frozenset(),
+                  card_ids: frozenset | set = frozenset()) -> dict:
     """Split one pay period's transactions into the four jobs.
 
     ``txns`` is the FULL normalised transaction list (compute_portrait shape:
@@ -217,6 +245,22 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
 
     shares = shares_of(fixed, moved, free, left, overspent)
 
+    # G269: total outgoings and where an overshoot came from. Net card growth
+    # and net savings outflow are read from the period's own transactions
+    # (Sorted keeps no balance history), so the source is only named when
+    # the flows demonstrably cover the overshoot.
+    total_out = fixed + moved + free
+    card_growth = sum(
+        abs(t["amount"]) * (1 if t["is_debit"] else -1)
+        for t in period_txns if t["account_id"] in card_ids
+    ) if card_ids else 0.0
+    savings_drawdown = sum(
+        abs(t["amount"]) * (1 if t["is_debit"] else -1)
+        for t in period_txns if t["account_id"] in saving_ids
+    ) if saving_ids else 0.0
+    beyond = max(0.0, total_out - take_home)
+    beyond_source = beyond_source_for(beyond, card_growth, savings_drawdown)
+
     # early_saving: any saving movement (type1/type2) dated in the first 7
     # days of the period (start .. start+6 inclusive).
     week1_end_s = (start + timedelta(days=6)).isoformat()
@@ -254,6 +298,11 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
         "left": left,
         "left_raw": left_raw,
         "overspent": overspent,
+        "total_out": total_out,
+        "beyond": beyond,
+        "beyond_source": beyond_source,
+        "card_growth": card_growth,
+        "savings_drawdown": savings_drawdown,
         "shares": shares,
         "early_saving_hit": early_saving_hit,
         "first3_discretionary": first3_discretionary,
@@ -299,8 +348,7 @@ def _build_jobs(fixed: float, moved: float, free: float, left: float, shares: di
 def verdict_for(fixed_share: int, free_share: int, overspent: float) -> str:
     if overspent > 1e-9:
         return (
-            f"Of every £100 you take home, £{fixed_share} was spoken for before you chose anything, "
-            f"and spending went £{overspent:,.0f} past what came in."
+            f"Of every £100 that went out, £{fixed_share} was spoken for before you chose anything."
         )
     return (
         f"Of every £100 you take home, £{fixed_share} is spoken for before you choose anything. "
@@ -348,9 +396,8 @@ def average_verdict_for(k: int, fixed_share: int, free_share: int, overspent_mea
     k_label = _n_periods_label(k)
     if outflow_mean > take_home_mean + 1e-9:
         return (
-            f"Over the last {k_label} pay periods, £{fixed_share} of every £100 you took home was "
-            f"spoken for before you chose anything, and spending went £{overspent_mean:,.0f} "
-            f"past what came in on average."
+            f"Over the last {k_label} pay periods, £{fixed_share} of every £100 that went out was "
+            f"spoken for before you chose anything."
         )
     return (
         f"Over the last {k_label} pay periods, £{fixed_share} of every £100 you took home was "
@@ -390,6 +437,11 @@ def average_for_window(periods_newest_first: list[dict], months: int) -> dict | 
         "label": f"Last {months} months",
         "take_home": round(take_home_mean, 2),
         "overspent": round(overspent_mean, 2),
+        "total_out": round(outflow_mean, 2),
+        "beyond": round(max(0.0, outflow_mean - take_home_mean), 2),
+        "beyond_source": None,
+        "card_growth": 0.0,
+        "savings_drawdown": 0.0,
         "jobs": jobs,
         "verdict": verdict,
     }
@@ -567,6 +619,10 @@ async def compute_money_shape(uid: str) -> dict:
     kinds = await get_category_kinds(uid)
     raw_accounts = await accounts_col.find({"user_id": uid}).to_list(None)
     saving_ids = savings_account_ids(raw_accounts)
+    card_ids = {
+        str(a.get("account_id") or a.get("id") or a.get("_id"))
+        for a in raw_accounts if is_credit_card_account(a)
+    }
 
     today = timeutil.user_today()
 
@@ -621,7 +677,7 @@ async def compute_money_shape(uid: str) -> dict:
 
     valid_periods_full: list[dict] = []  # newest → oldest, FULL bucket_period dicts
     for s, e in period_bounds:
-        b = bucket_period(txns, kinds, saving_ids, s, e, own_move_ids, card_repayment_ids)
+        b = bucket_period(txns, kinds, saving_ids, s, e, own_move_ids, card_repayment_ids, card_ids)
         if b["take_home"] > 0:
             b["label"] = _period_label(s, e, rhythm)
             valid_periods_full.append(b)
@@ -637,6 +693,11 @@ async def compute_money_shape(uid: str) -> dict:
             "label": p["label"],
             "take_home": round(p["take_home"], 2),
             "overspent": round(p["overspent"], 2),
+            "total_out": round(p["total_out"], 2),
+            "beyond": round(p["beyond"], 2),
+            "beyond_source": p["beyond_source"],
+            "card_growth": round(max(0.0, p["card_growth"]), 2),
+            "savings_drawdown": round(max(0.0, p["savings_drawdown"]), 2),
             "jobs": _build_jobs(p["fixed"], p["moved"], p["free"], p["left"], p["shares"], p["categories"]),
             "verdict": verdict_for(p["shares"]["fixed"], p["shares"]["free"], p["overspent"]),
         }
@@ -683,6 +744,11 @@ async def compute_money_shape(uid: str) -> dict:
         "period": {"start": hero_entry["start"], "end": hero_entry["end"], "label": hero_entry["label"]},
         "take_home": hero_entry["take_home"],
         "overspent": hero_entry["overspent"],
+        "total_out": hero_entry["total_out"],
+        "beyond": hero_entry["beyond"],
+        "beyond_source": hero_entry["beyond_source"],
+        "card_growth": hero_entry["card_growth"],
+        "savings_drawdown": hero_entry["savings_drawdown"],
         "jobs": hero_entry["jobs"],
         "verdict": hero_entry["verdict"],
         "trend": trend,
@@ -699,6 +765,11 @@ def _thin_response() -> dict:
         "period": None,
         "take_home": 0.0,
         "overspent": 0.0,
+        "total_out": 0.0,
+        "beyond": 0.0,
+        "beyond_source": None,
+        "card_growth": 0.0,
+        "savings_drawdown": 0.0,
         "jobs": None,
         "verdict": None,
         "trend": {"periods": [], "fixed": [], "moved": [], "free": [], "left": []},

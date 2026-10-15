@@ -35,6 +35,7 @@ import { ChevronRight, ChevronLeft, ChevronDown, Check } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
+import { PaySplitBar, beyondFigures, beyondSentence, paradoxLine, percentBase, type BeyondView } from "@/components/PaySplitBeyond";
 
 export const JOB_COLOR: Record<MoneyShapeJob["id"], { bg: string; text: string }> = {
   fixed: { bg: "bg-slate-600 dark:bg-slate-400", text: "text-slate-600 dark:text-slate-400" },
@@ -181,15 +182,15 @@ function currentEntry(
   averages: AverageEntry[],
   scope: Scope,
   hasControl: boolean
-): { start: string; end: string; take_home: number; overspent: number; jobs: MoneyShapeJob[]; verdict: string | null } {
+): { start: string; end: string; take_home: number; overspent: number; jobs: MoneyShapeJob[]; verdict: string | null } & Pick<MoneyShape, "total_out" | "beyond" | "beyond_source" | "card_growth" | "savings_drawdown"> {
   if (hasControl) {
     if (scope.kind === "period" && periods.length > 0) {
       const p = periods[Math.min(scope.index, periods.length - 1)];
-      return { start: p.start, end: p.end, take_home: p.take_home, overspent: p.overspent, jobs: p.jobs, verdict: p.verdict };
+      return { start: p.start, end: p.end, take_home: p.take_home, overspent: p.overspent, jobs: p.jobs, verdict: p.verdict, total_out: p.total_out, beyond: p.beyond, beyond_source: p.beyond_source, card_growth: p.card_growth, savings_drawdown: p.savings_drawdown };
     }
     if (scope.kind === "average") {
       const a = averages.find((x) => x.months === scope.months);
-      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.jobs, verdict: a.verdict };
+      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.jobs, verdict: a.verdict, total_out: a.total_out, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth, savings_drawdown: a.savings_drawdown };
     }
   }
   return {
@@ -199,6 +200,11 @@ function currentEntry(
     overspent: shape.overspent,
     jobs: shape.jobs ?? [],
     verdict: shape.verdict,
+    total_out: shape.total_out,
+    beyond: shape.beyond,
+    beyond_source: shape.beyond_source,
+    card_growth: shape.card_growth,
+    savings_drawdown: shape.savings_drawdown,
   };
 }
 
@@ -299,8 +305,14 @@ function PeriodPickerSheet({
 export default function MoneyShapeHero({
   shape,
   selectedPeriod,
+  beyondView,
 }: {
   shape: MoneyShape;
+  /** G269 design round: when set, the bar is scaled to the larger of
+   *  take-home and outgoings, Beyond is drawn past the take-home mark, and a
+   *  plain sentence (plus, with consent, one calm paradox line) follows the
+   *  rows. Unset renders the shipped hero exactly. */
+  beyondView?: BeyondView;
   /** When embedded in Spend, the page header owns period navigation. A
    * matching completed period is rendered directly and this card's duplicate
    * picker is removed. Insights' standalone use remains self-controlled. */
@@ -430,7 +442,15 @@ export default function MoneyShapeHero({
         </SectionLabel>
       )}
 
-      {orderedJobs.length > 0 && (
+      {orderedJobs.length > 0 && beyondView && (
+        <PaySplitBar
+          segs={orderedJobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }))}
+          figures={beyondFigures(entry, displayedScope.kind === "average")}
+          view={beyondView}
+          size="hero"
+        />
+      )}
+      {orderedJobs.length > 0 && !beyondView && (
         <div className="mt-3 flex w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800 h-2">
           {orderedJobs.map((job) => (
             <div key={job.id} className={JOB_COLOR[job.id].bg} style={{ width: `${Math.max(0, job.share)}%` }} aria-hidden="true" />
@@ -456,7 +476,11 @@ export default function MoneyShapeHero({
               title={meaning}
               aria-label={`${label}, ${meaning}`}
             >
-              <JobDot id={job.id} />
+              {beyondView && overspentHere ? (
+                <span className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+              ) : (
+                <JobDot id={job.id} />
+              )}
               <span className="flex-1 min-w-0 text-[13px] font-medium text-slate-700 dark:text-slate-300 truncate">
                 {label}
               </span>
@@ -488,6 +512,27 @@ export default function MoneyShapeHero({
         {SHAPE_LEGEND}
       </p>
       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Tap a job to see the transactions behind it.</p>
+      {beyondView && (() => {
+        const figures = beyondFigures(entry, displayedScope.kind === "average");
+        const sentence = beyondSentence(figures);
+        const paradox = paradoxLine(figures, shape.what_works?.trait?.choice === "change");
+        return (
+          <>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{percentBase(figures.beyond >= 1)}</p>
+            {sentence && (
+              <p className="mt-3 flex items-start gap-2 text-[15px] leading-relaxed text-slate-800 dark:text-slate-200 text-pretty">
+                <span className="mt-2 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+                <MoneyText text={sentence} />
+              </p>
+            )}
+            {paradox && (
+              <p className="mt-2 border-t border-slate-200/70 pt-2 text-[13px] leading-relaxed text-slate-600 dark:border-slate-700/70 dark:text-slate-400 text-pretty">
+                <MoneyText text={paradox} />
+              </p>
+            )}
+          </>
+        );
+      })()}
 
       {entry.verdict && (
         <MoneyText

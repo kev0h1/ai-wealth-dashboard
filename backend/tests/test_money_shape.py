@@ -302,8 +302,7 @@ def test_verdict_for_normal():
 
 def test_verdict_for_overspent():
     assert verdict_for(58, 42, 200.0) == (
-        "Of every £100 you take home, £58 was spoken for before you chose anything, "
-        "and spending went £200 past what came in."
+        "Of every £100 that went out, £58 was spoken for before you chose anything."
     )
 
 
@@ -477,8 +476,8 @@ def test_average_verdict_for_normal_form_word_and_digit():
 
 def test_average_verdict_for_overspent_form_when_outflow_exceeds_take_home():
     assert average_verdict_for(2, 50, 0, 200.0, 1200.0, 1000.0) == (
-        "Over the last two pay periods, £50 of every £100 you took home was spoken for "
-        "before you chose anything, and spending went £200 past what came in on average."
+        "Over the last two pay periods, £50 of every £100 that went out was spoken for "
+        "before you chose anything."
     )
 
 
@@ -638,6 +637,99 @@ def test_router_has_no_horizon_param_and_returns_cached_blob_verbatim():
         money_shape_router.get_money_shape_cached = original
 
     assert result == {"status": "ok", "fake_marker": "kevin"}
+
+
+# ── G269: total_out / beyond / beyond_source ─────────────────────────────────
+
+from app.services.money_shape import beyond_source_for  # noqa: E402
+
+CARD_IDS = {"card1"}
+SAVE_IDS = {"savings1"}
+
+
+def _beyond_fixture(spend: float, extra=()):
+    """One month: 1000 in, ``spend`` out on the current account."""
+    return [
+        txn("i", 1000.0, "Income", "2026-07-01", is_debit=False),
+        txn("s", spend, "Eating Out", "2026-07-10"),
+        *extra,
+    ]
+
+
+def test_g269_under_take_home_has_no_beyond():
+    b = bucket_period(_beyond_fixture(800.0), KINDS, SAVE_IDS, date(2026, 7, 1), date(2026, 7, 31), card_ids=CARD_IDS)
+    assert b["total_out"] == 800.0
+    assert b["beyond"] == 0.0
+    assert b["beyond_source"] is None
+    assert b["left"] == 200.0
+
+
+def test_g269_exactly_at_take_home_has_no_beyond():
+    b = bucket_period(_beyond_fixture(1000.0), KINDS, SAVE_IDS, date(2026, 7, 1), date(2026, 7, 31), card_ids=CARD_IDS)
+    assert b["total_out"] == 1000.0
+    assert b["beyond"] == 0.0
+    assert b["beyond_source"] is None
+
+
+def test_g269_beyond_matches_overspent_and_total_out_exceeds_take_home():
+    b = bucket_period(_beyond_fixture(1610.0), KINDS, SAVE_IDS, date(2026, 7, 1), date(2026, 7, 31), card_ids=CARD_IDS)
+    assert b["total_out"] == 1610.0
+    assert b["beyond"] == 610.0 == b["overspent"]
+    assert b["beyond_source"] is None  # nothing in the flows covers it: never guessed
+    # Shares are of total outgoings once Beyond is present.
+    assert sum(b["shares"].values()) == 100 and b["shares"]["left"] == 0
+
+
+def test_g269_source_cards_when_card_growth_covers_it():
+    extra = [txn("c", 700.0, "Shopping", "2026-07-12", account_id="card1")]
+    b = bucket_period(_beyond_fixture(1000.0, extra), KINDS, SAVE_IDS, date(2026, 7, 1), date(2026, 7, 31), card_ids=CARD_IDS)
+    assert b["beyond"] == 700.0
+    assert b["card_growth"] == 700.0
+    assert b["beyond_source"] == "cards"
+
+
+def test_g269_card_repayment_nets_off_growth():
+    extra = [
+        txn("c", 700.0, "Shopping", "2026-07-12", account_id="card1"),
+        txn("r", 400.0, "Transfer", "2026-07-20", account_id="card1", is_debit=False),
+    ]
+    b = bucket_period(_beyond_fixture(1000.0, extra), KINDS, SAVE_IDS, date(2026, 7, 1), date(2026, 7, 31), card_ids=CARD_IDS)
+    assert b["card_growth"] == 300.0
+    assert b["beyond_source"] is None
+
+
+def test_g269_source_savings_when_drawdown_covers_it():
+    extra = [
+        txn("w", 800.0, "Transfer", "2026-07-05", account_id="savings1"),
+        txn("w2", 800.0, "Transfer", "2026-07-05", account_id="current", is_debit=False),
+        txn("e", 500.0, "Eating Out", "2026-07-15"),
+    ]
+    b = bucket_period(_beyond_fixture(600.0, extra), KINDS, SAVE_IDS, date(2026, 7, 1), date(2026, 7, 31), card_ids=CARD_IDS)
+    assert b["savings_drawdown"] >= 800.0 - 1e-9
+    assert b["beyond"] > 0
+    assert b["beyond_source"] == "savings"
+
+
+def test_beyond_source_for_rules():
+    assert beyond_source_for(0.0, 500.0, 500.0) is None
+    assert beyond_source_for(0.5, 500.0, 500.0) is None
+    assert beyond_source_for(300.0, 300.0, 0.0) == "cards"
+    assert beyond_source_for(300.0, 0.0, 300.0) == "savings"
+    assert beyond_source_for(300.0, 400.0, 900.0) == "savings"  # both cover: the larger
+    assert beyond_source_for(300.0, 200.0, 150.0) == "cards_and_savings"
+    assert beyond_source_for(300.0, 200.0, 0.0) is None
+    assert beyond_source_for(300.0, -50.0, 100.0) is None
+
+
+def test_g269_average_entry_carries_total_out_and_beyond():
+    periods = [
+        _period_dict(date(2026, 6, 1), date(2026, 6, 30), 1000.0, 600.0, 100.0, 500.0, 200.0, _totals()),
+        _period_dict(date(2026, 7, 1), date(2026, 7, 31), 1000.0, 500.0, 0.0, 300.0, 0.0, _totals()),
+    ]
+    avg = average_for_window(periods, 3)
+    assert avg["total_out"] == 1000.0
+    assert avg["beyond"] == 0.0
+    assert avg["beyond_source"] is None
 
 
 def test_g268_debt_loan_repayment_without_card_evidence_counts_as_fixed():
