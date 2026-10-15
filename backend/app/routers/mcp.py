@@ -141,6 +141,7 @@ TOOL_SCOPES: dict[str, str] = {
     "get_savings_position": "plans:read",
     "get_debt_position": "plans:read",
     "get_goals": "plans:read",
+    "get_investment_growth": "accounts:read",
     "check_affordability": "plans:read",
     "get_tax_position": "plans:read",
     "calculate": "plans:read",

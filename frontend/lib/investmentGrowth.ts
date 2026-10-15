@@ -50,7 +50,7 @@ export const RISK_LINES = [
   "Prices are end of day and may be delayed.",
 ] as const;
 
-export const METHOD_NOTE = "Growth is simple: value minus money paid in. Money paid in starts from your first statement, then adds contract notes.";
+export const METHOD_NOTE = "Growth is simple: value minus money paid in. Money paid in starts from your first statement value, then adds contract notes.";
 
 const MINUS = "−";
 

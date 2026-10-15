@@ -173,3 +173,65 @@ def test_snapshot_all_isolates_a_failing_account(cols, monkeypatch):
     assert result == {"written": 1, "failed": 1}
     assert any(d["account_id"] == "a2" for d in vals.docs.values())
     assert not any(d["account_id"] == "a1" for d in vals.docs.values())
+
+
+# ── Penny read tool (G271 fold-in) ──────────────────────────────────────────
+
+def _penny_setup(monkeypatch, accounts, growths):
+    import app.db.collections as colls
+    import app.services.penny_tools as pt
+
+    seen = {}
+
+    class _AccCol:
+        def find(self, filt=None, proj=None):
+            seen["filter"] = filt
+            return _Cur([a for a in accounts if a["user_id"] == (filt or {}).get("user_id")])
+
+    async def _growth(acc, range_key):
+        seen.setdefault("ranges", []).append(range_key)
+        return growths[acc["_id"]]
+
+    monkeypatch.setattr(colls, "investment_accounts_col", _AccCol())
+    monkeypatch.setattr(ig, "account_growth", _growth)
+    return pt, seen
+
+
+def test_penny_investment_growth_tool_reads_snapshots(monkeypatch):
+    accounts = [
+        {"_id": "a1", "user_id": USER, "provider": "Vanguard", "account_type": "ISA"},
+        {"_id": "a2", "user_id": "other@x.com", "provider": "Other", "account_type": "ISA"},
+    ]
+    growth = {"a1": {"value": 46000.0, "paid_in": 40000.0, "growth_abs": 6000.0, "growth_pct": 15.0,
+                     "since": "2026-09-04", "as_of": "2026-10-13", "method_label": "Value minus money paid in"}}
+    pt, seen = _penny_setup(monkeypatch, accounts, growth)
+    out = asyncio.run(pt.execute_tool(USER, "get_investment_growth", {"account": "ISA"}))
+    assert seen["filter"] == {"user_id": USER}  # user scoped, never another user's account
+    assert len(out["accounts"]) == 1
+    row = out["accounts"][0]
+    assert row["account"] == "Vanguard ISA"
+    assert row["value"]["raw"] == 46000.0 and row["paid_in"]["raw"] == 40000.0
+    assert row["growth"]["raw"] == 6000.0 and row["growth_pct"] == {"raw": 15.0, "formatted": "+15.00%"}
+    assert row["as_of"] == "2026-10-13"
+    assert "Capital at risk" in out["capital_at_risk"]
+    assert "not a guide to future returns" in out["capital_at_risk"]
+
+
+def test_penny_investment_growth_tool_no_values_and_no_match(monkeypatch):
+    accounts = [{"_id": "a1", "user_id": USER, "provider": "Vanguard", "account_type": "ISA"}]
+    growth = {"a1": {"value": None, "paid_in": None, "growth_abs": None, "growth_pct": None}}
+    pt, _ = _penny_setup(monkeypatch, accounts, growth)
+    out = asyncio.run(pt.execute_tool(USER, "get_investment_growth", {}))
+    assert out["accounts"][0]["status"] == "no_daily_values_yet"
+    out = asyncio.run(pt.execute_tool(USER, "get_investment_growth", {"account": "Fidelity"}))
+    assert out["accounts"] == []
+
+
+def test_penny_investment_growth_tool_is_read_only_and_exposed_over_mcp():
+    import app.services.penny_tools as pt
+    from app.routers.mcp import MCP_TOOLS, TOOL_SCOPES
+    names = {t["function"]["name"] for t in pt.TOOL_SCHEMAS}
+    assert "get_investment_growth" in names
+    assert "get_investment_growth" not in {t["function"]["name"] for t in pt.PROPOSE_TOOL_SCHEMAS}
+    assert TOOL_SCOPES["get_investment_growth"] == "accounts:read"
+    assert "get_investment_growth" in {t["function"]["name"] for t in MCP_TOOLS}
