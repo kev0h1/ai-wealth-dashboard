@@ -24,7 +24,7 @@
 //
 // Colour semantics are fixed and named nowhere but here: Fixed = slate-600
 // (dark: slate-400), Moved = emerald-500, Free = sky-500, Left over =
-// slate-200 (dark: slate-700). No red, no indigo/violet; amber appears only as a signifier (dot, hairline) when spending went past take-home (G269), never on a figure or text — this
+// slate-200 (dark: slate-700). No red, no indigo/violet; amber appears only as a signifier (dot, hairline) when spending went past take-home (G269), never on a figure or text. This
 // card is informational, not Penny, so it never borrows a grading or
 // advice colour (DESIGN.md: red means genuine risk only, the indigo→violet
 // gradient belongs to Penny alone).
