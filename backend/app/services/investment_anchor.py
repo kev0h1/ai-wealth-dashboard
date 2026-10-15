@@ -75,7 +75,7 @@ def check_anchor(body: dict, today: date) -> tuple[dict | None, str | None]:
     if body.get("provider_rate_of_return_pct") not in (None, ""):
         rate = _num(body.get("provider_rate_of_return_pct"))
         if rate is None or rate < -100 or rate > 10000:
-            return None, "The rate of return should be a percentage such as 14.61."
+            return None, "The rate of return should be a percentage such as 5.0."
         rate = round(rate, 2)
     return {
         "date": d.isoformat(), "provider_value": round(value, 2),

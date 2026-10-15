@@ -13,12 +13,14 @@ const field = "mt-1 w-full min-h-[44px] rounded-xl border border-slate-200 bg-sl
 /** "Anchor from your provider" (G278). One step: what the provider shows on a
  *  date, as a value plus either the return or the total paid in. Everything
  *  here is entered by the user, editable and clearable. */
-export default function AnchorSheet({ accountId, provider, anchor, todayIso, onClose, onSaved }: {
+export default function AnchorSheet({ accountId, provider, anchor, todayIso, hidden, onClose, onSaved }: {
   accountId: string;
   provider: string | null | undefined;
   anchor: GrowthAnchor | null;
   /** YYYY-MM-DD, the latest date the anchor may carry. */
   todayIso: string;
+  /** Balances are hidden: an existing anchor is not shown in clear text until the user taps Show to edit. */
+  hidden?: boolean;
   onClose: () => void;
   onSaved: (g: InvestmentGrowth) => void;
 }) {
@@ -28,13 +30,14 @@ export default function AnchorSheet({ accountId, provider, anchor, todayIso, onC
   const [basis, setBasis] = useState<Basis>(anchor && anchor.total_paid_in !== null ? "paid_in" : "return");
   const [second, setSecond] = useState(anchor ? String(anchor.total_paid_in ?? anchor.provider_return ?? "") : "");
   const [rate, setRate] = useState(anchor?.provider_rate_of_return_pct != null ? String(anchor.provider_rate_of_return_pct) : "");
+  const [revealed, setRevealed] = useState(!(hidden && anchor));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const v = parseMoneyInput(value);
   const s = parseMoneyInput(second);
   const r = rate.trim() === "" ? null : parsePercentInput(rate);
-  const ready = !!date && date <= todayIso && v !== null && v > 0 && s !== null && (rate.trim() === "" || r !== null);
+  const ready = revealed && !!date && date <= todayIso && v !== null && v > 0 && s !== null && (rate.trim() === "" || r !== null);
 
   async function save() {
     if (!ready || v === null || s === null) return;
@@ -92,7 +95,7 @@ export default function AnchorSheet({ accountId, provider, anchor, todayIso, onC
         </div>
         <div>
           <label htmlFor="anchor-value" className={label}>Account value</label>
-          <input id="anchor-value" inputMode="decimal" autoComplete="off" placeholder="20,313.61" value={value} onChange={(e) => setValue(e.target.value)} className={field} />
+          <input id="anchor-value" inputMode="decimal" autoComplete="off" placeholder="10,000.00" readOnly={!revealed} value={revealed ? value : "••••"} onChange={(e) => setValue(e.target.value)} className={field} />
         </div>
         <fieldset>
           <legend className={label}>And one of these</legend>
@@ -107,16 +110,21 @@ export default function AnchorSheet({ accountId, provider, anchor, todayIso, onC
             ))}
           </div>
           <label htmlFor="anchor-second" className="sr-only">{basis === "return" ? "Return in pounds" : "Total paid in, in pounds"}</label>
-          <input id="anchor-second" inputMode="decimal" autoComplete="off" placeholder={basis === "return" ? "1,341.92" : "18,971.69"} value={second} onChange={(e) => setSecond(e.target.value)} className={field} />
+          <input id="anchor-second" inputMode="decimal" autoComplete="off" placeholder={basis === "return" ? "500.00" : "9,500.00"} readOnly={!revealed} value={revealed ? second : "••••"} onChange={(e) => setSecond(e.target.value)} className={field} />
           <p className={`mt-1 text-[12px] ${whisper}`}>
             {basis === "return" ? "The gain or loss in pounds, as your provider shows it. Paid in is worked out as value minus return." : "What you have paid in to date, as your provider shows it."}
           </p>
         </fieldset>
         <div>
           <label htmlFor="anchor-rate" className={label}>Personal rate of return, optional</label>
-          <input id="anchor-rate" inputMode="decimal" autoComplete="off" placeholder="14.61" value={rate} onChange={(e) => setRate(e.target.value)} className={field} />
+          <input id="anchor-rate" inputMode="decimal" autoComplete="off" placeholder="5.0" readOnly={!revealed} value={revealed ? rate : (rate ? "••••" : "")} onChange={(e) => setRate(e.target.value)} className={field} />
           <p className={`mt-1 text-[12px] ${whisper}`}>Shown as you enter it, with its date, and never recomputed.</p>
         </div>
+        {!revealed ? (
+          <button type="button" onClick={() => setRevealed(true)} className="touch-manipulation min-h-[44px] rounded-xl text-[14px] font-semibold text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">
+            Show to edit
+          </button>
+        ) : null}
         <p className={`text-[12px] leading-snug ${whisper}`}>{ANCHOR_USER_NOTE}</p>
         {error ? <p role="alert" className={`text-[13px] ${ink}`}>{error}</p> : null}
       </form>

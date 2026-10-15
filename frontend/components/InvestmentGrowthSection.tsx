@@ -76,6 +76,7 @@ export default function InvestmentGrowthSection({ accountId, hidden, onShownChan
           provider={growth?.provider}
           anchor={growth?.anchor ?? null}
           todayIso={todayIso}
+          hidden={hidden}
           onClose={() => setAnchoring(false)}
           onSaved={() => { setAnchoring(false); load(range); }}
         />
