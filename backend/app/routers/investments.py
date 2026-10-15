@@ -5,13 +5,14 @@ from datetime import datetime
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, UploadFile
 from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
 from app.core import timeutil
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col, investment_valuations_col
-from app.services.investment_growth import account_growth
+from app.services import investment_anchor as ia
+from app.services.investment_growth import account_growth, build_positions
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
 from app.core.timeutil import as_utc, to_user_date
 from app.services.investment_prices import (
@@ -30,6 +31,11 @@ def clean_book_cost(v) -> float | None:
     return round(f, 2) if f == f and f not in (float("inf"),) and f > 0 else None
 
 
+def _stmt_date_or_none(v):
+    """The statement's closing day as a date, or None when the statement did not give one."""
+    return ia.as_date(v)
+
+
 async def _notes_for_account(account_id: str, statement_date: datetime | None) -> list[dict]:
     """Return all contract notes for this account, newest first."""
     return await investment_notes_col.find({"account_id": account_id}).sort("trade_date", -1).to_list(None)
@@ -44,6 +50,8 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
 
     added_since = 0.0
     notes_since = 0
+    paid_in_since = 0.0  # G278: money paid in since the statement; a fee-driven sale is not a contribution
+    fee_lines = ia.all_fee_lines(acc.get("statement_periods") or [])
     if statement_date:
         # statement_date may be date-only; normalise to datetime for comparison
         sd = statement_date if isinstance(statement_date, datetime) else datetime.combine(statement_date, datetime.min.time())
@@ -52,11 +60,15 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
             if td and td > sd:
                 added_since += n.get("amount", 0.0)
                 notes_since += 1
+                if not ia.is_fee_note(n, fee_lines):
+                    paid_in_since += n.get("amount", 0.0)
     else:
         # No statement yet — all notes count
         for n in notes:
             added_since += n.get("amount", 0.0)
             notes_since += 1
+            if not ia.is_fee_note(n, fee_lines):
+                paid_in_since += n.get("amount", 0.0)
 
     total_value = acc.get("total_value", 0.0)
     display_value = round(total_value + added_since, 2)
@@ -68,6 +80,8 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
         "currency":          acc.get("currency", "GBP"),
         "total_value":       total_value,
         "added_since":       round(added_since, 2),
+        "paid_in_since":     round(paid_in_since, 2),
+        "has_anchor":        bool(acc.get("anchor")),
         "notes_since":       notes_since,
         "display_value":     display_value,
         "statement_date":    acc.get("statement_date").isoformat() if acc.get("statement_date") else None,
@@ -154,6 +168,9 @@ async def investment_upload(
     total_value       = float(parsed.get("total_value") or 0)
     statement_date_str = parsed.get("statement_date")
     holdings          = parsed.get("holdings", [])
+    # G278: the period figures printed on the statement, never estimated.
+    period_closing    = _stmt_date_or_none(statement_date_str)
+    period            = ia.clean_period(parsed, total_value, period_closing)
 
     provider_slug = re.sub(r"[^a-z0-9]", "", provider.lower())
     ref_slug      = re.sub(r"[^a-z0-9]", "", account_reference.lower())[:12]
@@ -192,16 +209,15 @@ async def investment_upload(
                 f"This account already has a statement from {stored_fmt}; the uploaded one ({incoming_fmt}) is older and would rewind the value.",
             )
 
-    await investment_accounts_col.update_one(
-        {"_id": acc_id},
-        {"$set": {
-            "user_id": uid, "provider": provider, "account_type": account_type,
-            "account_reference": account_reference, "currency": currency,
-            "total_value": total_value, "statement_date": statement_date,
-            "provisional": False, "updated_at": datetime.now(),
-        }},
-        upsert=True,
-    )
+    acc_set = {
+        "user_id": uid, "provider": provider, "account_type": account_type,
+        "account_reference": account_reference, "currency": currency,
+        "total_value": total_value, "statement_date": statement_date,
+        "provisional": False, "updated_at": datetime.now(),
+    }
+    if period is not None:
+        acc_set["statement_periods"] = ia.upsert_period((existing or {}).get("statement_periods"), period)
+    await investment_accounts_col.update_one({"_id": acc_id}, {"$set": acc_set}, upsert=True)
 
     await investment_holdings_col.delete_many({"account_id": acc_id})
     holdings_saved = 0
@@ -238,7 +254,7 @@ async def investment_upload(
     return {
         "account_id": acc_id, "provider": provider, "account_type": account_type,
         "account_reference": account_reference, "total_value": total_value,
-        "holdings_count": holdings_saved,
+        "holdings_count": holdings_saved, "period_captured": period is not None,
     }
 
 
@@ -282,7 +298,7 @@ async def upload_contract_note(
     # Extract other fields
     kind           = str(parsed.get("kind") or "purchase").lower()
     raw_amount     = float(parsed.get("amount") or 0)
-    amount         = raw_amount if kind != "sale" else -raw_amount
+    amount         = raw_amount if kind not in ("sale", "fee") else -raw_amount
     fund_name      = str(parsed.get("fund_name") or "").strip()
     units          = parsed.get("units")
     price_per_unit = parsed.get("price_per_unit")
@@ -363,7 +379,7 @@ async def upload_contract_note_global(
     # Extract fields
     kind              = str(parsed.get("kind") or "purchase").lower()
     raw_amount        = float(parsed.get("amount") or 0)
-    amount            = raw_amount if kind != "sale" else -raw_amount
+    amount            = raw_amount if kind not in ("sale", "fee") else -raw_amount
     fund_name         = str(parsed.get("fund_name") or "").strip()
     units             = parsed.get("units")
     price_per_unit    = parsed.get("price_per_unit")
@@ -477,8 +493,10 @@ async def list_contract_notes(account_id: str, user: dict = Depends(current_user
         sd = stmt_date if isinstance(stmt_date, datetime) else datetime.combine(stmt_date, datetime.min.time())
 
     notes = await investment_notes_col.find({"account_id": account_id}).sort("trade_date", -1).to_list(None)
+    fee_lines = ia.all_fee_lines(acc.get("statement_periods") or [])
     return [
         {
+            "is_fee":        ia.is_fee_note(n, fee_lines),
             "id":            n["_id"],
             "trade_date":    n["trade_date"].isoformat() if isinstance(n["trade_date"], datetime) else n["trade_date"],
             "kind":          n.get("kind"),
@@ -539,6 +557,30 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
             "price_date": price_date, "price_source": source, "price_confidence": conf,
             "last_refreshed": fetched.isoformat() if fetched else None,
         })
+    # G278: a fund that exists only through contract notes (for example an ETF bought
+    # after the statement) is a holding too, with its units, price, value and gain.
+    notes = await investment_notes_col.find({"account_id": account_id}).to_list(None)
+    keys = [h.get("instrument_key") for h in holdings] + [instrument_key(None, None, n.get("fund_name")) for n in notes]
+    all_insts = await get_instruments(keys)
+    sd = ia.as_date(acc.get("statement_date"))
+    pos = build_positions(sd, holdings, notes, all_insts, ia.all_fee_lines(acc.get("statement_periods") or []))
+    by_id = {r["id"]: r for r in pos["rows"]}
+    for row in out:
+        r = by_id.get(row["id"])
+        if r:
+            row["gain_abs"], row["gain_pct"], row["cost"] = r["gain_abs"], r["gain_pct"], r["cost"]
+    have = {o["id"] for o in out}
+    for r in pos["rows"]:
+        if r["id"] in have:
+            continue
+        price_date = r["price_date"]
+        out.append({
+            "id": r["id"], "name": r["name"], "isin": r["isin"], "type": r["type"], "units": r["units"],
+            "price_per_unit": None, "statement_value": 0, "book_cost": None, "book_cost_source": None,
+            "current_price": r["price"], "current_value": r["value"], "price_date": price_date,
+            "price_source": "contract_notes", "price_confidence": None, "last_refreshed": None,
+            "from_contract_notes": True, "cost": r["cost"], "gain_abs": r["gain_abs"], "gain_pct": r["gain_pct"],
+        })
     return out
 
 
@@ -579,3 +621,63 @@ async def get_investment_growth(
     if not acc:
         raise HTTPException(404, "Investment account not found")
     return await account_growth(acc, range)
+
+
+# ── G278: anchor from your provider ───────────────────────────────────────
+
+async def _owned_account(account_id: str, uid: str) -> dict:
+    acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
+    if not acc:
+        raise HTTPException(404, "Investment account not found")
+    return acc
+
+
+@router.post("/investment/accounts/{account_id}/anchor")
+async def set_investment_anchor(account_id: str, body: dict = Body(...), user: dict = Depends(current_user)):
+    """Set, edit or re-anchor: what the provider shows on a date. User-entered
+    and editable. Re-anchoring keeps the previous anchor in anchor_history."""
+    acc = await _owned_account(account_id, user["email"])
+    anchor, problem = ia.check_anchor(body or {}, timeutil.user_today())
+    if anchor is None:
+        raise HTTPException(422, problem)
+    anchor["entered_at"] = timeutil.user_now().isoformat()
+    new, history = ia.replace_anchor(acc.get("anchor"), anchor, acc.get("anchor_history"))
+    await investment_accounts_col.update_one(
+        {"_id": account_id, "user_id": user["email"]},
+        {"$set": {"anchor": new, "anchor_history": history}},
+    )
+    fresh = await investment_accounts_col.find_one({"_id": account_id})
+    return await account_growth(fresh, "all")
+
+
+@router.delete("/investment/accounts/{account_id}/anchor")
+async def clear_investment_anchor(account_id: str, user: dict = Depends(current_user)):
+    """Clear the current anchor. The history of earlier anchors is kept."""
+    acc = await _owned_account(account_id, user["email"])
+    history = acc.get("anchor_history") or []
+    if acc.get("anchor"):
+        history = (history + [{**{k: v for k, v in acc["anchor"].items() if k != "use_provider_value"},
+                               "replaced_at": timeutil.user_now().isoformat(), "cleared": True}])[-20:]
+    await investment_accounts_col.update_one(
+        {"_id": account_id, "user_id": user["email"]},
+        {"$unset": {"anchor": ""}, "$set": {"anchor_history": history}},
+    )
+    fresh = await investment_accounts_col.find_one({"_id": account_id})
+    return await account_growth(fresh, "all")
+
+
+@router.post("/investment/accounts/{account_id}/anchor/override")
+async def set_anchor_override(account_id: str, body: dict = Body(...), user: dict = Depends(current_user)):
+    """Display override only: show the provider's value for the anchor date.
+    No data is rewritten; turning it off restores Sorted's own figure."""
+    acc = await _owned_account(account_id, user["email"])
+    if not acc.get("anchor"):
+        raise HTTPException(422, "There is no anchor to use. Anchor from your provider first.")
+    on = body.get("use_provider_value")
+    if not isinstance(on, bool):
+        raise HTTPException(422, "use_provider_value must be true or false.")
+    await investment_accounts_col.update_one(
+        {"_id": account_id, "user_id": user["email"]}, {"$set": {"anchor": {**acc["anchor"], "use_provider_value": on}}},
+    )
+    fresh = await investment_accounts_col.find_one({"_id": account_id})
+    return await account_growth(fresh, "all")

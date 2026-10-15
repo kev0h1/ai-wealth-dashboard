@@ -480,11 +480,16 @@ TOOL_SCHEMAS = [
             "name": "get_investment_growth",
             "description": (
                 "How the user's investment accounts (an ISA, a pension) have done "
-                "so far: current value, money paid in (the known cost of the "
-                "holdings), gain in pounds and percent (simple: value minus cost, "
-                "not a time-weighted return) and the as-of date, from the end-of-day "
-                "prices. When only some holdings have a known cost the result says "
-                "'over N of M holdings'; quote that. Use this for "
+                "so far: current value, money paid in, gain in pounds and percent "
+                "(simple: value minus what was paid in, not a time-weighted return) "
+                "and the as-of date, from the end-of-day prices. When the user has "
+                "anchored from their provider (`basis` is `anchor`), the lifetime "
+                "figure starts from the provider's own value and return, and any "
+                "`rate_of_return` is the provider's figure, as entered and dated: "
+                "say it is 'from <provider>', never recompute it. Statement-period "
+                "growth and per-purchase gains are secondary detail. When only some "
+                "holdings have a known cost the result says 'over N of M holdings'; "
+                "quote that. Use this for "
                 "'how has my ISA done', 'how much have my investments grown' and "
                 "'am I up or down'. `account` is optional free text naming one "
                 "account (e.g. 'ISA', 'Vanguard'); omit it for all of them. "
@@ -3632,29 +3637,70 @@ async def _exec_get_investment_growth(uid: str, account) -> dict:
             if g.get("value") is None:
                 results.append({"account": label, "status": "no_holdings_yet"})
                 continue
-            if g.get("growth_abs") is None:
+            life = g.get("lifetime")
+            if g.get("growth_abs") is None and not life:
                 results.append({
                     "account": label, "value": _money(g["value"], 2), "status": "cost_not_known",
-                    "note": "Cost not known for these holdings, so no gain can be shown. A contract note, or a statement that shows book cost, adds it.",
+                    "note": ("Cost not known for these holdings, so no gain can be shown. The user can anchor from their provider "
+                             "(the value and return the provider shows, with the date), or add a contract note, or a statement that shows book cost."),
                     "as_of": g.get("as_of"),
                 })
                 continue
-            entry = {
-                "account": label,
-                "value": _money(g["value"], 2),
-                "paid_in": _money(g["paid_in"], 2),
-                "growth": _money(g["growth_abs"], 2),
-                "growth_pct": (
+            entry = {"account": label, "value": _money(g["value"], 2), "as_of": g.get("as_of"),
+                     "method": g.get("method_label")}
+            if life:
+                # PRIMARY: lifetime growth from the user's own provider anchor.
+                a = life["anchor"]
+                prov = life.get("provider") or "the provider"
+                entry["basis"] = "anchor"
+                entry["paid_in"] = _money(life["paid_in"], 2)
+                entry["growth"] = _money(life["growth_abs"], 2)
+                entry["growth_pct"] = (
+                    {"raw": life["growth_pct"], "formatted": f'{life["growth_pct"]:+.2f}%'.replace("-", "−")}
+                    if life.get("growth_pct") is not None else None
+                )
+                entry["since"] = life.get("since")
+                entry["anchor"] = (
+                    f"Entered by the user from {prov} on {a['date']}: value {_money(a['provider_value'], 2)['formatted']}"
+                    + (f", return {_money(a['provider_return'], 2)['formatted']}" if a.get("provider_return") is not None else "")
+                    + (f", total paid in {_money(a['total_paid_in'], 2)['formatted']}" if a.get("total_paid_in") is not None else "")
+                    + f". Paid in after that date from contract notes and statements: {_money(life['paid_in_after'], 2)['formatted']}"
+                    + (f", withdrawn {_money(life['withdrawn_after'], 2)['formatted']}" if life.get("withdrawn_after") else "")
+                    + "."
+                )
+                rate = life.get("rate_of_return")
+                if rate:
+                    entry["rate_of_return"] = {
+                        "formatted": f'{rate["pct"]:+.2f}%'.replace("-", "−"), "label": rate["label"],
+                        "as_of": rate["as_of"], "note": rate["note"],
+                    }
+                rc = life.get("reconciliation")
+                if rc and rc.get("text"):
+                    entry["reconciliation"] = rc["text"]
+            else:
+                entry["basis"] = "contract_notes_and_book_cost"
+                entry["paid_in"] = _money(g["paid_in"], 2)
+                entry["growth"] = _money(g["growth_abs"], 2)
+                entry["growth_pct"] = (
                     {"raw": g["growth_pct"], "formatted": f'{g["growth_pct"]:+.2f}%'.replace("-", "−")}
                     if g.get("growth_pct") is not None else None
-                ),
-                "since": g.get("since"),
-                "as_of": g.get("as_of"),
-                "method": g.get("method_label"),
-            }
-            if g.get("cost_coverage"):
-                entry["cost_coverage"] = g["cost_coverage"]
-                entry["note"] = f"Gain is {g['cost_coverage']}; the rest read Cost not known."
+                )
+                entry["since"] = g.get("since")
+                if g.get("cost_coverage"):
+                    entry["cost_coverage"] = g["cost_coverage"]
+                    entry["note"] = f"Gain is {g['cost_coverage']}; the rest read Cost not known."
+            # SECONDARY: statement-period growth and per-purchase gains.
+            ss = g.get("since_statement")
+            if ss:
+                entry["since_statement"] = {"date": ss["date"], "growth": _money(ss["growth_abs"], 2), "paid_in_since": _money(ss["paid_in"], 2)}
+            chain = g.get("periods_chain")
+            if chain:
+                entry["statement_periods"] = {"from": chain["from"], "to": chain["to"], "growth": _money(chain["growth_abs"], 2),
+                                              "fees": _money(chain["fees"], 2), "interest": _money(chain["interest"], 2)}
+            buys = [b for b in (g.get("purchases") or []) if b.get("gain_abs") is not None][:6]
+            if buys:
+                entry["purchases"] = [{"date": b["date"], "fund": b["fund_name"], "cost": _money(b["amount"], 2),
+                                       "gain": _money(b["gain_abs"], 2)} for b in buys]
             results.append(entry)
     except Exception:
         logger.exception("penny_tools: get_investment_growth failed for %s", uid)

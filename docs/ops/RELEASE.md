@@ -345,3 +345,13 @@ After the G270 branch is merged and the API has restarted (which creates the ind
 ```
 
 Until it runs, the holdings endpoint falls back to any legacy per-holding price, and the daily worker links unlinked holdings itself, so ordering is not critical. Production needs Kevin's go-ahead.
+
+## G278: statement periods for already-uploaded statements
+
+G278 makes the statement parser capture the period figures (opening value and date, payments in, fees, interest, and every dated "Bought N units" line). They are stored per statement in the account's `statement_periods`, one entry per closing date, and the provider anchor lives on the same account document as `anchor` and `anchor_history`. No migration is needed for the anchor.
+
+What can and cannot be re-read: the statement upload keeps neither the PDF nor its extracted text (it parses, stores the holdings and the closing value, and discards the document). A statement uploaded before G278 therefore has no stored text to re-parse, and no script can recover its period figures. The user has to upload that statement again (the upload is idempotent per closing date). From `backend/`, the dry run reports counts only:
+
+    .venv/bin/python scripts/reparse_investment_statements.py
+
+It prints how many accounts already have a period and how many need the statement uploaded again. `--apply` only re-reads text an account document carries (nothing writes that today), or a local file for one named account (`--account ID --file statement.pdf --apply`, one OpenRouter call). Without a period an account still shows its anchor figure, value and per-purchase gains from contract notes; only the statement-period growth line waits for the re-upload.
