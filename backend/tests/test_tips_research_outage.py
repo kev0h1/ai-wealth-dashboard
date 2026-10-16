@@ -206,7 +206,7 @@ def _pass_setup(monkeypatch, cats, generate):
     monkeypatch.setattr(si, "_detect_insight_categories", detect)
     monkeypatch.setattr(si, "_find_triggered_transactions", trig)
     monkeypatch.setattr(si, "_check_verified_saving", verified)
-    monkeypatch.setattr(si, "_generate_savings_insight_content", generate)
+    monkeypatch.setattr(si, "_tip_content_for", generate)
     async def no_evidence_gone(*a, **k):
         return False
     monkeypatch.setattr(si, "_evidence_is_gone", no_evidence_gone)
@@ -216,7 +216,7 @@ def _pass_setup(monkeypatch, cats, generate):
 def test_pass_keeps_previous_tips_stale_stops_calls_and_warns_once(monkeypatch, runs, caplog):
     calls = {"n": 0}
 
-    async def failing(cat, uid, ctx=None, trig=None):
+    async def failing(cat, uid, ctx=None, trig=None, **kw):
         calls["n"] += 1
         si._RESEARCH_OUTCOME.get()["failure"] = "quota"
         return None
@@ -234,7 +234,7 @@ def test_pass_keeps_previous_tips_stale_stops_calls_and_warns_once(monkeypatch, 
 
 
 def test_pass_success_clears_stale_marker(monkeypatch, runs):
-    async def ok(cat, uid, ctx=None, trig=None):
+    async def ok(cat, uid, ctx=None, trig=None, **kw):
         return {"title": "New", "body": "Fresh advice", "savings_estimate": None}
 
     col = _pass_setup(monkeypatch, ["mobile"], ok)

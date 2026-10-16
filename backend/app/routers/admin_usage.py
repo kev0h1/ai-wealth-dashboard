@@ -22,7 +22,7 @@ Two aggregation queries total, no per-user loop over Mongo:
 import math
 import re
 import statistics
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -97,6 +97,32 @@ async def admin_llm_usage(month: str | None = None, user: dict = Depends(current
         }},
         {"$sort": {"cost_usd": -1}},
     ]).to_list(None)
+
+    # B48: calls per ISO week and pipeline over the last 8 weeks (Tavily calls
+    # sit in the same collection with model "tavily"), so the before/after of
+    # the shared tip research reads straight off this list. Counts only.
+    weekly_since = datetime.now(timezone.utc) - timedelta(weeks=8)  # naive-ok: aware UTC lookback window for an ops report
+    weekly_rows = await llm_usage_col.aggregate([
+        {"$match": {"ts": {"$gte": weekly_since}}},
+        {"$group": {
+            "_id": {
+                "year": {"$isoWeekYear": "$ts"}, "week": {"$isoWeek": "$ts"},
+                "pipeline": "$pipeline",
+            },
+            "calls": {"$sum": 1},
+            "cost_usd": {"$sum": "$cost_usd"},
+        }},
+        {"$sort": {"_id.year": 1, "_id.week": 1, "_id.pipeline": 1}},
+    ]).to_list(None)
+    weekly_calls = [
+        {
+            "week": f"{r['_id']['year']}-W{int(r['_id']['week']):02d}",
+            "pipeline": r["_id"]["pipeline"],
+            "calls": int(r.get("calls") or 0),
+            "cost_usd": round(float(r.get("cost_usd") or 0.0), 4),
+        }
+        for r in weekly_rows
+    ]
 
     by_user_rows = await llm_usage_col.aggregate([
         {"$match": match},
@@ -209,6 +235,7 @@ async def admin_llm_usage(month: str | None = None, user: dict = Depends(current
         "month": ym,
         "totals": totals,
         "by_pipeline": by_pipeline,
+        "weekly_calls": weekly_calls,
         "by_user": by_user,
         "cost_per_user_usd": cost_per_user,
         "estimates_note": (

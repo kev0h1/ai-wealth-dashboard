@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -15,17 +16,17 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
-from app.core.llm import openrouter_chat
+from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, TIP_LLM_PHRASING, TIP_RESEARCH_PROFILE_KEYS
+from app.core.llm import openrouter_chat, record_tavily_call
 from app.core import timeutil
-from app.services import tips_research_health
+from app.services import tip_research, tips_research_health
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
 from app.db.collections import (
     savings_insights_col, savings_labels_col,
     transactions_col, yapily_transactions_col, statement_transactions_col,
-    preferences_col, cashflow_cache_col,
+    preferences_col, cashflow_cache_col, behaviour_portrait_col,
 )
 
 router = APIRouter(tags=["savings_insights"])
@@ -113,7 +114,11 @@ INSIGHT_CATEGORIES: dict[str, dict] = {
 # "Ee Limited" as two separate trigger lines, so the card's bold lead figure
 # — triggered_by[0] alone — disagreed with the generated title, which sums
 # every trigger line) and need to regenerate through the new grouping.
-PROMPT_VERSION = 6
+# v7 (B48): tips are composed from the shared research layer
+# (app.services.tip_research) plus the user's own figures, so every stored tip
+# regenerates once into the new shape; the cost is one fetch per shared key,
+# not one per user.
+PROMPT_VERSION = 7
 
 # In-app destination per category — the screen where the user can act on the
 # insight with their own data (frontend renders this as the primary action).
@@ -1454,25 +1459,17 @@ _RESEARCH_OUTCOME: contextvars.ContextVar[Optional[dict]] = contextvars.ContextV
 )
 
 
-async def _generate_savings_insight_content(
-    category_key: str,
-    user_id: str,
-    user_context: Optional[dict] = None,
-    triggered_by: Optional[list[dict]] = None,
-) -> Optional[dict]:
-    # B44: `outcome`, when the weekly pass has set one (a ContextVar, so the
-    # function signature stays stable for its many callers and stubs), is filled with {"failure": <static code>}
-    # whenever the research provider (Tavily) is the reason nothing came
-    # back, so the weekly pass can tell an outage from an ordinary empty
-    # result. Codes: quota, auth, rate, server, timeout, client, error,
-    # backoff (a recent quota/auth/rate failure is still suppressing calls).
-    outcome      = _RESEARCH_OUTCOME.get()
-    cfg          = INSIGHT_CATEGORIES[category_key]
-    now          = datetime.utcnow()
-    today_label  = now.strftime("%B %Y")
-    query        = cfg["query"].format(year=now.year)
+async def _tavily_search(
+    query_text: str, category_key: str, outcome: Optional[dict], *, pipeline: str,
+) -> Optional[tuple[list[str], list[str]]]:
+    """One Tavily search with the B44 outage handling: returns (snippets, urls),
+    or None when a recent quota/auth/rate failure is still suppressing calls.
+    Sets outcome["failure"] to a static code on any provider failure, records
+    the failure in tips_research_health, and counts every request actually sent
+    (B48 cost counter, `pipeline` names the caller in /admin/llm-usage). Never
+    receives or sends user data: `query_text` is category and provider only."""
     web_snippets: list[str] = []
-
+    urls: list[str] = []
     # Observability (owner phone report 2026-08-28: a live "Find me
     # alternatives" tap failed with the generic "Couldn't check just now",
     # and uvicorn runs `--log-level warning` in prod, so this whole block's
@@ -1495,11 +1492,19 @@ async def _generate_savings_insight_content(
     if TAVILY_API_KEY:
         async with httpx.AsyncClient(timeout=20) as client:
             try:
-                r = await client.post(
-                    "https://api.tavily.com/search",
-                    json={"api_key": TAVILY_API_KEY, "query": f"{query} {today_label}",
-                          "search_depth": "basic", "max_results": 3, "include_answer": True},
-                )
+                _t0 = time.monotonic()
+                try:
+                    r = await client.post(
+                        "https://api.tavily.com/search",
+                        json={"api_key": TAVILY_API_KEY, "query": query_text,
+                              "search_depth": "basic", "max_results": 3, "include_answer": True},
+                    )
+                finally:
+                    # Counted whether it answered, failed or timed out: the
+                    # request was sent.
+                    await record_tavily_call(
+                        pipeline=pipeline, latency_ms=int((time.monotonic() - _t0) * 1000),
+                    )
                 if r.status_code == 200:
                     data = r.json()
                     if data.get("answer"):
@@ -1508,6 +1513,10 @@ async def _generate_savings_insight_content(
                         snippet = res.get("content", "")[:250]
                         if snippet:
                             web_snippets.append(snippet)
+                    for res in (data.get("results") or [])[:3]:
+                        url = str(res.get("url") or "")
+                        if url.startswith("https://") and len(url) <= 200:
+                            urls.append(url)
                     await tips_research_health.record_success(datetime.utcnow())  # naive-ok: persisted provider-health audit timestamp
                 else:
                     code = tips_research_health.classify_http_status(r.status_code)
@@ -1544,6 +1553,32 @@ async def _generate_savings_insight_content(
             "savings_insights research: TAVILY_API_KEY not configured, skipping search for category=%s",
             category_key,
         )
+    return web_snippets, urls
+
+
+async def _generate_savings_insight_content(
+    category_key: str,
+    user_id: str,
+    user_context: Optional[dict] = None,
+    triggered_by: Optional[list[dict]] = None,
+) -> Optional[dict]:
+    # B44: `outcome`, when the weekly pass has set one (a ContextVar, so the
+    # function signature stays stable for its many callers and stubs), is filled with {"failure": <static code>}
+    # whenever the research provider (Tavily) is the reason nothing came
+    # back, so the weekly pass can tell an outage from an ordinary empty
+    # result. Codes: quota, auth, rate, server, timeout, client, error,
+    # backoff (a recent quota/auth/rate failure is still suppressing calls).
+    outcome      = _RESEARCH_OUTCOME.get()
+    cfg          = INSIGHT_CATEGORIES[category_key]
+    now          = datetime.utcnow()
+    today_label  = now.strftime("%B %Y")
+    query        = cfg["query"].format(year=now.year)
+    searched = await _tavily_search(
+        f"{query} {today_label}", category_key, outcome, pipeline="savings_insights_tavily",
+    )
+    if searched is None:
+        return None
+    web_snippets, _urls = searched
 
     if not web_snippets:
         log.warning(
@@ -1883,21 +1918,503 @@ async def _generate_savings_insight_content(
     return None
 
 
+# ── B48: shared research layer and personal composition ─────────────────────
+#
+# A tip is two layers. The research layer (typical prices, alternatives, a deal
+# and its deadline) is not personal, so it is fetched ONCE per shared key and
+# read by every user who matches it (app.services.tip_research). The personal
+# layer below composes the tip deterministically from those findings plus the
+# user's own figures and calls nothing external. See docs/ops/TIP_RESEARCH.md.
+
+_SHORT_PROVIDER_NAMES = frozenset({"ee", "bt", "o2", "lv", "bg"})
+
+_RANGE_NOUN = {
+    "mobile":        "SIM-only plans",
+    "broadband":     "broadband deals",
+    "energy":        "energy tariffs",
+    "car_insurance": "car insurance policies",
+    "gym":           "gym memberships",
+    "subscriptions": "streaming subscriptions",
+}
+
+_DEADLINE_PHRASE = {
+    "deal_end": "deal ends", "contract_end": "contract ends", "renewal_date": "policy renews",
+}
+
+_FINDINGS_ATTEMPTS = 2
+
+
+def _trigger_phrase_for(category_key: str, merchant_key: Optional[str]) -> Optional[str]:
+    """The category trigger phrase (the curated provider vocabulary) the
+    merchant matched, longest first, or None for a merchant outside the list
+    (such as a user-labelled one). Only this vocabulary may become a shared
+    provider key, never a free-text merchant string."""
+    cfg = INSIGHT_CATEGORIES.get(category_key) or {}
+    phrases = [t.strip() for t in cfg.get("triggers", []) if t.strip()]
+    text = (merchant_key or "").lower()
+    best: Optional[str] = None
+    for phrase, pat in zip(phrases, _TRIGGER_PATTERNS.get(category_key, [])):
+        if pat.search(text) and (best is None or len(phrase) > len(best)):
+            best = phrase
+    return best
+
+
+async def _behaviour_profile(user_id: str, category_key: str) -> str:
+    """Closed-vocabulary Mirror profile for the habit categories: only the
+    trait id is read, never an evidence line or a figure. Behind
+    TIP_RESEARCH_PROFILE_KEYS (default off): off means every user shares
+    `general` and no portrait is read."""
+    if not TIP_RESEARCH_PROFILE_KEYS:
+        return "general"
+    try:
+        doc = await behaviour_portrait_col.find_one({"_id": user_id}) or {}
+    except Exception:
+        return "general"
+    traits = doc.get("traits") or []
+    ids = {t.get("id") for t in traits if isinstance(t, dict)}
+    if category_key == "eating_out":
+        for t in traits:
+            if (
+                isinstance(t, dict) and t.get("id") == "signature_pleasure"
+                and str(t.get("ref_category") or "").strip().lower() == "eating out"
+            ):
+                return "eating_out_signature"
+        return "general"
+    if "front_loader" in ids:
+        return "front_loader"
+    return "general"
+
+
+async def _tip_key_for(
+    user_id: str, category_key: str, triggered_by: Optional[list[dict]],
+) -> tip_research.TipKey:
+    if category_key in tip_research.PROFILE_CATEGORIES:
+        return tip_research.make_key(
+            category_key, None, None, await _behaviour_profile(user_id, category_key),
+        )
+    primary = (triggered_by or [None])[0]
+    if not primary:
+        return tip_research.make_key(category_key, None, None)
+    phrase = _trigger_phrase_for(category_key, primary.get("merchant_key"))
+    return tip_research.make_key(category_key, phrase, primary.get("monthly_amount"))
+
+
+def _clean_text(value, limit: int) -> str:
+    text = _house_style(str(value or "")).replace("!", ".")
+    return _WHITESPACE_RUN_RE.sub(" ", text).strip()[:limit].strip()
+
+
+def _grounded_number(value, allowed: set[float]) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    n = float(value)
+    if n <= 0 or n > 100000 or not _number_is_derivable(n, allowed):
+        return None
+    return round(n, 2)
+
+
+def _clean_sources(urls: list[str]) -> list[str]:
+    """Source URLs stored as scheme + host + path only: query string and
+    fragment are stripped, and anything the guard would still refuse is dropped."""
+    out: list[str] = []
+    for u in urls:
+        parts = urlparse(str(u))
+        if parts.scheme != "https" or not parts.netloc:
+            continue
+        clean = f"https://{parts.netloc}{parts.path}"
+        try:
+            tip_research.assert_no_user_data({"findings": {"sources": [clean]}})
+        except ValueError:
+            continue
+        if clean not in out:
+            out.append(clean)
+    return out[:3]
+
+
+def _is_shareable_text(text: str) -> bool:
+    """Shared text carries no figure in pounds or decimals (figures live only
+    in the numeric fields), no email and no first or second person wording."""
+    try:
+        tip_research.assert_no_user_data({"t": text})
+    except ValueError:
+        return False
+    return True
+
+
+def _build_findings(
+    parsed: dict, web_text: str, urls: list[str], category_key: str, today,
+) -> tuple[Optional[dict], Optional[datetime], Optional[str]]:
+    """Validate and normalise the model's market findings. Returns
+    (findings, deal claim deadline, violation). Every figure must trace to the
+    search results; a figure that does not is dropped, not kept."""
+    allowed = _build_allowed_savings_numbers(web_text, None, None)
+    low = _grounded_number(parsed.get("typical_low"), allowed)
+    high = _grounded_number(parsed.get("typical_high"), allowed)
+    if low is not None and high is not None and low > high:
+        low, high = high, low
+    if (low is None) != (high is None):
+        low = high = None
+
+    def grounded_text(raw, limit: int) -> str:
+        text = _clean_text(raw, limit)
+        if text and not _is_shareable_text(text):
+            return ""
+        if text and not all(_number_is_derivable(n, allowed) for n in _extract_numbers(text)):
+            return ""
+        if text and _DATED_PROMO_RE.search(text):
+            return ""
+        return text
+
+    headline = grounded_text(parsed.get("headline"), 160)
+    alternatives: list[dict] = []
+    for a in (parsed.get("alternatives") or [])[:3]:
+        if not isinstance(a, dict):
+            continue
+        name = re.sub(r"[^A-Za-z0-9 &'+.\-]", "", str(a.get("name") or "")).strip()[:40]
+        if not name or not _is_shareable_text(name):
+            continue
+        alternatives.append({
+            "name": name,
+            "price": _grounded_number(a.get("price"), allowed),
+            "note": grounded_text(a.get("note"), 60) or None,
+        })
+
+    deal: Optional[dict] = None
+    claim_dt: Optional[datetime] = None
+    raw_deal = parsed.get("deal")
+    if isinstance(raw_deal, dict) and raw_deal.get("text"):
+        deal_text = _clean_text(raw_deal.get("text"), 160)
+        raw_until = str(raw_deal.get("valid_until") or "").strip()
+        until_dt = _parse_claim_valid_until(raw_until)
+        no_expiry = raw_until.lower() == "no_expiry_known"
+        keep = bool(deal_text) and _is_shareable_text(deal_text)
+        if keep and until_dt is None and not no_expiry and _DATED_PROMO_RE.search(deal_text):
+            keep = False  # a dated claim with no usable deadline is never stored
+        if keep and until_dt is not None and until_dt.date() < today:
+            keep = False  # already past its deadline
+        if keep and not all(_number_is_derivable(n, allowed) for n in _extract_numbers(deal_text)):
+            keep = False
+        if keep:
+            claim_dt = until_dt
+            deal = {"text": deal_text, "valid_until": until_dt.date().isoformat() if until_dt else None}
+
+    combined = " ".join([headline, deal["text"] if deal else ""] + [
+        f"{a['name']} {a.get('note') or ''}" for a in alternatives
+    ])
+    if _NON_UK_RE.search(combined):
+        return None, None, "non_uk"
+    if _CARD_DEBT_MOVE_RE.search(combined):
+        return None, None, "card_debt"
+    if not (low is not None or headline or alternatives or deal):
+        return None, None, "empty"
+    findings = {
+        "typical_low": low, "typical_high": high, "headline": headline or None,
+        "alternatives": alternatives, "deal": deal, "sources": _clean_sources(urls),
+    }
+    return findings, claim_dt, None
+
+
+async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.FetchOutcome:
+    """The ONE place a Tavily search and an OpenRouter call happen for tips.
+    Runs once per shared key per TTL (see tip_research.ensure_research). The
+    query and prompt carry only the category, the curated provider name and
+    the coarse price band: no user id, amount, transaction or name."""
+    cfg = INSIGHT_CATEGORIES[key.category]
+    outcome: dict = {}
+    today = timeutil.user_today()
+    today_label = timeutil.user_now().strftime("%B %Y")
+    provider_text = ""
+    if key.provider_key not in (tip_research.GENERIC_PROVIDER,) and not key.provider_key.startswith("profile_"):
+        provider_text = key.provider_key
+    band_text = tip_research.band_phrase(key.category, key.price_band)
+    year = timeutil.user_now().year
+    query = " ".join(p for p in (cfg["query"].format(year=year), provider_text, today_label) if p)
+
+    searched = await _tavily_search(query, key.category, outcome, pipeline="tip_research_tavily")
+    if searched is None:
+        return tip_research.FetchOutcome(failure="backoff")
+    snippets, urls = searched
+    if not snippets:
+        return tip_research.FetchOutcome(failure=outcome.get("failure") or "error")
+    if not OPENROUTER_API_KEY:
+        log.warning("tip research: OPENROUTER_API_KEY not configured, aborting for category=%s", key.category)
+        return tip_research.FetchOutcome(failure="error")
+    web_text = "\n\n".join(snippets)
+
+    subject = f"{cfg['label']}" + (f", provider {provider_text}" if provider_text else "")
+    if band_text:
+        subject += f", plans costing {band_text}"
+    prompt = (
+        f"Today is {today_label}. UK only, never mention services or products unavailable in the UK; "
+        "all figures in GBP (£). Never present a past month or year as the current one.\n"
+        f"Based on these UK search results about {subject}:\n\n{web_text}\n\n"
+        "Extract MARKET FACTS only. You are given no information about any person and must not "
+        "address or describe one. JSON fields:\n"
+        "- typical_low and typical_high: numbers, the typical MONTHLY price range in GBP for comparable "
+        "offers stated in the results (convert yearly to monthly), else null. Never invent a figure.\n"
+        "- headline: one plain sentence, max 25 words, on what the market looks like right now. Hedge "
+        "with 'typically' or 'about'.\n"
+        "- alternatives: up to 3 objects {name, price, note}: a UK provider or product, its monthly GBP "
+        "price if stated (else null), and a note of at most 8 words (else null).\n"
+        "- deal: null, or {text, valid_until}: one sentence on a specific time-bound offer, and the date "
+        "or month it is valid until ('2027-03-31' or 'March 2027'), or the literal 'no_expiry_known' if "
+        "the sources never say. Never invent a date.\n"
+        "HARD RULES: never advise balance transfers or moving credit card debt. Never promise what a "
+        "third party will do. No alarm language. Plain punctuation: no em dashes, no en dashes, no "
+        "exclamation marks.\n"
+        'Respond ONLY with valid JSON: {"typical_low":null,"typical_high":null,"headline":"",'
+        '"alternatives":[],"deal":null}'
+    )
+
+    violation: Optional[str] = None
+    for attempt in range(_FINDINGS_ATTEMPTS):
+        attempt_prompt = prompt if attempt == 0 else (
+            prompt + f"\n\nIMPORTANT: your previous answer was rejected ({violation}). Use only UK "
+            "products, no credit card debt advice, only figures stated in the results."
+        )
+        parsed = None
+        async with httpx.AsyncClient(timeout=30) as client:
+            try:
+                r = await openrouter_chat(
+                    {"model": "anthropic/claude-haiku-4-5", "max_tokens": 400,
+                     "messages": [{"role": "user", "content": attempt_prompt}],
+                     "response_format": {"type": "json_object"}},
+                    user_id=None, pipeline="tip_research", client=client,
+                )
+                if r.status_code == 200:
+                    raw = r.json()["choices"][0]["message"]["content"].strip()
+                    if raw.startswith("```"):
+                        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                        raw = re.sub(r'\s*```$', '', raw).strip()
+                    try:
+                        parsed = json.loads(raw)
+                    except (json.JSONDecodeError, ValueError):
+                        log.warning("tip research: LLM response not valid JSON category=%s attempt=%d",
+                                    key.category, attempt)
+                else:
+                    log.warning("tip research: LLM HTTP %s category=%s attempt=%d",
+                                r.status_code, key.category, attempt)
+            except httpx.TimeoutException:
+                log.warning("tip research: LLM timeout category=%s attempt=%d", key.category, attempt)
+            except Exception as e:
+                log.warning("tip research: LLM request error category=%s attempt=%d: %r",
+                            key.category, attempt, e)
+        if not isinstance(parsed, dict):
+            continue
+        findings, claim_dt, violation = _build_findings(parsed, web_text, urls, key.category, today)
+        if findings is not None:
+            return tip_research.FetchOutcome(findings=findings, claim_valid_until=claim_dt)
+    log.warning("tip research: no usable findings for category=%s (%s)", key.category, violation or "no answer")
+    return tip_research.FetchOutcome(failure="error")
+
+
+def _money(n: float) -> str:
+    return f"£{n:,.0f}"
+
+
+def _provider_display(name: Optional[str]) -> str:
+    n = (name or "").strip()
+    return n.upper() if n.lower() in _SHORT_PROVIDER_NAMES else n
+
+
+def _market_check_label(as_of: Optional[str]) -> Optional[str]:
+    try:
+        d = datetime.strptime(str(as_of), "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
+    return f"Market check {d.day} {d.strftime('%b')}."
+
+
+def _context_sentence(user_context: Optional[dict]) -> Optional[str]:
+    """The user's own noted deadline, echoed back to them and nothing else."""
+    for k in _DEADLINE_KEYS:
+        v = (user_context or {}).get(k)
+        if v and str(v).strip().lower() not in ("rolling", "not sure"):
+            val = re.sub(r"[^A-Za-z0-9 /,\-]", "", str(v)).strip()[:30]
+            if val:
+                return f"You noted your {_DEADLINE_PHRASE[k]} {val}."
+    return None
+
+
+def _compose_tip_content(
+    category_key: str, doc: dict, triggered_by: Optional[list[dict]],
+    user_context: Optional[dict], today,
+) -> Optional[dict]:
+    """The personal layer: shared findings plus the user's own figures, no
+    external call. Deterministic. A deal past its deadline is never included."""
+    cfg = INSIGHT_CATEGORIES[category_key]
+    f = doc.get("findings") or {}
+    label = cfg["label"]
+    label_l = label.lower()
+    tb = [t for t in (triggered_by or []) if t.get("monthly_amount")]
+    total = sum(float(t["monthly_amount"]) for t in tb)
+    primary = tb[0] if tb else None
+
+    if primary and len(tb) == 1 and primary.get("is_recurring"):
+        title = f"You pay {_provider_display(primary.get('display_name'))} {_money(total)} a month"
+    elif tb and category_key in tip_research.PROFILE_CATEGORIES:
+        title = f"You spend about {_money(total)} a month on {label_l}"
+    elif tb:
+        title = f"You pay {_money(total)} a month on {label_l}"
+    else:
+        title = f"{label} deals worth comparing"
+
+    sentences: list[str] = []
+    low, high = f.get("typical_low"), f.get("typical_high")
+    noun = _RANGE_NOUN.get(category_key)
+    if noun and low is not None and high is not None:
+        sentences.append(f"Similar {noun} typically cost {_money(low)} to {_money(high)} a month.")
+    if f.get("headline"):
+        sentences.append(f["headline"].rstrip(".") + ".")
+    alts = f.get("alternatives") or []
+    if alts:
+        parts = []
+        for a in alts[:3]:
+            extra = ""
+            if a.get("price") is not None:
+                extra = f" (typically about {_money(a['price'])} a month)"
+            elif a.get("note"):
+                extra = f" ({a['note']})"
+            parts.append(f"{a['name']}{extra}")
+        sentences.append("Worth comparing: " + ", ".join(parts) + ".")
+
+    claim_dt: Optional[datetime] = None
+    deal = f.get("deal")
+    if deal and deal.get("text"):
+        until = None
+        if deal.get("valid_until"):
+            try:
+                until = datetime.strptime(deal["valid_until"], "%Y-%m-%d")
+            except ValueError:
+                until = None
+        if until is None or until.date() >= today:  # never show a deal past its deadline
+            text = deal["text"].rstrip(".") + "."
+            if until is not None:
+                text += f" Offer ends {until.day} {until.strftime('%b')}."
+            sentences.append(text)
+            claim_dt = until
+
+    savings_estimate: Optional[str] = None
+    if noun and high is not None and primary and len(tb) == 1 and total - high >= 3:
+        est = f"~{_money(total - high)}/mo"
+        allowed = _build_allowed_savings_numbers(f"{low} {high}", None, tb)
+        if _savings_estimate_is_derivable(est, allowed):
+            savings_estimate = est
+            sentences.append(
+                f"That could save about {_money(total - high)} a month against the top of that range."
+            )
+
+    ctx = _context_sentence(user_context)
+    if ctx:
+        sentences.append(ctx)
+    if not sentences:
+        return None
+    core = " ".join(sentences)
+    check = _market_check_label(doc.get("as_of"))
+    body = f"{core} {check}" if check else core
+    title, body = _house_style(title), _house_style(body)
+    return {
+        "title": title, "body": body, "savings_estimate": savings_estimate,
+        "claim_valid_until": claim_dt,
+        "researched_at": doc.get("fetched_at"),
+        "content_valid_until": doc.get("content_valid_until"),
+        "hash_basis": f"{title}{_house_style(core)}",
+    }
+
+
+_PHRASING_FIGURES = re.compile(r"£\s*\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?%")
+
+
+async def _maybe_rephrase(user_id: str, content: dict, user_context: Optional[dict]) -> dict:
+    """Optional LLM wording pass, off unless TIP_LLM_PHRASING is set. Sends only
+    this user's own composed text and context (no search, no other user's
+    data) and keeps the composed text unless every figure and the market check
+    sentence survive."""
+    if not TIP_LLM_PHRASING or not OPENROUTER_API_KEY:
+        return content
+    prompt = (
+        "Reword this savings tip in warm, plain British English. Keep every figure and every date "
+        "exactly as written, add no new facts, no em dashes, no exclamation marks, and keep the "
+        "final 'Market check' sentence unchanged.\n"
+        f"Title: {content['title']}\nBody: {content['body']}\n"
+        'Respond ONLY with JSON: {"title":"...","body":"..."}'
+    )
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await openrouter_chat(
+                {"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
+                 "messages": [{"role": "user", "content": prompt}],
+                 "response_format": {"type": "json_object"}},
+                user_id=user_id, pipeline="tip_phrasing", client=client,
+            )
+        if r.status_code != 200:
+            return content
+        parsed = json.loads(r.json()["choices"][0]["message"]["content"].strip())
+        title, body = _house_style(str(parsed["title"])), _house_style(str(parsed["body"]))
+    except Exception:
+        return content
+    original = content["title"] + " " + content["body"]
+    if sorted(_PHRASING_FIGURES.findall(title + " " + body)) != sorted(_PHRASING_FIGURES.findall(original)):
+        return content
+    check = re.search(r"Market check \d{1,2} \w{3}\.", content["body"])
+    if check and check.group(0) not in body:
+        return content
+    if "!" in title + body or _NON_UK_RE.search(title + body) or _CARD_DEBT_MOVE_RE.search(title + body):
+        return content
+    return {**content, "title": title, "body": body}
+
+
+async def _tip_content_for(
+    category_key: str, user_id: str, user_context: Optional[dict] = None,
+    triggered_by: Optional[list[dict]] = None, *, allow_fetch: bool = True,
+) -> Optional[dict]:
+    """The tip for one user and category: shared research (fetched at most once
+    per key per TTL across all users) composed with the user's own figures.
+    The weekly pass sets `_RESEARCH_OUTCOME` and reads back:
+      failure  static code when the provider is why nothing came back (B44)
+      fetched  True when THIS call performed the shared fetch
+      deferred True when no fetch was allowed and nothing usable was cached
+    A user who has tips switched off never reaches here (G189: callers check)."""
+    outcome = _RESEARCH_OUTCOME.get()
+    if category_key not in INSIGHT_CATEGORIES:
+        return None
+    key = await _tip_key_for(user_id, category_key, triggered_by)
+    result = await tip_research.ensure_research(key, _fetch_market_findings, allow_fetch=allow_fetch)
+    if outcome is not None and result.fetched:
+        outcome["fetched"] = True
+    if result.state not in ("fresh", "fetched"):
+        # Nothing current. Any older findings stay stored, marked stale, and
+        # the user's existing tip is kept (B44) rather than rewritten.
+        if outcome is not None:
+            if result.failure:
+                outcome["failure"] = result.failure
+            elif not allow_fetch:
+                outcome["deferred"] = True
+        return None
+    content = _compose_tip_content(category_key, result.doc, triggered_by, user_context, timeutil.user_today())
+    if content is None:
+        return None
+    return await _maybe_rephrase(user_id, content, user_context)
+
+
 async def _refresh_single_insight(user_id: str, category_key: str, user_context: Optional[dict] = None) -> None:
     cfg = INSIGHT_CATEGORIES.get(category_key)
     if not cfg:
+        return
+    if not await _tips_enabled(user_id):
+        # G189: opted out of tips, so no research and no tip is written.
         return
     if user_context is None:
         existing_doc = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
         user_context = existing_doc.get("user_context") if existing_doc else None
     triggered_by = await _find_triggered_transactions(user_id, category_key)
-    content = await _generate_savings_insight_content(category_key, user_id, user_context, triggered_by)
+    content = await _tip_content_for(category_key, user_id, user_context, triggered_by)
     if not content or not content.get("body"):
         return
     title          = content["title"]
     body_text      = content["body"]
     savings_estimate = content.get("savings_estimate")
-    content_hash   = hashlib.md5(f"{title}{body_text}".encode()).hexdigest()
+    content_hash   = hashlib.md5(content.get("hash_basis", f"{title}{body_text}").encode()).hexdigest()
     now            = datetime.utcnow()
     existing       = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
     is_new         = not existing or existing.get("content_hash") != content_hash
@@ -1914,8 +2431,10 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         # filled in workflow details) — stamp it exactly like the weekly
         # cron does, so `content_valid_until`/state stay consistent
         # regardless of which write path produced the content.
-        "researched_at": now,
-        "content_valid_until": _compute_content_valid_until(now, claim_valid_until_dt),
+        "researched_at": content.get("researched_at") or now,
+        "content_valid_until": (
+            content.get("content_valid_until") or _compute_content_valid_until(now, claim_valid_until_dt)
+        ),
     }
     if user_context is not None:
         base_update["user_context"] = user_context
@@ -1953,6 +2472,9 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
 # that doesn't make the cut this pass is simply picked up on the NEXT weekly
 # pass (nothing is lost, `_regen_reason` fires again next time since nothing
 # was written).
+# B48: the cap now counts shared fetches this user's pass triggers (a real
+# Tavily + OpenRouter call per shared key, at most once per key per TTL across
+# all users), not tips written; composing from fresh shared findings is free.
 MAX_RESEARCHED_PER_PASS = 5
 
 
@@ -1972,6 +2494,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
     # observable from `journalctl -u wealth-worker` alone, no need to
     # reproduce or add print debugging after the fact.
     researched: list[str] = []
+    fetches = 0  # B48: shared fetches this user's pass triggered (cap: MAX_RESEARCHED_PER_PASS)
     skipped: list[str] = []
     failed: list[str] = []
     # B44: once a quota/auth/rate failure (or an active backoff) is seen,
@@ -2123,10 +2646,10 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         # is left completely untouched (not even `triggered_by` refreshed):
         # `_regen_reason` will fire again next weekly pass and pick it up
         # then, exactly as if this pass hadn't run for it at all.
-        if len(researched) >= MAX_RESEARCHED_PER_PASS:
-            skipped.append(cat_key)
-            continue
-
+        # B48: composing from shared findings that are already fresh costs
+        # nothing external, so only a category that triggers a real shared
+        # fetch counts against the cap. Over the cap the tip is still composed
+        # if fresh findings are cached (allow_fetch False reads only).
         stored_context = existing.get("user_context") if existing else None
         outcome: dict = {}
         if research_halted:
@@ -2135,11 +2658,18 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         else:
             _tok = _RESEARCH_OUTCOME.set(outcome)
             try:
-                content = await _generate_savings_insight_content(
+                content = await _tip_content_for(
                     cat_key, user_id, stored_context, triggered_by,
+                    allow_fetch=fetches < MAX_RESEARCHED_PER_PASS,
                 )
             finally:
                 _RESEARCH_OUTCOME.reset(_tok)
+            if outcome.get("fetched"):
+                fetches += 1
+            if not content and outcome.get("deferred"):
+                # Cap reached and nothing cached: left untouched, picked up next pass.
+                skipped.append(cat_key)
+                continue
         provider_failure = outcome.get("failure")
         if provider_failure and not research_halted and (
             provider_failure in tips_research_health.BACKOFF_CODES or provider_failure == "backoff"
@@ -2174,10 +2704,15 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         body           = content["body"]
         savings_estimate = content.get("savings_estimate")
         claim_valid_until_dt = content.get("claim_valid_until")
-        content_hash   = hashlib.md5(f"{title}{body}".encode()).hexdigest()
+        content_hash   = hashlib.md5(content.get("hash_basis", f"{title}{body}").encode()).hexdigest()
         now            = datetime.utcnow()
         is_new         = not existing or existing.get("content_hash") != content_hash
-        content_valid_until = _compute_content_valid_until(now, claim_valid_until_dt)
+        # B48: the tip lives exactly as long as the shared findings it was
+        # composed from, and shows their date, not the moment it was composed.
+        researched_at = content.get("researched_at") or now
+        content_valid_until = (
+            content.get("content_valid_until") or _compute_content_valid_until(now, claim_valid_until_dt)
+        )
 
         if existing:
             update: dict = {
@@ -2191,7 +2726,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 # Every category is pushed weekly by this cron now (see
                 # CATEGORY_LIFECYCLE above); researched_at is the reliable
                 # "last real content generation" marker for all of them.
-                "researched_at": now,
+                "researched_at": researched_at,
                 "content_valid_until": content_valid_until,
                 "research_stale_at": None,
             }
@@ -2209,7 +2744,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 "content_hash": content_hash, "is_new": True,
                 "prompt_version": PROMPT_VERSION,
                 "claim_valid_until": claim_valid_until_dt,
-                "researched_at": now,
+                "researched_at": researched_at,
                 "content_valid_until": content_valid_until,
             })
         researched.append(cat_key)
@@ -2225,6 +2760,9 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         _uid_hash(user_id), len(researched), len(skipped), len(failed),
         ",".join(researched) or "none", ",".join(failed) or "none",
     )
+    if fetches:
+        # B48: shared fetch count, deliberately without the user hash.
+        log.warning("savings_insights shared research fetches in a pass: %d", fetches)
     if research_halted or stale_marked:
         # B44: one loud line per pass when the research provider is down.
         log.warning(

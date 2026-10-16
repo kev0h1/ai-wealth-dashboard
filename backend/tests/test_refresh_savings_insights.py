@@ -158,7 +158,7 @@ def _setup(monkeypatch, *, mobile_doc, mobile_triggered_by, generated_content=_U
 
     calls = {"content": 0}
 
-    async def fake_content(category_key, user_id, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by, **kw):
         calls["content"] += 1
         if generated_content is _UNSET:
             return {"title": "New title", "body": "New body", "savings_estimate": "£30/mo"}
@@ -167,7 +167,7 @@ def _setup(monkeypatch, *, mobile_doc, mobile_triggered_by, generated_content=_U
     monkeypatch.setattr(savings_insights, "_detect_insight_categories", fake_detect)
     monkeypatch.setattr(savings_insights, "_find_triggered_transactions", fake_triggered)
     monkeypatch.setattr(savings_insights, "_check_verified_saving", fake_verified)
-    monkeypatch.setattr(savings_insights, "_generate_savings_insight_content", fake_content)
+    monkeypatch.setattr(savings_insights, "_tip_content_for", fake_content)
 
     return col, calls
 

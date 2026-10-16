@@ -392,7 +392,7 @@ def _setup(monkeypatch, doc, *, generated_content=_NOT_EXPECTED):
     async def fake_verified(user_id, existing):
         return None
 
-    async def fake_content(category_key, user_id, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by, **kw):
         # Default (`_NOT_EXPECTED`): a doc that genuinely has no
         # `_regen_reason` (steady state, valid content_valid_until, no
         # material change) must never call generation at all — fails
@@ -401,14 +401,14 @@ def _setup(monkeypatch, doc, *, generated_content=_NOT_EXPECTED):
         # simulate the latter) pass their own stub via `generated_content`.
         if generated_content is _NOT_EXPECTED:
             raise AssertionError(
-                f"_generate_savings_insight_content unexpectedly called for {category_key}"
+                f"_tip_content_for unexpectedly called for {category_key}"
             )
         return generated_content
 
     monkeypatch.setattr(savings_insights, "_detect_insight_categories", fake_detect)
     monkeypatch.setattr(savings_insights, "_find_triggered_transactions", fake_triggered)
     monkeypatch.setattr(savings_insights, "_check_verified_saving", fake_verified)
-    monkeypatch.setattr(savings_insights, "_generate_savings_insight_content", fake_content)
+    monkeypatch.setattr(savings_insights, "_tip_content_for", fake_content)
     return col
 
 

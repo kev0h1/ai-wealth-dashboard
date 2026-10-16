@@ -108,5 +108,5 @@ def test_opted_out_user_costs_no_research(monkeypatch):
         raise AssertionError("pass must not run for an opted-out user")
 
     monkeypatch.setattr(si, "_detect_insight_categories", boom)
-    monkeypatch.setattr(si, "_generate_savings_insight_content", boom)
+    monkeypatch.setattr(si, "_tip_content_for", boom)
     asyncio.run(si._refresh_savings_insights_for_user(UID))
