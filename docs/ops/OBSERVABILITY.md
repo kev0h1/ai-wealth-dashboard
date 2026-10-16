@@ -25,7 +25,7 @@ Notes on the choices:
 - **`instrumentation-client.ts`, not `sentry.client.config.ts`.** Next 16 builds with Turbopack, which loads `instrumentation-client.ts` and ignores the older `sentry.client.config.ts` file name. Same content, current name.
 - **No DSN, no Sentry.** Every init is gated on the DSN. Without it nothing is initialised, nothing is loaded beyond a skipped branch, and nothing is sent. This is the state of every build, test run and CI job until Kevin sets a DSN.
 - **No tunnel.** Events go directly to Sentry's ingest host (EU region) over the SDK's own transport. We do not proxy them through our API, so Sentry traffic can never load the API or the Vercel function quota.
-- **Static export.** `next.config.ts` skips `withSentryConfig` for the Capacitor static export (`MOBILE_EXPORT`); `instrumentation-client.ts` needs no wrapper.
+- **Static export.** `next.config.ts` applies `withSentryConfig` only when `NEXT_PUBLIC_SENTRY_DSN` is set at build time (a DSN-less build was compared against origin/main and the wrapper changed `serverExternalPackages`, added `clientTraceMetadata` and registered loaders, so it is gated), and never for the Capacitor static export (`MOBILE_EXPORT`); `instrumentation-client.ts` needs no wrapper.
 - **Source maps.** Uploaded only when `SENTRY_AUTH_TOKEN` is present in the build environment (Vercel production, later), and deleted from the build output after upload. UAT and local builds never have the token, so they upload nothing.
 
 ## Environments and release tagging
