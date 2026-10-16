@@ -137,4 +137,27 @@ assert.ok(!JSON.stringify(free).includes("TESCO"));
 assert.equal(free.extra.note, FILTERED);
 assert.equal(free.breadcrumbs[0].data.narrative, FILTERED);
 
+// Finding 2/3 (frontend): a db error text and an API error carrying a merchant are reduced.
+const dup = 'E11000 duplicate key error collection: wealth.rules dup key: { merchant: "Greggs" }';
+assert.ok(!scrubString(dup).includes("Greggs"), "dup key text must be cut");
+const apiEv = scrubEvent(
+  { exception: { values: [{ type: "ApiError", value: 'Category "Greggs" 4.50 not found' }] } },
+  { originalException: { name: "ApiError", status: 500 } },
+);
+assert.equal(apiEv.exception.values[0].value, "ApiError (status 500)");
+assert.ok(!JSON.stringify(apiEv).includes("Greggs"));
+
+// Finding 4: bare amounts after money words.
+for (const t of ["amount 250", "balance: 1,234.56", "Total=99", "paid -12.5", "price \u221220"]) {
+  const o = scrubString(t);
+  assert.ok(o.includes("[amount]") && !/\d/.test(o), `bare amount survived: ${t} -> ${o}`);
+}
+
+// Finding 5: the Capacitor init bounds what the native layer collects.
+for (const opt of [
+  "enableNativeCrashHandling: true", "enableNdkScopeSync: false", "enableAutoSessionTracking: false",
+  "enableCaptureFailedRequests: false", "enableAutoPerformanceTracing: false", "enableAppHangTracking: false",
+  "attachThreads: false", "attachScreenshot: false",
+]) assert.ok(client.includes(opt), `native option missing: ${opt}`);
+
 console.log("observability-scrub: ok");

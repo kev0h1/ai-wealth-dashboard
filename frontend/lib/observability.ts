@@ -24,6 +24,8 @@ type Dict = Record<string, Json>;
 
 const PATTERNS: Array<[RegExp, string]> = [
   [/(https?:\/\/[^\s?#]+)[?#]\S*/g, "$1"],
+  // Mongo duplicate-key text embeds the offending key and value (a merchant).
+  [/\bE11000\b[\s\S]*|duplicate key error[\s\S]*/gi, "duplicate key error"],
   [/\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [Filtered]"],
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}/g, FILTERED],
   [/\bsk-[A-Za-z0-9_-]{16,}/g, FILTERED],
@@ -34,6 +36,8 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/(?<![\w.])\d{8}(?![\w.])/g, "[account number]"],
   [/(?:[-−+]\s?)?(?:[£$€]|\bGBP\s?|\bUSD\s?|\bEUR\s?)\s?\d[\d,]*(?:\.\d+)?/gi, "[amount]"],
   [/\b\d[\d,]*(?:\.\d+)?\s?(?:GBP|pounds)\b/gi, "[amount]"],
+  // Bare amounts after money words ("amount 250", "balance: 1,234.56").
+  [/\b(amount|balance|total|paid|price|cost|value|spend|spent)(\s*[:=]?\s*)[-\u2212]?\d[\d,]*(?:\.\d+)?/gi, "$1$2[amount]"],
   [/(?<![\w.])\d[\d,]*\.\d{2}(?![\d.\w])/g, "[amount]"],
   // 43+ so a 40-char git SHA and 32-char trace ids are untouched.
   [/(?<![\w-])[A-Za-z0-9_+/=-]{43,}(?![\w-])/g, FILTERED],
@@ -179,6 +183,17 @@ const EXPECTED_MESSAGES = [
   /^AbortError/i, /^cancelled$/i, /ResizeObserver loop/i,
 ];
 
+// An API error's message is server text (it can echo a merchant or an upstream
+// body), so only the class and the status survive.
+function reduceApiError(ev: Dict, hint?: Dict): void {
+  const original = hint?.originalException as { name?: unknown; status?: unknown } | undefined;
+  if (!original || typeof original !== "object" || original.name !== "ApiError") return;
+  const values = (ev.exception as Dict | undefined)?.values as Dict[] | undefined;
+  if (!Array.isArray(values) || values.length === 0) return;
+  const status = typeof original.status === "number" ? ` (status ${original.status})` : "";
+  values[0] = { ...values[0], value: `ApiError${status}` };
+}
+
 function isExpected(event: Dict, hint?: Dict): boolean {
   const original = hint?.originalException as { message?: unknown; name?: unknown; status?: unknown } | undefined;
   if (original && typeof original === "object") {
@@ -194,6 +209,7 @@ export function scrubEvent(event: Json, hint?: Dict): Dict | null {
   if (!event || typeof event !== "object") return null;
   const ev = event as Dict;
   if (isExpected(ev, hint)) return null;
+  reduceApiError(ev, hint);
   const out: Dict = {};
   for (const [key, value] of Object.entries(ev)) {
     if (["request", "user", "exception", "breadcrumbs", "server_name", "modules", "spans"].includes(key)) continue;

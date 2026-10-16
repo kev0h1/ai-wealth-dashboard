@@ -102,6 +102,14 @@ The JavaScript half is in the web bundle. The native half comes from `@sentry/ca
 3. Native symbolication needs debug symbols and ProGuard mappings uploaded with the Sentry CLI and `SENTRY_AUTH_TOKEN`. That is not wired in slice 1; native crashes arrive unsymbolicated until it is (follow-up on the Kevin setup list once the account exists).
 4. Verify on a UAT build: with a UAT DSN set, trigger a handled test error from a debug screen and confirm one scrubbed event with `environment=uat` and the build's SHA. Do this only after the DSN exists; slice 1 is verified without one.
 
+## What the native layer can still send
+
+Native crash reports are captured and sent by the Sentry Cocoa and Android SDKs themselves, so they do **not** pass through the JavaScript `beforeSend` and `beforeBreadcrumb`. What bounds them is the option set in the Capacitor init (`instrumentation-client.ts`, pinned by `check:observability-scrub`): native crash handling on; native-scope sync (`enableNdkScopeSync`), automatic session tracking, failed-request capture, automatic performance tracing, app-hang tracking, thread attachment and screenshots all off; `sendDefaultPii` off.
+
+A native crash event can therefore carry: the crash stack trace (symbolicated only once debug symbols are uploaded), the device model and OS version, the app version and release SHA, the environment tag, and the native SDK's own lifecycle breadcrumbs (app foreground and background, connectivity changes). It carries no request bodies and no JS scope (so no tags, user or JS breadcrumbs, because scope sync is off), and it does not carry the signed-in user.
+
+Honest limit: `@sentry/capacitor` 4.4.0 exposes no option to switch off the native SDKs' own network breadcrumbs (checked in the installed package's types and native sources). The app's own requests are made by the WebView's `fetch`, which the native HTTP instrumentation does not see, so native network breadcrumbs only cover requests made by native plugins (push registration, Apple sign-in, secure storage), and carry the URL and status but no bodies. If that ever matters, the next step is a native `beforeBreadcrumb` in the iOS and Android projects, tracked with the native symbol-upload follow-up.
+
 ## `/ops/health`
 
 Owner-only (`GET /ops/health` returns 403 for anyone else; the page reuses the `/ops/go-live` pattern and is in `lib/navExemptRoutes.ts` with a reason).

@@ -43,7 +43,25 @@ if (dsn) {
     // `npx cap sync` links the native half; see docs/ops/OBSERVABILITY.md.
     void Promise.all([import("@sentry/capacitor"), import("@sentry/react")])
       .then(([SentryCapacitor, SentryReact]) => {
-        SentryCapacitor.init(common, SentryReact.init);
+        SentryCapacitor.init(
+          {
+            ...common,
+            // Native layer (E6, docs/ops/OBSERVABILITY.md): crash handling stays
+            // on, everything that would widen what the native SDKs collect or
+            // sync is off. Native crash reports do NOT pass through the JS
+            // beforeSend, so these options are what bounds them.
+            enableNative: true,
+            enableNativeCrashHandling: true,
+            enableNdkScopeSync: false, // do not copy JS scope (breadcrumbs, tags) into native crash reports
+            enableAutoSessionTracking: false,
+            enableCaptureFailedRequests: false, // no failed-request events with URLs
+            enableAutoPerformanceTracing: false,
+            enableAppHangTracking: false,
+            attachThreads: false,
+            attachScreenshot: false,
+          } as never,
+          SentryReact.init,
+        );
       })
       .catch(() => {
         /* error reporting must never break the app */
