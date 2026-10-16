@@ -240,6 +240,13 @@ MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 # every figure survives.
 TIP_LLM_PHRASING = _parse_flag(os.getenv("TIP_LLM_PHRASING"))
 
+# B48: share groceries and eating-out tip research by behaviour profile
+# (Mirror traits front_loader, eating_out_signature). Off by default: a
+# behavioural key is marginal at small scale, so every user shares the single
+# `profile_general` key and no portrait is read. Turn on once there are enough
+# users for a profile key to be a crowd rather than a person.
+TIP_RESEARCH_PROFILE_KEYS = _parse_flag(os.getenv("TIP_RESEARCH_PROFILE_KEYS"))
+
 # F10: MCP-only service mode. The same backend image can run as a second
 # Railway service on a dedicated `mcp` hostname, mounting only the
 # oauth/mcp routers (see app.main.build_app's `mcp_only` param), sharing

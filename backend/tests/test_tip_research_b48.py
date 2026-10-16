@@ -327,6 +327,32 @@ def test_grocery_tips_share_by_behaviour_profile_not_merchant(pass_env):
     assert len([q for q in calls.tavily if "supermarket" in q]) == 1
 
 
+def test_profile_keys_are_off_by_default_and_on_when_enabled(pass_env, monkeypatch):
+    class Portrait:
+        reads = 0
+
+        async def find_one(self, *a, **k):
+            Portrait.reads += 1
+            return {"traits": [{"id": "front_loader"}, {"id": "signature_pleasure", "ref_category": "Eating Out"}]}
+
+    monkeypatch.setattr(si, "behaviour_portrait_col", Portrait())
+    tb = [{"merchant_key": "tesco", "monthly_amount": 300}]
+    monkeypatch.setattr(si, "TIP_RESEARCH_PROFILE_KEYS", False)
+    assert run(si._tip_key_for("u", "groceries", tb)).provider_key == "profile_general"
+    assert run(si._tip_key_for("u", "eating_out", tb)).provider_key == "profile_general"
+    assert Portrait.reads == 0  # no portrait is read while the flag is off
+    monkeypatch.setattr(si, "TIP_RESEARCH_PROFILE_KEYS", True)
+    assert run(si._tip_key_for("u", "groceries", tb)).provider_key == "profile_front_loader"
+    assert run(si._tip_key_for("u", "eating_out", tb)).provider_key == "profile_eating_out_signature"
+
+
+def test_weekly_pass_log_line_does_not_pair_the_user_with_a_fetch_count(pass_env, caplog):
+    with caplog.at_level("WARNING"):
+        run(si._refresh_savings_insights_for_user(ALICE))
+    per_user = [r.getMessage() for r in caplog.records if "weekly pass user=" in r.getMessage()]
+    assert per_user and all("fetched=" not in m for m in per_user)
+
+
 def test_opted_out_user_triggers_no_research_and_is_never_counted(pass_env):
     calls, tip_col, insights, state = pass_env
     state["opted_out"].add(ALICE)
@@ -369,6 +395,35 @@ def test_second_process_holding_the_lease_causes_no_second_fetch(monkeypatch):
 
     r = run(tr.ensure_research(key, fetcher, now=now))
     assert r.state == "none" and not r.fetched
+
+
+def test_fetch_is_skipped_if_another_process_filled_the_key_before_our_lease(monkeypatch):
+    now = datetime(2026, 10, 16, 9)
+    key = tr.make_key("mobile", "ee", 30)
+
+    class Racing(FakeCol):
+        async def update_one(self, filt, update, upsert=False):
+            res = await super().update_one(filt, update, upsert)
+            if "lease_until" in filt and res.modified_count and not self.raced:
+                # the other process completes right after our lease claim
+                self.raced = True
+                self.docs[key.doc_id].update({
+                    "findings": {"headline": "from the other process"}, "status": "ok",
+                    "content_valid_until": now + timedelta(days=3)})
+            return res
+
+    col = Racing([{"_id": key.doc_id, "findings": {"headline": "old"}, "status": "stale",
+                   "content_valid_until": now - timedelta(days=1), "lease_until": datetime(1970, 1, 1)}])
+    col.raced = False
+    monkeypatch.setattr(tr, "tip_research_col", col)
+
+    async def fetcher(k):
+        raise AssertionError("a fresh document must not be fetched again")
+
+    r = run(tr.ensure_research(key, fetcher, now=now))
+    assert r.state == "fresh" and not r.fetched
+    assert r.doc["findings"]["headline"] == "from the other process"
+    assert col.docs[key.doc_id]["lease_until"] == datetime(1970, 1, 1)
 
 
 # ── TTL, failure, deadline ──────────────────────────────────────────────────

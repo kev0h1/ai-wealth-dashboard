@@ -9,7 +9,7 @@ A savings tip has two layers.
 
 `(insight_category, provider_key, price_band, region "UK", prompt_version)`, stored as the document `_id` `category|provider_key|price_band|UK|vN`.
 
-- `provider_key`: the category's own curated trigger phrase that the merchant matched (the `triggers` lists in `INSIGHT_CATEGORIES`), lowercased, punctuation and legal suffixes removed: `ee`, `british gas`, `disney plus`. A merchant outside that list (for example one a user labelled) becomes `other`, so an arbitrary merchant string can never become a key. Groceries and eating out are shared by behaviour profile instead: `profile_front_loader`, `profile_eating_out_signature` or `profile_general`, from the Mirror trait ids only.
+- `provider_key`: the category's own curated trigger phrase that the merchant matched (the `triggers` lists in `INSIGHT_CATEGORIES`), lowercased, punctuation and legal suffixes removed: `ee`, `british gas`, `disney plus`. A merchant outside that list (for example one a user labelled) becomes `other`, so an arbitrary merchant string can never become a key. Groceries and eating out are shared by behaviour profile instead. Behind `TIP_RESEARCH_PROFILE_KEYS` (default off) every user shares `profile_general` and no portrait is read; switched on, the key is `profile_front_loader`, `profile_eating_out_signature` or `profile_general`, from the Mirror trait ids only. A behavioural key is marginal at small scale, so turn it on only once a profile key is a crowd rather than a person.
 - `price_band`: five coarse monthly buckets per category, defined once in `PRICE_BANDS` (upper edges in pounds a month; the label is `under_E0`, `E0_E1`, `E1_E2`, `E2_E3`, `over_E3`, or `unknown` when there is no spend, or `all` for profile-shared categories):
 
 | Category | Edges |
@@ -35,7 +35,7 @@ A savings tip has two layers.
 
 ## Privacy rule
 
-A `tip_research` document holds no user id, amount, transaction id, name or per-user count, and the Tavily query and the research prompt carry only the category, the curated provider name and the price band. `tip_research.assert_no_user_data` runs on every write and fails closed (the document is not written). `tests/test_tip_research_b48.py` scans every written document for forbidden keys and for any value matching the fixture users' exact amounts, emails and merchants. The collection is in `ERASURE_MANIFEST` with a comment that the per-user erasure sweep deliberately matches nothing in it, same as `instrument_prices`. The optional LLM phrasing step (`TIP_LLM_PHRASING`, off by default) sends one user's own composed tip to OpenRouter, an existing sub-processor, with no search and no other user's data.
+A `tip_research` document holds no user id, amount, transaction id, name or per-user count, and the Tavily query and the research prompt carry only the category, the curated provider name and the price band. `tip_research.assert_no_user_data` runs on every write and fails closed (the document is not written). It rejects forbidden keys, any email-like string, any "£" or decimal figure inside a text value (figures live only in `typical_low`, `typical_high`, `alternatives[].price` and `deal.price`, as grounded numbers), any plain number elsewhere in `findings`, and first or second person words (you, your, I, my, me, we, our) in text fields. Findings text that fails is dropped when findings are built. `tests/test_tip_research_b48.py` scans every written document for forbidden keys and for any value matching the fixture users' exact amounts, emails and merchants. The collection is in `ERASURE_MANIFEST` with a comment that the per-user erasure sweep deliberately matches nothing in it, same as `instrument_prices`. The optional LLM phrasing step (`TIP_LLM_PHRASING`, off by default) sends one user's own composed tip to OpenRouter, an existing sub-processor, with no search and no other user's data.
 
 ## Cost measurement (method, not a result)
 
@@ -47,14 +47,14 @@ To read the before and after: take `weekly_calls` for the last full week before 
 
 ## Backfill
 
-`backend/scripts/backfill_tip_research.py` (dry-run by default, `--apply` writes, idempotent, counts only). It seeds a key from an existing tip only with body sentences that mention nothing of the user (no second person, none of their amounts or their yearly and monthly equivalents, none of their merchant names or workflow answers, no dated promotion); titles and estimates are never copied. A seed lasts until the tip it came from would have expired, only tips still in date are used, and the first real fetch replaces it. Its realistic value is a head start in the first week after release; do not expect it to carry history.
+`backend/scripts/backfill_tip_research.py` (dry-run by default, `--apply` writes, idempotent, counts only). It copies nothing from any tip, because a stored tip mixes market facts with the user's own figures and no filter can be trusted to separate them. For tips still in date it derives the shared key in memory and, if the key has no document, creates an empty `pending` stub (key fields and the lease only: no findings, no timestamps). The shared layer therefore fills from fresh fetches in the first week after release, one per key. The backfill is optional; the first pass creates the same keys itself.
 
 ## Proposed PRIVACY.md wording (for Kevin to approve; PRIVACY.md is not edited by this work)
 
-Replace the Tavily row of the sub-processor table in section 7 with:
+Make the Tavily row of the sub-processor table in section 7 additive, keeping the existing disclosure:
 
-> | Tavily | Web search for market research on provider prices and deals. Receives only a product category and a provider name, never customer data |
+> | Tavily | Web search, used for merchant and product identification (merchant names only) and for market research on provider prices and deals (product category and provider name only) |
 
-The research is not personal data: a stored finding is keyed by category, provider and a coarse price band and holds no user identifier, amount or transaction, so it is not erased with an account (there is nothing of the user's in it). In practice Tavily never received customer data before either (the query was the category alone); what changed is that the OpenRouter write-up no longer receives a user's spend figures for tips, unless the optional phrasing flag is switched on, in which case the user's own composed tip goes to OpenRouter, an existing listed sub-processor.
+Tavily still receives merchant names for categorisation, card rates and prices; the research addition is only a category and a provider name. The research is not personal data: a stored finding is keyed by category, provider and a coarse price band and holds no user identifier, amount or transaction, so it is not erased with an account (there is nothing of the user's in it). In practice Tavily never received customer data before either (the query was the category alone); what changed is that the OpenRouter write-up no longer receives a user's spend figures for tips, unless the optional phrasing flag is switched on, in which case the user's own composed tip goes to OpenRouter, an existing listed sub-processor.
 
 **DPA:** no change needed. No new sub-processor is added, no new category of personal data is shared, and the volume of third-party calls falls.

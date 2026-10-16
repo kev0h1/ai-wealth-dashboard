@@ -348,14 +348,14 @@ Until it runs, the holdings endpoint falls back to any legacy per-holding price,
 
 ## B48: shared savings-tip research (optional backfill, once per environment)
 
-The B48 branch adds the `tip_research` collection (index created on API start) and changes the per-user tip `PROMPT_VERSION` to 7, so each stored tip is recomposed once from shared research at its next pass. Optionally seed the shared table from tips already in date first; dry-run, counts only, production needs Kevin's go-ahead:
+The B48 branch adds the `tip_research` collection (index created on API start) and changes the per-user tip `PROMPT_VERSION` to 7, so each stored tip is recomposed once from shared research at its next pass. Optionally pre-create the empty shared keys for tips already in date (it copies nothing from any tip; dry-run, counts only, production needs Kevin's go-ahead):
 
 ```bash
 .venv/bin/python scripts/backfill_tip_research.py            # dry-run, writes nothing
-.venv/bin/python scripts/backfill_tip_research.py --apply    # writes; idempotent, safe to re-run
+.venv/bin/python scripts/backfill_tip_research.py --apply    # creates empty pending keys; idempotent
 ```
 
-The backfill is a head start, not a requirement. Read the Tavily and OpenRouter call counts before and after from `GET /admin/llm-usage` (`weekly_calls`), method in docs/ops/TIP_RESEARCH.md.
+The shared layer fills from fresh fetches in the first week either way. Read the Tavily and OpenRouter call counts before and after from `GET /admin/llm-usage` (`weekly_calls`), method in docs/ops/TIP_RESEARCH.md. `TIP_RESEARCH_PROFILE_KEYS` stays off unless Kevin decides otherwise.
 
 ## G278: statement periods for already-uploaded statements
 

@@ -325,6 +325,12 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
         # Another process holds the lease: use whatever is stored, no fetch.
         doc = await tip_research_col.find_one({"_id": key.doc_id})
         return ResearchResult(doc, "stale" if _has_findings(doc) else "none")
+    # Another process may have finished this key between our read and our
+    # lease claim: re-read once the lease is ours and skip the fetch if so.
+    current = await tip_research_col.find_one({"_id": key.doc_id})
+    if _usable(current, now):
+        await tip_research_col.update_one({"_id": key.doc_id}, {"$set": {"lease_until": _EPOCH}})
+        return ResearchResult(current, "fresh")
     try:
         outcome = await fetcher(key)
     except Exception as exc:  # a fetcher bug must not break the pass or hold the lease

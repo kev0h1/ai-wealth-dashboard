@@ -16,7 +16,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, TIP_LLM_PHRASING
+from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, TIP_LLM_PHRASING, TIP_RESEARCH_PROFILE_KEYS
 from app.core.llm import openrouter_chat, record_tavily_call
 from app.core import timeutil
 from app.services import tip_research, tips_research_health
@@ -1961,7 +1961,11 @@ def _trigger_phrase_for(category_key: str, merchant_key: Optional[str]) -> Optio
 
 async def _behaviour_profile(user_id: str, category_key: str) -> str:
     """Closed-vocabulary Mirror profile for the habit categories: only the
-    trait id is read, never an evidence line or a figure."""
+    trait id is read, never an evidence line or a figure. Behind
+    TIP_RESEARCH_PROFILE_KEYS (default off): off means every user shares
+    `general` and no portrait is read."""
+    if not TIP_RESEARCH_PROFILE_KEYS:
+        return "general"
     try:
         doc = await behaviour_portrait_col.find_one({"_id": user_id}) or {}
     except Exception:
@@ -2733,11 +2737,14 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
     # user base where most categories are "skipped" (no material change)
     # most weeks.
     log.warning(
-        "savings_insights weekly pass user=%s researched=%d fetched=%d skipped=%d failed=%d "
+        "savings_insights weekly pass user=%s researched=%d skipped=%d failed=%d "
         "researched_categories=%s failed_categories=%s",
-        _uid_hash(user_id), len(researched), fetches, len(skipped), len(failed),
+        _uid_hash(user_id), len(researched), len(skipped), len(failed),
         ",".join(researched) or "none", ",".join(failed) or "none",
     )
+    if fetches:
+        # B48: shared fetch count, deliberately without the user hash.
+        log.warning("savings_insights shared research fetches in a pass: %d", fetches)
     if research_halted or stale_marked:
         # B44: one loud line per pass when the research provider is down.
         log.warning(
