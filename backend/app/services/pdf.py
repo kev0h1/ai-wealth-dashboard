@@ -75,9 +75,11 @@ async def llm_parse_statement(text: str, uid: str | None = None) -> dict:
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
-            err = resp_data.get("error", {})
-            msg = err.get("message", str(resp_data)) if isinstance(err, dict) else str(err)
-            raise ValueError(f"OpenRouter error ({r.status_code}): {msg}")
+            # E6: status code only in the exception (Sentry sees exception
+            # text); the upstream body may echo statement content, so it goes
+            # to a debug log, which is never captured as an event.
+            logger.debug("OpenRouter error body: %.400s", str(resp_data))
+            raise ValueError(f"OpenRouter error ({r.status_code})")
         raw = resp_data["choices"][0]["message"]["content"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -150,9 +152,11 @@ async def llm_parse_investment_statement(text: str, uid: str | None = None) -> d
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
-            err = resp_data.get("error", {})
-            msg = err.get("message", str(resp_data)) if isinstance(err, dict) else str(err)
-            raise ValueError(f"OpenRouter error ({r.status_code}): {msg}")
+            # E6: status code only in the exception (Sentry sees exception
+            # text); the upstream body may echo statement content, so it goes
+            # to a debug log, which is never captured as an event.
+            logger.debug("OpenRouter error body: %.400s", str(resp_data))
+            raise ValueError(f"OpenRouter error ({r.status_code})")
         raw = resp_data["choices"][0]["message"]["content"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -202,9 +206,11 @@ async def llm_parse_contract_note(text: str, uid: str | None = None) -> dict:
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
-            err = resp_data.get("error", {})
-            msg = err.get("message", str(resp_data)) if isinstance(err, dict) else str(err)
-            raise ValueError(f"OpenRouter error ({r.status_code}): {msg}")
+            # E6: status code only in the exception (Sentry sees exception
+            # text); the upstream body may echo statement content, so it goes
+            # to a debug log, which is never captured as an event.
+            logger.debug("OpenRouter error body: %.400s", str(resp_data))
+            raise ValueError(f"OpenRouter error ({r.status_code})")
         raw = resp_data["choices"][0]["message"]["content"].strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]

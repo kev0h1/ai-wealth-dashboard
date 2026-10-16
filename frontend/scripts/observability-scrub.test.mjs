@@ -130,4 +130,11 @@ for (const f of ["instrumentation-client.ts", "sentry.server.config.ts", "sentry
   assert.match(src, /beforeBreadcrumb: scrubBreadcrumb/, `${f}: beforeBreadcrumb scrubbing`);
 }
 
+// Free-text keys (E6 hardening) are filtered in extra and in breadcrumb data.
+const free = scrubEvent({ extra: { note: "paid TESCO", counterparty: "TESCO", prompt: "p", title: "t" },
+  breadcrumbs: [{ category: "fetch", data: { narrative: "TESCO", text: "x", content: "y", notes: "z" } }] }, {});
+assert.ok(!JSON.stringify(free).includes("TESCO"));
+assert.equal(free.extra.note, FILTERED);
+assert.equal(free.breadcrumbs[0].data.narrative, FILTERED);
+
 console.log("observability-scrub: ok");

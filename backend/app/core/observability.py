@@ -25,6 +25,7 @@ runs never construct a client and never make a network call.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 import os
@@ -70,7 +71,8 @@ _URL_QUERY = re.compile(r"[?#].*$")
 _SENSITIVE_EXACT = {
     "name", "first_name", "last_name", "full_name", "display_name", "username",
     "email", "merchant", "payee", "payer", "description", "reference", "memo",
-    "address", "phone", "ip", "ip_address",
+    "address", "phone", "ip", "ip_address", "counterparty", "narrative", "note", "notes",
+    "title", "text", "body", "content", "prompt",
 }
 _SENSITIVE_FRAGMENTS = (
     "password", "passwd", "secret", "token", "authorization", "cookie", "api_key",
@@ -142,8 +144,16 @@ def scrub_value(value: Any, key: str = "", depth: int = 0) -> Any:
     return FILTERED
 
 
-def hash_user_id(uid: Any) -> str:
-    salt = os.getenv("SENTRY_USER_HASH_SALT", "")
+_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def hash_user_id(uid: Any) -> str | None:
+    """Pseudonymous id for Sentry: sha256(salt + uid)[:16]. The salt is
+    mandatory: without SENTRY_USER_HASH_SALT this returns None, so no user is
+    tagged anywhere (an unsalted hash of an email is dictionary-reversible)."""
+    salt = (os.getenv("SENTRY_USER_HASH_SALT") or "").strip()
+    if not salt:
+        return None
     return hashlib.sha256(f"{salt}{uid}".encode()).hexdigest()[:16]
 
 
@@ -155,16 +165,21 @@ def set_sentry_user(email: Any) -> None:
     import sentry_sdk
     if not sentry_sdk.get_client().is_active():
         return
-    sentry_sdk.set_user({"id": hash_user_id(email.strip().lower())})
+    uid_hash = hash_user_id(email.strip().lower())
+    if uid_hash:
+        sentry_sdk.set_user({"id": uid_hash})
 
 
 def _scrub_user(user: Any) -> dict | None:
     if not isinstance(user, dict):
         return None
-    uid = user.get("id") or user.get("user_id") or user.get("_id")
-    if uid in (None, ""):
-        return None
-    return {"id": hash_user_id(uid)}
+    # set_sentry_user already stored the salted hash; keep an id that looks
+    # like one (as the web scrubber does) and drop anything else, never
+    # re-hash it, so backend and web ids for one user match.
+    uid = user.get("id")
+    if isinstance(uid, str) and _HASH_RE.match(uid):
+        return {"id": uid}
+    return None
 
 
 def _scrub_request(request: Any) -> dict:
@@ -305,11 +320,8 @@ def resolve_environment() -> str:
         return "production"
 
 
-def resolve_release() -> str | None:
-    for name in ("RELEASE_SHA", "RAILWAY_GIT_COMMIT_SHA"):
-        value = (os.getenv(name) or "").strip()
-        if value:
-            return value
+@functools.lru_cache(maxsize=1)
+def _git_sha() -> str | None:
     try:
         repo = Path(__file__).resolve().parents[3]
         out = subprocess.run(
@@ -319,6 +331,14 @@ def resolve_release() -> str | None:
         return sha or None
     except Exception:
         return None
+
+
+def resolve_release() -> str | None:
+    for name in ("RELEASE_SHA", "RAILWAY_GIT_COMMIT_SHA"):
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value
+    return _git_sha()  # cached: /ops/health calls this on every load
 
 
 def resolve_traces_sample_rate() -> float:
@@ -336,6 +356,8 @@ def init_sentry() -> bool:
     dsn = (os.getenv("SENTRY_DSN") or "").strip()
     if not dsn:
         return False
+    if not (os.getenv("SENTRY_USER_HASH_SALT") or "").strip():
+        logger.warning("SENTRY_DSN is set without SENTRY_USER_HASH_SALT: events will carry no user id")
     try:
         import sentry_sdk
 

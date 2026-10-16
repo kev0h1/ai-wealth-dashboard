@@ -95,7 +95,11 @@ async def validate_session(request: Request):
     # E6: the same hashed id the backend tags Sentry events with, so web and
     # app events count the same user once. Never the email itself.
     from app.core.observability import hash_user_id
-    return {"valid": True, "name": name, "email": email, "owner": owner, "uid_hash": hash_user_id(email.strip().lower())}
+    result = {"valid": True, "name": name, "email": email, "owner": owner}
+    uid_hash = hash_user_id(email.strip().lower())
+    if uid_hash:  # absent without SENTRY_USER_HASH_SALT
+        result["uid_hash"] = uid_hash
+    return result
 
 
 @router.post("/auth/logout")

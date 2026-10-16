@@ -176,7 +176,8 @@ async def list_providers(counter: Optional[dict] = None, *, force: bool = False)
         while True:
             r = await _get(client, "/providers", params={"offset": offset}, counter=counter)
             if r.status_code != 200:
-                logger.warning("Finexer /providers failed: HTTP %s %s", r.status_code, r.text[:200])
+                logger.warning("Finexer /providers failed: HTTP %s (upstream error)", r.status_code)
+                logger.debug("Finexer /providers failed body: %.400s", r.text)
                 walk_ok = False
                 break
             data = r.json()
@@ -241,7 +242,8 @@ async def get_or_create_customer(user: dict) -> str:
             },
         )
         if r.status_code not in (200, 201):
-            logger.error("Finexer POST /customers failed: HTTP %s %s", r.status_code, r.text[:400])
+            logger.error("Finexer POST /customers failed: HTTP %s (upstream error)", r.status_code)
+            logger.debug("Finexer POST /customers failed body: %.400s", r.text)
             raise RuntimeError(f"Finexer customer creation failed: {r.status_code}")
         customer = r.json()
         customer_id = customer["id"]
@@ -272,7 +274,8 @@ async def create_consent(
     async with _client() as client:
         r = await client.post("/consents", data=data)
         if r.status_code not in (200, 201):
-            logger.error("Finexer POST /consents failed: HTTP %s %s", r.status_code, r.text[:400])
+            logger.error("Finexer POST /consents failed: HTTP %s (upstream error)", r.status_code)
+            logger.debug("Finexer POST /consents failed body: %.400s", r.text)
             raise RuntimeError(f"Finexer consent creation failed: {r.status_code}")
         return r.json()
 
@@ -549,7 +552,8 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
         # Fetch accounts
         ar = await _get(client, "/bank_accounts", params={"consent": consent_id}, counter=counter)
         if ar.status_code != 200:
-            logger.error("Finexer GET /bank_accounts failed: HTTP %s %s", ar.status_code, ar.text[:200])
+            logger.error("Finexer GET /bank_accounts failed: HTTP %s (upstream error)", ar.status_code)
+            logger.debug("Finexer GET /bank_accounts failed body: %.400s", ar.text)
             return [], 0
 
         acc_data = ar.json()

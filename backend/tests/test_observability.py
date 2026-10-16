@@ -13,6 +13,11 @@ from app.core.observability import (
     FILTERED, hash_user_id, init_sentry, resolve_traces_sample_rate, scrub_breadcrumb, scrub_event, scrub_string,
 )
 
+@pytest.fixture(autouse=True)
+def _salt(monkeypatch):
+    monkeypatch.setenv("SENTRY_USER_HASH_SALT", "test-salt")
+
+
 RAW = {
     "email": "kevin.maingi12@gmail.com",
     "bearer": "Bearer abcdef1234567890abcdef",
@@ -32,7 +37,7 @@ def _event():
         "release": "9f8e7d6c5b4a3928a706f5e4d3c2b1a0b9c8d7e6",
         "environment": "uat",
         "server_name": "vps-1",
-        "user": {"id": "user-123", "email": "kevin.maingi12@gmail.com", "username": "Kevin Maingi", "ip_address": "1.2.3.4"},
+        "user": {"id": hash_user_id("kevin@example.com"), "email": "kevin.maingi12@gmail.com", "username": "Kevin Maingi", "ip_address": "1.2.3.4"},
         "request": {
             "method": "POST",
             "url": "https://x.test/transactions?merchant=TESCO&token=abc",
@@ -82,8 +87,8 @@ def test_event_has_no_pii_anywhere():
         "NWBK", "1,234.56", "1.2.3.4", "k@x.com", "x = 1", "vps-1", "merchant=", "token=abc",
     ):
         assert needle not in blob, needle
-    assert out["user"] == {"id": hash_user_id("user-123")}
-    assert len(out["user"]["id"]) == 16 and "user-123" not in blob
+    assert out["user"] == {"id": hash_user_id("kevin@example.com")}
+    assert len(out["user"]["id"]) == 16
     assert out["request"]["url"] == "https://x.test/transactions"
     assert set(out["request"]) <= {"method", "url", "headers"}
     assert set(k.lower() for k in out["request"]["headers"]) == {"content-type"}
@@ -115,6 +120,8 @@ def test_before_breadcrumb_directly():
 def test_user_without_id_is_dropped():
     ev = _event()
     ev["user"] = {"email": "a@b.co"}
+    assert "user" not in scrub_event(ev, {})
+    ev["user"] = {"id": "kevin@example.com"}  # a raw id is dropped, never re-hashed
     assert "user" not in scrub_event(ev, {})
 
 
@@ -209,4 +216,61 @@ def test_url_query_stripped_inside_strings_and_user_hash_helper(monkeypatch):
     monkeypatch.setattr(sentry_sdk, "set_user", lambda u: calls.append(u))
     obs.set_sentry_user("Kevin@Example.com")  # no client active in tests: no-op
     assert calls == []
+    monkeypatch.setattr(sentry_sdk.get_client().__class__, "is_active", lambda self: True)
+    obs.set_sentry_user("Kevin@Example.com")
+    assert calls == [{"id": hash_user_id("kevin@example.com")}]
     assert hash_user_id("kevin@example.com") == hash_user_id("kevin@example.com") and len(hash_user_id("a")) == 16
+
+
+def test_unset_salt_means_no_hash_no_user_no_uid_hash(monkeypatch, caplog):
+    import sentry_sdk
+    monkeypatch.delenv("SENTRY_USER_HASH_SALT")
+    assert hash_user_id("kevin@example.com") is None
+    calls = []
+    monkeypatch.setattr(sentry_sdk, "set_user", lambda u: calls.append(u))
+    monkeypatch.setattr(sentry_sdk.get_client().__class__, "is_active", lambda self: True)
+    obs.set_sentry_user("kevin@example.com")
+    assert calls == []
+    ev = _event()
+    ev["user"] = {"id": "0123456789abcdef"}
+    assert scrub_event(ev, {})["user"] == {"id": "0123456789abcdef"}  # already a hash: kept
+    # the startup warning, once, when a DSN is set without a salt
+    monkeypatch.setattr(sentry_sdk, "init", lambda **k: None)
+    monkeypatch.setenv("SENTRY_DSN", "https://public@example.invalid/1")
+    with caplog.at_level("WARNING"):
+        assert init_sentry() is True
+    assert sum("SENTRY_USER_HASH_SALT" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_event_user_id_matches_validate_uid_hash(monkeypatch):
+    import sentry_sdk
+    from app.routers import auth as auth_router  # noqa: F401
+    uid = hash_user_id("kevin@example.com")
+    seen = {}
+    monkeypatch.setattr(sentry_sdk, "set_user", lambda u: seen.update(u))
+    monkeypatch.setattr(sentry_sdk.get_client().__class__, "is_active", lambda self: True)
+    obs.set_sentry_user("Kevin@Example.com")
+    ev = _event()
+    ev["user"] = dict(seen)
+    assert scrub_event(ev, {})["user"]["id"] == uid
+
+
+def test_free_text_keys_filtered():
+    ev = _event()
+    ev["extra"] = {"note": "paid TESCO", "counterparty": "TESCO", "prompt": "p", "title": "t", "text": "x"}
+    ev["breadcrumbs"]["values"][1]["data"].update({"narrative": "TESCO", "content": "c", "notes": "n"})
+    out = scrub_event(ev, {})
+    assert "TESCO" not in _dump(out)
+    assert out["extra"]["note"] == FILTERED
+    assert out["breadcrumbs"]["values"][0]["data"]["narrative"] == FILTERED
+
+
+def test_release_git_fallback_is_cached(monkeypatch):
+    monkeypatch.delenv("RELEASE_SHA", raising=False)
+    monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA", raising=False)
+    obs._git_sha.cache_clear()
+    calls = []
+    real = obs.subprocess.run
+    monkeypatch.setattr(obs.subprocess, "run", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    obs.resolve_release(); obs.resolve_release(); obs.resolve_release()
+    assert len(calls) == 1

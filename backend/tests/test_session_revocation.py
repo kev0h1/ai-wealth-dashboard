@@ -388,9 +388,14 @@ def test_session_validate_rejects_revoked_token():
     _run(session_revocation.revoke_sessions(email2, now=past))
     new_token = _mint(email2)
     result = _run(auth_router.validate_session(_FakeRequest(new_token)))
+    # E6: uid_hash is omitted unless SENTRY_USER_HASH_SALT is set (not in tests).
+    assert result == {"valid": True, "name": "Test", "email": email2, "owner": False}
+    import os
+    from unittest import mock
     from app.core.observability import hash_user_id
-    # E6: the hashed Sentry id rides along; the email itself is not hashed client-side.
-    assert result == {"valid": True, "name": "Test", "email": email2, "owner": False, "uid_hash": hash_user_id(email2)}
+    with mock.patch.dict(os.environ, {"SENTRY_USER_HASH_SALT": "s"}):
+        salted = _run(auth_router.validate_session(_FakeRequest(new_token)))
+        assert salted["uid_hash"] == hash_user_id(email2)
 
 
 def test_session_validate_fails_closed_on_tombstone_error(monkeypatch):

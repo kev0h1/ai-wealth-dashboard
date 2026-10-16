@@ -46,15 +46,27 @@ Implemented twice, with the same rules and tests on each side: `backend/app/core
 
 1. `sendDefaultPii` is off. `include_local_variables` is off and any `vars`, `context_line`, `pre_context` and `post_context` on stack frames are stripped again in the hook. Profiles are off.
 2. **Requests.** Request bodies, cookies, query strings and `env` are dropped. Of the headers only `content-type`, `content-length`, `accept`, `accept-language` and `host` survive. URLs lose their query string and fragment (also inside free text, breadcrumb URLs and navigation `from`/`to`). Fetch and XHR bodies are never kept.
-3. **User.** The SDK user is replaced by `{id: <16 hex characters>}` only: `sha256(salt + lower-cased email)[:16]`, computed on the server. The backend sets it in `current_user` (`set_sentry_user`), and `/auth/session/validate` returns the same value as `uid_hash` so the web and the apps tag events with it without ever hashing on the client. A client-side user whose id is not a 16-hex hash is dropped, not forwarded. The optional `SENTRY_USER_HASH_SALT` (backend only) makes the hash non-reversible by dictionary; set it before production.
-4. **Keys.** Any key that names personal or financial data has its value replaced with `[Filtered]` wherever it appears (`extra`, `tags`, `contexts`, breadcrumb data): exact names such as `name`, `email`, `merchant`, `payee`, `description`, `reference`, `address`, `phone`, `ip`, `pin`, and any key containing `password`, `secret`, `token`, `authorization`, `cookie`, `api_key`, `amount`, `balance`, `iban`, `sort_code`, `account_number`, `card`, `session`, `csrf`, `dsn`, `credential`, `signature`, `merchant`, `email`, `bearer`. SDK structural keys (`release`, `event_id`, `trace_id`, `environment`, `transaction`, stack-frame names and numbers) pass through.
+3. **User.** The SDK user is replaced by `{id: <16 hex characters>}` only: `sha256(salt + lower-cased email)[:16]`, computed on the server. The salt (`SENTRY_USER_HASH_SALT`, backend) is **required wherever a DSN is set**: without it `hash_user_id` returns nothing, no user is tagged on backend events, `/auth/session/validate` omits `uid_hash` (the web and apps then set no user), and the backend logs one warning at start-up. An unsalted hash of an email would be dictionary-reversible, so there is deliberately no unsalted fallback. The backend tags the user in `current_user` (`set_sentry_user`); `_scrub_user` keeps an id that already looks like that hash and drops anything else, never re-hashing it, so backend and web ids for one user match. The result is pseudonymous, not anonymous: it is still personal data. A client-side user whose id is not a 16-hex hash is dropped.
+4. **Keys.** Any key that names personal or financial data has its value replaced with `[Filtered]` wherever it appears (`extra`, `tags`, `contexts`, breadcrumb data): exact names such as `name`, `email`, `merchant`, `payee`, `counterparty`, `narrative`, `description`, `reference`, `note`, `notes`, `title`, `text`, `body`, `content`, `prompt`, `address`, `phone`, `ip`, `pin`, and any key containing `password`, `secret`, `token`, `authorization`, `cookie`, `api_key`, `amount`, `balance`, `iban`, `sort_code`, `account_number`, `card`, `session`, `csrf`, `dsn`, `credential`, `signature`, `merchant`, `email`, `bearer`. SDK structural keys (`release`, `event_id`, `trace_id`, `environment`, `transaction`, stack-frame names and numbers) pass through.
 5. **Strings.** Everything left is pattern-scrubbed: emails, `Bearer` tokens, JWTs, `sk-` keys, 43+ character opaque strings (a 40-character git SHA and 32-character trace ids are deliberately untouched), IBANs, sort codes, 13 to 19 digit card numbers, 8 digit account numbers, and currency amounts (`£`, `$`, `€`, `GBP`, the `−` currency minus, and bare two-decimal figures). Strings are truncated to 400 characters.
 6. **Breadcrumbs.** Database and query breadcrumbs are dropped (backend: `query`, `redis`, `mongo`, `db`, `sql`); the web also drops `console` and `ui.input`. Others keep type, category, level and timestamp, with message and data scrubbed and any `body`, `query` or `fragment` data removed.
 7. **Spans (traces).** Timing and operation names are kept; span descriptions, data and tags are dropped, since they carry SQL, URLs and statements.
 8. **Not reported.** Expected 4xx `HTTPException`s, cancelled requests and client disconnects (backend); 4xx API errors, aborted fetches, "Failed to fetch" and "Load failed" network blips and the ResizeObserver loop notice (web and apps).
 9. **No raw exception to users** (A31) is unchanged: error boundaries never show the thrown error, they only report it after scrubbing.
 
-Residual risk, stated plainly. Exception messages are scrubbed by pattern only. A merchant name or free text interpolated into an exception message cannot be detected by regex. Rule for contributors: never interpolate transaction text, merchant names, balances or user input into an exception message; the privacy review greps for this. Messages are also capped at 400 characters.
+Residual risk, stated plainly. Exception messages are scrubbed by pattern only. A merchant name or free text interpolated into an exception message cannot be detected by regex. Rule for contributors: never interpolate transaction text, merchant names, balances, upstream response bodies or user input into an exception message or an error-level log line (the logging integration turns those into events). Messages are capped at 400 characters.
+
+Known sites where upstream or free text can still reach an error message (review 2026-10-16), documented rather than changed in slice 1:
+
+- `backend/app/services/pdf.py` lines 80, 155 and 207: OpenRouter error bodies. **Fixed in E6**: the exception now carries the status code only; the body goes to a debug log.
+- `backend/app/services/finexer_sync.py` lines 179, 244, 275 and 552: `r.text`. **Fixed in E6**: the error and warning logs carry the status and a fixed reason; the truncated body is a debug-level log only.
+- `backend/app/routers/push.py` lines 176 and 294: `resp.text`.
+- `backend/app/services/penny_agent.py` line 294: a `%r` of a value.
+- `backend/app/services/companion.py` lines 4036, 4454 and 5166.
+- `backend/app/services/spend_impact.py` line 880: a category name.
+- `backend/app/routers/yapily.py` lines 29 and 64.
+
+The unfixed sites are the follow-up list for a hardening pass; the keyed and regex scrubbing still applies to them.
 
 Tests: `backend/tests/test_observability.py` (each PII class against a sample event and breadcrumb, 4xx drop, init is a no-op without `SENTRY_DSN`, strict options passed with one, no network) and `frontend/scripts/observability-scrub.test.mjs` run as `npm run check:observability-scrub` (the same classes plus wiring invariants: init gated on the DSN, replay not present, no tunnel, source maps only with a token).
 
@@ -77,7 +89,7 @@ Tests: `backend/tests/test_observability.py` (each PII class against a sample ev
    - **UAT VPS** (`backend/.env` and `frontend/.env.local`): `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` (use a UAT project or the same project, the `uat` environment tag separates them), `APP_ENV=uat`, `RELEASE_SHA`.
    - **Codemagic**: a variable group holding `NEXT_PUBLIC_SENTRY_DSN`, imported with `environment: groups:` (the workflows set `NEXT_PUBLIC_APP_ENV` themselves).
    - `/ops/health` links: `SENTRY_ORG` and `SENTRY_PROJECTS` (comma-separated slugs) on the server that serves `/ops/health`. These are not secrets.
-5. Set `SENTRY_USER_HASH_SALT` on the backend (any long random string) before production.
+5. Set `SENTRY_USER_HASH_SALT` on the backend (any long random string) **wherever a DSN is set**, UAT included. Without it events carry no user id at all.
 6. Add inbound filters in Sentry for known-noisy browser extensions if they appear; set alert rules in Sentry's own UI only for "new issue" if wanted, our own alerts are slice 3.
 7. Approve or amend the PRIVACY.md wording below.
 
@@ -116,13 +128,13 @@ Push to Kevin through the existing FCM and APNs path on: a new error type (first
 
 PRIVACY.md already lists "Sentry | Error monitoring (only if enabled)". Proposed replacement row for the sub-processor table, once the DPA is signed and a DSN is live:
 
-> | Sentry | Error monitoring: receives crash and error reports from the app and our servers, with names, email addresses, amounts, merchant names, account numbers and request contents removed before sending, and an irreversible pseudonymous identifier in place of your identity (EU region) |
+> | Sentry | Error monitoring: receives crash and error reports from the app and our servers, including technical details such as browser or device type, app version and the page path. Names, email addresses, amounts, merchant names, account numbers and request contents are removed before sending, and a pseudonymous identifier replaces your identity. This is still personal data under UK GDPR. (EU region) |
 
 Proposed row for the retention table:
 
-> | Error reports (Sentry) | 90 days, then deleted automatically |
+> | Error reports (Sentry) | Up to 90 days, then deleted automatically |
 
-Sentry's retention is plan-dependent (the free tier keeps 30 days); set the project's data retention in Sentry to match whatever is published. Also proposed, in the "what we collect" section: "We do not record your screen or sessions."
+Sentry's free tier keeps 30 days and longer retention is plan-dependent, so Kevin confirms the plan and sets the project's retention to match whatever is published. Also proposed, in the "what we collect" section: "We do not record your screen or sessions."
 
 ## Slices
 

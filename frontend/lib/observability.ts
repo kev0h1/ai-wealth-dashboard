@@ -43,6 +43,7 @@ const SENSITIVE_EXACT = new Set([
   "name", "first_name", "last_name", "full_name", "display_name", "username",
   "email", "merchant", "payee", "payer", "description", "reference", "memo",
   "address", "phone", "ip", "ip_address", "pin", "passcode", "otp",
+  "counterparty", "narrative", "note", "notes", "title", "text", "body", "content", "prompt",
 ]);
 const SENSITIVE_FRAGMENTS = [
   "password", "passwd", "secret", "token", "authorization", "cookie", "api_key",
