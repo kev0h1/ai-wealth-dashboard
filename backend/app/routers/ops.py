@@ -119,26 +119,6 @@ async def go_live(user: dict = Depends(current_user)):
     return await _go_live_payload(user)
 
 
-@router.get("/health")
-async def ops_health(user: dict = Depends(current_user)):
-    """E6 slice 1: what /ops/health shows from this host. Owner-only, read-only,
-    no secrets: build/release, VPS memory/disk/load, a Mongo ping and the
-    Sentry issue links (built from SENTRY_ORG/SENTRY_PROJECTS, never the DSN).
-    LLM usage and sync stats come from the existing /admin endpoints."""
-    _require_owner(user)
-    import time as _time
-    from app.db.collections import db
-    from app.services import host_metrics
-
-    started = _time.perf_counter()
-    try:
-        await db.command("ping")
-        mongo = {"ok": True, "ping_ms": round((_time.perf_counter() - started) * 1000, 1)}
-    except Exception:
-        mongo = {"ok": False, "ping_ms": None}
-    return {**host_metrics.snapshot(), "mongo": mongo}
-
-
 class ItemActionRequest(BaseModel):
     action: Literal[
         "done", "reopen", "start", "block", "reject", "note", "owner", "priority", "unblocks", "todo",
@@ -294,3 +274,23 @@ async def go_live_question_status(q: str, body: QuestionStatusRequest, user: dic
     payload = await _go_live_payload(user)
     payload["committed"] = committed
     return payload
+
+
+@router.get("/health")
+async def ops_health(user: dict = Depends(current_user)):
+    """E6 slice 1: what /ops/health shows from this host. Owner-only, read-only,
+    no secrets: build/release, VPS memory/disk/load, a Mongo ping and the
+    Sentry issue links (built from SENTRY_ORG/SENTRY_PROJECTS, never the DSN).
+    LLM usage and sync stats come from the existing /admin endpoints."""
+    _require_owner(user)
+    import time as _time
+    from app.db.collections import db
+    from app.services import host_metrics
+
+    started = _time.perf_counter()
+    try:
+        await db.command("ping")
+        mongo = {"ok": True, "ping_ms": round((_time.perf_counter() - started) * 1000, 1)}
+    except Exception:
+        mongo = {"ok": False, "ping_ms": None}
+    return {**host_metrics.snapshot(), "mongo": mongo}
