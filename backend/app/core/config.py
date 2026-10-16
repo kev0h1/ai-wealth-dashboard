@@ -233,6 +233,13 @@ def _parse_flag(value: str | None) -> bool:
 
 MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 
+# B48: optional LLM phrasing of a composed savings tip. Off by default: the
+# tip is composed deterministically from the shared research plus the user's
+# own figures. When on, one OpenRouter call per tip rewords that text (no
+# search, no other user's data) and falls back to the composed text unless
+# every figure survives.
+TIP_LLM_PHRASING = _parse_flag(os.getenv("TIP_LLM_PHRASING"))
+
 # F10: MCP-only service mode. The same backend image can run as a second
 # Railway service on a dedicated `mcp` hostname, mounting only the
 # oauth/mcp routers (see app.main.build_app's `mcp_only` param), sharing
