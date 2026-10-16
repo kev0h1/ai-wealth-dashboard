@@ -165,8 +165,27 @@ def make_key(category: str, provider_phrase: str | None, monthly_amount: float |
 
 # ── Privacy ─────────────────────────────────────────────────────────────────
 
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
+_PERSONAL_WORD_RE = re.compile(r"\b(?:you|your|yours|i|my|me|we|our|ours)\b", re.IGNORECASE)
+_MONEY_OR_DECIMAL_RE = re.compile(r"£|\d\.\d")
+# The only places a figure may live: grounded numbers, not text.
+_NUMBER_PATHS = re.compile(
+    r"^findings\.(?:typical_low|typical_high|deal\.price|alternatives\.\d+\.price)$"
+)
+
+
 def assert_no_user_data(doc) -> None:
-    """Raise ValueError if any forbidden key appears anywhere in `doc`."""
+    """Raise ValueError if `doc` could carry user data. Checked on every write
+    (fail closed):
+      - a forbidden key anywhere;
+      - any string value that looks like an email address;
+      - a "£" or a decimal figure inside any string (figures belong only in
+        findings.typical_low, typical_high, alternatives[].price and
+        deal.price, which must be plain numbers);
+      - a plain number inside `findings` anywhere else;
+      - a first or second person word (you, your, I, my, me, we, our) in a
+        text field.
+    Source URLs are exempt from the figure and pronoun checks only."""
     def walk(node, path):
         if isinstance(node, dict):
             for k, v in node.items():
@@ -176,6 +195,20 @@ def assert_no_user_data(doc) -> None:
         elif isinstance(node, (list, tuple)):
             for i, v in enumerate(node):
                 walk(v, f"{path}{i}.")
+        elif isinstance(node, str):
+            where = path.rstrip(".")
+            if _EMAIL_RE.search(node):
+                raise ValueError(f"tip_research document carries an email address at {where}")
+            if where.startswith("findings.sources."):
+                return
+            if _MONEY_OR_DECIMAL_RE.search(node):
+                raise ValueError(f"tip_research document carries a figure in text at {where}")
+            if _PERSONAL_WORD_RE.search(node):
+                raise ValueError(f"tip_research document carries personal wording at {where}")
+        elif isinstance(node, (int, float)) and not isinstance(node, bool):
+            where = path.rstrip(".")
+            if where.startswith("findings.") and not _NUMBER_PATHS.match(where):
+                raise ValueError(f"tip_research document carries a figure outside the number fields at {where}")
     walk(doc, "")
 
 

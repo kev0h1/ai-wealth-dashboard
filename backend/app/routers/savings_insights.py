@@ -2009,6 +2009,16 @@ def _grounded_number(value, allowed: set[float]) -> Optional[float]:
     return round(n, 2)
 
 
+def _is_shareable_text(text: str) -> bool:
+    """Shared text carries no figure in pounds or decimals (figures live only
+    in the numeric fields), no email and no first or second person wording."""
+    try:
+        tip_research.assert_no_user_data({"t": text})
+    except ValueError:
+        return False
+    return True
+
+
 def _build_findings(
     parsed: dict, web_text: str, urls: list[str], category_key: str, today,
 ) -> tuple[Optional[dict], Optional[datetime], Optional[str]]:
@@ -2025,6 +2035,8 @@ def _build_findings(
 
     def grounded_text(raw, limit: int) -> str:
         text = _clean_text(raw, limit)
+        if text and not _is_shareable_text(text):
+            return ""
         if text and not all(_number_is_derivable(n, allowed) for n in _extract_numbers(text)):
             return ""
         if text and _DATED_PROMO_RE.search(text):
@@ -2037,7 +2049,7 @@ def _build_findings(
         if not isinstance(a, dict):
             continue
         name = re.sub(r"[^A-Za-z0-9 &'+.\-]", "", str(a.get("name") or "")).strip()[:40]
-        if not name:
+        if not name or not _is_shareable_text(name):
             continue
         alternatives.append({
             "name": name,
@@ -2053,7 +2065,7 @@ def _build_findings(
         raw_until = str(raw_deal.get("valid_until") or "").strip()
         until_dt = _parse_claim_valid_until(raw_until)
         no_expiry = raw_until.lower() == "no_expiry_known"
-        keep = bool(deal_text)
+        keep = bool(deal_text) and _is_shareable_text(deal_text)
         if keep and until_dt is None and not no_expiry and _DATED_PROMO_RE.search(deal_text):
             keep = False  # a dated claim with no usable deadline is never stored
         if keep and until_dt is not None and until_dt.date() < today:

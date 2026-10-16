@@ -242,6 +242,46 @@ def test_unlisted_merchant_never_becomes_a_provider_key():
     assert run(si._tip_key_for("u", "mobile", [{"merchant_key": "ee ltd", "monthly_amount": 30}])).provider_key == "ee"
 
 
+def test_value_level_guard_rejects_emails_figures_and_personal_words():
+    ok = {"findings": {"headline": "Plans are typically cheaper", "typical_low": 8, "typical_high": 25.5,
+                       "alternatives": [{"name": "Giffgaff", "price": 10, "note": "30GB"}],
+                       "deal": {"text": "A switching offer", "valid_until": "2099-03-31"},
+                       "sources": ["https://example.com/v2.0/you-save"]}}
+    tr.assert_no_user_data(ok)
+    def bad(**over):
+        d = json.loads(json.dumps(ok))
+        d["findings"].update(over)
+        return d
+    for doc in (
+        bad(headline="Mail a@b.co for details"),
+        bad(headline="Costs £10 a month"),
+        bad(headline="Costs 10.5 a month"),
+        bad(headline="You pay too much"),
+        bad(headline="Your plan is dear"),
+        bad(headline="I think so"),
+        bad(headline="My view"),
+        bad(headline="We looked"),
+        bad(headline="Our pick"),
+        bad(headline="Tell me"),
+        bad(alternatives=[{"name": "A", "price": 10, "note": "from £8"}]),
+        bad(deal={"text": "x", "valid_until": None, "contact": "a@b.co"}),
+        bad(count_of_things=7),            # a number outside the allowed number fields
+        bad(alternatives=[{"name": "A", "price": 10, "rank": 2}]),
+    ):
+        with pytest.raises(ValueError):
+            tr.assert_no_user_data(doc)
+    tr.assert_no_user_data(bad(typical_low=None))
+
+
+def test_findings_text_with_a_figure_or_personal_word_is_not_shared():
+    parsed = dict(LLM_FINDINGS, headline="Plans typically cost £10 a month",
+                  alternatives=[{"name": "Giffgaff", "price": 10, "note": "your best bet"}],
+                  deal={"text": "Save £5 now", "valid_until": "2099-03-31"})
+    findings, claim, _ = si._build_findings(parsed, SNIPPET, [], "mobile", datetime(2026, 10, 16).date())
+    assert findings["headline"] is None and findings["alternatives"][0]["note"] is None
+    assert findings["deal"] is None and claim is None
+
+
 # ── one fetch per key ───────────────────────────────────────────────────────
 
 def test_two_users_same_provider_and_band_cause_one_research_call(pass_env):
