@@ -844,7 +844,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **E3. Vercel Pro** [owner: kevin] already in place (verified 2026-09-06), nothing to do. (done 2026-09-06)
 - [ ] **E4. Backup restore test** [owner: kevin] [priority: p2] documented with a date (Q13).
 - [ ] **E5. Railway Pro upgrade and replicas on the web service only (worker stays single until leader election); confirm REDIS_URL and MONGO_URI are shared after the upgrade; the code half (reconcile spread, Finexer 429 handling, /admin/sync-stats) shipped as E2 on 2026-09-09** [owner: kevin]
-- [ ] **E6. Error collection and a platform health dashboard for Kevin (2026-10-16): collect backend, frontend and native-app errors without slowing the app, group them into actionable issues, and expose them, together with platform metrics (latency, error rates, sync health, LLM and Tavily spend and quotas, database and worker load, Vercel and Railway usage), on a private dashboard at /ops/health so Kevin can see what to fix and what needs upgrading; spec first for Kevin's sign-off, then build in slices** [owner: claude]
+- [ ] **E6. Error collection and a platform health dashboard for Kevin (2026-10-16): collect backend, frontend and native-app errors without slowing the app, group them into actionable issues, and expose them, together with platform metrics (latency, error rates, sync health, LLM and Tavily spend and quotas, database and worker load, Vercel and Railway usage), on a private dashboard at /ops/health so Kevin can see what to fix and what needs upgrading; spec first for Kevin's sign-off, then build in slices** [owner: claude] [priority: p1]
 
 ## F. MCP connector (start after Finexer production approval)
 
