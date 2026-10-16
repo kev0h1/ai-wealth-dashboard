@@ -94,6 +94,7 @@ EXPECTED_KEYS = {
     "payday_buffer",
     "penny_agent_consent",
     "open_last_chat",
+    "pay_split_reference",
     "version",
 }
 

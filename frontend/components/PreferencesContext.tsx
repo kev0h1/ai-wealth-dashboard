@@ -4,11 +4,12 @@ import { api, DebtBurndownOverrides } from "@/lib/api";
 import { PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
-import { fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile } from "@/lib/preferencesSnapshot";
+import { DEFAULT_PAY_SPLIT_REFERENCE, fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile, paySplitReferenceFromSnapshot } from "@/lib/preferencesSnapshot";
 import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 import { todayIso } from "@/lib/calendar";
+import type { GuideId } from "@/lib/paySplitReference";
 
 /** G60: which of this context's five server-backed setters last failed to
  * save, and what to tell the user. A single slot, not one per field —
@@ -47,6 +48,7 @@ interface Prefs {
    * Mirrored in localStorage as wd_open_last_chat; wait for
    * preferencesReady before acting on it. */
   openLastChat: boolean;
+  paySplitReference: GuideId;
   spendWidgets: string[] | null;
   homePinnedWidget: string | null;
   // "What-if" overrides for the debt_burndown Spend widget — local
@@ -65,6 +67,7 @@ interface PrefsCtx extends Prefs {
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
   setOpenLastChat: (v: boolean) => void;
+  setPaySplitReference: (v: GuideId) => void;
   setSpendWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
   setDebtBurndownOverrides: (v: DebtBurndownOverrides | null) => void;
@@ -113,6 +116,7 @@ const Ctx = createContext<PrefsCtx>({
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
   openLastChat: false,
+  paySplitReference: DEFAULT_PAY_SPLIT_REFERENCE,
   spendWidgets: null,
   homePinnedWidget: null,
   debtBurndownOverrides: null,
@@ -125,6 +129,7 @@ const Ctx = createContext<PrefsCtx>({
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
   setOpenLastChat: () => {},
+  setPaySplitReference: () => {},
   setSpendWidgets: () => {},
   setHomePinnedWidget: () => {},
   setDebtBurndownOverrides: () => {},
@@ -159,6 +164,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return false;
     try { return localStorage.getItem("wd_open_last_chat") === "1"; } catch { return false; }
   });
+  const [paySplitReference, setPaySplitReferenceState] = useState<GuideId>(DEFAULT_PAY_SPLIT_REFERENCE);
   const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
   const [homePinnedWidget, setHomePinnedWidgetState] = useState<string | null>(null);
   const [debtBurndownOverrides, setDebtBurndownOverridesState] = useState<DebtBurndownOverrides | null>(null);
@@ -217,6 +223,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     openLastChatRef.current = v;
     setOpenLastChatState(v);
     try { localStorage.setItem("wd_open_last_chat", v ? "1" : "0"); } catch {}
+  }, []);
+
+  const paySplitReferenceRef = useRef(paySplitReference);
+  const applyPaySplitReference = useCallback((v: GuideId) => {
+    paySplitReferenceRef.current = v;
+    setPaySplitReferenceState(v);
   }, []);
 
   // G45 (second re-review): the highest preferences `version` this context
@@ -424,6 +436,21 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     onError: makeFieldErrorHandler("open_last_chat"),
   })).current;
 
+  const paySplitReferenceSaver = useRef(createPreferenceSaver<GuideId>({
+    queue: createSerialQueue(),
+    getCurrent: () => paySplitReferenceRef.current,
+    apply: applyPaySplitReference,
+    save: (v) => api.updatePreferences({ pay_split_reference: v }),
+    // A corrupt or missing legacy value is treated as the approved default;
+    // an unavailable snapshot still leaves the saver to restore its prior value.
+    reconcile: makeFieldReconcile<GuideId>(
+      fetchPreferencesSnapshot, "pay_split_reference", paySplitReferenceFromSnapshot,
+    ),
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("pay_split_reference"),
+    onSuccess: invalidateSpendCaches,
+  })).current;
+
   const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
     return fetchPreferencesSnapshot().then(p => {
       if (!p) return null;
@@ -437,6 +464,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           applyDebtTargetMonths,
           applyDebtTrackingStart,
           applyOpenLastChat,
+          applyPaySplitReference,
           setSpendWidgets: setSpendWidgetsState,
           setHomePinnedWidget: setHomePinnedWidgetState,
           setDebtBurndownOverrides: setDebtBurndownOverridesState,
@@ -457,6 +485,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
           debtTrackingStart: () => debtTrackingStartSaver.isSaving.current,
           openLastChat: () => openLastChatSaver.isSaving.current,
+          paySplitReference: () => paySplitReferenceSaver.isSaving.current,
         }
       );
       return p;
@@ -465,7 +494,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     fetchPreferencesSnapshot,
     applyHideNetWorth, applyDarkMode, applyShowTips, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
     hideNetWorthSaver, darkModeSaver, showTipsSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
-    applyOpenLastChat, openLastChatSaver,
+    applyOpenLastChat, openLastChatSaver, applyPaySplitReference, paySplitReferenceSaver,
   ]);
 
   useEffect(() => {
@@ -489,6 +518,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
   const setDebtTrackingStart = useCallback((s: string) => { void debtTrackingStartSaver.run(s); }, [debtTrackingStartSaver]);
   const setOpenLastChat = useCallback((v: boolean) => { void openLastChatSaver.run(v); }, [openLastChatSaver]);
+  const setPaySplitReference = useCallback((v: GuideId) => { void paySplitReferenceSaver.run(v); }, [paySplitReferenceSaver]);
 
   // spend_widgets and home_pinned_widget are NOT persisted from here — the
   // one caller (components/SpendTrends.tsx) owns the api.updatePreferences
@@ -510,9 +540,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       hideNetWorth, preferencesReady, darkMode, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
-      openLastChat, spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
+      openLastChat, paySplitReference, spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
       setHideNetWorth, setDarkMode, setShowTips, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
-      setOpenLastChat, setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
+      setOpenLastChat, setPaySplitReference, setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
     }}>
       {children}

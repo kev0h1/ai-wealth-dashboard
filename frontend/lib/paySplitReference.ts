@@ -12,13 +12,12 @@ export type Guide = {
 
 export const GUIDES: Guide[] = [
   { id: "50-30-20", name: "50/30/20 · adapted", shortName: "50/30/20", shares: { fixed: 50, free: 30, moved: 20 }, description: "A common income guide: 50% needs, 30% wants, 20% savings and debt payments. Here it is roughly mapped to Fixed, Free and Moved, not a needs-and-wants assessment." },
-  { id: "conscious", name: "Conscious Spending Plan · example", shortName: "60/20/20 example", shares: { fixed: 60, free: 20, moved: 20 }, description: "One illustrative mix: 60% Fixed, 20% Free and 20% Moved (10% investment plus 10% savings). The wider framework uses ranges: Fixed 50–60%, discretionary 20–35%, investment 10%, savings 5–10%. A difference from this example is not a breach of those ranges." },
+  { id: "conscious", name: "Conscious Spending Plan · 60/20/20 example", shortName: "60/20/20 example", shares: { fixed: 60, free: 20, moved: 20 }, description: "An alternative to 50/30/20: 60% Fixed, 20% Free and 20% Moved (10% investment plus 10% savings). The wider framework uses ranges: Fixed 50–60%, discretionary 20–35%, investment 10%, savings 5–10%. A difference from this example is not a breach of those ranges." },
   { id: "first", name: "Pay yourself first · principle", shortName: "Pay yourself first", shares: null, description: "Set money aside before deciding what remains for other spending. This principle does not prescribe a universal percentage, so it has no numeric comparison here." },
 ];
 
 export const SECTION_LABEL: Record<SectionId, string> = { fixed: "Fixed", free: "Free", moved: "Moved" };
 export const SECTION_ORDER: SectionId[] = ["fixed", "moved", "free"];
-export const PREVIEW_REFERENCE_KEY = "sorted.design.g279.reference.v1";
 export function guideFor(value: string | null | undefined): Guide {
   return GUIDES.find(guide => guide.id === value) ?? GUIDES[0];
 }

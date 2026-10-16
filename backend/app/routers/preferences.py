@@ -21,6 +21,11 @@ router = APIRouter(tags=["preferences"])
 # missing-field default.
 DEFAULT_HOME_PINNED_WIDGET = "period_compare"
 
+# G279: this selects the reference split displayed by the pay-split guidance.
+# It is a display preference only: no financial calculations derive from it.
+DEFAULT_PAY_SPLIT_REFERENCE = "50-30-20"
+VALID_PAY_SPLIT_REFERENCES = frozenset({"50-30-20", "conscious", "first"})
+
 # A85 (pentest A51-2026-09-20, API-08): the exact set of top-level fields
 # PATCH /preferences has ever been asked to write, enumerated from every
 # caller -- frontend/lib/api.ts's updatePreferences() type plus its actual
@@ -76,6 +81,7 @@ ALLOWED_PREFERENCE_FIELDS = frozenset({
     "debt_tracking_start",
     "notification_prefs",
     "open_last_chat",
+    "pay_split_reference",
 })
 
 # A85: a protocol-level key, not a preference field itself -- carries the
@@ -89,6 +95,16 @@ EXPECTED_VERSION_KEY = "expected_version"
 def _notif_prefs(doc: dict) -> dict:
     saved = (doc or {}).get("notification_prefs") or {}
     return {k: bool(saved.get(k, default)) for k, default in NOTIF_DEFAULTS.items()}
+
+
+def _pay_split_reference(doc: dict) -> str:
+    """Return the supported reference, including for legacy corrupt values.
+
+    This deliberately does not repair stored data. GET and PATCH responses
+    remain safe and stable while a later valid PATCH replaces the value.
+    """
+    value = (doc or {}).get("pay_split_reference")
+    return value if isinstance(value, str) and value in VALID_PAY_SPLIT_REFERENCES else DEFAULT_PAY_SPLIT_REFERENCE
 
 
 def _coerce_money_field(value, field_name: str) -> int:
@@ -155,6 +171,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         # G248: display preference, default off. On reopens the latest Penny
         # conversation on a cold start or refresh (if under the turn cap).
         "open_last_chat": doc.get("open_last_chat", False),
+        "pay_split_reference": _pay_split_reference(doc),
         "version": doc.get("version", 0),
     }
     if "debt_tracking_start" in doc:
@@ -425,6 +442,13 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(status_code=422, detail="open_last_chat must be true or false")
     if "show_tips" in body and not isinstance(body["show_tips"], bool):
         raise HTTPException(status_code=422, detail="show_tips must be true or false")
+    if "pay_split_reference" in body:
+        reference = body["pay_split_reference"]
+        if not isinstance(reference, str) or reference not in VALID_PAY_SPLIT_REFERENCES:
+            raise HTTPException(
+                status_code=422,
+                detail="pay_split_reference must be one of: 50-30-20, conscious, first",
+            )
 
     # A85 optimistic-concurrency fix: an optional `expected_version` in the
     # JSON body -- the same body-carried convention the frontend already
@@ -578,5 +602,6 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         "show_tips": doc.get("show_tips", True),
         "dark_mode": doc.get("dark_mode", False),
         "open_last_chat": doc.get("open_last_chat", False),
+        "pay_split_reference": _pay_split_reference(doc),
         "version": doc.get("version", 1),
     }

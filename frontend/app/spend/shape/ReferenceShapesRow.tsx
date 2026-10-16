@@ -32,7 +32,7 @@ export default function ReferenceShapesRow({ onAskPenny }: { onAskPenny: (ask: s
         ))}
       </p>
       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-        Opens an explainer in Penny. Reference only, not a target.
+        Opens an explainer in Penny. Choose the comparison above separately. No budget or target is set.
       </p>
     </div>
   );

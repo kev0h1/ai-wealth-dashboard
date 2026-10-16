@@ -29,7 +29,7 @@
 // advice colour (DESIGN.md: red means genuine risk only, the indigo→violet
 // gradient belongs to Penny alone).
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight, ChevronLeft, ChevronDown, Check } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
@@ -176,7 +176,7 @@ type Scope = { kind: "period"; index: number } | { kind: "average"; months: Aver
  *  fields are present, else straight off `shape`'s own top-level fields
  *  (today's behaviour, unchanged) when they're not — see this file's
  *  `hasControl` gate. */
-function currentEntry(
+export function currentEntry(
   shape: MoneyShape,
   periods: PeriodEntry[],
   averages: AverageEntry[],
@@ -190,7 +190,7 @@ function currentEntry(
     }
     if (scope.kind === "average") {
       const a = averages.find((x) => x.months === scope.months);
-      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.jobs, verdict: a.verdict, total_out: a.total_out, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth, savings_drawdown: a.savings_drawdown };
+      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.net_jobs ?? a.jobs, verdict: a.net_verdict ?? a.verdict, total_out: a.total_out, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth, savings_drawdown: a.savings_drawdown };
     }
   }
   return {
@@ -305,24 +305,30 @@ function PeriodPickerSheet({
 export default function MoneyShapeHero({
   shape,
   selectedPeriod,
+  renderComparison,
+  hideValues = false,
 }: {
   shape: MoneyShape;
   /** When embedded in Spend, the page header owns period navigation. A
    * matching completed period is rendered directly and this card's duplicate
    * picker is removed. Insights' standalone use remains self-controlled. */
   selectedPeriod?: { start: string; end: string; label: string };
+  /** The same selected entry feeds the comparison and instrument in one
+   * render, including averages, so scope changes cannot show stale totals. */
+  renderComparison?: (selection: MoneyShape, average: boolean) => ReactNode;
+  hideValues?: boolean;
 }) {
   const [scope, setScope] = useState<Scope>({ kind: "period", index: 0 });
   const [sheetOpen, setSheetOpen] = useState(false);
 
   if (shape.status === "thin") {
     return (
-      <section className="glass-hero rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
+      <><section className="glass-hero min-w-0 rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
         <SectionLabel>YOUR MONEY SHAPE</SectionLabel>
         <p className="mt-2 text-[15px] leading-relaxed text-slate-700 dark:text-slate-300 text-pretty">
           Your first full pay period will draw this. Nothing to do.
         </p>
-      </section>
+      </section>{renderComparison?.(shape, false)}</>
     );
   }
 
@@ -369,11 +375,13 @@ export default function MoneyShapeHero({
   // The paradox line needs the saving-habit consent ("change" in the Mirror)
   // and is for single periods only, never averages (paradoxLine enforces both).
   const figures = beyondFigures(entry, displayedScope.kind === "average");
-  const sentence = beyondSentence(figures);
-  const paradox = paradoxLine(figures, shape.what_works?.trait?.choice === "change");
+  const formatMoney = (amount: number) => hideValues ? "£••••" : `£${Math.round(Math.abs(amount)).toLocaleString("en-GB")}`;
+  const longAmounts = orderedJobs.some(job => formatMoney(job.id === "left" && figures.beyond >= 1 ? figures.beyond : job.amount).length > 9);
+  const sentence = hideValues ? null : beyondSentence(figures);
+  const paradox = hideValues ? null : paradoxLine(figures, shape.what_works?.trait?.choice === "change");
 
   return (
-    <section className="glass-hero rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
+    <><section className="glass-hero min-w-0 rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
       {hasControl && selectedPeriod ? (
         <div>
           <SectionLabel>
@@ -447,6 +455,7 @@ export default function MoneyShapeHero({
           segs={orderedJobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }))}
           figures={figures}
           size="hero"
+          money={formatMoney}
         />
       )}
 
@@ -456,15 +465,15 @@ export default function MoneyShapeHero({
           // showing a 0/negative figure the user's own numbers don't back
           // up — ink colour, never red (DESIGN.md: red means genuine risk
           // only, and this card never grades).
-          const overspentHere = job.id === "left" && entry.overspent > 0;
+          const overspentHere = job.id === "left" && figures.beyond >= 1;
           const label = overspentHere ? "Beyond take-home" : job.label;
-          const amount = overspentHere ? entry.overspent : job.amount;
+          const amount = overspentHere ? figures.beyond : job.amount;
           const meaning = overspentHere ? OVERSPENT_MEANING : JOB_MEANING[job.id];
           return (
             <Link
               key={job.id}
               href={jobHref(job, { start: entry.start, end: entry.end }, overspentHere)}
-              className="flex min-h-[40px] items-center gap-2.5 -mx-1 px-1 rounded-lg active:scale-[0.98] transition-transform"
+              className={`${longAmounts ? "grid grid-cols-[10px_minmax(0,1fr)_auto] gap-x-2.5 gap-y-1 py-2" : "flex gap-2.5"} min-w-0 min-h-[40px] items-center -mx-1 px-1 rounded-lg active:scale-[0.98] transition-transform`}
               title={meaning}
               aria-label={`${label}, ${meaning}`}
             >
@@ -473,14 +482,14 @@ export default function MoneyShapeHero({
               ) : (
                 <JobDot id={job.id} />
               )}
-              <span className="flex-1 min-w-0 text-[13px] font-medium text-slate-700 dark:text-slate-300 truncate">
+              <span className={`${longAmounts ? "col-start-2 row-start-1" : "flex-1 truncate"} min-w-0 text-[13px] font-medium text-slate-700 dark:text-slate-300`}>
                 {label}
               </span>
               <MoneyText
-                text={`£${Math.round(Math.abs(amount)).toLocaleString("en-GB")}`}
-                className="text-[14px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0"
+                text={formatMoney(amount)}
+                className={`${longAmounts ? "col-start-2 row-start-2" : "flex-shrink-0"} text-[14px] font-semibold text-slate-900 dark:text-slate-100`}
               />
-              <span className="w-9 flex-shrink-0 text-right text-[12px] text-slate-500 dark:text-slate-400">
+              <span className={`${longAmounts ? "col-start-3 row-start-2" : "flex-shrink-0"} w-9 text-right text-[12px] text-slate-500 dark:text-slate-400`}>
                 {/* The "Beyond take-home" row's own share, job.share, is the
                     ordinary Left-over share this job would have had if
                     nothing had gone over — showing it as a percentage next
@@ -490,7 +499,7 @@ export default function MoneyShapeHero({
                     without inventing a number for it. */}
                 {overspentHere ? "over" : `${Math.round(job.share)}%`}
               </span>
-              <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+              <ChevronRight size={14} className={`${longAmounts ? "col-start-3 row-start-1 justify-self-end" : "flex-shrink-0"} text-slate-400 dark:text-slate-500`} aria-hidden="true" />
             </Link>
           );
         })}
@@ -517,7 +526,7 @@ export default function MoneyShapeHero({
         </p>
       )}
 
-      {entry.verdict && (
+      {entry.verdict && !hideValues && (
         <MoneyText
           text={entry.verdict}
           className="mt-3 block text-[15px] leading-relaxed text-slate-700 dark:text-slate-300 text-pretty"
@@ -537,6 +546,6 @@ export default function MoneyShapeHero({
           onClose={() => setSheetOpen(false)}
         />
       )}
-    </section>
+    </section>{renderComparison?.({ ...shape, ...entry, period: { start: entry.start, end: entry.end, label: hasControl ? pillText(displayedScope, periods, averages) : shape.period?.label ?? "Selected pay period" } }, displayedScope.kind === "average")}</>
   );
 }

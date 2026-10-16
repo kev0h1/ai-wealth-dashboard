@@ -270,9 +270,13 @@ export interface MoneyShapeJob {
   id: "fixed" | "moved" | "free" | "left";
   label: string;
   amount: number;
-  /** Percent share of take-home, 0-100. Shares across all four jobs sum to
-   *  100 (subject to rounding). */
+  /** Shares of outgoings when overspent, otherwise take-home. Not the
+   * income-based percentage used by a reference comparison. */
   share: number;
+  /** Signed category totals from this exact period (or mean per period
+   * for an average). A null category is an explicit unlabelled movement
+   * or rounding remainder, never an invented merchant. */
+  drivers?: { category: string | null; amount: number }[];
   /** Effective spend categories behind this job this period — drives the
    *  Insights hero's "tap a job to see the transactions behind it" link
    *  (MoneyShapeHero: /transactions?categories=...&from=...&to=...&label=...).
@@ -411,6 +415,11 @@ export interface MoneyShapeAverageEntry {
    *  average server-side, render with MoneyText exactly like a single
    *  period's jobs, no client-side averaging. */
   jobs: MoneyShapeJob[];
+  /** G279: mean flows with net Left and shares on the same net-beyond
+   * basis as the bar/reference. Legacy jobs retain mean clamped Left;
+   * legacy overspent remains the mean of individual period gaps. */
+  net_jobs?: MoneyShapeJob[];
+  net_verdict?: string | null;
   /** Server-composed verdict for the averaged window, backend's own
    *  "Over the last {k} pay periods, ..." phrasing — distinct template
    *  from the single-period verdict_for, see money_shape.py. */
@@ -653,6 +662,7 @@ export interface DebtBurndown {
 
 export interface UserPreferences {
   hide_net_worth: boolean;
+  pay_split_reference?: "50-30-20" | "conscious" | "first";
   open_last_chat?: boolean;
   show_tips?: boolean;
   dark_mode?: boolean;

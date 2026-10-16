@@ -1,5 +1,5 @@
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
-import type { SectionId } from "./comparison";
+import type { SectionId } from "@/lib/paySplitReference";
 
 export type ScenarioId = "under" | "fixed" | "free" | "beyond" | "thin";
 export type Driver = { label: string; amount: number };
@@ -28,3 +28,9 @@ export const SCENARIOS: Scenario[] = [
   { id: "thin", title: "First full period pending", shape: { status: "thin", computed_at: "2026-10-16T09:00:00Z", period: null, take_home: 0, overspent: 0, jobs: null, verdict: null, trend: { periods: [], fixed: [], moved: [], free: [], left: [] }, trend_line: null, what_works: whatWorks }, drivers: emptyDrivers },
 ];
 export function scenarioFor(value: string | null): Scenario { return SCENARIOS.find(item => item.id === value) ?? SCENARIOS[3]; }
+// Synthetic evidence uses the same wire shape as the production engine.
+for (const item of SCENARIOS) {
+  for (const job of item.shape.jobs ?? []) {
+    if (job.id !== "left") job.drivers = item.drivers[job.id].map(driver => ({ category: driver.label, amount: driver.amount }));
+  }
+}
