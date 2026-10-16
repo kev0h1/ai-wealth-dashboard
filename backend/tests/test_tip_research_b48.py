@@ -657,49 +657,48 @@ NOW = datetime(2026, 10, 16, 9)
 
 def _legacy_tip(uid=ALICE, **over):
     d = {
-        "_id": "t1", "user_id": uid, "category": "mobile", "title": "You pay EE £27 a month, SIM-only could cut it",
-        "body": ("You pay EE £27.43 a month, which is above average. SIM-only plans from Giffgaff typically cost £10 a month. "
-                 "Your contract ends Dec 2026. Lebara offers 30GB for £12."),
+        "_id": "t1", "user_id": uid, "category": "mobile", "title": "You pay EE £27 a month",
+        "body": "You pay EE £27.43 a month. Giffgaff typically costs £10 a month. Lebara offers 30GB for £12.",
         "researched_at": NOW - timedelta(days=2), "content_valid_until": NOW + timedelta(days=5),
         "triggered_by": [{"merchant_key": "ee", "display_name": "Ee", "monthly_amount": 27.43}],
-        "user_context": {"contract_end": "Dec 2026"},
     }
     d.update(over)
     return d
 
 
-def test_backfill_only_copies_sentences_free_of_the_user():
-    sentences = bf.market_sentences(_legacy_tip())
-    joined = " ".join(sentences)
-    assert "Giffgaff" in joined and "Lebara" in joined
-    assert "27" not in joined and "You pay" not in joined and "Dec 2026" not in joined and "above average" not in joined
-
-
-def test_backfill_dry_run_writes_nothing_and_apply_is_idempotent(monkeypatch):
+def test_backfill_dry_run_writes_nothing_and_apply_only_creates_empty_stubs(monkeypatch):
     tip_col = FakeCol()
     monkeypatch.setattr(tr, "tip_research_col", tip_col)
     monkeypatch.setattr(si, "behaviour_portrait_col", type("P", (), {"find_one": staticmethod(lambda *a, **k: asyncio.sleep(0))})())
     insights = FakeCol([_legacy_tip(),
-                        _legacy_tip(_id="t2", user_id=BOB, title="x", body="", category="mobile"),
-                        _legacy_tip(_id="t3", category="mobile", content_valid_until=NOW - timedelta(days=1))])
+                        _legacy_tip(_id="t3", content_valid_until=NOW - timedelta(days=1))])
     dry = run(bf.backfill(insights, apply=False, now=NOW))
-    assert tip_col.docs == {} and dry["keys_seeded"] == 1 and dry["not_in_date"] == 2
+    assert tip_col.docs == {} and dry["keys_created"] == 1 and dry["not_in_date"] == 1
     applied = run(bf.backfill(insights, apply=True, now=NOW))
-    assert applied["keys_seeded"] == 1 and list(tip_col.docs) == ["mobile|ee|20_40|UK|v1"]
+    assert applied["keys_created"] == 1 and list(tip_col.docs) == ["mobile|ee|20_40|UK|v1"]
     doc = tip_col.docs["mobile|ee|20_40|UK|v1"]
-    assert doc["origin"] == "backfill" and doc["status"] == "ok"
-    tr.assert_no_user_data(doc)
+    # no backfill document ever carries findings text or anything derived from a tip
+    assert doc["status"] == "pending" and doc["findings"] is None
+    assert doc["fetched_at"] is None and doc["as_of"] is None and "last_attempt_at" not in doc and "created_at" not in doc
     blob = json.dumps(doc, default=str)
-    assert "27" not in blob and "alice" not in blob.lower()
+    for leak in ("Giffgaff", "Lebara", "27.43", "£", "alice"):
+        assert leak not in blob
+    tr.assert_no_user_data(doc)
     again = run(bf.backfill(insights, apply=True, now=NOW))
-    assert again["keys_seeded"] == 0 and again["keys_already_covered"] == 1
+    assert again["keys_created"] == 0 and again["keys_already_present"] == 1
 
 
-def test_backfill_never_overwrites_a_real_fetch(monkeypatch):
+def test_backfill_never_overwrites_an_existing_key(monkeypatch):
     key = tr.make_key("mobile", "ee", 27.43)
-    tip_col = FakeCol([{"_id": key.doc_id, "findings": {"headline": "real"}, "origin": "fetched",
-                        "fetched_at": NOW, "status": "ok"}])
+    tip_col = FakeCol([{"_id": key.doc_id, "findings": {"headline": "real"}, "origin": "fetched", "status": "ok"}])
     monkeypatch.setattr(tr, "tip_research_col", tip_col)
-    insights = FakeCol([_legacy_tip()])
-    counts = run(bf.backfill(insights, apply=True, now=NOW))
-    assert counts["keys_seeded"] == 0 and tip_col.docs[key.doc_id]["findings"] == {"headline": "real"}
+    counts = run(bf.backfill(FakeCol([_legacy_tip()]), apply=True, now=NOW))
+    assert counts["keys_created"] == 0 and tip_col.docs[key.doc_id]["findings"] == {"headline": "real"}
+
+
+def test_pending_stub_is_fetched_by_the_first_pass(pass_env):
+    calls, tip_col, insights, _ = pass_env
+    key = tr.make_key("mobile", "ee", AMOUNTS[ALICE])
+    run(tr.precreate_pending(key))
+    run(si._refresh_savings_insights_for_user(ALICE))
+    assert tip_col.docs[key.doc_id]["status"] == "ok" and len(_sim_calls(calls)) == 1

@@ -259,6 +259,18 @@ async def ensure_research(
         _inflight.pop(key.doc_id, None)
 
 
+def _stub(key: TipKey, lease_until: datetime) -> dict:
+    """An empty document: key fields only, no findings and no timestamps other
+    than the lease. last_attempt_at is set only by a real fetch outcome."""
+    return {
+        "_id": key.doc_id, "insight_category": key.category, "provider_key": key.provider_key,
+        "price_band": key.price_band, "region": key.region, "prompt_version": key.prompt_version,
+        "findings": None, "as_of": None, "fetched_at": None, "content_valid_until": None,
+        "claim_valid_until": None, "status": "pending", "last_failure_code": None,
+        "lease_until": lease_until,
+    }
+
+
 async def _claim_lease(key: TipKey, now: datetime) -> bool:
     lease_until = now + LEASE
     res = await tip_research_col.update_one(
@@ -266,13 +278,7 @@ async def _claim_lease(key: TipKey, now: datetime) -> bool:
     )
     if res.modified_count:
         return True
-    doc = {
-        "_id": key.doc_id, "insight_category": key.category, "provider_key": key.provider_key,
-        "price_band": key.price_band, "region": key.region, "prompt_version": key.prompt_version,
-        "findings": None, "as_of": None, "fetched_at": None, "content_valid_until": None,
-        "claim_valid_until": None, "status": "pending", "last_attempt_at": None,
-        "last_failure_code": None, "lease_until": lease_until, "created_at": now,
-    }
+    doc = _stub(key, lease_until)
     assert_no_user_data(doc)
     try:
         await tip_research_col.insert_one(doc)
@@ -324,30 +330,17 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
     return ResearchResult(doc, "stale" if _has_findings(doc) else "none", fetched=True, failure=code)
 
 
-async def seed(
-    key: TipKey, findings: dict, *, fetched_at: datetime, claim_valid_until: Optional[datetime],
-    dry_run: bool = False,
-) -> bool:
-    """Backfill helper: write findings for a key only if the key has no
-    findings of its own yet (a real fetch always wins) and the seed is newer
-    than any earlier seed. Returns True if written (or, in dry_run, if it
-    would be written; nothing is ever written in dry_run)."""
-    existing = await tip_research_col.find_one({"_id": key.doc_id})
-    if existing and existing.get("findings") and existing.get("origin") != "backfill":
+async def precreate_pending(key: TipKey, *, dry_run: bool = False) -> bool:
+    """Backfill helper: create an EMPTY pending stub for a key that has no
+    document yet, so the first pass fetches it. Carries no findings, no
+    timestamps and nothing derived from any tip. Returns True if created (in
+    dry_run, if it would be); nothing is written in dry_run."""
+    if await tip_research_col.find_one({"_id": key.doc_id}):
         return False
-    if existing and existing.get("fetched_at") and existing["fetched_at"] >= fetched_at:
-        return False
-    doc = {
-        "insight_category": key.category, "provider_key": key.provider_key,
-        "price_band": key.price_band, "region": key.region, "prompt_version": key.prompt_version,
-        "findings": findings, "as_of": fetched_at.date().isoformat(), "fetched_at": fetched_at,
-        "claim_valid_until": claim_valid_until,
-        "content_valid_until": content_valid_until(fetched_at, claim_valid_until),
-        "status": "ok", "last_attempt_at": fetched_at, "last_failure_code": None,
-        "lease_until": _EPOCH, "origin": "backfill",
-    }
-    assert_no_user_data(doc)
     if dry_run:
         return True
-    await tip_research_col.update_one({"_id": key.doc_id}, {"$set": doc}, upsert=True)
+    try:
+        await tip_research_col.insert_one(_stub(key, _EPOCH))
+    except DuplicateKeyError:
+        return False
     return True
