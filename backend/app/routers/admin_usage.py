@@ -101,7 +101,7 @@ async def admin_llm_usage(month: str | None = None, user: dict = Depends(current
     # B48: calls per ISO week and pipeline over the last 8 weeks (Tavily calls
     # sit in the same collection with model "tavily"), so the before/after of
     # the shared tip research reads straight off this list. Counts only.
-    weekly_since = datetime.now(timezone.utc) - timedelta(weeks=8)
+    weekly_since = datetime.now(timezone.utc) - timedelta(weeks=8)  # naive-ok: aware UTC lookback window for an ops report
     weekly_rows = await llm_usage_col.aggregate([
         {"$match": {"ts": {"$gte": weekly_since}}},
         {"$group": {

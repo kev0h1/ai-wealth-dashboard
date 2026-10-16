@@ -242,7 +242,7 @@ async def record_tavily_call(*, pipeline: str, user_id: str | None = None, laten
     shared tip-research layer, which has no user. Never raises."""
     try:
         await _ensure_indexes()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)  # naive-ok: aware UTC audit timestamp, same as record_llm_usage
         await llm_usage_col.insert_one({
             "user_id": user_id, "pipeline": pipeline, "model": TAVILY_MODEL_LABEL,
             "prompt_tokens": 0, "cached_tokens": 0, "completion_tokens": 0,

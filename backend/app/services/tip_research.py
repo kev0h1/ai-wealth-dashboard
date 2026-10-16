@@ -294,19 +294,25 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
 
     prior = await tip_research_col.find_one({"_id": key.doc_id}) or {}
     if outcome.findings:
-        findings = outcome.findings
         fetched_at = _now()
         update = {
-            "findings": findings, "as_of": fetched_at.date().isoformat(), "fetched_at": fetched_at,
+            "findings": outcome.findings, "as_of": fetched_at.date().isoformat(), "fetched_at": fetched_at,
             "claim_valid_until": outcome.claim_valid_until,
             "content_valid_until": content_valid_until(fetched_at, outcome.claim_valid_until),
             "status": "ok", "last_attempt_at": fetched_at, "last_failure_code": None,
             "lease_until": _EPOCH, "origin": "fetched",
         }
-        assert_no_user_data(update)
-        await tip_research_col.update_one({"_id": key.doc_id}, {"$set": update})
-        doc = await tip_research_col.find_one({"_id": key.doc_id})
-        return ResearchResult(doc, "fetched", fetched=True)
+        try:
+            assert_no_user_data(update)
+        except ValueError:
+            # Fail closed: a document that could carry user data is never
+            # written. Treated as a failed fetch (the lease is released below).
+            log.error("tip research: refused to write findings carrying a forbidden key, key=%s", key.doc_id)
+            outcome = FetchOutcome(failure="error")
+        else:
+            await tip_research_col.update_one({"_id": key.doc_id}, {"$set": update})
+            doc = await tip_research_col.find_one({"_id": key.doc_id})
+            return ResearchResult(doc, "fetched", fetched=True)
 
     code = outcome.failure or "error"
     update = {
@@ -318,9 +324,14 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
     return ResearchResult(doc, "stale" if _has_findings(doc) else "none", fetched=True, failure=code)
 
 
-async def seed(key: TipKey, findings: dict, *, fetched_at: datetime, claim_valid_until: Optional[datetime]) -> bool:
-    """Backfill helper: write findings for a key only if the key has no usable
-    findings yet. Returns True if written."""
+async def seed(
+    key: TipKey, findings: dict, *, fetched_at: datetime, claim_valid_until: Optional[datetime],
+    dry_run: bool = False,
+) -> bool:
+    """Backfill helper: write findings for a key only if the key has no
+    findings of its own yet (a real fetch always wins) and the seed is newer
+    than any earlier seed. Returns True if written (or, in dry_run, if it
+    would be written; nothing is ever written in dry_run)."""
     existing = await tip_research_col.find_one({"_id": key.doc_id})
     if existing and existing.get("findings") and existing.get("origin") != "backfill":
         return False
@@ -336,5 +347,7 @@ async def seed(key: TipKey, findings: dict, *, fetched_at: datetime, claim_valid
         "lease_until": _EPOCH, "origin": "backfill",
     }
     assert_no_user_data(doc)
+    if dry_run:
+        return True
     await tip_research_col.update_one({"_id": key.doc_id}, {"$set": doc}, upsert=True)
     return True
