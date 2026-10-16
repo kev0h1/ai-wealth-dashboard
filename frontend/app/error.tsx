@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { reportBoundaryError } from "@/lib/errorReporting";
 import ErrorState, { ERROR_PRIMARY_ACTION, ERROR_SECONDARY_ACTION } from "@/components/ErrorState";
 
 // G215: designed route-level error boundary. The thrown error is never shown
 // (it can carry upstream text). On Home itself "Back to Home" would loop, so it is
 // hidden there and "Try again" becomes the primary action.
-export default function RouteError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function RouteError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const [onHome, setOnHome] = useState(false);
   useEffect(() => { setOnHome(window.location.pathname === "/"); }, []);
+  useEffect(() => { reportBoundaryError(error, "route"); }, [error]);
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]">
       <ErrorState

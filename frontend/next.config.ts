@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -104,6 +105,28 @@ function resolveBuildTag(): string {
   const buildNumber = process.env.BUILD_NUMBER ? ` #${process.env.BUILD_NUMBER}` : "";
 
   return `build ${date} ${sha}${buildNumber}`;
+}
+
+// E6: the full git SHA this build was made from, for Sentry release tagging
+// (docs/ops/OBSERVABILITY.md). NEXT_PUBLIC_RELEASE_SHA wins (build-mobile.sh
+// and CI export it), then Vercel's and Codemagic's own variables, then git.
+// Empty when none resolves: the SDK then simply reports no release.
+function resolveReleaseSha(): string {
+  const explicit = process.env.NEXT_PUBLIC_RELEASE_SHA || process.env.VERCEL_GIT_COMMIT_SHA || process.env.CM_COMMIT;
+  if (explicit) return explicit.trim();
+  try {
+    return execSync("git rev-parse HEAD", { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "";
+  }
+}
+
+// E6: "production" only when told so (NEXT_PUBLIC_APP_ENV, or Vercel's own
+// production environment); everything else, including the UAT VPS, is "uat".
+function resolveAppEnv(): string {
+  const explicit = (process.env.NEXT_PUBLIC_APP_ENV || "").trim().toLowerCase();
+  if (explicit) return explicit === "production" ? "production" : "uat";
+  return process.env.VERCEL_ENV === "production" ? "production" : "uat";
 }
 
 // A67: TrueLayer is a UAT-only provider. Finexer is the only provider
@@ -276,6 +299,10 @@ const nextConfig: NextConfig = {
   output: MOBILE_EXPORT ? "export" : process.env.VERCEL ? undefined : "standalone",
   env: {
     NEXT_PUBLIC_BUILD_TAG: resolveBuildTag(),
+    // E6: Sentry release and environment (never the DSN: that is read straight
+    // from NEXT_PUBLIC_SENTRY_DSN in the build environment).
+    NEXT_PUBLIC_RELEASE_SHA: resolveReleaseSha(),
+    NEXT_PUBLIC_APP_ENV: resolveAppEnv(),
     // A67, see LEGACY_BANK_PROVIDER_ON above. Empty string = the legacy
     // provider does not exist in this build, and neither does its name.
     NEXT_PUBLIC_LEGACY_BANK_ID: LEGACY_BANK_PROVIDER_ON ? "truelayer" : "",
@@ -358,4 +385,23 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// E6: Sentry's build wrapper. Source map upload is DISABLED unless
+// SENTRY_AUTH_TOKEN is present in the build environment (UAT and local builds
+// never have it), no tunnel route is added, telemetry is off, and the wrapper
+// is skipped entirely for the Capacitor static export (the client SDK is
+// loaded by instrumentation-client.ts, which needs no wrapper).
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
+
+export default MOBILE_EXPORT
+  ? nextConfig
+  : withSentryConfig(nextConfig, {
+      silent: true,
+      telemetry: false,
+      disableLogger: true,
+      automaticVercelMonitors: false,
+      release: { name: resolveReleaseSha() || undefined },
+      sourcemaps: { disable: !sentryAuthToken, deleteSourcemapsAfterUpload: true },
+      ...(sentryAuthToken
+        ? { authToken: sentryAuthToken, org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT_WEB }
+        : {}),
+    });

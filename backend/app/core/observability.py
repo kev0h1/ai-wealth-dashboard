@@ -44,6 +44,7 @@ MAX_TRACES_SAMPLE_RATE = 0.1
 # ── String patterns ───────────────────────────────────────────────────────────
 # Order matters: the more specific shapes run before the generic digit runs.
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(https?://[^\s?#]+)[?#]\S*"), r"\1"),
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [Filtered]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}"), FILTERED),
     (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), FILTERED),
@@ -125,6 +126,8 @@ def scrub_value(value: Any, key: str = "", depth: int = 0) -> Any:
     if depth > MAX_DEPTH:
         return FILTERED
     if isinstance(value, str):
+        if key == "transaction":
+            return scrub_string(strip_query(value))
         if key in _SAFE_KEYS:
             return value
         if key == "url" or key.endswith("_url"):
@@ -142,6 +145,17 @@ def scrub_value(value: Any, key: str = "", depth: int = 0) -> Any:
 def hash_user_id(uid: Any) -> str:
     salt = os.getenv("SENTRY_USER_HASH_SALT", "")
     return hashlib.sha256(f"{salt}{uid}".encode()).hexdigest()[:16]
+
+
+def set_sentry_user(email: Any) -> None:
+    """Tag the current scope with the hashed identity. Cheap no-op when Sentry
+    is not initialised (no DSN)."""
+    if not email or not isinstance(email, str):
+        return
+    import sentry_sdk
+    if not sentry_sdk.get_client().is_active():
+        return
+    sentry_sdk.set_user({"id": hash_user_id(email.strip().lower())})
 
 
 def _scrub_user(user: Any) -> dict | None:

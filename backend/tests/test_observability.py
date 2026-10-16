@@ -200,3 +200,13 @@ def test_ops_health_is_owner_only():
     with pytest.raises(HTTPException) as ei:
         asyncio.run(ops.ops_health({"email": "someone@else.co"}))
     assert ei.value.status_code == 403
+
+
+def test_url_query_stripped_inside_strings_and_user_hash_helper(monkeypatch):
+    assert scrub_string("GET https://x.test/a/b?merchant=TESCO&x=1#frag ok") == "GET https://x.test/a/b ok"
+    import sentry_sdk
+    calls = []
+    monkeypatch.setattr(sentry_sdk, "set_user", lambda u: calls.append(u))
+    obs.set_sentry_user("Kevin@Example.com")  # no client active in tests: no-op
+    assert calls == []
+    assert hash_user_id("kevin@example.com") == hash_user_id("kevin@example.com") and len(hash_user_id("a")) == 16
