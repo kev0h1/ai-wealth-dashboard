@@ -11,6 +11,9 @@ from app.core.subscription import check_connection_limit, check_open_banking_all
 from app.db.collections import yapily_consents_col, yapily_accounts_col, yapily_transactions_col
 from app.services.yapily_sync import sync_yapily_consent, yapily_headers
 import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["yapily"])
 
@@ -26,7 +29,8 @@ async def yapily_institutions(country: str = "GB", user: dict = Depends(current_
             params={"filtered-countries": country},
         )
     if r.status_code != 200:
-        raise HTTPException(502, f"Yapily institutions failed: {r.text[:200]}")
+        logger.debug("Yapily institutions failed body: %.300s", r.text)
+        raise HTTPException(502, f"Yapily institutions failed ({r.status_code})")
     result = []
     for inst in r.json().get("data", []):
         media = inst.get("media", [])
@@ -61,7 +65,8 @@ async def yapily_create_requisition(body: dict, user: dict = Depends(current_use
             },
         )
     if r.status_code not in (200, 201):
-        raise HTTPException(502, f"Yapily auth request failed: {r.text[:300]}")
+        logger.debug("Yapily auth request failed body: %.300s", r.text)
+        raise HTTPException(502, f"Yapily auth request failed ({r.status_code})")
     data          = r.json().get("data", {})
     consent_token = data.get("id")
     auth_url      = data.get("authorisationUrl")

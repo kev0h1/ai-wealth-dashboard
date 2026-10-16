@@ -274,3 +274,45 @@ def test_release_git_fallback_is_cached(monkeypatch):
     monkeypatch.setattr(obs.subprocess, "run", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
     obs.resolve_release(); obs.resolve_release(); obs.resolve_release()
     assert len(calls) == 1
+
+
+DUP = 'E11000 duplicate key error collection: wealth.rules index: u dup key: { merchant: "Greggs" }, full error: {"keyValue": {"merchant": "Greggs"}}'
+
+
+def test_db_error_reduced_to_class_and_code():
+    ev = {"exception": {"values": [{"type": "DuplicateKeyError", "module": "pymongo.errors", "value": DUP}]},
+          "logentry": {"message": DUP}, "message": DUP}
+    out = scrub_event(ev, {})
+    assert out["exception"]["values"][0]["value"] == "DuplicateKeyError (code 11000)"
+    assert "Greggs" not in _dump(out)
+    # Even without a recognised class, the dup-key text is cut.
+    out2 = scrub_event({"exception": {"values": [{"type": "RuntimeError", "value": f"wrapped: {DUP}"}]}}, {})
+    assert "Greggs" not in _dump(out2)
+
+
+def test_upstream_http_error_reduced_to_status():
+    ev = {"exception": {"values": [{"type": "HTTPStatusError",
+          "value": "Client error '402 Payment Required' for url 'https://openrouter.ai/api?merchant=Greggs'\nbody: Greggs 4.50"}]}}
+    out = scrub_event(ev, {})
+    assert out["exception"]["values"][0]["value"] == "HTTPStatusError (status 402)"
+
+
+def test_bare_amounts_after_money_words():
+    for text in ("amount 250", "balance: 1,234.56", "Total=99", "paid -12.5", "price −20"):
+        out = scrub_string(text)
+        assert "[amount]" in out and not any(ch.isdigit() for ch in out), (text, out)
+
+
+def test_no_raise_or_error_log_formats_upstream_text():
+    """Pins finding 1: no raise or error-level log in app/ puts an upstream
+    body (`.text`, `.json()`) into the message."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "app"
+    bad = re.compile(r"(raise\s.*|logger\.(error|exception|critical)\(.*)(\.text\b|\.json\(\))")
+    hits = []
+    for path in root.rglob("*.py"):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if bad.search(line) and "debug" not in line:
+                hits.append(f"{path.relative_to(root)}:{n}")
+    assert not hits, hits

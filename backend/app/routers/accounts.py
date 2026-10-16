@@ -241,7 +241,8 @@ async def sync_all(user: dict = Depends(current_user)):
             if isinstance(res, dict):
                 new_count += int(res.get("new_transactions") or 0)
             elif isinstance(res, BaseException):
-                logger.error("finexer sync during refresh failed for %s: %r", u, res)
+                logger.error("finexer sync during refresh failed for %s: %s", u, type(res).__name__)
+                logger.debug("finexer sync during refresh failure detail: %r", res)
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)

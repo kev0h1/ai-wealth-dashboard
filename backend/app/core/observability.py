@@ -46,6 +46,8 @@ MAX_TRACES_SAMPLE_RATE = 0.1
 # Order matters: the more specific shapes run before the generic digit runs.
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(https?://[^\s?#]+)[?#]\S*"), r"\1"),
+    # Mongo duplicate-key text embeds the offending key and value (a merchant).
+    (re.compile(r"(?is)\bE11000\b.*|duplicate key error.*"), "duplicate key error"),
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [Filtered]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}"), FILTERED),
     (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), FILTERED),
@@ -59,6 +61,11 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "[amount]",
     ),
     (re.compile(r"(?i)\b\d[\d,]*(?:\.\d+)?\s?(?:GBP|pounds)\b"), "[amount]"),
+    # Bare amounts after money words ("amount 250", "balance: 1,234.56", "paid -12").
+    (
+        re.compile(r"(?i)\b(amount|balance|total|paid|price|cost|value|spend|spent)(\s*[:=]?\s*)[-\u2212]?\d[\d,]*(?:\.\d+)?"),
+        r"\1\2[amount]",
+    ),
     (re.compile(r"(?<![\w.])\d[\d,]*\.\d{2}(?![\d.\w])"), "[amount]"),
     # Long opaque strings (API keys, session secrets). 43+ so a 40-char git SHA
     # and 32-char trace ids are untouched.
@@ -199,6 +206,28 @@ def _scrub_request(request: Any) -> dict:
     return out
 
 
+_DB_ERROR_MODULES = ("pymongo", "bson", "motor")
+_CODE_RE = re.compile(r"\bE(\d{3,6})\b|code[\"']?\s*[:=]\s*(\d{3,6})")
+_HTTP_STATUS_RE = re.compile(r"\b([1-5]\d\d)\b")
+
+
+def _reduce_error_message(entry: dict) -> str | None:
+    """Database and upstream-HTTP error text routinely embeds the offending
+    key/value (a merchant in an E11000 dup key) or an upstream response, so
+    for those classes only the class name and the code or status survive."""
+    etype = str(entry.get("type") or "")
+    module = str(entry.get("module") or "")
+    value = str(entry.get("value") or "")
+    if module.startswith(_DB_ERROR_MODULES) or "E11000" in value or etype in ("DuplicateKeyError", "BulkWriteError", "OperationFailure", "WriteError"):
+        m = _CODE_RE.search(value)
+        code = (m.group(1) or m.group(2)) if m else None
+        return f"{etype or 'DatabaseError'} (code {code})" if code else (etype or "DatabaseError")
+    if etype in ("HTTPStatusError", "HTTPError", "ClientResponseError"):
+        m = _HTTP_STATUS_RE.search(value)
+        return f"{etype} (status {m.group(1)})" if m else etype
+    return None
+
+
 def _scrub_exception(exc_block: Any) -> Any:
     if not isinstance(exc_block, dict):
         return exc_block
@@ -208,7 +237,8 @@ def _scrub_exception(exc_block: Any) -> Any:
             continue
         entry = dict(entry)
         if isinstance(entry.get("value"), str):
-            entry["value"] = scrub_string(entry["value"])
+            reduced = _reduce_error_message(entry)
+            entry["value"] = reduced if reduced is not None else scrub_string(entry["value"])
         st = entry.get("stacktrace")
         if isinstance(st, dict):
             frames = []
