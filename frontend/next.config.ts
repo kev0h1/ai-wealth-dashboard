@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import { withSentryConfig } from "@sentry/nextjs";
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -390,18 +389,34 @@ const nextConfig: NextConfig = {
 // never have it), no tunnel route is added, telemetry is off, and the wrapper
 // is skipped entirely for the Capacitor static export (the client SDK is
 // loaded by instrumentation-client.ts, which needs no wrapper).
+//
+// @sentry/nextjs is required lazily, and only a genuinely missing module is
+// tolerated, so scripts/turbopack-root.test.mjs and scripts/mcp-discovery.test.mjs
+// (which evaluate this file alone, from a temp directory with no node_modules)
+// keep seeing the plain config object. Any real build resolves it normally.
 const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
 
-export default MOBILE_EXPORT
-  ? nextConfig
-  : withSentryConfig(nextConfig, {
-      silent: true,
-      telemetry: false,
-      disableLogger: true,
-      automaticVercelMonitors: false,
-      release: { name: resolveReleaseSha() || undefined },
-      sourcemaps: { disable: !sentryAuthToken, deleteSourcemapsAfterUpload: true },
-      ...(sentryAuthToken
-        ? { authToken: sentryAuthToken, org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT_WEB }
-        : {}),
-    });
+function withSentry(config: NextConfig): NextConfig {
+  if (MOBILE_EXPORT) return config;
+  let withSentryConfig: typeof import("@sentry/nextjs").withSentryConfig;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    withSentryConfig = require("@sentry/nextjs").withSentryConfig;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return config;
+    throw e;
+  }
+  return withSentryConfig(config, {
+    silent: true,
+    telemetry: false,
+    disableLogger: true,
+    automaticVercelMonitors: false,
+    release: { name: resolveReleaseSha() || undefined },
+    sourcemaps: { disable: !sentryAuthToken, deleteSourcemapsAfterUpload: true },
+    ...(sentryAuthToken
+      ? { authToken: sentryAuthToken, org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT_WEB }
+      : {}),
+  }) as NextConfig;
+}
+
+export default withSentry(nextConfig);

@@ -274,6 +274,9 @@ export default function GoLivePage() {
           <Link href="/ops/broadcast" className="mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
             Send an offer broadcast
           </Link>
+          <Link href="/ops/health" className="ml-4 mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+            Platform health
+          </Link>
           <div className="mt-5">
             <HeaderHero items={data.items} done={done} total={total} />
           </div>
