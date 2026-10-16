@@ -291,7 +291,8 @@ async def _call_openrouter_with_retry(
             # traceback without leaking a library-authored message into a
             # value that could end up user-facing (see
             # tests/test_no_raw_exception_leak.py's structural guard).
-            logger.warning("penny_agent: OpenRouter request failed for %s: %r", uid, exc)
+            logger.warning("penny_agent: OpenRouter request failed for %s: %s", uid, type(exc).__name__)
+            logger.debug("penny_agent: OpenRouter failure detail: %r", exc)
             raise _ProviderFailure("connection failure") from exc
         if response.status_code == 200:
             return response

@@ -106,6 +106,28 @@ function resolveBuildTag(): string {
   return `build ${date} ${sha}${buildNumber}`;
 }
 
+// E6: the full git SHA this build was made from, for Sentry release tagging
+// (docs/ops/OBSERVABILITY.md). NEXT_PUBLIC_RELEASE_SHA wins (build-mobile.sh
+// and CI export it), then Vercel's and Codemagic's own variables, then git.
+// Empty when none resolves: the SDK then simply reports no release.
+function resolveReleaseSha(): string {
+  const explicit = process.env.NEXT_PUBLIC_RELEASE_SHA || process.env.VERCEL_GIT_COMMIT_SHA || process.env.CM_COMMIT;
+  if (explicit) return explicit.trim();
+  try {
+    return execSync("git rev-parse HEAD", { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "";
+  }
+}
+
+// E6: "production" only when told so (NEXT_PUBLIC_APP_ENV, or Vercel's own
+// production environment); everything else, including the UAT VPS, is "uat".
+function resolveAppEnv(): string {
+  const explicit = (process.env.NEXT_PUBLIC_APP_ENV || "").trim().toLowerCase();
+  if (explicit) return explicit === "production" ? "production" : "uat";
+  return process.env.VERCEL_ENV === "production" ? "production" : "uat";
+}
+
 // A67: TrueLayer is a UAT-only provider. Finexer is the only provider
 // production uses, and Kevin's constraint on this item was that "behind a
 // flag is not enough if the flag could be switched on in production, so
@@ -276,6 +298,10 @@ const nextConfig: NextConfig = {
   output: MOBILE_EXPORT ? "export" : process.env.VERCEL ? undefined : "standalone",
   env: {
     NEXT_PUBLIC_BUILD_TAG: resolveBuildTag(),
+    // E6: Sentry release and environment (never the DSN: that is read straight
+    // from NEXT_PUBLIC_SENTRY_DSN in the build environment).
+    NEXT_PUBLIC_RELEASE_SHA: resolveReleaseSha(),
+    NEXT_PUBLIC_APP_ENV: resolveAppEnv(),
     // A67, see LEGACY_BANK_PROVIDER_ON above. Empty string = the legacy
     // provider does not exist in this build, and neither does its name.
     NEXT_PUBLIC_LEGACY_BANK_ID: LEGACY_BANK_PROVIDER_ON ? "truelayer" : "",
@@ -358,4 +384,42 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// E6: Sentry's build wrapper. Source map upload is DISABLED unless
+// SENTRY_AUTH_TOKEN is present in the build environment (UAT and local builds
+// never have it), no tunnel route is added, telemetry is off, and the wrapper
+// is skipped entirely for the Capacitor static export and for any build without
+// NEXT_PUBLIC_SENTRY_DSN (the client SDK is
+// loaded by instrumentation-client.ts, which needs no wrapper).
+//
+// @sentry/nextjs is required lazily, and only a genuinely missing module is
+// tolerated, so scripts/turbopack-root.test.mjs and scripts/mcp-discovery.test.mjs
+// (which evaluate this file alone, from a temp directory with no node_modules)
+// keep seeing the plain config object. Any real build resolves it normally.
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
+
+function withSentry(config: NextConfig): NextConfig {
+  // No DSN at build time means no Sentry: leave the config byte-for-byte as it
+  // was, because the wrapper also changes serverExternalPackages, adds
+  // clientTraceMetadata and registers loaders on the instrumentation files,
+  // none of which UAT or a DSN-less build should pick up (E6 review, finding 6).
+  if (MOBILE_EXPORT || !process.env.NEXT_PUBLIC_SENTRY_DSN) return config;
+  let withSentryConfig: typeof import("@sentry/nextjs").withSentryConfig;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    withSentryConfig = require("@sentry/nextjs").withSentryConfig;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return config;
+    throw e;
+  }
+  return withSentryConfig(config, {
+    silent: true,
+    telemetry: false,
+    release: { name: resolveReleaseSha() || undefined },
+    sourcemaps: { disable: !sentryAuthToken, deleteSourcemapsAfterUpload: true },
+    ...(sentryAuthToken
+      ? { authToken: sentryAuthToken, org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT_WEB }
+      : {}),
+  }) as NextConfig;
+}
+
+export default withSentry(nextConfig);

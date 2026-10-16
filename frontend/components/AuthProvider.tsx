@@ -22,6 +22,7 @@ import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
+import { identifyForErrorReporting } from "@/lib/errorReporting";
 
 interface AuthUser {
   email: string;
@@ -173,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (landOn && window.location.pathname !== landOn) router.replace(landOn);
       sessionEmailRef.current = data.email;
       setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+      identifyForErrorReporting(data.uid_hash); // E6: hashed id only, never the email
       resetUnauthorizedGate();
       return "ok";
     } catch {
@@ -345,6 +347,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // token only per the cancelResume rule.
           if (discardRef.current || pendingLoginRef.current) clearToken();
           setUser(null);
+          identifyForErrorReporting(null);
           setResuming(null);
         } else if (urlToken) {
           // F2: the OAuth consent page (/oauth/consent) stashes its own
@@ -414,6 +417,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void unregisterCapacitorPush({ remote: false });
     clearToken();
     setUser(null);
+    identifyForErrorReporting(null);
 
     // Clear every module-scope cache and derived localStorage count that
     // holds the previous user's financial data, so a different user signing

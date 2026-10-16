@@ -1860,6 +1860,29 @@ function platformHeaders(): HeadersInit {
 // Private go-live readiness board (/ops/go-live) — see
 // backend/app/routers/ops.py + backend/app/services/backlog.py.
 export type GoLiveDoc = { markdown: string; updated_at: string };
+// E6: /ops/health (owner-only). Host and build facts from GET /ops/health;
+// LLM usage and sync stats come from the existing /admin endpoints.
+export type OpsHealth = {
+  build: { release: string | null; release_short: string | null; environment: string; sentry_dsn_set: boolean };
+  memory: { total_mb: number; available_mb: number; used_pct: number } | null;
+  disk: { total_gb: number; free_gb: number; used_pct: number | null } | null;
+  load: { cpus: number; load_1m: number; load_5m: number; load_15m: number } | null;
+  uptime_hours: number | null;
+  sentry: { configured: boolean; environment: string; links: { label: string; url: string }[] };
+  mongo: { ok: boolean; ping_ms: number | null };
+};
+export type OpsLlmUsage = {
+  month: string;
+  totals: { cost_usd: number; calls: number; users: number };
+  by_pipeline: { pipeline: string; cost_usd: number; calls: number; avg_latency_ms: number }[];
+};
+export type OpsSyncStats = {
+  last_reconcile: { reconciled?: number; skipped_on_upload?: number; skipped_fresh?: number; overflow?: number; at?: string } | null;
+  tips_research: { status: string; line: string | null };
+  finexer_requests: { count: number; mean: number; max: number };
+  orphaned_revocations: { pending: number };
+};
+
 export type GoLiveResponse = {
   files: {
     todo?: GoLiveDoc;
@@ -3934,6 +3957,9 @@ export const api = {
   // write returns the full refreshed GET payload plus `committed` so the
   // page re-renders from truth instead of guessing at the new state.
   getGoLive: () => get<GoLiveResponse>("/ops/go-live"),
+  getOpsHealth: () => get<OpsHealth>("/ops/health"),
+  getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
+  getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),
   goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>
     post<GoLiveActionResponse>(`/ops/go-live/items/${encodeURIComponent(itemId)}`, body),
   goLiveQuestionStatus: (q: string, status: GoLiveQuestion["status"]) =>

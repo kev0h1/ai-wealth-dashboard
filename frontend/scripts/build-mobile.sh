@@ -133,6 +133,26 @@ if [ -z "${NEXT_PUBLIC_BUILD_TAG:-}" ]; then
   export NEXT_PUBLIC_BUILD_TAG="$(compute_build_tag "$BUILD_DATE" "$BUILD_SHA" "${BUILD_NUMBER:-}" "${BUILD_TAG_ENV:-}")"
 fi
 
+# E6 (docs/ops/OBSERVABILITY.md): Sentry release and environment for the app
+# bundle. Computed HERE for the same reason as the build tag above: the rsync
+# below drops .git/, so next.config.ts could not run `git rev-parse` inside
+# the scratch dir. The release is the FULL git SHA so a Sentry issue maps to
+# one commit. The environment is "production" only for the prod target.
+# NEXT_PUBLIC_SENTRY_DSN is deliberately NOT set here: it comes from the CI
+# environment (Codemagic variable group) or is absent, in which case the app
+# bundle initialises no Sentry at all. This script never writes a DSN.
+if [ -z "${NEXT_PUBLIC_RELEASE_SHA:-}" ]; then
+  NEXT_PUBLIC_RELEASE_SHA="$(git rev-parse HEAD 2>/dev/null || echo "${CM_COMMIT:-}")"
+  export NEXT_PUBLIC_RELEASE_SHA
+fi
+if [ -z "${NEXT_PUBLIC_APP_ENV:-}" ]; then
+  export NEXT_PUBLIC_APP_ENV="uat"
+  [ "${MOBILE_TARGET:-}" = "prod" ] && export NEXT_PUBLIC_APP_ENV="production"
+  case "${MOBILE_API_BASE:-}" in
+    https://api.*|https://wealth.auriqltd.co.uk/api) export NEXT_PUBLIC_APP_ENV="production" ;;
+  esac
+fi
+
 rm -rf "$SCRATCH_ROOT"
 mkdir -p "$SCRATCH" "$SCRATCH_ROOT/shared"
 # Only ever remove SCRATCH_ROOT itself, and only if it is still under

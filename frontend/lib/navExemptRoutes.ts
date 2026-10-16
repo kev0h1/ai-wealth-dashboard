@@ -74,6 +74,11 @@ export const NAV_EXEMPT_ROUTES: NavExemptRoute[] = [
       "Private, owner-only admin board (backend 403s anyone but the owner/bot identity) reached only by a direct URL Kevin types or bookmarks, never linked from the product's own navigation; it is not part of the Home/Spend/Penny/Upcoming/Planning surface the nav represents.",
   },
   {
+    path: "/ops/health",
+    reason:
+      "Private, owner-only platform health page (backend 403s anyone but the account owner), reached only by a direct URL Kevin types or bookmarks and linked from /ops/go-live, never from the nav; same reasoning as /ops/go-live.",
+  },
+  {
     path: "/ops/broadcast",
     reason:
       "Private, owner-only admin tool, same reasoning as /ops/go-live (linked only from that board, never from the nav).",

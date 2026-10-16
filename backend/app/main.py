@@ -56,9 +56,10 @@ from app.routers import (
     diagnostics, uat_trial_reset,
 )
 
-if _dsn := os.getenv("SENTRY_DSN"):
-    import sentry_sdk
-    sentry_sdk.init(dsn=_dsn, traces_sample_rate=0.1, environment=os.getenv("SENTRY_ENV", "vps"))
+# E6: Sentry is a no-op without SENTRY_DSN; every event and breadcrumb is
+# scrubbed in app.core.observability before it leaves the process.
+from app.core.observability import init_sentry
+init_sentry()
 
 _slow_request_logger = logging.getLogger("app.perf")
 _SLOW_REQUEST_MS = 400

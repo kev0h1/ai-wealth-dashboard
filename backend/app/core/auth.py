@@ -125,6 +125,13 @@ async def current_user(request: Request) -> dict:
     except Exception:
         pass
 
+    # E6: hashed identity for Sentry "users affected" counts, never the email.
+    try:
+        from app.core.observability import set_sentry_user
+        set_sentry_user(result.get("email"))
+    except Exception:
+        pass
+
     return result
 
 

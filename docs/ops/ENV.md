@@ -91,8 +91,13 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `RECONCILE_SPREAD_MINUTES` | `core/config.py` | absent (default `210`) | absent (default `210`) | optional; E2 — how many minutes of `task_reconcile_truelayer`'s 4-hourly run the spread is allowed to use. See DEPLOY.md's "Railway Pro and replicas (E2)" section. |
 | `RECONCILE_MAX_PER_MINUTE` | `core/config.py` | absent (default `40`) | absent (default `40`) | optional; E2 — the Finexer-safe sync-job ceiling per minute. Raise only once Finexer confirms a higher real rate limit. |
 | `RECONCILE_MIN_GAP_SECONDS` | `core/config.py` | absent (default `2`) | absent (default `2`) | optional; E2 — floor on the gap between any two spread-out reconcile jobs. |
-| `SENTRY_DSN` | `main.py` | absent | absent | optional; error monitoring not yet wired up in either environment. |
-| `SENTRY_ENV` | `main.py` | absent (default `vps`) | absent | optional; only read when `SENTRY_DSN` is set. |
+| `SENTRY_DSN` | `core/observability.py` (via `main.py`) | absent | absent | optional; E6. Error monitoring is initialised only when this is set, with strict scrubbing, no session replay and traces at 0.1 at most. See `docs/ops/OBSERVABILITY.md`. |
+| `APP_ENV` | `core/observability.py` | absent (derived from `APP_URL`, so `uat`) | absent (derived, `production`); set `production` explicitly | optional; E6. Sentry environment tag, `uat` or `production`. |
+| `RELEASE_SHA` | `core/observability.py` | absent (falls back to `git rev-parse HEAD`) | absent (Railway's `RAILWAY_GIT_COMMIT_SHA` is used) | optional; E6. Full git SHA tagged on every Sentry event and shown on `/ops/health`. |
+| `SENTRY_ORG`, `SENTRY_PROJECTS` | `services/host_metrics.py` | absent | absent | optional; E6. Org slug and comma-separated project slugs used to build the "Sentry issues" links on `/ops/health`. Not secrets. |
+| `SENTRY_USER_HASH_SALT` | `core/observability.py` | absent (set it whenever a DSN is set) | absent (set it whenever a DSN is set) | **required wherever `SENTRY_DSN` is set**; E6. Salt for the pseudonymous user id on Sentry events and `uid_hash`. Unset means no user id is tagged (a warning is logged at start-up). |
+| `NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_APP_ENV`, `NEXT_PUBLIC_RELEASE_SHA` | `frontend/instrumentation-client.ts`, `next.config.ts`, `build-mobile.sh` | absent | absent | optional; E6. Web and app Sentry DSN (build time), environment tag and release SHA (derived when unset). `SENTRY_AUTH_TOKEN` enables source map upload at build time only. |
+| `SENTRY_ENV` | `core/observability.py` | absent | absent | legacy name for `APP_ENV`; `vps` maps to `uat`. Only read when `SENTRY_DSN` is set. |
 | `ENABLE_API_DOCS` | `main.py`, `routers/truelayer.py` | absent | absent, must stay absent | flag; exposes `/docs`. Keep unset in production. |
 | `DEV_MODE` | `main.py` | absent | absent, must stay absent | flag; dev-only behaviour. Keep unset in production. |
 | `TOKEN_ENCRYPTION_KEY` | `core/crypto.py` | absent (falls back to `backend/.token_key`) | present | optional on UAT (file fallback), present on Railway (no persistent filesystem), encrypts stored bank tokens at rest. |

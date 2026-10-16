@@ -5,6 +5,9 @@
 // DESIGN.md (canvas, ink, indigo primary) and prefers-color-scheme for dark. The
 // thrown error is never shown. Plain <a>, not next/link, because the router may be
 // the thing that broke.
+import { useEffect } from "react";
+import { reportBoundaryError } from "@/lib/errorReporting";
+
 const CSS = `
 :root{--canvas:#f0f2f7;--border:#e2e8f0;--ink:#0f172a;--secondary:#475569;--primary:#4f46e5;--hover:#4338ca;color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root{--canvas:#0f172a;--border:#334155;--ink:#f1f5f9;--secondary:#94a3b8}}
@@ -25,7 +28,8 @@ button.secondary{min-height:44px;background:transparent;color:var(--secondary)}
 a:focus-visible,button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 `;
 
-export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useEffect(() => { reportBoundaryError(error, "global"); }, [error]);
   return (
     <html lang="en-GB">
       <head>

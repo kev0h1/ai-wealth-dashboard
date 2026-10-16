@@ -156,6 +156,13 @@ workflows:
         # production until compliance sign-off.
         NEXT_PUBLIC_MCP_CONNECTOR: "on"
         NEXT_PUBLIC_MCP_URL: "https://uat.wealth.auriqltd.co.uk/api/mcp"
+        # E6 (docs/ops/OBSERVABILITY.md): Sentry environment tag for this
+        # build. The release (full git SHA) is derived by build-mobile.sh. The
+        # DSN (NEXT_PUBLIC_SENTRY_DSN) is NEVER written in this file: Kevin
+        # provides it through a Codemagic variable group imported with an
+        # `environment: groups:` key; until then the app bundle initialises no
+        # Sentry and sends nothing.
+        NEXT_PUBLIC_APP_ENV: "uat"
     scripts:
       - &step_build_web
         name: Build web (mobile static export)
@@ -528,6 +535,9 @@ workflows:
         # Same build-tag prefix mechanism as ios-capacitor above, "prod"
         # here so the whisper reads "prod build 2026-09-08 abc1234 #7".
         BUILD_TAG_ENV: "prod"
+        # E6: see the same block in ios-capacitor above. Production events are
+        # kept apart from UAT by this tag; the DSN comes from the CI environment.
+        NEXT_PUBLIC_APP_ENV: "production"
         # This enables the aps-environment entitlement and the remote-notification
         # background mode in the build steps below (see "Register wealthdash URL
         # scheme + Face ID + push background mode" and "Add Push Notifications
