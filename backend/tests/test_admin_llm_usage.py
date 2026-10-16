@@ -35,11 +35,16 @@ class _FakeLlmUsageCol:
     in-memory doc list — enough to validate the router's own grouping and
     rounding logic without a real Mongo aggregation pipeline running."""
 
-    def __init__(self, docs):
+    def __init__(self, docs, weekly_rows=None):
         self.docs = docs
+        self.weekly_rows = weekly_rows or []
 
     def aggregate(self, pipeline):
         match = pipeline[0]["$match"]
+        if "ts" in match:
+            # B48: the weekly_calls aggregate (ISO week operators) is covered
+            # by its own test; this fake only validates month grouping.
+            return _FakeAggResult(self.weekly_rows)
         rows = [d for d in self.docs if all(d.get(k) == v for k, v in match.items())]
         group_id = pipeline[1]["$group"]["_id"]
 
@@ -243,3 +248,19 @@ def test_totals_by_pipeline_by_user_and_percentiles(fake_col):
     assert "tiering-unit-economics-mcp-2026-09.md" in result["estimates_note"]
     assert "Usage metering" in result["estimates_note"]
     assert "—" not in result["estimates_note"]  # no em dashes in copy
+
+
+def test_weekly_calls_lists_calls_per_iso_week_and_pipeline(monkeypatch):
+    """B48: Tavily calls (model "tavily") and OpenRouter calls are reported
+    per ISO week and pipeline so the shared tip research before/after reads
+    off one list."""
+    rows = [
+        {"_id": {"year": 2026, "week": 41, "pipeline": "savings_insights"}, "calls": 120, "cost_usd": 1.5},
+        {"_id": {"year": 2026, "week": 42, "pipeline": "tip_research"}, "calls": 6, "cost_usd": 0.07},
+        {"_id": {"year": 2026, "week": 42, "pipeline": "tip_research_tavily"}, "calls": 6, "cost_usd": 0.0},
+    ]
+    monkeypatch.setattr(admin_usage, "llm_usage_col", _FakeLlmUsageCol([], weekly_rows=rows))
+    monkeypatch.setattr(admin_usage, "get_subscription", _fake_get_subscription)
+    result = asyncio.run(admin_llm_usage(month="2026-10", user={"name": "Bot", "email": "bot@x"}))
+    assert result["weekly_calls"][0] == {"week": "2026-W41", "pipeline": "savings_insights", "calls": 120, "cost_usd": 1.5}
+    assert {r["pipeline"] for r in result["weekly_calls"]} == {"savings_insights", "tip_research", "tip_research_tavily"}

@@ -220,6 +220,14 @@ def test_incoherence_a_repair_pass_heals_the_corrupted_doc(monkeypatch):
     monkeypatch.setattr(savings_insights, "_detect_insight_categories", fake_detect)
     monkeypatch.setattr(savings_insights, "_find_triggered_transactions", fake_triggered)
 
+    async def no_research(*a, **k):
+        # B48: the forced energy and groceries categories would otherwise reach
+        # the shared research layer (a real collection); this test is about
+        # the tri-state repair, not research.
+        return None
+
+    monkeypatch.setattr(savings_insights, "_tip_content_for", no_research)
+
     _run(_refresh_savings_insights_for_user("kevin"))
 
     assert "verified_savings" not in col.doc
@@ -406,7 +414,7 @@ def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(m
     async def fake_verified(user_id, existing):
         return None
 
-    async def fake_content(category_key, user_id, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by, **kw):
         # Simulate a generation failure (e.g. Tavily quota exhausted) — the
         # exact condition under which old content must NOT be blanked.
         return None
@@ -414,7 +422,7 @@ def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(m
     monkeypatch.setattr(savings_insights, "_detect_insight_categories", fake_detect)
     monkeypatch.setattr(savings_insights, "_find_triggered_transactions", fake_triggered)
     monkeypatch.setattr(savings_insights, "_check_verified_saving", fake_verified)
-    monkeypatch.setattr(savings_insights, "_generate_savings_insight_content", fake_content)
+    monkeypatch.setattr(savings_insights, "_tip_content_for", fake_content)
 
     _run(_refresh_savings_insights_for_user("kevin"))
 

@@ -346,6 +346,17 @@ After the G270 branch is merged and the API has restarted (which creates the ind
 
 Until it runs, the holdings endpoint falls back to any legacy per-holding price, and the daily worker links unlinked holdings itself, so ordering is not critical. Production needs Kevin's go-ahead.
 
+## B48: shared savings-tip research (optional backfill, once per environment)
+
+The B48 branch adds the `tip_research` collection (index created on API start) and changes the per-user tip `PROMPT_VERSION` to 7, so each stored tip is recomposed once from shared research at its next pass. Optionally pre-create the empty shared keys for tips already in date (it copies nothing from any tip; dry-run, counts only, production needs Kevin's go-ahead):
+
+```bash
+.venv/bin/python scripts/backfill_tip_research.py            # dry-run, writes nothing
+.venv/bin/python scripts/backfill_tip_research.py --apply    # creates empty pending keys; idempotent
+```
+
+The shared layer fills from fresh fetches in the first week either way. Read the Tavily and OpenRouter call counts before and after from `GET /admin/llm-usage` (`weekly_calls`), method in docs/ops/TIP_RESEARCH.md. `TIP_RESEARCH_PROFILE_KEYS` stays off unless Kevin decides otherwise.
+
 ## G278: statement periods for already-uploaded statements
 
 G278 makes the statement parser capture the period figures (opening value and date, payments in, fees, interest, and every dated "Bought N units" line). They are stored per statement in the account's `statement_periods`, one entry per closing date, and the provider anchor lives on the same account document as `anchor` and `anchor_history`. No migration is needed for the anchor.

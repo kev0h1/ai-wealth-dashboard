@@ -71,14 +71,22 @@ def _setup(monkeypatch, *, applicable, triggered_by_map, existing_docs=()):
 
     calls: list[str] = []
 
-    async def fake_content(category_key, user_id, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by, allow_fetch=True, **kw):
+        # B48: every call here stands for a real shared fetch (it sets
+        # `fetched`); once the per-pass fetch cap is hit the pass asks with
+        # allow_fetch False and, with nothing cached, gets "deferred".
+        outcome = savings_insights._RESEARCH_OUTCOME.get()
+        if not allow_fetch:
+            outcome["deferred"] = True
+            return None
         calls.append(category_key)
+        outcome["fetched"] = True
         return {"title": f"{category_key} title", "body": f"{category_key} body", "savings_estimate": None}
 
     monkeypatch.setattr(savings_insights, "_detect_insight_categories", fake_detect)
     monkeypatch.setattr(savings_insights, "_find_triggered_transactions", fake_triggered)
     monkeypatch.setattr(savings_insights, "_check_verified_saving", fake_verified)
-    monkeypatch.setattr(savings_insights, "_generate_savings_insight_content", fake_content)
+    monkeypatch.setattr(savings_insights, "_tip_content_for", fake_content)
     return col, calls
 
 

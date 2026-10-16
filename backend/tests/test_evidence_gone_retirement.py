@@ -243,7 +243,7 @@ def _setup_refresh(monkeypatch, *, applicable, docs, triggered_by_map, spend_map
         calls["spend_check"].append(category_key)
         return (spend_map or {}).get(category_key, 0.0)
 
-    async def fake_content(category_key, user_id, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by, **kw):
         calls["content"] += 1
         if generated_content is None:
             return {"title": "New title", "body": "New body", "savings_estimate": "~£10/mo"}
@@ -253,7 +253,7 @@ def _setup_refresh(monkeypatch, *, applicable, docs, triggered_by_map, spend_map
     monkeypatch.setattr(savings_insights, "_find_triggered_transactions", fake_triggered)
     monkeypatch.setattr(savings_insights, "_check_verified_saving", fake_verified)
     monkeypatch.setattr(savings_insights, "_category_trigger_spend_total", fake_spend_total)
-    monkeypatch.setattr(savings_insights, "_generate_savings_insight_content", fake_content)
+    monkeypatch.setattr(savings_insights, "_tip_content_for", fake_content)
 
     return col, calls
 
