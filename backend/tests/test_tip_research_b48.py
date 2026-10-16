@@ -273,6 +273,19 @@ def test_value_level_guard_rejects_emails_figures_and_personal_words():
     tr.assert_no_user_data(bad(typical_low=None))
 
 
+def test_source_urls_are_plain_scheme_host_path_only():
+    def doc(u):
+        return {"findings": {"sources": [u]}}
+    tr.assert_no_user_data(doc("https://example.com/plans/sim"))
+    for bad in ("https://example.com/p?paid=£56", "https://example.com/p?a=1", "https://example.com/p#frag",
+                "https://example.com/mail%40example.com", "https://example.com/%C2%A356",
+                "http://example.com/p", "https://example.com/a@b.co"):
+        with pytest.raises(ValueError):
+            tr.assert_no_user_data(doc(bad))
+    assert si._clean_sources(["https://example.com/a?paid=£56#x", "http://nope.com/x", "https://example.com/a"]) == [
+        "https://example.com/a"]
+
+
 def test_findings_text_with_a_figure_or_personal_word_is_not_shared():
     parsed = dict(LLM_FINDINGS, headline="Plans typically cost £10 a month",
                   alternatives=[{"name": "Giffgaff", "price": 10, "note": "your best bet"}],

@@ -2013,6 +2013,24 @@ def _grounded_number(value, allowed: set[float]) -> Optional[float]:
     return round(n, 2)
 
 
+def _clean_sources(urls: list[str]) -> list[str]:
+    """Source URLs stored as scheme + host + path only: query string and
+    fragment are stripped, and anything the guard would still refuse is dropped."""
+    out: list[str] = []
+    for u in urls:
+        parts = urlparse(str(u))
+        if parts.scheme != "https" or not parts.netloc:
+            continue
+        clean = f"https://{parts.netloc}{parts.path}"
+        try:
+            tip_research.assert_no_user_data({"findings": {"sources": [clean]}})
+        except ValueError:
+            continue
+        if clean not in out:
+            out.append(clean)
+    return out[:3]
+
+
 def _is_shareable_text(text: str) -> bool:
     """Shared text carries no figure in pounds or decimals (figures live only
     in the numeric fields), no email and no first or second person wording."""
@@ -2091,7 +2109,7 @@ def _build_findings(
         return None, None, "empty"
     findings = {
         "typical_low": low, "typical_high": high, "headline": headline or None,
-        "alternatives": alternatives, "deal": deal, "sources": urls[:3],
+        "alternatives": alternatives, "deal": deal, "sources": _clean_sources(urls),
     }
     return findings, claim_dt, None
 

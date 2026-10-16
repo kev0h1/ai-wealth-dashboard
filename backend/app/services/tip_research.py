@@ -185,7 +185,7 @@ def assert_no_user_data(doc) -> None:
       - a plain number inside `findings` anywhere else;
       - a first or second person word (you, your, I, my, me, we, our) in a
         text field.
-    Source URLs are exempt from the figure and pronoun checks only."""
+    Source URLs must be https scheme, host and path only (no query, fragment, %40, pound sign or %C2%A3); they are exempt from the figure and pronoun checks only."""
     def walk(node, path):
         if isinstance(node, dict):
             for k, v in node.items():
@@ -200,6 +200,9 @@ def assert_no_user_data(doc) -> None:
             if _EMAIL_RE.search(node):
                 raise ValueError(f"tip_research document carries an email address at {where}")
             if where.startswith("findings.sources."):
+                low = node.lower()
+                if not node.startswith("https://") or any(b in low for b in ("?", "#", "%40", "£", "%c2%a3")):
+                    raise ValueError(f"tip_research source is not a plain scheme, host and path at {where}")
                 return
             if _MONEY_OR_DECIMAL_RE.search(node):
                 raise ValueError(f"tip_research document carries a figure in text at {where}")
