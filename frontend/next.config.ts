@@ -409,8 +409,6 @@ function withSentry(config: NextConfig): NextConfig {
   return withSentryConfig(config, {
     silent: true,
     telemetry: false,
-    disableLogger: true,
-    automaticVercelMonitors: false,
     release: { name: resolveReleaseSha() || undefined },
     sourcemaps: { disable: !sentryAuthToken, deleteSourcemapsAfterUpload: true },
     ...(sentryAuthToken
