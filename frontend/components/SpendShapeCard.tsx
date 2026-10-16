@@ -18,6 +18,8 @@ import { ChevronRight } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { JOB_COLOR, JobDot, SHAPE_LEGEND } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
+import PaySplitComparison from "@/components/PaySplitComparison";
+import type { GuideId } from "@/lib/paySplitReference";
 import { PaySplitBar, beyondFigures, beyondSentence, percentBase } from "@/components/PaySplitBeyond";
 
 // SHAPE_LEGEND is imported from MoneyShapeHero.tsx (G13) so this card and
@@ -83,7 +85,7 @@ function Cell({ label, value, money, dotId, amberDot }: { label: string; value: 
         <span className="truncate">{label}</span>
       </p>
       {money ? (
-        <MoneyText text={value} className="mt-0.5 block text-[13px] font-semibold tabular-nums text-slate-900 dark:text-slate-100 truncate" />
+        <MoneyText text={value} className="mt-0.5 block text-[13px] font-semibold tabular-nums text-slate-900 dark:text-slate-100" />
       ) : (
         <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-slate-900 dark:text-slate-100 truncate">{value}</p>
       )}
@@ -105,10 +107,14 @@ export default function SpendShapeCard({
   shape,
   hideValues,
   onOpen,
+  reference,
+  onReferenceChange,
 }: {
   shape: MoneyShape | null | undefined;
   hideValues: boolean;
   onOpen: () => void;
+  reference?: GuideId;
+  onReferenceChange?: (id: GuideId) => void;
 }) {
   if (shape === undefined) return <CardSkeleton />;
   if (shape === null || shape.status === "thin") return null;
@@ -122,11 +128,13 @@ export default function SpendShapeCard({
   const hasBeyond = figures.beyond >= 1;
   const money = (n: number) => (hideValues ? "£••••" : `£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`);
   const sentence = beyondSentence(figures, money);
+  const longBeyond = hasBeyond && money(figures.beyond).length > 7;
   const segs = jobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }));
   // The engine sends shares of what went out when overspent (the bar is
   // outgoings) and of what came in otherwise; the caption says which.
 
   return (
+    <div className="space-y-3">
     <button
       type="button"
       onClick={onOpen}
@@ -136,7 +144,7 @@ export default function SpendShapeCard({
         <div className="min-w-0 flex-1">
           <CardLabel shape={shape} />
           <PaySplitBar segs={segs} figures={figures} size="card" money={money} />
-          <div className="mt-3 grid grid-cols-4 gap-2">
+          <div className={`mt-3 grid gap-2 ${longBeyond ? "grid-cols-2" : "grid-cols-4"}`}>
             {fixed && <Cell dotId="fixed" label="Fixed" value={`${Math.round(fixed.share)}%`} />}
             {moved && <Cell dotId="moved" label="Moved" value={`${Math.round(moved.share)}%`} />}
             {free && <Cell dotId="free" label="Free" value={`${Math.round(free.share)}%`} />}
@@ -152,5 +160,7 @@ export default function SpendShapeCard({
         <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       </div>
     </button>
+    <PaySplitComparison shape={shape} view="card" hideValues={hideValues} reference={reference} onReferenceChange={onReferenceChange} />
+    </div>
   );
 }

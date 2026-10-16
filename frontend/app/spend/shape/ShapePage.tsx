@@ -23,6 +23,9 @@ import { usePennySheet } from "@/components/PennySheetProvider";
 import MoneyShapeHero from "./MoneyShapeHero";
 import WhatWorksCard from "./WhatWorksCard";
 import ReferenceShapesRow from "./ReferenceShapesRow";
+import PaySplitComparison from "@/components/PaySplitComparison";
+import { usePreferences } from "@/components/PreferencesContext";
+import type { GuideId } from "@/lib/paySplitReference";
 
 function ShapeSkeleton() {
   return (
@@ -36,7 +39,9 @@ function ShapeSkeleton() {
 export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape } = {}) {
   const router = useRouter();
   const { open: openPennySheet } = usePennySheet();
+  const { hideNetWorth, preferencesReady } = usePreferences();
   const isPreview = previewShape !== undefined;
+  const [previewReference, setPreviewReference] = useState<GuideId>("50-30-20");
 
   const [shape, setShape] = useState<MoneyShape | null>(() => previewShape ?? peekMoneyShape());
   const [loading, setLoading] = useState(() => !isPreview && shape === null);
@@ -78,7 +83,7 @@ export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape 
   const askPenny = (ask: string) => openPennySheet({ screen: "spend", ask });
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-5xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Sticky back header — same convention as TransactionsPage.tsx (the
           app's other single-column drill-in). */}
       <div className="sticky top-0 z-10 bg-[#f0f2f7]/90 dark:bg-[#0f172a]/90 backdrop-blur-sm border-b border-slate-200/60 dark:border-slate-700/60">
@@ -117,7 +122,9 @@ export default function ShapePage({ shape: previewShape }: { shape?: MoneyShape 
         </div>
       ) : (
         <div className="px-4 pt-4 space-y-4">
-          <MoneyShapeHero shape={shape} />
+          <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-6">
+            <MoneyShapeHero shape={shape} hideValues={isPreview ? false : hideNetWorth || !preferencesReady} renderComparison={(selection, average) => <PaySplitComparison shape={selection} average={average} reference={isPreview ? previewReference : undefined} onReferenceChange={isPreview ? setPreviewReference : undefined} hideValues={isPreview ? false : undefined} />} />
+          </div>
           <WhatWorksCard ww={shape.what_works} onAskPenny={askPenny} />
           <ReferenceShapesRow onAskPenny={askPenny} />
           {error && (

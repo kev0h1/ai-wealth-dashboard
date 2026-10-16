@@ -77,7 +77,7 @@ _N_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 #: Bump whenever the cached response shape changes, so a stale doc from a
 #: previous shape (e.g. the old horizon-sliced "trend"/"trend_summary") is
 #: never served even if its computed_at TTL hasn't expired yet.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -328,12 +328,32 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     }
 
 
-def _build_jobs(fixed: float, moved: float, free: float, left: float, shares: dict, categories: dict) -> list[dict]:
+def _job_drivers(total: float, category_totals: dict[str, float]) -> list[dict]:
+    """G279: signed category evidence from the exact job, in penny units.
+
+    Some savings credits and evidenced own-account moves deliberately have
+    no movement-category label. Keep that real residual explicit, never
+    invent a merchant or attach it to an unrelated income category. The
+    same residual also preserves the rounding penny on averaged evidence.
+    """
+    rows = [
+        {"category": category, "amount": round(amount, 2)}
+        for category, amount in sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
+        if round(amount, 2) != 0
+    ]
+    residual = round(round(total, 2) - sum(row["amount"] for row in rows), 2)
+    if residual:
+        rows.append({"category": None, "amount": residual})
+    return rows
+
+
+def _build_jobs(fixed: float, moved: float, free: float, left: float, shares: dict, categories: dict,
+                category_totals: dict | None = None) -> list[dict]:
     """The 4-job list shape shared by the hero/each period/each average
     entry. fixed/moved/free are debit-only jobs; left is the credit
     (income) side -- the frontend ANDs "txn_type" into its
     `/transactions?categories=...` drill-through link."""
-    return [
+    jobs = [
         {"id": "fixed", "label": "Fixed (bills, debt, rent)", "amount": round(fixed, 2),
          "share": shares["fixed"], "categories": categories["fixed"], "txn_type": "debit"},
         {"id": "moved", "label": "Moved to savings", "amount": round(moved, 2),
@@ -343,6 +363,11 @@ def _build_jobs(fixed: float, moved: float, free: float, left: float, shares: di
         {"id": "left", "label": "Left over", "amount": round(left, 2),
          "share": shares["left"], "categories": categories["left"], "txn_type": "credit"},
     ]
+    if category_totals is not None:
+        for job in jobs:
+            if job["id"] != "left":
+                job["drivers"] = _job_drivers(job["amount"], category_totals.get(job["id"], {}))
+    return jobs
 
 
 def verdict_for(fixed_share: int, free_share: int, overspent: float) -> str:
@@ -424,10 +449,25 @@ def average_for_window(periods_newest_first: list[dict], months: int) -> dict | 
 
     shares = shares_of(fixed_mean, moved_mean, free_mean, left_mean, overspent_mean)
     categories = {job: _union_categories(periods_newest_first, job) for job in ("fixed", "moved", "free", "left")}
-    jobs = _build_jobs(fixed_mean, moved_mean, free_mean, left_mean, shares, categories)
+    category_means = {}
+    for job in ("fixed", "moved", "free"):
+        totals: dict[str, float] = {}
+        for period in periods_newest_first:
+            for category, amount in period["category_totals"][job].items():
+                totals[category] = totals.get(category, 0.0) + amount / k
+        category_means[job] = totals
+    jobs = _build_jobs(fixed_mean, moved_mean, free_mean, left_mean, shares, categories, category_means)
 
     outflow_mean = fixed_mean + moved_mean + free_mean
     verdict = average_verdict_for(k, shares["fixed"], shares["free"], overspent_mean, outflow_mean, take_home_mean)
+    # G279: preserve the legacy mean of clamped left/gap values above, but
+    # present one coherent mean-flow split alongside an income reference.
+    # Mean(individual shortfalls) is not max(mean(out)-mean(in), 0).
+    net_left = max(0.0, take_home_mean - outflow_mean)
+    net_beyond = max(0.0, outflow_mean - take_home_mean)
+    net_shares = shares_of(fixed_mean, moved_mean, free_mean, net_left, net_beyond)
+    net_jobs = _build_jobs(fixed_mean, moved_mean, free_mean, net_left, net_shares, categories, category_means)
+    net_verdict = average_verdict_for(k, net_shares["fixed"], net_shares["free"], net_beyond, outflow_mean, take_home_mean)
 
     return {
         "months": months,
@@ -444,6 +484,8 @@ def average_for_window(periods_newest_first: list[dict], months: int) -> dict | 
         "savings_drawdown": 0.0,
         "jobs": jobs,
         "verdict": verdict,
+        "net_jobs": net_jobs,
+        "net_verdict": net_verdict,
     }
 
 
@@ -698,7 +740,7 @@ async def compute_money_shape(uid: str) -> dict:
             "beyond_source": p["beyond_source"],
             "card_growth": round(max(0.0, p["card_growth"]), 2),
             "savings_drawdown": round(max(0.0, p["savings_drawdown"]), 2),
-            "jobs": _build_jobs(p["fixed"], p["moved"], p["free"], p["left"], p["shares"], p["categories"]),
+            "jobs": _build_jobs(p["fixed"], p["moved"], p["free"], p["left"], p["shares"], p["categories"], p["category_totals"]),
             "verdict": verdict_for(p["shares"]["fixed"], p["shares"]["free"], p["overspent"]),
         }
         for p in valid_periods_full

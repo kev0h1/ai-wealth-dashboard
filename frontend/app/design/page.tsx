@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "pay-split-compare",
-    name: "Pay split compared with a guide · G279",
-    description: "A Paired comparison, B Follow the difference. The production G269 instrument plus an income-based reference comparison, remembered example choice and reconciled section evidence. Illustrative figures only, no account changes. Both Spend card and drill-in · ?variant=a|b&view=card|detail&scenario=under|fixed|free|beyond|thin&mode=light|dark",
-    variants: [{ label: "A · Paired comparison", value: "a" }, { label: "B · Follow the difference", value: "b" }],
-    states: [{ label: "Within reference costs", value: "under" }, { label: "Fixed above", value: "fixed" }, { label: "Free above", value: "free" }, { label: "Beyond income", value: "beyond" }, { label: "First full period", value: "thin" }],
-    group: "current",
-  },
-  {
     slug: "keep-money-here",
     name: "Keep money in this account · G274",
     description: "G274: A Reserve here, B Details then review. Purpose and amount first, reserve in the paying account by default, optional receiving account and transfer rule. One/several/no-context/no-eligible-source fixtures, both themes, local draft confirmation only. No real changes · ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",

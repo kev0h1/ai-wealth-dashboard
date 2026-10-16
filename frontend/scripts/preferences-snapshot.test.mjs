@@ -79,7 +79,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile } from "../lib/preferencesSnapshot.ts";
+import { DEFAULT_PAY_SPLIT_REFERENCE, fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile, paySplitReferenceFromSnapshot } from "../lib/preferencesSnapshot.ts";
 import { shouldAcceptPreferencesSnapshot } from "../lib/preferencesVersion.ts";
 import { createPreferenceSaver } from "../lib/preferenceSave.ts";
 import { createSerialQueue } from "../lib/serialQueue.ts";
@@ -144,6 +144,35 @@ async function testMakeFieldReconcileExtractsOnlyItsOwnKey() {
 
   const reconcileNoServer = makeFieldReconcile(async () => null, "dark_mode");
   check("makeFieldReconcile returns undefined when the fetch itself yields nothing", (await reconcileNoServer()) === undefined);
+
+  const reconcilePaySplit = makeFieldReconcile(
+    async () => ({ pay_split_reference: "conscious" }),
+    "pay_split_reference",
+    paySplitReferenceFromSnapshot,
+  );
+  check("makeFieldReconcile normalises a valid pay-split reference", (await reconcilePaySplit()) === "conscious");
+
+  const reconcileCorruptPaySplit = makeFieldReconcile(
+    async () => ({ pay_split_reference: "60-20-20" }),
+    "pay_split_reference",
+    paySplitReferenceFromSnapshot,
+  );
+  check("makeFieldReconcile normalises a corrupt pay-split reference", (await reconcileCorruptPaySplit()) === DEFAULT_PAY_SPLIT_REFERENCE);
+
+  const reconcileMissingPaySplit = makeFieldReconcile(
+    async () => ({}), "pay_split_reference", paySplitReferenceFromSnapshot,
+  );
+  check("makeFieldReconcile normalises a missing pay-split reference", (await reconcileMissingPaySplit()) === DEFAULT_PAY_SPLIT_REFERENCE);
+
+  const reconcileUnavailablePaySplit = makeFieldReconcile(
+    async () => null, "pay_split_reference", paySplitReferenceFromSnapshot,
+  );
+  check("makeFieldReconcile leaves an unavailable pay-split snapshot undefined", (await reconcileUnavailablePaySplit()) === undefined);
+}
+
+function testPaySplitReferenceSnapshotNormalisation() {
+  check("a valid saved pay-split reference is preserved", paySplitReferenceFromSnapshot("conscious") === "conscious");
+  check("a missing or corrupt pay-split reference uses the approved default", paySplitReferenceFromSnapshot(null) === DEFAULT_PAY_SPLIT_REFERENCE && paySplitReferenceFromSnapshot("60-20-20") === DEFAULT_PAY_SPLIT_REFERENCE);
 }
 
 function testApplyWholeDocumentAppliesEveryFieldWithNoSkip() {
@@ -463,22 +492,23 @@ const FIELD_SAVER_PAIRS = [
   { key: "debt_target_months", saverVar: "debtTargetMonthsSaver", skipKey: "debtTargetMonths" },
   { key: "debt_tracking_start", saverVar: "debtTrackingStartSaver", skipKey: "debtTrackingStart" },
   { key: "open_last_chat", saverVar: "openLastChatSaver", skipKey: "openLastChat" },
+  { key: "pay_split_reference", saverVar: "paySplitReferenceSaver", skipKey: "paySplitReference" },
 ];
 
 function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const contextSrc = readFileSync(path.join(frontendRoot, "components/PreferencesContext.tsx"), "utf-8");
 
-  // Whole-file sanity: exactly five reconcile-via-makeFieldReconcile call
+  // Whole-file sanity: every context-owned field uses makeFieldReconcile.
   // sites, covering exactly the expected keys. This does NOT by itself
   // prove each key is wired to its own saver — a swap between two fields'
   // keys leaves the count and the set both unchanged — which is what the
   // per-saver loop below is for.
   const reconcileLines = [
-    ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
+    ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(\s*fetchPreferencesSnapshot,\s*"([a-z_]+)"(?:,\s*[^\n)]*)?\s*\)/g),
   ].map((m) => m[1]);
-  check("components/PreferencesContext.tsx wires exactly seven fields through makeFieldReconcile", reconcileLines.length === 7);
+  check("components/PreferencesContext.tsx wires exactly eight fields through makeFieldReconcile", reconcileLines.length === 8);
   check(
-    "the seven fields wired are exactly the expected set",
+    "the eight fields wired are exactly the expected set",
     JSON.stringify([...reconcileLines].sort()) === JSON.stringify(FIELD_SAVER_PAIRS.map((f) => f.key).sort())
   );
   check(
@@ -497,7 +527,7 @@ function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
     check(`${saverVar}'s createPreferenceSaver block is found in the real file`, block !== null);
     if (!block) continue;
     const ownReconciles = [
-      ...block.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(fetchPreferencesSnapshot,\s*"([a-z_]+)"\)/g),
+      ...block.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(\s*fetchPreferencesSnapshot,\s*"([a-z_]+)"(?:,\s*[^\n)]*)?\s*\)/g),
     ];
     check(`${saverVar} has exactly one reconcile: makeFieldReconcile(...) call in its own block`, ownReconciles.length === 1);
     check(
@@ -505,6 +535,7 @@ function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
       ownReconciles.length === 1 && ownReconciles[0][1] === key
     );
   }
+
 }
 
 function testRealLoadPreferencesGuardsEverySaverWithIsSaving() {
@@ -536,6 +567,7 @@ async function main() {
   await testFetchGatedSnapshotAppliesFreshnessGate();
   await testFetchGatedSnapshotSwallowsFetchFailure();
   await testMakeFieldReconcileExtractsOnlyItsOwnKey();
+  testPaySplitReferenceSnapshotNormalisation();
   testApplyWholeDocumentAppliesEveryFieldWithNoSkip();
   testApplyWholeDocumentSkipsOnlyTheGuardedField();
 

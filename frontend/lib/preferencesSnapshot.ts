@@ -82,6 +82,16 @@
  * rule anywhere. `PayPeriodConfig` is imported as a type only, which Node's
  * type-stripping erases entirely and never tries to resolve at runtime. */
 import type { PayPeriodConfig } from "./payPeriod.js";
+import type { GuideId } from "./paySplitReference.js";
+
+export const DEFAULT_PAY_SPLIT_REFERENCE: GuideId = "50-30-20";
+
+/** Return a picker-supported ID without repairing legacy stored data. */
+export function paySplitReferenceFromSnapshot(value: unknown): GuideId {
+  return value === "50-30-20" || value === "conscious" || value === "first"
+    ? value
+    : DEFAULT_PAY_SPLIT_REFERENCE;
+}
 
 /** Structural match for a React ref (or any mutable holder) tracking the
  * highest preferences `version` accepted so far — a type, not an import,
@@ -125,10 +135,11 @@ export function fetchGatedSnapshot(
  * Builds ONE field's `reconcile()` callback for `createPreferenceSaver`
  * (`lib/preferenceSave.ts`): fetch a gated snapshot, extract just `key`,
  * return `undefined` if there is no server truth to offer (the fetch
- * failed, the snapshot was stale, or the key was absent) — the exact
+ * failed, the snapshot was stale, or the key was absent without an explicit
+ * normaliser) — the exact
  * contract `createPreferenceSaver` expects, so it falls back to the
  * pre-write value in that case (see its own docstring, point 4). Never
- * applies anything — extraction only. All six of PreferencesContext.tsx's
+ * applies anything — extraction only. All eight of PreferencesContext.tsx's
  * field savers are built from this one function rather than each hand-
  * writing an near-identical `async () => { const server = ...; return
  * server ? server.x : undefined; }` — see
@@ -137,11 +148,13 @@ export function fetchGatedSnapshot(
  */
 export function makeFieldReconcile<T>(
   fetchSnapshot: () => Promise<Record<string, any> | null>,
-  key: string
+  key: string,
+  normalise?: (value: unknown) => T
 ): () => Promise<T | undefined> {
   return async () => {
     const server = await fetchSnapshot();
-    return server ? (server[key] as T) : undefined;
+    if (!server) return undefined;
+    return normalise ? normalise(server[key]) : (server[key] as T);
   };
 }
 
@@ -158,6 +171,8 @@ export interface WholeDocumentApplyCallbacks {
   applyDebtTrackingStart: (v: string) => void;
   /** G248: optional so older callers and tests need not supply it. */
   applyOpenLastChat?: (v: boolean) => void;
+  /** G279: optional so older narrow callers remain compatible. */
+  applyPaySplitReference?: (v: GuideId) => void;
   setSpendWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
   setDebtBurndownOverrides: (v: any) => void;
@@ -181,6 +196,7 @@ export interface WholeDocumentApplySkip {
   debtTargetMonths?: () => boolean;
   debtTrackingStart?: () => boolean;
   openLastChat?: () => boolean;
+  paySplitReference?: () => boolean;
 }
 
 /**
@@ -209,6 +225,7 @@ export function applyWholeDocument(
   if (p.debt_target_months && !skip.debtTargetMonths?.()) cb.applyDebtTargetMonths(p.debt_target_months as number);
   if (p.debt_tracking_start && !skip.debtTrackingStart?.()) cb.applyDebtTrackingStart(p.debt_tracking_start as string);
   if (p.open_last_chat !== undefined && !skip.openLastChat?.()) cb.applyOpenLastChat?.(p.open_last_chat);
+  if (!skip.paySplitReference?.()) cb.applyPaySplitReference?.(paySplitReferenceFromSnapshot(p.pay_split_reference));
   if (Array.isArray(p.spend_widgets)) cb.setSpendWidgets(p.spend_widgets as string[]);
   if (p.home_pinned_widget !== undefined) cb.setHomePinnedWidget(p.home_pinned_widget ?? null);
   if (p.debt_burndown_overrides !== undefined) cb.setDebtBurndownOverrides(p.debt_burndown_overrides ?? null);

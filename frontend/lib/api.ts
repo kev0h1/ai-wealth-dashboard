@@ -3288,6 +3288,7 @@ export const api = {
     }).then((r) => toJson<SavingsInsights>(r)),
   getPreferences: () => get<{
     hide_net_worth: boolean;
+    pay_split_reference?: "50-30-20" | "conscious" | "first";
     open_last_chat?: boolean;
     show_tips?: boolean;
     dark_mode?: boolean;
@@ -3321,6 +3322,7 @@ export const api = {
   getTaxAnnualisedIncome: () => get<{ annualised_income: number | null }>("/tax/annualised-income"),
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
+    pay_split_reference: "50-30-20" | "conscious" | "first";
     open_last_chat: boolean;
     show_tips: boolean;
     dark_mode: boolean;
