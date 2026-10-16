@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -16,7 +17,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
-from app.core.llm import openrouter_chat
+from app.core.llm import openrouter_chat, record_tavily_call
 from app.core import timeutil
 from app.services import tips_research_health
 from app.services.categories import (
@@ -1454,25 +1455,17 @@ _RESEARCH_OUTCOME: contextvars.ContextVar[Optional[dict]] = contextvars.ContextV
 )
 
 
-async def _generate_savings_insight_content(
-    category_key: str,
-    user_id: str,
-    user_context: Optional[dict] = None,
-    triggered_by: Optional[list[dict]] = None,
-) -> Optional[dict]:
-    # B44: `outcome`, when the weekly pass has set one (a ContextVar, so the
-    # function signature stays stable for its many callers and stubs), is filled with {"failure": <static code>}
-    # whenever the research provider (Tavily) is the reason nothing came
-    # back, so the weekly pass can tell an outage from an ordinary empty
-    # result. Codes: quota, auth, rate, server, timeout, client, error,
-    # backoff (a recent quota/auth/rate failure is still suppressing calls).
-    outcome      = _RESEARCH_OUTCOME.get()
-    cfg          = INSIGHT_CATEGORIES[category_key]
-    now          = datetime.utcnow()
-    today_label  = now.strftime("%B %Y")
-    query        = cfg["query"].format(year=now.year)
+async def _tavily_search(
+    query_text: str, category_key: str, outcome: Optional[dict], *, pipeline: str,
+) -> Optional[tuple[list[str], list[str]]]:
+    """One Tavily search with the B44 outage handling: returns (snippets, urls),
+    or None when a recent quota/auth/rate failure is still suppressing calls.
+    Sets outcome["failure"] to a static code on any provider failure, records
+    the failure in tips_research_health, and counts every request actually sent
+    (B48 cost counter, `pipeline` names the caller in /admin/llm-usage). Never
+    receives or sends user data: `query_text` is category and provider only."""
     web_snippets: list[str] = []
-
+    urls: list[str] = []
     # Observability (owner phone report 2026-08-28: a live "Find me
     # alternatives" tap failed with the generic "Couldn't check just now",
     # and uvicorn runs `--log-level warning` in prod, so this whole block's
@@ -1495,11 +1488,19 @@ async def _generate_savings_insight_content(
     if TAVILY_API_KEY:
         async with httpx.AsyncClient(timeout=20) as client:
             try:
-                r = await client.post(
-                    "https://api.tavily.com/search",
-                    json={"api_key": TAVILY_API_KEY, "query": f"{query} {today_label}",
-                          "search_depth": "basic", "max_results": 3, "include_answer": True},
-                )
+                _t0 = time.monotonic()
+                try:
+                    r = await client.post(
+                        "https://api.tavily.com/search",
+                        json={"api_key": TAVILY_API_KEY, "query": query_text,
+                              "search_depth": "basic", "max_results": 3, "include_answer": True},
+                    )
+                finally:
+                    # Counted whether it answered, failed or timed out: the
+                    # request was sent.
+                    await record_tavily_call(
+                        pipeline=pipeline, latency_ms=int((time.monotonic() - _t0) * 1000),
+                    )
                 if r.status_code == 200:
                     data = r.json()
                     if data.get("answer"):
@@ -1508,6 +1509,10 @@ async def _generate_savings_insight_content(
                         snippet = res.get("content", "")[:250]
                         if snippet:
                             web_snippets.append(snippet)
+                    for res in (data.get("results") or [])[:3]:
+                        url = str(res.get("url") or "")
+                        if url.startswith("https://") and len(url) <= 200:
+                            urls.append(url)
                     await tips_research_health.record_success(datetime.utcnow())  # naive-ok: persisted provider-health audit timestamp
                 else:
                     code = tips_research_health.classify_http_status(r.status_code)
@@ -1544,6 +1549,32 @@ async def _generate_savings_insight_content(
             "savings_insights research: TAVILY_API_KEY not configured, skipping search for category=%s",
             category_key,
         )
+    return web_snippets, urls
+
+
+async def _generate_savings_insight_content(
+    category_key: str,
+    user_id: str,
+    user_context: Optional[dict] = None,
+    triggered_by: Optional[list[dict]] = None,
+) -> Optional[dict]:
+    # B44: `outcome`, when the weekly pass has set one (a ContextVar, so the
+    # function signature stays stable for its many callers and stubs), is filled with {"failure": <static code>}
+    # whenever the research provider (Tavily) is the reason nothing came
+    # back, so the weekly pass can tell an outage from an ordinary empty
+    # result. Codes: quota, auth, rate, server, timeout, client, error,
+    # backoff (a recent quota/auth/rate failure is still suppressing calls).
+    outcome      = _RESEARCH_OUTCOME.get()
+    cfg          = INSIGHT_CATEGORIES[category_key]
+    now          = datetime.utcnow()
+    today_label  = now.strftime("%B %Y")
+    query        = cfg["query"].format(year=now.year)
+    searched = await _tavily_search(
+        f"{query} {today_label}", category_key, outcome, pipeline="savings_insights_tavily",
+    )
+    if searched is None:
+        return None
+    web_snippets, _urls = searched
 
     if not web_snippets:
         log.warning(

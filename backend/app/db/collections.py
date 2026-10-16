@@ -82,6 +82,9 @@ investment_holdings_col = db["investment_holdings"]
 # G270: shared per-instrument price table (_id = ISIN, else TICKER:<t>, else NAME:<n>).
 # Holds NO user data: never write a user id here.
 instrument_prices_col   = db["instrument_prices"]
+# B48: shared, non-personal savings-tip research (_id = category|provider|band|UK|vN).
+# Holds NO user data: never write a user id, amount or transaction here.
+tip_research_col        = db["tip_research"]
 investment_valuations_col = db["investment_valuations"]  # G271: one daily value snapshot per account, user_id-keyed
 investment_notes_col    = db["investment_contract_notes"]  # per-trade contract notes, additive between statements
 
@@ -559,6 +562,13 @@ ERASURE_MANIFEST = frozenset({
     # sees the binding was decided on; erasing a user must never delete prices
     # other users' holdings read.
     "instrument_prices_col",
+    # B48: shared savings-tip research keyed by category, provider, coarse price
+    # band and region. Same shape of decision as instrument_prices_col: no
+    # document carries a user id, amount or transaction (tip_research.
+    # assert_no_user_data enforces it on every write), so erase_user's
+    # `user_id`/`_id == uid` sweep deliberately matches nothing in it. Erasing a
+    # user must never delete market research other users' tips read.
+    "tip_research_col",
     # G271: per-user daily valuation snapshots (user_id on every document), so
     # erase_user's `user_id` sweep removes them with the account.
     "investment_valuations_col",

@@ -231,6 +231,28 @@ async def record_llm_usage(
         )
 
 
+TAVILY_MODEL_LABEL = "tavily"
+
+
+async def record_tavily_call(*, pipeline: str, user_id: str | None = None, latency_ms: int = 0) -> None:
+    """B48: one `llm_usage_col` doc per Tavily search request actually sent,
+    the same shape as an OpenRouter call (zero tokens, zero cost, model
+    "tavily") so `GET /admin/llm-usage` counts Tavily calls per pipeline next
+    to OpenRouter calls with no new collection. `user_id` stays None for the
+    shared tip-research layer, which has no user. Never raises."""
+    try:
+        await _ensure_indexes()
+        now = datetime.now(timezone.utc)
+        await llm_usage_col.insert_one({
+            "user_id": user_id, "pipeline": pipeline, "model": TAVILY_MODEL_LABEL,
+            "prompt_tokens": 0, "cached_tokens": 0, "completion_tokens": 0,
+            "cost_usd": 0.0, "latency_ms": int(latency_ms), "ts": now,
+            "year_month": now.strftime("%Y-%m"),
+        })
+    except Exception:
+        logger.warning("llm: failed to record tavily call for pipeline=%s", pipeline, exc_info=True)
+
+
 async def openrouter_chat(
     body: dict,
     *,
