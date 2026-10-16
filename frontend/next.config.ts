@@ -387,7 +387,8 @@ const nextConfig: NextConfig = {
 // E6: Sentry's build wrapper. Source map upload is DISABLED unless
 // SENTRY_AUTH_TOKEN is present in the build environment (UAT and local builds
 // never have it), no tunnel route is added, telemetry is off, and the wrapper
-// is skipped entirely for the Capacitor static export (the client SDK is
+// is skipped entirely for the Capacitor static export and for any build without
+// NEXT_PUBLIC_SENTRY_DSN (the client SDK is
 // loaded by instrumentation-client.ts, which needs no wrapper).
 //
 // @sentry/nextjs is required lazily, and only a genuinely missing module is
@@ -397,7 +398,11 @@ const nextConfig: NextConfig = {
 const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
 
 function withSentry(config: NextConfig): NextConfig {
-  if (MOBILE_EXPORT) return config;
+  // No DSN at build time means no Sentry: leave the config byte-for-byte as it
+  // was, because the wrapper also changes serverExternalPackages, adds
+  // clientTraceMetadata and registers loaders on the instrumentation files,
+  // none of which UAT or a DSN-less build should pick up (E6 review, finding 6).
+  if (MOBILE_EXPORT || !process.env.NEXT_PUBLIC_SENTRY_DSN) return config;
   let withSentryConfig: typeof import("@sentry/nextjs").withSentryConfig;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

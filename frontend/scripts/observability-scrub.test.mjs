@@ -160,4 +160,6 @@ for (const opt of [
   "attachThreads: false", "attachScreenshot: false",
 ]) assert.ok(client.includes(opt), `native option missing: ${opt}`);
 
+assert.match(read("next.config.ts"), /!process\.env\.NEXT_PUBLIC_SENTRY_DSN\) return config/, "withSentryConfig must apply only when a DSN is set");
+
 console.log("observability-scrub: ok");
