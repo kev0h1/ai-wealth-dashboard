@@ -236,3 +236,34 @@ def test_count_script_reports_counts_only_and_is_read_only(monkeypatch):
     assert "connect_stripe_managed=1" in text and "connect_manual=1" in text
     assert "dry-run" in text and "nothing was written" in text
     assert "secret" not in text and "@" not in text
+
+
+# ── admin set-tier break-glass ────────────────────────────────────────────
+
+def _set_tier(monkeypatch, tier, **extra):
+    col = _FakeCol()
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", col)
+    owner = {"email": subscription_router_module.PRIMARY_EMAIL}
+    result = _run(subscription_router_module.admin_set_tier({"email": UID, "tier": tier, **extra}, user=owner))
+    return result, col
+
+
+def test_admin_set_tier_connect_needs_explicit_opt_in_when_off(monkeypatch, caplog):
+    _flag(monkeypatch, False)
+    with pytest.raises(HTTPException) as exc:
+        _set_tier(monkeypatch, "connect")
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException):
+        _set_tier(monkeypatch, "connect", allow_disabled_tier="true")  # must be boolean true
+    with caplog.at_level("WARNING"):
+        result, col = _set_tier(monkeypatch, "connect", allow_disabled_tier=True)
+    assert result["ok"] and col.docs[0]["tier"] == "connect"
+    rec = [r for r in caplog.records if "B51" in r.getMessage()]
+    assert rec and UID not in rec[0].getMessage()
+
+
+def test_admin_set_tier_unaffected_for_other_tiers_and_when_on(monkeypatch):
+    _flag(monkeypatch, False)
+    assert _set_tier(monkeypatch, "max")[0]["ok"]
+    _flag(monkeypatch, True)
+    assert _set_tier(monkeypatch, "connect")[0]["ok"]

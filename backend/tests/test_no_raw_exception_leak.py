@@ -69,8 +69,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/routers/billing.py", 203),
     # ValueError raised by app.core.subscription.grant_pack with an authored
     # message ("pack_id must be one of: ..."); admin-only endpoint.
-    ("app/routers/subscription.py", 274),
-    ("app/routers/subscription.py", 306),
+    ("app/routers/subscription.py", 283),
+    ("app/routers/subscription.py", 315),
     # app.services.safe_calc._CalcError — "Internal only" per its own
     # docstring, every raise site in that module is a static, authored,
     # already-calm string written for this exact Penny-facing surface.

@@ -1,4 +1,5 @@
 """Subscription tier endpoints."""
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +11,7 @@ from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
     TIER_BILLING_PRICES_GBP, TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
-    available_tier_names, billing_period_detail, get_subscription, grant_pack, mcp_allowance,
+    available_tier_names, billing_period_detail, tier_purchasable, get_subscription, grant_pack, mcp_allowance,
     penny_allowance,
 )
 from app.db.collections import subscriptions_col
@@ -22,6 +23,8 @@ from app.db.collections import subscriptions_col
 # `billing_live` follows it straight through and the frontend swaps
 # "Available soon" rows for real checkout/portal buttons (MoreMessagesSheet,
 # ConnectedAssistantsCard, the "Your plan" Settings card).
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["subscription"])
 
@@ -211,6 +214,12 @@ async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "email required")
     if tier_name not in TIER_BY_NAME:
         raise HTTPException(400, f"tier must be one of: {list(TIER_BY_NAME)}")
+    # B51: break-glass only. A tier that is switched off (Connect while
+    # CONNECT_TIER_ENABLED is off) needs an explicit opt-in on the request.
+    if not tier_purchasable(tier_name):
+        if body.get("allow_disabled_tier") is not True:
+            raise HTTPException(400, "that tier is not available; send allow_disabled_tier: true to set it anyway")
+        logger.warning("B51: admin set-tier assigning disabled tier %s (allow_disabled_tier)", tier_name)
 
     await subscriptions_col.update_one(
         {"user_id": target_email},
