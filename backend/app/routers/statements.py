@@ -8,7 +8,7 @@ from app.core.auth import current_user
 from app.core.subscription import check_statement_upload_allowed, record_statement_upload
 from app.core import timeutil
 from app.db.collections import statement_accounts_col, statement_transactions_col
-from app.services.categorisation import rule_categorise
+from app.services.categorisation import rule_categorise, credit_guard
 from app.services.pdf import extract_pdf_text, llm_parse_statement
 
 router = APIRouter(tags=["statements"])
@@ -148,7 +148,7 @@ async def statement_upload(
                 pass
 
         txn_id = _statement_dedup_key(acc_id, ref, raw_date, txn_type, description)
-        cat    = rule_categorise("", description)
+        cat    = credit_guard(rule_categorise("", description), is_credit=txn_type == "credit")
         await statement_transactions_col.update_one(
             {"_id": txn_id},
             {"$set": {

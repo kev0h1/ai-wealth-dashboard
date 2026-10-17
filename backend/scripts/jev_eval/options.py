@@ -33,7 +33,7 @@ from __future__ import annotations
 # package side effects.
 VALID_CATEGORIES: list[str] = [
     "Groceries", "Eating Out", "Transport", "Entertainment",
-    "Shopping", "Bills", "Mortgage", "Car finance", "Subscriptions",
+    "Shopping", "Bills", "Mortgage", "Rent", "Car finance", "Subscriptions",
     "Health", "Beauty", "Travel",
     "Software", "Savings", "Investment", "Debt", "Transfer", "Income",
     "Cash", "Charity", "Other",
@@ -81,7 +81,11 @@ CATEGORY_DESCRIPTIONS: dict[str, dict[str, str]] = {
     },
     "Mortgage": {
         "what": "A recognised mortgage lender's repayment on the user's home.",
-        "not_for": "Rent (Bills) or any other loan repayment (Debt is a movement kind and is never assigned by this judge -- see excluded categories).",
+        "not_for": "Rent (its own Rent category) or any other loan repayment (Debt is a movement kind and is never assigned by this judge -- see excluded categories).",
+    },
+    "Rent": {
+        "what": "Rent paid to a landlord, letting agent or housing association.",
+        "not_for": "A mortgage payment (Mortgage), car or van hire (Transport), or council tax and utilities (Bills).",
     },
     "Car finance": {
         "what": "A recognised car finance or lease provider's repayment.",

@@ -23,6 +23,7 @@ CURATED_EXAMPLES: dict[str, list[str]] = {
     "Shopping": ["Amazon", "Argos", "Next", "Primark", "IKEA", "Currys", "John Lewis", "H&M"],
     "Bills": ["British Gas", "Octopus Energy", "Thames Water", "Sky", "BT", "Virgin Media", "Council Tax", "Aviva Insurance"],
     "Mortgage": ["Nationwide Building Society", "Santander Mortgage", "Skipton Building Society", "Yorkshire Building Society", "Coventry Building Society", "Mortgage Payment"],
+    "Rent": ["Foxtons Lettings", "Savills Lettings", "OpenRent", "Clarion Housing Group", "Sanctuary Housing Association", "Rent Payment"],
     "Car finance": ["Black Horse Finance", "Close Brothers Motor Finance", "Motonovo Finance", "Santander Consumer Finance", "BMW Financial Services", "Car Finance Payment"],
     "Subscriptions": ["Netflix", "Spotify", "Disney+", "Apple.com/bill", "Amazon Prime", "NOW TV", "YouTube Premium", "Audible"],
     "Health": ["Boots", "Superdrug Pharmacy", "PureGym", "The Gym Group", "Specsavers", "Bupa", "Dentist", "NHS Prescription"],

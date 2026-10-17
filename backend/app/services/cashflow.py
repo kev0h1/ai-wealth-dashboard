@@ -109,7 +109,8 @@ async def monthly_cashflow(uid: str, cutoff: datetime) -> dict:
 _MONTHLY_CF_TTL_SECONDS = 6 * 3600
 # G268: bump when monthly_cashflow's maths changes, so a blob written by older
 # code is recomputed instead of served for up to six hours.
-MONTHLY_CF_VERSION = 2
+# 3: G280 category kinds reclassified (Rent added; Cash, Charity, Other free).
+MONTHLY_CF_VERSION = 3
 
 
 async def monthly_cashflow_cached(uid: str, cutoff: datetime) -> dict:

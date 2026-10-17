@@ -97,7 +97,8 @@ _MAX_TIME_MS = 500
 # is min(after payments and plans, low point and plans) before the pool cap.
 # 5: G268 spending definition: Out, pace, notables and category totals now follow
 # app.services.spending (own-account moves and card repayments out, refunds netted).
-SHAPE_VERSION = 5
+# 6: G280 category kinds reclassified (Rent added; Cash, Charity, Other free).
+SHAPE_VERSION = 6
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

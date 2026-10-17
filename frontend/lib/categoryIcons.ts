@@ -5,7 +5,7 @@ import {
   Coffee, Gift, Home, Car, Fuel, Smartphone, Wifi, Shield, GraduationCap,
   BookOpen, Music, Gamepad2, Shirt, Dumbbell, PawPrint, Baby, Briefcase,
   Landmark, TrendingUp, Wrench, Scissors, Camera, Bike, TrainFront,
-  Wallet, Palette, Sparkles, Wine, Umbrella,
+  Wallet, Palette, Sparkles, Wine, Umbrella, KeyRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -18,7 +18,7 @@ export const ICON_LIBRARY: Record<string, LucideIcon> = {
   Film, Music, Gamepad2, Camera, Palette, Sparkles, BookOpen, GraduationCap,
   HeartPulse, Dumbbell, Flower2, Scissors, PawPrint, Baby,
   Briefcase, Laptop, Repeat, PiggyBank, CreditCard, Banknote, Coins,
-  Wallet, Landmark, TrendingUp, ArrowLeftRight, HandHeart,
+  Wallet, Landmark, TrendingUp, ArrowLeftRight, HandHeart, KeyRound,
 };
 
 // Default icon (by library key) per built-in category.
@@ -30,6 +30,7 @@ export const CATEGORY_ICONS: Record<string, string> = {
   Shopping:         "ShoppingBag",
   Bills:            "Receipt",
   Mortgage:         "Home",
+  Rent:             "KeyRound",
   "Car finance":    "Car",
   Subscriptions:    "Repeat",
   Health:           "HeartPulse",

@@ -17,7 +17,7 @@ from app.db.collections import (
     finexer_consents_col, finexer_customers_col, finexer_providers_col,
     accounts_col, transactions_col,
 )
-from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
+from app.services.categorisation import rule_categorise, rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
 from app.services.pending_transactions import replace_pending_for_account
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
@@ -402,7 +402,7 @@ async def _upsert_finexer_walk(
             # transfer (e.g. "From Kevin Maingi"), not income. Peer payments don't
             # carry the owner's name, so the peer-payment trap (untrusted raw TRANSFER
             # tags) is unaffected.
-            category = rule_categorise(merchant, description) or (
+            category = rule_categorise_directed(merchant, description, is_credit=True) or (
                 "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Income"
             )

@@ -69,7 +69,7 @@ Then three rules that make those six buildable.
 | --- | --- |
 | Everyday purchases (shopping, eating out, groceries, travel) | Yes |
 | Bills and subscriptions | Yes |
-| Mortgage or rent | Yes, the whole payment, as housing |
+| Mortgage or rent | Yes, the whole payment, as housing. Rent is its own built-in category (G280), Fixed, and a rent payment is never filed under Transfer |
 | Loan repayments (car finance, a personal or student loan filed under Debt) | Yes |
 | Fees, interest, gifts and family | Yes |
 | Transfers between the user's own accounts | No |
@@ -79,6 +79,17 @@ Then three rules that make those six buildable.
 | Income | No |
 | A Business payment to the user's OWN account (for example "AURIQ AURIQ TIDE" to the user's Tide business account) | No, it is a movement |
 | A Business payment to a third party | Yes |
+
+**Kinds after the G280 reclassification (Kevin, 2026-10-17).** This is a note under the G268 definition and the table above is unchanged: the same debits count as spending. What moved is which spending job a category belongs to. The G268 definition stands as written; Kevin reclassified these built-ins on 2026-10-17, so Fixed, Free and Moved read from one list everywhere (`BUILTIN_CATEGORY_KINDS` in `backend/app/services/categories.py`, read through `kind_of`, `is_commitment`, `is_discretionary`, `is_non_spend`):
+
+| Job | Kind | Built-in categories |
+| --- | --- | --- |
+| Fixed | `commitment` | Bills, Mortgage, Rent (new), Car finance, Groceries, Transport, Software, plus any detected loan repayment (a Debt debit with no card evidence) |
+| Free | `discretionary` | Eating Out, Entertainment, Shopping, Subscriptions, Health, Beauty, Travel, Cash, Charity, Other |
+| Moved | `movement` | Savings, Investment, Debt, Transfer |
+| Income | `income` | Income (a direction, never a job) |
+
+Cash, Charity and Other moved from Fixed to Free; Subscriptions was already Free. Because both are spending kinds, no total changes (Out, pace, Safe to Spend, cashflow all ask only "is this spending"); only the Fixed and Free split and the Mirror's signature pleasure (which now may anchor on Subscriptions, Cash, Charity or Other, all Free) read the difference. An unknown or custom category with no declared kind is Free. A built-in's kind is fixed by this table; a same-named stored custom entry never overrides it. Rent is recognised by word-boundary triggers (rent, letting and lettings agents, landlord, housing association and council housing, and named agents and associations) ahead of every Transfer rule, so a rent standing order is spending, never a transfer. Car or van hire, Rentokil, parental and own-account pots are not rent. A user's correction sticks through the existing learned-merchant path. A credit matching a rent trigger (a landlord's incoming rent) is Income, never a Rent refund, on ingest and on bulk re-run alike (`rule_categorise_directed`).
 
 **How it is decided.** A debit counts when its category kind is `discretionary` or `commitment`; kinds `movement` and `income` never count (this is what removes transfers, savings, investment, pension and card repayments, `categories.is_card_repayment` naming the card case). A credit in a spend category is a refund and subtracts. On top of the kind, a debit in a spend category is still a movement when it goes to the user's OWN account. That is own-account detection, never a blanket category kind, so Business keeps its kind for third-party payments. The evidence, strongest first: the row is linked to an offline account or goal; its text carries the number or sort code of another of the user's accounts; a transfer-pair match (a credit of the same amount within 2p, on a different account of the user's, within five days, closest date first, never Income, not already paired) where the incoming credit ITSELF carries own-account evidence (a Transfer or movement category, a link, the user's name or one of the user's account numbers). A pair never forms on amount and date alone, so a payment to a supplier and an unrelated credit of the same amount stay spending. The user's own name on the debit alone never flags a row. A payee that merely shares a provider's name (a "TIDE PLATFORM LIMI" fee) is not evidence. An own-account debit is shown as moved money ("Between your accounts"), never as Out. If the receiving account is neither connected nor named by the user, the engine cannot see the pair, and the row stays spending until the user says it is theirs (the resolve-movement answer).
 
@@ -105,7 +116,7 @@ Four tiers, cost-ordered, escalated only when the tier above gives up. Every ans
 
 The ontology, then — what is a category, and what only looks like one:
 
-- **Groceries, Eating Out, Transport, Bills, Mortgage, Car finance, Subscriptions, Health, Beauty, Travel, Software, Entertainment, Shopping, Cash, Charity** — the **shared spend vocabulary**: the baseline words every user starts with, and what the global merchant catalog maps to as world-fact defaults. Mortgage and Car finance (G39, 2026-09-11) split out of Bills/Other once the engine could reliably tell the two apart by lender — before that, "no reliable category" meant the mortgage/car_finance savings insights had nowhere honest to send the user.
+- **Groceries, Eating Out, Transport, Bills, Mortgage, Rent, Car finance, Subscriptions, Health, Beauty, Travel, Software, Entertainment, Shopping, Cash, Charity** — the **shared spend vocabulary**: the baseline words every user starts with, and what the global merchant catalog maps to as world-fact defaults. Rent (G280, 2026-10-17) is a Fixed built-in like Mortgage. Mortgage and Car finance (G39, 2026-09-11) split out of Bills/Other once the engine could reliably tell the two apart by lender — before that, "no reliable category" meant the mortgage/car_finance savings insights had nowhere honest to send the user.
 - **Padel, Golf** (user-created) — the **personal spend vocabulary**: the user's words layered on top. The catalog's default might say leisure; the user's mapping says Padel, and their word wins for them (user-scoped, per the Firewall Rule). Functionally identical to the built-ins — baselines, multiples, verdicts — the only difference is who coined the word.
 - **Transfer, Savings, Investment, Debt** — **not categories: movement** (see the Destination Rule below). They survive only as internal kinds so the arithmetic knows "not spend"; nothing is ever filed there again.
 - **Income** — **not a category: a direction.** An internal kind.

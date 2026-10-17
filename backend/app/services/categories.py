@@ -71,7 +71,7 @@ NON_SPEND_KINDS = frozenset({MOVEMENT, INCOME})
 DEFAULT_KIND = DISCRETIONARY
 
 # ── Built-in seed table ──────────────────────────────────────────────────────
-#: Kind for each of the 21 built-in categories. Insertion order is the display
+#: Kind for each of the 22 built-in categories. Insertion order is the display
 #: order and is the source of ``BUILTIN_CATEGORIES``.
 #:
 #: Seeded to reproduce today's behaviour exactly, with two deliberate
@@ -89,6 +89,14 @@ DEFAULT_KIND = DISCRETIONARY
 #: is deliberately not split principal-vs-interest (the bank feed doesn't
 #: carry that split); the whole payment counts as spend, which is the
 #: conservative (under- rather than over-stating Safe-to-Spend) reading.
+#:
+#: G280 (Kevin, 2026-10-17): Rent is a new built-in COMMITMENT; Cash, Charity,
+#: Other and Subscriptions are DISCRETIONARY (Free). Fixed = Bills, Mortgage,
+#: Rent, Car finance, Groceries, Transport, Software (plus detected loan
+#: repayments). Free = Eating Out, Entertainment, Shopping, Subscriptions,
+#: Health, Beauty, Travel, Cash, Charity, Other. Moved = Savings, Investment,
+#: Debt, Transfer. A built-in's kind is fixed here: a same-named custom entry
+#: never overrides it (see ``get_category_kinds``).
 BUILTIN_CATEGORY_KINDS: dict[str, str] = {
     "Groceries":     COMMITMENT,
     "Eating Out":    DISCRETIONARY,
@@ -97,6 +105,7 @@ BUILTIN_CATEGORY_KINDS: dict[str, str] = {
     "Shopping":      DISCRETIONARY,
     "Bills":         COMMITMENT,
     "Mortgage":      COMMITMENT,
+    "Rent":          COMMITMENT,      # G280, 2026-10-17
     "Car finance":   COMMITMENT,
     "Subscriptions": DISCRETIONARY,
     "Health":        DISCRETIONARY,   # behaviour change — see module docs/report
@@ -108,9 +117,9 @@ BUILTIN_CATEGORY_KINDS: dict[str, str] = {
     "Debt":          MOVEMENT,
     "Transfer":      MOVEMENT,
     "Income":        INCOME,
-    "Cash":          COMMITMENT,
-    "Charity":       COMMITMENT,
-    "Other":         COMMITMENT,
+    "Cash":          DISCRETIONARY,   # G280: Kevin's reclassification, 2026-10-17
+    "Charity":       DISCRETIONARY,   # G280
+    "Other":         DISCRETIONARY,   # G280
 }
 
 #: G266: the built-in category a recurring credit card repayment lands in.

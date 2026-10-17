@@ -126,6 +126,13 @@ def classify_saving_flow(txns: list, saving_acc_ids: set) -> dict:
     }
 
 
+#: Bump whenever a portrait's maths or category kinds change, so the 7-day
+#: cached portrait (routers/behaviour.py:get_mirror) is recomputed on deploy.
+#: 1: G280 category kinds reclassified (signature_pleasure eligibility now
+#: includes Subscriptions, Cash, Charity and Other, all Free).
+PORTRAIT_VERSION = 1
+
+
 async def compute_portrait(uid: str) -> dict:
     """
     Compute the behavioural portrait for a user over ~180 days.
@@ -508,6 +515,7 @@ async def compute_portrait(uid: str) -> dict:
     return {
         "status": "ok",
         "computed_at": datetime.now(timezone.utc).isoformat(),
+        "portrait_version": PORTRAIT_VERSION,
         "window_days": window_days,
         "traits": traits,
     }
