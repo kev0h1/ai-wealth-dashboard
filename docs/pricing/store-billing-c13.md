@@ -881,7 +881,7 @@ nothing without its own salt, so Play has its own helper and salt.
   the B31 server backstop is unchanged and still refuses a native client's
   checkout.
 - Plugin: `@capgo/native-purchases` 8.9.6 (the same package and pin as C21, one
-  plugin for both stores, MPL-2.0). `lib/playBilling.ts` reaches it only through
+  plugin for both stores, MPL-2.0; `capacitor-spike/package-lock.json` lists 8.9.6, matching `package.json`). `lib/playBilling.ts` reaches it only through
   `withPlay()`, which never returns the plugin proxy (it is not thenable and
   would hang the call), and checks `Capacitor.PluginHeaders` first (a call with
   no native implementation also hangs). `capacitor.config.json` sets
