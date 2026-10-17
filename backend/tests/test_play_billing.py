@@ -983,3 +983,68 @@ def test_service_account_loading_never_echoes_the_key(monkeypatch):
 
 def test_play_product_ids_parser_skips_malformed_entries():
     assert play_config._parse_play_product_ids("lite=a.b, bad ,=x,y=, max_annual = c.d ") == {"lite": "a.b", "max_annual": "c.d"}
+
+
+# ── Review fixes F2, F3, F4 ──────────────────────────────────────────────────
+
+def test_oversized_declared_content_length_is_rejected_before_the_body_is_read(env):
+    from starlette.datastructures import Headers
+
+    class FakeRequest:
+        headers = Headers({"authorization": "Bearer abc.def.ghi", "content-length": str(router_module._MAX_PUSH_BYTES + 1)})
+        query_params = {}
+        read = False
+
+        async def body(self):
+            FakeRequest.read = True
+            return b"{}"
+
+    with pytest.raises(router_module.HTTPException) as exc:
+        _run(router_module.google_play_webhook(FakeRequest()))
+    assert exc.value.status_code == 400 and FakeRequest.read is False
+
+
+def test_second_live_play_subscription_is_granted_flagged_and_reported(env, client):
+    env.api.subs[T1] = sub_payload("sorted.lite.monthly")
+    _run(play_billing.process_subscription(T1))
+    env.api.subs[T2] = sub_payload("sorted.max.monthly")  # no linkedPurchaseToken
+    result = _run(play_billing.process_subscription(T2))
+    doc = sub_doc(env)
+    assert result["double_subscription"] is True and doc["tier"] == "max"
+    assert doc["double_subscription"] is True and doc["play_double_subscription"] is True
+    # A renewal of the flagged purchase keeps the flag.
+    _run(play_billing.process_subscription(T2))
+    assert sub_doc(env)["double_subscription"] is True
+    # The client summary carries it.
+    summary = _run(play_billing.verify_client_purchase(UID, T2, "sorted.max.monthly"))
+    assert summary["double_subscription"] is True
+
+
+def test_replacing_purchase_naming_the_old_token_is_not_flagged(env):
+    env.api.subs[T1] = sub_payload("sorted.lite.monthly")
+    _run(play_billing.process_subscription(T1))
+    env.api.subs[T2] = sub_payload("sorted.max.monthly", linked=T1)
+    result = _run(play_billing.process_subscription(T2))
+    assert "double_subscription" not in result or result["double_subscription"] is False
+    assert not sub_doc(env).get("play_double_subscription")
+
+
+def test_new_purchase_after_the_old_one_lapsed_is_not_flagged(env):
+    env.api.subs[T1] = sub_payload()
+    _run(play_billing.process_subscription(T1))
+    env.api.subs[T1] = sub_payload(state="EXPIRED", expiry_days=-1)
+    _run(play_billing.process_subscription(T1))
+    env.api.subs[T2] = sub_payload("sorted.max.monthly")
+    result = _run(play_billing.process_subscription(T2))
+    assert not result.get("double_subscription") and not sub_doc(env).get("play_double_subscription")
+
+
+def test_client_product_id_must_match_the_purchased_product(env, client, caplog):
+    env.api.subs[T1] = sub_payload("sorted.max.annual", expiry_days=300)
+    resp = client.post("/billing/play/purchase", json={"purchase_token": T1, "product_id": "sorted.lite.monthly"})
+    assert resp.status_code == 400 and resp.json()["detail"]["code"] == "PLAY_PURCHASE_REFUSED"
+    assert "product_mismatch" not in resp.text and "sorted.max.annual" not in resp.text
+    assert sub_doc(env) is None and env.api._count("ack") == 0
+    assert any("does not match purchased product" in r.getMessage() for r in caplog.records)
+    ok = client.post("/billing/play/purchase", json={"purchase_token": T1, "product_id": "sorted.max.annual"})
+    assert ok.status_code == 200 and sub_doc(env)["tier"] == "max"

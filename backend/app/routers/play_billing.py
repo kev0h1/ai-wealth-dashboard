@@ -79,6 +79,11 @@ async def google_play_webhook(request: Request):
     if not play_config.PLAY_IAP_ENABLED:
         raise HTTPException(status_code=503, detail=_UNAVAILABLE)
     await _authenticate_push(request)
+    # Reject on the declared size before reading anything (an absent or
+    # malformed header falls through to the post-read check below).
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > _MAX_PUSH_BYTES:
+        raise HTTPException(status_code=400, detail="Malformed notification")
     raw = await request.body()
     if len(raw) > _MAX_PUSH_BYTES:
         raise HTTPException(status_code=400, detail="Malformed notification")

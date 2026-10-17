@@ -179,7 +179,7 @@ export default function YourPlanCard({
         {appleSourced && (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{appleManageLine}</p>
         )}
-        {googleSourced && (
+        {(googleSourced || info?.double_play_subscription === true) && (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{googleManageLine}</p>
         )}
         {channel === "storekit" || channel === "play" ? null : channel !== "stripe_web" ? (

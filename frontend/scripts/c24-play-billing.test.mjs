@@ -121,6 +121,7 @@ check("both purchases go through runPurchase, which marks charged once the purch
   (play.match(/return runPurchase\(/g) ?? []).length === 2 && /charged = true;\s*return \(await verify\(tx\)\)/.test(play)
   && /if \(charged \|\| isAlreadyOwned\(err\)\) return \{ ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE \}/.test(play)
   && /if \(!charged && isCancellation\(err\)\)/.test(play));
+check("Your plan points at Google Play when a second Play subscription is flagged", /info\?\.double_play_subscription === true/.test(yourPlan));
 check("a pack is never consumed client-side", /isConsumable: false/.test(play) && !/consumePurchase|acknowledgePurchase|finishTransaction/.test(play));
 check("the plugin is told not to auto-finish, in code and in the native config", /configure\(\{ autoFinishTransactions: false \}\)/.test(play)
   && JSON.parse(read("../capacitor-spike/capacitor.config.json")).plugins?.NativePurchases?.autoFinishTransactions === false);

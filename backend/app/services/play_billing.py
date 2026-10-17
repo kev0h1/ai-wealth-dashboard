@@ -331,13 +331,13 @@ async def _save_purchase(token: str, uid: str, fields: dict) -> None:
     )
 
 
-async def process_subscription(token, *, expected_uid: str | None = None) -> dict:
+async def process_subscription(token, *, expected_uid: str | None = None, expected_product_id: str | None = None) -> dict:
     token = _valid_token(token)
     async with _token_lock(token):
-        return await _process_subscription(token, expected_uid=expected_uid)
+        return await _process_subscription(token, expected_uid=expected_uid, expected_product_id=expected_product_id)
 
 
-async def _process_subscription(token: str, *, expected_uid: str | None) -> dict:
+async def _process_subscription(token: str, *, expected_uid: str | None, expected_product_id: str | None) -> dict:
     """Verify one subscription purchase token against the Developer API and
     apply the state it reports. Used by the RTDN receiver (expected_uid None:
     the account comes from the purchase) and by the client's verify call
@@ -352,6 +352,11 @@ async def _process_subscription(token: str, *, expected_uid: str | None) -> dict
     product = products[line["productId"]]
     if product.kind != "subscription":
         raise PlayRefused("unknown_product")
+    if expected_product_id is not None and expected_product_id != line["productId"]:
+        # The client named one product and Google says the token is another:
+        # refused, never granted, and recorded (ids only, no user data).
+        logger.warning("play billing: client product %r does not match purchased product %r", expected_product_id, line["productId"])
+        raise PlayRefused("product_mismatch")
     _check_test_purchase(sub.get("testPurchase") is not None)
     ids = sub.get("externalAccountIdentifiers") or {}
     uid = await _resolve_account(ids.get("obfuscatedExternalAccountId"), expected_uid)
@@ -365,6 +370,9 @@ async def _process_subscription(token: str, *, expected_uid: str | None) -> dict
     if stored and stored.get("voided_at"):
         # A voided purchase never comes back, whatever a later read says.
         mapping = SubscriptionMapping("expired", expires_at=mapping.expires_at)
+
+    linked = sub.get("linkedPurchaseToken")
+    play_double = mapping.action in ("upsert", "past_due") and await _is_play_double(uid, sid, linked)
 
     result: dict = {"handled": False, "reason": "pending purchase, nothing to grant yet"}
     if mapping.action == "upsert":
@@ -382,12 +390,23 @@ async def _process_subscription(token: str, *, expected_uid: str | None) -> dict
             uid, PROVIDER, sid, "expired", signed_at=signed_at, extra=extra,
         )
 
+    if play_double:
+        # Google has taken the money for a second live subscription: granted
+        # (the user paid), flagged so a human can refund one, and the client
+        # is told so it points at Google Play.
+        from app.db.collections import subscriptions_col
+        await subscriptions_col.update_one(
+            {"user_id": uid, "provider": PROVIDER},
+            {"$set": {"double_subscription": True, "play_double_subscription": True}},
+        )
+        result["double_subscription"] = True
+        logger.warning("play billing: second live Play subscription granted and flagged")
+
     # Record the purchase and, only for an entitled one, acknowledge it.
     fields = {
         "kind": "subscription", "product_id": line["productId"], "state": sub.get("subscriptionState"),
         "order_id": sub.get("latestOrderId"),
     }
-    linked = sub.get("linkedPurchaseToken")
     if isinstance(linked, str) and _TOKEN_RE.match(linked):
         fields["linked_purchase_token"] = linked
         await _supersede(linked)
@@ -398,6 +417,36 @@ async def _process_subscription(token: str, *, expected_uid: str | None) -> dict
     result.setdefault("uid", uid)
     result["state"] = sub.get("subscriptionState")
     return result
+
+
+def _doc_is_live(doc: dict | None) -> bool:
+    from app.core.timeutil import as_utc
+
+    if not doc or doc.get("status") not in store_subscriptions.LIVE_STATUSES:
+        return False
+    if doc.get("status") == "past_due":
+        until = as_utc(doc.get("grace_until"))
+        return until is None or until > _now()
+    expires = as_utc(doc.get("expires_at"))
+    return expires is None or expires > _now()
+
+
+async def _is_play_double(uid: str, sid: str, linked) -> bool:
+    """True when this purchase is a second live Play subscription: the user
+    already has a live provider=google document for a DIFFERENT purchase token
+    and this one does not name it as the purchase it replaces. A flag already
+    raised for this same purchase stays raised across renewals."""
+    from app.db.collections import subscriptions_col
+
+    existing = await subscriptions_col.find_one({"user_id": uid, "provider": PROVIDER})
+    if not existing:
+        return False
+    if existing.get("provider_subscription_id") == sid:
+        return bool(existing.get("play_double_subscription"))
+    if not _doc_is_live(existing):
+        return False
+    replaces = isinstance(linked, str) and token_digest(linked) == existing.get("provider_subscription_id")
+    return not replaces
 
 
 async def _apply_past_due(uid, product, sid, mapping, signed_at) -> dict:
@@ -696,17 +745,9 @@ async def client_config(uid: str) -> dict:
 
 
 async def _has_live_play_subscription(uid: str) -> bool:
-    from app.core.timeutil import as_utc
     from app.db.collections import subscriptions_col
 
-    doc = await subscriptions_col.find_one({"user_id": uid, "provider": PROVIDER})
-    if not doc or doc.get("status") not in store_subscriptions.LIVE_STATUSES:
-        return False
-    if doc.get("status") == "past_due":
-        until = as_utc(doc.get("grace_until"))
-        return until is None or until > _now()
-    expires = as_utc(doc.get("expires_at"))
-    return expires is None or expires > _now()
+    return _doc_is_live(await subscriptions_col.find_one({"user_id": uid, "provider": PROVIDER}))
 
 
 async def verify_client_purchase(uid: str, token, product_id) -> dict:
@@ -719,7 +760,7 @@ async def verify_client_purchase(uid: str, token, product_id) -> dict:
     if product is None:
         raise PlayRefused("unknown_product", "This purchase could not be verified.")
     if product.kind == "subscription":
-        result = await process_subscription(token, expected_uid=uid)
+        result = await process_subscription(token, expected_uid=uid, expected_product_id=product_id)
     else:
         result = await process_pack(token, product_id, expected_uid=uid)
     return {k: v for k, v in result.items() if k in ("handled", "action", "tier", "status", "pack_id", "acknowledged", "consumed", "reason", "double_subscription")}
