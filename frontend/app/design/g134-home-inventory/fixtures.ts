@@ -35,7 +35,7 @@ export const TRAJECTORY_ITEM: CompanionItem = {
   type: "trajectory",
   headline: "The cards aren't coming down at your current pace, £8,240 carried across 3 cards.",
   body: "£1,150 will still be on the Barclaycard Platinum when its 0% ends in Mar 2027. From then it'd cost about £28 a month unless it's cleared or moved.",
-  action: { label: "See the route ›", route: "/debt-plan" },
+  action: { label: "See the route", route: "/debt-plan" },
   estimated: false,
   brief_lead: { value: "£8,240", companion: "carried across 3 cards" },
 };

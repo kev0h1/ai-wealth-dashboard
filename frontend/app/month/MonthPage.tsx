@@ -13,6 +13,7 @@ import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
 import SegmentedControl from "@/components/SegmentedControl";
 import { goBack } from "@/lib/goBack";
+import ActionLabel from "@/components/ActionLabel";
 
 // ── Whisper label ─────────────────────────────────────────────────────────────
 function Whisper({ children }: { children: React.ReactNode }) {
@@ -372,9 +373,9 @@ export default function MonthPage() {
               </p>
               <button
                 onClick={() => setWhich("last")}
-                className="text-sm font-medium text-indigo-600 dark:text-indigo-400 active:opacity-70 block mt-2"
+                className="text-sm font-medium text-indigo-600 dark:text-indigo-400 active:opacity-70 inline-flex items-center gap-1 mt-2"
               >
-                Read last month ›
+                <ActionLabel>Read last month</ActionLabel>
               </button>
             </div>
           </div>
@@ -458,9 +459,9 @@ export default function MonthPage() {
                 )}
                 <button
                   onClick={() => router.push("/cards")}
-                  className="text-sm font-medium text-indigo-600 dark:text-indigo-400 active:opacity-70 mt-2 block"
+                  className="text-sm font-medium text-indigo-600 dark:text-indigo-400 active:opacity-70 mt-2 inline-flex items-center gap-1"
                 >
-                  The credit cards chapter ›
+                  <ActionLabel>The credit cards chapter</ActionLabel>
                 </button>
               </div>
             )}

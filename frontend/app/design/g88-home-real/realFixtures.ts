@@ -118,7 +118,7 @@ export const REAL_MOVE_ITEM = {
   type: "move",
   headline: "Move £30 to Premier Current Account",
   body: "£30 across 2 moves keeps everything clearing at Premier Current Account.",
-  action: { label: "See what's due ›", route: "/upcoming" },
+  action: { label: "See what's due", route: "/upcoming" },
   estimated: false,
   brief_lead: { value: "£30", companion: "to Premier Current Account" },
   moves: [
@@ -201,7 +201,7 @@ export const REAL_TRAJECTORY_ITEM = {
   type: "trajectory",
   headline: "The cards aren't coming down at your current pace, £24,896 carried across 6 cards.",
   body: "£2,856 will still be on the Ibcm Platinum when its 0% ends in Jun 2027. From then it'd cost about £69 a month unless it's cleared or moved.",
-  action: { label: "See the route ›", route: "/debt-plan" },
+  action: { label: "See the route", route: "/debt-plan" },
   estimated: false,
   brief_lead: { value: "£24,896", companion: "carried across 6 cards" },
 } as unknown as CompanionItem;

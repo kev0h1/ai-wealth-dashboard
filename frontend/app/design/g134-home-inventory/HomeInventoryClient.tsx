@@ -58,6 +58,7 @@ import { PinnedWidgetCard, DEFAULT_HOME_PINNED_WIDGET } from "@/components/Spend
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
+import ActionLabel from "@/components/ActionLabel";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import { bestSpendAccount } from "@/lib/spendFromAccount";
 import { getPayPeriodWithConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
@@ -422,7 +423,7 @@ export default function HomeInventoryClient() {
               <div className="glass-card rounded-2xl p-4">
                 <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300 leading-snug mb-2">{NEEDLE_ITEM.headline}</p>
                 {NEEDLE_ITEM.action && (
-                  <span className="text-[14px] text-indigo-600 dark:text-indigo-400 font-medium">{NEEDLE_ITEM.action.label}</span>
+                  <span className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium"><ActionLabel>{NEEDLE_ITEM.action.label}</ActionLabel></span>
                 )}
               </div>
             </CatalogueEntry>

@@ -12,6 +12,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import type { CardAction, CardFixture } from "./fixtures";
 import { ActionButton, Currency, Signifier } from "./primitives";
+import ActionLabel from "@/components/ActionLabel";
 
 export function fixturesFor(state: "stack" | "family", fixtures: readonly CardFixture[], stackIds: readonly string[]) {
   if (state === "family") return fixtures;
@@ -219,7 +220,7 @@ export function FixtureActions({
             onClick={() => {}}
             className={`${layout === "fill" ? "flex-1" : ""} ${isLastOfThree ? "basis-full" : ""}`}
           >
-            {action.label}
+            {/^(See|Review|Here)/.test(action.label) ? <ActionLabel>{action.label}</ActionLabel> : action.label}
           </ActionButton>
         );
       })}
