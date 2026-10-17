@@ -102,6 +102,14 @@ them identically. A versionCode uploaded to Play is spent for good (Play rejects
 reused code), so every new AAB or APK build bumps it, even when the other artefact
 is unchanged.
 
+C11: from the second release on, Codemagic builds and publishes the Play AAB
+itself (`android-capacitor` and `android-capacitor-prod`, DEPLOY.md "Android:
+Codemagic Play builds"). It stamps versionCode as **Play's latest + 1**
+(`VERSION_CODE` override of `set-android-version.sh`, ignoring the JSON's
+versionCode) and takes versionName from the JSON. So any hand-built APK or AAB
+must use a versionCode **above Play's latest**: bump `sorted-apk.json` past it
+before building, or a later Play build and the sideload APK collide.
+
 Play App Signing uses a Google-generated app signing key (Kevin's decision,
 2026-10-17). Our AURIQ LTD keystore is the upload key only: the first upload
 (versionCode 3, internal testing track) registered it with Play, and Google

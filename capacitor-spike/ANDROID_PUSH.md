@@ -8,16 +8,19 @@ is applied to that freshly-generated project by a `codemagic.yaml` build
 step, gated behind the `IOS_PUSH_ENABLED` environment variable (default
 false, so today's TestFlight builds ship without push until the Apple
 Developer portal prerequisites in that file's header comment are done).
-Android is handled differently because there's no Android CI: instead of a
-build-step, the FCM/Firebase wiring is captured as a **script**,
+Android is handled differently: instead of inline build steps, the
+FCM/Firebase wiring is captured as a **script**,
 `capacitor-spike/scripts/setup-android-push.sh`, committed to the repo, that
 patches a freshly-generated Android project into working order. This doc is
 the full flow, start to finish.
 
 `scripts/apply-icons.sh` also brands iOS app icons under `capacitor-spike/ios/App/App/Assets.xcassets/AppIcon.appiconset/` when `ios/` exists (wired into the Codemagic iOS workflow via `codemagic.yaml`); it prints a skip message and exits cleanly when `ios/` is absent.
 
-There is currently **no Android CI** (Codemagic only builds iOS). Android
-APKs are built locally using the steps below.
+Android has Codemagic workflows too since C11 (`android-capacitor` and
+`android-capacitor-prod`, signed AABs published to Google Play; see
+DEPLOY.md "Android: Codemagic Play builds"). They run the same
+`setup-android-push.sh` described here. The sideload APKs for testers
+without Play access are still built locally using the steps below.
 
 ## One-time Firebase project setup
 
@@ -68,7 +71,9 @@ npx cap add android
 # scripts/setup-android-privacy.sh (A122: installs and registers the
 # PrivacyScreen FLAG_SECURE plugin in MainActivity, also safe to run alone),
 # then scripts/setup-android-backup.sh (A129: allowBackup="false" plus
-# fullBackupContent/dataExtractionRules exclusion rules, also safe to run alone).
+# fullBackupContent/dataExtractionRules exclusion rules, also safe to run alone),
+# then scripts/setup-android-signing.sh (C11: the release signingConfig that
+# reads android/keystore.properties; a no-op if already patched).
 bash scripts/setup-android-push.sh
 
 # 2a. H66 (2026-09-17): add the "board" product flavour (Board, a separate

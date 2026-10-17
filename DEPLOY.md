@@ -781,9 +781,14 @@ needed.
   `logger.warn(...)` and builds an unsigned release artifact instead of
   breaking the build (`bundleRelease`/`assembleRelease` for anyone without
   the keystore locally). Debug builds are unaffected either way.
-- C11 (open): Kevin adds this keystore to Codemagic as a code-signing asset
-  once an Android Codemagic workflow exists (there is currently no Android
-  CI, see `capacitor-spike/ANDROID_PUSH.md`).
+- C11 (2026-10-17): the Android Codemagic workflows exist (see "Android:
+  Codemagic Play builds" below). `capacitor-spike/scripts/setup-android-signing.sh`
+  re-applies this signing patch to any freshly generated `android/` project
+  (it is the last step of `setup-android-push.sh`, a no-op against an
+  already patched `build.gradle`), so a regenerated project, a worktree or
+  Codemagic no longer builds an unsigned release. On Codemagic it also writes
+  `keystore.properties` from the keystore reference's `CM_KEYSTORE_*`
+  variables. Kevin still has to add this keystore to Codemagic (C12).
 - H66 (2026-09-17): the project now builds two Gradle product flavours,
   `sorted` (Sorted, `co.uk.auriqltd.sorted`, everything above unchanged) and
   `board` (Board, `co.uk.auriqltd.sorted.board`, a separate ops-board app,
@@ -812,11 +817,13 @@ version applied this fix to only the third snippet, so reading top to
 bottom the second one still failed the same way the third used to):
 
 Before any build from a freshly generated `android/` project, run
-`bash capacitor-spike/scripts/setup-android-push.sh`; its final step runs
+`bash capacitor-spike/scripts/setup-android-push.sh`; its steps include
 `setup-android-privacy.sh` (A122), which installs the `PrivacyScreen` plugin
 that keeps live figures out of the recents thumbnail while the biometric lock
-is on. Skipping it ships an APK without the plugin (the app logs a
-`console.warn` naming A122, nothing else fails).
+is on (skipping it ships an APK without the plugin, the app logs a
+`console.warn` naming A122, nothing else fails), and, as its last step,
+`setup-android-signing.sh` (C11), which re-applies the release signing patch
+described above.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/capacitor-spike/android"
@@ -872,8 +879,9 @@ runs; if a group doesn't exist, Codemagic fails that build step with a "beta
 group not found" error rather than silently publishing to internal testing or
 the other group.
 
-`scripts/release.py deploy` triggers `ios-capacitor-prod` via the Codemagic
-API after tagging a successful release (see "Release trigger" below); it does
+`scripts/release.py deploy` triggers `ios-capacitor-prod` (and then
+`android-capacitor-prod`, see "Android: Codemagic Play builds" below) via the
+Codemagic API after tagging a successful release (see "Release trigger" below); it does
 not push directly to `release` itself for mobile purposes, that's a side
 effect of the fast-forward `main` -> `release` push the deploy already does,
 which is what the workflow's `triggering:` block reacts to.
@@ -910,13 +918,103 @@ successful deploy, if both `CODEMAGIC_API_TOKEN` and `CODEMAGIC_APP_ID` are
 set in the shared tree's environment, it also POSTs to the Codemagic API
 (`https://api.codemagic.io/builds`) to start an `ios-capacitor-prod` build on
 `release`, so a production release also produces a fresh production
-TestFlight build without a manual step. This is best-effort: if the token or
+TestFlight build without a manual step. C11: it then makes the same call for
+`android-capacitor-prod` (a Play production draft), with the same warn-only
+semantics, each trigger reported on its own line. This is best-effort: if the token or
 app id isn't set, or the API call fails, `deploy` logs a warning and still
 exits 0 for that part (the trigger failing never fails the deploy itself,
 which has already fully landed by that point) — start `ios-capacitor-prod`
-by hand from the Codemagic UI in that case. `--dry-run` prints the request it
-would make instead of sending it. Neither `CODEMAGIC_API_TOKEN` nor
+by hand from the Codemagic UI in that case (likewise `android-capacitor-prod`).
+`--dry-run` prints the two requests it would make instead of sending them. Neither `CODEMAGIC_API_TOKEN` nor
 `CODEMAGIC_APP_ID` is committed anywhere; see `docs/ops/ENV.md`.
+
+## Android: Codemagic Play builds
+
+C11 (2026-10-17): `codemagic.yaml` also defines two Android workflows, the
+Play twin of the TestFlight pair above. Both build a signed AAB from the same
+static export (`MOBILE_TARGET` pattern) and publish it with Codemagic's
+`google_play` publishing:
+
+| Workflow | API baked in | Play track | When to use |
+|----------|--------------|------------|-------------|
+| `android-capacitor` | `https://uat.wealth.auriqltd.co.uk/api` (`npm run build:mobile`) | `internal` | day-to-day Android testers without the sideload APK |
+| `android-capacitor-prod` | `https://wealth.auriqltd.co.uk/api` (`npm run build:mobile:prod`) | `production`, `submit_as_draft: true` | the real Play release; nothing reaches users until Kevin reviews and rolls the draft out in Play Console |
+
+`scripts/release.py deploy` starts `android-capacitor-prod` right after
+`ios-capacitor-prod` (see "Release trigger").
+
+**Manual-start only for now.** Neither workflow has an active `triggering:`
+block, because the three Codemagic inputs below do not exist yet and an
+automatic trigger would fail every push to `main`. Each workflow carries a
+commented-out `triggering:` block (`main` for the UAT one, `release` for
+prod); uncomment them once the inputs exist. (Note `deploy` already starts the
+prod workflow by API, so enabling the `release` push trigger as well would
+build twice per release.) Unlike the iOS workflows, the Android ones import a
+variable group (`environment: groups: [google_play]`); the iOS workflows still
+have no `groups:` key.
+
+**What Kevin must add in Codemagic** (exact names):
+
+1. **Keystore reference `sorted_upload_keystore`**: Team settings -> Code
+   signing identities -> Android keystores. Upload
+   `capacitor-spike/android/keys/upload-keystore.jks`, key alias `upload`, and
+   the store/key password from `capacitor-spike/android/keystore.properties`
+   (one value serves both; PKCS12). This is the Play **upload** key (Play App
+   Signing holds the app signing key); see "Android release signing" and C12.
+2. **Variable group `google_play`** (mark both secure):
+   - `GCLOUD_SERVICE_ACCOUNT_CREDENTIALS`: the Play service-account JSON,
+     pasted as is.
+   - `GOOGLE_SERVICES_JSON_BASE64`: `base64 -w0 capacitor-spike/google-services.json`.
+     The file is gitignored, so CI restores it from this variable (the build
+     fails loudly if it is unset).
+3. **The Play service account** behind (2). In Google Cloud (the project
+   linked to Play Console) create a service account, enable the Google Play
+   Android Developer API, and create a JSON key. In Play Console -> Users and
+   permissions, invite the service account's email and grant it the app
+   `co.uk.auriqltd.sorted` with the permissions to view app information and
+   to release to testing tracks and to production (or Release manager). It can
+   take a few hours for the permissions to apply.
+
+**What each build does** (after the shared "Build web" step): restores
+`google-services.json`, runs `npm ci`, `npx cap add android` (only if
+`android/` is absent), `apply-icons.sh`, `setup-android-push.sh` (FCM,
+privacy, backup, and release signing, writing `keystore.properties` from the
+keystore reference), `npx cap sync android`, sets the version, applies
+`debugSymbolLevel SYMBOL_TABLE` (`setup-android-debug-symbols.sh`), runs
+`./gradlew bundleRelease` (CI has no product flavours, so not
+`bundleSortedRelease`, and Board is not built), and refuses to publish an
+unsigned bundle. Java 21 (Capacitor 8's Android library compiles at Java 21).
+Artifacts: the `.aab`, plus `native-debug-symbols.zip` when a bundled native
+library still carries symbols (today the only native library, androidx
+datastore, is already stripped, so no zip is produced).
+
+**Two notes on the first CI publish.** If the first publish to the `internal`
+track fails with Play's "only releases with status draft may be created on
+draft app" error, set `submit_as_draft: true` on `android-capacitor` until the
+listing has passed its first review. The `--credentials` flag on
+`google-play get-latest-build-number` is optional, since the CLI reads
+`GCLOUD_SERVICE_ACCOUNT_CREDENTIALS` from the environment; the YAML passes it
+explicitly and is left as is.
+
+**First upload was manual.** Play requires the first release of an app to be
+uploaded by hand: versionCode 3 / versionName 1.0.0 went to the internal
+testing track on 2026-10-17, which also registered our AURIQ LTD keystore as
+the upload key. Codemagic only publishes from the second release on.
+
+**versionCode rule.** Play rejects any reused versionCode across all tracks.
+In CI the versionCode is **Play's latest + 1**
+(`google-play get-latest-build-number --package-name co.uk.auriqltd.sorted`,
+then `VERSION_CODE=<n> bash scripts/set-android-version.sh`), with the same
+refuse-to-guess handling as the iOS build number step: a missing credential, a
+failed lookup or a non-numeric answer fails the build rather than falling back
+to Codemagic's per-workflow `$BUILD_NUMBER`. `versionName` is not overridden:
+it comes from the required `versionName` in `frontend/public/sorted-apk.json`
+(currently `1.0.0`), as for the sideload APK. The manual sideload APK flow
+(`capacitor-spike/README.md` "Published APK") takes its versionCode from that
+same JSON: any hand-built APK or AAB must use a versionCode **above Play's
+latest**, so bump `sorted-apk.json` past it before building, otherwise a later
+Play build and the sideload APK collide, and a sideload APK with a lower
+versionCode than the Play install cannot update it.
 
 ## GitHub Actions secrets (backups)
 

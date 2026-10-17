@@ -405,5 +405,13 @@ echo "[8/9] A122 PrivacyScreen plugin installed."
 bash "${SCRIPT_DIR}/setup-android-backup.sh"
 echo "[9/9] A129 backup disabled and exclusion rules installed."
 
+# --- 10. C11: release signing (keystore.properties + signingConfig) ---
+# Same gitignored, regenerated project: a fresh `cap add android` has no
+# signingConfig, so bundleRelease would silently build UNSIGNED. On Codemagic
+# this also writes keystore.properties from CM_KEYSTORE_PATH and friends.
+# A no-op against an already patched build.gradle.
+bash "${SCRIPT_DIR}/setup-android-signing.sh"
+echo "[C11] release signing wired (extra step 10)."
+
 echo
 echo "Android push setup complete."
