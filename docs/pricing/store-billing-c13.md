@@ -829,6 +829,15 @@ rate-limited like the other `/webhooks/` receivers.
    redelivers. Never a 500 with detail. Log lines carry product ids, states and
    status codes, never a purchase token, user id or response body.
 
+The same purchase usually reaches the server twice within milliseconds (the
+notification and the client's own verify call), so work is serialised per token
+inside the process (the API runs one uvicorn worker today). Across replicas the
+guarantees are the idempotent ones: the subscription upsert, the acknowledge
+re-check and the seam's pack dedupe on the order id. That pack dedupe is a
+find-then-insert, so a unique partial index on `(provider, store_transaction_id)`
+is the recommended hardening once replicas arrive (E2); it belongs to the seam,
+not to this section.
+
 Purchase tokens are stored raw only in `play_purchases_col` (unique on the
 token, the dedupe key); the subscription document carries `sha256(token)` as
 `provider_subscription_id`. Every token and product id is validated against a
@@ -934,7 +943,8 @@ switched off (`PLAY_IAP_ENABLED` unset) until the last step.
    audience equal to the endpoint URL. Set `PLAY_RTDN_OIDC_AUDIENCE` to that
    audience and `PLAY_RTDN_OIDC_EMAIL` to that service account's email. (If
    OIDC is not wanted, use `PLAY_RTDN_SHARED_SECRET` and append `?token=` to the
-   endpoint instead.)
+   endpoint instead; OIDC is preferred because a query token appears in any
+   proxy access log.)
 5. **API access**: enable the Google Play Android Developer API in the Cloud
    project, create a service account, download its JSON key, and in Play
    Console (Users and permissions) invite its email with "View financial data"

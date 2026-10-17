@@ -37,6 +37,8 @@ Doctrine (the same as the Stripe handlers, plus Play's own rules):
     granted. Transient failures (Google or the database down) raise
     PlayUnavailable so the router answers 503 and Pub/Sub redelivers.
 """
+import asyncio
+import contextlib
 import hashlib
 import logging
 import re
@@ -87,6 +89,30 @@ class PlayUnavailable(Exception):
 
 class PlayNotEnabled(Exception):
     """Play billing is switched off or incompletely configured (503)."""
+
+
+# The client's "purchase finished" call and Google's notification for the same
+# purchase arrive within milliseconds of each other, so the same token is often
+# processed twice at once. This serialises work per token inside one process
+# (the API runs a single uvicorn worker today). Across replicas the guarantees
+# are the idempotent ones: the subscription upsert, the acknowledge re-check
+# and the seam's pack dedupe on the order id.
+_token_locks: dict[str, list] = {}
+
+
+@contextlib.asynccontextmanager
+async def _token_lock(token: str):
+    entry = _token_locks.get(token)
+    if entry is None:
+        entry = _token_locks[token] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            _token_locks.pop(token, None)
 
 
 def _now() -> datetime:
@@ -290,11 +316,16 @@ async def _save_purchase(token: str, uid: str, fields: dict) -> None:
 
 
 async def process_subscription(token, *, expected_uid: str | None = None) -> dict:
+    token = _valid_token(token)
+    async with _token_lock(token):
+        return await _process_subscription(token, expected_uid=expected_uid)
+
+
+async def _process_subscription(token: str, *, expected_uid: str | None) -> dict:
     """Verify one subscription purchase token against the Developer API and
     apply the state it reports. Used by the RTDN receiver (expected_uid None:
     the account comes from the purchase) and by the client's verify call
     (expected_uid is the signed-in user, who must own the purchase)."""
-    token = _valid_token(token)
     products = catalogue()
     api = google_play.get_play_api()
     signed_at = _now()
@@ -405,10 +436,15 @@ async def _acknowledge_subscription(sub: dict, line: dict, token: str) -> bool:
 # ── One-time products (Penny packs) ──────────────────────────────────────────
 
 async def process_pack(token, product_id, *, expected_uid: str | None = None) -> dict:
+    token = _valid_token(token)
+    async with _token_lock(token):
+        return await _process_pack(token, product_id, expected_uid=expected_uid)
+
+
+async def _process_pack(token: str, product_id, *, expected_uid: str | None) -> dict:
     """Verify one consumable purchase, grant it once, then consume it."""
     from app.db.collections import play_purchases_col
 
-    token = _valid_token(token)
     product_id = _valid_product(product_id)
     product = catalogue().get(product_id)
     if product is None or product.kind != "pack":
@@ -482,6 +518,12 @@ async def _consume_pack(purchase: dict, product_id: str, token: str, stored: dic
 # ── Voided purchases (refunds, chargebacks, revocation) ──────────────────────
 
 async def process_voided(token, *, order_id: str | None = None) -> dict:
+    token = _valid_token(token)
+    async with _token_lock(token):
+        return await _process_voided(token, order_id=order_id)
+
+
+async def _process_voided(token: str, *, order_id: str | None) -> dict:
     """A purchase Google says was voided. Resolved only through a token this
     server has already verified and stored (play_purchases_col): a token it
     never saw is ignored, so a message cannot target an arbitrary account.
@@ -490,7 +532,6 @@ async def process_voided(token, *, order_id: str | None = None) -> dict:
     its remaining balance zeroed (Kevin's open decision, default off)."""
     from app.db.collections import play_purchases_col
 
-    token = _valid_token(token)
     stored = await _purchase_doc(token)
     if stored is None:
         return {"handled": False, "reason": "purchase token not on file"}

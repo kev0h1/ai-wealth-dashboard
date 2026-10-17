@@ -65,12 +65,14 @@ class FakeApi:
 
     async def get_subscription_v2(self, package, token):
         self.calls.append(("get_sub", package, token))
+        await asyncio.sleep(0)
         if token in self.errors:
             raise self.errors[token]
         return json.loads(json.dumps(self.subs[token]))
 
     async def get_product(self, package, product_id, token):
         self.calls.append(("get_product", package, product_id, token))
+        await asyncio.sleep(0)  # let a concurrent caller interleave
         if token in self.errors:
             raise self.errors[token]
         return json.loads(json.dumps(self.products[token]))
@@ -725,6 +727,40 @@ def test_pack_is_granted_once_then_consumed_once(env):
     _run(play_billing.process_pack(TPACK, "sorted.penny.100"))
     _run(play_billing.process_pack(TPACK, "sorted.penny.100"))
     assert len(env.cols["penny_topups_col"].docs) == 1 and env.api._count("consume") == 1
+
+
+def test_a_notification_and_the_client_call_racing_on_one_pack_grant_it_once(env):
+    env.api.products[TPACK] = pack_payload()
+    col = env.cols["penny_topups_col"]
+    real_insert = col.insert_one
+
+    async def slow_insert(doc):
+        await asyncio.sleep(0)  # a real database yields here: the window the lock closes
+        return await real_insert(doc)
+    col.insert_one = slow_insert
+
+    async def race():
+        return await asyncio.gather(
+            play_billing.process_pack(TPACK, "sorted.penny.100"),
+            play_billing.verify_client_purchase(UID, TPACK, "sorted.penny.100"),
+            play_billing.process_pack(TPACK, "sorted.penny.100"),
+        )
+    _run(race())
+    assert len(env.cols["penny_topups_col"].docs) == 1 and env.api._count("consume") == 1
+    assert play_billing._token_locks == {}
+
+
+def test_a_notification_and_the_client_call_racing_on_one_subscription_acknowledge_once(env):
+    env.api.subs[T1] = sub_payload()
+
+    async def race():
+        return await asyncio.gather(
+            play_billing.process_subscription(T1),
+            play_billing.verify_client_purchase(UID, T1, "sorted.standard.monthly"),
+        )
+    _run(race())
+    assert env.api._count("ack") == 1 and len(env.cols["subscriptions_col"].docs) == 1
+    assert len(env.cols["play_purchases_col"].docs) == 1
 
 
 @pytest.mark.parametrize("product,messages", [("sorted.penny.20", 20), ("sorted.penny.100", 100), ("sorted.penny.200", 200)])
