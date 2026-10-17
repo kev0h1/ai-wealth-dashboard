@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useState, useEffect } from "react";
 import { ArrowLeftRight, ChevronRight } from "lucide-react";
 import { Account, Transaction, TransferPairSuggestion, api } from "@/lib/api";
@@ -266,7 +267,7 @@ export default function MiscategorisedReviewSheet({
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 truncate">
-              {account?.name ?? "Unknown account"}
+              {account?.name ? displayAccountName(account.name) : "Unknown account"}
             </p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
               {formatDate(leg.date)} · {label}
@@ -357,7 +358,7 @@ export default function MiscategorisedReviewSheet({
     // " · " separator) when account_id is absent (older cached
     // payload) or doesn't match anything in `accounts`.
     const account = item.account_id ? accounts.find(a => a.id === item.account_id) : undefined;
-    const accountName = account?.name;
+    const accountName = account?.name ? displayAccountName(account.name) : account?.name;
     const brand = account ? accountBrand(account) : null;
     // Quiet, one-line evidence for why this row was flagged —
     // absent entirely on an older cached payload (no `reason`).

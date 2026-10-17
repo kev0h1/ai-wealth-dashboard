@@ -1,4 +1,5 @@
 import type { CashflowData, UpcomingBill } from "./api";
+import { displayAccountName } from "./accountName";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "./upcomingAccounts";
 import type { UpcomingRowModel } from "../components/upcoming/UpcomingRow";
 import { upcomingDisplayName } from "./upcomingDisplayName";
@@ -115,7 +116,7 @@ export function walkUpcomingAccounts(
     return {
       id,
       bank: first?.account_bank || first?.account_name || planSource?.bank || "Account not identified",
-      name: first?.account_name || planSource?.name || (id === "__unknown__" ? "Payment account unavailable" : "Payment account"),
+      name: displayAccountName(first?.account_name || planSource?.name || "") || (id === "__unknown__" ? "Payment account unavailable" : "Payment account"),
       opening: balanceKnown ? opening! : null,
       income: sum(credits), transfersIn: sum(transfers), outgoing: sum(payments),
       closing: verifiable && running !== null ? running / 100 : null,

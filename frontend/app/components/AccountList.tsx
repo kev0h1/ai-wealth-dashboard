@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { Building2, CheckCircle2 } from "lucide-react";
 import { Account } from "@/lib/api";
 
@@ -57,7 +58,7 @@ export default function AccountList({
                   <Building2 className="w-4 h-4 text-slate-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 truncate">{acc.name}</p>
+                  <p className="text-sm font-medium text-slate-200 truncate">{displayAccountName(acc.name)}</p>
                   <p className="text-xs text-slate-500 truncate">{acc.provider}</p>
                 </div>
                 <div className="text-right shrink-0">

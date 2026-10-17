@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { Fragment, useState } from "react";
 import { ArrowRight, ChevronDown, Search, ShieldCheck } from "lucide-react";
 import type { Account } from "@/lib/api";
@@ -375,7 +376,7 @@ function SourceAccountRow({
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-semibold text-slate-900 dark:text-slate-100">
-          {account.name}
+          {displayAccountName(account.name)}
         </span>
         <span className={`mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] leading-snug ${
           reason || excluded ? "text-slate-600 dark:text-slate-300" : "text-slate-500 dark:text-slate-400"
@@ -414,7 +415,7 @@ function SourceAccountRow({
         <Toggle
           checked={!excluded}
           onChange={() => onToggle(account.id)}
-          label={`${excluded ? "Allow" : "Exclude"} ${account.name} as a cover source`}
+          label={`${excluded ? "Allow" : "Exclude"} ${displayAccountName(account.name)} as a cover source`}
         />
       )}
     </div>

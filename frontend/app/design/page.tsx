@@ -436,6 +436,16 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "home-accounts-rhythm",
+    name: "home-accounts-rhythm",
+    description:
+      "G282 (Kevin 2026-10-17, skill: impeccable, audit then fix, no variant round) · one account display name on every surface (THE NUMBER ONE reads The Number One, MAINGI K M keeps its initials, PERSONAL GBP keeps GBP, mixed-case nicknames untouched) and one spacing rhythm on Home and Accounts (12 between cards in a group, 20 between sections, 8 under a section label) · HONEST SCOPE: HomePage and AccountsPage fetch their own data, so this renders the production sections they are composed of with fixtures through props (SafeToSpendCard, HomeBrief cards, Coming up strip, tip, estate section, transactions; AccountsHeader, ReconnectStrip, find bar and chips, group cards, ledger rows), with the wrapper spacing between them mirrored and pinned against the page source; the Home greeting row and the Accounts Offline block are stand-ins · synthetic accounts, no live data · ?surface=home|accounts&mode=light|dark",
+    states: [
+      { label: "Home", value: "home" },
+      { label: "Accounts", value: "accounts" },
+    ],
+  },
+  {
     slug: "home-cleanup",
     name: "home-cleanup",
     description:
