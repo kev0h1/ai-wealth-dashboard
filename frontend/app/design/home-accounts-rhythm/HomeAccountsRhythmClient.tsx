@@ -29,6 +29,7 @@ import AccountsEstateControls from "@/components/AccountsEstateControls";
 import AccountGroupCard from "@/components/AccountGroupCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { useColours } from "@/components/ColourProvider";
+import { displayAccountName } from "@/lib/accountName";
 import { buildEstate, filterEstate, type EstateLens } from "@/lib/accountsEstate";
 import { getPayPeriodWithConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
 import { FIGURE_DATA } from "../safe-to-spend-figure/fixtures";
@@ -174,7 +175,7 @@ function AccountsSurface() {
             {OFFLINE.map((acc) => (
               <div key={acc.id} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm flex items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{acc.name}</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500">{acc.label} · Offline</p>
                 </div>
                 <span className="text-sm font-bold font-mono tabular-nums text-slate-800 dark:text-slate-100">£{acc.balance}</span>
