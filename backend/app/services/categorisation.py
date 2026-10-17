@@ -171,6 +171,20 @@ def rule_categorise(merchant: str, description: str) -> Optional[str]:
     return None
 
 
+def rule_categorise_directed(merchant: str, description: str, *, is_credit: bool) -> Optional[str]:
+    """`rule_categorise` with the one direction guard every path shares.
+
+    G280: a credit whose text matches the Rent rule is a landlord's incoming
+    rent (Income), never a Rent refund. Every other rule match is unchanged
+    (a merchant refund still nets against its category). Ingest (TrueLayer,
+    Finexer, Yapily, statements) and `apply_rules_bulk` all call this, so a
+    credit gets the same category whichever path sees it first."""
+    cat = rule_categorise(merchant, description)
+    if is_credit and cat == "Rent":
+        return "Income"
+    return cat
+
+
 async def migrate_mortgage_car_finance_categories() -> dict:
     """One-time (idempotent) backfill for G39: the Mortgage/Car finance
     built-ins and their MERCHANT_PATTERNS entries are new, but the regular
@@ -1283,9 +1297,8 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             # Own-account transfers are already caught above (raw TRANSFER) and by the
             # FT/identity rule. A remaining incoming credit is income unless a rule
             # refines it (e.g. a merchant refund nets against its category).
-            _match = rule_categorise(merchant, description)
-            # G280: rent received (a landlord's tenant payment) is income, not a Rent refund.
-            cat = _match if _match and _match != "Rent" else "Income"
+            _match = rule_categorise_directed(merchant, description, is_credit=True)
+            cat = _match if _match else "Income"
         else:
             cat = rule_categorise(merchant, description)
             if cat is None and raw_cat in RAW_TRUELAYER_CATEGORIES:

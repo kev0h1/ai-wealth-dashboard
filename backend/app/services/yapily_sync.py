@@ -14,7 +14,7 @@ from app.services.notifications import notify_after_sync
 from app.db.collections import (
     yapily_accounts_col, yapily_transactions_col, yapily_consents_col,
 )
-from app.services.categorisation import rule_categorise, canonical_merchant_key
+from app.services.categorisation import rule_categorise_directed, canonical_merchant_key
 
 
 def yapily_headers(consent: str | None = None) -> dict:
@@ -159,7 +159,7 @@ async def sync_yapily_consent(consent_token: str, user_id: str):
                 txn_date = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
             except Exception:
                 txn_date = timeutil.user_now().replace(tzinfo=None)
-            cat = rule_categorise(merchant_name or "", desc)
+            cat = rule_categorise_directed(merchant_name or "", desc, is_credit=txn_type == "credit")
             yresult = await yapily_transactions_col.update_one({"_id": txn_id}, {"$set": {
                 "account_id": acc_id, "user_id": user_id, "date": txn_date,
                 "amount": amount,

@@ -16,7 +16,7 @@ from app.core.config import (
 from app.services.notifications import notify_after_sync
 from app.core.crypto import encrypt_token, decrypt_token
 from app.db.collections import connections_col, accounts_col, transactions_col, excluded_accounts_col
-from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
+from app.services.categorisation import rule_categorise, rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.pending_transactions import replace_pending_for_account
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
 from pymongo import ReturnDocument
@@ -115,7 +115,7 @@ async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
             # tags) is unaffected. Don't trust the raw TRANSFER tag for credits —
             # peer payments (e.g. Monzo requests) get tagged TRANSFER by TrueLayer
             # but are Income.
-            category = rule_categorise(merchant, description) or (
+            category = rule_categorise_directed(merchant, description, is_credit=True) or (
                 "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Income"
             )

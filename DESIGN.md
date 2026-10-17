@@ -133,7 +133,7 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 - **Verified Emerald** (#10b981): Positive money — income, under-budget, verified savings, "connected".
 - **Watch Amber** (#f59e0b): Pace warnings, target lines, "due tomorrow" — attention without alarm.
 - **Risk Red** (#ef4444): Genuine liability only — debt, over-budget, at-risk bills, destructive actions.
-- **Category Palette** (18 hues, Tailwind 400-row saturation): each spending category owns one hue — Groceries emerald (#34d399), Eating Out orange (#fb923c), Transport blue (#60a5fa), Bills rose (#fb7185), Mortgage grass green (#49be37), Rent tan (#d4a373, key icon, distinct from Mortgage, G280), Savings amber (#fbbf24), Debt red (#f87171), and so on per the frontmatter. One tonal family so charts read as a blended set, not a fight. Users can override any of these; treat overrides as canonical.
+- **Category Palette** (19 hues, Tailwind 400-row saturation): each spending category owns one hue — Groceries emerald (#34d399), Eating Out orange (#fb923c), Transport blue (#60a5fa), Bills rose (#fb7185), Mortgage grass green (#49be37), Rent tan (#d4a373, key icon, distinct from Mortgage, G280), Savings amber (#fbbf24), Debt red (#f87171), and so on per the frontmatter. One tonal family so charts read as a blended set, not a fight. Users can override any of these; treat overrides as canonical.
 
 ### Named Rules
 **The Category Voice Rule.** A category's colour appears as a ~15% tinted chip background (`${colour}26`) with the icon at full strength, as bar/dot accents, and in charts — never as a flooded surface or full-bleed background.

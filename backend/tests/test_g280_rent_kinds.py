@@ -286,3 +286,29 @@ def test_mirror_recomputes_an_unversioned_cached_portrait(monkeypatch):
     calls.clear()
     asyncio.run(router.get_mirror(refresh=False, user={"email": "u"}))
     assert calls == []
+
+
+# ── Credit direction guard is shared by ingest and bulk re-run ───────────────
+
+def test_rent_credit_is_income_and_debit_is_rent_through_the_shared_helper():
+    from app.services.categorisation import rule_categorise_directed as d
+
+    assert d("", "RENT REFUND", is_credit=True) == "Income"
+    assert d("", "RENT REFUND", is_credit=False) == "Rent"
+    # Other rule matches are unchanged for credits (a merchant refund nets).
+    assert d("Tesco", "", is_credit=True) == "Groceries"
+    assert d("nothing known", "", is_credit=True) is None
+
+
+def test_every_ingest_path_and_bulk_rerun_use_the_directed_helper():
+    root = Path(__file__).resolve().parents[1] / "app"
+    for rel in ("services/truelayer_sync.py", "services/finexer_sync.py",
+                "services/yapily_sync.py", "routers/statements.py"):
+        src = (root / rel).read_text()
+        assert "rule_categorise_directed(" in src, rel
+        # no direct credit-path call left behind
+        for line in src.splitlines():
+            if "rule_categorise(" in line and "import" not in line:
+                assert "is_credit" not in line, (rel, line)
+    bulk = (root / "services" / "categorisation.py").read_text()
+    assert "rule_categorise_directed(merchant, description, is_credit=True)" in bulk
