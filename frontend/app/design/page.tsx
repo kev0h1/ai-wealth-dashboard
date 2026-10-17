@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "plan-picker-v2",
+    name: "Choose what fits · B50",
+    description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
+    variants: [{ label: "A · Room to compare", value: "a" }, { label: "B · One clear choice", value: "b" }],
+    states: [{ label: "Free account", value: "free" }, { label: "In a trial", value: "trialling" }, { label: "Paid account", value: "paid" }],
+    group: "current",
+  },
+  {
     slug: "keep-money-here",
     name: "Keep money in this account · G274",
     description: "G274: A Reserve here, B Details then review. Purpose and amount first, reserve in the paying account by default, optional receiving account and transfer rule. One/several/no-context/no-eligible-source fixtures, both themes, local draft confirmation only. No real changes · ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
