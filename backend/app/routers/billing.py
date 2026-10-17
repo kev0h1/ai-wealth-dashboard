@@ -330,6 +330,11 @@ async def apple_webhook(request: Request):
     detail in the body and nothing user-identifying in the log."""
     from app.services import apple_billing
 
+    # Reject on the declared size before reading anything (an absent or
+    # malformed header falls through to the post-read check below).
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > _APPLE_WEBHOOK_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Invalid request")
     body = await request.body()
     if len(body) > _APPLE_WEBHOOK_MAX_BYTES:
         raise HTTPException(status_code=400, detail="Invalid request")
