@@ -90,7 +90,7 @@ class PlayNotEnabled(Exception):
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)  # naive-ok: aware instant for persisted audit stamps and comparisons
 
 
 def play_enabled() -> bool:
