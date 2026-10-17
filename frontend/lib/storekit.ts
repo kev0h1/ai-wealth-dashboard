@@ -136,6 +136,9 @@ export async function loadStoreProducts(productIds: string[]): Promise<Record<st
 
 // ── Purchase, restore, manage ────────────────────────────────────────────────
 
+export const PURCHASE_FAILED_MESSAGE = "The purchase did not go through. You have not been charged.";
+export const PURCHASE_RECORDED_MESSAGE = "Your purchase is recorded with Apple and will show here shortly.";
+
 export type PurchaseOutcome =
   | { ok: true }
   | { ok: false; cancelled: boolean; message: string };
@@ -148,7 +151,9 @@ function isCancellation(err: unknown): boolean {
 async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<boolean> {
   if (!tx.jwsRepresentation) return false;
   const res = await api.verifyAppleTransaction(tx.jwsRepresentation);
-  if (!res.ok) return false;
+  // Finish only once the server has actually applied it; an unhandled answer
+  // leaves the transaction queued for syncUnfinishedTransactions.
+  if (!res.ok || !res.handled) return false;
   try {
     await sk.plugin.finishTransaction({ transactionId: tx.transactionId });
   } catch {
@@ -161,6 +166,11 @@ async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRep
  *  has the server verify the signed transaction. The server, not this
  *  function, decides what the user is entitled to. */
 export async function purchaseSubscription(productKey: string, config: AppleIapConfig): Promise<PurchaseOutcome> {
+  // Two failure copies. Before Apple completes the purchase nothing was
+  // charged; once Apple has charged and only our server step fails, the
+  // purchase exists and will be picked up, so the user must not be told they
+  // were not charged.
+  let charged = false;
   const productIdentifier = config.products[productKey];
   if (!config.enabled || !config.app_account_token || !productIdentifier) {
     return { ok: false, cancelled: false, message: "This plan cannot be bought in the app yet." };
@@ -176,14 +186,16 @@ export async function purchaseSubscription(productKey: string, config: AppleIapC
         appAccountToken: config.app_account_token as string,
         autoAcknowledgePurchases: false,
       });
+      charged = true;
       const verified = await verifyAndFinish(sk, tx);
       return verified
         ? ({ ok: true } as const)
-        : ({ ok: false, cancelled: false, message: "We could not confirm your purchase yet. Try Restore purchases in a moment." } as const);
+        : ({ ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE } as const);
     });
   } catch (err) {
     if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
-    return { ok: false, cancelled: false, message: "The purchase did not go through. You have not been charged." };
+    if (charged) return { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
   }
 }
 

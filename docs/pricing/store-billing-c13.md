@@ -227,6 +227,17 @@ pays twice for the same entitlement:
   default, `--apply` writes, idempotent, counts only. Not required for
   correctness; it normalises old documents.
 - The daily trial reminder skips Apple trials (its copy quotes the web price
+- Design note (section 2.4): the server does NOT refuse Stripe checkout while
+  an Apple subscription is live. The guard is one-way by design: the
+  `purchase_allowed` check stops the StoreKit buy button when Stripe is live,
+  and a Stripe checkout from the web while Apple is live is allowed (the
+  precedence rule then picks the higher tier). Only the native iOS app is
+  barred from Stripe (B31).
+- Security review fixes: pack grants are insert-first behind a unique
+  partial index on `(provider, store_transaction_id)` in both pack
+  collections; restore never replaces a live subscription with an older or
+  lapsed one (different `originalTransactionId` included); the receiver
+  checks `Content-Length` before reading the body.
   and "Settings, Your plan"; Apple sends its own notice).
 
 ## 3. Product catalogue

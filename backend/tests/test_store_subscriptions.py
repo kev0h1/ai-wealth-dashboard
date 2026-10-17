@@ -28,8 +28,8 @@ def cols(monkeypatch):
     c = {
         "subscriptions_col": FakeCol(unique=(("user_id", "provider"),)),
         "billing_events_col": FakeCol(unique=(("event_id",),)),
-        "penny_topups_col": FakeCol(),
-        "mcp_call_packs_col": FakeCol(),
+        "penny_topups_col": FakeCol(unique=(("provider", "store_transaction_id"),)),
+        "mcp_call_packs_col": FakeCol(unique=(("provider", "store_transaction_id"),)),
     }
     for name, col in c.items():
         monkeypatch.setattr(collections_module, name, col)
@@ -234,3 +234,27 @@ def test_non_store_provider_is_rejected(cols):
     with pytest.raises(ValueError):
         _run(seam.upsert_store_subscription(UID, "stripe", tier="lite", billing_period="monthly", status="active",
                                             expires_at=None, provider_subscription_id="x"))
+
+
+def test_concurrent_grants_for_one_transaction_grant_exactly_once(cols):
+    """S1: N parallel verify calls (or a verify racing a ONE_TIME_CHARGE) for
+    one purchase. The fake collection simulates the unique partial index; the
+    insert yields so the calls genuinely interleave."""
+    col = cols["penny_topups_col"]
+    real_insert = col.insert_one
+
+    async def yielding_insert(doc):
+        await asyncio.sleep(0)
+        return await real_insert(doc)
+
+    col.insert_one = yielding_insert
+
+    async def go():
+        return await asyncio.gather(*[
+            seam.grant_store_pack(UID, "apple", "penny", "medium", "tx-race") for _ in range(12)
+        ])
+
+    results = _run(go())
+    assert len(col.docs) == 1
+    assert sum(1 for r in results if r["duplicate"] is False) == 1
+    assert all(r["handled"] for r in results)

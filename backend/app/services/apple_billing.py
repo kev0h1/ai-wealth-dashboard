@@ -201,18 +201,6 @@ async def _apply_subscription_transaction(
         return {"handled": False, "reason": "transaction has no original id or expiry"}
     original = str(original)
 
-    if client_submitted:
-        # A restore can hand over an older period of a subscription that has
-        # since renewed. Never let it move state backwards.
-        existing = await subscriptions_col.find_one(seam.store_doc_filter(uid, PROVIDER))
-        stored_expiry = existing.get("expires_at") if existing else None
-        if existing and existing.get("provider_subscription_id") == original and stored_expiry is not None:
-            from app.core.timeutil import as_utc
-
-            if as_utc(stored_expiry) > expires_at:
-                return {"handled": True, "action": "subscription_upsert", "uid": uid, "provider": PROVIDER,
-                        "unchanged": True, "reason": "transaction is for an older period"}
-
     revoked = _ms(tx.get("revocationDate")) is not None
     trialing = _is_free_trial(tx) and not revoked and expires_at > now
     if revoked or expires_at <= now:
@@ -221,6 +209,25 @@ async def _apply_subscription_transaction(
         status = "trialing"
     else:
         status = "active"
+
+    if client_submitted:
+        # A restore can hand over an older period, or a different (older or
+        # lapsed) subscription, after the user's live one has moved on. Never
+        # let it move state backwards: it replaces a live document only when
+        # it is itself live AND ends later.
+        existing = await subscriptions_col.find_one(seam.store_doc_filter(uid, PROVIDER))
+        stored_expiry = existing.get("expires_at") if existing else None
+        if existing and stored_expiry is not None:
+            from app.core.timeutil import as_utc
+
+            stored = as_utc(stored_expiry)
+            same = existing.get("provider_subscription_id") == original
+            stored_live = existing.get("status") in seam.LIVE_STATUSES and stored > now
+            if (same and stored > expires_at) or (
+                not same and stored_live and (status == "expired" or expires_at <= stored)
+            ):
+                return {"handled": True, "action": "subscription_upsert", "uid": uid, "provider": PROVIDER,
+                        "unchanged": True, "reason": "transaction is not newer than the live subscription"}
 
     cancel = None
     if renewal is not None and isinstance(renewal.get("autoRenewStatus"), int) and not isinstance(renewal.get("autoRenewStatus"), bool):

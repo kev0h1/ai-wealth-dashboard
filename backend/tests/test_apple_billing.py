@@ -121,8 +121,8 @@ def env(monkeypatch, tmp_path, pki):
         "billing_events_col": FakeCol(unique=(("event_id",),)),
         "billing_customers_col": FakeCol(),
         "apple_account_tokens_col": FakeCol(unique=(("user_id",), ("app_account_token",))),
-        "penny_topups_col": FakeCol(),
-        "mcp_call_packs_col": FakeCol(),
+        "penny_topups_col": FakeCol(unique=(("provider", "store_transaction_id"),)),
+        "mcp_call_packs_col": FakeCol(unique=(("provider", "store_transaction_id"),)),
     }
     for name, col in cols.items():
         monkeypatch.setattr(collections_module, name, col)
@@ -863,3 +863,34 @@ def test_stripe_checkout_and_portal_still_refuse_a_native_ios_client(env):
     with pytest.raises(HTTPException) as exc:
         _run(billing_router.create_portal({}, req, {"email": UID}))
     assert exc.value.status_code == 403
+
+
+def test_restore_of_a_different_older_or_lapsed_subscription_never_replaces_a_live_one(env):
+    _verify(env, _signed_tx(env, original="live", product="sorted.max.monthly", expires=NOW + timedelta(days=60)))
+    older = _signed_tx(env, original="other-1", expires=NOW + timedelta(days=10))
+    lapsed = _signed_tx(env, original="other-2", expires=NOW - timedelta(days=3))
+    for tx in (older, lapsed):
+        assert _verify(env, tx).get("unchanged") is True
+    d = _doc(env)
+    assert d["provider_subscription_id"] == "live" and d["tier"] == "max" and d["status"] == "active"
+    newer = _signed_tx(env, original="other-3", product="sorted.standard.annual", expires=NOW + timedelta(days=300))
+    _verify(env, newer)
+    assert _doc(env)["provider_subscription_id"] == "other-3"
+
+
+def test_restore_replaces_a_lapsed_document_with_a_live_one(env):
+    _verify(env, _signed_tx(env, original="old", expires=NOW - timedelta(days=9)))
+    _verify(env, _signed_tx(env, original="new", expires=NOW + timedelta(days=20)))
+    assert _doc(env)["provider_subscription_id"] == "new" and _doc(env)["status"] == "active"
+
+
+def test_webhook_rejects_an_oversized_declared_length_before_reading(env):
+    class Req:
+        headers = {"content-length": str(10_000_000)}
+
+        async def body(self):
+            raise AssertionError("body must not be read")
+
+    with pytest.raises(HTTPException) as exc:
+        _run(billing_router.apple_webhook(Req()))
+    assert exc.value.status_code == 400
