@@ -65,12 +65,12 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app.services.billing.BillingError — "Base class for billing-service
     # errors that should surface to the caller as a 400" per its own
     # docstring; every raise site is a static, authored string.
-    ("app/routers/billing.py", 172),
-    ("app/routers/billing.py", 195),
+    ("app/routers/billing.py", 173),
+    ("app/routers/billing.py", 196),
     # ValueError raised by app.core.subscription.grant_pack with an authored
     # message ("pack_id must be one of: ..."); admin-only endpoint.
-    ("app/routers/subscription.py", 269),
-    ("app/routers/subscription.py", 301),
+    ("app/routers/subscription.py", 282),
+    ("app/routers/subscription.py", 314),
     # app.services.safe_calc._CalcError — "Internal only" per its own
     # docstring, every raise site in that module is a static, authored,
     # already-calm string written for this exact Penny-facing surface.
@@ -130,7 +130,7 @@ ALLOWLIST: set[tuple[str, int]] = {
     # letter of "reaches an HTTP response body", allowlisted rather than
     # silently skipped; tighten this if the webhook response is ever
     # surfaced anywhere a person reads it.
-    ("app/services/billing.py", 536),
+    ("app/services/billing.py", 546),
 }
 
 

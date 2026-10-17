@@ -312,9 +312,10 @@ async def grant_store_pack(uid: str, provider: str, pack_kind: str, pack_id: str
             uid, pack_kind, pack_id, source="purchase",
             extra={"provider": provider, "store_transaction_id": transaction_id},
         )
-    except ValueError as exc:
-        logger.error("store billing: grant_pack refused (%s)", exc)
-        return {"handled": False, "reason": str(exc)}
+    except ValueError:
+        # An unknown pack id or kind: a catalogue/config fault, not user input.
+        logger.error("store billing: grant_pack refused an unknown pack")
+        return {"handled": False, "reason": "pack could not be granted"}
     return {"handled": True, "action": "grant_pack", "duplicate": False, "uid": uid,
             "pack_kind": pack_kind, "pack_id": pack_id}
 
