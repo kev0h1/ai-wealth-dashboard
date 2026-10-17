@@ -1055,6 +1055,7 @@ def test_rejected_not_yet_available_copy_does_not_exist_in_backend_source():
 
 def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatch):
     monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
+    monkeypatch.setattr("app.core.config.CONNECT_TIER_ENABLED", True)  # B51: UAT shape, Connect plan on
     result = asyncio.run(execute_tool("kevin", "explain", {"topic": "mcp_connector"}))
     text = result["text"]
     assert "MCP" in text                       # what it is
@@ -1064,6 +1065,16 @@ def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatc
     assert "sign in" in text.lower()            # sign-in required
     assert "Connect and Max" in text            # tiers
     assert "—" not in text and "–" not in text  # no em/en-dashes
+
+
+def test_explain_mcp_connector_names_only_max_when_connect_tier_off(monkeypatch):
+    """B51: with the Connect plan off (production shape) Penny never names it."""
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
+    monkeypatch.setattr("app.core.config.CONNECT_TIER_ENABLED", False)
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "mcp_connector"}))
+    text = result["text"]
+    assert "Connect" not in text.replace("Connected assistants", "")
+    assert "included on the Max plan" in text
 
 
 def test_explain_mcp_connector_enabled_reachable_in_valid_keys_list(monkeypatch):
@@ -1108,6 +1119,7 @@ def test_run_penny_agent_kevins_mcp_question_reaches_explain_mcp_connector(monke
     import app.services.penny_agent as penny_agent_module
 
     monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
+    monkeypatch.setattr("app.core.config.CONNECT_TIER_ENABLED", True)  # B51: UAT shape, Connect plan on
 
     class _FakeResponse:
         def __init__(self, payload, status_code=200):

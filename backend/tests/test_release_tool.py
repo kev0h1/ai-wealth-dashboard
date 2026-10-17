@@ -273,6 +273,44 @@ def test_verdict_mcp_flag_present_on_vercel_is_red():
     assert "vercel" in item.message
 
 
+# ── B51: Connect plan flag OFF in production ───────────────────────────────
+
+
+def test_verdict_connect_tier_flag_absent_is_green_and_reports_state():
+    item = release.verdict_connect_tier_flag({"ai-wealth-dashboard": False, "worker": False})
+    assert item.verdict == "green"
+    assert "OFF in production" in item.message
+    assert "ON in UAT" in item.message
+
+
+def test_verdict_connect_tier_flag_present_is_red_naming_the_service():
+    item = release.verdict_connect_tier_flag({"ai-wealth-dashboard": False, "worker": True})
+    assert item.verdict == "red"
+    assert "worker" in item.message
+    assert "CONNECT_TIER_ENABLED" in item.message
+
+
+def test_run_check_includes_connect_tier_flag_row(monkeypatch):
+    """Wired into run_check, not only defined: every remote lookup is stubbed
+    to fail soft, so the row still appears (green, nothing present)."""
+    class _Both(release.RemoteError, release.env_drift.RemoteError):
+        pass
+
+    def boom(*a, **k):
+        raise _Both("stubbed")
+    monkeypatch.setattr(release, "git_repo_state", lambda *a, **k: ("main", True, "a", "a"))
+    monkeypatch.setattr(release, "run_env_drift", lambda *a, **k: [])
+    monkeypatch.setattr(release, "fetch_railway_latest_deployment", boom)
+    monkeypatch.setattr(release, "link_vercel", boom)
+    monkeypatch.setattr(release, "dns_resolves", lambda *a, **k: True)
+    monkeypatch.setattr(release, "http_status", lambda *a, **k: 200)
+    monkeypatch.setattr(release, "release_ancestor_state", lambda *a, **k: (True, True))
+    monkeypatch.setattr(release.env_drift, "fetch_railway_names", lambda service, timeout=0: {"CONNECT_TIER_ENABLED"} if service == "worker" else set())
+    items = release.run_check(allow_worktree=True)
+    row = next((i for i in items if i.key == "connect_tier_flag"), None)
+    assert row is not None and row.verdict == "red"
+
+
 # ── A67: TrueLayer stays absent in production ──────────────────────────────
 # Same shape as the MCP flag checks above, one question wider: four Railway
 # credential names rather than one flag, plus the Vercel picker flag.

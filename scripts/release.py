@@ -68,6 +68,13 @@ DEPLOY_POLL_INTERVAL_S = 15
 MCP_RAILWAY_VAR = "MCP_CONNECTOR_ENABLED"
 MCP_VERCEL_VAR = "NEXT_PUBLIC_MCP_CONNECTOR"
 
+# B51: the Connect plan (the MCP connector tier) must not be offered or
+# purchasable in production. The backend flag defaults OFF, so production
+# stays off by leaving the name absent from both Railway services; UAT sets
+# CONNECT_TIER_ENABLED=true in backend/.env. Server-side only, so there is no
+# Vercel counterpart to check.
+CONNECT_TIER_RAILWAY_VAR = "CONNECT_TIER_ENABLED"
+
 # A67: TrueLayer is a UAT-only provider; Finexer is the only one production
 # talks to. The code already enforces absence on its own (the backend mounts
 # no TrueLayer routes unless APP_URL is a non-production host, see
@@ -462,6 +469,27 @@ def verdict_mcp_flag(railway_present: dict, vercel_present: Optional[bool]) -> C
     return CheckItem("mcp_flag", "MCP connector stays absent in prod", "green", "absent everywhere, as required")
 
 
+# ── (i2) Connect tier flag OFF in production (B51) ──────────────────────
+
+
+def verdict_connect_tier_flag(railway_present: dict) -> CheckItem:
+    """Expected state: OFF in production (name absent on both Railway
+    services, the code default), ON in UAT. Names only are visible here, so
+    any presence is RED: the value may be true, and even a false value is
+    drift from the documented "absent in production"."""
+    offenders = [s for s, present in railway_present.items() if present]
+    if offenders:
+        return CheckItem(
+            "connect_tier_flag", "Connect plan hidden in prod (CONNECT_TIER_ENABLED)", "red",
+            f"{CONNECT_TIER_RAILWAY_VAR} is set on: {', '.join(sorted(offenders))}; Connect must stay "
+            "OFF in production (absent), ON only in UAT (B51)",
+        )
+    return CheckItem(
+        "connect_tier_flag", "Connect plan hidden in prod (CONNECT_TIER_ENABLED)", "green",
+        "flag OFF in production (absent on both services, as required); expected ON in UAT only",
+    )
+
+
 # ── (j) TrueLayer absent in production (A67) ─────────────────────────────
 
 
@@ -551,12 +579,15 @@ def run_check(
     # name lists, so fetching twice would just double the remote round trips.
     railway_mcp_present = {}
     railway_truelayer_present: dict[str, list[str]] = {}
+    railway_connect_tier_present: dict[str, bool] = {}
     for service in RAILWAY_SERVICES:
         try:
             names = env_drift.fetch_railway_names(service, timeout=timeout)
+            railway_connect_tier_present[service] = CONNECT_TIER_RAILWAY_VAR in names
             railway_mcp_present[service] = MCP_RAILWAY_VAR in names
             railway_truelayer_present[service] = [n for n in TRUELAYER_RAILWAY_VARS if n in names]
         except env_drift.RemoteError:
+            railway_connect_tier_present[service] = False
             railway_mcp_present[service] = False
             railway_truelayer_present[service] = []
     vercel_mcp_present = None
@@ -570,6 +601,7 @@ def run_check(
         vercel_mcp_present = False
         vercel_truelayer_present = False
     items.append(verdict_mcp_flag(railway_mcp_present, vercel_mcp_present))
+    items.append(verdict_connect_tier_flag(railway_connect_tier_present))
     items.append(verdict_truelayer_absent(railway_truelayer_present, vercel_truelayer_present))
 
     return items

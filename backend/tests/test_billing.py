@@ -309,7 +309,9 @@ def test_billing_enabled_requires_secret_key_and_every_price_id():
     # dropped from _STRIPE_LONGER_PERIODS, so this is 16 keys now, not 20.
     required = config_module._STRIPE_REQUIRED_PRICE_KEYS
     complete = {k: f"price_{k}" for k in required}
-    assert len(required) == 16
+    # B51: Connect's price ids are required only while CONNECT_TIER_ENABLED is
+    # on; the default (production) is off, so 13 keys, 16 with Connect.
+    assert len(required) == (16 if config_module.CONNECT_TIER_ENABLED else 13)
     assert "lite_three_months" not in required
     assert "standard_six_months" in required
     assert "max_annual" in required

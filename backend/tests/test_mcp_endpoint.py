@@ -443,7 +443,9 @@ def test_tools_call_tier_with_zero_allowance_gets_a_distinct_error(monkeypatch):
     }))
     assert resp["error"]["code"] == -32002
     assert resp["error"]["code"] != -32000
-    assert "Connect and Max" in resp["error"]["message"]
+    # B51: wording follows CONNECT_TIER_ENABLED (default off here), so Connect
+    # is only named while that plan exists.
+    assert resp["error"]["message"] == "The connector is included in Max"
 
 
 def _this_year_month() -> str:
