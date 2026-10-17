@@ -85,10 +85,20 @@ fingerprint, and `npm run check:apk-single` (in `frontend/`) fails unless
 exactly one APK exists under `frontend/public` and its versionCode is greater
 than the previous one.
 
-Current build: versionCode 2 (v2 was never published before this rebuild), SHA-256
-`a541718c80c0441d191e59542300ec427b5cf4b565e2b8edb067902c0f4f3fa0`, signer
+Current build: versionCode 3, versionName 1.0.0 (supersedes v2; the Play
+AAB is cut from the same export), SHA-256
+`de7674aa1b7eff18414bd1587f702983b3b6a96f25f34ee7893964a01cbbdffd`, signer
 certificate SHA-256 `72c3196e4d4d7640162fb64b5423e68544e6e1e1109f52ccd8152b43e2e2d78e`
 (CN=AURIQ LTD, O=AURIQ LTD, L=London, C=GB). Built on Capacitor 8.5.3.
+
+Play AAB (C23): the Google Play bundle is built from the same web export and the
+same `android/` project as the sideload APK, with `./gradlew bundleSortedRelease`
+(run after `assembleSortedRelease` or before it, order does not matter). It lands at
+`android/app/build/outputs/bundle/sortedRelease/app-sorted-release.aab`, is signed
+with the AURIQ LTD upload key, and is never committed: Kevin uploads it by hand to
+the Play internal testing track. It shares the `versionCode` and `versionName` in
+`sorted-apk.json` with the sideload APK, so `set-android-version.sh` stamps both
+builds identically and Play and sideload builds install over each other.
 
 API base: PRODUCTION, `https://wealth.auriqltd.co.uk/api`. The published APK is
 the real app, so it is exported with `npm run build:mobile:prod`, never the
@@ -99,7 +109,7 @@ bundle, in design-preview fixture links only; none is an API base). The same fil
 both the UAT and production web hosts, since `frontend/public` ships to both.
 
 To publish a new build: bump `versionCode` (and set `previousVersionCode` to the
-old value) in `sorted-apk.json`, build the web export with `npm run build:mobile:prod`
+old value, and `versionName` if it changes) in `sorted-apk.json`, build the web export with `npm run build:mobile:prod`
 in `frontend/`, copy it to `capacitor-spike/www`, `npx cap sync android`, run
 `bash scripts/set-android-version.sh`, build with `./gradlew assembleSortedRelease`,
 copy `android/app/build/outputs/apk/sorted/release/app-sorted-release.apk` to
