@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChevronRight, ChevronUp, Circle, X } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import type { CompanionItem } from "@/lib/api";
+import ActionLabel from "@/components/ActionLabel";
 
 // G168 — the month-closed ("needle") card has no dismiss on Home and is
 // absent from the Penny hub. Fixture shaped exactly like the real item
@@ -128,9 +129,9 @@ export function ActionLink({ label, route }: { label: string; route: string }) {
   return (
     <Link
       href={route}
-      className="inline-block text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+      className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
     >
-      {label}
+      <ActionLabel>{label}</ActionLabel>
     </Link>
   );
 }

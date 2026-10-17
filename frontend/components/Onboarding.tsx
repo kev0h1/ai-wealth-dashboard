@@ -17,6 +17,7 @@ import PayPeriodPicker from "@/components/PayPeriodPicker";
 import { DEFAULT_DRAFT, configFromDraft, type PayPeriodDraft } from "@/lib/payPeriodDraft";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { getSubscriptionCached, useOpenBankingAccess } from "@/lib/openBankingAccess";
+import ActionLabel from "@/components/ActionLabel";
 
 interface OnboardingProps {
   defaultName?: string;
@@ -651,13 +652,13 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
 
       <button
         onClick={() => (bankAdded || !canConnectBank) ? bankDoneNext() : setShowSheet(true)}
-        className={`w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-[0.98] mb-3 ${
+        className={`inline-flex items-center justify-center gap-1 w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-[0.98] mb-3 ${
           bankAdded
             ? "bg-emerald-500 hover:bg-emerald-600"
             : "bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none"
         }`}
       >
-        {(bankAdded || !canConnectBank) ? "Let's go ›" : "Connect a bank"}
+        {(bankAdded || !canConnectBank) ? <ActionLabel>Let&apos;s go</ActionLabel> : "Connect a bank"}
       </button>
 
       {!bankAdded && canConnectBank && (

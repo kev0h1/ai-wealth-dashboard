@@ -90,7 +90,7 @@ export function ActionButton({
   return (
     <button
       type="button"
-      className={`inline-flex min-h-11 touch-manipulation items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800 ${ACTION_STYLES[kind]} ${className}`}
+      className={`inline-flex min-h-11 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800 ${ACTION_STYLES[kind]} ${className}`}
       {...props}
     >
       {children}

@@ -408,7 +408,7 @@ export function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap
                 of what the old span set by hand, so the button's own
                 indigo text colour is untouched. Rounded formatting
                 (`Math.round`, `toLocaleString("en-GB")`) is unchanged. */}
-            <MoneyText text={`Set this up: £${Math.round(msg.offer.per_period).toLocaleString("en-GB")}/period ›`} />
+            <MoneyText text={`Set this up: £${Math.round(msg.offer.per_period).toLocaleString("en-GB")}/period`} /><ChevronRight size={15} aria-hidden="true" className="ml-1 shrink-0" />
           </button>
         )}
       </div>

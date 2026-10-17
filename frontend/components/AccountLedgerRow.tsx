@@ -14,6 +14,7 @@ import { accountKindLabel } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
+import ActionLabel from "@/components/ActionLabel";
 
 function moneyStr(n: number): string {
   return `£${Math.abs(Math.round(n)).toLocaleString("en-GB")}`;
@@ -292,7 +293,7 @@ export default function AccountLedgerRow({
             </span>
           </button>
         ) : isCredit && onAddRates ? (
-          // No recorded terms at all — Variant B's "Add APR ›" chip fills the
+          // No recorded terms at all — Variant B's "<ActionLabel>Add APR</ActionLabel>" chip fills the
           // same one-chip slot, same size, so an unknown card never grows a
           // second line either. Chip stays visually 22px (matches the terms
           // pill above and the design source), but the button's hit area is
@@ -305,7 +306,7 @@ export default function AccountLedgerRow({
               e.stopPropagation();
               onAddRates();
             }}
-            className="relative mt-0.5 min-h-[22px] flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/25 text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity motion-reduce:transition-none before:absolute before:-inset-y-[11px] before:-inset-x-2 before:content-['']"
+            className="relative mt-0.5 min-h-[22px] flex items-center gap-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/25 text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity motion-reduce:transition-none before:absolute before:-inset-y-[11px] before:-inset-x-2 before:content-['']"
           >
             Add APR ›
           </button>

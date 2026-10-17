@@ -13,6 +13,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCountUp } from "@/lib/useCountUp";
 import { bankKey, BANK_META, BankBadge, bankLogoSrc } from "@/components/AccountMiniCard";
+import ActionLabel from "@/components/ActionLabel";
 
 // A ref callback a slide hands its focal DOM node to, so the player can
 // measure it and steer the spotlight glow toward it. See the
@@ -504,10 +505,10 @@ function CloseSlide({
         </p>
       )}
       <button
-        className="mt-8 bg-white/10 border border-white/15 rounded-xl px-5 py-3 text-sm font-semibold text-white active:scale-95 transition-transform pointer-events-auto self-start"
+        className="mt-8 inline-flex items-center gap-1 bg-white/10 border border-white/15 rounded-xl px-5 py-3 text-sm font-semibold text-white active:scale-95 transition-transform pointer-events-auto self-start"
         onClick={() => router.push(fullStoryHref)}
       >
-        Read the full story ›
+        <ActionLabel>Read the full story</ActionLabel>
       </button>
     </div>
   );

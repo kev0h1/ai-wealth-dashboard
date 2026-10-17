@@ -556,7 +556,7 @@ export function GrowHero({
             onClick={onSeeDue}
             className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
           >
-            See what&apos;s due ›
+            <ActionLabel>See what&apos;s due</ActionLabel>
           </button>
         </>
       ) : (

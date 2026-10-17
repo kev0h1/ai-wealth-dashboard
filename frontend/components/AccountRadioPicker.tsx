@@ -28,6 +28,7 @@ import { currencySymbol } from "@/lib/currency";
 import { fmt } from "@/lib/format";
 import { tidyAccountText } from "@/lib/accountDisplay";
 import type { Account } from "@/lib/api";
+import ActionLabel from "@/components/ActionLabel";
 
 const SHORTLIST_SIZE = 5;
 const DECLUTTER_THRESHOLD = 5;
@@ -228,9 +229,9 @@ export function AccountRadioPicker({
             <button
               type="button"
               onClick={() => setShowAll((s) => !s)}
-              className="w-full min-h-[44px] flex items-center px-3 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
+              className="w-full min-h-[44px] flex items-center gap-1 px-3 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
             >
-              {showAll ? "Show fewer" : `Show all ${accounts.length} accounts ›`}
+              {showAll ? "Show fewer" : <ActionLabel>{`Show all ${accounts.length} accounts`}</ActionLabel>}
             </button>
           )}
         </div>

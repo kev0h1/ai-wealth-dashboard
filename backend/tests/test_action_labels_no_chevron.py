@@ -37,13 +37,26 @@ def _bad_literals(path: Path) -> list[str]:
     tree = ast.parse(path.read_text())
     found: list[str] = []
 
-    def check(node, where):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and _bad(node.value):
-            found.append(f"{path.relative_to(APP.parent)}:{node.lineno} {where} {node.value!r}")
+    def tail_literals(node):
+        """Literal text that can end the built string: the constant itself, the
+        last piece of an f-string, the right side of a + concatenation, the
+        template of .format(...) and the left side of % formatting."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            yield node.value
         elif isinstance(node, ast.JoinedStr) and node.values:
-            last = node.values[-1]
-            if isinstance(last, ast.Constant) and isinstance(last.value, str) and _bad(last.value):
-                found.append(f"{path.relative_to(APP.parent)}:{node.lineno} {where} f-string {last.value!r}")
+            yield from tail_literals(node.values[-1])
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            yield from tail_literals(node.right)
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+            yield from tail_literals(node.left)
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and node.func.attr == "format"):
+            yield from tail_literals(node.func.value)
+
+    def check(node, where):
+        for value in tail_literals(node):
+            if _bad(value):
+                found.append(f"{path.relative_to(APP.parent)}:{node.lineno} {where} {value!r}")
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Dict):
@@ -67,13 +80,20 @@ def test_no_source_literal_ends_in_chevron_glyph():
     assert not offenders, "action label ends in a chevron glyph:\n" + "\n".join(offenders)
 
 
-def test_guard_detects_a_glyph(tmp_path):
+def test_guard_detects_a_glyph(tmp_path, monkeypatch):
     p = tmp_path / "app" / "x.py"
     p.parent.mkdir()
-    p.write_text('X = {"label": "See it \\u203a", "route": "/a"}\n')
-    global APP
-    saved, APP = APP, tmp_path / "app"
-    try:
-        assert _bad_literals(p)
-    finally:
-        APP = saved
+    monkeypatch.setitem(globals(), "APP", tmp_path / "app")
+    cases = [
+        'X = {"label": "See it \u203a", "route": "/a"}',
+        'X = {"label": "See it" + " \u203a"}',
+        'X = {"label": "See {} \u203a".format(1)}',
+        'X = {"label": "See %s \u203a" % 1}',
+        'X = {"label": f"See {1} \u203a"}',
+        'cta_label = "Go" + " >"',
+    ]
+    for src in cases:
+        p.write_text(src + "\n")
+        assert _bad_literals(p), src
+    p.write_text('X = {"label": "See it", "route": "/a"}\n')
+    assert not _bad_literals(p)
