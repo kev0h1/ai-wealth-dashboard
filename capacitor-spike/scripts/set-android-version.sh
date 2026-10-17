@@ -21,13 +21,14 @@ GRADLE="${ANDROID_DIR}/app/build.gradle"
 [[ -f "${META}" ]] || { echo "ERROR: ${META} missing" >&2; exit 1; }
 
 CODE="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["versionCode"]))' "${META}")"
+NAME="$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("versionName"); print(v if isinstance(v,str) else "")' "${META}")"
+[[ -n "${NAME}" ]] || { echo "ERROR: versionName missing or not a string in ${META}" >&2; exit 1; }
+[[ "${NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR: versionName '${NAME}' has unsupported characters" >&2; exit 1; }
+
 sed -i -E "s/^([[:space:]]*versionCode )[0-9]+/\1${CODE}/" "${GRADLE}"
 grep -q "versionCode ${CODE}\$" "${GRADLE}" || { echo "ERROR: failed to set versionCode ${CODE}" >&2; exit 1; }
 echo "versionCode set to ${CODE} in ${GRADLE}"
 
-NAME="$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get("versionName"); print(v if isinstance(v,str) else "")' "${META}")"
-[[ -n "${NAME}" ]] || { echo "ERROR: versionName missing or not a string in ${META}" >&2; exit 1; }
-[[ "${NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR: versionName '${NAME}' has unsupported characters" >&2; exit 1; }
 sed -i -E "s/^([[:space:]]*versionName )\"[^\"]*\"/\1\"${NAME}\"/" "${GRADLE}"
 grep -q "versionName \"${NAME}\"\$" "${GRADLE}" || { echo "ERROR: failed to set versionName ${NAME}" >&2; exit 1; }
 echo "versionName set to ${NAME} in ${GRADLE}"

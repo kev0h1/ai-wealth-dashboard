@@ -96,9 +96,19 @@ same `android/` project as the sideload APK, with `./gradlew bundleSortedRelease
 (run after `assembleSortedRelease` or before it, order does not matter). It lands at
 `android/app/build/outputs/bundle/sortedRelease/app-sorted-release.aab`, is signed
 with the AURIQ LTD upload key, and is never committed: Kevin uploads it by hand to
-the Play internal testing track. It shares the `versionCode` and `versionName` in
-`sorted-apk.json` with the sideload APK, so `set-android-version.sh` stamps both
-builds identically and Play and sideload builds install over each other.
+the Play internal testing track. Both artefacts share the `versionCode` sequence
+and the `versionName` in `sorted-apk.json`, and `set-android-version.sh` stamps
+them identically. A versionCode uploaded to Play is spent for good (Play rejects a
+reused code), so every new AAB or APK build bumps it, even when the other artefact
+is unchanged.
+
+Whether a Play install and the sideload APK update over each other depends on the
+Play App Signing key. The recommendation recorded for A9 is to enrol the existing
+upload key as the app signing key ("Export and upload a key from Java keystore"
+with the PEPK tool), so both carry the signer fingerprint recorded in
+`sorted-apk.json` and install over each other. If Google generates its own app
+signing key instead, the two are signed differently and Android refuses to update
+across them, so one must be uninstalled first (the C20 symptom).
 
 API base: PRODUCTION, `https://wealth.auriqltd.co.uk/api`. The published APK is
 the real app, so it is exported with `npm run build:mobile:prod`, never the
