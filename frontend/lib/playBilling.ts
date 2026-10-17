@@ -163,12 +163,20 @@ export type PurchaseOutcome =
   | { ok: true }
   | { ok: false; cancelled: boolean; message: string };
 
-const NOT_CONFIRMED = "We could not confirm your purchase yet. Try Restore purchases in a moment.";
-const DID_NOT_GO_THROUGH = "The purchase did not go through. You have not been charged.";
+export const PURCHASE_FAILED_MESSAGE = "The purchase did not go through. You have not been charged.";
+export const PURCHASE_RECORDED_MESSAGE = "Your purchase is recorded with Google Play and will show here shortly. Tap Restore if it does not.";
 
-function isCancellation(err: unknown): boolean {
-  const text = err instanceof Error ? err.message : String(err ?? "");
-  return /cancel/i.test(text);
+/** The plugin rejects a dismissed purchase sheet with the code USER_CANCELED
+ *  (Play's own BillingResponseCode name). Only that code counts: an API or
+ *  network error whose text happens to contain "cancel" must not be read as the
+ *  user backing out, because the money may already have moved. */
+export function isCancellation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "USER_CANCELED";
+}
+
+/** Play says the account already owns it: paid already, so restore, never "not charged". */
+function isAlreadyOwned(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "ITEM_ALREADY_OWNED";
 }
 
 async function verify(tx: Pick<Transaction, "purchaseToken" | "productIdentifier">): Promise<boolean> {
@@ -184,6 +192,28 @@ function canStart(config: PlayBillingConfig, productId: string | undefined, subs
   return null;
 }
 
+/** Runs one purchase and has the server verify it. Two failure copies: before
+ *  Google completes the purchase nothing was charged; once the purchase call
+ *  has resolved Google HAS charged, so a failing server step must never say
+ *  "not charged" (the purchase exists and a restore or the notification picks
+ *  it up). */
+async function runPurchase(buy: (play: PlayHandle) => Promise<Transaction>): Promise<PurchaseOutcome> {
+  let charged = false;
+  try {
+    return await withPlay(async (play) => {
+      const tx = await buy(play);
+      charged = true;
+      return (await verify(tx))
+        ? ({ ok: true } as const)
+        : ({ ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE } as const);
+    });
+  } catch (err) {
+    if (!charged && isCancellation(err)) return { ok: false, cancelled: true, message: "" };
+    if (charged || isAlreadyOwned(err)) return { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
+  }
+}
+
 /** Buys one subscription base plan, carrying the user's obfuscatedAccountId,
  *  then has the server verify the purchase token. The server, not this
  *  function, decides what the user is entitled to. Plan changes while a
@@ -196,24 +226,14 @@ export async function purchasePlaySubscription(
   const productIdentifier = config.products?.[productKey];
   const refusal = canStart(config, productIdentifier, true);
   if (refusal) return { ok: false, cancelled: false, message: refusal };
-  try {
-    return await withPlay(async (play) => {
-      const tx = await play.plugin.purchaseProduct({
-        productIdentifier: productIdentifier as string,
-        productType: play.subs,
-        planIdentifier: view.planIdentifier ?? undefined,
-        offerToken: view.offerToken ?? undefined,
-        appAccountToken: config.account_id as string,
-        autoAcknowledgePurchases: false,
-      });
-      return (await verify(tx))
-        ? ({ ok: true } as const)
-        : ({ ok: false, cancelled: false, message: NOT_CONFIRMED } as const);
-    });
-  } catch (err) {
-    if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
-    return { ok: false, cancelled: false, message: DID_NOT_GO_THROUGH };
-  }
+  return runPurchase((play) => play.plugin.purchaseProduct({
+    productIdentifier: productIdentifier as string,
+    productType: play.subs,
+    planIdentifier: view.planIdentifier ?? undefined,
+    offerToken: view.offerToken ?? undefined,
+    appAccountToken: config.account_id as string,
+    autoAcknowledgePurchases: false,
+  }));
 }
 
 /** Buys one Penny pack (a one-time product). Not consumed here: the server
@@ -224,23 +244,13 @@ export async function purchasePlayPack(
   const productIdentifier = config.products?.[productKey];
   const refusal = canStart(config, productIdentifier, false);
   if (refusal) return { ok: false, cancelled: false, message: refusal };
-  try {
-    return await withPlay(async (play) => {
-      const tx = await play.plugin.purchaseProduct({
-        productIdentifier: productIdentifier as string,
-        productType: play.inapp,
-        appAccountToken: config.account_id as string,
-        isConsumable: false,
-        autoAcknowledgePurchases: false,
-      });
-      return (await verify(tx))
-        ? ({ ok: true } as const)
-        : ({ ok: false, cancelled: false, message: NOT_CONFIRMED } as const);
-    });
-  } catch (err) {
-    if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
-    return { ok: false, cancelled: false, message: DID_NOT_GO_THROUGH };
-  }
+  return runPurchase((play) => play.plugin.purchaseProduct({
+    productIdentifier: productIdentifier as string,
+    productType: play.inapp,
+    appAccountToken: config.account_id as string,
+    isConsumable: false,
+    autoAcknowledgePurchases: false,
+  }));
 }
 
 /** Restore purchases: asks Play for this Google account's current purchases

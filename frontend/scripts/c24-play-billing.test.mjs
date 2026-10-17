@@ -30,7 +30,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { resolvePurchaseChannel } from "../lib/purchaseChannel.ts";
 import { purchaseChannel, usePurchaseChannel, canPurchaseInApp } from "../lib/nativeAuth.ts";
-import { describeFreeTrial, periodText, hasPlayPlugin, toProductViews } from "../lib/playBilling.ts";
+import { describeFreeTrial, periodText, hasPlayPlugin, toProductViews, isCancellation, PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE } from "../lib/playBilling.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -87,6 +87,14 @@ check("an entry with no trial promises none", views["other.id"].freeTrial === nu
 check("a trial entry listed first is not displaced by a later plain one",
   toProductViews([entry("a", "£1", phase(7, "day"), { offerToken: "t" }), entry("a", "£1", null, { offerToken: "p" })]).a.offerToken === "t");
 
+// ── Charged versus not charged (F1) ──────────────────────────────────────────
+check("only the plugin's USER_CANCELED code is a user cancellation", isCancellation({ code: "USER_CANCELED" }) === true);
+check("an error whose text contains 'cancel' is not a cancellation", isCancellation(new Error("Failed to cancel order, server error")) === false
+  && isCancellation({ message: "cancelled", code: "ERROR" }) === false && isCancellation("cancel") === false && isCancellation(null) === false);
+check("the recorded copy tells the user to tap Restore and the failed copy says not charged",
+  /Tap Restore if it does not\.$/.test(PURCHASE_RECORDED_MESSAGE) && /not been charged/.test(PURCHASE_FAILED_MESSAGE) && !/not been charged/.test(PURCHASE_RECORDED_MESSAGE));
+check("copy has no em dash or exclamation mark", ![PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE].some((m) => /[—!]/.test(m)));
+
 // ── 2/3/4/5. Source assertions ───────────────────────────────────────────────
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 const play = stripComments(read("lib/playBilling.ts"));
@@ -109,6 +117,10 @@ check("the purchase carries the obfuscated account id from that config", (play.m
 check("the client sends the token to the server verify route", /verifyPlayPurchase:[\s\S]{0,300}\/billing\/play\/purchase/.test(api) && /api\.verifyPlayPurchase\(tx\.purchaseToken, tx\.productIdentifier\)/.test(play));
 check("the verify route is not given the native-platform header the Stripe routes carry", !/verifyPlayPurchase:[\s\S]{0,400}platformHeaders/.test(api.split("openBillingPortal")[1].split("getIncomeStreams")[0]));
 check("purchases are made with auto-acknowledge off, twice", (play.match(/autoAcknowledgePurchases: false/g) ?? []).length === 2);
+check("both purchases go through runPurchase, which marks charged once the purchase resolves and then never says 'not charged'",
+  (play.match(/return runPurchase\(/g) ?? []).length === 2 && /charged = true;\s*return \(await verify\(tx\)\)/.test(play)
+  && /if \(charged \|\| isAlreadyOwned\(err\)\) return \{ ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE \}/.test(play)
+  && /if \(!charged && isCancellation\(err\)\)/.test(play));
 check("a pack is never consumed client-side", /isConsumable: false/.test(play) && !/consumePurchase|acknowledgePurchase|finishTransaction/.test(play));
 check("the plugin is told not to auto-finish, in code and in the native config", /configure\(\{ autoFinishTransactions: false \}\)/.test(play)
   && JSON.parse(read("../capacitor-spike/capacitor.config.json")).plugins?.NativePurchases?.autoFinishTransactions === false);
