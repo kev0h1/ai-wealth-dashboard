@@ -124,7 +124,7 @@ async def play_verify_purchase(body: dict, user: dict = Depends(current_user)):
     except PlayNotEnabled:
         raise HTTPException(status_code=503, detail=_UNAVAILABLE)
     except PlayRefused as exc:
-        raise HTTPException(status_code=400, detail={"code": "PLAY_PURCHASE_REFUSED", "message": exc.message})
+        raise HTTPException(status_code=400, detail={"code": "PLAY_PURCHASE_REFUSED", "message": play_billing.refusal_message(exc.code)})
     except PlayUnavailable:
         raise HTTPException(status_code=503, detail=_UNAVAILABLE)
     except Exception as exc:

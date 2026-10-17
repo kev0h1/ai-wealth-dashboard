@@ -73,14 +73,29 @@ _GRACE_STATE = "SUBSCRIPTION_STATE_IN_GRACE_PERIOD"
 _PERMANENT_API_STATUSES = {400, 404, 410}
 
 
+_REFUSAL_MESSAGES = {
+    "account_mismatch": "This purchase belongs to a different account.",
+    "unmapped_account": "This purchase could not be matched to your account.",
+    "token_not_found": "This purchase could not be found.",
+    "grant_refused": "This purchase could not be applied.",
+}
+_DEFAULT_REFUSAL = "This purchase could not be verified."
+
+
+def refusal_message(code: str) -> str:
+    """The user-safe sentence for a refusal code (never exception text)."""
+    return _REFUSAL_MESSAGES.get(code, _DEFAULT_REFUSAL)
+
+
 class PlayRefused(Exception):
     """A purchase cannot be verified or mapped (permanent). `code` is a short
-    machine reason, `message` a user-safe sentence for the client path."""
+    machine reason; refusal_message(code) is the user-safe sentence for the
+    client path."""
 
-    def __init__(self, code: str, message: str = "This purchase could not be verified."):
+    def __init__(self, code: str, message: str | None = None):
         super().__init__(code)
         self.code = code
-        self.message = message
+        self.message = message or refusal_message(code)
 
 
 class PlayUnavailable(Exception):
@@ -211,7 +226,8 @@ async def _api_call(coro):
     except PlayApiError as exc:
         if exc.status in _PERMANENT_API_STATUSES:
             raise PlayRefused("token_not_found", "This purchase could not be found.")
-        raise PlayUnavailable(f"play api status {exc.status}")
+        logger.warning("play billing: developer api call failed (status %s)", exc.status)
+        raise PlayUnavailable("play api unavailable")
     except google_play.PlayNotConfigured:
         raise PlayNotEnabled("no service account configured")
 
