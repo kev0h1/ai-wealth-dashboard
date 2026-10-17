@@ -3,7 +3,10 @@
 Status: iOS half BUILT by C21 (2026-10-17), on branch feature-C21-ios-storekit,
 awaiting independent review, a security review of the JWS verification and
 Kevin's TestFlight pass (docs/pricing/store-billing-c13-testplan.md). The
-Android half (Play billing-choice, section 9) is C24's. Decisions below are
+Android half (Google Play Billing, section 9) was BUILT by C24 (2026-10-17) on
+branch feature-C24-play-billing, awaiting independent review and a security
+review of the purchase verification; Kevin's internal-track pass is
+docs/pricing/store-billing-c24-testplan.md. Decisions below are
 Kevin's (2026-09-12/13, TODO.md C13 and the coordinator notes on
 B25/B26/B29/B31; pricing 2026-10-17, C24); this document works them into the
 codebase as it stands after B25, B27, B33 and B36 (2026-09-13). Section
