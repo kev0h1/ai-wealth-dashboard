@@ -22,7 +22,7 @@ type Tier = {
   icon: typeof FileText;
 };
 
-const TIERS: Tier[] = [
+const ALL_TIERS: Tier[] = [
   {
     id: "statements",
     name: "Statements",
@@ -59,6 +59,12 @@ const TIERS: Tier[] = [
     icon: Crown,
   },
 ];
+
+/** B51: ALL_TIERS filtered to what the server offers. */
+function tiersFromServer(available: readonly SubscriptionTier[] | undefined): Tier[] {
+  const offered = available ?? ALL_TIERS.map((t) => t.id).filter((id) => id !== "connect");
+  return ALL_TIERS.filter((tier) => offered.includes(tier.id));
+}
 
 // Fallback only — used when an older API payload doesn't send
 // `info.billing_periods` yet (B22 added it). A live payload drives the
@@ -183,6 +189,9 @@ export default function PlanPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // B51: the plan list is the server's (`info.available_tiers`), never a
+  // hard-coded one. A payload without the field fails closed to "no Connect".
+  const TIERS = useMemo(() => tiersFromServer(info.available_tiers), [info.available_tiers]);
   const chosen = TIERS.find((tier) => tier.id === selected) ?? TIERS[0];
   const periods = useMemo(() => periodDetailsFor(info, selected), [info, selected]);
   const chosenPeriod = periods.find((item) => item.id === period) ?? periods[0];

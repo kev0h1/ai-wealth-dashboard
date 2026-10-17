@@ -213,6 +213,7 @@ export default function ConnectedAssistantsCard({
   state,
   onDisconnect,
   tierAllowance,
+  connectOffered = false,
   allowance,
   mcpPacks,
   tier,
@@ -229,6 +230,9 @@ export default function ConnectedAssistantsCard({
    * known) falls through to the ordinary state machine below, the same as
    * any other tier that does allow the connector. */
   tierAllowance: number | null;
+  /** B51: GET /subscription's `available_tiers` includes "connect". False
+   *  (the default) words the upsell as Max only. */
+  connectOffered?: boolean;
   /** F9: this calendar month's MCP connector call allowance (GET
    * /subscription's `mcp` block), or null before that fetch has resolved —
    * distinct from `tierAllowance` above (which is just the tier's own
@@ -361,9 +365,9 @@ export default function ConnectedAssistantsCard({
 
           {isTierGated ? (
             <div className="px-4 py-3.5">
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Available on Connect and Max</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{connectOffered ? "Available on Connect and Max" : "Available on Max"}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Connecting an AI assistant to your Sorted data is included in the Connect and Max plans.
+                Connecting an AI assistant to your Sorted data {connectOffered ? "is included in the Connect and Max plans." : "is included in the Max plan."}
               </p>
             </div>
           ) : connected.length === 0 ? (

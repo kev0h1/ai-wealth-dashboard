@@ -1388,6 +1388,7 @@ export default function SettingsPage() {
             allowance={pennyUsage.info?.mcp ?? null}
             mcpPacks={pennyUsage.info?.mcp_packs ?? []}
             tier={pennyUsage.info?.tier ?? null}
+            connectOffered={pennyUsage.info?.available_tiers?.includes("connect") ?? false}
             billingLive={pennyUsage.info?.billing_live ?? false}
           />
         )}

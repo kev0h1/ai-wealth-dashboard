@@ -796,6 +796,11 @@ export interface SubscriptionInfo {
   tier: SubscriptionTier;
   status: string;
   prices_gbp: Record<string, number>;
+  /** B51: the plan list the server offers, in tier order. The client
+   *  renders only these (Connect is absent unless the server's
+   *  CONNECT_TIER_ENABLED is on, or it is the user's own current plan).
+   *  An older payload without this field is treated as "no Connect". */
+  available_tiers?: SubscriptionTier[];
   billing_prices_gbp?: Record<string, Record<SubscriptionBillingPeriod, number>>;
   /** B22: per tier, an ordered list of the currently-enabled billing
    *  periods with their full detail (see SubscriptionBillingPeriodDetail).
