@@ -1015,6 +1015,8 @@ def test_second_live_play_subscription_is_granted_flagged_and_reported(env, clie
     # A renewal of the flagged purchase keeps the flag.
     _run(play_billing.process_subscription(T2))
     assert sub_doc(env)["double_subscription"] is True
+    from app.core.subscription import get_subscription_doc
+    assert _run(get_subscription_doc(UID))[1].double_play_subscription is True
     # The client summary carries it.
     summary = _run(play_billing.verify_client_purchase(UID, T2, "sorted.max.monthly"))
     assert summary["double_subscription"] is True

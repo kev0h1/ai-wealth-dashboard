@@ -133,7 +133,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         # C21: which provider's document is in force ("stripe" | "apple" |
         # None when the user has no document at all), so the client can say
         # where to manage it: the Stripe portal, or iOS Settings.
-        "billing_provider": getattr(sub, "provider", None), "double_play_subscription": await _double_play_flag(email),  # C24: second live Play plan flagged
+        "billing_provider": getattr(sub, "provider", None), "double_play_subscription": bool(getattr(sub, "double_play_subscription", False)),  # C24: second live Play plan flagged
         # B45: failed-payment grace (access runs to this instant) and the
         # plan-has-no-open-banking flag the accounts screen reads as "paused".
         "past_due": sub.status == "past_due",
@@ -337,8 +337,3 @@ async def admin_topup(body: dict, user: dict = Depends(current_user)):
         "settled_months": [],
     })
     return {"ok": True, "email": target_email, "messages": messages, "year_month": ym}
-
-
-async def _double_play_flag(email: str) -> bool:
-    doc = await subscriptions_col.find_one({"user_id": email, "provider": "google"})
-    return bool(doc and doc.get("play_double_subscription") and doc.get("status") in ("active", "trialing", "past_due"))
