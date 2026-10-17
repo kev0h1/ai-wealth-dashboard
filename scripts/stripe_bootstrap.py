@@ -139,6 +139,12 @@ class ProductPlan:
         self.name = name
 
 
+def _output_keys() -> tuple[str, ...]:
+    """Required keys plus the sandbox's Connect keys (B51), in a stable order."""
+    extra = tuple(k for k in ("connect", "connect_six_months", "connect_annual") if k not in _STRIPE_REQUIRED_PRICE_KEYS)
+    return (*_STRIPE_REQUIRED_PRICE_KEYS, *extra)
+
+
 def build_plan() -> tuple[list[ProductPlan], list[PricePlan]]:
     """Pure — no Stripe calls. Reads only the app's own tables, so this
     script can never drift into a second, hand-maintained copy of the
@@ -192,9 +198,14 @@ def build_plan() -> tuple[list[ProductPlan], list[PricePlan]]:
 
     plan_keys = {p.lookup_key for p in prices}
     required_keys = set(_STRIPE_REQUIRED_PRICE_KEYS)
-    if plan_keys != required_keys:
+    # B51: the sandbox keeps bootstrapping Connect prices so UAT
+    # (CONNECT_TIER_ENABLED=true) can sell it, even though
+    # _STRIPE_REQUIRED_PRICE_KEYS only requires them while the flag is on.
+    # Test mode only (the sk_test guard below), so no live Connect price.
+    optional_connect = {"connect", "connect_six_months", "connect_annual"}
+    if plan_keys - optional_connect != required_keys - optional_connect or not required_keys <= plan_keys:
         missing = required_keys - plan_keys
-        extra = plan_keys - required_keys
+        extra = plan_keys - required_keys - optional_connect
         raise AssertionError(
             "stripe_bootstrap plan does not match _STRIPE_REQUIRED_PRICE_KEYS: "
             f"missing={sorted(missing)} extra={sorted(extra)}"
@@ -235,7 +246,7 @@ def run_dry_run(products: list[ProductPlan], prices: list[PricePlan]) -> None:
             f"amount={_fmt_gbp(price.unit_amount)} interval={interval} "
             f"product={price.product_key}"
         )
-    ordered = ",".join(f"{key}=<would-create>" for key in _STRIPE_REQUIRED_PRICE_KEYS)
+    ordered = ",".join(f"{key}=<would-create>" for key in _output_keys())
     print(f"STRIPE_PRICE_IDS={ordered}")
 
 
@@ -379,7 +390,7 @@ def run_real(key: str, products: list[ProductPlan], prices: list[PricePlan]) -> 
         )
         sys.exit(1)
 
-    ordered = ",".join(f"{key}={price_ids[key]}" for key in _STRIPE_REQUIRED_PRICE_KEYS)
+    ordered = ",".join(f"{key}={price_ids[key]}" for key in _output_keys() if key in price_ids)
     print(f"STRIPE_PRICE_IDS={ordered}")
     return price_ids
 

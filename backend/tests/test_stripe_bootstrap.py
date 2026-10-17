@@ -36,6 +36,10 @@ _spec = importlib.util.spec_from_file_location("stripe_bootstrap", _stripe_boots
 stripe_bootstrap = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(stripe_bootstrap)
 from app.core.config import _STRIPE_REQUIRED_PRICE_KEYS  # noqa: E402
+
+# B51: keys only required while CONNECT_TIER_ENABLED is on; the sandbox
+# bootstrap still creates them so UAT can sell Connect.
+_CONNECT_KEYS = {"connect", "connect_six_months", "connect_annual"}
 from app.core.subscription import TIER_BILLING_PRICES_GBP  # noqa: E402
 
 
@@ -206,13 +210,15 @@ def _make_fake_stripe():
 
 def test_plan_produces_every_required_key():
     _, prices = stripe_bootstrap.build_plan()
-    assert {p.lookup_key for p in prices} == set(_STRIPE_REQUIRED_PRICE_KEYS)
+    # B51: the sandbox also bootstraps Connect (for UAT); production never
+    # requires it, see _CONNECT_KEYS.
+    assert {p.lookup_key for p in prices} == set(_STRIPE_REQUIRED_PRICE_KEYS) | _CONNECT_KEYS
     # B27 (2026-09-12) dropped three_months from SUBSCRIPTION_PERIODS_ENABLED,
     # narrowing _STRIPE_REQUIRED_PRICE_KEYS from 20 to 16 (4 tiers x 3
     # periods + 4 pack keys). If this ever goes back to 20, it means
     # three_months was re-enabled and this test's own expectation is
     # correctly out of date, not a code bug.
-    assert len(_STRIPE_REQUIRED_PRICE_KEYS) == 16
+    assert len(set(_STRIPE_REQUIRED_PRICE_KEYS) | _CONNECT_KEYS) == 16
 
 
 def test_plan_amounts_match_pence_exactly():
@@ -300,7 +306,7 @@ def test_fresh_run_creates_all_16_keys(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
 
     result_ids = stripe_bootstrap.run_real("sk_test_dummy", *stripe_bootstrap.build_plan())
-    assert set(result_ids.keys()) == set(_STRIPE_REQUIRED_PRICE_KEYS)
+    assert set(result_ids.keys()) == set(_STRIPE_REQUIRED_PRICE_KEYS) | _CONNECT_KEYS
     assert len(fake.product_create_calls) == 6
     assert len(fake.price_create_calls) == 16
 

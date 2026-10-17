@@ -77,6 +77,7 @@ def test_checkout_trial_requires_card_for_every_tier_and_period(monkeypatch, tie
     fake = _make_fake_stripe()
     monkeypatch.setattr(billing_module, "stripe", fake)
     monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr("app.core.config.CONNECT_TIER_ENABLED", True)  # B51: UAT shape, Connect purchasable
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
     _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
     _run(billing_module.create_checkout_session(
