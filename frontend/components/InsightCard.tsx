@@ -434,8 +434,7 @@ export function InsightCard({
   onPin: (id: string) => void;
   onContextSaved: () => void;
   /** True only when this card renders inside a TipStrip on a category's
-   *  transactions page (app/design/spend-tips/TransactionsMock.tsx, a mock
-   *  of the real app/transactions/TransactionsPage.tsx), a payments
+   *  transactions page (app/transactions/TransactionsPage.tsx), a payments
    *  drill-down that already shows the category chip (the page's own
    *  filter chip) and the transactions themselves (the page's own list).
    *  Strips the card down to the fact line, body, estimate, and age line

@@ -1985,6 +1985,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
     # reproduce or add print debugging after the fact.
     researched: list[str] = []
     fetches = 0  # B48: shared fetches this user's pass triggered (cap: MAX_RESEARCHED_PER_PASS)
+    copy_rejected_n = 0  # G283: tips dropped by the banned-phrase gate this pass (count only)
     skipped: list[str] = []
     failed: list[str] = []
     # B44: once a quota/auth/rate failure (or an active backoff) is seen,
@@ -2160,6 +2161,8 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 # Cap reached and nothing cached: left untouched, picked up next pass.
                 skipped.append(cat_key)
                 continue
+        if outcome.get("copy_rejected"):
+            copy_rejected_n += 1
         provider_failure = outcome.get("failure")
         if provider_failure and not research_halted and (
             provider_failure in tips_research_health.BACKOFF_CODES or provider_failure == "backoff"
@@ -2251,6 +2254,9 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         _uid_hash(user_id), len(researched), len(skipped), len(failed),
         ",".join(researched) or "none", ",".join(failed) or "none",
     )
+    if copy_rejected_n:
+        log.warning("savings_insights tips dropped by the copy gate in a pass: %d (code %s)",
+                    copy_rejected_n, tip_copy.BANNED_FAILURE_CODE)
     if fetches:
         # B48: shared fetch count, deliberately without the user hash.
         log.warning("savings_insights shared research fetches in a pass: %d", fetches)

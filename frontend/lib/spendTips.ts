@@ -1,7 +1,6 @@
 // Pure derivations for the savings-tip signifiers shown on Spend's category
-// list and the transactions page's collapsed tips line. Promoted unchanged
-// in behaviour from the /design/spend-tips preview (fixtures.ts/shared.tsx)
-// once the owner picked variant A (2026-09-05) — see DESIGN.md "Tips on
+// list and the transactions page's collapsed tips line. Owner picked
+// variant A (2026-09-05) — see DESIGN.md "Tips on
 // Spend and the transactions page" for the copy rules this encodes: tips
 // never add rows to Spend's category list, and a subline's count/figure
 // signifier is a count, never a figure.

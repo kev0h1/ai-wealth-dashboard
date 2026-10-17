@@ -105,8 +105,7 @@ export default function TransactionsPage() {
   // list; the sheet just renders without an account line until this
   // resolves.
   const [accounts, setAccounts] = useState<Account[]>([]);
-  // Savings insights for the collapsed tips line under the chips (Step 4,
-  // spend-tips promotion) — the same api.getSavingsInsights() call
+  // Savings insights for the collapsed tips line under the chips — the same api.getSavingsInsights() call
   // SpendPage.tsx uses for its own categoryInsights, fetched once here on
   // mount and tolerant of failure (no line at all rather than an error UI).
   const [insights, setInsights] = useState<SavingsInsight[]>([]);

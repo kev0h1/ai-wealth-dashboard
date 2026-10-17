@@ -2,9 +2,8 @@
 
 // TipsLine — the one collapsed "N tips for X" row that sits under the
 // transactions page's filter chips, above the payments, when a single
-// category filter is active and that category carries open tips. Promoted
-// from the /design/spend-tips preview (TransactionsMock.tsx's TipsLine +
-// shared.tsx's TipStrip) once the owner picked variant A (2026-09-05); see
+// category filter is active and that category carries open tips (owner
+// picked variant A, 2026-09-05); see
 // DESIGN.md "Tips on Spend and the transactions page" for the doctrine this
 // encodes.
 //
