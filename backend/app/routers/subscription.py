@@ -340,7 +340,5 @@ async def admin_topup(body: dict, user: dict = Depends(current_user)):
 
 
 async def _double_play_flag(email: str) -> bool:
-    from app.db.collections import subscriptions_col
-
     doc = await subscriptions_col.find_one({"user_id": email, "provider": "google"})
     return bool(doc and doc.get("play_double_subscription") and doc.get("status") in ("active", "trialing", "past_due"))
