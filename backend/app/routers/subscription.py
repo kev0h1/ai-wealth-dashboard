@@ -130,6 +130,10 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,
         "cancel_at_period_end": bool(getattr(sub, "cancel_at_period_end", False)),
         "has_paid_subscription": bool(getattr(sub, "has_paid_subscription", False)),
+        # C21: which provider's document is in force ("stripe" | "apple" |
+        # None when the user has no document at all), so the client can say
+        # where to manage it: the Stripe portal, or iOS Settings.
+        "billing_provider": getattr(sub, "provider", None),
         # B45: failed-payment grace (access runs to this instant) and the
         # plan-has-no-open-banking flag the accounts screen reads as "paused".
         "past_due": sub.status == "past_due",
@@ -163,24 +167,32 @@ async def select_free_tier(user: dict = Depends(current_user)):
     if not BILLING_ENABLED:
         raise HTTPException(409, "Plans are not available yet, so there is nothing to select")
     email = user["email"]
-    existing = await subscriptions_col.find_one({"user_id": email})
+    # C21: the per-user slot this writes is the provider="stripe" one (manual
+    # and self-selected plans have always shared it with Stripe). An active
+    # Apple subscription is likewise never silently replaced: it is
+    # cancelled in iOS Settings, and its own document is left untouched.
+    stripe_slot = {"user_id": email, "provider": {"$in": ["stripe", None]}}
+    existing = await subscriptions_col.find_one(stripe_slot)
     if existing and existing.get("source") == "stripe" and existing.get("status") in {
         "active", "trialing", "past_due",
     }:
         raise HTTPException(409, "Cancel your paid subscription in billing first")
+    apple = await subscriptions_col.find_one({"user_id": email, "provider": "apple"})
+    if apple and apple.get("status") in {"active", "trialing", "past_due"}:
+        raise HTTPException(409, "Cancel your paid subscription in iOS Settings first")
 
     now = datetime.now(timezone.utc)
     await subscriptions_col.update_one(
-        {"user_id": email},
+        stripe_slot,
         {
             "$set": {
-                "user_id": email, "tier": "statements", "status": "active",
+                "user_id": email, "provider": "stripe", "tier": "statements", "status": "active",
                 "managed_by": "self", "updated_at": now,
             },
             "$unset": {
                 "expires_at": "", "trial_ends_at": "", "billing_period": "",
                 "cancel_at_period_end": "", "stripe_subscription_id": "",
-                "source": "",
+                "provider_subscription_id": "", "source": "",
             },
             "$setOnInsert": {"started_at": now},
         },
@@ -208,10 +220,11 @@ async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, f"tier must be one of: {list(TIER_BY_NAME)}")
 
     await subscriptions_col.update_one(
-        {"user_id": target_email},
+        {"user_id": target_email, "provider": {"$in": ["stripe", None]}},
         {
             "$set": {
                 "user_id":    target_email,
+                "provider":   "stripe",
                 "tier":       tier_name,
                 "status":     "active",
                 "managed_by": "manual",

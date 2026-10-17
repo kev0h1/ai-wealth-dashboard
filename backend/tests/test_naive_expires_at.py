@@ -18,6 +18,15 @@ class _Col:
     async def find_one(self, query):
         return self.doc
 
+    def find(self, query=None, projection=None):
+        # C21: get_subscription reads every per-provider document.
+        docs = [self.doc] if self.doc else []
+
+        async def gen():
+            for d in docs:
+                yield d
+        return gen()
+
 
 def _naive(delta):
     return (datetime.now(timezone.utc) + delta).replace(tzinfo=None)

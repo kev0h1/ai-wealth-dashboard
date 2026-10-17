@@ -235,8 +235,10 @@ class Subscription:
         cancel_at_period_end: bool = False,
         has_paid_subscription: bool = False,
         grace_until: datetime | None = None,
+        provider: str | None = None,
     ):
         self.grace_until = grace_until
+        self.provider = provider
         self.tier = tier
         self.status = status
         self.limits = TIER_LIMITS[tier]
@@ -259,35 +261,45 @@ def _default_tier() -> Tier:
     return TIER_BY_NAME.get(DEFAULT_TIER.strip().lower(), Tier.MAX)
 
 
-async def get_subscription(email: str) -> Subscription:
-    from app.db.collections import subscriptions_col
+def _doc_provider(doc: dict) -> str:
+    """C21: which payment provider wrote this subscriptions_col document.
+    Documents written before the provider field existed (and manual or
+    self-selected plan documents, which have always shared the single
+    per-user slot with Stripe) are "stripe" by the same rule the migration
+    uses (scripts/migrate_subscriptions_provider.py)."""
+    provider = doc.get("provider")
+    return provider if provider in ("stripe", "apple") else "stripe"
 
-    default_tier = _default_tier()
-    doc = await subscriptions_col.find_one({"user_id": email})
-    if not doc:
-        return Subscription(default_tier)
 
+def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
+    """The effective Subscription one document yields on its own (the body
+    get_subscription had before C21 added a second provider). An ended or
+    lapsed document still yields an "expired" Subscription: the caller
+    decides whether another provider's document outranks it."""
+    provider = _doc_provider(doc)
     stripe_backed = bool(doc.get("source") == "stripe" and doc.get("stripe_subscription_id"))
-    # B45: a user whose real (Stripe-backed) subscription has ended lands on
+    apple_backed = bool(provider == "apple" and doc.get("source") == "apple")
+    paid_backed = stripe_backed or apple_backed
+    # B45: a user whose real (store-backed) subscription has ended lands on
     # the free Statements plan whatever DEFAULT_TIER is. DEFAULT_TIER only
     # covers people who never had a paid subscription (the pre-launch "nobody
     # is restricted" default); someone who cancelled, lapsed, failed to pay
     # or let a trial end has no claim on it.
-    landing_tier = Tier.STATEMENTS if stripe_backed else default_tier
+    landing_tier = Tier.STATEMENTS if paid_backed else default_tier
     if doc.get("status") == "expired":
-        return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
+        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
 
     now = datetime.now(timezone.utc)  # naive-ok: aware instant compared with as_utc stamps
     expires_at = as_utc(doc.get("expires_at"))
     grace_until = as_utc(doc.get("grace_until")) if doc.get("status") == "past_due" else None
     if grace_until is not None:
-        # Failed payment: Stripe leaves current_period_end at the period that
-        # just ended, so the usual expires_at check would cut access the
+        # Failed payment: the provider leaves the period end at the period
+        # that just ended, so the usual expires_at check would cut access the
         # moment a renewal fails. Access runs to the grace deadline instead.
         if grace_until <= now:
-            return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
+            return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
     elif expires_at and expires_at < now:
-        return Subscription(landing_tier, "expired", has_paid_subscription=stripe_backed)
+        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
 
     stored_name = (doc.get("tier") or "").strip().lower()
     if stored_name in TIER_BY_NAME:
@@ -308,9 +320,55 @@ async def get_subscription(email: str) -> Subscription:
         trial_ends_at=doc.get("trial_ends_at"),
         renews_at=expires_at,
         cancel_at_period_end=bool(doc.get("cancel_at_period_end")),
-        has_paid_subscription=stripe_backed,
+        has_paid_subscription=paid_backed,
         grace_until=grace_until,
+        provider=provider,
     )
+
+
+def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) -> tuple[dict | None, Subscription]:
+    """C21 precedence rule (docs/pricing/store-billing-c13.md section 2.3):
+    across a user's per-provider documents (at most one each for "stripe"
+    and "apple") the highest live tier wins. A tie breaks toward the later
+    expires_at, then toward Stripe over Apple. When no document is live the
+    user is on whatever the best-ranked ended document lands them on (the
+    free Statements plan for a store-backed one), which is the document
+    most recently updated so the landing is deterministic. Returns the
+    chosen document alongside the Subscription it yields."""
+    default_tier = default_tier if default_tier is not None else _default_tier()
+    if not docs:
+        return None, Subscription(default_tier)
+    scored = [(doc, _subscription_from_doc(doc, default_tier)) for doc in docs]
+    live = [(d, s) for d, s in scored if s.status != "expired"]
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+
+    def live_rank(pair):
+        doc, sub = pair
+        return (int(sub.tier), as_utc(doc.get("expires_at")) or epoch, 1 if _doc_provider(doc) == "stripe" else 0)
+
+    if live:
+        return max(live, key=live_rank)
+
+    def ended_rank(pair):
+        doc, sub = pair
+        return (as_utc(doc.get("updated_at")) or epoch, 1 if _doc_provider(doc) == "stripe" else 0)
+
+    return max(scored, key=ended_rank)
+
+
+async def get_subscription_doc(email: str) -> tuple[dict | None, Subscription]:
+    """Every provider's document for `email`, resolved by
+    pick_subscription_doc. get_subscription and GET /billing/status both
+    read through this so they can never disagree about which document is
+    in force."""
+    from app.db.collections import subscriptions_col
+
+    docs = [d async for d in subscriptions_col.find({"user_id": email})]
+    return pick_subscription_doc(docs, _default_tier())
+
+
+async def get_subscription(email: str) -> Subscription:
+    return (await get_subscription_doc(email))[1]
 
 
 async def open_banking_paused(email: str, *, fail_closed: bool = False) -> bool:
@@ -640,7 +698,9 @@ async def mcp_allowance(email: str, *, persist: bool = True) -> dict:
     }
 
 
-async def grant_pack(email: str, kind: str, pack_id: str, *, source: str = "purchase") -> dict:
+async def grant_pack(
+    email: str, kind: str, pack_id: str, *, source: str = "purchase", extra: dict | None = None,
+) -> dict:
     """Insert one top-up pack doc for `email` — the shared implementation
     behind POST /subscription/admin/topup's catalogue-lookup branch
     (`source="admin"`) and B5's Stripe checkout.session.completed webhook
@@ -682,6 +742,7 @@ async def grant_pack(email: str, kind: str, pack_id: str, *, source: str = "purc
             "year_month":     ym,
             "source":         source,
             "settled_months": [],
+            **(extra or {}),
         }
         await mcp_call_packs_col.insert_one(doc)
         return doc
@@ -701,6 +762,7 @@ async def grant_pack(email: str, kind: str, pack_id: str, *, source: str = "purc
         "year_month":     ym,
         "source":         source,
         "settled_months": [],
+        **(extra or {}),
     }
     await penny_topups_col.insert_one(doc)
     return doc
