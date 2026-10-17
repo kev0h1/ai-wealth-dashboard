@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
@@ -1571,7 +1572,7 @@ export default function AccountsPage() {
       if (!raw) continue; // no matching Account — nothing to click through to
       rows.push({
         id: m.id,
-        name: m.name,
+        name: displayAccountName(m.name),
         provider: "Offline",
         kind: MANUAL_KIND[m.account_type],
         balance: m.account_type === "credit_card" ? -Math.abs(m.balance) : m.balance,
@@ -3214,7 +3215,7 @@ export default function AccountsPage() {
                           <meta.Icon size={16} className="text-slate-500 dark:text-slate-300" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{acc.name}</p>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</p>
                           <p className="text-xs text-slate-400 dark:text-slate-500">{meta.label} · Offline</p>
                         </div>
                         <span className={`text-sm font-bold flex-shrink-0 font-mono tabular-nums ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>

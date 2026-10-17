@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -290,7 +291,7 @@ function MoveRouteSummary({
         <MoveAccountIcon account={destination} />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
-          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{destination.name}</p>
+          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{displayAccountName(destination.name)}</p>
         </div>
       </div>
     </div>
@@ -1009,7 +1010,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
             const { suggestion, moves: accountMoves } = group;
             const sources = (suggestion.suggested_sources ?? []).map(source => ({
               provider: source.provider,
-              name: source.name,
+              name: displayAccountName(source.name),
               amount: source.amount,
             }));
             const latestMove = accountMoves[accountMoves.length - 1];
@@ -1955,7 +1956,7 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
   const moveTotal = data.moves.reduce((sum, m) => sum + m.amount, 0);
   const moveWho = moveNames.length <= 1 ? moveNames[0] : moveNames.length === 2 ? `${moveNames[0]} and ${moveNames[1]}` : `${moveNames.length} accounts`;
   const money = (v: number) => setAsideMoney(v, hideNetWorth);
-  const payer = data.estimated ? `Paid from ${paying.name}, based on recent transfers.` : `Paid from ${paying.name}.`;
+  const payer = data.estimated ? `Paid from ${displayAccountName(paying.name)}, based on recent transfers.` : `Paid from ${displayAccountName(paying.name)}.`;
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();

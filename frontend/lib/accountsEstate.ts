@@ -6,6 +6,7 @@
 //
 // No React, no page wiring — Wave 1 only builds this foundation.
 
+import { displayAccountName } from "./accountName";
 import type { Account, InvestmentAccount } from "@wealth/shared";
 import { accountKind, accountKindLabel, isDormant, needsAttention, type AccountKind } from "./accountKind";
 
@@ -26,7 +27,7 @@ export interface EstateRow {
 export function bankToRow(a: Account, pinnedIds: string[]): EstateRow {
   return {
     id: a.id,
-    name: a.name,
+    name: displayAccountName(a.name),
     provider: a.provider,
     kind: accountKind(a),
     balance: a.balance,
@@ -46,7 +47,7 @@ export function bankToRow(a: Account, pinnedIds: string[]): EstateRow {
 export function investmentToRow(i: InvestmentAccount, pinnedIds: string[] = []): EstateRow {
   return {
     id: i.id,
-    name: i.account_type || i.provider,
+    name: displayAccountName(i.account_type || i.provider),
     provider: i.provider,
     kind: "Investment",
     balance: i.display_value ?? i.total_value,
