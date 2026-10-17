@@ -62,6 +62,7 @@
     "check:go-live-cancelled-progress": "node --no-warnings --experimental-strip-types scripts/go-live-cancelled-progress.test.mjs",
     "check:set-aside-display": "node --no-warnings --experimental-strip-types scripts/set-aside-display.test.mjs",
     "check:g187-timeline": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g187-timeline.test.mjs",
+    "check:g284-native-action-routes": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/g284-native-action-routes.test.mjs",
     "check:g281-no-double-chevron": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g281-no-double-chevron.test.mjs",
     "check:g204-goal-link-overflow": "node --no-warnings --experimental-strip-types scripts/g204-goal-link-overflow.test.mjs",
     "check:g225-card-terms": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g225-card-terms.test.mjs",

@@ -5631,7 +5631,7 @@ async def compute_today_items(
     # The id carries the verdict so a worsening verdict re-appears immediately
     # (deliberately NOT the trend: the flat band is only £1 wide, so keying
     # dismissal on direction would let a card the user hid re-surface on noise).
-    # The /debt-plan page now exists — wire the button.
+    # The button goes to /cards (the /debt-plan page was retired; G284).
     #
     # G103: the words, figures and signifier all come from `trajectory_copy`
     # above, which leads on the three-month MOVEMENT in what is owed rather
@@ -5662,7 +5662,7 @@ async def compute_today_items(
                     "type": "trajectory",
                     "headline": _traj["headline"],
                     "body": _traj["body"],
-                    "action": {"label": "See the route", "route": "/debt-plan"},
+                    "action": {"label": "See the route", "route": "/cards"},
                     "estimated": False,
                     "tone": _traj["tone"],
                     "trend": _traj["trend"],

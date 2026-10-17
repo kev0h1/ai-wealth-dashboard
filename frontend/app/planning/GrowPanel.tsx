@@ -46,6 +46,7 @@ import SavingsGoalSheet from "@/components/SavingsGoalSheet";
 import PlanningCheckpointTimeline from "@/components/PlanningCheckpointTimeline";
 import { planningCheckpointFigures } from "@/lib/planningCheckpointFigures";
 import ActionLabel from "@/components/ActionLabel";
+import { actionHref } from "@/lib/actionRoutes";
 
 // ── formatting ───────────────────────────────────────────────────────────
 
@@ -282,7 +283,7 @@ export function LadderRung({ step, isLast, hideValues }: { step: GrowLadderStep;
           {step.link && (
             <button
               type="button"
-              onClick={() => router.push(step.link!.route)}
+              onClick={() => router.push(actionHref(step.link!.route))}
               className="min-h-[44px] flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
             >
               <ActionLabel>{step.link.label}</ActionLabel>
