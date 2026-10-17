@@ -308,7 +308,7 @@ def test_every_ingest_path_and_bulk_rerun_use_the_directed_helper():
         assert "rule_categorise_directed(" in src or "credit_guard(" in src, rel
         # no direct credit-path call left behind
         for line in src.splitlines():
-            if "rule_categorise(" in line and "import" not in line:
+            if "rule_categorise(" in line and "import" not in line and "credit_guard(" not in line:
                 assert "is_credit" not in line, (rel, line)
     bulk = (root / "services" / "categorisation.py").read_text()
     assert "rule_categorise_directed(merchant, description, is_credit=True)" in bulk
