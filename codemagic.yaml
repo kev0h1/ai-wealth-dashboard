@@ -1,6 +1,16 @@
 # Codemagic CI — Capacitor iOS build.
+# (C11 added two Android workflows for Google Play to this same file, see the bottom.)
 # The app bundles the Next.js static export (frontend/) inside a native WebView shell (capacitor-spike/).
 # Capacitor 8 iOS uses Swift Package Manager (no CocoaPods / Podfile).
+#
+# FOUR WORKFLOWS: the two iOS workflows (TestFlight) are described next, and
+# the two Android workflows (Google Play, C11) at the bottom of this file.
+# The "groups" statements below are about the iOS workflows only: the iOS
+# workflows have no `environment: groups:` key, so a Codemagic UI variable
+# never reaches an iOS build. The Android workflows DO import a variable group
+# (`google_play`, holding GCLOUD_SERVICE_ACCOUNT_CREDENTIALS and
+# GOOGLE_SERVICES_JSON_BASE64) and one Android keystore (`android_signing:
+# sorted_upload_keystore`); see the Android section at the bottom.
 #
 # TWO WORKFLOWS, same build pipeline, different backend, different branch,
 # different TestFlight audience:
@@ -129,8 +139,9 @@ workflows:
         # entitlement"). It's a plain feature flag, not a secret, so it lives here
         # in the repo rather than as a Codemagic UI environment variable: UI
         # variables belong to variable groups that must be imported via an
-        # `environment: groups:` key, this file has no `groups:` key, so a
-        # UI-set variable would silently never reach the build.
+        # `environment: groups:` key, this iOS workflow has no `groups:` key
+        # (only the Android workflows below import one), so a UI-set variable
+        # would silently never reach this build.
         #
         # !!! PREREQUISITE, READ BEFORE FLIPPING THIS TO "true" !!!
         # The Push Notifications capability must already be enabled on the
@@ -544,8 +555,9 @@ workflows:
         # entitlement"). It's a plain feature flag, not a secret, so it lives here
         # in the repo rather than as a Codemagic UI environment variable: UI
         # variables belong to variable groups that must be imported via an
-        # `environment: groups:` key, this file has no `groups:` key, so a
-        # UI-set variable would silently never reach the build.
+        # `environment: groups:` key, this iOS workflow has no `groups:` key
+        # (only the Android workflows below import one), so a UI-set variable
+        # would silently never reach this build.
         #
         # !!! PREREQUISITE, READ BEFORE FLIPPING THIS TO "true" !!!
         # The Push Notifications capability must already be enabled on the
@@ -574,3 +586,207 @@ workflows:
         <<: *shared_app_store_connect
         beta_groups:
           - "Production"
+
+  # ---------------------------------------------------------------------
+  # ANDROID (C11): Google Play, mirroring the iOS pair above.
+  #
+  #   - android-capacitor:      UAT API, MOBILE_TARGET=uat. Uploads the signed
+  #                             AAB to the Play INTERNAL testing track.
+  #   - android-capacitor-prod: production API, MOBILE_TARGET=prod. Uploads to
+  #                             the Play PRODUCTION track as a DRAFT release
+  #                             (submit_as_draft: true), so nothing reaches
+  #                             users until Kevin reviews and rolls it out in
+  #                             Play Console. scripts/release.py deploy starts
+  #                             this workflow after the iOS one.
+  #
+  # Both are manual-start only for now: there is deliberately NO active
+  # `triggering:` block yet (see the commented-out ones below). Kevin has not
+  # yet added the three Codemagic inputs they need, so an automatic trigger
+  # would fail every push to main. The three inputs (exact names), all in the
+  # Codemagic UI:
+  #   1. Team settings -> Code signing identities -> Android keystores: upload
+  #      capacitor-spike/android/keys/upload-keystore.jks with reference name
+  #      `sorted_upload_keystore`, alias `upload`, and the store/key password
+  #      from capacitor-spike/android/keystore.properties (same value for
+  #      both, PKCS12). This is the Play UPLOAD key (Play App Signing holds
+  #      the app signing key), see DEPLOY.md "Android release signing".
+  #   2. A variable group named `google_play` (secure variables) holding
+  #      GCLOUD_SERVICE_ACCOUNT_CREDENTIALS (the Play service-account JSON,
+  #      pasted as is) and GOOGLE_SERVICES_JSON_BASE64 (base64 -w0 of
+  #      capacitor-spike/google-services.json, which is gitignored so the
+  #      build cannot read it from the repo).
+  #   3. The Play service account itself, with release permissions on the app
+  #      (DEPLOY.md "Android: Codemagic Play builds").
+  # Once all three exist, uncomment the `triggering:` block on each workflow.
+  #
+  # Differences from the iOS pair: Linux machine, Java 21 (Capacitor 8's
+  # Android library compiles at Java 21), no flavours (`cap add android`
+  # generates a plain project, so the Gradle task is bundleRelease, not
+  # bundleSortedRelease; Board is not built here), and the versionCode is
+  # Google Play's latest + 1 (google-play get-latest-build-number), the same
+  # refuse-to-guess pattern as the iOS "Set unique build number" step and for
+  # the same reason: Play rejects any reused versionCode across all tracks and
+  # Codemagic's per-workflow $BUILD_NUMBER cannot stay monotonic across two
+  # workflows (or the manual first upload, versionCode 3, versionName 1.0.0).
+  # ---------------------------------------------------------------------
+  android-capacitor:
+    name: Android Capacitor (Play internal testing)
+    instance_type: linux_x2
+    max_build_duration: 60
+    # Manual-start only until the three Codemagic inputs above exist. Then
+    # uncomment: fires on every push to main, like ios-capacitor.
+    # triggering:
+    #   events:
+    #     - push
+    #   branch_patterns:
+    #     - pattern: main
+    #       include: true
+    #       source: true
+    #   cancel_previous_builds: true
+    environment:
+      node: 22
+      java: 21
+      groups:
+        - google_play
+      android_signing:
+        - sorted_upload_keystore
+      vars:
+        # Same meanings as in ios-capacitor above.
+        MOBILE_TARGET: "uat"
+        BUILD_TAG_ENV: "uat"
+        NEXT_PUBLIC_MCP_CONNECTOR: "on"
+        NEXT_PUBLIC_MCP_URL: "https://uat.wealth.auriqltd.co.uk/api/mcp"
+        NEXT_PUBLIC_APP_ENV: "uat"
+    scripts:
+      - *step_build_web
+      - &step_android_google_services
+        name: Restore google-services.json
+        script: |
+          set -e
+          # capacitor-spike/google-services.json is gitignored (it is not a
+          # secret, but it is deliberately untracked), so CI restores it from
+          # the google_play variable group. setup-android-push.sh requires it.
+          if [ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+            echo "ERROR: GOOGLE_SERVICES_JSON_BASE64 is not set. Add it to the Codemagic variable group google_play (base64 -w0 of capacitor-spike/google-services.json)."
+            exit 1
+          fi
+          echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > "$CM_BUILD_DIR/capacitor-spike/google-services.json"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(c['client_info']['android_client_info']['package_name']=='co.uk.auriqltd.sorted' for c in d['client']), 'no client for co.uk.auriqltd.sorted'" "$CM_BUILD_DIR/capacitor-spike/google-services.json" || { echo "ERROR: decoded google-services.json is not valid or has no co.uk.auriqltd.sorted client"; exit 1; }
+          echo "google-services.json restored (co.uk.auriqltd.sorted client present)."
+      - &step_android_sync
+        name: Add + patch + sync Capacitor Android
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR/capacitor-spike"
+          npm ci
+          if [ ! -d android ]; then npx cap add android; fi
+          # apply-icons.sh needs ImageMagick's `convert` for the Android icons.
+          if ! command -v convert >/dev/null 2>&1; then
+            echo "ImageMagick not found on this image, installing it."
+            (sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick) || { echo "ERROR: could not install ImageMagick for apply-icons.sh"; exit 1; }
+          fi
+          bash scripts/apply-icons.sh
+          # FCM, privacy plugin, backup rules, and (C11) release signing. With
+          # the sorted_upload_keystore reference loaded, CM_KEYSTORE_PATH etc.
+          # are set and this writes android/keystore.properties from them.
+          bash scripts/setup-android-push.sh
+          npx cap sync android
+      - &step_android_version
+        name: Set versionCode (Play latest + 1) and native debug symbols
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR/capacitor-spike"
+          if [ -z "${GCLOUD_SERVICE_ACCOUNT_CREDENTIALS:-}" ]; then
+            echo "ERROR: GCLOUD_SERVICE_ACCOUNT_CREDENTIALS is not set. Add the Play service-account JSON to the Codemagic variable group google_play. Refusing to guess a versionCode."
+            exit 1
+          fi
+          # Play rejects any reused versionCode across ALL tracks, so ask Play
+          # for the highest it has seen and add one. Do not fall back to
+          # $BUILD_NUMBER: that per-workflow counter is not monotonic across
+          # the two Android workflows or the manual first upload.
+          LATEST=$(google-play get-latest-build-number \
+            --package-name co.uk.auriqltd.sorted \
+            --credentials "$GCLOUD_SERVICE_ACCOUNT_CREDENTIALS") || { echo "ERROR: google-play get-latest-build-number failed. Check the service account has access to co.uk.auriqltd.sorted in Play Console. Refusing to guess a versionCode."; exit 1; }
+          case "$LATEST" in
+            ''|*[!0-9]*)
+              echo "ERROR: google-play get-latest-build-number returned a non-numeric or empty value ('$LATEST'). Refusing to fall back to \$BUILD_NUMBER."
+              exit 1
+              ;;
+          esac
+          NEXT=$((LATEST + 1))
+          echo "Latest Google Play versionCode is $LATEST, setting versionCode to $NEXT"
+          # versionName comes from frontend/public/sorted-apk.json (required
+          # there); only versionCode is overridden.
+          VERSION_CODE="$NEXT" bash scripts/set-android-version.sh
+          # So Play stops warning that the bundle has native code but no
+          # debug symbols. native-debug-symbols.zip is only emitted when a
+          # bundled .so still carries symbols; today the only native library
+          # (androidx datastore) is already stripped, so no zip appears and
+          # the artifact glob below simply matches nothing. If a symbol-bearing
+          # native dependency is added, the zip appears with no change here.
+          bash scripts/setup-android-debug-symbols.sh
+      - &step_android_bundle
+        name: Build signed AAB (bundleRelease)
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR/capacitor-spike/android"
+          chmod +x gradlew
+          # No product flavours in CI (see the Android section header), so the
+          # plain bundleRelease. The release signingConfig comes from
+          # keystore.properties, written by setup-android-signing.sh.
+          ./gradlew bundleRelease
+          # Fail loud if the bundle came out unsigned.
+          AAB=$(ls app/build/outputs/bundle/release/*.aab | head -n 1)
+          jarsigner -verify "$AAB" | grep -q "jar verified" || { echo "ERROR: $AAB is not signed"; exit 1; }
+    artifacts: &android_artifacts
+      - capacitor-spike/android/app/build/outputs/bundle/release/*.aab
+      - capacitor-spike/android/app/build/outputs/**/native-debug-symbols.zip
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+
+  android-capacitor-prod:
+    name: Android Capacitor (Play production draft, production API)
+    instance_type: linux_x2
+    max_build_duration: 60
+    # Manual-start only until the three Codemagic inputs above exist (and
+    # scripts/release.py deploy also starts it by API). Then uncomment: fires
+    # on every push to release, like ios-capacitor-prod. Note that deploy
+    # already starts this workflow explicitly, so enabling both would build
+    # twice per release; enable this only if deploy's trigger is not relied on.
+    # triggering:
+    #   events:
+    #     - push
+    #   branch_patterns:
+    #     - pattern: release
+    #       include: true
+    #       source: true
+    #   cancel_previous_builds: true
+    environment:
+      node: 22
+      java: 21
+      groups:
+        - google_play
+      android_signing:
+        - sorted_upload_keystore
+      vars:
+        # Same meanings as in ios-capacitor-prod above. The MCP connector
+        # flags are NEVER set here (A17 doctrine).
+        MOBILE_TARGET: "prod"
+        BUILD_TAG_ENV: "prod"
+        NEXT_PUBLIC_APP_ENV: "production"
+    scripts:
+      - *step_build_web
+      - *step_android_google_services
+      - *step_android_sync
+      - *step_android_version
+      - *step_android_bundle
+    artifacts: *android_artifacts
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: production
+        # A draft release: nothing reaches users until Kevin reviews and
+        # rolls it out in Play Console.
+        submit_as_draft: true

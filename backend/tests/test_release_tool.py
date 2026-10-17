@@ -1178,6 +1178,54 @@ def test_deploy_late_success_reaches_smoke_and_tag(monkeypatch):
     assert any(c[:3] == ["git", "push", "origin"] and c[3].startswith("release-") for c in cmds)
 
 
+def test_deploy_triggers_ios_then_android_prod_workflows(monkeypatch, capsys):
+    """C11: deploy starts ios-capacitor-prod, then android-capacitor-prod."""
+    assert release.CODEMAGIC_ANDROID_PROD_WORKFLOW == "android-capacitor-prod"
+    args, _cmds = _deploy_env(monkeypatch, lambda svc: _dep("SUCCESS"))
+    calls = []
+
+    def stub(app_id, token, **kw):
+        calls.append(kw.get("workflow_id", release.CODEMAGIC_PROD_WORKFLOW))
+        return True, f"stub {calls[-1]}"
+
+    monkeypatch.setattr(release, "trigger_codemagic_prod_build", stub)
+    assert release.cmd_deploy(args) == 0
+    assert calls == ["ios-capacitor-prod", "android-capacitor-prod"]
+    out = capsys.readouterr().out
+    assert "Codemagic android-capacitor-prod trigger: stub android-capacitor-prod" in out
+
+
+def test_deploy_android_trigger_failure_is_warn_only(monkeypatch, capsys):
+    args, _cmds = _deploy_env(monkeypatch, lambda svc: _dep("SUCCESS"))
+
+    def stub(app_id, token, **kw):
+        if kw.get("workflow_id") == release.CODEMAGIC_ANDROID_PROD_WORKFLOW:
+            return False, "android trigger boom"
+        return True, "ios ok"
+
+    monkeypatch.setattr(release, "trigger_codemagic_prod_build", stub)
+    assert release.cmd_deploy(args) == 0
+    assert "[warn] android trigger boom" in capsys.readouterr().err
+
+
+def test_trigger_codemagic_android_workflow_payload_and_dry_run():
+    def poster(url, payload):
+        assert payload == {"appId": "app123", "workflowId": "android-capacitor-prod", "branch": "release"}
+        return 200, '{"buildId": "and-1"}'
+
+    ok, msg = release.trigger_codemagic_prod_build(
+        "app123", "tok123", workflow_id=release.CODEMAGIC_ANDROID_PROD_WORKFLOW, poster=poster
+    )
+    assert ok is True
+    assert "and-1" in msg
+    ok, msg = release.trigger_codemagic_prod_build(
+        "app123", "tok123", workflow_id=release.CODEMAGIC_ANDROID_PROD_WORKFLOW, dry_run=True
+    )
+    assert ok is True
+    assert "[dry-run]" in msg
+    assert "android-capacitor-prod" in msg
+
+
 def test_deploy_failed_service_produces_no_tag(monkeypatch):
     args, cmds = _deploy_env(monkeypatch, lambda svc: _dep("FAILED") if svc == "worker" else _dep("SUCCESS"))
     assert release.cmd_deploy(args) == 1

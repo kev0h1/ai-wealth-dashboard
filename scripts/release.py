@@ -91,6 +91,11 @@ TRUELAYER_VERCEL_VAR = "NEXT_PUBLIC_TRUELAYER_PICKER"
 # DEPLOY.md's "Release trigger" for the full behaviour.
 CODEMAGIC_API_URL = "https://api.codemagic.io/builds"
 CODEMAGIC_PROD_WORKFLOW = "ios-capacitor-prod"
+# C11: the Android twin, triggered right after the iOS one with the same
+# warn-only semantics. Uploads the production AAB to the Play production
+# track as a draft (see codemagic.yaml and DEPLOY.md "Android: Codemagic
+# Play builds").
+CODEMAGIC_ANDROID_PROD_WORKFLOW = "android-capacitor-prod"
 CODEMAGIC_PROD_BRANCH = "release"
 
 # Special-cased sync-vars sources: config.py falls back to these gitignored
@@ -1264,6 +1269,11 @@ def cmd_deploy(args: argparse.Namespace) -> int:
             dry_run=True, timeout=args.timeout,
         )
         print(f"[dry-run] {codemagic_msg}")
+        _, codemagic_android_msg = trigger_codemagic_prod_build(
+            os.environ.get("CODEMAGIC_APP_ID"), os.environ.get("CODEMAGIC_API_TOKEN"),
+            workflow_id=CODEMAGIC_ANDROID_PROD_WORKFLOW, dry_run=True, timeout=args.timeout,
+        )
+        print(f"[dry-run] {codemagic_android_msg}")
         return 0
 
     push_time = time.time()
@@ -1315,6 +1325,17 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     else:
         print(f"\n[warn] {codemagic_msg}", file=sys.stderr)
 
+    # C11: the Android production build, after the iOS one, same warn-only
+    # semantics (a failed trigger never fails a release that has already landed).
+    codemagic_android_ok, codemagic_android_msg = trigger_codemagic_prod_build(
+        os.environ.get("CODEMAGIC_APP_ID"), os.environ.get("CODEMAGIC_API_TOKEN"),
+        workflow_id=CODEMAGIC_ANDROID_PROD_WORKFLOW, timeout=args.timeout,
+    )
+    if codemagic_android_ok:
+        print(f"\n{codemagic_android_msg}")
+    else:
+        print(f"\n[warn] {codemagic_android_msg}", file=sys.stderr)
+
     print("\nDeploy summary:")
     print(f"  tag: {tag}")
     print(f"  sha: {main_sha}")
@@ -1325,6 +1346,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         print(f"  Railway {service}: deployed at {main_sha[:8] if main_sha else '?'}")
     print(f"  push time: {datetime.fromtimestamp(push_time, tz=timezone.utc).isoformat()}")
     print(f"  Codemagic {CODEMAGIC_PROD_WORKFLOW} trigger: {codemagic_msg}")
+    print(f"  Codemagic {CODEMAGIC_ANDROID_PROD_WORKFLOW} trigger: {codemagic_android_msg}")
     return 0
 
 
