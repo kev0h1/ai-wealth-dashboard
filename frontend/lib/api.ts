@@ -378,13 +378,6 @@ export type TransportSummary = {
   top_transactions: TransportTx[];
 };
 
-export type ValueDelivered = {
-  insights_acted_on: number;
-  total_monthly_saving: number;
-  verified_monthly_saving?: number;
-  breakdown: { title: string; monthly_saving: number; estimate_label: string }[];
-};
-
 export type MirrorTrait = {
   id: string;
   title: string;
@@ -2735,7 +2728,6 @@ export const api = {
   dismissUnresolvedAsk: (txnId: string) =>
     post<{ ok: boolean }>("/spend/verdict/dismiss-unresolved", { txn_id: txnId }),
   cashflow: () => get<CashflowData>("/cashflow"),
-  valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>
     get<MirrorPortrait>(`/mirror${refresh ? "?refresh=1" : ""}`),
   // F2: OAuth 2.1 authorisation server. getOAuthRequest/decideOAuthRequest
