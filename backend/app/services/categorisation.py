@@ -179,10 +179,13 @@ def rule_categorise_directed(merchant: str, description: str, *, is_credit: bool
     (a merchant refund still nets against its category). Ingest (TrueLayer,
     Finexer, Yapily, statements) and `apply_rules_bulk` all call this, so a
     credit gets the same category whichever path sees it first."""
-    cat = rule_categorise(merchant, description)
-    if is_credit and cat == "Rent":
-        return "Income"
-    return cat
+    return credit_guard(rule_categorise(merchant, description), is_credit=is_credit)
+
+
+def credit_guard(cat: Optional[str], *, is_credit: bool) -> Optional[str]:
+    """The direction guard on its own, for callers that already hold a rule
+    result: a credit matching Rent is Income (see `rule_categorise_directed`)."""
+    return "Income" if is_credit and cat == "Rent" else cat
 
 
 async def migrate_mortgage_car_finance_categories() -> dict:

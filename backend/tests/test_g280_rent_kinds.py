@@ -305,7 +305,7 @@ def test_every_ingest_path_and_bulk_rerun_use_the_directed_helper():
     for rel in ("services/truelayer_sync.py", "services/finexer_sync.py",
                 "services/yapily_sync.py", "routers/statements.py"):
         src = (root / rel).read_text()
-        assert "rule_categorise_directed(" in src, rel
+        assert "rule_categorise_directed(" in src or "credit_guard(" in src, rel
         # no direct credit-path call left behind
         for line in src.splitlines():
             if "rule_categorise(" in line and "import" not in line:
