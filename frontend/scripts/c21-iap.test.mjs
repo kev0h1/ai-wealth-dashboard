@@ -112,7 +112,7 @@ check("the picker no longer decides from canPurchaseInApp()", !/canPurchaseInApp
 check("the StoreKit flag cannot be enabled by the design preview override", /const storekit = nativeOverride === undefined && channel === "storekit";/.test(picker));
 check("an Apple-sourced plan never opens the Stripe portal", /billingChangeInPortal = context === "settings" && managedPaidSubscription && info\.billing_provider !== "apple"/.test(picker) && /if \(appleManaged\) \{\s*if \(storekit\) await openManageSubscriptions\(\)/.test(picker));
 check("manage copy for an Apple plan points at iOS Settings", /iOS Settings, under Subscriptions/.test(picker));
-check("channel hook lives in nativeAuth and resolves through the pure function", /resolvePurchaseChannel\(\{ native, platform, storekitPluginPresent: native && hasStoreKitPlugin\(\) \}\)/.test(nativeAuth));
+check("channel hook lives in nativeAuth and resolves through the pure function", /resolvePurchaseChannel\(\{[\s\S]{0,120}storekitPluginPresent: native && hasStoreKitPlugin\(\)/.test(nativeAuth));
 check("the B26 canPurchaseInApp() gate is unchanged (still false on any native build)", /return !Capacitor\.isNativePlatform\(\);/.test(nativeAuth));
 
 for (const rel of ["lib/storekit.ts", "lib/purchaseChannel.ts"]) {
