@@ -453,8 +453,12 @@ def _fmt_overdrawn(amount: float) -> str:
 
 def _clean_name(name: str | None, fallback: str = "") -> str:
     """Account names arrive from providers padded with whitespace; user-facing
-    copy must never carry it."""
-    return " ".join(str(name or "").split()) or fallback
+    copy must never carry it. G282 (Kevin 2026-10-17): the cleaned name also
+    goes through the one shared display-name function, so every card the
+    companion builds (payday plan, moves, covers) shows the same casing as the
+    Accounts page. The fallback (often a raw id) is returned untouched."""
+    cleaned = " ".join(str(name or "").split())
+    return display_account_name(cleaned) if cleaned else fallback
 
 
 # Raw provider/account ids are 16+ hex chars — they must never reach copy.

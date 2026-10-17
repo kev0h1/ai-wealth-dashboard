@@ -1883,7 +1883,7 @@ export default function AccountsPage() {
                   <CustomSelect
                     value={ruleTarget}
                     onChange={v => setRuleTarget(v)}
-                    options={manualAccounts.map(a => ({ value: a.id, label: a.name }))}
+                    options={manualAccounts.map(a => ({ value: a.id, label: displayAccountName(a.name) }))}
                     className="w-full mb-4"
                   />
                 </>
@@ -1927,7 +1927,7 @@ export default function AccountsPage() {
                           brandBg={brand.background}
                         />
                         <span className="flex-1 min-w-0">
-                          <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
+                          <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</span>
                           {acc.provider && (
                             <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
                           )}
@@ -2295,7 +2295,7 @@ export default function AccountsPage() {
 
           {/* Statement block */}
           <AccountDetailIdentity
-            name={selectedAccount.name}
+            name={displayAccountName(selectedAccount.name)}
             logoSrc={brand.logoSrc}
             initials={brand.initials}
             label={brand.label}
@@ -2520,7 +2520,7 @@ export default function AccountsPage() {
                         <p className={`text-sm font-semibold truncate ${rule.active ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500 line-through"}`}>{rule.name}</p>
                         <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
                           {rule.match_type === "category" ? "Category" : rule.match_type === "description_equals" ? "Exactly" : "Contains"}{" "}&ldquo;{rule.match_value}&rdquo;{" "}&middot;{" "}{rule.sign === "opposite" ? "Offset" : "Shadow"}
-                          {rule.source_account_id && <>{" "}&middot;{" "}{rule.source_account_name ?? "One account"}</>}
+                          {rule.source_account_id && <>{" "}&middot;{" "}{rule.source_account_name ? displayAccountName(rule.source_account_name) : "One account"}</>}
                         </p>
                       </div>
                       <button

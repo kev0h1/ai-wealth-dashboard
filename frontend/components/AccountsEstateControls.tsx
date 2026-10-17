@@ -26,7 +26,7 @@ export default function AccountsEstateControls({ query, onQuery, lens, onLens }:
     </div>
 
 
-    <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {LENSES.map((l) => {
         const active = lens === l;
         return (
