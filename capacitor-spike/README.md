@@ -102,13 +102,14 @@ them identically. A versionCode uploaded to Play is spent for good (Play rejects
 reused code), so every new AAB or APK build bumps it, even when the other artefact
 is unchanged.
 
-Whether a Play install and the sideload APK update over each other depends on the
-Play App Signing key. The recommendation recorded for A9 is to enrol the existing
-upload key as the app signing key ("Export and upload a key from Java keystore"
-with the PEPK tool), so both carry the signer fingerprint recorded in
-`sorted-apk.json` and install over each other. If Google generates its own app
-signing key instead, the two are signed differently and Android refuses to update
-across them, so one must be uninstalled first (the C20 symptom).
+Play App Signing uses a Google-generated app signing key (Kevin's decision,
+2026-10-17). Our AURIQ LTD keystore is the upload key only: the first upload
+(versionCode 3, internal testing track) registered it with Play, and Google
+re-signs every build with its own key before distributing it. The Play build and
+the sideload `sorted.apk` are therefore signed by different keys, so Android
+refuses to update across them and a phone must uninstall one before installing
+the other (the C20 symptom). The sideload APK is kept only for people without
+Play access.
 
 API base: PRODUCTION, `https://wealth.auriqltd.co.uk/api`. The published APK is
 the real app, so it is exported with `npm run build:mobile:prod`, never the
