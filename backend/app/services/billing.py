@@ -924,7 +924,7 @@ async def handle_event(event: dict) -> dict:
             return {"ok": True, "idempotent": True, "result": existing.get("result")}
         if not existing:
             await billing_events_col.insert_one({
-                "event_id": event_id, "type": event_type,
+                "event_id": event_id, "provider": "stripe", "type": event_type,
                 "received_at": now, "processed_at": None, "result": None,
             })
 
