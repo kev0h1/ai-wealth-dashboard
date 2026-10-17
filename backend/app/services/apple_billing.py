@@ -103,7 +103,7 @@ async def get_or_create_account_token(uid: str) -> str:
     token = str(uuid.uuid4())
     try:
         await apple_account_tokens_col.insert_one(
-            {"user_id": uid, "app_account_token": token, "created_at": datetime.now(timezone.utc)},
+            {"user_id": uid, "app_account_token": token, "created_at": datetime.now(timezone.utc)},  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
         )
         return token
     except DuplicateKeyError:
@@ -194,7 +194,7 @@ async def _apply_subscription_transaction(
 ) -> dict:
     from app.db.collections import subscriptions_col
 
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
     original = tx.get("originalTransactionId")
     expires_at = _ms(tx.get("expiresDate"))
     if not original or expires_at is None:
@@ -252,7 +252,7 @@ async def _handle_refund_or_revoke(ntype: str, uid: str, product: StoreProduct, 
     if product.kind == "subscription":
         result = await seam.set_store_subscription_status(
             uid, PROVIDER, original, "expired", signed_at=signed_at,
-            extra={"revoked_at" if ntype == "REVOKE" else "refunded_at": datetime.now(timezone.utc)},
+            extra={"revoked_at" if ntype == "REVOKE" else "refunded_at": datetime.now(timezone.utc)},  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
         )
         result.update({"notification": ntype, "kind": "subscription", "tier": product.tier,
                        "originalTransactionId": original, "transactionId": transaction_id})
@@ -337,7 +337,7 @@ async def handle_notification(signed_payload: str, *, now: datetime | None = Non
     if not config.APPLE_IAP_ENABLED:
         raise AppleNotConfigured("in-app purchase is not enabled")
     roots = _roots()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
     payload = apple_jws.verify_and_decode(signed_payload, roots, now)
 
     ntype = payload.get("notificationType")
@@ -393,7 +393,7 @@ async def verify_signed_transaction(uid: str, signed_transaction: str, *, now: d
     if not config.APPLE_IAP_ENABLED:
         raise AppleNotConfigured("in-app purchase is not enabled")
     roots = _roots()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
     tx = apple_jws.verify_and_decode(signed_transaction, roots, now)
     _check_transaction(tx, None)
 

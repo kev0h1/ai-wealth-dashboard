@@ -54,7 +54,7 @@ def store_doc_filter(uid: str, provider: str) -> dict:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)  # naive-ok: aware persisted audit instant
 
 
 # ── Event ledger (replay protection) ─────────────────────────────────────────

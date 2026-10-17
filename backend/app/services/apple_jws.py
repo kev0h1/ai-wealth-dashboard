@@ -122,7 +122,7 @@ def verify_chain(
 ) -> x509.Certificate:
     """Validate an x5c chain against the pinned `roots` and return the leaf
     certificate. Raises AppleVerificationError naming the failed stage."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)  # naive-ok: aware instant for certificate validity
     require = REQUIRE_APPLE_MARKER_OIDS if require_marker_oids is None else require_marker_oids
     if not roots:
         raise AppleVerificationError("no pinned root certificate")
