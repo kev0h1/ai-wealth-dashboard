@@ -3897,7 +3897,7 @@ async def compute_today_items(
                     },
                     "dests": dests,
                     "estimated": False,
-                    "action": {"label": "See what's due ›", "route": "/upcoming"},
+                    "action": {"label": "See what's due", "route": "/upcoming"},
                 }
                 if payday_split is not None:
                     payday_plan_item["payday_split"] = payday_split
@@ -3941,7 +3941,7 @@ async def compute_today_items(
                         "status": "active",
                         "headline": headline,
                         "body": body,
-                        "action": {"label": "See what's due ›", "route": "/upcoming"},
+                        "action": {"label": "See what's due", "route": "/upcoming"},
                         "estimated": False,
                         "_window_end": window_end.isoformat(),
                         "covered": covered,
@@ -4405,7 +4405,7 @@ async def compute_today_items(
                 _um_route = "/upcoming"
 
             if _um_item_id not in dismissed:
-                _um_action = {"label": "Review in Planning ›", "route": _um_route}
+                _um_action = {"label": "Review in Planning", "route": _um_route}
                 item_doc = {
                     "_id": _um_item_id,
                     "uid": uid,
@@ -4719,7 +4719,7 @@ async def compute_today_items(
             "status": "active",
             "headline": headline,
             "body": body,
-            "action": {"label": "See what's due ›", "route": "/upcoming"},
+            "action": {"label": "See what's due", "route": "/upcoming"},
             "estimated": False,
             "brief_lead": {"value": _gbp(total), "companion": f"to {dest_name}"},
             "created_at": datetime.utcnow(),
@@ -4756,7 +4756,7 @@ async def compute_today_items(
             "type": "move",
             "headline": headline,
             "body": body,
-            "action": {"label": "See what's due ›", "route": "/upcoming"},
+            "action": {"label": "See what's due", "route": "/upcoming"},
             "estimated": False,
             "brief_lead": {"value": _gbp(total), "companion": f"to {dest_name}"},
             "moves": [
@@ -5368,7 +5368,7 @@ async def compute_today_items(
                     "type": "needle",
                     "headline": f"Your month closed on {weekday}.",
                     "body": "",
-                    "action": {"label": "Here's how it went ›", "route": "/month/story?which=last"},
+                    "action": {"label": "Here's how it went", "route": "/month/story?which=last"},
                     "estimated": False,
                     "_period_end": closed_end.isoformat(),
                 })
@@ -5634,7 +5634,7 @@ async def compute_today_items(
                         "type": "cliff",
                         "headline": _headline,
                         "body": _body,
-                        "action": {"label": "See the card ›", "route": f"/accounts?cardTerms={_sid}"},
+                        "action": {"label": "See the card", "route": f"/accounts?cardTerms={_sid}"},
                         "estimated": False,
                         "brief_lead": {"value": _when, "companion": _cliff_lead_companion},
                         "_until": _until_d.isoformat(),
@@ -5683,7 +5683,7 @@ async def compute_today_items(
                     "type": "trajectory",
                     "headline": _traj["headline"],
                     "body": _traj["body"],
-                    "action": {"label": "See the route ›", "route": "/debt-plan"},
+                    "action": {"label": "See the route", "route": "/debt-plan"},
                     "estimated": False,
                     "tone": _traj["tone"],
                     "trend": _traj["trend"],

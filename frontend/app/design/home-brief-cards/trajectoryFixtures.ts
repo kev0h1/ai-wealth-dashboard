@@ -38,7 +38,7 @@ export type TrajectoryFixture = {
   item: CompanionItem;
 };
 
-const ACTION = { label: "See the route \u203a", route: "#" };
+const ACTION = { label: "See the route", route: "#" };
 
 export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
   {

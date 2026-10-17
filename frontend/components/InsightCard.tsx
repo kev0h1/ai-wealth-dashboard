@@ -41,7 +41,7 @@ const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   subscriptions: [{ label: "MSE Deals", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
 };
 
-// In-app primary action label per category ("See your X ›" → insight.app_route)
+// In-app primary action label per category ("See your X" → insight.app_route)
 const APP_ROUTE_LABELS: Record<string, string> = {
   subscriptions: "See your subscriptions",
   energy:        "See your energy bills",

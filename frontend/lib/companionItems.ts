@@ -62,7 +62,7 @@ export function hasFundedCoverMove(items: CompanionItem[]): boolean {
  *                                  pocket") — dismiss only, nothing to
  *                                  decide (CelebrationCard).
  *   cliff           INFORMATIONAL a standing fact about a promo rate ending;
- *                                  its "See the card ›" is a look-at-this
+ *                                  its "See the card" is a look-at-this
  *                                  link, not a decision (CliffCard).
  *   trajectory      INFORMATIONAL same shape as cliff, for debt payoff pace
  *                                  (CliffCard).

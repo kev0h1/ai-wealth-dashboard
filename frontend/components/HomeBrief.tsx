@@ -27,6 +27,7 @@ import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionIt
 import MoneyText from "@/components/MoneyText";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
+import ActionLabel from "@/components/ActionLabel";
 
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
 const PlanEasingSheet = dynamic(() => import("@/components/PlanEasingSheet").then((m) => m.PlanEasingSheet));
@@ -689,7 +690,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
                 disabled={busy}
                 className={PRIMARY_ACTION}
               >
-                {item.action.label}
+                <ActionLabel>{item.action.label}</ActionLabel>
               </button>
             )}
             {dismissible && (
@@ -862,7 +863,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       {item.action && (
         <footer className={ACTION_DOCK}>
           <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
-            {item.action.label}
+            <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
       )}
@@ -950,7 +951,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
   // in place, and only hand same-origin paths to Next's Link.
   const requestedRoute = item.action?.route?.replace(/^\/planning(?=\?|$)/, "/upcoming") ?? "/upcoming";
   const route = requestedRoute.startsWith("/") && !requestedRoute.startsWith("//") ? requestedRoute : "/upcoming";
-  const actionLabel = item.action?.label ?? "See it in Upcoming ›";
+  const actionLabel = item.action?.label ?? "See it in Upcoming";
 
   // The backend computes one top-up per destination account, then copies that
   // suggestion onto each overdue payment from that account. Group first so a
@@ -1051,7 +1052,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
           {sourceKeys.size === 1 ? "The source still covers its own bills." : "Every source still covers its own bills."}
         </p>
         <footer className={ACTION_DOCK}>
-          <Link href={route} className={`${PRIMARY_ACTION} w-full`}>{actionLabel}</Link>
+          <Link href={route} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{actionLabel}</ActionLabel></Link>
         </footer>
         {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
       </div>
@@ -1138,7 +1139,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
       </div>
       <footer className={ACTION_DOCK}>
         <Link href={route} className={`${PRIMARY_ACTION} w-full`}>
-          {actionLabel}
+          <ActionLabel>{actionLabel}</ActionLabel>
         </Link>
       </footer>
       {dismissible && (
@@ -1418,7 +1419,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         )}
         {item.action && (
           <footer className={ACTION_DOCK}>
-            <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>{item.action.label}</Link>
+            <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
           </footer>
         )}
         {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
@@ -1550,7 +1551,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       {item.action && (
         <footer className={ACTION_DOCK}>
           <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
-            {item.action.label}
+            <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
       )}
@@ -2401,9 +2402,9 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             {needleItem.action && (
               <button
                 onClick={() => router.push(needleItem.action!.route)}
-                className="text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
-                {needleItem.action.label}
+                <ActionLabel>{needleItem.action.label}</ActionLabel>
               </button>
             )}
           </div>

@@ -17,7 +17,7 @@ export const NEEDLE_ITEM: CompanionItem = {
   type: "needle",
   headline: "Your month closed on Thursday.",
   body: "",
-  action: { label: "Here's how it went ›", route: "/month/story?which=last" },
+  action: { label: "Here's how it went", route: "/month/story?which=last" },
   estimated: false,
 };
 

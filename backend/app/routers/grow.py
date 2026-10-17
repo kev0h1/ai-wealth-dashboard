@@ -45,7 +45,7 @@ TAPER_START = 100_000
 TAPER_END = 125_140
 HIGHER_RATE_THRESHOLD = 50_270
 PENSION_ANNUAL_ALLOWANCE = 60_000
-TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/tax"}
+TAX_LEVERS_LINK = {"label": "See your tax levers", "route": "/tax"}
 
 
 # ── Small formatting helpers (facts only — no instructions) ──────────────────
