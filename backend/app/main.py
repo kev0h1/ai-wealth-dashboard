@@ -32,7 +32,7 @@ from app.db.collections import (
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
     bot_credential_uses_col, bot_credential_unknown_col, bot_credentials_col,
-    billing_customers_col, billing_events_col,
+    billing_customers_col, billing_events_col, apple_account_tokens_col,
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
     session_tombstones_col,
@@ -530,6 +530,8 @@ async def _create_indexes():
     await _ensure_index(billing_customers_col, "user_id", unique=True)
     await _ensure_index(billing_customers_col, "stripe_customer_id", unique=True, sparse=True)
     await _ensure_index(billing_events_col, "event_id", unique=True)
+    await _ensure_index(apple_account_tokens_col, "user_id", unique=True)
+    await _ensure_index(apple_account_tokens_col, "app_account_token", unique=True)
     # B20 admin broadcasts. One index on `created_at`, not two: a TTL
     # index is still an ordinary ascending btree index on that field, so
     # it already serves the /ops history list's `.sort("created_at", -1)`
