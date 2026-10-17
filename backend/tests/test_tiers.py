@@ -21,6 +21,15 @@ class _FakeFindOneCollection:
     async def find_one(self, query):
         return self.doc
 
+    def find(self, query=None, projection=None):
+        # C21: get_subscription reads every per-provider document.
+        docs = [self.doc] if self.doc else []
+
+        async def gen():
+            for d in docs:
+                yield d
+        return gen()
+
 
 class _FakeCountCollection:
     def __init__(self, count=0):

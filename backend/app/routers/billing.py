@@ -201,15 +201,18 @@ async def billing_status(user: dict = Depends(current_user)):
     """Current tier, Stripe subscription status, period end, and whether a
     Stripe customer exists for this user — a lighter-weight sibling of GET
     /subscription for a dedicated billing/account screen."""
-    from app.core.subscription import get_subscription
-    from app.db.collections import billing_customers_col, subscriptions_col
+    from app.core.subscription import get_subscription_doc
+    from app.db.collections import billing_customers_col
 
-    sub = await get_subscription(user["email"])
+    # C21: the document that is in force under the precedence rule (highest
+    # live tier across Stripe and Apple), so the figures below and `tier`
+    # always describe the same subscription.
+    sub_doc, sub = await get_subscription_doc(user["email"])
     customer_doc = await billing_customers_col.find_one({"user_id": user["email"]})
-    sub_doc = await subscriptions_col.find_one({"user_id": user["email"]})
 
     return {
         "billing_live":  BILLING_ENABLED,
+        "billing_provider": sub.provider,
         "tier":          sub.tier_name,
         "status":        sub.status,
         "expires_at":    sub_doc.get("expires_at").isoformat() if sub_doc and sub_doc.get("expires_at") else None,
