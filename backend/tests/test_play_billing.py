@@ -750,6 +750,38 @@ def test_a_notification_and_the_client_call_racing_on_one_pack_grant_it_once(env
     assert play_billing._token_locks == {}
 
 
+def test_cross_replica_pack_race_is_closed_by_the_unique_index_not_the_lock(env, monkeypatch):
+    """Two replicas share no in-process lock. Simulate that by disabling the
+    lock and making the pack collection enforce the unique partial index on
+    (provider, store_transaction_id): the second insert raises
+    DuplicateKeyError, which the fixed seam treats as already granted."""
+    import contextlib
+
+    @contextlib.asynccontextmanager
+    async def no_lock(token):
+        yield
+    monkeypatch.setattr(play_billing, "_token_lock", no_lock)
+    col = FakeCol(unique=(("provider", "store_transaction_id"),))
+    monkeypatch.setattr(collections_module, "penny_topups_col", col)
+    env.api.products[TPACK] = pack_payload()
+    real_insert = col.insert_one
+
+    async def slow_insert(doc):
+        await asyncio.sleep(0)
+        return await real_insert(doc)
+    col.insert_one = slow_insert
+
+    async def race():
+        return await asyncio.gather(
+            play_billing.process_pack(TPACK, "sorted.penny.100"),
+            play_billing.process_pack(TPACK, "sorted.penny.100"),
+        )
+    results = _run(race())
+    assert len(col.docs) == 1
+    assert sorted(r["duplicate"] for r in results) == [False, True]
+    assert all(r["handled"] for r in results)
+
+
 def test_a_notification_and_the_client_call_racing_on_one_subscription_acknowledge_once(env):
     env.api.subs[T1] = sub_payload()
 
