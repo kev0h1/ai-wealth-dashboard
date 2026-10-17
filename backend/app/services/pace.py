@@ -303,7 +303,8 @@ def _total_baseline(
 _BASELINE_TTL_SECONDS = 6 * 3600
 # G268: bump when the spending definition changes, so memoised baselines and
 # shape curves built under the old one are recomputed rather than served.
-_SPEND_DEF_VERSION = 2
+# 3: G280 category kinds reclassified (Rent added; Cash, Charity, Other free).
+_SPEND_DEF_VERSION = 3
 
 
 async def _read_cached_baseline(

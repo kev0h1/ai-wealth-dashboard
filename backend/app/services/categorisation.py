@@ -35,7 +35,7 @@ RAW_TRUELAYER_CATEGORIES = {
 
 VALID_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment",
-    "Shopping", "Bills", "Mortgage", "Car finance", "Subscriptions",
+    "Shopping", "Bills", "Mortgage", "Rent", "Car finance", "Subscriptions",
     "Health", "Beauty", "Travel",
     "Software", "Savings", "Investment", "Debt", "Transfer", "Income",
     "Cash", "Charity", "Other",
@@ -58,6 +58,50 @@ def _trigger_alternation(category_key: str) -> re.Pattern:
     return re.compile(rf'(?<![A-Za-z0-9])(?:{alternation})(?![A-Za-z0-9])', re.I)
 
 
+# G280 (2026-10-17): Rent is a built-in COMMITMENT category. Word-boundary
+# triggers for the payee/reference text of a rent payment: the word "rent"
+# itself (not car/van hire, "Rent the Runway", "Rentokil", "parental",
+# "current"), lettings agents and landlords, and housing associations.
+# Own-account pot moves ("... pot") are never rent. Used by the Rent rule in
+# MERCHANT_PATTERNS (ahead of every Transfer rule, so a rent standing order is
+# spending rather than a transfer) and by backend/scripts/report_rent_like_transfers.py.
+RENT_TRIGGER_WORDS = (
+    r"rent(?![-\s]*(?:a|an|the)[-\s]*(?:car|van|bike|center|centre|runway))(?<!car rent)(?<!van rent)",
+    r"lettings?",
+    r"letting agents?",
+    r"landlords?",
+    r"housing association",
+    r"council housing",
+    r"housing trust",
+    r"foxtons",
+    r"savills",
+    r"connells",
+    r"openrent",
+    r"winkworth",
+    r"chestertons",
+    r"dexters",
+    r"haart",
+    r"reeds rains",
+    r"peabody",
+    r"clarion housing",
+    r"notting hill genesis",
+    r"l&q",
+    r"sanctuary housing",
+    r"places for people",
+    r"orbit housing",
+)
+RENT_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + "|".join(RENT_TRIGGER_WORDS) + r")(?![A-Za-z0-9])", re.I
+)
+_RENT_NOT_PATTERN = re.compile(r"\bpot\b|enterprise rent|rent.?a.?car|rent.?a.?van|insurance", re.I)
+
+
+def is_rent_payee(text: str) -> bool:
+    """True when merchant/description text looks like a rent payment."""
+    t = text or ""
+    return bool(RENT_PATTERN.search(t)) and not _RENT_NOT_PATTERN.search(t)
+
+
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
     (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit|\bAMERICAN EXPRESS\b', re.I), 'Transfer'),
@@ -76,6 +120,11 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # list, not a second hand-duplicated one that could drift.
     (_trigger_alternation("mortgage"), 'Mortgage'),
     (_trigger_alternation("car_finance"), 'Car finance'),
+    # G280: rent payees (landlords, lettings agents, housing associations,
+    # standing orders labelled rent). Ahead of the Transfer rules below. The
+    # pot and car-hire exclusions live in `is_rent_payee`, applied by
+    # `rule_categorise`; this entry only carries the trigger shape.
+    (RENT_PATTERN, 'Rent'),
 
     (re.compile(r'tesco|sainsbury|asda|morrisons?|waitrose|lidl|aldi|iceland food|co-?op\b|ocado|farmfoods|marks.{0,5}spencer food|m&s food|whole foods|budgens|londis|spar\b|nisa\b|costco', re.I), 'Groceries'),
     (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.{0,5}eat|ubereats|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house|cabana\b|dishoom|hawksmoor|bills restaurant|turtle bay|wahaca|zizzi\b|bella italia|frankie|benny|carluccio|harvester\b|toby carvery|ember inns|mitchells.?butlers|stonehouse\b|vintage inns", re.I), 'Eating Out'),
@@ -116,6 +165,8 @@ def rule_categorise(merchant: str, description: str) -> Optional[str]:
     text = f"{merchant} {description}"
     for pattern, category in MERCHANT_PATTERNS:
         if pattern.search(text):
+            if category == "Rent" and not is_rent_payee(text):
+                continue
             return category
     return None
 
@@ -1226,13 +1277,15 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         raw_cat  = t.get("category", "")
 
         if raw_cat == "TRANSFER":
-            cat = "Transfer"
+            # G280: a rent payment is spending, not a transfer.
+            cat = "Rent" if txn_type == "debit" and is_rent_payee(f"{merchant} {description}") else "Transfer"
         elif txn_type == "credit" and raw_cat in ("CREDIT", None):
             # Own-account transfers are already caught above (raw TRANSFER) and by the
             # FT/identity rule. A remaining incoming credit is income unless a rule
             # refines it (e.g. a merchant refund nets against its category).
             _match = rule_categorise(merchant, description)
-            cat = _match if _match else "Income"
+            # G280: rent received (a landlord's tenant payment) is income, not a Rent refund.
+            cat = _match if _match and _match != "Rent" else "Income"
         else:
             cat = rule_categorise(merchant, description)
             if cat is None and raw_cat in RAW_TRUELAYER_CATEGORIES:
@@ -1509,7 +1562,8 @@ async def categorise_others_bg(uid: str) -> int:
         "- Eating Out: restaurants, cafes, takeaways, delivery apps\n"
         "- Transport: trains, buses, taxis, Uber, parking, fuel, car-related services\n"
         "- Shopping: retail, online stores, non-food goods, homeware\n"
-        "- Bills: utilities, broadband, mobile, insurance, rent, council tax\n"
+        "- Bills: utilities, broadband, mobile, insurance, council tax\n"
+        "- Rent: rent paid to a landlord, letting agent or housing association\n"
         "- Subscriptions: streaming, software, recurring digital memberships\n"
         "- Health: hospitals, pharmacies, gyms, dentists, medical services\n"
         "- Travel: flights, hotels, holidays\n"

@@ -506,7 +506,9 @@ def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
 # projection the moment G39's recategorisation lands, the exact regression
 # this list's own history above (the Transfer/Savings/Investment story) warns
 # about for a category that isn't trusted.
-DEFAULT_RECURRING_CATEGORIES = ["Bills", "Mortgage", "Car finance", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
+# Rent (G280, 2026-10-17) joins for the same reason: a rent standing order that
+# used to sit in Bills/Transfer must stay a detected recurring bill.
+DEFAULT_RECURRING_CATEGORIES = ["Bills", "Mortgage", "Rent", "Car finance", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
 
 
 def _net_reversals(items: list, credits: list) -> list:

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.core.auth import current_user
 from app.db.collections import behaviour_portrait_col
-from app.services.behaviour import compute_portrait
+from app.services.behaviour import PORTRAIT_VERSION, compute_portrait
 
 router = APIRouter(tags=["behaviour"])
 
@@ -26,7 +26,7 @@ async def get_mirror(
     # Check cache
     if not refresh:
         cached = await behaviour_portrait_col.find_one({"_id": uid})
-        if cached:
+        if cached and cached.get("portrait_version") == PORTRAIT_VERSION:
             cached.pop("_id", None)
             computed_at = cached.get("computed_at")
             if computed_at:

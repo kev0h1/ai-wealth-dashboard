@@ -6,6 +6,7 @@ export const CATEGORIES = [
   "Shopping",
   "Bills",
   "Mortgage",
+  "Rent",
   "Car finance",
   "Subscriptions",
   "Health",
@@ -38,6 +39,7 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   Shopping:      "#f472b6",  // pink    — retail
   Bills:         "#fb7185",  // rose    — recurring
   Mortgage:      "#49be37",  // grass green — long-term commitment (G39)
+  Rent:          "#d4a373",  // tan brick — rented home, distinct from Mortgage green (G280)
   "Car finance": "#e774d3",  // orchid  — vehicle finance (G39)
   Subscriptions: "#22d3ee",  // cyan    — digital
   Health:        "#2dd4bf",  // teal    — medical
@@ -169,7 +171,8 @@ const COMMITMENT_PATTERNS: RegExp[] = [
   /\b(rent|mortgage)\b/i,
   /\bcouncil tax\b|\butilit|\benergy\b|\belectric|\bgas\b|\bwater\b/i,
   /\binsurance\b/i,
-  /\bsubscriptions?\b|\bmembership\b/i,
+  // Subscriptions is a Free (discretionary) built-in since G280, so a custom
+  // name reading "subscriptions" or "membership" is no longer guessed as Fixed.
   /\b(childcare|nursery|childminder|nanny|au pair|creche|crèche)\b/i,
   /\bchild care\b|\bschool fees\b|\btuition\b/i,
   /\bgym\b/i,

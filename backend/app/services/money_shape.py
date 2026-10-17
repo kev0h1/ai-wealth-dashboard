@@ -77,7 +77,8 @@ _N_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 #: Bump whenever the cached response shape changes, so a stale doc from a
 #: previous shape (e.g. the old horizon-sliced "trend"/"trend_summary") is
 #: never served even if its computed_at TTL hasn't expired yet.
-SCHEMA_VERSION = 5
+# 6: G280 category kinds reclassified (Rent added; Cash, Charity, Other free).
+SCHEMA_VERSION = 6
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
