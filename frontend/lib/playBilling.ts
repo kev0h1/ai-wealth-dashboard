@@ -39,6 +39,9 @@ export type PlayBillingConfig = {
   account_id?: string;
   /** A sentence when buying must not start (an active web plan already covers the user). */
   purchase_blocked?: string | null;
+  /** A live Play subscription exists: change or cancel it in Google Play
+   *  (openManagePlaySubscriptions) rather than buying a second one. */
+  subscription_managed_in_play?: boolean;
 };
 
 /** True only when the binary really contains the plugin's native side. */
@@ -174,9 +177,10 @@ async function verify(tx: Pick<Transaction, "purchaseToken" | "productIdentifier
   return res.handled !== false;
 }
 
-function canStart(config: PlayBillingConfig, productId: string | undefined): string | null {
+function canStart(config: PlayBillingConfig, productId: string | undefined, subscription: boolean): string | null {
   if (!config.enabled || !config.account_id || !productId) return "This cannot be bought in the app yet.";
   if (config.purchase_blocked) return config.purchase_blocked;
+  if (subscription && config.subscription_managed_in_play) return "Change or cancel your plan in Google Play.";
   return null;
 }
 
@@ -190,7 +194,7 @@ export async function purchasePlaySubscription(
   productKey: string, config: PlayBillingConfig, view: PlayProductView,
 ): Promise<PurchaseOutcome> {
   const productIdentifier = config.products?.[productKey];
-  const refusal = canStart(config, productIdentifier);
+  const refusal = canStart(config, productIdentifier, true);
   if (refusal) return { ok: false, cancelled: false, message: refusal };
   try {
     return await withPlay(async (play) => {
@@ -218,7 +222,7 @@ export async function purchasePlayPack(
   productKey: string, config: PlayBillingConfig,
 ): Promise<PurchaseOutcome> {
   const productIdentifier = config.products?.[productKey];
-  const refusal = canStart(config, productIdentifier);
+  const refusal = canStart(config, productIdentifier, false);
   if (refusal) return { ok: false, cancelled: false, message: refusal };
   try {
     return await withPlay(async (play) => {

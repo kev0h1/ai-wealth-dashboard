@@ -1,4 +1,4 @@
-# C13: store billing (iOS StoreKit + Android Play billing-choice)
+# C13: store billing (iOS StoreKit + Android Google Play Billing)
 
 Status: implementation spec, not yet built. Decisions below are Kevin's
 (2026-09-12/13, TODO.md C13 and the coordinator notes on B25/B26/B29/B31);
@@ -21,10 +21,12 @@ B33 and B36 (2026-09-13). Currency: GBP throughout.
   Kevin's, already made, and is not reopened by that caveat; only this
   document's supporting reasoning about which subsections apply is
   unconfirmed. So UK iOS must use IAP.
-- **Android**: does not use Play Billing. Since 2026-06-30 Play's
-  billing-choice programme covers the UK, so the app enrols and links out
-  to the existing Stripe flow (roughly 10% service fee on that revenue,
-  no separate 5% billing fee for the external link).
+- **Android**: sells through Google Play Billing (Kevin, 2026-10-17, C24,
+  replacing the earlier decision to enrol in Play's billing-choice programme
+  and link out to Stripe). Subscriptions and Penny packs are bought in the
+  Play purchase sheet, verified server-side with the Google Play Developer
+  API, and written through the same provider-neutral seam as StoreKit. Section 9
+  is the design as built.
 - **Web**: unchanged. Stripe, already live in test mode (B25).
 - **Tooling**: direct integration (App Store Server API + App Store
   Server Notifications V2), not RevenueCat. Only one store is being
@@ -438,7 +440,7 @@ sufficient — the answer needs to distinguish three cases, not two:
 |---|---|
 | Web | Stripe Checkout in-app (unchanged, existing `/billing/checkout` flow) |
 | iOS native | StoreKit in-app purchase (new) |
-| Android native | Stripe Checkout, opened via an external browser link (billing-choice) |
+| Android native | Google Play Billing in-app purchase (C24, section 9); Stripe is never reachable |
 
 Proposed shape: replace the single boolean with something like
 `purchaseChannel(): "stripe_web" | "storekit" | "stripe_external"`, and
@@ -473,14 +475,9 @@ Components B26 gated, and what changes:
   (currently `canPurchaseInApp()` at line 213) becomes a three-way branch:
   web keeps the existing `/billing/checkout` call; iOS calls the new
   StoreKit purchase wrapper instead of hitting `/billing/checkout` at
-  all; Android opens the existing Stripe Checkout URL via
-  `Browser.open` (the same Capacitor Browser plugin pattern already used
-  in `nativeGoogleLogin`, `frontend/lib/nativeAuth.ts:206`), and per
-  Play's billing-choice programme requirements should show a disclosure
-  that the purchase completes outside the app before handing off — the
-  exact wording/UI Play requires for this disclosure is not confirmed in
-  this session and should be checked against Play Console's
-  billing-choice documentation once A9 exists.
+  all; Android calls the Play Billing wrapper (`lib/playBilling.ts`, section
+  9.4) and never Stripe (C24 replaced the earlier plan to open Stripe Checkout
+  through `Browser.open` under billing-choice).
 - **`MoreMessagesSheet.tsx`** and **`ConnectedAssistantsCard.tsx`**
   (Penny and MCP pack purchases) — same three-way split, for the four
   consumable products instead of the twelve subscriptions.
@@ -505,9 +502,9 @@ Components B26 gated, and what changes:
 None of B26/B29's existing copy or gate should simply be deleted — the
 task brief is explicit about this, and the code review in section 9
 should confirm nothing here reopens the guideline-3.1.1 hole B26 closed:
-Android still may never show a plain external Stripe Checkout button
-without the billing-choice disclosure, and iOS must never fall back to
-Stripe under any condition.
+neither Android nor iOS may ever reach Stripe Checkout or the portal
+(`stripe_web` is the only channel that does, and the B31 backstop refuses a
+native client's request regardless).
 
 **B31** (no server-side backstop on the native purchase gate, currently
 open, `TODO.md`) should be closed as part of this item rather than left
@@ -585,21 +582,239 @@ to do about a repeat pattern (throttling, a manual flag, revoking future
 pack purchases) is not decided here and is not required to build the
 refund handler.
 
-## 9. Android: Play billing-choice
+## 9. Android: Google Play Billing (C24, as built)
 
-Enrolling in Play's billing-choice programme (covering the UK since
-2026-06-30, per C13's own board text) is a Play Console configuration
-step, not something built in this codebase — the app declares which
-billing systems it offers and links its external payment flow, subject
-to Play's disclosure requirements (see section 6's note on the
-in-app disclosure Play expects before an external link).
+Kevin decided on 2026-10-17 that Android sells through Play Billing, not a
+billing-choice link-out to Stripe, and that **store prices match web exactly**
+(no uplift for Google's fee): `TIER_BILLING_PRICES_GBP` and
+`PENNY_TOPUP_PACKS` stay the single price source, and the app shows the price
+string the store itself returns. This section replaces the earlier
+billing-choice text, which is withdrawn. It builds on C21's provider-neutral
+seam (`app/services/store_subscriptions.py`, `app/core/store_catalogue.py`,
+merged at C21 commit 328c1308): section 2's per-provider documents and
+precedence rule apply to `provider: "google"` unchanged.
 
-**This is gated on A9** (`TODO.md`, owner: kevin, priority p1): "Play
-Console record" — the Organisation account, app record, package
-`co.uk.auriqltd.sorted`, Finance category and financial-features
-declaration. A9 does not exist yet. Nothing Android-side in this item
-can proceed — not the billing-choice enrolment, not an Android build to
-test it in — until A9 is done.
+### 9.1 Catalogue
+
+Nine subscription products and three one-time products, ids from
+`app.core.store_catalogue` (`sorted.<tier>.<period>`, `sorted.penny.<n>`), each
+overridable with `PLAY_PRODUCT_IDS`. No Connect (B51) and no MCP pack on Play.
+
+| Product id | Type | Price (web price) |
+|---|---|---|
+| `sorted.lite.monthly` / `.six_months` / `.annual` | Subscription | £5.99 / £31.99 / £59.99 |
+| `sorted.standard.monthly` / `.six_months` / `.annual` | Subscription | £9.99 / £53.99 / £99.99 |
+| `sorted.max.monthly` / `.six_months` / `.annual` | Subscription | £16.99 / £91.99 / £169.99 |
+| `sorted.penny.20` / `.100` / `.200` | One-time (consumable) | £0.99 / £2.99 / £4.99 |
+
+Every subscription carries a 14-day free-trial offer (Play Console, section
+9.6). The app never says "14 days free" itself: the picker describes a trial
+only when the store returns a free introductory phase for that user (Play
+lists only the offers the user is eligible for), and uses the store's own
+period text. The server recognises the trial from `offerDetails.offerId`
+equal to `PLAY_TRIAL_OFFER_ID` (default `free-trial`) within the trial length
+of the start time, and stores it as `trialing` with `trial_ends_at`.
+
+### 9.2 Receiver and verification
+
+`POST /webhooks/google-play` (`app/routers/play_billing.py`,
+`app/services/play_billing.py`): the target of a Pub/Sub push subscription on
+the Real-time Developer Notifications topic. The path is auth-exempt and
+rate-limited like the other `/webhooks/` receivers.
+
+1. **Authenticate the push.** OIDC when `PLAY_RTDN_OIDC_AUDIENCE` and
+   `PLAY_RTDN_OIDC_EMAIL` are set: the `Authorization: Bearer` JWT is checked
+   (RS256 against Google's published keys, issuer accounts.google.com,
+   audience, expiry, verified email equal to the push service account).
+   Otherwise a shared secret (`PLAY_RTDN_SHARED_SECRET`, in the push URL's
+   `?token=`), compared in constant time. Neither configured, or OIDC half
+   configured: 503. Bad or missing credentials: 401. Nothing is read from the
+   body before this passes.
+2. **Decode.** The Pub/Sub envelope's base64 `message.data` must be a JSON
+   `DeveloperNotification` for `PLAY_PACKAGE_NAME`; anything else is 400.
+3. **Dedupe the message** in `billing_events_col` (`google:<messageId>`, the
+   seam's `claim_event`): a redelivery answers from the stored result.
+4. **Verify the purchase with the Developer API.** The notification is only a
+   hint and its type never decides the outcome. For every
+   `subscriptionNotification` the server calls `purchases.subscriptionsv2.get`,
+   for a `oneTimeProductNotification` (purchased) `purchases.products.get`, and
+   applies the state that comes back. Re-reading current state on every event
+   makes ordering irrelevant. The seam's `signed_at` is the instant before the
+   fetch, so of two racing fetches the later one wins.
+5. **Map the account** from `externalAccountIdentifiers.obfuscatedExternalAccountId`
+   through `play_account_ids_col` (section 9.3). Unmapped or missing: refused and
+   not acknowledged, so Google refunds it after three days. A test purchase
+   (`testPurchase`, or `purchaseType` 0 for one-time products) is refused when
+   `PLAY_ALLOW_TEST_PURCHASES` is off, which is the production default.
+6. **Apply through the seam** (`provider: "google"`):
+
+| `subscriptionState` | Effect |
+|---|---|
+| `ACTIVE` | active, or `trialing` on the free-trial offer; `expires_at` from `lineItems[].expiryTime` |
+| `CANCELED`, not yet expired | still entitled, `cancel_at_period_end: true`; expired once past `expiryTime` |
+| `IN_GRACE_PERIOD` | `past_due`, `grace_until` = `expiryTime`, one failed-renewal push naming Google Play |
+| `ON_HOLD`, `PAUSED`, `EXPIRED` | `expired`, entitlement removed; a later `ACTIVE` (recovered, restarted) re-grants |
+| `PENDING`, `PENDING_PURCHASE_CANCELED` | nothing granted, nothing acknowledged |
+| anything unrecognised | fails closed to `expired` |
+
+7. **Acknowledge** a purchase on its first verified receipt, once: skipped when
+   Google or `play_purchases_col` already says acknowledged, and a failed call
+   is re-read before it counts as failed (Google rejects a second
+   acknowledge). **Consumables** are granted once (deduplicated on the order
+   id through the seam's `grant_store_pack`) and only then consumed; consuming
+   also acknowledges. A grant whose consume failed is retried by the next
+   redelivery or client sync, which finds `granted_at` set and only consumes.
+8. **Voided purchases.** A `voidedPurchaseNotification` revokes through a token
+   this server has already verified and stored (a token it never saw is ignored,
+   so a message cannot target an arbitrary account): a subscription loses
+   entitlement at once and stays revoked whatever a later read says; a
+   consumable is recorded against the user and, only with `IAP_REFUND_CLAWBACK`
+   on, has its remaining balance zeroed (section 8's open decision, default
+   off, both paths tested). `play_billing.reconcile_voided(since=...)` sweeps the
+   Voided Purchases API as a safety net for a missed notification; it is
+   idempotent and not scheduled by default.
+9. **Failure shape.** A permanent refusal (unknown product, unmapped account)
+   is recorded in the ledger and answered 200 so Pub/Sub stops. A transient
+   failure (Google or the database) is a 503 with a generic body so Pub/Sub
+   redelivers. Never a 500 with detail. Log lines carry product ids, states and
+   status codes, never a purchase token, user id or response body.
+
+Purchase tokens are stored raw only in `play_purchases_col` (unique on the
+token, the dedupe key); the subscription document carries `sha256(token)` as
+`provider_subscription_id`. Every token and product id is validated against a
+strict pattern before use and percent-encoded into the API path.
+
+All Google network calls (`HttpPlayApi`, `GoogleOidcVerifier`) sit behind the
+`PlayApi` and `OidcVerifier` interfaces in `app/services/google_play.py`; the
+tests replace them and never touch the network. The HTTP client is covered
+separately with `httpx.MockTransport`. The service-account key is read from
+`PLAY_SERVICE_ACCOUNT_FILE` or `PLAY_SERVICE_ACCOUNT_JSON` and used to sign an
+RS256 JWT bearer assertion with PyJWT and `cryptography`, both already
+installed; no package was added to the backend.
+
+### 9.3 obfuscatedAccountId
+
+`GET /billing/play/config` returns the user's account id, minted lazily into
+`play_account_ids_col`: a salted sha256 (`PLAY_ACCOUNT_ID_SALT`, 64 hex
+characters, the most Play accepts), never the email. The client sets it as the
+purchase's `obfuscatedAccountId`. The server maps back through the stored
+table, so a purchase belongs to an account only if it carries that id, and a
+client verifying its own purchase must match its own id (`account_mismatch`
+otherwise). E6's Sentry hash was not reused: it is 16 characters and returns
+nothing without its own salt, so Play has its own helper and salt.
+
+### 9.4 Client
+
+- `lib/purchaseChannel.ts` returns `"play"` on an Android build whose binary
+  really contains the plugin, replacing "Paid plans are not available in this
+  app". Stripe Checkout and the portal are reachable only from `"stripe_web"`;
+  the B31 server backstop is unchanged and still refuses a native client's
+  checkout.
+- Plugin: `@capgo/native-purchases` 8.9.6 (the same package and pin as C21, one
+  plugin for both stores, MPL-2.0). `lib/playBilling.ts` reaches it only through
+  `withPlay()`, which never returns the plugin proxy (it is not thenable and
+  would hang the call), and checks `Capacitor.PluginHeaders` first (a call with
+  no native implementation also hangs). `capacitor.config.json` sets
+  `autoFinishTransactions: false` so the plugin's launch-time recovery cannot
+  acknowledge a purchase the server has not verified. Purchases are made with
+  `autoAcknowledgePurchases: false` and no client-side consume.
+- Product ids, the account id and any block reason come from
+  `GET /billing/play/config`; nothing is hard-coded in the app.
+- After a purchase the client sends only the purchase token and product id to
+  `POST /billing/play/purchase`. The server verifies with the Developer API and
+  acknowledges or consumes; the client never grants entitlement.
+- **Restore** (`restorePlayPurchases`): `getPurchases` for subscriptions and
+  one-time products, filtered to this account's id, each sent to the same
+  verify endpoint. Idempotent (dedupe on the token). It is also the recovery
+  path for a purchase whose verification never completed.
+- **Cancellation** points at Google Play (`manageSubscriptions` opens the
+  Play subscriptions page for the package). Account hold and grace are shown
+  from the server's `past_due`/`expired` status.
+- **Stripe and Play together**: the server refuses to offer a Play purchase
+  while a Stripe subscription is live (`purchase_blocked`, section 2.3), and a
+  purchase that completes anyway is granted and flagged `double_subscription`.
+
+### 9.5 Upgrade and downgrade
+
+Policy, matching StoreKit's behaviour: an **upgrade** (higher tier, or the same
+tier on a longer period) takes effect at once with Play's
+`CHARGE_PRORATED_PRICE` replacement mode, a **downgrade** is deferred to the
+next renewal (`DEFERRED`), and the new purchase names the old one in
+`linkedPurchaseToken`, which the server records (`superseded_at`) so a late
+event for the old token cannot expire the new plan. The server side of this is
+built and tested. **The client side is not**: plugin 8.9.6's `purchaseProduct`
+cannot send a replacement mode or the old purchase token, so buying a second
+subscription on top would charge twice. As built, while a live Play subscription
+exists (`subscription_managed_in_play`) the picker does not offer another
+subscription purchase; it points at Google Play to change or cancel, and a new
+plan is bought once the old one has lapsed. In-app upgrade and downgrade needs a
+small native change (a `SubscriptionUpdateParams` call with the replacement mode
+above, behind a new plugin method) or an upstream plugin change: recorded as
+follow-up on C24, not a blocker for the internal track.
+
+### 9.6 Kevin's Play Console and Google Cloud setup list
+
+Nothing here can be done by an agent. Do them in this order; the app stays
+switched off (`PLAY_IAP_ENABLED` unset) until the last step.
+
+1. **Play Console record (A9)**: organisation account, app
+   `co.uk.auriqltd.sorted`, Finance category, financial features declaration,
+   payments profile and merchant account. The Board flavour has a different
+   application id; its purchases will not verify against this package and
+   Board does not sell.
+2. **Subscription products** (Monetise, Subscriptions): create nine, with the
+   ids in section 9.1. Give each one base plan (auto-renewing: P1M, P6M or P1Y
+   to match its period), priced in GBP at the web price from section 9.1, and
+   one offer on that base plan: a free trial of 14 days, **offer id
+   `free-trial`** (or set `PLAY_TRIAL_OFFER_ID` to what you typed), eligibility
+   "new customer acquisition" so each Google account gets it once. Set the
+   grace period (7 days) and account hold under Subscriptions, Settings. Leave
+   resubscribe allowed.
+3. **One-time products** (Monetise, In-app products): create three consumables,
+   `sorted.penny.20` £0.99, `sorted.penny.100` £2.99, `sorted.penny.200` £4.99,
+   one buy option each.
+4. **Pub/Sub**: create a Pub/Sub topic in the Google Cloud project linked to
+   Play, give `google-play-developer-notifications@system.gserviceaccount.com`
+   the Pub/Sub Publisher role on it, and set it in Play Console (Monetisation
+   setup, Real-time developer notifications, topic name, notification content
+   "Subscriptions, voided purchases and one-time products"; send a test
+   notification). Create a **push subscription** on the topic with endpoint
+   `https://<api host>/webhooks/google-play`, authentication enabled with a
+   dedicated service account (for example `play-rtdn-push@<project>.iam`), and
+   audience equal to the endpoint URL. Set `PLAY_RTDN_OIDC_AUDIENCE` to that
+   audience and `PLAY_RTDN_OIDC_EMAIL` to that service account's email. (If
+   OIDC is not wanted, use `PLAY_RTDN_SHARED_SECRET` and append `?token=` to the
+   endpoint instead.)
+5. **API access**: enable the Google Play Android Developer API in the Cloud
+   project, create a service account, download its JSON key, and in Play
+   Console (Users and permissions) invite its email with "View financial data"
+   and "Manage orders and subscriptions". Store the key outside the repo
+   (`PLAY_SERVICE_ACCOUNT_FILE`, mode 600) or as `PLAY_SERVICE_ACCOUNT_JSON`.
+   It can take up to 24 hours for the permission to work.
+6. **Secrets and switch**: generate `PLAY_ACCOUNT_ID_SALT` (`openssl rand -hex 32`),
+   then set `PLAY_IAP_ENABLED=1` on the host under test (docs/ops/ENV.md lists
+   every variable).
+7. **Licence testers**: Play Console, Settings, License testing: add Kevin's
+   Google account, and add the same account to the internal testing track's
+   testers. Licence testers see test payment methods and accelerated renewals.
+8. **Internal track build**: ship an Android build that includes the plugin
+   (C11 and C23 pipeline), then run docs/pricing/store-billing-c24-testplan.md.
+
+### 9.7 What this section did not or could not confirm
+
+Written without access to Google's documentation or a Play Console, from
+general knowledge of the Play Developer API, so each item below must be
+checked against the first real test notification and purchase: the exact
+`subscriptionsv2` field names the mapper reads (`subscriptionState`,
+`lineItems[].expiryTime`, `lineItems[].offerDetails.offerId`,
+`externalAccountIdentifiers.obfuscatedExternalAccountId`, `linkedPurchaseToken`,
+`acknowledgementState`, `testPurchase`); that `expiryTime` marks the end of the
+grace period during `IN_GRACE_PERIOD`; that the free-trial offer is
+recognisable by offer id (there is no "is trial" field); that Play lists only
+eligible offers to `getProducts`; the `purchases.products.get` fields
+(`purchaseState`, `consumptionState`, `orderId`, `purchaseType`,
+`obfuscatedExternalAccountId`); and that the plugin's Android `getPurchases`
+returns the obfuscated account id in `appAccountToken`.
 
 ## 10. Apple details not independently confirmed in this session
 
@@ -636,10 +851,6 @@ as confident guesses:
   as a dependency for JWS/x5c verification versus implementing the chain
   walk directly (section 5) — not resolved here, an implementation
   choice for whoever builds this.
-- The exact UI/disclosure Play's billing-choice programme requires before
-  an external link (section 6, section 9) — described in general terms
-  only; check Play Console's own billing-choice documentation once A9
-  exists.
 - Whether any of the twelve proposed iOS subscription prices (section
   3.1) land on an actual point on Apple's price-point grid — App Store
   Connect only accepts prices from that fixed grid, and none of the
@@ -707,8 +918,8 @@ practice:
 ## 12. Dependencies and sequencing
 
 - **A9** (Play Console record, owner: kevin, p1) blocks all of section 9
-  — nothing Android-side can be enrolled, tested, or even built for,
-  until this exists.
+  — no Android product, notification topic or internal-track test can exist
+  until it does (the code is built and tested without it).
 - **C5** (store listings, owner: claude, p2) needs the finished product
   catalogue (section 3) for App Store Connect's screenshots/description
   work and Play's Data safety form, so it sits after this item's product
@@ -738,8 +949,9 @@ proposals awaiting his sign-off, not decisions, until he says otherwise.
 
 1. **A9, Play Console record** (section 9, section 12) — does not exist
    yet; owned by Kevin, not something this item or a Claude session can
-   create. It blocks all of section 9 (Android's billing-choice
-   enrolment) and nothing else.
+   create. It blocks the Play Console steps in section 9.6 (products, the
+   notification topic, licence testers) and nothing else. Kevin's setup list
+   is section 9.6.
 
 **Proposed here for Kevin's sign-off, not yet decisions he has recorded:**
 

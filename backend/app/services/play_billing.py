@@ -630,7 +630,26 @@ async def client_config(uid: str) -> dict:
         "products": client_product_ids(),
         "account_id": await get_or_create_account_id(uid),
         "purchase_blocked": blocked,
+        # A live Play subscription is changed or cancelled in Google Play, not
+        # by buying a second one on top (the plugin cannot send Play's
+        # replacement mode, so a second purchase would charge twice). Packs
+        # are unaffected.
+        "subscription_managed_in_play": await _has_live_play_subscription(uid),
     }
+
+
+async def _has_live_play_subscription(uid: str) -> bool:
+    from app.core.timeutil import as_utc
+    from app.db.collections import subscriptions_col
+
+    doc = await subscriptions_col.find_one({"user_id": uid, "provider": PROVIDER})
+    if not doc or doc.get("status") not in store_subscriptions.LIVE_STATUSES:
+        return False
+    if doc.get("status") == "past_due":
+        until = as_utc(doc.get("grace_until"))
+        return until is None or until > _now()
+    expires = as_utc(doc.get("expires_at"))
+    return expires is None or expires > _now()
 
 
 async def verify_client_purchase(uid: str, token, product_id) -> dict:

@@ -626,8 +626,17 @@ def test_client_config_lists_nine_subs_three_packs_and_the_account_id(env, clien
     assert cfg["enabled"] is True and cfg["package_name"] == PKG
     assert len(cfg["products"]) == 12 and cfg["account_id"] == account_id()
     assert cfg["products"]["lite"] == "sorted.lite.monthly" and cfg["products"]["penny_large"] == "sorted.penny.200"
-    assert cfg["purchase_blocked"] is None
+    assert cfg["purchase_blocked"] is None and cfg["subscription_managed_in_play"] is False
     assert UID not in json.dumps(cfg)
+
+
+def test_a_live_play_subscription_is_managed_in_play_until_it_lapses(env, client):
+    env.api.subs[T1] = sub_payload()
+    _run(play_billing.process_subscription(T1))
+    assert client.get("/billing/play/config").json()["subscription_managed_in_play"] is True
+    env.api.subs[T1] = sub_payload(state="EXPIRED", expiry_days=-1)
+    _run(play_billing.process_subscription(T1))
+    assert client.get("/billing/play/config").json()["subscription_managed_in_play"] is False
 
 
 # ── Precedence with Stripe ───────────────────────────────────────────────────
