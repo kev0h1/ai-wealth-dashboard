@@ -22,6 +22,7 @@ reasoned about together.
 Registered in app.main._routers only, like every other non-MCP router —
 mcp_only mode (app.main.build_app) bypasses _routers() entirely and never
 sees this module."""
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -247,3 +248,107 @@ async def stripe_webhook(request: Request):
 
     result = await billing_service.handle_event(event)
     return {"ok": True, "result": result.get("result")}
+
+
+# ── Apple in-app purchase (C21, docs/pricing/store-billing-c13.md) ───────────
+# Native iOS buys through StoreKit, never through the Stripe routes above (the
+# B31 backstop on those stays exactly as it was). These three routes are the
+# server side of that path. The receiver is public like every /webhooks/ path;
+# the other two are the signed-in user's own.
+
+_APPLE_WEBHOOK_MAX_BYTES = 256 * 1024
+
+
+def _apple_error(status_code: int, code: str, message: str) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+@router.get("/billing/apple/account-token")
+async def apple_account_token(user: dict = Depends(current_user)):
+    """The signed-in user's appAccountToken, the product ids to load from the
+    store, and whether a StoreKit purchase may start. The token is minted on
+    first call (a random UUID, never the email). While in-app purchase is
+    switched off nothing is minted and the client is told so."""
+    from app.core import config
+    from app.services import apple_billing, store_subscriptions
+
+    if not config.APPLE_IAP_ENABLED:
+        return {"enabled": False, "app_account_token": None, "products": {},
+                "purchase_allowed": False, "blocked_reason": "not_enabled"}
+    blocked = None
+    try:
+        await store_subscriptions.validate_store_purchase(user["email"])
+    except store_subscriptions.StorePurchaseRefused as exc:
+        blocked = {"code": "stripe_subscription_active", "message": str(exc)}
+    from app.core.subscription import SUBSCRIPTION_TRIAL_DAYS
+
+    return {
+        "enabled": True,
+        "app_account_token": await apple_billing.get_or_create_account_token(user["email"]),
+        "products": apple_billing.client_products(),
+        "trial_days": SUBSCRIPTION_TRIAL_DAYS,
+        "purchase_allowed": blocked is None,
+        "blocked_reason": blocked["code"] if blocked else None,
+        "blocked_message": blocked["message"] if blocked else None,
+    }
+
+
+@router.post("/billing/apple/verify")
+async def apple_verify(body: dict, user: dict = Depends(current_user)):
+    """{signed_transaction} -> the entitlement it grants. Used after a
+    purchase and for Restore purchases. The JWS is verified here against the
+    pinned Apple root; the client's own claim about what it bought is never
+    trusted, and a transaction for another account is refused."""
+    from app.services import apple_billing
+
+    signed = (body or {}).get("signed_transaction")
+    if not isinstance(signed, str) or not signed:
+        raise _apple_error(400, "APPLE_BAD_REQUEST", "signed_transaction is required")
+    try:
+        result = await apple_billing.verify_signed_transaction(user["email"], signed)
+    except apple_billing.AppleNotConfigured:
+        raise _apple_error(503, "APPLE_NOT_LIVE", "In-app purchase is not live yet.")
+    except apple_billing.AppleVerificationError as exc:
+        logger.warning("apple verify: rejected (%s)", exc)
+        raise _apple_error(400, "APPLE_VERIFY_FAILED", "This purchase could not be verified.")
+    except apple_billing.AppleAccountMismatch:
+        raise _apple_error(403, "APPLE_ACCOUNT_MISMATCH", "This purchase belongs to a different account.")
+    return {
+        "ok": True, "handled": bool(result.get("handled")), "reason": result.get("reason"),
+        "tier": result.get("tier"), "status": result.get("status"),
+    }
+
+
+@router.post("/webhooks/apple", status_code=200)
+async def apple_webhook(request: Request):
+    """App Store Server Notifications V2 receiver. The body is
+    {"signedPayload": "<JWS>"}. The JWS chain is verified against the pinned
+    Apple root before anything in it is read; anything untrustworthy is a 4xx
+    with a generic body (no detail about which check failed), anything that
+    verifies is applied idempotently on notificationUUID and answered 200.
+    A genuine processing fault answers a bare 500 so Apple retries, with no
+    detail in the body and nothing user-identifying in the log."""
+    from app.services import apple_billing
+
+    body = await request.body()
+    if len(body) > _APPLE_WEBHOOK_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Invalid request")
+    try:
+        parsed = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid request")
+    signed = parsed.get("signedPayload") if isinstance(parsed, dict) else None
+    if not isinstance(signed, str) or not signed:
+        raise HTTPException(status_code=400, detail="Invalid request")
+
+    try:
+        result = await apple_billing.handle_notification(signed)
+    except apple_billing.AppleNotConfigured:
+        raise HTTPException(status_code=503, detail="Not available")
+    except apple_billing.AppleVerificationError as exc:
+        logger.warning("apple webhook: rejected (%s)", exc)
+        raise HTTPException(status_code=400, detail="Invalid notification")
+    except Exception as exc:
+        logger.error("apple webhook: processing failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Error")
+    return {"ok": True, "idempotent": bool(result.get("idempotent"))}

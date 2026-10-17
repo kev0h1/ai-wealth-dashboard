@@ -815,6 +815,10 @@ export interface SubscriptionInfo {
   renews_at?: string | null;
   cancel_at_period_end?: boolean;
   has_paid_subscription?: boolean;
+  /** C21: which payment provider's subscription is in force, so the client
+   *  can say where to manage it (the Stripe portal, or iOS Settings).
+   *  null/absent: no store or Stripe subscription. */
+  billing_provider?: "stripe" | "apple" | "google" | null;
   /** B45: whether Checkout would grant a trial right now (one per person).
    *  null/absent: unknown, fall back to `!has_paid_subscription`. */
   trial_eligible?: boolean | null;

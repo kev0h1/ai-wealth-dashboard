@@ -36,6 +36,14 @@ export function paymentFailedBody(graceDays?: number): string {
   const access = graceDays ? `You keep access for the next ${graceDays} days while we try again.` : "You should keep access for a few days while we try again.";
   return `We couldn't take your latest payment. Update your card to keep your plan. ${access}`;
 }
+/** C21: the failed-renewal copy for an App Store plan, where the payment
+ *  method lives in the Apple ID, not in this app or Stripe. */
+export function paymentFailedBodyApple(graceDays?: number): string {
+  const access = graceDays ? `You keep access for the next ${graceDays} days while the App Store tries again.` : "You should keep access for a few days while the App Store tries again.";
+  return `The App Store couldn't take your latest payment. Update your payment method in your Apple ID settings to keep your plan. ${access}`;
+}
+/** C21: where an App Store plan is changed or cancelled. */
+export const appleManageLine = "Your plan is billed through the App Store. Change or cancel it in iOS Settings, under Subscriptions.";
 export const FIX_PAYMENT_LABEL = "Fix payment";
 
 export const PAUSED_BANKS_TITLE = "Bank sync is paused";

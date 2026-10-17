@@ -136,6 +136,13 @@ billing_events_col     = db["billing_events"]
 # purchase time, {user_id, account_id, created_at}, both unique, minted lazily.
 play_purchases_col     = db["play_purchases"]
 play_account_ids_col   = db["play_account_ids"]
+# C21: Apple in-app purchase. Maps a user to the random UUID passed as the
+# StoreKit purchase option appAccountToken and echoed back in every
+# transaction and server notification, so a receipt resolves to a user without
+# an email or Apple ID ever being stored. {user_id (unique), app_account_token
+# (unique), created_at}, minted lazily once per user
+# (app.services.apple_billing.get_or_create_account_token).
+apple_account_tokens_col = db["apple_account_tokens"]
 
 # Cashflow cache (computed after sync, read at page load)
 cashflow_cache_col      = db["cashflow_cache"]
@@ -551,7 +558,7 @@ ERASURE_MANIFEST = frozenset({
     "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",
     "investment_notes_col", "shopping_baskets_col", "subscriptions_col",
     "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
-    "billing_customers_col", "billing_events_col", "play_purchases_col",
+    "billing_customers_col", "billing_events_col", "apple_account_tokens_col", "play_purchases_col",
     "play_account_ids_col", "cashflow_cache_col",
     "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
     "webhook_events_col", "excluded_accounts_col", "locks_col",
