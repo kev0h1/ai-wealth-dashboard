@@ -261,6 +261,19 @@ def _default_tier() -> Tier:
     return TIER_BY_NAME.get(DEFAULT_TIER.strip().lower(), Tier.MAX)
 
 
+# C21/C24: every payment provider that may own a subscriptions_col document.
+# At most one document per (user, provider). The order is the tie-break
+# preference (earlier wins) when two live documents are the same tier with
+# the same expiry: the longer-standing web subscription, then Apple, then
+# Google.
+SUBSCRIPTION_PROVIDERS = ("stripe", "apple", "google")
+STORE_SUBSCRIPTION_PROVIDERS = ("apple", "google")
+
+
+def _provider_preference(doc: dict) -> int:
+    return len(SUBSCRIPTION_PROVIDERS) - SUBSCRIPTION_PROVIDERS.index(_doc_provider(doc))
+
+
 def _doc_provider(doc: dict) -> str:
     """C21: which payment provider wrote this subscriptions_col document.
     Documents written before the provider field existed (and manual or
@@ -268,7 +281,7 @@ def _doc_provider(doc: dict) -> str:
     per-user slot with Stripe) are "stripe" by the same rule the migration
     uses (scripts/migrate_subscriptions_provider.py)."""
     provider = doc.get("provider")
-    return provider if provider in ("stripe", "apple") else "stripe"
+    return provider if provider in SUBSCRIPTION_PROVIDERS else "stripe"
 
 
 def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
@@ -278,8 +291,8 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
     decides whether another provider's document outranks it."""
     provider = _doc_provider(doc)
     stripe_backed = bool(doc.get("source") == "stripe" and doc.get("stripe_subscription_id"))
-    apple_backed = bool(provider == "apple" and doc.get("source") == "apple")
-    paid_backed = stripe_backed or apple_backed
+    store_backed = bool(provider in STORE_SUBSCRIPTION_PROVIDERS and doc.get("source") == provider)
+    paid_backed = stripe_backed or store_backed
     # B45: a user whose real (store-backed) subscription has ended lands on
     # the free Statements plan whatever DEFAULT_TIER is. DEFAULT_TIER only
     # covers people who never had a paid subscription (the pre-launch "nobody
@@ -328,8 +341,8 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
 
 def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) -> tuple[dict | None, Subscription]:
     """C21 precedence rule (docs/pricing/store-billing-c13.md section 2.3):
-    across a user's per-provider documents (at most one each for "stripe"
-    and "apple") the highest live tier wins. A tie breaks toward the later
+    across a user's per-provider documents (at most one each for "stripe",
+    "apple" and "google") the highest live tier wins. A tie breaks toward the later
     expires_at, then toward Stripe over Apple. When no document is live the
     user is on whatever the best-ranked ended document lands them on (the
     free Statements plan for a store-backed one), which is the document
@@ -344,14 +357,14 @@ def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) ->
 
     def live_rank(pair):
         doc, sub = pair
-        return (int(sub.tier), as_utc(doc.get("expires_at")) or epoch, 1 if _doc_provider(doc) == "stripe" else 0)
+        return (int(sub.tier), as_utc(doc.get("expires_at")) or epoch, _provider_preference(doc))
 
     if live:
         return max(live, key=live_rank)
 
     def ended_rank(pair):
         doc, sub = pair
-        return (as_utc(doc.get("updated_at")) or epoch, 1 if _doc_provider(doc) == "stripe" else 0)
+        return (as_utc(doc.get("updated_at")) or epoch, _provider_preference(doc))
 
     return max(scored, key=ended_rank)
 

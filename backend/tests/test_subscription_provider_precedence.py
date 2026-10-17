@@ -162,3 +162,14 @@ def test_migration_is_dry_run_by_default_and_idempotent():
     assert col.docs[2]["provider"] == "apple"
     again = _run(mig.migrate(col, apply=True))
     assert again["provider_stamped"] == 0 and again["already_migrated"] == 3
+
+
+def test_google_is_a_provider_and_ranks_after_apple_and_stripe_on_a_tie():
+    same = NOW + timedelta(days=9)
+    docs = [_doc("google", "lite", expires_at=same), _doc("apple", "lite", expires_at=same)]
+    doc, sub = pick_subscription_doc(docs)
+    assert doc["provider"] == "apple" and sub.has_paid_subscription
+    doc, _ = pick_subscription_doc(docs + [_doc("stripe", "lite", expires_at=same)])
+    assert doc["provider"] == "stripe"
+    doc, sub = pick_subscription_doc([_doc("google", "max"), _doc("stripe", "lite")])
+    assert doc["provider"] == "google" and sub.provider == "google" and sub.tier == Tier.MAX
