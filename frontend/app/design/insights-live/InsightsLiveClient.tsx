@@ -4,7 +4,7 @@
 // one even after the Insights page itself retired (2026-09-05, /insights is
 // now a client redirect to /spend/shape or /tax). Renders the REAL exported
 // components from components/InsightCard.tsx (InsightCard, CompactInsightRow
-// via isCompactPullInsight, InsightsHero) against fixture SavingsInsight
+// via isCompactPullInsight) against fixture SavingsInsight
 // payloads shaped field-for-field like the real GET /savings-insights
 // serializer output (see fixtures.ts). Auth-exempt, no network calls,
 // deep-linkable — the point is to make the compact-vs-full render decision
@@ -15,10 +15,8 @@
 // 13:24): three prior fix rounds verified the quiet-state compact-row
 // behaviour by code trace + backend census alone. There was no auth-exempt
 // twin, so nobody ever rendered the actual pixels. This route is that twin,
-// permanently — InsightsHero itself no longer renders on any live page
-// (MoneyShapeHero replaced it there 2026-09-02), but stays real and tested
-// here rather than deleted, in case a future surface needs its coverage-state
-// grammar again.
+// permanently. (InsightsHero, the retired page's savings-total hero, was
+// deleted by G283: tips state facts only.)
 //
 // Extended 2026-09-02 for the money-shape redesign: also renders the REAL
 // MoneyShapeHero/WhatWorksCard/ReferenceShapesRow from app/spend/shape/ against
@@ -43,7 +41,7 @@
 // Deep-linkable: /design/insights-live?mode=light|dark&state=<FixtureKey|all>&shape=<MoneyShapeFixtureKey>
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero } from "@/components/InsightCard";
+import { InsightCard, CompactInsightRow, isCompactPullInsight } from "@/components/InsightCard";
 import MoneyShapeHero from "@/app/spend/shape/MoneyShapeHero";
 import WhatWorksCard from "@/app/spend/shape/WhatWorksCard";
 import ReferenceShapesRow from "@/app/spend/shape/ReferenceShapesRow";
@@ -87,14 +85,6 @@ export default function InsightsLiveClient() {
   const keys = selected === "all" ? FIXTURE_ORDER : [selected];
   const rendered = keys.map(k => INSIGHT_FIXTURES[k]);
 
-  // Mirrors SavingsInsightsSection's `anyOpenHasEstimate` — true when at
-  // least one currently-rendered open insight has a costed estimate, gating
-  // every other card's "No number yet" label the same way production does.
-  const anyOpenHasEstimate = rendered.some(
-    i => (i.state ? i.state === "fresh" || i.state === "quiet" : true)
-      && i.savings_estimate_monthly != null
-  );
-
   const hrefFor = (s: FixtureKey | "all") => `?mode=${mode}&state=${s}&shape=${selectedShape}`;
   const hrefForShape = (s: MoneyShapeFixtureKey) => `?mode=${mode}&state=${selected}&shape=${s}`;
 
@@ -108,7 +98,7 @@ export default function InsightsLiveClient() {
             </p>
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Insights — live components</h1>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Real InsightCard / CompactInsightRow / InsightsHero / MoneyShapeHero / WhatWorksCard / ReferenceShapesRow against fixture payloads shaped like the live serializer output.
+              Real InsightCard / CompactInsightRow / MoneyShapeHero / WhatWorksCard / ReferenceShapesRow against fixture payloads shaped like the live serializer output.
             </p>
           </div>
 
@@ -126,18 +116,6 @@ export default function InsightsLiveClient() {
           </div>
 
           <div className="pt-1 border-t border-slate-200 dark:border-white/10" />
-
-          {selected === "all" && (
-            <InsightsHero
-              open={rendered.filter(i => i.state === "fresh" || i.state === "quiet").length}
-              openWithEstimate={rendered.filter(i => i.savings_estimate_monthly != null).length}
-              openMonthlySaving={rendered.reduce((s, i) => s + (i.savings_estimate_monthly ?? 0), 0)}
-              verifiedMonthlySaving={rendered.reduce((s, i) => s + (i.verified_savings ?? 0), 0)}
-              insightsActedOn={rendered.filter(i => i.verified_savings && i.verified_tier === "earned").length}
-              changesNoticed={rendered.filter(i => i.verified_savings && i.verified_tier !== "earned").length}
-              resolvedCount={rendered.filter(i => i.state === "verified" || i.state === "substituted").length}
-            />
-          )}
 
           <div className="space-y-3">
             {rendered.map(insight => {
@@ -157,7 +135,6 @@ export default function InsightsLiveClient() {
                       workflow={null}
                       onPin={() => {}}
                       onContextSaved={() => {}}
-                      anyOpenHasEstimate={anyOpenHasEstimate}
                     />
                   )}
                 </div>

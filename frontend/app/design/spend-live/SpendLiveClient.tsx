@@ -44,7 +44,7 @@ import {
 import { api } from "@/lib/api";
 import type { SpendVerdictState, Transaction } from "@/lib/api";
 import { DEFAULT_PAY_PERIOD_CONFIG, prevPeriodWithConfig } from "@/lib/payPeriod";
-import { OPEN_TIPS } from "../spend-tips/fixtures";
+import { OPEN_TIPS } from "./tips";
 import { noticeSheet } from "@/components/ConfirmSheet";
 
 // Fixture transactions for the teaching-sheet demo modes below — one per

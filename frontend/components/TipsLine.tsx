@@ -30,30 +30,21 @@ import { ChevronDown, Lightbulb } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { InsightCard } from "@/components/InsightCard";
 import type { SavingsInsight } from "@/lib/api";
-import { tipsLineText, sumEstimates } from "@/lib/spendTips";
+import { tipsLineText } from "@/lib/spendTips";
 
 // ── TipStrip — one compact row per open tip, used only when a category
-// carries more than one. `anyOpenHasEstimate` is computed once by the
-// caller (TipsLine) across every tip in the category, not just this one —
-// it drives InsightCard's own "No number yet" fallback so an uncosted tip
-// sitting next to a costed sibling explains its own absence rather than
-// rendering nothing. ─────────────────────────────────────────────────────
+// carries more than one. ─────────────────────────────────────────────────
 export function TipStrip({
   tip,
   open,
   onToggle,
-  anyOpenHasEstimate,
 }: {
   tip: SavingsInsight;
   open: boolean;
   onToggle: () => void;
-  anyOpenHasEstimate: boolean;
 }) {
   const regionId = useId();
-  const hasEstimate = tip.savings_estimate_monthly != null;
-  const headline = hasEstimate
-    ? `Tip · ${tip.label}, ~£${sumEstimates([tip])}/mo`
-    : `Tip · ${tip.label}`;
+  const headline = `Tip · ${tip.label}`;
 
   return (
     <div>
@@ -98,7 +89,6 @@ export function TipStrip({
               workflow={null}
               onPin={() => {}}
               onContextSaved={() => {}}
-              anyOpenHasEstimate={anyOpenHasEstimate}
               inSheet
             />
           </div>
@@ -146,7 +136,6 @@ export function TipsLine({
   if (tips.length === 0) return null;
 
   const single = tips.length === 1 ? tips[0] : null;
-  const anyOpenHasEstimate = tips.some((t) => t.savings_estimate_monthly != null);
 
   function notifyOpen(id: string) {
     if (!notified.current.has(id)) {
@@ -207,7 +196,6 @@ export function TipsLine({
                 workflow={null}
                 onPin={() => {}}
                 onContextSaved={() => {}}
-                anyOpenHasEstimate={anyOpenHasEstimate}
                 inSheet
               />
             </div>
@@ -219,7 +207,6 @@ export function TipsLine({
                   tip={tip}
                   open={openTipId === tip.id}
                   onToggle={() => toggleStrip(tip.id)}
-                  anyOpenHasEstimate={anyOpenHasEstimate}
                 />
               ))}
             </div>
