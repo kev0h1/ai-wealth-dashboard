@@ -530,6 +530,14 @@ async def _create_indexes():
     await _ensure_index(billing_customers_col, "user_id", unique=True)
     await _ensure_index(billing_customers_col, "stripe_customer_id", unique=True, sparse=True)
     await _ensure_index(billing_events_col, "event_id", unique=True)
+    # C21 S1: one pack grant per store transaction, enforced by the database.
+    from app.db.collections import mcp_call_packs_col, penny_topups_col
+    for _pack_col in (penny_topups_col, mcp_call_packs_col):
+        await _ensure_index(
+            _pack_col, [("provider", 1), ("store_transaction_id", 1)], unique=True,
+            partialFilterExpression={"store_transaction_id": {"$type": "string"}},
+            name="store_transaction_unique",
+        )
     await _ensure_index(apple_account_tokens_col, "user_id", unique=True)
     await _ensure_index(apple_account_tokens_col, "app_account_token", unique=True)
     # B20 admin broadcasts. One index on `created_at`, not two: a TTL

@@ -300,18 +300,21 @@ def _pack_collection(pack_kind: str):
 async def grant_store_pack(uid: str, provider: str, pack_kind: str, pack_id: str, transaction_id: str) -> dict:
     """Grant a consumable pack once per store transaction id (a replayed
     notification or a restore re-submitting the same transaction grants
-    nothing the second time)."""
+    nothing the second time). Atomic: relies on the unique partial index on
+    (provider, store_transaction_id) in both pack collections (app.main)."""
     _check_provider(provider)
     col = _pack_collection(pack_kind)
-    existing = await col.find_one({"provider": provider, "store_transaction_id": transaction_id})
-    if existing:
-        return {"handled": True, "action": "grant_pack", "duplicate": True, "uid": uid,
-                "pack_kind": pack_kind, "pack_id": pack_id}
     try:
         await grant_pack(
             uid, pack_kind, pack_id, source="purchase",
             extra={"provider": provider, "store_transaction_id": transaction_id},
         )
+    except DuplicateKeyError:
+        # Insert-first: the unique partial index on (provider,
+        # store_transaction_id) is the guard, so parallel verify calls or a
+        # race with a ONE_TIME_CHARGE notification grant exactly once.
+        return {"handled": True, "action": "grant_pack", "duplicate": True, "uid": uid,
+                "pack_kind": pack_kind, "pack_id": pack_id}
     except ValueError:
         # An unknown pack id or kind: a catalogue/config fault, not user input.
         logger.error("store billing: grant_pack refused an unknown pack")
