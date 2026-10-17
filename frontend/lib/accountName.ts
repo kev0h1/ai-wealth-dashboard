@@ -25,9 +25,22 @@ const BRANDS = new Map(BRAND_LIST.map((b) => [b.toUpperCase(), b]));
 const SMALL_WORDS = new Set(["and", "of", "the", "for", "to", "in", "on", "at", "or", "an", "with", "by", "from"]);
 const TRIM = /^[^A-Za-z0-9&]+|[^A-Za-z0-9&]+$/g;
 
-function cap(part: string): string {
-  const lower = part.toLowerCase();
+const JOINERS = new Set(["op", "and", "in", "on", "operative"]);
+
+function capWord(word: string): string {
+  const lower = word.toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+// Capitalise after an apostrophe only for a leading single letter O, D or L
+// (O'Brien, D'Arcy, L'Oreal); "Kevin's" keeps its lower-case s.
+function cap(part: string): string {
+  const i = part.indexOf("'");
+  if (i < 0) return capWord(part);
+  const head = part.slice(0, i);
+  const tail = part.slice(i + 1);
+  if (/^[odlODL]$/.test(head) && tail) return head.toUpperCase() + "'" + capWord(tail);
+  return capWord(head) + "'" + tail.toLowerCase();
 }
 
 export function displayAccountName(raw: string | null | undefined): string {
@@ -53,9 +66,11 @@ export function displayAccountName(raw: string | null | undefined): string {
       if (inInitialRun[wi]) return t.toUpperCase();
       if (/^[A-Za-z]+(?:&[A-Za-z]+)+$/.test(core)) return t.toUpperCase();
       if (wi > 0 && SMALL_WORDS.has(core.toLowerCase())) return t.toLowerCase();
-      return t.split("-").map((part) => {
+      return t.split("-").map((part, pi) => {
         const lead = part.match(/^[^A-Za-z]*/)![0];
-        return lead + cap(part.slice(lead.length));
+        const rest = part.slice(lead.length);
+        if (pi > 0 && JOINERS.has(rest.toLowerCase())) return lead + rest.toLowerCase();
+        return lead + cap(rest);
       }).join("-");
     })
     .join("");

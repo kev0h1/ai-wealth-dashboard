@@ -36,9 +36,24 @@ def _is_initial(word: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z]", _core(word)))
 
 
-def _cap(part: str) -> str:
-    low = part.lower()
+_JOINERS = {"op", "and", "in", "on", "operative"}
+
+
+def _cap_word(word: str) -> str:
+    low = word.lower()
     return low[:1].upper() + low[1:]
+
+
+def _cap(part: str) -> str:
+    """Capitalise after an apostrophe only for a leading single letter O, D or L
+    (O'Brien, D'Arcy, L'Oreal); "Kevin's" keeps its lower-case s."""
+    i = part.find("'")
+    if i < 0:
+        return _cap_word(part)
+    head, tail = part[:i], part[i + 1:]
+    if re.fullmatch(r"[odlODL]", head) and tail:
+        return head.upper() + "'" + _cap_word(tail)
+    return _cap_word(head) + "'" + tail.lower()
 
 
 def display_account_name(raw: str | None) -> str:
@@ -75,8 +90,12 @@ def display_account_name(raw: str | None) -> str:
             out.append(t.lower())
         else:
             parts = []
-            for part in t.split("-"):
+            for pi, part in enumerate(t.split("-")):
                 lead = re.match(r"^[^A-Za-z]*", part).group(0)
-                parts.append(lead + _cap(part[len(lead):]))
+                rest = part[len(lead):]
+                if pi > 0 and rest.lower() in _JOINERS:
+                    parts.append(lead + rest.lower())
+                else:
+                    parts.append(lead + _cap(rest))
             out.append("-".join(parts))
     return "".join(out)
