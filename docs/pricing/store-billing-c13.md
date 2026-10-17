@@ -922,11 +922,30 @@ small native change (a `SubscriptionUpdateParams` call with the replacement mode
 above, behind a new plugin method) or an upstream plugin change: recorded as
 follow-up on C24, not a blocker for the internal track.
 
+### 9.5a Purchase failure copy (both stores)
+
+After the store's own purchase call resolves the user HAS been charged, so a
+failing server verification must never say "You have not been charged." Both
+stores now keep two copies: before the purchase completes, "The purchase did
+not go through. You have not been charged."; after, "Your purchase is recorded
+with Apple|Google Play and will show here shortly" (Google's adds "Tap Restore
+if it does not."). On Android only the plugin's `USER_CANCELED` code counts as
+a user cancellation; an error whose text merely contains "cancel" does not.
+`ITEM_ALREADY_OWNED` reads as already paid. A second live Play subscription
+bought without naming the first (the plugin cannot send the replacement mode)
+is granted, flagged `double_subscription` and reported to the client as
+`double_play_subscription`, and Your plan then shows the Google Play manage
+line. The client's `product_id` must equal the purchased product or the call is
+refused.
+
 ### 9.6 Kevin's Play Console and Google Cloud setup list
 
 Nothing here can be done by an agent. Do them in this order; the app stays
 switched off (`PLAY_IAP_ENABLED` unset) until the last step.
 
+0. **Wait for B52 first.** B52 reshapes the Lite tier's features and
+   descriptions (not the catalogue shape). Do not type any product title or
+   description into Play Console until B52's Lite description is final.
 1. **Play Console record (A9)**: organisation account, app
    `co.uk.auriqltd.sorted`, Finance category, financial features declaration,
    payments profile and merchant account. The Board flavour has a different
@@ -984,8 +1003,11 @@ grace period during `IN_GRACE_PERIOD`; that the free-trial offer is
 recognisable by offer id (there is no "is trial" field); that Play lists only
 eligible offers to `getProducts`; the `purchases.products.get` fields
 (`purchaseState`, `consumptionState`, `orderId`, `purchaseType`,
-`obfuscatedExternalAccountId`); and that the plugin's Android `getPurchases`
-returns the obfuscated account id in `appAccountToken`.
+`obfuscatedExternalAccountId`). Checked in the plugin's source (8.9.6) rather
+than assumed: `purchaseProduct` maps `appAccountToken` to
+`BillingFlowParams.setObfuscatedAccountId` on Android, and the purchases it
+returns carry `getObfuscatedAccountId()` back as `appAccountToken`, so the
+restore filter and the server's mapping use the same value.
 
 ## 10. Apple details not independently confirmed in this session
 
