@@ -24,7 +24,7 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `get_goals` | read | `app.routers.commitments.list_commitments` |
 | `check_affordability(amount, timeframe?)` | read | `app.services.affordability` |
 | `get_category_spend(category?, months?)` | read | `compute_spend_verdict` + raw txn rows |
-| `get_insights` | read | `savings_insights_col` ranked as `GET /savings-insights` + `GET /value-delivered` |
+| `get_insights` | read | `savings_insights_col` ordered as `GET /savings-insights` (G283: facts only, no saving figures) |
 | `explain(topic)` | read | flat copy registry in `penny_tools.py` + `app.content.money_basics.MONEY_BASICS` (63 keys) |
 | `get_tax_position` | read | `app.routers.chat.build_tax_fact_pack` |
 | `get_today_brief` | read | `app.services.companion.compute_today_items` (`GET /today`) |
