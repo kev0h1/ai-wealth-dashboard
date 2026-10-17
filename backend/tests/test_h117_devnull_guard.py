@@ -6,6 +6,7 @@ test here touches the real /dev/null: sentinels live under tmp_path.
 """
 import ast
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -88,7 +89,7 @@ def test_real_devnull_is_refused_without_touching_it():
 # Files whose rename/replace targets are directories under a managed path
 # (frontend_build._managed) or that route through the guard.
 _RENAME_NAMES = {"replace", "rename", "move", "renames"}
-_GUARDED_MARKERS = ("refuse_special_target", "atomic_write_text", "S_ISREG")
+
 _DIR_ONLY_ALLOW = {"scripts/frontend_build.py"}  # renames build directories, gated by _managed()
 _SKIP_DIRS = {"node_modules", ".venv", ".git", "tests", ".next", ".frontend-staging"}
 
@@ -114,19 +115,110 @@ def _is_rename_call(node: ast.Call) -> bool:
     return False
 
 
+_GUARD_CALLS = {"refuse_special_target", "atomic_write_text", "S_ISREG"}
+
+
+def _guard_lines(scope: ast.AST) -> list[int]:
+    """Lines inside `scope` that call the guard (or test S_ISREG inline)."""
+    out = []
+    for n in ast.walk(scope):
+        name = None
+        if isinstance(n, ast.Call):
+            f = n.func
+            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+        elif isinstance(n, ast.Attribute):
+            name = n.attr
+        if name in _GUARD_CALLS:
+            out.append(n.lineno)
+    return out
+
+
+def unguarded_renames(src: str) -> list[int]:
+    """Rename/replace calls with no guard earlier in the SAME function body
+    (module level counts as one scope). A marker elsewhere in the file does
+    not exempt a call."""
+    tree = ast.parse(src)
+    bad = []
+
+    def visit(scope, own_nodes):
+        guards = _guard_lines(scope)
+        for n in own_nodes:
+            if isinstance(n, ast.Call) and _is_rename_call(n) and not any(g < n.lineno for g in guards):
+                bad.append(n.lineno)
+
+    def own(scope):
+        # nodes belonging to this scope, not to nested functions
+        stack, found = list(ast.iter_child_nodes(scope)), []
+        while stack:
+            n = stack.pop()
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            found.append(n)
+            stack.extend(ast.iter_child_nodes(n))
+        return found
+
+    visit(tree, own(tree))
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            visit(fn, own(fn))
+    return sorted(set(bad))
+
+
 def test_every_rename_in_the_repo_is_guarded_or_allowlisted():
     offenders = []
     for p in _py_files():
-        src = p.read_text(encoding="utf-8")
+        rel = str(p.relative_to(REPO))
+        if rel in _DIR_ONLY_ALLOW:
+            continue
         try:
-            tree = ast.parse(src)
+            lines = unguarded_renames(p.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
-        rel = str(p.relative_to(REPO))
-        calls = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and _is_rename_call(n)]
-        if calls and rel not in _DIR_ONLY_ALLOW and not any(m in src for m in _GUARDED_MARKERS):
-            offenders.append(f"{rel}:{calls}")
-    assert not offenders, "rename/replace without the H117 device-node guard: " + ", ".join(offenders)
+        if lines:
+            offenders.append(f"{rel}:{lines}")
+    assert not offenders, "rename/replace without a guard earlier in the same function: " + ", ".join(offenders)
+
+
+def test_per_call_scan_catches_an_unguarded_replace_next_to_a_guarded_one():
+    src = (
+        "from app.core.safe_write import atomic_write_text\n"
+        "import os\n"
+        "def good(p):\n    atomic_write_text(p, 'x')\n"
+        "def bad(tmp, p):\n    os.replace(tmp, p)\n"
+    )
+    assert unguarded_renames(src) == [6]
+    assert unguarded_renames("import os\ndef ok(t, p):\n    from app.core.safe_write import refuse_special_target\n    refuse_special_target(p)\n    os.replace(t, p)\n") == []
+
+
+_JS_RENAME = re.compile(r"\b(?:renameSync|rename)\(\s*([^,()]+(?:\([^)]*\))?)\s*,\s*([^)]+)\)")
+
+
+def js_unguarded_renames(src: str) -> list[int]:
+    lines = src.splitlines()
+    bad = []
+    for i, line in enumerate(lines):
+        m = _JS_RENAME.search(line)
+        if not m or "fs" not in line and "rename" not in line:
+            continue
+        if "renameSync" not in line and "fs.rename" not in line and "promises.rename" not in line and ".rename(" not in line:
+            continue
+        dest = m.group(2).strip()
+        if dest[:1] in "'\"`" and "${" not in dest:
+            continue  # literal destination
+        window = "\n".join(lines[max(0, i - 6):i])
+        if not re.search(r"isFile\(\)|isCharacterDevice|S_IFREG|lstat|stat\(", window):
+            bad.append(i + 1)
+    return bad
+
+
+def test_mjs_renames_with_non_literal_destination_are_guarded():
+    bad = []
+    for p in (REPO / "frontend" / "scripts").glob("*.mjs"):
+        for ln in js_unguarded_renames(p.read_text(encoding="utf-8")):
+            bad.append(f"{p.relative_to(REPO)}:{ln}")
+    assert not bad, "fs rename with a variable destination and no stat guard: " + ", ".join(bad)
+    assert js_unguarded_renames("fs.renameSync(tmp, target);\n") == [1]
+    assert js_unguarded_renames("const s = fs.statSync(t); if (!s.isFile()) throw 1;\nfs.renameSync(tmp, t);\n") == []
 
 
 def test_no_path_variable_defaults_to_devnull_for_writing():
@@ -149,9 +241,20 @@ def test_no_path_variable_defaults_to_devnull_for_writing():
     assert not bad, "a write-target variable is set to /dev/null: " + ", ".join(bad)
 
 
+# Destinations are fixed repo paths (google-services.json, its .bak, the board
+# capacitor.config.json), never configurable, so they cannot resolve to a device.
+_SHELL_MV_ALLOW = {
+    "capacitor-spike/scripts/apply-board-flavor.sh",
+    "capacitor-spike/scripts/build-board-web-assets.sh",
+    "capacitor-spike/scripts/setup-android-push.sh",
+}
+
+
 def test_shell_mv_onto_variable_is_guarded():
     bad = []
-    for p in list((REPO / "scripts").glob("*.sh")) + list((REPO / "frontend" / "scripts").glob("*.sh")):
+    for p in list((REPO / "scripts").glob("*.sh")) + list((REPO / "frontend" / "scripts").glob("*.sh")) + list((REPO / "capacitor-spike").rglob("*.sh") if (REPO / "capacitor-spike").exists() else []):
+        if str(p.relative_to(REPO)) in _SHELL_MV_ALLOW:
+            continue
         lines = p.read_text(encoding="utf-8").splitlines()
         for i, line in enumerate(lines):
             s = line.strip()

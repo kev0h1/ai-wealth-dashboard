@@ -83,11 +83,22 @@ turns the device node into a regular file. Ruled out, with evidence:
 - The G278 diff (reparse script, `pdf.py`, tests) writes nothing outside
   temp paths; `npm ci` ran in that pass (package.json changed) and
   `frontend_build.py` only renames build directories under `_managed()`.
-- Remaining candidates sit outside the repo: an ad hoc agent shell command
-  from a concurrent Claude or Codex session that evening (a codex daemon
-  started 23:36), or a tool run by hand. If it recurs, run
-  `strace -f -P /dev/null -e trace=%file -p <pid>` or an `auditctl -w /dev
-  -p wa` watch to catch the writer.
+- The strace evidence covers the backend suite only. It does not cover
+  `npm ci`, `frontend_build.py` or `session.sh`, which were not traced.
+- The 23:24 time came with the report, not from a trace. If it was a file
+  mtime or ctime on the replacement file, any later `> /dev/null` redirect
+  would have overwritten it, so it is a lower bound at best. Nothing on the
+  host was kept from before Kevin's restore.
+
+Candidates outside the repo (unverified): a root shell `mv X /dev/null` or
+`sed -i` on /dev/null run by an agent; a tar or rsync extraction with
+overwrite from a tree that contains `dev/null`; a Docker bind mount of
+/dev/null; an npm logs-dir or similar tool writing to it.
+
+**Recommended watch (Kevin's root-level call).** `auditctl -w /dev -p wa`.
+Watch the directory, not the file, because the replacement swaps the inode
+and a watch on the old inode would go blind. The audit log then names the
+process that did it.
 
 **Fix (defence in depth).**
 - `backend/app/core/safe_write.py`: `refuse_special_target` and
