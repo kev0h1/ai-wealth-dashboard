@@ -5683,7 +5683,7 @@ async def compute_today_items(
                     "type": "trajectory",
                     "headline": _traj["headline"],
                     "body": _traj["body"],
-                    "action": {"label": "See the route", "route": "/debt-plan"},
+                    "action": {"label": "See the route", "route": "/cards"},
                     "estimated": False,
                     "tone": _traj["tone"],
                     "trend": _traj["trend"],

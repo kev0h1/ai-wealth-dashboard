@@ -28,6 +28,7 @@ import MoneyText from "@/components/MoneyText";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
+import { actionHref } from "@/lib/actionRoutes";
 
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
 const PlanEasingSheet = dynamic(() => import("@/components/PlanEasingSheet").then((m) => m.PlanEasingSheet));
@@ -645,7 +646,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
   if (hidden) return null;
 
   function handleGo() {
-    if (item.action) router.push(item.action.route);
+    if (item.action) router.push(actionHref(item.action.route));
   }
 
   async function handleNotNow() {
@@ -862,7 +863,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       )}
       {item.action && (
         <footer className={ACTION_DOCK}>
-          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+          <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>
             <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
@@ -1419,7 +1420,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         )}
         {item.action && (
           <footer className={ACTION_DOCK}>
-            <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
+            <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
           </footer>
         )}
         {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
@@ -1550,7 +1551,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       )}
       {item.action && (
         <footer className={ACTION_DOCK}>
-          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+          <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>
             <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
@@ -2401,7 +2402,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             </p>
             {needleItem.action && (
               <button
-                onClick={() => router.push(needleItem.action!.route)}
+                onClick={() => router.push(actionHref(needleItem.action!.route))}
                 className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
                 <ActionLabel>{needleItem.action.label}</ActionLabel>

@@ -9,6 +9,7 @@ import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/Account
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 import ActionLabel from "@/components/ActionLabel";
+import { actionHref } from "@/lib/actionRoutes";
 
 // Same resolver MoveCard uses in HomeBrief.tsx — kept local (not exported from
 // there) so this component doesn't reach into HomeBrief's module internals.
@@ -402,7 +403,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
         <div className="border-t border-slate-900/[0.06] bg-slate-50/70 p-3 dark:border-white/[0.08] dark:bg-slate-900/25">
           <button
             type="button"
-            onClick={() => router.push(item.action!.route)}
+            onClick={() => router.push(actionHref(item.action!.route))}
             className="inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-1 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white [-webkit-tap-highlight-color:transparent] transition-[transform,background-color] hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800"
           >
             <ActionLabel>{item.preview ? "See the full plan" : item.action.label}</ActionLabel>
