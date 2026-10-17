@@ -233,6 +233,31 @@ def _parse_flag(value: str | None) -> bool:
 
 MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 
+# B51 (Kevin 2026-10-17): the Connect plan (the MCP connector tier, 12.99
+# GBP a month) must not be offered or purchasable in production. Default OFF
+# so any environment that does not opt in (Railway production above all)
+# hides and refuses it; UAT sets CONNECT_TIER_ENABLED=true in backend/.env to
+# keep testing it. Honoured by GET /subscription's plan list, POST
+# /billing/checkout, the Stripe webhook's tier resolver for NEW Connect
+# subscriptions, and BILLING_ENABLED below (Connect price ids are only
+# required once the tier is on). It never touches an existing subscriber's
+# entitlements, and it is independent of MCP_CONNECTOR_ENABLED (A17).
+CONNECT_TIER_ENABLED = _parse_flag(os.getenv("CONNECT_TIER_ENABLED"))
+
+# What happens to people who already hold Connect when the tier is off.
+# "keep_until_renewal" (default): nothing changes, they keep Connect
+# entitlements while their subscription is active. "move_to_max": the
+# intended end state is Max at the same price; today that path exists only as
+# the dry-run backend/scripts/count_connect_subscribers.py --dry-run-move, and
+# nothing in the API or webhook moves anyone until Kevin decides. In either
+# policy an active Connect subscriber keeps their entitlements.
+CONNECT_SUBSCRIBER_POLICY = (os.getenv("CONNECT_SUBSCRIBER_POLICY", "keep_until_renewal") or "keep_until_renewal").strip().lower()
+if CONNECT_SUBSCRIBER_POLICY not in ("keep_until_renewal", "move_to_max"):
+    logging.getLogger("app.startup").warning(
+        "CONNECT_SUBSCRIBER_POLICY=%r is not recognised, using keep_until_renewal", CONNECT_SUBSCRIBER_POLICY,
+    )
+    CONNECT_SUBSCRIBER_POLICY = "keep_until_renewal"
+
 # B48: optional LLM phrasing of a composed savings tip. Off by default: the
 # tip is composed deterministically from the shared research plus the user's
 # own figures. When on, one OpenRouter call per tip rewords that text (no
@@ -569,9 +594,12 @@ STRIPE_PRICE_IDS: dict[str, str] = _parse_stripe_price_ids(os.getenv("STRIPE_PRI
 # leaf-of-the-import-graph reason as the comment below.
 _STRIPE_PAID_TIERS = ("lite", "standard", "connect", "max")
 _STRIPE_LONGER_PERIODS = ("six_months", "annual")
+# B51: Connect's price ids are required only while CONNECT_TIER_ENABLED is on,
+# so production can run billing with no live Connect price at all.
+_STRIPE_REQUIRED_TIERS = tuple(t for t in _STRIPE_PAID_TIERS if t != "connect" or CONNECT_TIER_ENABLED)
 _STRIPE_REQUIRED_PRICE_KEYS = (
-    *_STRIPE_PAID_TIERS,
-    *(f"{tier}_{period}" for tier in _STRIPE_PAID_TIERS for period in _STRIPE_LONGER_PERIODS),
+    *_STRIPE_REQUIRED_TIERS,
+    *(f"{tier}_{period}" for tier in _STRIPE_REQUIRED_TIERS for period in _STRIPE_LONGER_PERIODS),
     "penny_small", "penny_medium", "penny_large", "mcp_1000",
 )
 

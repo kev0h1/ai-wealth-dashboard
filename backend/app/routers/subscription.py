@@ -10,7 +10,7 @@ from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
     TIER_BILLING_PRICES_GBP, TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
-    billing_period_detail, get_subscription, grant_pack, mcp_allowance,
+    available_tier_names, billing_period_detail, get_subscription, grant_pack, mcp_allowance,
     penny_allowance,
 )
 from app.db.collections import subscriptions_col
@@ -92,12 +92,16 @@ async def get_subscription_info(user: dict = Depends(current_user)):
     # period buttons off billing_periods[selected tier] rather than a local
     # constant; billing_prices_gbp is kept alongside it for any caller that
     # only wants the raw totals.
+    # B51: the plan list the client renders. Connect is omitted unless
+    # CONNECT_TIER_ENABLED is on (or the user already holds it), and every
+    # price map below is filtered to the same list so no Connect price leaks.
+    plan_tiers = available_tier_names(sub.tier_name)
     billing_periods = {
         tier_name: [
             {"id": period, **billing_period_detail(tier_name, period)}
             for period in SUBSCRIPTION_PERIODS_ENABLED
         ]
-        for tier_name in TIER_BY_NAME
+        for tier_name in plan_tiers
     }
 
     # B45: lets the plan picker lead with the trial only when Checkout would
@@ -113,8 +117,9 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "trial_eligible": trial_eligible,
         "tier":         sub.tier_name,
         "status":       sub.status,
-        "prices_gbp":   TIER_PRICES_GBP,
-        "billing_prices_gbp": TIER_BILLING_PRICES_GBP,
+        "available_tiers": plan_tiers,
+        "prices_gbp":   {k: v for k, v in TIER_PRICES_GBP.items() if k in plan_tiers},
+        "billing_prices_gbp": {k: v for k, v in TIER_BILLING_PRICES_GBP.items() if k in plan_tiers},
         "billing_periods": billing_periods,
         "trial_periods": list(SUBSCRIPTION_TRIAL_PERIODS),
         "trial_days": SUBSCRIPTION_TRIAL_DAYS,

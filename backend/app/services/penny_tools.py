@@ -4738,6 +4738,11 @@ _MCP_CONNECTOR_REPLY = (
     "Connected assistants and paste the address shown there into your "
     "assistant. It's included on the Connect and Max plans."
 )
+# B51: the same reply without Connect, used whenever CONNECT_TIER_ENABLED is
+# off (production), so Penny never names a plan the user cannot buy.
+_MCP_CONNECTOR_REPLY_MAX_ONLY = _MCP_CONNECTOR_REPLY.replace(
+    "It's included on the Connect and Max plans.", "It's included on the Max plan.",
+)
 
 # ── explain(topic) — terms registry ──────────────────────────────────────
 # Every entry below is derived from the actual backend/frontend code, not
@@ -5113,7 +5118,8 @@ async def _exec_explain(topic: str | None) -> dict:
     # topic, is absent from `available_topics`, and no connector copy is
     # reachable by any path — not even a "not available yet" string.
     if key == "mcp_connector" and MCP_CONNECTOR_ENABLED:
-        return {"topic": key, "text": _MCP_CONNECTOR_REPLY}
+        from app.core.subscription import connect_tier_enabled
+        return {"topic": key, "text": _MCP_CONNECTOR_REPLY if connect_tier_enabled() else _MCP_CONNECTOR_REPLY_MAX_ONLY}
     text = _ALL_EXPLAIN_COPY.get(key)
     if not text:
         available = set(_ALL_EXPLAIN_COPY.keys())

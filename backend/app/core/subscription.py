@@ -35,6 +35,33 @@ TIER_NAMES = {
 }
 TIER_BY_NAME = {v: k for k, v in TIER_NAMES.items()}
 
+# B51: tiers that exist in the schema (so a subscriber who holds one keeps its
+# entitlements) but are only offered/purchasable while their flag is on.
+CONNECT_UNAVAILABLE_REASON = "The Connect plan is not available."
+
+
+def connect_tier_enabled() -> bool:
+    """CONNECT_TIER_ENABLED, read at call time (not import time) so tests
+    and the one process-wide setting agree. Default OFF (production)."""
+    from app.core import config
+    return bool(config.CONNECT_TIER_ENABLED)
+
+
+def tier_purchasable(tier_name: str) -> bool:
+    """False only for Connect while CONNECT_TIER_ENABLED is off."""
+    return tier_name != "connect" or connect_tier_enabled()
+
+
+def available_tier_names(current_tier: Optional[str] = None) -> list[str]:
+    """The plan list GET /subscription offers, in tier order. Connect is
+    omitted while the flag is off, except for a user who currently holds it:
+    they still see their own plan as Current (their entitlements are
+    untouched), but Checkout refuses it for everyone while the flag is off."""
+    return [
+        name for name in TIER_BY_NAME
+        if tier_purchasable(name) or name == current_tier
+    ]
+
 TIER_PRICES_GBP = {
     "statements": 0.0,
     "lite":       5.99,

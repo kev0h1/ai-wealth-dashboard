@@ -75,7 +75,8 @@ from app.core.config import (
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP_PACKS, SUBSCRIPTION_BILLING_PERIODS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS,
-    SUBSCRIPTION_TRIAL_PERIODS, TIER_BY_NAME, grant_pack,
+    SUBSCRIPTION_TRIAL_PERIODS, TIER_BY_NAME, CONNECT_UNAVAILABLE_REASON,
+    grant_pack, tier_purchasable,
 )
 
 logger = logging.getLogger(__name__)
@@ -338,6 +339,10 @@ async def create_checkout_session(
     BILLING_ENABLED is false, or BillingError if the target/period has no
     configured price id, the period isn't currently offered, or a trial is
     requested on a period that doesn't carry one."""
+    # B51: refuse Connect first, whatever else is configured, so it is
+    # unreachable when CONNECT_TIER_ENABLED is off even with a price id set.
+    if kind == "subscription" and not tier_purchasable((target or "").strip().lower()):
+        raise BillingError(CONNECT_UNAVAILABLE_REASON)
     if not BILLING_ENABLED:
         raise BillingNotLive()
     if kind not in ("subscription", "pack"):
@@ -551,6 +556,21 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
     if not subscription_identity:
         return {"handled": False, "reason": f"no tier mapped for price {price_id!r}"}
     tier, billing_period = subscription_identity
+
+    # B51: a Connect event while the tier is off. Existing Connect
+    # subscribers (a stored Connect subscription) keep being processed, so a
+    # renewal or cancellation never strands them; a Connect subscription that
+    # is NEW to this user is recorded (the event row) and logged but never
+    # granted, and never raises. Checkout cannot start one while the flag is
+    # off, so this is only a stale checkout or a dashboard-made subscription.
+    if tier == "connect" and not tier_purchasable("connect"):
+        prior = await subscriptions_col.find_one({"user_id": uid}, {"tier": 1})
+        if (prior or {}).get("tier") != "connect":
+            logger.warning(
+                "B51: Connect subscription event ignored, CONNECT_TIER_ENABLED is off and the user has no "
+                "Connect subscription (subscription %s)", sub_obj.get("id"),
+            )
+            return {"handled": False, "reason": "connect tier is not available; no entitlement granted"}
 
     # Every status Stripe documents for a Subscription object, mapped
     # explicitly (B36, 2026-09-13). "incomplete" is the state of a

@@ -28,7 +28,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.auth import current_user
 from app.core.config import APP_URL, BILLING_ENABLED
-from app.core.subscription import SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_PERIODS
+from app.core.subscription import (
+    CONNECT_UNAVAILABLE_REASON, SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_PERIODS,
+    tier_purchasable,
+)
 from app.services import billing as billing_service
 
 logger = logging.getLogger(__name__)
@@ -144,6 +147,11 @@ async def create_checkout(
         raise HTTPException(400, "trial must be true or false")
     if flow not in ("settings", "onboarding"):
         raise HTTPException(400, "flow must be 'settings' or 'onboarding'")
+    # B51: Connect is not purchasable unless CONNECT_TIER_ENABLED is on. A
+    # static reason, never the price lookup, so it is a 4xx regardless of
+    # which Stripe price ids happen to be configured.
+    if kind == "subscription" and not tier_purchasable(target.lower()):
+        raise HTTPException(400, CONNECT_UNAVAILABLE_REASON)
     # B22: reject early, before touching Stripe, on a period that isn't
     # currently offered or a trial requested on a period that doesn't
     # carry one (app.core.subscription.SUBSCRIPTION_PERIODS_ENABLED /

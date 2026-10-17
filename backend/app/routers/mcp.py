@@ -393,7 +393,7 @@ async def check_mcp_allowance(uid: str) -> dict:
     running out, and packs don't apply), tier + pack calls for Connect/Max
     (2000/5000 base), `None` if the tier were ever configured unlimited
     (no tier is today)."""
-    from app.core.subscription import mcp_allowance
+    from app.core.subscription import connect_tier_enabled, mcp_allowance
 
     allowance = await mcp_allowance(uid)
     limit = allowance["limit"]
@@ -405,7 +405,7 @@ async def check_mcp_allowance(uid: str) -> dict:
     if limit == 0:
         raise McpError(
             -32002,
-            "The connector is included in Connect and Max",
+            "The connector is included in Connect and Max" if connect_tier_enabled() else "The connector is included in Max",
             {"tier": allowance["tier"], "limit": 0, "resets_on": resets_on},
         )
 
