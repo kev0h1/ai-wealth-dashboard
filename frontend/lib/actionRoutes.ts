@@ -17,14 +17,18 @@ const RETIRED_ROUTES: Record<string, string> = {
   "/budget": "/spend",
   "/insights/tax": "/tax",
   "/insights/receipts": "/receipts",
+  "/grow": "/planning",
 };
 
 /** Same-origin, retired-route-aware destination for a server action route.
  *  Anything that is not a plain absolute in-app path falls back. */
 export function actionHref(route: string | null | undefined, fallback = "/upcoming"): string {
-  if (typeof route !== "string" || !route.startsWith("/") || route.startsWith("//")) return fallback;
+  // A backslash is read as "/" by browsers, so "/\\evil" could become "//evil".
+  if (typeof route !== "string" || !route.startsWith("/") || route.startsWith("//") || route.includes("\\")) return fallback;
   const match = /^([^?#]*)(.*)$/.exec(route);
   const path = (match?.[1] ?? route).replace(/(.)\/+$/, "$1");
   const rest = match?.[2] ?? "";
+  // The web redirect for /insights: ?tab=tax goes to /tax, everything else to the money shape.
+  if (path === "/insights") return new URLSearchParams(rest.replace(/^\?/, "").split("#")[0]).get("tab") === "tax" ? "/tax" : "/spend/shape";
   return (RETIRED_ROUTES[path] ?? path) + rest;
 }

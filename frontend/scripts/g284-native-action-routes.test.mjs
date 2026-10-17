@@ -38,15 +38,17 @@ const API_ONLY = new Map([
 const pyFiles = walk(join(repo, "backend/app"), [".py"], ["__pycache__"]);
 const routes = new Map();
 const RE = /\b(?:route|url|_route)["']?\s*[:=]\s*f?"(\/[a-z][^"{?#]*)/gi;
+// Positional push URLs: send_push_to_user(uid, title, body, "/spend") (base path only).
+const PUSH_RE = /send_push_to_user\([^\n]*?,\s*f?"(\/[a-z][^"{?#]*)[^"]*"\s*\)/g;
 for (const f of pyFiles) {
   const src = readFileSync(f, "utf8");
-  for (const m of src.matchAll(RE)) {
+  for (const m of [...src.matchAll(RE), ...src.matchAll(PUSH_RE)]) {
     if (/^\/(api|auth|bank_accounts)\b/.test(m[1])) continue;
     if (!routes.has(m[1])) routes.set(m[1], []);
     routes.get(m[1]).push(relative(repo, f));
   }
 }
-for (const required of ["/tax", "/upcoming", "/cards", "/month/story", "/accounts", "/spend", "/planning", "/settings"]) {
+for (const required of ["/spend", "/upcoming", "/tax", "/upcoming", "/cards", "/month/story", "/accounts", "/spend", "/planning", "/settings"]) {
   assert.ok(routes.has(required), `route scan lost ${required}: the backend scan regex is stale`);
 }
 
@@ -72,20 +74,28 @@ assert.equal(actionHref("/tax"), "/tax");
 assert.equal(actionHref("https://evil.example/x"), "/upcoming");
 assert.equal(actionHref("//evil.example"), "/upcoming");
 assert.equal(actionHref(undefined, "/spend"), "/spend");
+assert.equal(actionHref("/\\evil.example"), "/upcoming");
+assert.equal(actionHref("/tax\\x"), "/upcoming");
+assert.equal(actionHref("/grow"), "/planning");
+assert.equal(actionHref("/grow?x=1"), "/planning?x=1");
+assert.equal(actionHref("/insights"), "/spend/shape");
+assert.equal(actionHref("/insights?tab=tax"), "/tax");
+assert.equal(actionHref("/insights?tab=other"), "/spend/shape");
 
 // 3. Components rendering server actions use the helper, never a raw in-app anchor or window.location.
 const tsx = walk(root, [".tsx"], ["design", "ops", "scripts"]);
 // Deliberate full navigations: global-error.tsx replaces the whole root layout, so a
 // client router does not exist there, and "/" is index.html in the shell anyway; the
 // OAuth consent hop is a web-only flow whose route the native build excludes.
-const FULL_NAV_OK = ["app/global-error.tsx", "components/AuthProvider.tsx:361"];
+// Keyed by a `g284-allow:` marker comment on the line itself or the line above.
+const ALLOW = /g284-allow:/;
 const offenders = [];
 for (const file of tsx) {
   const rel = relative(root, file);
   const src = readFileSync(file, "utf8");
   src.split("\n").forEach((line, i) => {
     const at = `${rel}:${i + 1}`;
-    if (FULL_NAV_OK.some((ok) => at === ok || rel === ok)) return;
+    if (ALLOW.test(line) || ALLOW.test(src.split("\n")[i - 1] ?? "")) return;
     if (/\b(?:action|link|needleItem\.action|secondary_action)!?\??\.route\b/.test(line) && !/actionHref\(|\?\.route\?\.replace|\.route\s*[!=]==?|\?\s*item\.action\?\.route/.test(line) && !/^\s*(\/\/|\*)/.test(line)) {
       // allow reads that are not navigations (comparisons, keys, props)
       if (/(router\.(push|replace)|href=|location)/.test(line)) offenders.push(`${at}: server route not passed through actionHref: ${line.trim().slice(0, 100)}`);
