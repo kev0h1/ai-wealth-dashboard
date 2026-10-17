@@ -37,7 +37,11 @@ for (const step of STATEMENT_FLOW_STEPS) {
 }
 assert.ok(text.includes(STATEMENT_PRIVACY_LINE), "same privacy truth as the design");
 assert.ok(text.includes(STAY_CURRENT_COPY), "same statement replacement rules as the account card");
-assert.match(html, /<details class="details"><summary>When you add a new statement<\/summary>/);
+const statementSummary = html.match(/<details class="details">(<summary\b[^>]*>[\s\S]*?<\/summary>)/)?.[1];
+assert.ok(statementSummary, "statement replacement rules remain in a native disclosure");
+assert.equal(plain(statementSummary).trim(), "When you add a new statement", "the disclosure wording is unchanged");
+assert.match(statementSummary, /class="[^"]*\bdisclosure-summary\b/, "the shared summary owns marker suppression");
+assert.equal((statementSummary.match(/lucide-chevron-down/g) ?? []).length, 1, "exactly one shared disclosure icon");
 assert.match(text, /Add contract notes when you trade\. Prices may be delayed\./);
 assert.doesNotMatch(text, /\u2014/);
 
