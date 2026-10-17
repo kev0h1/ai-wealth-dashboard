@@ -7,7 +7,8 @@
 
 import { useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { Check, ChevronDown, Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import { stripKevinMarkers, type GoLiveQuestion, type GoLiveStatus } from "@/lib/goLive";
 
 const STATUS_LABEL: Record<GoLiveStatus, string> = {
@@ -143,10 +144,9 @@ function QuestionCard({
         open={open}
         onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
       >
-        <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+        <DisclosureSummary className="min-h-9 cursor-pointer items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
           {open ? "Hide answer" : "Show answer"}
-          <ChevronDown size={15} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-        </summary>
+        </DisclosureSummary>
         <pre className="mt-2 whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-pretty text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
           {question.answer}
         </pre>

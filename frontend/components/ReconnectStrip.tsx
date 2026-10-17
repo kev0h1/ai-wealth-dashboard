@@ -17,7 +17,7 @@
 // own file, consistent with the app's other Home card components
 // (SafeToSpendCard, UpcomingBillsStrip, HomeInsightSpotlight).
 
-import { ChevronDown } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import { BankBadge, bankKey, bankLogoSrc, BANK_META, type BankMeta } from "@/components/AccountMiniCard";
 
 export type ReconnectProvider = {
@@ -82,7 +82,7 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
 
   return (
     <details className="group glass-card rounded-2xl overflow-hidden">
-      <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer flex items-center gap-3 px-4 min-h-[56px] active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-2xl">
+      <DisclosureSummary className="cursor-pointer items-center gap-3 px-4 min-h-[56px] active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-2xl">
         <span aria-hidden="true" className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400" />
         <span className="flex-1 min-w-0">
           <span className="block truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100">
@@ -93,12 +93,7 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
           </span>
         </span>
         <span className="flex-shrink-0 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400">Review</span>
-        <ChevronDown
-          size={14}
-          aria-hidden="true"
-          className="flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
-        />
-      </summary>
+      </DisclosureSummary>
       <div className="px-4 pb-3 flex flex-col gap-1">
         {providers.map((p) => {
           const meta = providerMeta(p);

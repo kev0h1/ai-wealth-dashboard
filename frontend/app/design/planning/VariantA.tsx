@@ -17,7 +17,8 @@
 // than assumed.
 
 import { useState } from "react";
-import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, Trash2, Plus } from "lucide-react";
+import { AlertTriangle, AlertCircle, Clock, ChevronRight, Trash2, Plus } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture, type PlanRow } from "./fixtures";
 import { categoryVisual } from "./categoryVisuals";
 
@@ -252,7 +253,7 @@ function Row({ item, isFirstInGroup, onPlanOneOff }: { item: PlanRow; isFirstInG
                 onClick={() => setWhy((w) => !w)}
                 className="font-medium text-rose-400 dark:text-rose-500 underline-offset-2 hover:underline"
               >
-                Why? {why ? <ChevronDown size={10} className="inline" /> : "›"}
+                Why? <DisclosureChevron open={why} className="inline-block" />
               </button>
             )}
           </p>

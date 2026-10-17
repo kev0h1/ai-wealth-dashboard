@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown } from "lucide-react";
+import { DisclosureChevron, DisclosureSummary } from "@/components/Disclosure";
 import { api, type AllowlistResponse, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
 import { LegalTable, splitMarkdownIntoSegments } from "@/components/LegalDocument";
 import {
@@ -303,11 +303,7 @@ export default function GoLivePage() {
                     </span>
                   )}
                 </span>
-                <ChevronDown
-                  size={17}
-                  className={`shrink-0 text-slate-400 transition-transform ${ui.questionnaireOpen ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                />
+                <DisclosureChevron open={ui.questionnaireOpen} className="shrink-0" />
               </button>
               {ui.questionnaireOpen && (
                 <QuestionsSection
@@ -335,11 +331,7 @@ export default function GoLivePage() {
                   </span>
                 )}
               </span>
-              <ChevronDown
-                size={17}
-                className={`shrink-0 text-slate-400 transition-transform ${ui.backlogOpen ? "rotate-180" : ""}`}
-                aria-hidden="true"
-              />
+              <DisclosureChevron open={ui.backlogOpen} className="shrink-0" />
             </button>
             {ui.backlogOpen &&
               (filters.view === "list" ? (
@@ -377,18 +369,13 @@ export default function GoLivePage() {
                   </span>
                 )}
               </span>
-              <ChevronDown
-                size={17}
-                className={`shrink-0 text-slate-400 transition-transform ${ui.referenceOpen ? "rotate-180" : ""}`}
-                aria-hidden="true"
-              />
+              <DisclosureChevron open={ui.referenceOpen} className="shrink-0" />
             </button>
             {ui.referenceOpen && (
               <details className="group glass-card rounded-2xl p-4">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                <DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3">
                   <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Pricing and unit economics</span>
-                  <ChevronDown size={17} className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
-                </summary>
+                </DisclosureSummary>
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Last updated {formatUpdatedAt(data.files.pricing.updated_at)}</p>
                 <article className="mt-3">
                   {pricingSegments.map((segment, index) =>

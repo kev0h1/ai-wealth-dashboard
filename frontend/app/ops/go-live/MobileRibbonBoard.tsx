@@ -27,7 +27,7 @@
 // for the full reasoning.
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { itemFilterState, toggleValue, type GoLiveFilterState, type GoLiveFilters, type GoLiveItem } from "@/lib/goLive";
 import { OwnerInitialChip, PriorityPill, StatePill } from "./Badges";
 
@@ -100,7 +100,7 @@ export function CollapsedSection({
         <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</span>
         <span className="flex shrink-0 items-center gap-2">
           <span className="money text-xs font-semibold text-slate-500 dark:text-slate-400">{totalCount}</span>
-          <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+          <DisclosureChevron open={open} />
         </span>
       </button>
       {open && (

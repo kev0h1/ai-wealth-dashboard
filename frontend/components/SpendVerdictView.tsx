@@ -22,7 +22,8 @@
 import { unresolvedHeading, unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ShieldCheck, ArrowLeftRight, Target, RotateCcw, CircleHelp } from "lucide-react";
+import { ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ShieldCheck, ArrowLeftRight, Target, RotateCcw, CircleHelp } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { api } from "@/lib/api";
@@ -612,7 +613,7 @@ function NotableRowView({ notable, colours, daysElapsed, onOpenCategory, onInten
           </p>
         </div>
         <NotableFigureBadge amount={notable.spent} multiple={notable.multiple} localResolved={localResolved} lead={lead} />
-        {expanded ? <ChevronUp size={15} className="text-slate-400 flex-shrink-0" aria-hidden="true" /> : <ChevronDown size={15} className="text-slate-400 flex-shrink-0" aria-hidden="true" />}
+        <DisclosureChevron open={expanded} className="flex-shrink-0" />
       </button>
       <div
         id={detailId}
@@ -890,11 +891,7 @@ function MoneyYouMoved({
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
           Money you moved · <span className="font-mono tabular-nums">{fmt(total)}</span>, not counted in spending
         </p>
-        {open ? (
-          <ChevronUp size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2" />
-        ) : (
-          <ChevronDown size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2" />
-        )}
+        <DisclosureChevron open={open} className="ml-2 flex-shrink-0" />
       </button>
       {open && (
         <div className="mt-2 glass-card-flat rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/50 overflow-hidden">

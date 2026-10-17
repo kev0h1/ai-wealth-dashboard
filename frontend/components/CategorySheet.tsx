@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
+import { X, ChevronRight, Fuel, ReceiptText } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { Transaction, api, Checkpoint } from "@/lib/api";
@@ -318,11 +319,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
               ) : (
                 <><ReceiptText size={10} style={{ color: colour }} /><span>Scan &amp; compare receipts</span></>
               )}
-              <ChevronDown
-                size={11}
-                className="transition-transform motion-reduce:transition-none"
-                style={{ transform: toolOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-              />
+              <DisclosureChevron open={toolOpen} />
             </button>
             {toolOpen && (
               <div className="mt-2">

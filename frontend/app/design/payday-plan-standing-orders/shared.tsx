@@ -1,6 +1,7 @@
 "use client";
 
-import { WalletCards, ChevronUp, ChevronRight, X } from "lucide-react";
+import { WalletCards, ChevronRight, X } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
@@ -84,7 +85,7 @@ export function CardHeader({
       >
         <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150 motion-reduce:transition-none">
           {surface === "penny" ? (
-            <ChevronUp size={14} aria-hidden="true" className={`text-slate-500 dark:text-slate-300 transition-transform duration-200 ${minimised ? "rotate-180" : ""}`} />
+            <DisclosureChevron open={!minimised} />
           ) : (
             <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
           )}

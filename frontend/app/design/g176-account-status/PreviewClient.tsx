@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ChevronDown, Moon, Sun } from "lucide-react";
+import { ArrowLeft, Moon, Sun } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
 import UpcomingPlanDetails from "@/components/upcoming/UpcomingPlanDetails";
@@ -43,7 +44,7 @@ function Preview({ scenario, mode }: { scenario: Scenario; mode: "light" | "dark
           <h1 className="mt-2 text-balance text-xl font-bold">G176 · Account formatting</h1>
           <p className={`mt-2 text-sm ${muted}`}>B approved · Warning &amp; info</p>
           <details className="group mt-1">
-            <summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-xs hover:bg-slate-50 active:opacity-70 dark:hover:bg-slate-700 [&::-webkit-details-marker]:hidden ${focus}`}><span>Example: <span className="font-semibold">{SCENARIOS.find((item) => item.id === scenario)?.label}</span></span><ChevronDown size={16} className="group-open:rotate-180" aria-hidden="true" /></summary>
+            <DisclosureSummary className={`min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg text-xs hover:bg-slate-50 active:opacity-70 dark:hover:bg-slate-700 ${focus}`}><span>Example: <span className="font-semibold">{SCENARIOS.find((item) => item.id === scenario)?.label}</span></span></DisclosureSummary>
             <nav aria-label="Example scenarios" className="grid grid-cols-2 gap-2 pb-3 sm:grid-cols-3">{SCENARIOS.map((item) => <Link key={item.id} href={query({ state: item.id })} aria-current={scenario === item.id ? "page" : undefined} className={`flex min-h-11 items-center justify-center rounded-lg border px-2 py-2 text-center text-xs hover:bg-slate-50 active:opacity-70 dark:hover:bg-slate-700 ${focus} ${scenario === item.id ? "border-indigo-500 text-indigo-700 dark:text-indigo-300" : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>{item.label}</Link>)}</nav>
           </details>
         </div>

@@ -7,9 +7,9 @@ import {
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   Info,
 } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 
 export type TaxActionStatus = "action" | "info";
@@ -290,11 +290,7 @@ function AlsoWorthKnowing({
           <span className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">Also worth knowing</span>
           <span className="mt-0.5 block text-[12px] text-slate-500 dark:text-slate-400">{model.secondaryActions.length} checks and reliefs</span>
         </span>
-        <ChevronDown
-          size={17}
-          className={`shrink-0 text-slate-400 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        />
+        <DisclosureChevron open={open} className="shrink-0" />
       </button>
       {open && (
         <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">

@@ -1,7 +1,8 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { AlertCircle, AlertTriangle, Check, ChevronDown, Clock } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, Clock } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
 import { getUpcomingStatus, upcomingMoney, upcomingStatusText } from "@/lib/upcomingAttention";
 
@@ -171,9 +172,10 @@ function CurrentSupportingCopy({
                 event.stopPropagation();
                 onToggleWhy();
               }}
+              aria-expanded={Boolean(model.why?.open)}
               className="pointer-events-auto shrink-0 font-medium text-slate-400 underline-offset-2 hover:underline focus:outline-none focus-visible:underline dark:text-slate-500"
             >
-              Why? {model.why?.open ? <ChevronDown size={10} className="inline" aria-hidden="true" /> : "›"}
+              Why? <DisclosureChevron open={Boolean(model.why?.open)} className="inline" />
             </button>
           )}
         </p>
@@ -195,9 +197,10 @@ function CurrentSupportingCopy({
                 event.stopPropagation();
                 onToggleWhy();
               }}
+              aria-expanded={Boolean(model.why?.open)}
               className="pointer-events-auto shrink-0 font-medium text-slate-400 underline-offset-2 hover:underline focus:outline-none focus-visible:underline dark:text-slate-500"
             >
-              Why? {model.why?.open ? <ChevronDown size={10} className="inline" aria-hidden="true" /> : "›"}
+              Why? <DisclosureChevron open={Boolean(model.why?.open)} className="inline" />
             </button>
           )}
         </p>

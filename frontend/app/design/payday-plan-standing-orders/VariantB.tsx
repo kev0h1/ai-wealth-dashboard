@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { SALARY, DESTS, delta, buildVerdict, breakdownParts, needsFigureIllustrative, FOLD_THRESHOLD_NOTE, type FixtureDest } from "./fixtures";
 import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolveBankChip, type Surface, type Mode, type CardState } from "./shared";
 import { BankBadge } from "@/components/AccountMiniCard";
@@ -152,7 +152,7 @@ export default function VariantB({
               <span className="text-[13px] font-medium text-slate-600 dark:text-slate-300">
                 {`${verdict.aboutRight.length} standing ${verdict.aboutRight.length === 1 ? "order is" : "orders are"} about right`}
               </span>
-              <ChevronDown size={14} aria-hidden="true" className={`flex-shrink-0 text-slate-400 transition-transform duration-200 motion-reduce:transition-none dark:text-slate-500 ${showAboutRight ? "rotate-180" : ""}`} />
+              <DisclosureChevron open={showAboutRight} />
             </button>
             <p className="mt-1 px-3 text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">{FOLD_THRESHOLD_NOTE}</p>
             {showAboutRight && (

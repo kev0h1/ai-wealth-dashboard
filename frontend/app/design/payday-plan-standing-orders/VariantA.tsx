@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { SALARY, DESTS, delta, bucketOf, buildVerdict, breakdownParts, needsFigureIllustrative, FOLD_THRESHOLD_NOTE, type FixtureDest } from "./fixtures";
 import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolveBankChip, type Surface, type Mode, type CardState } from "./shared";
 import { BankBadge } from "@/components/AccountMiniCard";
@@ -142,7 +142,7 @@ export default function VariantA({
             className="flex min-h-11 items-center gap-1 rounded-full px-2 text-[11px] font-semibold normal-case tracking-normal text-indigo-600 active:scale-95 transition-transform motion-reduce:transition-none dark:text-indigo-400"
           >
             {showWorking ? "Hide the working" : "Show the working"}
-            <ChevronDown size={12} aria-hidden="true" className={`transition-transform duration-200 motion-reduce:transition-none ${showWorking ? "rotate-180" : ""}`} />
+            <DisclosureChevron open={showWorking} />
           </button>
         </p>
         <p className="mb-2 pl-1 text-[11px] italic leading-snug text-slate-400 dark:text-slate-500">{FOLD_THRESHOLD_NOTE}</p>

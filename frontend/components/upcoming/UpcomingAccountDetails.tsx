@@ -1,7 +1,8 @@
 "use client";
 
 import { useId } from "react";
-import { ArrowDownLeft, ArrowLeftRight, Check, ChevronDown, ChevronRight, ReceiptText } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, Check, ChevronRight, ReceiptText } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import { accountPlan, fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { cardRepaymentShortCopy } from "@/lib/upcomingAccountStatus";
@@ -60,7 +61,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
       <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     </section>
     <details className="group border-y border-slate-200 dark:border-slate-700">
-      <summary className={"flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 rounded-lg text-sm font-medium [&::-webkit-details-marker]:hidden " + detailFocus}>How this adds up<ChevronDown size={16} className="group-open:rotate-180" aria-hidden="true" /></summary>
+      <DisclosureSummary className={"min-h-11 cursor-pointer items-center justify-between gap-4 rounded-lg text-sm font-medium " + detailFocus}>How this adds up</DisclosureSummary>
       <div className="pb-3"><dl className="text-sm">
         <DetailLedgerLine label="Cash now" pence={account.opening === null ? null : Math.round(account.opening * 100)} />
         {account.income > 0 && <DetailLedgerLine label="Expected income" pence={Math.round(account.income * 100)} positive />}

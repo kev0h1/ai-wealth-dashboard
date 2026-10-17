@@ -8,7 +8,8 @@
 // by CategorisationRulesSheet.
 
 import { useState } from "react";
-import { X, CheckCircle2, Circle, Shield, Pencil, Plus, ChevronDown } from "lucide-react";
+import { X, CheckCircle2, Circle, Shield, Pencil, Plus } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, SavingsInsights, SavingsGoalInput, SavingsAccountOption } from "@/lib/api";
 import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { fmt } from "@/lib/format";
@@ -156,7 +157,7 @@ export function useSavingsGoalEditor({
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Accounts holding your savings{selected.length > 0 ? ` · ${selected.length} selected` : ""}
             </span>
-            <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
+            <DisclosureChevron open={acctsOpen} />
           </button>
           {!acctsOpen && selected.length === 0 && (
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>

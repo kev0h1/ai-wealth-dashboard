@@ -3,7 +3,7 @@
 import { Transaction } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import TransactionRow from "@/components/TransactionRow";
 
 interface CategoryData {
@@ -69,11 +69,7 @@ export default function CategoryRow({
           </div>
         </div>
 
-        {expanded ? (
-          <ChevronUp size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
-        ) : (
-          <ChevronDown size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
-        )}
+        <DisclosureChevron open={expanded} className="flex-shrink-0" />
       </button>
 
       {expanded && (

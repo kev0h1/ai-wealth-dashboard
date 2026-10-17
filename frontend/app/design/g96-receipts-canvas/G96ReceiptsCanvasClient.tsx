@@ -2,7 +2,8 @@
 
 import {useEffect, useState, type ReactNode} from "react";
 import {useSearchParams} from "next/navigation";
-import {AlertCircle, ArrowLeft, Camera, ChevronDown, ReceiptText, ScanLine} from "lucide-react";
+import {AlertCircle, ArrowLeft, Camera, ReceiptText, ScanLine} from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 
 type Variant = "a" | "b" | "c";
 type State = "ready" | "empty" | "loading" | "error";
@@ -28,7 +29,7 @@ function PriceInsight({confirmed}: {confirmed: boolean}) {
 
 function History() {
   const [open, setOpen] = useState<string | null>(null);
-  return <section><h2 className="text-base font-bold">Receipt history</h2><div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">{rows.map(([shop, when, cost]) => <div key={shop} className="border-b last:border-0 dark:border-slate-700"><button type="button" aria-expanded={open === shop} onClick={() => setOpen(open === shop ? null : shop)} className={`flex min-h-[70px] w-full items-center gap-3 px-4 text-left ${focusRing}`}><ReceiptText aria-hidden="true" className="text-emerald-600" size={18} /><span className="flex-1"><b className="block text-sm">{shop}</b><span className="text-xs text-slate-600 dark:text-slate-400">{when}</span></span><b className="font-mono text-sm">{cost}</b><ChevronDown aria-hidden="true" size={16} /></button>{open === shop && <p className="border-t px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">Basket items are confirmed together for later price comparison.</p>}</div>)}</div></section>;
+  return <section><h2 className="text-base font-bold">Receipt history</h2><div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">{rows.map(([shop, when, cost]) => <div key={shop} className="border-b last:border-0 dark:border-slate-700"><button type="button" aria-expanded={open === shop} onClick={() => setOpen(open === shop ? null : shop)} className={`flex min-h-[70px] w-full items-center gap-3 px-4 text-left ${focusRing}`}><ReceiptText aria-hidden="true" className="text-emerald-600" size={18} /><span className="flex-1"><b className="block text-sm">{shop}</b><span className="text-xs text-slate-600 dark:text-slate-400">{when}</span></span><b className="font-mono text-sm">{cost}</b><DisclosureChevron open={open === shop} /></button>{open === shop && <p className="border-t px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">Basket items are confirmed together for later price comparison.</p>}</div>)}</div></section>;
 }
 
 function ReadyStory({variant}: {variant: Variant}) {

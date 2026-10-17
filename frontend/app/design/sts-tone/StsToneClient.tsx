@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, RefreshCw } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -140,7 +141,7 @@ function StsToneState({ params }: { params: { get: (key: string) => string | nul
       <nav className={styles.controls} aria-label="Preview controls">
         {(["a", "b"] as Variant[]).map((value) => <Link key={value} className={`${styles.control} ${variant === value ? styles.active : ""}`} href={href({ variant: value })}>{value === "a" ? "A · Quiet instrument" : "B · Next step first"}</Link>)}
       </nav>
-      <details className={styles.scenarioMenu}><summary>Examples &amp; display</summary><nav className={styles.scenarioOptions} aria-label="Scenario and display">
+      <details className={styles.scenarioMenu}><DisclosureSummary>Examples &amp; display</DisclosureSummary><nav className={styles.scenarioOptions} aria-label="Scenario and display">
         {SCENARIO_ORDER.map((value) => <Link key={value} className={`${styles.control} ${scenario === value ? styles.active : ""}`} href={href({ scenario: value })}>{SCENARIOS[value].label}</Link>)}
         <Link className={styles.control} href={href({ mode: mode === "dark" ? "light" : "dark" })}>{mode === "dark" ? "Light mode" : "Dark mode"}</Link>
         <Link className={styles.control} href={href({ masked: !masked })}>{masked ? "Show figures" : "Mask figures"}</Link>
@@ -162,12 +163,12 @@ function StsToneState({ params }: { params: { get: (key: string) => string | nul
             {genuineRisk && <p className={styles.risk}><AlertTriangle className={styles.riskIcon} size={14} aria-hidden="true" />Payment risk remains until it is covered</p>}
           </>}
           <button type="button" className={styles.button} onClick={() => stale ? setRetried(true) : setSheet(true)}>{item.action} <ArrowRight size={16} aria-hidden="true" /></button>
-          <details className={styles.working}><summary>How this adds up</summary><Ledger scenario={displayScenario} masked={masked} /></details>
+          <details className={styles.working}><DisclosureSummary>How this adds up</DisclosureSummary><Ledger scenario={displayScenario} masked={masked} /></details>
           <p className={styles.subtle} style={{ marginTop: 16 }}>An estimate from your bank data, not financial advice.</p>
         </section>
         <Evidence scenario={displayScenario} masked={masked} />
       </div> : null}
-      {data && <details className={styles.reference}><summary>Current reference · existing Safe to Spend card</summary>{masked ? <p className={styles.subtle}>The reference figures are hidden while masking is on.</p> : <div className={styles.referenceCard} inert><SafeToSpendCard data={data} loading={false} error={false} onRetry={() => {}} previewBalancesVisible /></div>}</details>}
+      {data && <details className={styles.reference}><DisclosureSummary>Current reference · existing Safe to Spend card</DisclosureSummary>{masked ? <p className={styles.subtle}>The reference figures are hidden while masking is on.</p> : <div className={styles.referenceCard} inert><SafeToSpendCard data={data} loading={false} error={false} onRetry={() => {}} previewBalancesVisible /></div>}</details>}
     </main>
     {sheet && data && <SheetFrame title={item.action} description="Preview-only local detail. No bank action will be taken." onClose={() => setSheet(false)} bodyClassName="px-5 py-4" footer={<button type="button" className={styles.button} onClick={() => setSheet(false)}>Close review</button>}>
       <ActionDetail scenario={displayScenario} masked={masked} />

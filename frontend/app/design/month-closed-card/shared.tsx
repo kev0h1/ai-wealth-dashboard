@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, ChevronUp, Circle, X } from "lucide-react";
+import { ChevronRight, Circle, X } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import type { CompanionItem } from "@/lib/api";
 import ActionLabel from "@/components/ActionLabel";
@@ -98,7 +99,7 @@ export function MinimiseControl({
       className={`${className} flex h-11 w-11 touch-manipulation items-center justify-center rounded-full [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-95 transition-transform duration-150 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800`}
     >
       <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
-        <ChevronUp size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+        <DisclosureChevron open />
       </span>
     </button>
   );

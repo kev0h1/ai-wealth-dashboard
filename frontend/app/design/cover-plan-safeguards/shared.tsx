@@ -16,7 +16,8 @@
 // none draws a drag handle or stepper that implies otherwise.
 
 import { useId, useState, type ReactNode } from "react";
-import { AlertCircle, ChevronDown, Search, Wallet } from "lucide-react";
+import { AlertCircle, Search, Wallet } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import type { Account } from "@/lib/api";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
@@ -157,11 +158,7 @@ export function Disclosure({
           <span className="block text-[14px] font-semibold text-slate-900 dark:text-slate-100">{title}</span>
           {detail && <span className={`block text-[12px] ${SECONDARY}`}>{detail}</span>}
         </span>
-        <ChevronDown
-          size={16}
-          aria-hidden="true"
-          className={`shrink-0 text-slate-500 transition-transform duration-200 motion-reduce:transition-none dark:text-slate-400 ${open ? "rotate-180" : ""}`}
-        />
+        <DisclosureChevron open={open} />
       </button>
       <div
         id={panelId}

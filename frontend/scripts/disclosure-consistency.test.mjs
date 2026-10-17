@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { rawSummarySites, indicatorOverrides, check } from "./check-disclosure-consistency.mjs";
+import { DisclosureSummary, DisclosureChevron } from "../components/Disclosure.tsx";
+
+for (const source of ['<details><summary>Inline</summary></details>', '<summary\n className="list-none">Multiple lines</summary>', '<summary/>']) assert.equal(rawSummarySites(source, "test.tsx").length, 1);
+assert.equal(rawSummarySites('// <summary> comment\nconst x = "<summary> text";\nconst y = <DisclosureSummary>Good</DisclosureSummary>;', "test.tsx").length, 0);
+for (const source of ['<DisclosureChevron open className="size-[13px]"/>', '<DisclosureChevron open className={`text-slate-300`}/>', '<DisclosureChevron open width={12}/>']) assert.equal(indicatorOverrides(source, "test.tsx").length, 1);
+assert.deepEqual(indicatorOverrides('<DisclosureChevron open inverse className="ml-2 inline-block"/>', "test.tsx"), []);
+const html = renderToStaticMarkup(React.createElement("details", { open: true }, React.createElement(DisclosureSummary, { id: "working", tabIndex: 0, "aria-controls": "body", onClick() {} }, "How this adds up"), React.createElement("div", { id: "body" }, "Balance")));
+assert.match(html, /<details open=""><summary/);
+assert.match(html, /id="working"/);
+assert.match(html, /tabindex="0"/);
+assert.match(html, /aria-controls="body"/);
+assert.match(html, /list-none/);
+assert.equal((html.match(/<svg /g) ?? []).length, 1);
+assert.match(html, /width="16" height="16"/);
+assert.match(html, /aria-hidden="true"/);
+assert.doesNotMatch(renderToStaticMarkup(React.createElement(DisclosureChevron, { open: false })), /rotate-180/);
+assert.match(renderToStaticMarkup(React.createElement(DisclosureChevron, { open: true })), /rotate-180/);
+assert.deepEqual(check().failures, []);
+console.log("Disclosure consistency: parser edge cases, native semantics, shared SVG and controlled rotation passed.");

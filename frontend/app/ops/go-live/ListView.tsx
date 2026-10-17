@@ -4,7 +4,8 @@
 // rows. Same shape as the original page.tsx SectionCard/ItemRow, now with
 // a priority pill and "unblocks Q5, Q6" tags per item.
 
-import { ChevronDown, Square, SquareCheck } from "lucide-react";
+import { Square, SquareCheck } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import type { api } from "@/lib/api";
 import { type GoLiveItem, type GoLiveSectionGroup } from "@/lib/goLive";
 import { OwnerToggle, PriorityPill, StatePill, UnblocksTags } from "./Badges";
@@ -142,15 +143,14 @@ function SectionCard({
 
   return (
     <details className="group glass-card rounded-2xl p-4" open={defaultOpen}>
-      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+      <DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3">
         <span className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">{heading}</span>
         <span className="flex shrink-0 items-center gap-2">
           <span className="money text-xs font-semibold text-slate-500 dark:text-slate-400">
             {done} / {total}
           </span>
-          <ChevronDown size={17} className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
         </span>
-      </summary>
+      </DisclosureSummary>
       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
         <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
       </div>

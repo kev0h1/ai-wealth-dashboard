@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import {
   Fuel, SquareParking, CarTaxiFront, Train, Bus,
-  PlugZap, Wrench, Car, ChevronDown,
+  PlugZap, Wrench, Car,
 } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, TransportSummary, TransportMode } from "@/lib/api";
 import Spinner from "@/components/Spinner";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
@@ -151,14 +152,7 @@ export default function TransportInsights() {
           <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
             See your travel breakdown
           </span>
-          <ChevronDown
-            size={16}
-            className={[
-              "text-slate-500 dark:text-slate-400 flex-shrink-0",
-              reducedMotion ? "" : "transition-transform duration-200",
-              breakdownOpen ? "rotate-180" : "rotate-0",
-            ].join(" ")}
-          />
+          <DisclosureChevron open={breakdownOpen} className="flex-shrink-0" />
         </button>
 
         <div

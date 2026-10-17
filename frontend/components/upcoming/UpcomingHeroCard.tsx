@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 
 // Shared production/preview runway. G176 keeps the existing headline,
 // calculation and payments caveat, with account-specific evidence now in
@@ -85,10 +85,9 @@ export default function UpcomingHeroCard({
       </div>
 
       <details className="group mt-4 border-t border-slate-200/80 dark:border-white/10">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+        <DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3 text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
           Full calculation
-          <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-        </summary>
+        </DisclosureSummary>
         <dl className="border-t border-slate-200/80 pb-1 pt-1 text-[13px] text-slate-600 dark:border-white/10 dark:text-slate-300">
           <div className="flex items-center justify-between gap-4 py-1.5">
             <dt>Available now</dt>

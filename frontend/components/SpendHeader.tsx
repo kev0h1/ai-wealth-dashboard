@@ -29,7 +29,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings2, Search, Info } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import { SheetFrame } from "@/components/SheetFrame";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
@@ -447,12 +448,11 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
       </dl>
 
       <details className="group mt-2">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-1 text-left text-[12px] font-semibold text-slate-600 transition-colors hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:text-white [&::-webkit-details-marker]:hidden">
+        <DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl px-1 text-left text-[12px] font-semibold text-slate-600 transition-colors hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:text-white">
           <span>
             How <span className="font-mono tabular-nums">{fmt(verdict.pills.spent)}</span> out adds up
           </span>
-          <ChevronDown size={15} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-        </summary>
+        </DisclosureSummary>
         <dl className="space-y-2 px-1 pb-2 pt-1 text-[12px]">
           <div className="flex items-center justify-between gap-4">
             <dt className="text-slate-600 dark:text-slate-400">Needs a look</dt>

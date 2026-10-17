@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ChevronDown, CircleAlert, Info } from "lucide-react";
+import { CircleAlert, Info } from "lucide-react";
+import { DisclosureChevron, DisclosureSummary } from "@/components/Disclosure";
 import TransactionRow from "@/components/TransactionRow";
 import SpendPaceHero, { type SpendPaceHeroProps } from "@/components/SpendPaceHero";
 import { spendHeroModel, spendHeroMoney } from "@/lib/spendHero";
@@ -43,7 +44,7 @@ function HeadingLedProposal({ verdict, incomeTxns, incomeLoading = false, onInco
         : <>{model.direction === "level" ? "In line with" : <><span className="font-mono font-semibold tabular-nums">{spendHeroMoney(Math.abs(model.difference))}</span> {model.direction}</>} usual pace by day {verdict.period.days_elapsed}. Usual: <span className="font-mono font-semibold tabular-nums">{spendHeroMoney(model.usual)}</span>.</>}
     </p>
     <dl className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-x-4 gap-y-1 border-t border-slate-200 pt-3 dark:border-slate-700">
-      <div className="min-w-0"><dt className={label}>In</dt><dd><button type="button" className={flow} aria-label="Show income payments" aria-expanded={incomeOpen} aria-controls={incomeId} onClick={() => { setIncomeOpen(!incomeOpen); if (!incomeOpen) onIncomeOpen?.(); }}><span className="whitespace-nowrap">{spendHeroMoney(verdict.pills.income)}</span><ChevronDown size={13} aria-hidden="true" className={`shrink-0 transition-transform motion-reduce:transition-none ${incomeOpen ? "rotate-180" : ""}`} /></button></dd></div>
+      <div className="min-w-0"><dt className={label}>In</dt><dd><button type="button" className={flow} aria-label="Show income payments" aria-expanded={incomeOpen} aria-controls={incomeId} onClick={() => { setIncomeOpen(!incomeOpen); if (!incomeOpen) onIncomeOpen?.(); }}><span className="whitespace-nowrap">{spendHeroMoney(verdict.pills.income)}</span><DisclosureChevron open={incomeOpen} /></button></dd></div>
       {model.hasMoved && <div className="min-w-0"><dt className={label}>Moved separately</dt><dd><button type="button" className={flow} aria-label="Show money moved separately" onClick={onMovedTap}><span className="whitespace-nowrap">{spendHeroMoney(model.moved)}</span></button></dd></div>}
     </dl>
     <div id={incomeId} hidden={!incomeOpen} className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
@@ -53,7 +54,7 @@ function HeadingLedProposal({ verdict, incomeTxns, incomeLoading = false, onInco
           : <div className="mt-2 max-h-64 overflow-y-auto overscroll-contain">{incomeTxns.map(transaction => <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransactionClick(transaction)} />)}</div>}
     </div>
     <details className="group mt-3 border-t border-slate-200 dark:border-slate-700">
-      <summary className={`${action} flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-slate-700 dark:text-slate-200 [&::-webkit-details-marker]:hidden`}>How Out adds up <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary>
+      <DisclosureSummary className={`${action} cursor-pointer items-center justify-between gap-3 text-[13px] font-semibold text-slate-700 dark:text-slate-200`}>How Out adds up</DisclosureSummary>
       <dl className="space-y-2 pb-2 text-[13px] text-slate-700 dark:text-slate-200">
         {[{ label: "Named categories", amount: model.named }, { label: "Other categorised spending", amount: model.other }, ...(model.unresolved > 0 ? [{ label: "To categorise", amount: model.unresolved }] : [])].map(row => <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3"><dt>{row.label}</dt><dd className="font-mono font-semibold tabular-nums">{spendHeroMoney(row.amount)}</dd></div>)}
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t border-slate-200 pt-2 font-semibold dark:border-slate-700"><dt>Total Out</dt><dd className="font-mono tabular-nums">{out}</dd></div>

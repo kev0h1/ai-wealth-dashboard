@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { DisclosureChevron, DisclosureSummary } from "@/components/Disclosure";
 import {
-  ArrowLeft,
-  ChevronDown,
-  Eye,
+  ArrowLeft,  Eye,
   EyeOff,
   FileText,
   Landmark,
@@ -136,10 +135,9 @@ function PositionContext({ estate, hidden, variant }: { estate: Estate; hidden: 
 
   return (
     <details className="group mt-4 max-w-sm border-t border-slate-300/80 dark:border-slate-700">
-      <summary className="flex min-h-11 touch-manipulation cursor-pointer list-none items-center justify-between gap-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] marker:content-none hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white [&::-webkit-details-marker]:hidden">
+      <DisclosureSummary className="min-h-11 touch-manipulation cursor-pointer items-center justify-between gap-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white">
         What makes this up
-        <ChevronDown size={15} className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
-      </summary>
+      </DisclosureSummary>
       <dl className="pb-2 text-[12px] text-slate-600 dark:text-slate-400">
         <div className="flex min-h-8 items-center justify-between gap-4">
           <dt>Cash and savings</dt>
@@ -181,7 +179,7 @@ function AddMenu({ open, onToggle, onChoose }: { open: boolean; onToggle: () => 
       >
         <Plus size={16} aria-hidden="true" />
         Add
-        <ChevronDown size={14} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+        <DisclosureChevron open={open} inverse />
       </button>
       {open && (
         <div id="g87-add-options" aria-label="Add an account" className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-800">
@@ -302,7 +300,7 @@ function AccountGroupCard({ group, hidden, collapsed, onToggle, onSelect, fixed 
       </span>
       <span className="flex items-center gap-2">
         <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">{hidden ? "£••••" : money(group.subtotal)}</span>
-        {!fixed && <ChevronDown size={16} className={`text-slate-400 transition-transform motion-reduce:transition-none ${collapsed ? "" : "rotate-180"}`} aria-hidden="true" />}
+        {!fixed && <DisclosureChevron open={!collapsed} />}
       </span>
     </>
   );

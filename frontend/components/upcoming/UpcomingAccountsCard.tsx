@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { ChevronDown, Info, TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import type { Plan } from "@/lib/upcomingPlans";
@@ -100,7 +101,7 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
                 stay in the DOM so nothing is fetched or laid out again on expand. */}
             <button type="button" data-fine-fold aria-expanded={open} aria-controls={regionId} onClick={toggle} className={`flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm text-slate-600 hover:bg-slate-50 active:opacity-70 min-[360px]:px-4 dark:text-slate-300 dark:hover:bg-slate-700/50 ${focus}`}>
               <span>{foldLabel}</span>
-              <ChevronDown aria-hidden="true" size={16} className={`shrink-0 ${animate ? "transition-transform motion-reduce:transition-none" : ""} ${open ? "rotate-180" : ""}`} />
+              <DisclosureChevron open={open} className="shrink-0" />
             </button>
             <div id={regionId} data-fine-region inert={!open} className={`grid ${animate ? "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none" : ""} ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
               <div className="min-h-0 overflow-hidden">

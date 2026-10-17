@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CircleDashed, Pencil } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
@@ -554,7 +555,7 @@ export default function CommitmentSheet({
               />
               {sourceInferred && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Paying account suggested from recent transfers. Saving confirms this choice.</p>}
               <PlanTrackingSummary buttonRef={trackingFocus} label={rule.match_value ? (suggestedActive ? "Suggested transfer to your savings pot" : "Your chosen transfer") : "Check it yourself"} detail={rule.match_value ? "A matching outgoing payment counts towards this period’s contribution, not as spending." : "No transfer rule is set. The contribution stays reserved until you change the plan."} onEdit={() => { returnFocus.current = "tracking"; setEditorView("tracking"); }} />
-              {rule.match_value && <details><summary className="min-h-11 cursor-pointer py-3 text-xs text-slate-600 dark:text-slate-300">Transfer reference</summary><p className="break-words pb-3 text-xs text-slate-600 dark:text-slate-300">{rule.match_value}</p></details>}
+              {rule.match_value && <details><DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3 py-3 text-xs text-slate-600 dark:text-slate-300">Transfer reference</DisclosureSummary><p className="break-words pb-3 text-xs text-slate-600 dark:text-slate-300">{rule.match_value}</p></details>}
               <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Confirming saves every choice. It does not move money.</p>
               </> : <>
               <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">{editorView === "details" ? "Plan details" : editorView === "route" ? "Choose a paying account" : editorView === "destination" ? "Choose savings pots" : "Recognise your transfer"}</h3>

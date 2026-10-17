@@ -8,6 +8,7 @@ import Artboard, { ProofPlate, type Direction, type Format, type Theme } from ".
 import { type FeatureId } from "./ProductionProof";
 import content from "./content.json";
 import styles from "./marketing.module.css";
+import { DisclosureSummary } from "@/components/Disclosure";
 
 const ReelPreview = dynamic(() => import("./ReelPreview"), { ssr: false, loading: () => <p>Loading film controls…</p> });
 const filmIds = ["safe-to-spend", "upcoming", "penny", "overview", "app-preview"] as const;
@@ -58,7 +59,7 @@ export default function MarketingKit() {
       <section className={styles.section}><h2>{content.positioning}</h2><div className={styles.pillars}>{content.pillars.map((pillar) => <div key={pillar.title}><h3>{pillar.title}</h3><p>{pillar.body}</p></div>)}</div></section>
       <section className={styles.section}><h2>Store listing copy</h2><p>Shared draft for C5. Counts are checked by the export validator. Google Play has no separate keywords or subtitle field.</p><dl className={styles.copy}>{Object.entries(content.store).map(([key, value]) => <div key={key}><dt>{key.replace(/([A-Z])/g, " $1").toLowerCase()} <span>{key === "keywords" ? new TextEncoder().encode(value).length + " bytes" : value.length + " characters"}</span></dt><dd>{value}</dd></div>)}</dl></section>
       <section className={styles.section}><h2>Landing-page sections</h2><p>Draft copy and matching images, ready for direction review. No live landing page is changed.</p>{content.features.map((f) => <article className={styles.landingRow} key={f.id}><div><h3>{f.landing}</h3><p>{f.landingBody}</p></div><a href={`/design-media/c22/${direction}-${f.id}-landing-${theme}.png`} download>Download {f.name.toLowerCase()} image</a></article>)}</section>
-      <section className={styles.section}><h2>Before anything goes live</h2><ul>{content.reviewChecks.map((check) => <li key={check}>{check}</li>)}</ul><p><a href="/design-media/c22/manifest.json" download>Asset manifest and provenance</a> · <a href="/design-media/c22/listing-copy.json" download>Download listing copy</a></p><details><summary>Platform sources checked on 8 October 2026</summary><ul>{content.sources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>)}</ul></details></section>
+      <section className={styles.section}><h2>Before anything goes live</h2><ul>{content.reviewChecks.map((check) => <li key={check}>{check}</li>)}</ul><p><a href="/design-media/c22/manifest.json" download>Asset manifest and provenance</a> · <a href="/design-media/c22/listing-copy.json" download>Download listing copy</a></p><details><DisclosureSummary>Platform sources checked on 8 October 2026</DisclosureSummary><ul>{content.sources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>)}</ul></details></section>
     </div>
   </main>;
 }

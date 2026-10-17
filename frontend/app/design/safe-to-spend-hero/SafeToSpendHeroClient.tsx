@@ -26,7 +26,8 @@
 
 import { useEffect, type ComponentType } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, AlertTriangle, ChevronDown, ShieldCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, ShieldCheck } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import { HERO_FIXTURES, HERO_STATE_LABEL, HERO_STATE_ORDER, type HeroStateSlug, type SafeToSpendOk } from "./fixtures";
 
@@ -290,10 +291,9 @@ function ReplicaCard({ label, treatment, data, hidden }: { label: string; treatm
 
       <div className="mt-3 border-t border-slate-100 pt-1 dark:border-white/10">
         <details className="group">
-          <summary className="min-h-11 flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
+          <DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
             Full calculation
-            <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden />
-          </summary>
+          </DisclosureSummary>
           <div className="pb-2 pt-3">
             <p className="text-xs text-slate-500 dark:text-slate-400 text-pretty">Each step starts with a carried balance. = means a direct sum; → marks the lowest point in the dated forecast. Exact pennies make every sum traceable.</p>
 

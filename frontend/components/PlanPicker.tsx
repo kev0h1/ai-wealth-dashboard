@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
+import { Check, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
@@ -386,7 +387,7 @@ export default function PlanPicker({
                   <span className="money block text-sm font-bold">{monthly === 0 ? "Free" : typeof monthly === "number" ? money(monthly) : "Unavailable"}</span>
                   {typeof monthly === "number" && monthly > 0 && <span className="block text-[10px] text-slate-600 dark:text-slate-300">a month</span>}
                 </span>
-                <ChevronDown size={15} aria-hidden="true" className={`shrink-0 text-slate-400 transition-transform motion-reduce:transition-none ${active ? "rotate-180" : ""}`} />
+                <DisclosureChevron open={active} className="shrink-0" />
               </button>
               {active && (
                 <div className="border-t border-indigo-100/70 bg-indigo-50/40 px-4 pb-4 pt-3 dark:border-indigo-400/10 dark:bg-indigo-400/[0.035]">

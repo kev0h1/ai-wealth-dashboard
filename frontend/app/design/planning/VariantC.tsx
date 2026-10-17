@@ -17,7 +17,8 @@
 // list's resting state is quiet and detail is opt-in.
 
 import { useState } from "react";
-import { AlertTriangle, ChevronRight, ChevronDown, Info, Plus } from "lucide-react";
+import { AlertTriangle, ChevronRight, Info, Plus } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture, type PlanRow } from "./fixtures";
 import { categoryVisual } from "./categoryVisuals";
 
@@ -164,7 +165,7 @@ function Row({ item }: { item: PlanRow }) {
           </p>
         </div>
         {hasDetail && (
-          <ChevronDown size={14} className={`text-slate-300 dark:text-slate-600 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+          <DisclosureChevron open={open} />
         )}
       </button>
       {open && hasDetail && (

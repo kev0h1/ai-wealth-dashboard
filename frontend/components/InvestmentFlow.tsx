@@ -1,4 +1,5 @@
 import { ArrowRight, FileText, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import { STATEMENT_FLOW_STEPS, STATEMENT_PRIVACY_LINE, STAY_CURRENT_COPY } from "@/lib/investmentFlow";
 import s from "./InvestmentFlow.module.css";
 
@@ -33,7 +34,7 @@ export default function InvestmentFlow() {
     </ol>
     <p className={s.caveat}>Add contract notes when you trade. Prices may be delayed.</p>
     <details className={s.details}>
-      <summary>When you add a new statement</summary>
+      <DisclosureSummary className="items-center justify-between gap-3">When you add a new statement</DisclosureSummary>
       <p>{STAY_CURRENT_COPY}</p>
     </details>
     <p className={s.privacy}>

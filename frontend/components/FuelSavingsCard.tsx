@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Fuel, ChevronDown, MapPin, Pin } from "lucide-react";
+import { Fuel, MapPin, Pin } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, FuelNearby } from "@/lib/api";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 
@@ -118,10 +119,7 @@ export default function FuelSavingsCard() {
             <Fuel size={16} className="text-amber-600 dark:text-amber-300" />
           </div>
           <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Fuel prices nearby</p>
-          <ChevronDown
-            size={18}
-            className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-          />
+          <DisclosureChevron open={expanded} className="flex-shrink-0" />
         </button>
         <button
           onClick={() => toggle("fuel")}

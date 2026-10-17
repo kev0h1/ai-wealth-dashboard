@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import {
   ActionLink,
@@ -61,11 +61,7 @@ export default function VariantC({ surface, state }: { surface: Surface; state: 
         className="mt-3 flex min-h-11 w-full touch-manipulation items-center gap-1.5 rounded-lg text-left text-[13px] font-semibold text-slate-500 [-webkit-tap-highlight-color:transparent] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"
       >
         The story behind it
-        <ChevronDown
-          size={14}
-          aria-hidden="true"
-          className={`flex-shrink-0 transition-transform duration-150 motion-reduce:transition-none ${storyOpen ? "rotate-180" : ""}`}
-        />
+        <DisclosureChevron open={storyOpen} />
       </button>
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"

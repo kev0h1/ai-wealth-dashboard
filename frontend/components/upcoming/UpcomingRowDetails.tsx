@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import type { UpcomingRowModel } from "./UpcomingRow";
 import { getUpcomingStatus } from "@/lib/upcomingAttention";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, dateLabel, money } from "./detailPrimitives";
@@ -26,7 +27,7 @@ export default function UpcomingRowDetails({ model, ruleLabel }: { model: Upcomi
     {hasAccountWorking && <dl className="text-sm"><DetailLedgerLine label={`Before, in ${account}`} pence={Math.round(coverage!.before! * 100)} /><DetailLedgerLine label={model.isMovement ? "Planned move" : "This payment"} pence={-Math.round(model.amount * 100)} /><DetailLedgerLine label={`After, in ${account}`} pence={Math.round(coverage!.after! * 100)} total /></dl>}
     {model.after.kind === "balance" && <dl className="text-sm"><DetailLedgerLine label="Projected cash overall after this" pence={Math.round(model.after.value * 100)} /></dl>}
     {model.after.kind === "pooled-transfer" && <p className={`text-xs leading-5 ${detailMuted}`}>This transfer stays within your spendable accounts, so it does not reduce your overall cash forecast.</p>}
-    {!model.isSettling && (model.pending || (model.daysPastDue ?? 0) > 0 || model.why?.culprit) && <details className="group border-t border-slate-200 dark:border-slate-700"><summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-sm font-medium [&::-webkit-details-marker]:hidden ${detailFocus}`}>Why is this still here?<ChevronDown size={16} className="group-open:rotate-180" aria-hidden="true" /></summary><div className={`space-y-2 pb-3 text-sm leading-6 ${detailMuted}`}>{(model.pending || (model.daysPastDue ?? 0) > 0) && <p>{model.isMovement ? "Planned" : "Expected"} for {upcomingDate(pendingDate)}, but {model.type === "income" ? "we have not seen it arrive" : "we have not seen it leave"}.{!model.isMovement && model.type === "bill" ? " Check with the provider if it is overdue." : ""}</p>}{model.why?.culprit && <p>This forecast includes a <span className={detailInk}>{upcomingMoney(model.why.culprit.amount)}</span> move on {upcomingDate(model.why.culprit.expectedDate)} before this payment.</p>}</div></details>}
+    {!model.isSettling && (model.pending || (model.daysPastDue ?? 0) > 0 || model.why?.culprit) && <details className="group border-t border-slate-200 dark:border-slate-700"><DisclosureSummary className={`min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg text-sm font-medium ${detailFocus}`}>Why is this still here?</DisclosureSummary><div className={`space-y-2 pb-3 text-sm leading-6 ${detailMuted}`}>{(model.pending || (model.daysPastDue ?? 0) > 0) && <p>{model.isMovement ? "Planned" : "Expected"} for {upcomingDate(pendingDate)}, but {model.type === "income" ? "we have not seen it arrive" : "we have not seen it leave"}.{!model.isMovement && model.type === "bill" ? " Check with the provider if it is overdue." : ""}</p>}{model.why?.culprit && <p>This forecast includes a <span className={detailInk}>{upcomingMoney(model.why.culprit.amount)}</span> move on {upcomingDate(model.why.culprit.expectedDate)} before this payment.</p>}</div></details>}
     {model.createdViaPenny && <p className={`text-xs ${detailMuted}`}>Set up with Penny.</p>}
   </div>;
 }

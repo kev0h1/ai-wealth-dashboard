@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank, CalendarClock } from "lucide-react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank, CalendarClock } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import type { AllocationEditServices } from "@/components/AllocationEditForm";
 import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
@@ -308,10 +309,9 @@ function MoveSourcesDisclosure({
 }) {
   return (
     <details data-source-disclosure className="group mt-2 rounded-xl border border-slate-100 dark:border-slate-700">
-      <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden dark:text-slate-200">
+      <DisclosureSummary className="min-h-11 cursor-pointer touch-manipulation items-center justify-between gap-3 rounded-xl px-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">
         <span>How <span className="money">{moveMoney(totalAmount, hideNetWorth)}</span> is made up</span>
-        <ChevronDown size={15} aria-hidden="true" className="shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
-      </summary>
+      </DisclosureSummary>
       <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
         {legs.map((leg, index) => (
           <div key={`${leg.provider}-${leg.name}-${index}`} className="flex min-h-11 items-center gap-2.5 py-1.5">
@@ -373,8 +373,8 @@ function MovePaymentEvidence({
   const total = bills.reduce((sum, bill) => sum + bill.amount, 0);
   return (
     <details data-payment-disclosure className="group mt-3 rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/35">
-      <summary className="flex min-h-14 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
-        <span className="min-w-0">
+      <DisclosureSummary className="min-h-14 cursor-pointer touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+        <span className="min-w-0 flex-1">
           <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {bills.length} payments</span>
           <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">
             {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : coverPlanProtectsHeader(dueRange ?? { needs_by: due }, bills.length)}
@@ -382,9 +382,8 @@ function MovePaymentEvidence({
         </span>
         <span className="flex shrink-0 items-center gap-2">
           <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(total, hideNetWorth)}</span>
-          <ChevronDown size={15} aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
         </span>
-      </summary>
+      </DisclosureSummary>
       <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
         {bills.map((bill, index) => {
           const billOverdue = bill.overdue || (bill.days_past_due ?? 0) > 0;

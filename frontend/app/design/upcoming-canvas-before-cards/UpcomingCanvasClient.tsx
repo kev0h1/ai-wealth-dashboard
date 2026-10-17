@@ -7,10 +7,10 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { DisclosureSummary } from "@/components/Disclosure";
 import {
   AlertTriangle,
   CalendarDays,
-  ChevronDown,
   ChevronRight,
   EyeOff,
   MailOpen,
@@ -149,10 +149,9 @@ function RunwayHero({ data, treatment }: { data: PlanningFixture; treatment: Var
 function Calculation({ data }: { data: PlanningFixture }) {
   return (
     <details className="group mt-5 border-y border-slate-300/80 dark:border-slate-700">
-      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 [&::-webkit-details-marker]:hidden">
+      <DisclosureSummary className="min-h-12 cursor-pointer items-center justify-between gap-3 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100">
         How the forecast works
-        <ChevronDown size={17} className="transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
-      </summary>
+      </DisclosureSummary>
       <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-y-2 border-t border-slate-200 py-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
         <dt>Available now</dt>
         <dd className="font-mono tabular-nums text-slate-950 dark:text-white">{money(data.spendableNow)}</dd>

@@ -2,7 +2,8 @@
 
 import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin, ChevronDown, Trash2, ChevronRight } from "lucide-react";
+import { Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin, Trash2, ChevronRight } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, Basket, BasketInsights } from "@/lib/api";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -139,10 +140,7 @@ export default function GroceryBasketCard() {
               {insights.receipt_count} receipt{insights.receipt_count === 1 ? "" : "s"}
             </span>
           )}
-          <ChevronDown
-            size={18}
-            className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform ${cardOpen ? "rotate-180" : ""}`}
-          />
+          <DisclosureChevron open={cardOpen} className="flex-shrink-0" />
         </button>
         <button
           onClick={() => toggleCard("groceries")}
@@ -180,10 +178,7 @@ export default function GroceryBasketCard() {
           <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
           <MoneyText text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0" />
           {hasTrends && (
-            <ChevronDown
-              size={14}
-              className={`text-emerald-600 dark:text-emerald-400 flex-shrink-0 transition-transform ${showTrends ? "rotate-180" : ""}`}
-            />
+            <DisclosureChevron open={showTrends} className="flex-shrink-0" />
           )}
         </button>
       ) : (
@@ -332,10 +327,7 @@ export default function GroceryBasketCard() {
                     onClick={() => setExpanded(open ? null : b.id)}
                     className="flex-1 flex items-center gap-2 min-w-0 text-left"
                   >
-                    <ChevronDown
-                      size={16}
-                      className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-                    />
+                    <DisclosureChevron open={open} className="flex-shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
                         {b.shop || "Receipt"}

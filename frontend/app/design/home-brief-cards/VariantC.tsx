@@ -5,7 +5,7 @@
 // Dense movement cards open by default, while quieter cards begin folded.
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import type { CardFixture } from "./fixtures";
 import { FAMILY_FIXTURES, STACK_FIXTURE_IDS } from "./fixtures";
 import { DismissButton } from "./primitives";
@@ -31,7 +31,7 @@ function FoldedBriefCard({ fixture }: { fixture: CardFixture }) {
   return (
     <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <details open={startsOpen(fixture)} className="group">
-        <summary className="flex min-h-[76px] touch-manipulation cursor-pointer list-none items-start gap-3 px-4 py-3.5 pr-14 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-50/70 dark:[@media(hover:hover)]:hover:bg-slate-700/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
+        <DisclosureSummary className="min-h-[76px] touch-manipulation cursor-pointer items-start gap-3 px-4 py-3.5 pr-4 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-50/70 dark:[@media(hover:hover)]:hover:bg-slate-700/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500">
           <FixtureIcon fixture={fixture} size="small" />
           <div className="min-w-0 flex-1">
             <FixtureSignifier fixture={fixture} />
@@ -40,12 +40,7 @@ function FoldedBriefCard({ fixture }: { fixture: CardFixture }) {
             </h3>
             <FixtureLead fixture={fixture} compact />
           </div>
-          <ChevronDown
-            size={16}
-            aria-hidden="true"
-            className="mt-2 shrink-0 text-slate-400 group-open:rotate-180 dark:text-slate-500"
-          />
-        </summary>
+        </DisclosureSummary>
 
         <div className="border-t border-slate-100 px-4 pb-4 pt-3 dark:border-slate-700/70">
           <FixtureBody fixture={fixture} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ChevronDown } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import UpcomingDayCard from "./UpcomingDayCard";
 import UpcomingRow, { type UpcomingRowModel } from "./UpcomingRow";
 import { getUpcomingStatus, upcomingMoney } from "@/lib/upcomingAttention";
@@ -29,11 +29,10 @@ function FoldedRows({ rows, label, renderRow }: {
   const totalPence = rows.reduce((sum, row) => sum + Math.round(row.amount * 100), 0);
 
   return <details ref={ref} className="group" data-upcoming-fold={label}>
-    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-slate-200 dark:hover:bg-slate-700 [&::-webkit-details-marker]:hidden">
+    <DisclosureSummary className="min-h-11 cursor-pointer items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-slate-200 dark:hover:bg-slate-700">
       <span className="min-w-0 flex-1">{rows.length} {label} · <span className="font-mono tabular-nums">{upcomingMoney(totalPence / 100)}</span></span>
       <span className="text-xs font-medium text-slate-600 dark:text-slate-400"><span className="group-open:hidden">Show</span><span className="hidden group-open:inline">Hide</span></span>
-      <ChevronDown size={15} className="shrink-0 transition-transform motion-reduce:transition-none group-open:rotate-180" aria-hidden="true" />
-    </summary>
+    </DisclosureSummary>
     <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">{rows.map(renderRow)}</div>
   </details>;
 }

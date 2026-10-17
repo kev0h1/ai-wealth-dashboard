@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Info } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import type { MoneyShape } from "@/lib/api";
 import { GUIDES, compareShape, differenceLabel, guideFor, money, signedMoney, type Guide, type GuideId, type SectionId } from "@/lib/paySplitReference";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -123,7 +124,7 @@ export default function PaySplitComparison({ shape, view = "detail", average = f
           <p className={s.workingTotal}><span>Beyond income</span><MoneyText text={money(comparison.beyond)} /></p>
           <small>{guide.shares ? "The net difference is the same as outgoings minus income. It does not identify which payments funded the gap." : "Outgoings minus income. There is no numeric reference for this principle."}</small>
         </div>}
-        <details className={s.details}><summary>How the groups compare<ChevronDown size={16} aria-hidden="true" /></summary><p>Fixed roughly maps to needs, Free to wants, and Moved to savings. These are not exact matches; Moved can include your own transfers. This is general information, not advice.</p><button type="button" onClick={() => setExplain(true)}>Read the mapping and sources</button></details>
+        <details className={s.details}><DisclosureSummary className="items-center gap-3">How the groups compare</DisclosureSummary><p>Fixed roughly maps to needs, Free to wants, and Moved to savings. These are not exact matches; Moved can include your own transfers. This is general information, not advice.</p><button type="button" onClick={() => setExplain(true)}>Read the mapping and sources</button></details>
       </> : <>
         {guide.shares && <div className={[s.compactRows, comparison.rows.some(row => signedMoney(row.delta ?? 0).length > 10) ? s.compactLong : ""].join(" ")}>{comparison.rows.map(row => <button key={row.id} type="button" aria-label={"View " + row.label + " breakdown"} onClick={() => setEvidence(row.id)}><span>{row.label}{row.aboveCost && <i className={s.warning} aria-hidden="true" />}</span><MoneyText text={signedMoney(row.delta ?? 0)} /><small>{row.id === "moved" ? "moved vs guide" : row.delta! > 0 ? "above guide" : row.delta! < 0 ? "below guide" : "matches guide"}</small></button>)}</div>}
         <Link className={s.viewComparison} href="/spend/shape">View the comparison and breakdown <ChevronRight size={16} aria-hidden="true" /></Link>

@@ -33,7 +33,8 @@
 // production behaviour outside this card's scope.
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, Target } from "lucide-react";
+import { ChevronRight, Target } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { api } from "@/lib/api";
@@ -333,7 +334,7 @@ export default function NotableCardA({
           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(notable.spent)}</span>
           {badge}
         </div>
-        <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
+        <DisclosureChevron open={expanded} />
       </button>
 
       {/* Full card — always visible for the primary (rank 0) card; hidden
@@ -353,7 +354,7 @@ export default function NotableCardA({
               aria-label={`Collapse ${notable.category}`}
               className="flex-shrink-0 w-8 h-8 -mr-1 flex items-center justify-center rounded-full active:bg-slate-100 dark:active:bg-slate-700/40 transition-colors"
             >
-              <ChevronUp size={14} className="text-slate-400 dark:text-slate-500" />
+              <DisclosureChevron open />
             </button>
           )}
         </div>

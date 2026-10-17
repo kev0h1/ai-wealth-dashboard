@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, ChevronRight, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import type { GrowLadderStep } from "@wealth/shared";
 import { formatCurrency } from "@/lib/currency";
 import type { CheckpointFigures } from "@/lib/planningCheckpointFigures";
@@ -67,7 +68,7 @@ function Fold({ kind, steps, figures, hideValues, last, initiallyOpen }: { kind:
     <div className="absolute -left-8 top-2 z-10 sm:-left-10">{node(kind === "done" ? "done" : "locked")}</div>
     {!last && <span className="absolute -left-5 top-8 bottom-[-1rem] w-px bg-slate-200 dark:bg-slate-700 sm:-left-7" aria-hidden="true" />}
     <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls={id} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm font-semibold text-slate-700 transition-[transform,background-color] active:scale-[0.99] hover:bg-white/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-200 dark:hover:bg-white/[0.04]">
-      <span className="min-w-0 flex-1 truncate">{label}</span><ChevronDown size={16} aria-hidden="true" className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
+      <span className="min-w-0 flex-1 truncate">{label}</span><DisclosureChevron open={open} className="shrink-0" />
     </button>
     <div id={id} inert={!open} className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] motion-reduce:transition-none ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
       <div className="overflow-hidden"><section data-g187-expanded-group="shared" className="glass-card rounded-3xl p-5">

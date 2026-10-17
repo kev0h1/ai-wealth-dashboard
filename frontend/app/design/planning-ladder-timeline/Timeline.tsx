@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Check, ChevronDown, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import type { GrowLadderStep } from "@wealth/shared";
 import PlanningCheckpointTimeline from "@/components/PlanningCheckpointTimeline";
 import type { CheckpointFigures } from "@/lib/planningCheckpointFigures";
@@ -34,7 +35,7 @@ function Fold({ kind, steps, metadata, hideValues, variant, last, initiallyOpen 
   const expanded = variant === "a"
     ? <div data-g187-expanded-group="individual" className="space-y-3 pb-3 pt-2">{steps.map((step) => <article key={step.key} data-g187-expanded-card className="glass-card rounded-3xl p-5"><CheckpointDetail step={step} metadata={metadata} hideValues={hideValues} variant={variant} /></article>)}</div>
     : <section data-g187-expanded-group="shared" className="glass-card rounded-3xl p-5"><div className="space-y-4 divide-y divide-slate-200 dark:divide-slate-700">{steps.map((step, index) => <div key={step.key} className={index === 0 ? "" : "pt-4"}><CheckpointDetail step={step} metadata={metadata} hideValues={hideValues} variant={variant} /></div>)}</div></section>;
-  return <div className="relative"><div className="absolute -left-8 top-2 z-10 sm:-left-10">{node(kind)}</div>{!last && <span className="absolute -left-5 top-8 bottom-[-1rem] w-px bg-slate-200 dark:bg-slate-700 sm:-left-7" />}<button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={id} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm font-semibold text-slate-700 transition-transform active:scale-[0.99] hover:bg-white/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-200 dark:hover:bg-white/[0.04]"><span className="min-w-0 flex-1 truncate">{label}</span><ChevronDown aria-hidden="true" size={16} className={`shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} /></button><div id={id} inert={!open} className={`grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}><div className="overflow-hidden">{expanded}</div></div></div>;
+  return <div className="relative"><div className="absolute -left-8 top-2 z-10 sm:-left-10">{node(kind)}</div>{!last && <span className="absolute -left-5 top-8 bottom-[-1rem] w-px bg-slate-200 dark:bg-slate-700 sm:-left-7" />}<button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={id} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm font-semibold text-slate-700 transition-transform active:scale-[0.99] hover:bg-white/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-200 dark:hover:bg-white/[0.04]"><span className="min-w-0 flex-1 truncate">{label}</span><DisclosureChevron open={open} /></button><div id={id} inert={!open} className={`grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}><div className="overflow-hidden">{expanded}</div></div></div>;
 }
 
 function Active({ step, metadata, hideValues, variant, last }: { step: GrowLadderStep; metadata: CheckpointMeta; hideValues: boolean; variant: TimelineVariant; last: boolean }) {

@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, ChevronDown, Moon, Sun, X } from "lucide-react";
+import { ArrowLeft, Check, Moon, Sun, X } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import { BANK_META, BankBadge, bankLogoSrc } from "@/components/AccountMiniCard";
 import FixtureBottomNav from "@/app/design/_components/FixtureBottomNav";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -48,10 +49,10 @@ function Controls({ variant, scenario, mode }: { variant: Variant; scenario: Sce
           ))}
         </nav>
         <details className="group mt-1">
-          <summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-xs text-slate-600 active:opacity-70 dark:text-slate-300 [&::-webkit-details-marker]:hidden ${focus}`}>
+          <DisclosureSummary className={`min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg text-xs text-slate-600 active:opacity-70 dark:text-slate-300 ${focus}`}>
             <span>Example: <span className="font-semibold">{SCENARIOS.find((item) => item.id === scenario)?.label}</span></span>
-            <span className="flex items-center gap-1">Change example <ChevronDown size={14} className="group-open:rotate-180" aria-hidden="true" /></span>
-          </summary>
+            <span className="flex items-center gap-1">Change example</span>
+          </DisclosureSummary>
           <nav aria-label="Example scenarios" className="grid grid-cols-2 gap-2 pb-2 sm:grid-cols-4">
             {SCENARIOS.map((item) => <Link key={item.id} href={href({ scenario: item.id })} aria-current={scenario === item.id ? "page" : undefined} className={`flex min-h-11 items-center justify-center rounded-xl px-3 text-xs font-semibold active:scale-95 ${focus} ${scenario === item.id ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-400/15 dark:text-indigo-200" : "border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"}`}>{item.label}</Link>)}
           </nav>
@@ -80,9 +81,7 @@ function Verdict({ forecast }: { forecast: Forecast }) {
           : <>Together, these accounts would end at <span className={`${mono} font-medium`}>{money(forecast.closing)}</span>. Check each short account before its payment is due.</>}
       </p>
       <details className="group">
-        <summary className={`flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 active:opacity-70 dark:text-slate-300 [&::-webkit-details-marker]:hidden ${focus}`}>
-          Across these accounts <ChevronDown size={14} className="group-open:rotate-180" aria-hidden="true" />
-        </summary>
+        <DisclosureSummary className={`min-h-11 cursor-pointer items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 active:opacity-70 dark:text-slate-300 ${focus}`}>Across these accounts</DisclosureSummary>
         <dl className="space-y-2 pb-3 text-xs">
           <LedgerLine label="Cash now" value={forecast.cash} />
           <LedgerLine label={forecast.optionalMoves ? "Planned moves to savings" : "Payments over these two days"} value={-forecast.outgoing} />

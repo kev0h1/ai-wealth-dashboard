@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronDown, Trash2, Receipt, Camera, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Trash2, Receipt, Camera, Image as ImageIcon } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, Basket } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 
@@ -201,10 +202,7 @@ export default function ReceiptsPage() {
                       className="flex-1 flex items-center gap-2 min-w-0 text-left"
                       aria-expanded={open}
                     >
-                      <ChevronDown
-                        size={16}
-                        className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-                      />
+                      <DisclosureChevron open={open} className="flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
                           {b.shop || "Receipt"}

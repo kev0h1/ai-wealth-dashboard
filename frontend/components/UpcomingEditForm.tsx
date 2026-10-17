@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { DateField } from "./DatePicker";
+import { DisclosureSummary } from "./Disclosure";
 import { dateLabel } from "@/lib/upcomingPlans";
 import { EditorActions, EditorError, editorField, editorQuiet, useEditorRequest, validDate } from "./upcoming/editorSupport";
 
@@ -56,7 +57,7 @@ export function UpcomingEditForm({ item, onCancel, onDone, onDismiss, onSaved, s
       <fieldset className="border-t border-slate-200 pt-4 dark:border-slate-700"><legend className="pr-3 text-sm font-semibold">Apply changes to</legend><div className="mt-1 space-y-1">
         {([["one", "Just this payment", "Keep the usual prediction."], ["future", "This and future payments", "Use the new date and amount going forward."]] as const).map(([value, label, hint]) => <label key={value} className="flex min-h-14 cursor-pointer items-center gap-3 rounded-lg py-2"><input type="radio" name={formId + "-scope"} value={value} checked={scope === value} onChange={() => setScope(value)} className="size-4 shrink-0 accent-indigo-600 focus-visible:ring-2 focus-visible:ring-indigo-500" /><span><span className="block text-sm font-medium">{label}</span><span className="block text-xs leading-5 text-slate-600 dark:text-slate-400">{hint}</span></span></label>)}
       </div></fieldset>
-      <details className="border-t border-slate-200 pt-2 dark:border-slate-700"><summary className="min-h-11 cursor-pointer py-3 text-sm font-medium">Repeats{item.rule_label ? " · " + item.rule_label : " · Set a schedule"}</summary><div className="space-y-3 pb-2">
+      <details className="border-t border-slate-200 pt-2 dark:border-slate-700"><DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3 py-3 text-sm font-medium">Repeats{item.rule_label ? " · " + item.rule_label : " · Set a schedule"}</DisclosureSummary><div className="space-y-3 pb-2">
         {item.rule_label ? <button type="button" onClick={() => void mutate(() => services.clearUpcomingRule({ key: item.name }))} className={editorQuiet}>Remove schedule</button> : <>
           <label className="block text-sm font-medium">Schedule<input value={ruleText} onChange={(event) => { previewGeneration.current += 1; setRuleText(event.target.value); setRulePreview(null); }} placeholder="For example, every Sunday" className={editorField} /></label>
           {rulePreview ? <div><p className="text-sm font-semibold">{rulePreview.label}</p><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{rulePreview.next_dates.map(dateLabel).join(" · ")}</p><button type="button" onClick={() => void mutate(() => services.applyUpcomingRule({ key: item.name, schedule: rulePreview.schedule }))} className={editorQuiet}>Apply schedule</button></div> : <button type="button" disabled={!ruleText.trim()} onClick={() => void previewRule()} className={editorQuiet}>Preview schedule</button>}

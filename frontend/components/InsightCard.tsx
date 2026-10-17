@@ -18,10 +18,11 @@
 import { useState, useCallback, useRef, useId, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Bookmark, BookmarkCheck, ChevronDown, ChevronRight, CheckCircle2, Circle,
+  Bookmark, BookmarkCheck, ChevronRight, CheckCircle2, Circle,
   RotateCcw, ExternalLink, SlidersHorizontal, RefreshCw, PartyPopper,
 } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep } from "@/lib/api";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -168,7 +169,7 @@ export function CompactInsightRow({
           ~£{Math.round(total).toLocaleString("en-GB")}/mo · {placeCount} place{placeCount !== 1 ? "s" : ""}
         </span>
       )}
-      <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
+      <DisclosureChevron open={false} />
     </button>
   );
 }
@@ -794,7 +795,7 @@ export function InsightCard({
                 Based on {txnCount} transaction{txnCount !== 1 ? "s" : ""}
                 {placeCount > 1 ? ` across ${placeCount} places` : ""}
               </span>
-              <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${showTriggers ? "rotate-180" : ""}`} />
+              <DisclosureChevron open={showTriggers} />
             </button>
             {showTriggers && (
               <div className="px-4 pb-3 space-y-1.5">

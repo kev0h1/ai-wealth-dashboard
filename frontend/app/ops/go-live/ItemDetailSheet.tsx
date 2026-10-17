@@ -33,7 +33,8 @@
 // mistake.
 
 import { useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { X } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import type { api } from "@/lib/api";
 import {
   BOARD_COLUMNS,
@@ -299,11 +300,7 @@ export function ItemDetailSheet({
                 className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
               >
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Notes ({item.notes.length})</span>
-                <ChevronDown
-                  size={14}
-                  className={`shrink-0 text-slate-400 transition-transform dark:text-slate-500 ${notesExpanded ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                />
+                <DisclosureChevron open={notesExpanded} className="shrink-0" />
               </button>
 
               {!notesExpanded && (

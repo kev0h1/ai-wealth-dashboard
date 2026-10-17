@@ -887,6 +887,13 @@ html[data-penny-typing="true"] [data-penny-navigation] {
   pointer-events: none;
 }
 
+/* A disclosure indicator belongs to its own native details element. Keeping
+   this as a direct-child selector means nested disclosures retain their own
+   closed/open state when a parent is open. */
+.disclosure-summary::-webkit-details-marker { display: none; }
+.disclosure-summary::marker { content: ""; }
+details[open] > .disclosure-summary > .disclosure-chevron { transform: rotate(180deg); }
+
 /* interactive-widget=resizes-content (app/layout.tsx) makes Chrome on Android
    shrink the layout viewport, so a fixed bottom edge is the keyboard top and
    the bottom navigation would ride up above the keyboard on every text field.

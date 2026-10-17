@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, Search, ShieldCheck } from "lucide-react";
+import { Search, ShieldCheck } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { SheetFrame } from "@/components/SheetFrame";
 import type { Account } from "@/lib/api";
 import styles from "./fresh.module.css";
@@ -105,7 +106,7 @@ export function AccountDirectory(props: FreshProps) {
 function BankFolder({ bank, accounts, props, forcedOpen, open, onToggle }: { bank: string; accounts: Account[]; props: FreshProps; forcedOpen: boolean; open: boolean; onToggle: () => void }) {
   const visible = forcedOpen || open;
   return <section className="border-t border-slate-100 first:border-t-0 dark:border-slate-700/70">
-    <button type="button" onClick={onToggle} aria-expanded={visible} className={`flex min-h-14 w-full items-center gap-3 text-left ${FOCUS}`}><span className="min-w-0 flex-1"><span className="block truncate text-[14px] font-semibold text-slate-950 dark:text-white">{bank}</span><span className={`block text-[12px] ${SECONDARY}`}>Account permissions</span></span><ChevronDown size={17} aria-hidden="true" className={`text-slate-500 transition-transform ${visible ? "rotate-180" : ""}`} /></button>
+    <button type="button" onClick={onToggle} aria-expanded={visible} className={`flex min-h-14 w-full items-center gap-3 text-left ${FOCUS}`}><span className="min-w-0 flex-1"><span className="block truncate text-[14px] font-semibold text-slate-950 dark:text-white">{bank}</span><span className={`block text-[12px] ${SECONDARY}`}>Account permissions</span></span><DisclosureChevron open={visible} /></button>
     {visible && <DirectoryRows accounts={accounts} props={props} />}
   </section>;
 }

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
@@ -3098,11 +3099,7 @@ export default function AccountsPage() {
                                     ? "£••••"
                                     : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
                                 </span>
-                                <ChevronDown
-                                  size={16}
-                                  className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${isCollapsed ? "" : "rotate-180"}`}
-                                  aria-hidden="true"
-                                />
+                                <DisclosureChevron open={!isCollapsed} />
                               </span>
                             </button>
                             <div
@@ -3150,11 +3147,7 @@ export default function AccountsPage() {
                             <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">Inactive</span>
                             <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{inactiveRows.length} {inactiveRows.length === 1 ? "account" : "accounts"}</span>
                           </span>
-                          <ChevronDown
-                            size={16}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${inactiveOpen ? "rotate-180" : ""}`}
-                            aria-hidden="true"
-                          />
+                          <DisclosureChevron open={inactiveOpen} />
                         </button>
                         <div
                           className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
@@ -3381,7 +3374,7 @@ export default function AccountsPage() {
                           aria-label="Collapse"
                           className="w-11 h-11 flex items-center justify-center text-slate-500 dark:text-slate-400 flex-shrink-0"
                         >
-                          <ChevronUp size={14} />
+                          <DisclosureChevron open />
                         </button>
                       </>
                     ) : (
@@ -3417,7 +3410,7 @@ export default function AccountsPage() {
                           aria-label="Expand"
                           className="w-11 h-11 flex items-center justify-center text-slate-500 dark:text-slate-400 flex-shrink-0"
                         >
-                          <ChevronDown size={14} />
+                          <DisclosureChevron open={false} />
                         </button>
                       </>
                     )}
@@ -3510,7 +3503,7 @@ export default function AccountsPage() {
                         >
                           <Info size={12} aria-hidden="true" />
                           How this stays current
-                          {howItWorksOpen[inv.id] ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+                          <DisclosureChevron open={Boolean(howItWorksOpen[inv.id])} />
                         </button>
                         {howItWorksOpen[inv.id] && (
                           <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">

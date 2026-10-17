@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Utensils } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import MirrorNextStep from "@/components/MirrorNextStep";
 import { AimRing } from "@/components/AimProgress";
@@ -61,7 +62,7 @@ function Evidence({ scenario, masked, unavailable, retry }: { scenario: Scenario
             <div className={styles.totalRow}><dt>Total shown</dt><dd><MoneyText text={money(example.spent, masked)} /></dd></div>
           </dl>
           <details className={styles.reference}>
-            <summary>4 payment-related charges</summary>
+            <DisclosureSummary>4 payment-related charges</DisclosureSummary>
             <p className={styles.quiet}>These charges total <MoneyText text={money(36, masked)} />. A fee alone does not prove a missed payment.</p>
             <dl>{fees.map(row => <div className={styles.row} key={row.name}><dt>{row.date}<br />{row.name}</dt><dd><MoneyText text={money(row.amount, masked)} /></dd></div>)}</dl>
           </details>
@@ -69,7 +70,7 @@ function Evidence({ scenario, masked, unavailable, retry }: { scenario: Scenario
       </div>
     </section>
     {!unavailable && <details className={styles.reference}>
-      <summary>How the recent pattern changed</summary>
+      <DisclosureSummary>How the recent pattern changed</DisclosureSummary>
       <p className={styles.quiet}>Payment counts across 4 completed weeks, separate from the reviewed pay period. Snapshot: 17 Oct. Counts show what happened, not why.</p>
       <dl>{frequency.map(row => <div className={styles.row} key={row.week}><dt>{row.week}</dt><dd>{row.count} payments</dd></div>)}</dl>
     </details>}
@@ -175,7 +176,7 @@ function MirrorLoopState({ params }: { params: { get: (key: string) => string | 
       <nav className={styles.previewNav} aria-label="Preview controls">
         <a className={styles.control} aria-current={variant === "a" ? "page" : undefined} href={href({ variant: "a" })}>A · Trait in motion</a>
         <a className={styles.control} aria-current={variant === "b" ? "page" : undefined} href={href({ variant: "b" })}>B · Period review</a>
-        <details className={styles.exampleMenu}><summary>Examples &amp; display</summary><div>{scenarios.map(item => <a className={styles.menuLink} key={item} href={href({ scenario: item })}>{item}</a>)}<a className={styles.menuLink} href={href({ dark: !dark })}>{dark ? "Light mode" : "Dark mode"}</a><a className={styles.menuLink} href={href({ masked: !masked })}>{masked ? "Show figures" : "Mask figures"}</a></div></details>
+        <details className={styles.exampleMenu}><DisclosureSummary>Examples &amp; display</DisclosureSummary><div>{scenarios.map(item => <a className={styles.menuLink} key={item} href={href({ scenario: item })}>{item}</a>)}<a className={styles.menuLink} href={href({ dark: !dark })}>{dark ? "Light mode" : "Dark mode"}</a><a className={styles.menuLink} href={href({ masked: !masked })}>{masked ? "Show figures" : "Mask figures"}</a></div></details>
       </nav>
       <p className={styles.quiet}>{variant === "a" ? "A keeps the whole loop with its trait." : "B brings one progress check or period review into focus."} History and period outcomes here are proposed views, not live API data.</p>
       <div role="status" className={styles.notice}>{notice}</div>
@@ -183,8 +184,8 @@ function MirrorLoopState({ params }: { params: { get: (key: string) => string | 
         <div>
           {variant === "b" && focused && <section className={styles.surface} aria-label="Focused review"><div className={styles.body}>{focus}</div></section>}
           <div className={variant === "b" && focused ? "mt-4" : ""}>{trait}</div>
-          <details className={styles.reference}><summary>Other patterns, kept quiet</summary><p className={styles.quiet}>These kept traits receive no coaching.</p>{unavailable ? <p className={styles.quiet}>Their evidence waits until the example history is available.</p> : <><p className="mt-3 text-sm font-semibold">The Daily Saver</p><p className={styles.quiet}><MoneyText text={money(14872, masked)} /> moved to savings in this illustration.</p><p className="mt-3 text-sm font-semibold">The Orchestrator</p><p className={styles.quiet}><MoneyText text={money(2270, masked)} /> moved between accounts in this illustration.</p></>}</details>
-          <details className={styles.reference}><summary>Current reference card</summary><div inert className="mt-3"><TraitCard trait={referenceTrait} activeAim={null} onChoice={() => {}} onSetAim={() => {}} /></div></details>
+          <details className={styles.reference}><DisclosureSummary>Other patterns, kept quiet</DisclosureSummary><p className={styles.quiet}>These kept traits receive no coaching.</p>{unavailable ? <p className={styles.quiet}>Their evidence waits until the example history is available.</p> : <><p className="mt-3 text-sm font-semibold">The Daily Saver</p><p className={styles.quiet}><MoneyText text={money(14872, masked)} /> moved to savings in this illustration.</p><p className="mt-3 text-sm font-semibold">The Orchestrator</p><p className={styles.quiet}><MoneyText text={money(2270, masked)} /> moved between accounts in this illustration.</p></>}</details>
+          <details className={styles.reference}><DisclosureSummary>Current reference card</DisclosureSummary><div inert className="mt-3"><TraitCard trait={referenceTrait} activeAim={null} onChoice={() => {}} onSetAim={() => {}} /></div></details>
         </div>
         <Evidence scenario={scenario} masked={masked} unavailable={unavailable} retry={() => { setRetried(true); setNotice("Illustrative snapshot restored locally. No bank refresh was requested."); }} />
       </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ArrowRight, ChevronDown, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, Search, ShieldCheck } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import type { Account } from "@/lib/api";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
@@ -517,11 +518,7 @@ function ExceptionsManager({
                 aria-expanded={turnedOffOpen}
                 className="flex min-h-11 w-full items-center gap-2 px-4 text-[12px] font-semibold text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"
               >
-                <ChevronDown
-                  size={14}
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${turnedOffOpen ? "rotate-180" : ""}`}
-                />
+                <DisclosureChevron open={turnedOffOpen} className="shrink-0" />
                 {excludedAccounts.length} accounts turned off
               </button>
               <Disclosure open={turnedOffOpen}>
@@ -553,11 +550,7 @@ function ExceptionsManager({
                 aria-expanded={skippedOpen}
                 className="flex min-h-11 w-full items-center gap-2 px-4 text-[12px] font-semibold text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400"
               >
-                <ChevronDown
-                  size={14}
-                  aria-hidden="true"
-                  className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${skippedOpen ? "rotate-180" : ""}`}
-                />
+                <DisclosureChevron open={skippedOpen} className="shrink-0" />
                 {skipped.length} skipped ({shortCount} short, {emptyCount} empty)
               </button>
               <Disclosure open={skippedOpen}>

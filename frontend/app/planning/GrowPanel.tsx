@@ -27,7 +27,6 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  ChevronDown,
   ChevronRight,
   CircleCheck,
   Gauge,
@@ -37,6 +36,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import { DisclosureSummary } from "@/components/Disclosure";
 import type { GrowLadderStep, GrowView } from "@wealth/shared";
 import { api, SavingsInsights } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";
@@ -577,10 +577,9 @@ export function GrowHero({
 
           {view.surplus_ledger && (
             <details className="group mt-3">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+              <DisclosureSummary className="min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
                 How we calculated this
-                <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
-              </summary>
+              </DisclosureSummary>
               <dl className="mt-2 space-y-0.5 text-[13px] text-slate-600 dark:text-slate-300">
                 <div className="flex min-h-9 items-center justify-between gap-4">
                   <dt>Typical income</dt>

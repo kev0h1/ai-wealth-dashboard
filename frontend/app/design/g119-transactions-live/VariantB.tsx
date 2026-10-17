@@ -15,7 +15,8 @@
 // the scroll-restoration work in G108, not solved by this preview).
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown } from "lucide-react";
+import { ArrowUp } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import type { Account, Transaction } from "@/lib/api";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
@@ -53,11 +54,7 @@ function Row({
         {isCredit ? "+" : MINUS}
         {formatCurrency(tx.amount, tx.currency)}
       </span>
-      <ChevronDown
-        size={16}
-        className={`flex-shrink-0 text-slate-400 dark:text-slate-300 transition-transform ${isOpen ? "rotate-180" : ""}`}
-        aria-hidden="true"
-      />
+      <DisclosureChevron open={isOpen} />
     </button>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, CreditCard, ShieldCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRight, CreditCard, ShieldCheck } from "lucide-react";
+import { DisclosureSummary } from "./Disclosure";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
@@ -770,10 +771,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       <div className="mt-3 border-t border-slate-100 dark:border-white/10">
         <details className="group">
-          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+          <DisclosureSummary className="min-h-12 cursor-pointer items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
             {summaryLabel}
-            <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-          </summary>
+          </DisclosureSummary>
 
           <div className="pb-2 pt-3">
             <div className="flex items-center justify-between gap-3">

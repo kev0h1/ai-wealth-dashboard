@@ -26,7 +26,8 @@
 // already one scroll away on this same screen.
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, Lightbulb } from "lucide-react";
+import { Lightbulb } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import { InsightCard } from "@/components/InsightCard";
 import type { SavingsInsight } from "@/lib/api";
@@ -76,13 +77,7 @@ export function TipStrip({
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{tip.stale_note}</p>
           )}
         </div>
-        <ChevronDown
-          size={14}
-          className={`flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${
-            open ? "rotate-180" : ""
-          }`}
-          aria-hidden="true"
-        />
+        <DisclosureChevron open={open} className="flex-shrink-0" />
       </button>
       <div
         id={regionId}
@@ -184,13 +179,7 @@ export function TipsLine({
         <span className="flex-1 min-w-0 text-[13px] font-semibold text-slate-700 dark:text-slate-300 truncate">
           <MoneyText text={tipsLineText(category, tips)} />
         </span>
-        <ChevronDown
-          size={14}
-          className={`flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${
-            open ? "rotate-180" : ""
-          }`}
-          aria-hidden="true"
-        />
+        <DisclosureChevron open={open} className="flex-shrink-0" />
       </button>
       <div
         id={regionId}

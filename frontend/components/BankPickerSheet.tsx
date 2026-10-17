@@ -2,7 +2,8 @@
 
 import { consentToolbarColor, isDarkPreferenceOn } from "@/lib/consentToolbar";
 import { useState, useEffect, useRef, type ReactNode } from "react";
-import { X, Search, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
+import { X, Search, ChevronRight, Loader2 } from "lucide-react";
+import { DisclosureChevron } from "@/components/Disclosure";
 import { api, ApiError, resolveApiAsset } from "@/lib/api";
 import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";
@@ -75,7 +76,7 @@ function ExpandableDisclosure({ initiallyExpanded = false }: { initiallyExpanded
     <button type="button" aria-expanded={open} aria-controls={regionId} onClick={() => setOpen(o => !o)}
       className={`flex w-full items-center justify-between gap-3 text-left font-medium ${CAPTION_INK} focus-visible:outline-2 focus-visible:outline-indigo-500`}>
       <span>Regulated by the FCA through Finexer LTD</span>
-      <ChevronDown size={16} aria-hidden="true" className={`flex-shrink-0 text-slate-500 dark:text-slate-300 transition-transform ${open ? "rotate-180" : ""}`} />
+      <DisclosureChevron open={open} className="flex-shrink-0" />
     </button>
     <p id={regionId} hidden={!open} className={`pb-1 ${CAPTION_INK}`}>{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}</p>
   </div>;
