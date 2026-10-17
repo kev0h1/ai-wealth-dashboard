@@ -736,6 +736,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-16, claude): Coordinator review PASS 2026-10-16 on a9d1e010: privacy review and re-check PASS; independent functional review PASS (opt-out skips research, unknown provider gets a generic tip, saving claimed only against the user's own figure, lease and in-flight guard cannot stick, copy hedged and dated, one fetch per key per TTL). Backfill not run. Kevin to approve the proposed PRIVACY.md Tavily wording.
   - note (2026-10-16, claude): Kevin 2026-10-16: production release of this guidance feature is held pending the regulatory perimeter review (A166). It may stay live on UAT.
 - [ ] **B49. Delete the legacy per-user tip generator _generate_savings_insight_content and its 8 tests now B48 composes tips from shared research (its prompt still carries user figures)** [owner: claude]
+- [ ] **B50. Redesign the 'Choose what fits' plan picker so it does not look squeezed (Kevin 2026-10-17, Android app): five plan rows (Statements, Lite, Standard, Connect, Max) stack tightly, each truncating its description ('Keep up with day-to-day money across your mai...'), with price and 'a month' crammed on the right and an expanded detail list under the current plan, followed by 'Paid plans are not available in this app'; redesign for readability on a phone (full descriptions, clear comparison, current plan and trial state, period choice), on both web (Stripe) and native (StoreKit on iOS per C21, external link on Android per C13)** [owner: codex]
 
 ## C. Store publishing
 
