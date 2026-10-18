@@ -90,7 +90,7 @@ check("storekit.ts writes no product id (ids come from the config response)", !/
 check("storekit.ts writes no price", !/£\s*\d|\d+\.\d\d/.test(storekit));
 check("storekit.ts writes no trial length", !/\b(2|two) weeks\b|14[- ]day|14 days|fourteen/i.test(storekit));
 check("purchase reads the product id from config.products", /config\.products\[productKey\]/.test(storekit));
-check("the picker looks products up through iap.products, not a literal id", /iap\.products\[/.test(picker) && !/sorted\.(lite|standard|max|penny)/.test(picker));
+check("the picker looks products up through iap.products, not a literal id", /iap\.products\[/.test(picker) && !/sorted\.(lite|standard|plus|max|penny)/.test(picker));
 check("the config comes from the server's account-token route", /getAppleIapConfig:[\s\S]{0,200}\/billing\/apple\/account-token/.test(api));
 check("the purchase carries the appAccountToken from that config", /appAccountToken:\s*config\.app_account_token/.test(storekit));
 check("a purchase is verified by the server before it is finished", /verifyAppleTransaction\(tx\.jwsRepresentation\)[\s\S]{0,200}finishTransaction/.test(storekit));

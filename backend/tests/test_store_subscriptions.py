@@ -52,14 +52,14 @@ def cols(monkeypatch):
 
 def test_catalogue_is_nine_subscriptions_and_three_penny_packs_no_connect():
     cat = store_catalogue.build_catalogue()
-    subs = [p for p in cat.values() if p.kind == "subscription"]
+    subs = [p for p in cat.values() if p.kind == "subscription" and not p.legacy]
     packs = [p for p in cat.values() if p.kind == "pack"]
     assert len(subs) == 9 and len(packs) == 3
-    assert {p.tier for p in subs} == {"lite", "standard", "max"}
+    assert {p.tier for p in subs} == {"lite", "standard", "plus"}
     assert not any("connect" in p.product_id or "mcp" in p.product_id for p in cat.values())
     assert {p.billing_period for p in subs} == {"monthly", "six_months", "annual"}
     assert cat["sorted.lite.monthly"].tier == "lite"
-    assert cat["sorted.max.annual"].billing_period == "annual"
+    assert cat["sorted.plus.annual"].billing_period == "annual"
     assert [p.product_id for p in packs] == [f"sorted.penny.{pk['messages']}" for pk in PENNY_TOPUP_PACKS]
     assert cat["sorted.penny.100"].pack_id == "medium"
 
@@ -76,7 +76,8 @@ def test_prices_are_web_prices_and_the_trial_is_14_days():
     # price source is the web table. Nothing here may carry an iOS uplift.
     assert TIER_BILLING_PRICES_GBP["lite"]["monthly"] == 5.99
     assert TIER_BILLING_PRICES_GBP["standard"]["six_months"] == 53.99
-    assert TIER_BILLING_PRICES_GBP["max"]["annual"] == 169.99
+    assert TIER_BILLING_PRICES_GBP["plus"]["annual"] == 129.99
+    assert TIER_BILLING_PRICES_GBP["plus"]["monthly"] == 12.99 and TIER_BILLING_PRICES_GBP["plus"]["six_months"] == 69.99
     assert [p["price_gbp"] for p in PENNY_TOPUP_PACKS] == [0.99, 2.99, 4.99]
     assert SUBSCRIPTION_TRIAL_DAYS == 14
 
@@ -103,11 +104,11 @@ def test_upsert_creates_a_provider_document_and_is_idempotent(cols, provider):
 def test_two_providers_coexist_and_the_higher_tier_wins(cols):
     _run(seam.upsert_store_subscription(UID, "apple", tier="lite", billing_period="monthly", status="active",
                                         expires_at=NOW + timedelta(days=20), provider_subscription_id="a1"))
-    _run(seam.upsert_store_subscription(UID, "google", tier="max", billing_period="monthly", status="active",
+    _run(seam.upsert_store_subscription(UID, "google", tier="plus", billing_period="monthly", status="active",
                                         expires_at=NOW + timedelta(days=20), provider_subscription_id="g1"))
     assert len(cols["subscriptions_col"].docs) == 2
     sub = _run(get_subscription(UID))
-    assert sub.tier == Tier.MAX and sub.provider == "google"
+    assert sub.tier == Tier.PLUS and sub.provider == "google"
 
 
 def test_trial_fields_are_recorded(cols):
@@ -138,7 +139,7 @@ def test_expiry_for_a_superseded_subscription_does_not_touch_the_live_one(cols):
 
 
 def test_expired_loses_entitlement_immediately_whatever_expires_at_says(cols):
-    _run(seam.upsert_store_subscription(UID, "apple", tier="max", billing_period="annual", status="active",
+    _run(seam.upsert_store_subscription(UID, "apple", tier="plus", billing_period="annual", status="active",
                                         expires_at=NOW + timedelta(days=300), provider_subscription_id="a1"))
     _run(seam.set_store_subscription_status(UID, "apple", "a1", "expired"))
     sub = _run(get_subscription(UID))
@@ -166,7 +167,7 @@ def test_store_subscription_while_stripe_is_live_is_granted_and_flagged(cols):
     })
     with pytest.raises(seam.StorePurchaseRefused):
         _run(seam.validate_store_purchase(UID))
-    res = _run(seam.upsert_store_subscription(UID, "apple", tier="max", billing_period="monthly", status="active",
+    res = _run(seam.upsert_store_subscription(UID, "apple", tier="plus", billing_period="monthly", status="active",
                                               expires_at=NOW + timedelta(days=30), provider_subscription_id="a1"))
     assert res["handled"] and res["double_subscription"] is True
     apple = next(d for d in cols["subscriptions_col"].docs if d["provider"] == "apple")
@@ -258,3 +259,12 @@ def test_concurrent_grants_for_one_transaction_grant_exactly_once(cols):
     assert len(col.docs) == 1
     assert sum(1 for r in results if r["duplicate"] is False) == 1
     assert all(r["handled"] for r in results)
+
+
+def test_legacy_max_product_ids_resolve_to_plus_but_are_never_offered():
+    cat = store_catalogue.build_catalogue()
+    assert cat["sorted.max.annual"].tier == "plus" and cat["sorted.max.annual"].legacy is True
+    ids = store_catalogue.product_ids_by_key()
+    assert ids["plus_annual"] == "sorted.plus.annual" and len(ids) == 12
+    assert not any("max" in v for v in ids.values())
+    assert [p for p in cat.values() if p.kind == "subscription" and not p.legacy].__len__() == 9

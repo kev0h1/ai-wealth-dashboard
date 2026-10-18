@@ -6,7 +6,7 @@ deterministic ids unless a provider's override table says otherwise.
 
 Scheme, derived from the single price source (never retyped):
 
-  subscriptions  sorted.<tier>.<period>   tier in lite|standard|max,
+  subscriptions  sorted.<tier>.<period>   tier in lite|standard|plus,
                                           period in monthly|six_months|annual
   one-time       sorted.penny.<n>         n = messages in the pack (20/100/200)
 
@@ -25,13 +25,13 @@ monthly, `<tier>_six_months` / `<tier>_annual` for the longer periods, and
 from dataclasses import dataclass
 
 from app.core.subscription import (
-    PENNY_TOPUP_PACKS, SUBSCRIPTION_PERIODS_ENABLED, TIER_BY_NAME,
+    PENNY_TOPUP_PACKS, SUBSCRIPTION_PERIODS_ENABLED, TIER_BY_NAME, TIER_NAMES, _LEGACY_TIER_MAP,
 )
 
-# Four tiers in all (Statements is the free one); these are the paid ones the
-# stores sell. Kept explicit rather than derived from TIER_BY_NAME so a tier
+# Four tiers in all (Statements is the free one; B53 replaced Max and Connect
+# with Plus); these are the paid ones the stores sell. Kept explicit rather than derived from TIER_BY_NAME so a tier
 # added or hidden elsewhere cannot silently create or drop a store product.
-STORE_PAID_TIERS = ("lite", "standard", "max")
+STORE_PAID_TIERS = ("lite", "standard", "plus")
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,7 @@ class StoreProduct:
     billing_period: str | None = None
     pack_kind: str | None = None   # "penny"
     pack_id: str | None = None     # "small" | "medium" | "large"
+    legacy: bool = False           # an alias that resolves old ids, never offered
 
 
 def subscription_key(tier: str, period: str) -> str:
@@ -69,6 +70,18 @@ def build_catalogue(overrides: dict[str, str] | None = None) -> dict[str, StoreP
             key = subscription_key(tier, period)
             pid = overrides.get(key) or default_product_id(tier, period)
             out[pid] = StoreProduct(key=key, product_id=pid, kind="subscription", tier=tier, billing_period=period)
+    # B53: Max was renamed Plus. A transaction that ever carried a legacy
+    # `sorted.max.<period>` id resolves to the Plus product through the same
+    # legacy map the stored-tier reader uses; these ids are never offered.
+    legacy_plus = _LEGACY_TIER_MAP.get("max")
+    if legacy_plus is not None and TIER_NAMES[legacy_plus] in STORE_PAID_TIERS:
+        for product in list(out.values()):
+            if product.kind == "subscription" and product.tier == TIER_NAMES[legacy_plus]:
+                alias = default_product_id("max", product.billing_period)
+                out.setdefault(alias, StoreProduct(
+                    key=product.key, product_id=alias, kind="subscription",
+                    tier=product.tier, billing_period=product.billing_period, legacy=True,
+                ))
     for pack in PENNY_TOPUP_PACKS:
         key = f"penny_{pack['id']}"
         pid = overrides.get(key) or default_pack_product_id(pack)
@@ -78,4 +91,4 @@ def build_catalogue(overrides: dict[str, str] | None = None) -> dict[str, StoreP
 
 def product_ids_by_key(overrides: dict[str, str] | None = None) -> dict[str, str]:
     """key -> product id, what the client is given to load from the store."""
-    return {p.key: p.product_id for p in build_catalogue(overrides).values()}
+    return {p.key: p.product_id for p in build_catalogue(overrides).values() if not p.legacy}
