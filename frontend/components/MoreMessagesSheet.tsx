@@ -15,7 +15,7 @@
 // The shared task sheet opens above Penny, retaining its conversation below.
 //
 // B5: rows are real buttons once `info.billing_live` is true (POST
-// /billing/checkout, api.startCheckout) — tapping a pack or the Move to Max
+// /billing/checkout, api.startCheckout) — tapping a pack or the Move to Plus
 // row starts a Stripe Checkout session and redirects the browser to it
 // (window.location.assign). Until BILLING_ENABLED flips true somewhere
 // (no Stripe account exists yet, see CLAUDE.md's Backlog B5 note), every
@@ -38,20 +38,17 @@
 // `info.topup` if an older backend hasn't deployed `topups` yet). Packs
 // last 90 days and draw down after the monthly allowance — the footnote
 // below says so. After a user's SECOND pack purchase in one calendar month
-// (`usage.penny_packs_bought_this_month`), the Move to Max row leads and
+// (`usage.penny_packs_bought_this_month`), the Move to Plus row leads and
 // the packs render below it instead of above.
 //
-// Copy rules: no em dashes, British English, "Move to Max" not "upgrade"
+// Copy rules: no em dashes, British English, "Move to Plus" not "upgrade"
 // (Kevin's framing, see the design preview's own header comment for why).
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SheetFrame } from "@/components/SheetFrame";
-import { usePennyUsage, formatPennyResetDate, refreshPennyUsage } from "@/components/PennySheetProvider";
+import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
 import { api } from "@/lib/api";
-import { usePurchaseAvailability, usePurchaseChannel, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
-import {
-  loadPlayConfig, loadPlayPackProducts, purchasePlayPack, type PlayBillingConfig, type PlayProductView,
-} from "@/lib/playBilling";
+import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
 import type { SubscriptionTopupPack } from "@wealth/shared";
 
 const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
@@ -67,20 +64,15 @@ const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
 type PurchaseRowStatus = "buy" | "soon" | "unavailable";
 
 function TrailingPrice({
-  priceGbp, status, busy, priceLabel,
+  priceGbp, status, busy,
 }: {
   priceGbp: number | undefined;
   status: PurchaseRowStatus;
   busy: boolean;
-  /** C24: the store's own formatted price (Google Play), shown instead of
-   *  the web figure when the store has supplied one. */
-  priceLabel?: string;
 }) {
   return (
     <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
-      {priceLabel ? (
-        <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">{priceLabel}</span>
-      ) : typeof priceGbp === "number" && (
+      {typeof priceGbp === "number" && (
         <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{priceGbp.toFixed(2)}</span>
       )}
       {status === "buy" ? (
@@ -97,13 +89,12 @@ function TrailingPrice({
 }
 
 function PackRow({
-  pack, status, busy, onBuy, priceLabel,
+  pack, status, busy, onBuy,
 }: {
   pack: SubscriptionTopupPack;
   status: PurchaseRowStatus;
   busy: boolean;
   onBuy: () => void;
-  priceLabel?: string;
 }) {
   const inner = (
     <>
@@ -117,7 +108,7 @@ function PackRow({
           </span>
         )}
       </span>
-      <TrailingPrice priceGbp={pack.price_gbp} status={status} busy={busy} priceLabel={priceLabel} />
+      <TrailingPrice priceGbp={pack.price_gbp} status={status} busy={busy} />
     </>
   );
 
@@ -151,9 +142,9 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // ASSUMPTION (contract doesn't name this key explicitly — flagged in this
   // feature's own report): `prices_gbp` is keyed by SubscriptionTier value,
   // same as every other tier reference in this codebase (SubscriptionTier
-  // itself is "statements" | "lite" | "standard" | "connect" | "max"), so
-  // the Max tier's own monthly price is `prices_gbp.max`.
-  const maxPrice = info?.prices_gbp?.max;
+  // itself is "statements" | "lite" | "standard" | "plus"), so
+  // the Plus tier's own monthly price is `prices_gbp.plus`.
+  const plusPrice = info?.prices_gbp?.plus;
   const billingLive = info?.billing_live ?? false;
   // B26: neither row can ever become a real button on a native build, see
   // this file's top comment — computed once and fed into every row's
@@ -164,68 +155,16 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // canPurchaseInApp() call in render could — "unknown" takes the same
   // !== "web" branch as "native".
   const purchasingAllowed = usePurchaseAvailability() === "web";
-  // C24: the Android build buys packs through Google Play Billing (one-time
-  // products), never Stripe. `play` is only true in a real Android binary
-  // that contains the plugin (lib/purchaseChannel.ts). Product ids come from
-  // GET /billing/play/config and the price shown is the store's own.
-  const play = usePurchaseChannel() === "play";
-  const [playCfg, setPlayCfg] = useState<PlayBillingConfig | null>(null);
-  const [playState, setPlayState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
-  const [playProducts, setPlayProducts] = useState<Record<string, PlayProductView>>({});
-  useEffect(() => {
-    if (!play) return;
-    let live = true;
-    setPlayState("loading");
-    (async () => {
-      try {
-        const config = await loadPlayConfig();
-        if (!live) return;
-        setPlayCfg(config);
-        if (!config.enabled) { setPlayState("failed"); return; }
-        const ids = Object.entries(config.products ?? {}).filter(([key]) => key.startsWith("penny_")).map(([, id]) => id);
-        const views = await loadPlayPackProducts(ids);
-        if (!live) return;
-        setPlayProducts(views);
-        setPlayState("ready");
-      } catch {
-        if (live) setPlayState("failed");
-      }
-    })();
-    return () => { live = false; };
-  }, [play]);
-  const playReady = Boolean(play && playCfg?.enabled && !playCfg.purchase_blocked && playState === "ready");
-  const rowStatus: PurchaseRowStatus = play
-    ? (playReady ? "buy" : playState === "failed" || playCfg?.purchase_blocked ? "unavailable" : "soon")
-    : !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
-  const playPriceLabel = (packId: string): string | undefined => {
-    const id = playCfg?.products?.[`penny_${packId}`];
-    return id ? playProducts[id]?.priceString : undefined;
-  };
-  // Hide the Max row entirely once the user is already on it — there is
+  const rowStatus: PurchaseRowStatus = !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
+  // Hide the Plus row entirely once the user is already on it — there is
   // nothing to move to.
-  const onMax = info?.tier === "max";
-  // Leads with Move to Max once a second pack has been bought this month
+  const onPlus = info?.tier === "plus";
+  // Leads with Move to Plus once a second pack has been bought this month
   // (section 9's cannibalisation guard for the large pack).
-  const maxLeads = (info?.usage.penny_packs_bought_this_month ?? 0) >= 2 && !onMax;
+  const plusLeads = (info?.usage.penny_packs_bought_this_month ?? 0) >= 2 && !onPlus;
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  async function buyOnPlay(packId: string) {
-    if (pendingId || !playReady || !playCfg) return;
-    setErrorMsg(null);
-    setNotice(null);
-    setPendingId(packId);
-    const outcome = await purchasePlayPack(`penny_${packId}`, playCfg);
-    setPendingId(null);
-    if (outcome.ok) {
-      setNotice("Your messages have been added.");
-      void refreshPennyUsage();
-    } else if (!outcome.cancelled) {
-      setErrorMsg(outcome.message);
-    }
-  }
 
   async function buy(kind: "subscription" | "pack", target: string) {
     if (pendingId || !purchasingAllowed) return;
@@ -240,27 +179,25 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
     }
   }
 
-  // C24: no Move to Max row on Android: a plan change there is made in Your
-  // plan, and the plugin cannot upgrade a live Play subscription in place.
-  const maxRow = !onMax && !play && (
+  const plusRow = !onPlus && (
     rowStatus === "buy" ? (
       <button
         type="button"
-        onClick={() => buy("subscription", "max")}
+        onClick={() => buy("subscription", "plus")}
         disabled={!!pendingId}
         className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px] text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-          Move to Max, 400 a month
+          Move to Plus, 300 a month
         </span>
-        <TrailingPrice priceGbp={maxPrice} status={rowStatus} busy={pendingId === "max"} />
+        <TrailingPrice priceGbp={plusPrice} status={rowStatus} busy={pendingId === "plus"} />
       </button>
     ) : (
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-          Move to Max, 400 a month
+          Move to Plus, 300 a month
         </span>
-        <TrailingPrice priceGbp={maxPrice} status={rowStatus} busy={false} />
+        <TrailingPrice priceGbp={plusPrice} status={rowStatus} busy={false} />
       </div>
     )
   );
@@ -271,8 +208,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
       pack={pack}
       status={rowStatus}
       busy={pendingId === pack.id}
-      onBuy={() => (play ? buyOnPlay(pack.id) : buy("pack", pack.id))}
-      priceLabel={play ? playPriceLabel(pack.id) : undefined}
+      onBuy={() => buy("pack", pack.id)}
     />
   ));
 
@@ -285,22 +221,19 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
         </p>
 
         <div className="space-y-2">
-          {maxLeads ? (
+          {plusLeads ? (
             <>
-              {maxRow}
+              {plusRow}
               {packRows}
             </>
           ) : (
             <>
               {packRows}
-              {maxRow}
+              {plusRow}
             </>
           )}
         </div>
 
-        {notice && (
-          <p role="status" className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">{notice}</p>
-        )}
         {errorMsg && (
           <p role="alert" className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">{errorMsg}</p>
         )}

@@ -57,6 +57,13 @@ NOTIF_DEFAULTS = {
     # broadcast every other notifier here implicitly allows by taking an
     # arbitrary user_id.
     "uat_review":                True,
+    # E8: throttled operational alerts (error rate, sync failures, quota, disk
+    # or memory, new error type) from app.services.health.alerts. Owner only:
+    # the sender addresses PRIMARY_EMAIL and nobody else. Tapping one opens
+    # /ops/health. No Settings toggle (this is an ops channel, not a user
+    # feature); the preference key exists so it can be muted through PATCH
+    # /preferences like every other kind in this catalogue.
+    "ops_alerts":                True,
     # B20: admin-composed offer broadcasts (app/services/broadcast.py). No
     # Settings UI toggle exists yet, same as connection_health above, but
     # the preference is fully live: PATCH /preferences already accepts

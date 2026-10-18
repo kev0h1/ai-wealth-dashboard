@@ -302,10 +302,15 @@ def _patch_collections(monkeypatch, **cols):
 
 _FULL_PRICE_IDS = {
     "lite": "price_lite", "standard": "price_standard",
+    "plus": "price_plus",
+    # B53: retired tiers' price ids, present only so existing Stripe
+    # subscriptions still resolve (to plus) in the webhook.
     "connect": "price_connect", "max": "price_max",
+    "connect_six_months": "price_connect_six_months", "connect_annual": "price_connect_annual",
+    "max_six_months": "price_max_six_months", "max_annual": "price_max_annual",
     **{
         f"{tier}_{period}": f"price_{tier}_{period}"
-        for tier in ("lite", "standard", "connect", "max")
+        for tier in ("lite", "standard", "plus")
         for period in ("six_months", "annual")
     },
     "penny_small": "price_penny_small", "penny_medium": "price_penny_medium",
@@ -316,8 +321,8 @@ _FULL_PRICE_IDS = {
 # ── 1. STRIPE_PRICE_IDS parsing ───────────────────────────────────────────
 
 def test_parse_stripe_price_ids_well_formed():
-    parsed = config_module._parse_stripe_price_ids("lite=price_a,standard=price_b, max = price_c ")
-    assert parsed == {"lite": "price_a", "standard": "price_b", "max": "price_c"}
+    parsed = config_module._parse_stripe_price_ids("lite=price_a,standard=price_b, plus = price_c ")
+    assert parsed == {"lite": "price_a", "standard": "price_b", "plus": "price_c"}
 
 
 def test_parse_stripe_price_ids_skips_malformed_entries():
@@ -332,17 +337,18 @@ def test_parse_stripe_price_ids_empty_string():
 def test_billing_enabled_requires_secret_key_and_every_price_id():
     # Mirrors the formula in app.core.config: BILLING_ENABLED = bool(secret)
     # and all(required keys present). B27 (2026-09-12): three_months was
-    # dropped from _STRIPE_LONGER_PERIODS, so this is 16 keys now, not 20.
+    # dropped from _STRIPE_LONGER_PERIODS, so this was 16 keys; B53 (Plus replaced Connect and Max) makes it 13.
     required = config_module._STRIPE_REQUIRED_PRICE_KEYS
     complete = {k: f"price_{k}" for k in required}
-    assert len(required) == 16
+    assert len(required) == 13
     assert "lite_three_months" not in required
     assert "standard_six_months" in required
-    assert "max_annual" in required
+    assert "plus_annual" in required
+    assert "max_annual" not in required and "connect" not in required
     assert bool("sk_test_x") and all(k in complete for k in required)
 
     incomplete = dict(complete)
-    del incomplete["max"]
+    del incomplete["plus"]
     assert not (bool("sk_test_x") and all(k in incomplete for k in required))
 
     assert not (bool("") and all(k in complete for k in required))
@@ -410,12 +416,12 @@ def test_create_checkout_session_annual_trial_is_fixed_at_14_days(monkeypatch):
     _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
 
     _run(billing_module.create_checkout_session(
-        UID, kind="subscription", target="max", billing_period="annual", trial=True,
+        UID, kind="subscription", target="plus", billing_period="annual", trial=True,
         success_url="https://app/success", cancel_url="https://app/cancel",
     ))
 
     call = fake_stripe.checkout_calls[0]
-    assert call["line_items"] == [{"price": "price_max_annual", "quantity": 1}]
+    assert call["line_items"] == [{"price": "price_plus_annual", "quantity": 1}]
     assert call["payment_method_collection"] == "always"
     assert call["subscription_data"]["trial_period_days"] == 14
     assert call["subscription_data"]["metadata"]["trial"] == "true"
@@ -433,7 +439,7 @@ def test_create_checkout_session_rejects_trial_on_disabled_period(monkeypatch):
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
     with pytest.raises(billing_module.BillingError, match="not currently offered"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="three_months", trial=True,
+            UID, kind="subscription", target="plus", billing_period="three_months", trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -451,7 +457,7 @@ def test_create_checkout_session_trial_accepted_on_every_enabled_period(monkeypa
         _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
 
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period=period, trial=True,
+            UID, kind="subscription", target="plus", billing_period=period, trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -472,7 +478,7 @@ def test_create_checkout_session_rejects_disabled_billing_period(monkeypatch):
     monkeypatch.setattr(billing_module, "SUBSCRIPTION_PERIODS_ENABLED", ("monthly", "annual"))
     with pytest.raises(billing_module.BillingError, match="not currently offered"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="three_months",
+            UID, kind="subscription", target="plus", billing_period="three_months",
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -485,7 +491,7 @@ def test_create_checkout_session_rejects_trial_when_period_not_in_trial_periods(
     monkeypatch.setattr(billing_module, "SUBSCRIPTION_TRIAL_PERIODS", ())
     with pytest.raises(billing_module.BillingError, match="not available with this billing period"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="annual", trial=True,
+            UID, kind="subscription", target="plus", billing_period="annual", trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -498,7 +504,7 @@ def test_checkout_rejects_second_subscription_for_active_stripe_user(monkeypatch
     }]))
     with pytest.raises(billing_module.BillingError, match="existing subscription"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="annual",
+            UID, kind="subscription", target="plus", billing_period="annual",
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -511,7 +517,7 @@ def test_checkout_rejects_repeat_trial_after_expired_stripe_subscription(monkeyp
     }]))
     with pytest.raises(billing_module.BillingError, match="already been used"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="annual", trial=True,
+            UID, kind="subscription", target="plus", billing_period="annual", trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -571,7 +577,7 @@ def test_subscription_checkout_reservation_reuses_same_session_and_blocks_differ
     assert fake_stripe.checkout_calls[0]["idempotency_key"]
     with pytest.raises(billing_module.BillingError, match="already open"):
         _run(billing_module.create_checkout_session(
-            UID, kind="subscription", target="max", billing_period="annual", trial=True,
+            UID, kind="subscription", target="plus", billing_period="annual", trial=True,
             success_url="https://app/success", cancel_url="https://app/cancel",
         ))
 
@@ -752,7 +758,7 @@ def test_billing_router_checkout_rejects_disabled_period(monkeypatch):
     monkeypatch.setattr(billing_router_module, "SUBSCRIPTION_PERIODS_ENABLED", ("monthly", "annual"))
     try:
         _run(billing_router_module.create_checkout(
-            {"kind": "subscription", "target": "max", "billing_period": "three_months"},
+            {"kind": "subscription", "target": "plus", "billing_period": "three_months"},
             user={"email": UID},
         ))
         assert False, "expected HTTPException"
@@ -773,7 +779,7 @@ def test_billing_router_checkout_rejects_trial_on_non_trial_period(monkeypatch):
     monkeypatch.setattr(billing_router_module, "SUBSCRIPTION_TRIAL_PERIODS", ("annual",))
     try:
         _run(billing_router_module.create_checkout(
-            {"kind": "subscription", "target": "max", "billing_period": "monthly", "trial": True},
+            {"kind": "subscription", "target": "plus", "billing_period": "monthly", "trial": True},
             user={"email": UID},
         ))
         assert False, "expected HTTPException"
@@ -1023,7 +1029,7 @@ def test_subscription_upsert_ignores_spoofed_metadata_tier_uses_stripe_price_onl
     must resolve the tier ONLY from the real Stripe Subscription's own
     `items[0].price.id` (a field the caller cannot set — Stripe assigns
     it from whatever price the Checkout Session actually purchased),
-    never from `metadata`. This test forges `metadata` claiming tier=max
+    never from `metadata`. This test forges `metadata` claiming tier=plus
     on a subscription whose actual Stripe price is the "lite" price, and
     asserts the granted tier is "lite", not "max"."""
     fake_subs = _FakeCol()
@@ -1038,7 +1044,7 @@ def test_subscription_upsert_ignores_spoofed_metadata_tier_uses_stripe_price_onl
             # Caller-influenced metadata claims "max" — never trusted for
             # the tier itself, only used to resolve `uid` (a separate,
             # already-validated concern; see _resolve_uid's own docstring).
-            "metadata": {"uid": UID, "tier": "max", "target": "max"},
+            "metadata": {"uid": UID, "tier": "max", "target": "plus"},
             "items": {"data": [{"price": {"id": "price_lite"}}]},  # the REAL purchased price
         }},
     }
@@ -1140,7 +1146,7 @@ def test_checkout_completed_subscription_kind_is_a_noop(monkeypatch):
 
     event = {
         "id": "evt_sub_checkout", "type": "checkout.session.completed",
-        "data": {"object": {"metadata": {"uid": UID, "kind": "subscription", "target": "max"}}},
+        "data": {"object": {"metadata": {"uid": UID, "kind": "subscription", "target": "plus"}}},
     }
     result = _run(billing_module.handle_event(event))
     assert result["result"]["handled"] is False
@@ -1217,6 +1223,43 @@ def test_subscription_updated_maps_past_due_status(monkeypatch):
     assert fake_subs.docs[0]["status"] == "past_due"
 
 
+def test_b53_webhook_resolves_legacy_max_and_connect_price_ids_to_plus(monkeypatch):
+    for price_id, period in (
+        ("price_max", "monthly"), ("price_max_annual", "annual"), ("price_max_six_months", "six_months"),
+        ("price_connect", "monthly"), ("price_connect_annual", "annual"),
+    ):
+        fake_subs = _FakeCol()
+        _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+        monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+        event = {
+            "id": f"evt_b53_{price_id}", "type": "customer.subscription.updated",
+            "data": {"object": {
+                "id": "sub_legacy", "customer": "cus_1", "status": "active",
+                "current_period_end": None, "metadata": {"uid": UID},
+                "items": {"data": [{"price": {"id": price_id}}]},
+            }},
+        }
+        result = _run(billing_module.handle_event(event))
+        assert result["result"].get("tier") == "plus", (price_id, result)
+        assert result["result"]["billing_period"] == period, price_id
+        assert fake_subs.docs[0]["tier"] == "plus"
+
+
+def test_b53_checkout_refuses_max_and_connect_even_with_legacy_price_ids(monkeypatch):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+    for target in ("max", "connect"):
+        with pytest.raises(billing_module.BillingError):
+            _run(billing_module.create_checkout_session(
+                UID, kind="subscription", target=target, billing_period="monthly", trial=False,
+                success_url="https://app/success", cancel_url="https://app/cancel",
+            ))
+    assert fake_stripe.checkout_calls == []
+
+
 def test_subscription_deleted_marks_expired(monkeypatch):
     fake_subs = _FakeCol([{"user_id": UID, "tier": "standard", "status": "active"}])
     _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
@@ -1281,7 +1324,7 @@ def test_subscription_incomplete_status_does_not_grant_entitlement(monkeypatch):
     fake_subs = _FakeCol()
     _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
     monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
-    # DEFAULT_TIER is "max" outside tests (pre-billing-launch generosity —
+    # DEFAULT_TIER is "plus" outside tests (pre-billing-launch generosity —
     # see app/core/config.py), which would coincide with a paid tier and
     # make a bare "!=" assertion meaningless. Pin it to something the
     # purchased tier ("standard") can never equal, so the assertion below
@@ -1332,7 +1375,7 @@ def test_subscription_unknown_status_does_not_grant_entitlement(monkeypatch):
             "id": "sub_future", "customer": "cus_1", "status": "some_future_stripe_status",
             "metadata": {"uid": UID},
             "items": {"data": [{
-                "price": {"id": "price_max"},
+                "price": {"id": "price_plus"},
                 "current_period_end": period_end_ts,
             }]},
         }},
@@ -1344,7 +1387,7 @@ def test_subscription_unknown_status_does_not_grant_entitlement(monkeypatch):
     sub = _run(subscription_module.get_subscription(UID))
     assert sub.status == "expired"
     assert sub.tier == subscription_module.Tier.STATEMENTS
-    assert sub.tier != subscription_module.Tier.MAX
+    assert sub.tier != subscription_module.Tier.PLUS
 
 
 def test_subscription_expires_at_populated_from_subscription_item(monkeypatch):
@@ -1455,7 +1498,7 @@ def test_past_due_subscriber_keeps_tier_until_expires_at_then_loses_it(monkeypat
 
 def test_get_subscription_billing_live_reflects_flag(monkeypatch):
     async def _fake_get_subscription(email):
-        return subscription_module.Subscription(subscription_module.Tier.MAX)
+        return subscription_module.Subscription(subscription_module.Tier.PLUS)
 
     monkeypatch.setattr(subscription_router_module, "get_subscription", _fake_get_subscription)
     monkeypatch.setattr(subscription_router_module, "subscriptions_col", _FakeCol())
@@ -1482,22 +1525,22 @@ def test_select_free_tier_is_refused_while_billing_is_off(monkeypatch):
     assert fake_subs.docs == []
 
 
-def test_default_tier_stays_max_after_onboarding_with_billing_off(monkeypatch):
+def test_default_tier_stays_plus_after_onboarding_with_billing_off(monkeypatch):
     # D12: onboarding writes the profile only; with no subscription document
-    # the effective tier is the DEFAULT_TIER fallback (max), which includes
+    # the effective tier is the DEFAULT_TIER fallback (plus), which includes
     # open banking.
     fake_subs = _FakeCol()
     monkeypatch.setattr(db_collections_module, "subscriptions_col", fake_subs)
     monkeypatch.setattr(subscription_router_module, "subscriptions_col", fake_subs)
     _patch_billing_enabled(monkeypatch, False)
-    monkeypatch.setattr(subscription_module, "_default_tier", lambda: subscription_module.TIER_BY_NAME["max"])
+    monkeypatch.setattr(subscription_module, "_default_tier", lambda: subscription_module.TIER_BY_NAME["plus"])
 
     sub = _run(subscription_module.get_subscription(UID))
-    assert sub.tier_name == "max"
+    assert sub.tier_name == "plus"
     with pytest.raises(HTTPException):
         _run(subscription_router_module.select_free_tier(user={"email": UID}))
     sub = _run(subscription_module.get_subscription(UID))
-    assert sub.tier_name == "max"
+    assert sub.tier_name == "plus"
     assert fake_subs.docs == []
 
 
@@ -1531,8 +1574,7 @@ def test_select_free_tier_does_not_hide_an_active_stripe_renewal(monkeypatch):
 _AGREED_PRICES_GBP = {
     "lite":     {"monthly": 5.99,  "three_months": 16.99, "six_months": 31.99, "annual": 59.99},
     "standard": {"monthly": 9.99,  "three_months": 28.99, "six_months": 53.99, "annual": 99.99},
-    "connect":  {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99, "annual": 129.99},
-    "max":      {"monthly": 16.99, "three_months": 48.99, "six_months": 91.99, "annual": 169.99},
+    "plus":     {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99, "annual": 129.99},
 }
 
 
@@ -1557,16 +1599,16 @@ def test_billing_period_detail_saving_never_negative_and_consistent():
             assert detail["per_month_gbp"] == round(detail["total"] / detail["months"], 2)
 
 
-def test_billing_period_detail_annual_saving_for_max():
-    detail = subscription_module.billing_period_detail("max", "annual")
-    assert detail["total"] == 169.99
-    assert detail["saving_gbp"] == round(16.99 * 12 - 169.99, 2)
-    assert detail["per_month_gbp"] == round(169.99 / 12, 2)
+def test_billing_period_detail_annual_saving_for_plus():
+    detail = subscription_module.billing_period_detail("plus", "annual")
+    assert detail["total"] == 129.99
+    assert detail["saving_gbp"] == round(12.99 * 12 - 129.99, 2)
+    assert detail["per_month_gbp"] == round(129.99 / 12, 2)
 
 
 def test_get_subscription_info_exposes_billing_periods_and_trial_periods(monkeypatch):
     async def _fake_get_subscription(email):
-        return subscription_module.Subscription(subscription_module.Tier.MAX)
+        return subscription_module.Subscription(subscription_module.Tier.PLUS)
 
     monkeypatch.setattr(subscription_router_module, "get_subscription", _fake_get_subscription)
     monkeypatch.setattr(subscription_router_module, "subscriptions_col", _FakeCol())
@@ -1575,13 +1617,13 @@ def test_get_subscription_info_exposes_billing_periods_and_trial_periods(monkeyp
     result = _run(subscription_router_module.get_subscription_info(user={"email": UID}))
 
     assert result["trial_periods"] == list(subscription_module.SUBSCRIPTION_TRIAL_PERIODS)
-    period_ids = [p["id"] for p in result["billing_periods"]["max"]]
+    period_ids = [p["id"] for p in result["billing_periods"]["plus"]]
     assert period_ids == list(subscription_module.SUBSCRIPTION_PERIODS_ENABLED)
-    annual_entry = next(p for p in result["billing_periods"]["max"] if p["id"] == "annual")
-    assert annual_entry["total"] == 169.99
+    annual_entry = next(p for p in result["billing_periods"]["plus"] if p["id"] == "annual")
+    assert annual_entry["total"] == 129.99
     assert annual_entry["saving_gbp"] > 0
     assert annual_entry["months"] == 12
-    assert result["billing_prices_gbp"]["max"]["annual"] == 169.99
+    assert result["billing_prices_gbp"]["plus"]["annual"] == 129.99
 
 
 # ── 9. B31: server-side backstop on the native purchase gate ──────────────

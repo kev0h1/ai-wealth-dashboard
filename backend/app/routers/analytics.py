@@ -35,6 +35,7 @@ from app.db.collections import (
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
     confirmed_transfer_pairs_col, pending_transactions_col, card_terms_col,
 )
+from app.services.account_names import display_account_name
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
@@ -4357,7 +4358,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "expected_date":   display_d.isoformat(),
                 "days_away":       (display_d - today_d).days,
                 "account_id":      r.get("account_id"),
-                "account_name":    r.get("account_name"),
+                "account_name":    display_account_name(r.get("account_name")) if r.get("account_name") else r.get("account_name"),
                 "account_bank":    _bank_label(r.get("account_bank")),
                 "account_balance": r.get("account_balance"),
                 "is_credit_card":  r.get("is_credit_card", False),
@@ -4457,10 +4458,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     "expected_date":       e["expected_date"],
                     "days_away":           e["days_away"],
                     "account_id":          r["dest_account_id"],
-                    "account_name":        r.get("dest_account_name"),
+                    "account_name":        display_account_name(r.get("dest_account_name")) if r.get("dest_account_name") else r.get("dest_account_name"),
                     "account_bank":        _bank_label(r.get("dest_account_bank")),
                     "source_account_id":   e["account_id"],
-                    "source_account_name": e["account_name"],
+                    "source_account_name": display_account_name(e["account_name"]) if e["account_name"] else e["account_name"],
                     # True only when the destination is inside the
                     # SPENDABLE pool (`_split_balances`'s own rule, via
                     # `_account_pool_kind` -- see `_learn_transfer_destinations`).
@@ -4529,7 +4530,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "expected_date":   display_d.isoformat(),
                 "days_away":       days_away,
                 "account_id":      acc_id,
-                "account_name":    acc_name,
+                "account_name":    display_account_name(acc_name) if acc_name else acc_name,
                 "account_bank":    acc_bank,
                 "account_balance": acc_balance,
                 "is_credit_card":  acc_is_credit_card,
@@ -4575,7 +4576,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             "expected_date":   display_d.isoformat(),
             "days_away":       (display_d - today_d).days,
             "account_id":      bp.get("account_id"),
-            "account_name":    bp.get("account_name"),
+            "account_name":    display_account_name(bp.get("account_name")) if bp.get("account_name") else bp.get("account_name"),
             "account_bank":    _bank_label(bp.get("account_bank")),
             "account_balance": bp.get("account_balance"),
             "is_credit_card":  bp.get("is_credit_card", False),
@@ -4633,7 +4634,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "edited":        edited,
                 "rule_label":    rules.get(r["key"], {}).get("label"),
                 "account_id":      r.get("account_id"),
-                "account_name":    r.get("account_name"),
+                "account_name":    display_account_name(r.get("account_name")) if r.get("account_name") else r.get("account_name"),
                 "account_bank":    _bank_label(r.get("account_bank")),
                 "account_balance": r.get("account_balance"),
                 "occurrences":     r.get("occurrences"),
@@ -6272,71 +6273,3 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
     # own TTL lapses, not immediately on dismissal.
     response_cache.invalidate(uid, "miscategorised_list")
     return {"ok": True}
-
-
-@router.get("/value-delivered")
-async def get_value_delivered(user: dict = Depends(current_user)):
-    """Return how much monthly saving the user has unlocked by acting on insights."""
-    uid = user["email"]
-    # Evidence-gone retirement (savings_insights.py's `retired_at`) must
-    # exclude a card from this total too — it reads the same collection
-    # directly, not through GET /savings-insights, so it needs its own
-    # exclusion. Functionally matters here: a non-verified but "engaged"
-    # insight (user_context set, a stale savings_estimate still on the doc)
-    # would otherwise keep counting toward total_monthly_saving after its
-    # evidence vanished and the card itself stopped rendering anywhere else.
-    # `substituted_at` exclusion (Insights honesty review, incoherence A —
-    # owner phone report 2026-09-01): a doc can carry `verified_savings`
-    # even though the same category was subsequently (correctly) resolved
-    # as `substituted` — see the tri-state repair in
-    # `_refresh_savings_insights_for_user` and `_derive_insight_state` in
-    # savings_insights.py, which is the source of truth for this precedence
-    # everywhere else. This endpoint reads the collection directly, not
-    # through `_serialize_insight`, so it needs its own guard: a substituted
-    # doc must never count toward `verified_monthly_saving` here, whatever
-    # residual `verified_savings` figure an unrepaired doc still carries.
-    docs = await savings_insights_col.find(
-        {"user_id": uid, "retired_at": {"$exists": False}, "substituted_at": {"$exists": False}},
-        {"savings_estimate": 1, "title": 1, "user_context": 1,
-         "verified_savings": 1, "verified_merchant": 1},
-    ).to_list(None)
-
-    # Same house-style backstop as the main /savings-insights serializer
-    # (_serialize_insight in savings_insights.py) — this endpoint also
-    # surfaces raw stored title/savings_estimate text to the client, so it
-    # needs the same em/en-dash scrub for docs written before that guardrail
-    # existed.
-    from app.routers.savings_insights import _house_style
-
-    verified_monthly = 0.0
-    total_monthly = 0.0
-    breakdown = []
-    engaged = 0
-    for doc in docs:
-        if doc.get("verified_savings"):
-            verified_monthly += float(doc["verified_savings"])
-            breakdown.append({
-                "title":          _house_style(f"Stopped paying {doc.get('verified_merchant', '')}".strip()),
-                "monthly_saving": float(doc["verified_savings"]),
-                "estimate_label": "verified",
-            })
-            continue
-
-        if not doc.get("user_context"):
-            continue
-        engaged += 1
-        monthly = _parse_saving_amount(doc.get("savings_estimate"))
-        if monthly > 0:
-            total_monthly += monthly
-            breakdown.append({
-                "title":          _house_style(doc.get("title", "Insight")),
-                "monthly_saving": monthly,
-                "estimate_label": _house_style(doc.get("savings_estimate") or "") or None,
-            })
-
-    return {
-        "insights_acted_on":       engaged,
-        "total_monthly_saving":    round(total_monthly, 2),
-        "verified_monthly_saving": round(verified_monthly, 2),
-        "breakdown":               breakdown,
-    }

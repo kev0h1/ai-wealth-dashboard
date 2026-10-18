@@ -390,8 +390,8 @@ async def check_mcp_allowance(uid: str) -> dict:
     Backed by `app.core.subscription.mcp_allowance`, which folds any active
     MCP call pack (F9) into `limit` — `limit` is 0 for Statements/Lite/
     Standard (not included in the tier at all, a distinct error from
-    running out, and packs don't apply), tier + pack calls for Connect/Max
-    (2000/5000 base), `None` if the tier were ever configured unlimited
+    running out, and packs don't apply), tier + pack calls for Plus
+    (5000 base), `None` if the tier were ever configured unlimited
     (no tier is today)."""
     from app.core.subscription import mcp_allowance
 
@@ -405,7 +405,7 @@ async def check_mcp_allowance(uid: str) -> dict:
     if limit == 0:
         raise McpError(
             -32002,
-            "The connector is included in Connect and Max",
+            "The connector is included in Plus",
             {"tier": allowance["tier"], "limit": 0, "resets_on": resets_on},
         )
 

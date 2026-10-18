@@ -30,6 +30,7 @@ from app.db.collections import (
 log = logging.getLogger(__name__)
 from app.routers.analytics import _bank_label, _build_cashflow_response, income_credit_ok, is_assessable_bill
 from app.routers.allocations import list_active_allocations
+from app.services.account_names import display_account_name
 from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account as _is_current,
@@ -204,43 +205,17 @@ def _clean_descriptor_for_display(text: str) -> str:
     return cleaned
 
 
-# Small allowlist of known acronyms/initialisms that must stay upper-case
-# when humanising an account/product display name (e.g. "NW World
-# Mastercard" should keep "NW", not become "Nw"). Deliberately tiny and
-# scoped to humanise_account_name only — not shared with the broader
-# _humanise_bill_name pipeline above.
-_ACCOUNT_NAME_ACRONYMS = {"NW", "HSBC", "ISA", "AMEX"}
-
-
 def humanise_account_name(name: str) -> str:
-    """Title-case a shouty ALL-CAPS account/product name for display, e.g.
-    "THE NUMBER ONE REWARD PLATINUM" -> "The Number One Reward Platinum".
-    Words already in `_ACCOUNT_NAME_ACRONYMS` are left upper-case; mixed-case
-    names (already human-formatted) pass through untouched. This only
-    re-cases — it never repairs upstream truncation/spelling issues (e.g. a
-    provider-supplied "Mastercar").
-
-    Used only in the payday-gap/cliff/trajectory message templates below —
-    does not globally rewrite account names anywhere else in the app. Every
-    one of those templates interpolates the result immediately before a
-    sentence-ending "." (e.g. "...gap before {name} payday.", "...carried on
-    {name}."); a provider-supplied name that itself ends in "." (seen live —
-    "THE NUMBER ONE REWARD PLATINUM" style names occasionally arrive with a
-    trailing full stop) would otherwise render as a double period. Stripped
-    here, once, so every calling template gets exactly one terminator.
-    """
+    """Display name for message templates (G282: delegates to the one shared
+    helper in `services/account_names.py`). Also strips a trailing "." because
+    every template interpolates the result immediately before a
+    sentence-ending ".", and a provider-supplied name that ends in "." (seen
+    live) would otherwise render a double period."""
     raw = (name or "").strip()
     if not raw:
         return raw
-    raw = raw.rstrip(".").rstrip()
+    return display_account_name(raw.rstrip(".").rstrip())
 
-    def _title_word(m: re.Match) -> str:
-        w = m.group(0)
-        if w.upper() in _ACCOUNT_NAME_ACRONYMS:
-            return w.upper()
-        return w.title() if len(w) >= 2 and w.isupper() else w
-
-    return re.sub(r"[A-Za-z]+", _title_word, raw)
 
 def celebration_payload(
     stored: dict,
@@ -478,8 +453,12 @@ def _fmt_overdrawn(amount: float) -> str:
 
 def _clean_name(name: str | None, fallback: str = "") -> str:
     """Account names arrive from providers padded with whitespace; user-facing
-    copy must never carry it."""
-    return " ".join(str(name or "").split()) or fallback
+    copy must never carry it. G282 (Kevin 2026-10-17): the cleaned name also
+    goes through the one shared display-name function, so every card the
+    companion builds (payday plan, moves, covers) shows the same casing as the
+    Accounts page. The fallback (often a raw id) is returned untouched."""
+    cleaned = " ".join(str(name or "").split())
+    return display_account_name(cleaned) if cleaned else fallback
 
 
 # Raw provider/account ids are 16+ hex chars — they must never reach copy.
@@ -5083,88 +5062,6 @@ async def compute_today_items(
     _cel_winners.sort(key=lambda c: c["created_at"], reverse=True)
     celebration_items.extend(_w["item"] for _w in _cel_winners)
 
-    # ── 7b. Insight win narration ───────────────────────────────────────────
-    # A savings insight whose triggering merchant has gone silent for 45+ days
-    # is a verified saving (savings_insights stamps verified_savings /
-    # verified_merchant / verified_at). Narrate it here as a celebration —
-    # the user's own figure leads. First surfacing stamps celebrated_at on the
-    # insight doc; the card then lives until dismissed or 7 days pass (same
-    # stamp-then-lapse convention as move celebrations, on the insight's own
-    # weekly cadence rather than the 24-hour "sorted" window).
-    try:
-        from app.db.collections import savings_insights_col
-
-        _win_now = datetime.utcnow()
-        # Evidence-gone retirement (savings_insights.py's `retired_at`) never
-        # sets on a doc that already has `verified_savings` (see the guard
-        # in `_refresh_savings_insights_for_user` — a resolved win is a
-        # closed historical fact, not live advice needing grounding), so
-        # this filter is structurally redundant today. Kept explicit anyway:
-        # this reads the collection directly, not through GET
-        # /savings-insights, so it must not silently start narrating a
-        # retired card if that guard ever changes.
-        #
-        # `substituted_at` exclusion (Insights honesty review, incoherence
-        # A — owner phone report 2026-09-01): an incomplete early-return
-        # guard (fixed, see `_check_verified_saving`) previously let an
-        # already-`substituted` doc get re-evaluated and additionally
-        # stamped `verified_savings` on top — the source of truth for which
-        # resolution actually wins is `_derive_insight_state` in
-        # savings_insights.py (first-write-wins on the timestamps). This
-        # reads the collection directly, not through that function, so
-        # without this guard Mirror could narrate "that change stuck" for a
-        # spend that actually just moved to a different merchant in the
-        # same category, not a real saving.
-        _win_cursor = savings_insights_col.find({
-            "user_id": uid,
-            "verified_savings": {"$gt": 0},
-            "celebration_lapsed": {"$ne": True},
-            "retired_at": {"$exists": False},
-            "substituted_at": {"$exists": False},
-        }).sort("verified_at", -1).limit(_MOVE_CARD_CAP)
-        async for _ins in _win_cursor:
-            _win_id = f"insight_win:{_ins.get('insight_id', str(_ins['_id']))}"
-            if _win_id in dismissed:
-                continue
-            _win_ca = _ins.get("celebrated_at")
-            if _win_ca is None:
-                _win_ca = _win_now
-                if persist:
-                    await savings_insights_col.update_one(
-                        {"_id": _ins["_id"]},
-                        {"$set": {"celebrated_at": _win_ca}},
-                    )
-            if (_win_now - _win_ca).total_seconds() >= 7 * 86400:
-                if persist:
-                    await savings_insights_col.update_one(
-                        {"_id": _ins["_id"]},
-                        {"$set": {"celebration_lapsed": True}},
-                    )
-                continue
-            _win_amt = float(_ins.get("verified_savings") or 0)
-            if _win_amt <= 0:
-                continue
-            # Whole pounds where exact, pence where they matter — the figure
-            # is verified from the user's own transactions, never hedged.
-            _win_amt_str = f"{_win_amt:,.2f}".removesuffix(".00")
-            _win_merchant = str(_ins.get("verified_merchant") or "").strip()
-            _win_body = (
-                f"{_win_merchant} hasn't taken a payment in over 6 weeks. That change stuck."
-                if _win_merchant
-                else "That payment hasn't gone out in over 6 weeks. That change stuck."
-            )
-            celebration_items.append({
-                "id": _win_id,
-                "type": "celebration",
-                "headline": f"£{_win_amt_str}/mo is staying in your pocket",
-                "body": _win_body,
-                "action": None,
-                "estimated": False,
-                "brief_lead": {"value": f"£{_win_amt_str}/mo", "companion": "verified saving"},
-            })
-    except Exception as _win_exc:
-        log.warning("insight win narration failed for %s: %s", uid, _win_exc)
-
     # ── 8. RHYTHM items ─────────────────────────────────────────────────────
     rhythm_items: list[dict] = []
     portrait = await behaviour_portrait_col.find_one({"_id": uid})
@@ -5652,7 +5549,7 @@ async def compute_today_items(
     # The id carries the verdict so a worsening verdict re-appears immediately
     # (deliberately NOT the trend: the flat band is only £1 wide, so keying
     # dismissal on direction would let a card the user hid re-surface on noise).
-    # The /debt-plan page now exists — wire the button.
+    # The button goes to /cards (the /debt-plan page was retired; G284).
     #
     # G103: the words, figures and signifier all come from `trajectory_copy`
     # above, which leads on the three-month MOVEMENT in what is owed rather
@@ -5683,7 +5580,7 @@ async def compute_today_items(
                     "type": "trajectory",
                     "headline": _traj["headline"],
                     "body": _traj["body"],
-                    "action": {"label": "See the route", "route": "/debt-plan"},
+                    "action": {"label": "See the route", "route": "/cards"},
                     "estimated": False,
                     "tone": _traj["tone"],
                     "trend": _traj["trend"],

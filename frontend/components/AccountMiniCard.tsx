@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useState } from "react";
 import { RefreshCw, Pin, Percent, Wallet } from "lucide-react";
 import { Account, providerLogoUrl } from "@/lib/api";
@@ -443,7 +444,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
               {/* Account name — wraps to 2 lines rather than truncating, so a
                   long name never eats the balance/hierarchy below it. */}
               <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 leading-snug line-clamp-2">
-                {account.name.trim()}
+                {displayAccountName(account.name)}
               </p>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
                 {brand.label} · <span style={{ color: kindColour }}>{kind}</span>
@@ -579,7 +580,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         className="text-[11px] mb-1 truncate"
         style={{ color: tc === "#fff" ? "rgba(255,255,255,0.5)" : "rgba(15,23,42,0.45)" }}
       >
-        {account.name.trim()}
+        {displayAccountName(account.name)}
       </p>
 
       {/* Balance */}

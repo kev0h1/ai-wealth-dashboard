@@ -26,10 +26,10 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
 const tip = {
   id: "mobile-1", category: "mobile", app_category: "Bills", icon: "x", label: "Mobile",
-  title: "Switch to a SIM-only plan", body: "A cheaper plan exists.",
-  savings_estimate: "~£10/mo", savings_estimate_monthly: 10, pinned: false, is_new: false,
-  refreshed_at: null, verified_savings: null, verified_merchant: null, substituted: false,
-  substituted_merchant: null, substituted_amount: null, claim_valid_until: null,
+  title: "You pay EE £57 a month", body: "SIM-only plans are listed at £5 to £20 a month. Checked 1 Sep.",
+  pinned: false, is_new: false,
+  refreshed_at: null, substituted: false,
+  substituted_merchant: null, claim_valid_until: null,
   content_valid_until: null, expiry_line: "Researched 2d ago", researched_at: null, state: "fresh",
   triggered_by: [{ merchant_key: "ee", display_name: "EE", monthly_amount: 25, occurrences: 3 }],
   user_context: null, has_workflow: false, app_route: null,

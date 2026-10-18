@@ -128,13 +128,6 @@ export interface SavingsInsight {
   label: string;
   title: string;
   body: string;
-  savings_estimate: string | null;
-  /** Numeric monthly £ figure behind `savings_estimate` (e.g. 32 for
-   *  "~£32/mo"), parsed server-side so clients never re-derive it. null
-   *  when the estimate is absent or unparseable — never a silent 0.
-   *  Optional so a client running against an older backend that doesn't
-   *  send this field degrades gracefully (treat missing the same as null). */
-  savings_estimate_monthly?: number | null;
   pinned: boolean;
   is_new: boolean;
   refreshed_at: string | null;
@@ -158,37 +151,20 @@ export interface SavingsInsight {
   return_reason?: string | null;
   /** Parsed contract/deal end date from user context */
   deadline_at?: string | null;
-  /** Set when the triggering spend actually ceased AND the whole spend
-   *  category confirmed a net drop — a real, verified saving, not an
-   *  estimate (see `substituted` below for the "merchant went silent but
-   *  the category didn't drop" case, which is NOT a saving). */
-  verified_savings?: number | null;
-  verified_merchant?: string | null;
-  /** "fact" (honest default — no confirmed engagement with this card before
-   *  the win verified) or "earned" (confirmed engagement beforehand, via
-   *  POST /savings-insights/{id}/opened). Only meaningful when
-   *  `verified_savings` is set; null otherwise. Drives copy only — both
-   *  tiers use the same banner treatment; see `verified_savings_line` for
-   *  the actual rendered sentence. */
-  verified_tier?: "fact" | "earned" | null;
-  /** Server-composed celebration/fact sentence for verified_savings, built
-   *  from whole phrase chunks so the merchant name can never land flush
-   *  against the next word. Render verbatim, never re-splice verified_merchant
-   *  into a client-side template. null unless verified_savings is set. */
-  verified_savings_line?: string | null;
+  /** Server-composed fact line for the "verified" state, e.g. "Payments to
+   *  Nandos stopped." G283: no pounds figure and no claim of money saved ever
+   *  reaches a client; the stored amount stays server-side. Render verbatim.
+   *  null unless `state` is "verified". */
+  stopped_line?: string | null;
   /** True when the triggering merchant went silent but the insight's whole
    *  spend category never net'd down — the money most likely moved to a
-   *  different merchant in the same category, so this is NOT a saving.
-   *  Mutually exclusive with `verified_savings` (never both set). Render
-   *  neutrally — no celebration styling, no green. */
+   *  different merchant in the same category. Render neutrally, no
+   *  celebration styling, no green. */
   substituted?: boolean;
   substituted_merchant?: string | null;
-  /** The ceased merchant's own monthly figure — for context in the neutral
-   *  copy, NOT a saving figure (see `substituted_line`). */
-  substituted_amount?: number | null;
   /** Server-composed neutral sentence for the `substituted` state, e.g.
-   *  "Payments to Nandos stopped, but Eating Out overall hasn't moved.
-   *  Worth a look at where it went." Render verbatim. null unless
+   *  "Payments to Nandos stopped, and Eating Out overall hasn't moved."
+   *  Render verbatim. null unless
    *  `substituted` is true. */
   substituted_line?: string | null;
   /** A dated-promotion claim's own stated expiry, when the generated body
@@ -196,7 +172,7 @@ export interface SavingsInsight {
    *  weekly TTL it governs `content_valid_until` below (see
    *  `_compute_content_valid_until` in savings_insights.py), otherwise the
    *  default TTL governs and this is informational only. null when no
-   *  dated claim was made. Nulled alongside title/body/savings_estimate
+   *  dated claim was made. Nulled alongside title/body
    *  whenever `state` is not "fresh". */
   claim_valid_until?: string | null;
   /** OWNER DECISION (2026-09-01, reversing the live "Find me alternatives"
@@ -204,11 +180,11 @@ export interface SavingsInsight {
    *  the app now (POST /savings-insights/{id}/research is retired), and
    *  every researched entry carries this displayed expiry,
    *  min(claim_valid_until, researched_at + 7 days). Nulled alongside
-   *  title/body/savings_estimate whenever `state` is not "fresh" (content
+   *  title/body whenever `state` is not "fresh" (content
    *  has aged past it, or was never researched at all). */
   content_valid_until?: string | null;
   /** Server-composed Zone 2 expiry sentence, house-style-consistent (same
-   *  pattern as `verified_savings_line`/`substituted_line`): "Valid until
+   *  pattern as `stopped_line`/`substituted_line`): "Valid until
    *  Mon 8 Sep" when a real, sooner claim_valid_until governs, else
    *  "Refreshes weekly, researched 2d ago" for generic content on the
    *  default TTL. Render verbatim. null unless `state` is "fresh". */
@@ -217,7 +193,7 @@ export interface SavingsInsight {
    *  (research is failing and the previous tip is being kept). Render
    *  verbatim, quietly. */
   stale_note?: string | null;
-  /** When the title/body/savings_estimate above were last actually
+  /** When the title/body above were last actually
    *  researched (web search + LLM), for the always-visible research-age
    *  stamp. null once content has aged past `content_valid_until` or was
    *  never researched (state is not "fresh" in both cases). */
@@ -232,7 +208,7 @@ export interface SavingsInsight {
    *    verified    - a genuine, bank-confirmed saving
    *    substituted - the triggering spend stopped, but the whole category
    *                  didn't net down, honestly NOT a saving
-   *    fresh       - researched content (title/body/[savings_estimate]) is
+   *    fresh       - researched content (title/body) is
    *                  current (now < content_valid_until) and safe to
    *                  render, every category alike (owner decision
    *                  2026-09-01 retired the push/pull cadence split)
@@ -686,7 +662,7 @@ export interface BillLabel {
   is_skip: boolean;
 }
 
-export type SubscriptionTier = "statements" | "lite" | "standard" | "connect" | "max";
+export type SubscriptionTier = "statements" | "lite" | "standard" | "plus";
 
 export interface SubscriptionLimits {
   open_banking: boolean;
@@ -741,7 +717,7 @@ export interface SubscriptionUsage {
    *  null with no active packs. */
   penny_topup_expires_soonest?: string | null;
   /** How many packs this user bought THIS calendar month, any source —
-   *  MoreMessagesSheet.tsx leads with "Move to Max" instead of the packs
+   *  MoreMessagesSheet.tsx leads with "Move to Plus" instead of the packs
    *  once this reaches 2. */
   penny_packs_bought_this_month?: number;
 }
@@ -838,7 +814,7 @@ export interface SubscriptionInfo {
   limits: SubscriptionLimits;
   usage: SubscriptionUsage;
   /** True once real billing (item B5) is live. False today — DEFAULT_TIER
-   *  is "max", so everyone gets the Max tier's allowances (including 5000
+   *  is "plus", so everyone gets the Plus tier's allowances (including 5000
    *  free MCP calls/month) with no card on file; the frontend uses this
    *  flag rather than hardcoding that as permanent copy. Optional so a
    *  client running against an older backend degrades to not showing the

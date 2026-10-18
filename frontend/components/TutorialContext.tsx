@@ -135,7 +135,7 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         // change than this item warrants (the flow's step indices live in
         // TutorialContext's provider, so filtering means teaching the
         // app-wide provider about subscriptions); today every user is on
-        // DEFAULT_TIER=max, so nobody sees this yet.
+        // DEFAULT_TIER=plus, so nobody sees this yet.
         fallbackTarget: "tutorial-add-account",
         tooltipSide: "below",
         iconName: "Building2",

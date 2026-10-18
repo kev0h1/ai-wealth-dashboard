@@ -222,7 +222,7 @@ export default function ConnectedAssistantsCard({
   onDisconnect: (clientId: string) => Promise<boolean>;
   /** F8: the signed-in user's `mcp_tool_calls_per_month` limit (GET
    * /subscription's SubscriptionLimits), or null before that fetch has
-   * resolved. Statements/Lite/Standard carry 0 here; Connect/Max carry a
+   * resolved. Statements/Lite/Standard carry 0 here; Plus carries a
    * number or null (unlimited). At 0 the connector card shows a plan
    * upsell instead of connect instructions or the activity footer, since a
    * zero-allowance tier can never make a call either way. Null (not yet
@@ -239,9 +239,8 @@ export default function ConnectedAssistantsCard({
    * "Need more calls?". B5: real "Buy" buttons once `billingLive` (POST
    * /billing/checkout), "Available soon" rows until then. */
   mcpPacks: SubscriptionMcpPack[];
-  /** F9: the signed-in user's tier name, so the "Everyone is on the Max
-   * plan..." note only shows for a Max-tier user (not e.g. someone on
-   * Connect who bought a pack). Null before GET /subscription resolves. */
+  /** F9: the signed-in user's tier name, so the "Everyone is on the Plus
+   * plan..." note only shows for a Plus-tier user. Null before GET /subscription resolves. */
   tier: string | null;
   /** F9/B5: GET /subscription's `billing_live` — false until a Stripe
    * account exists and BILLING_ENABLED is set (app.core.config). Gates
@@ -361,9 +360,9 @@ export default function ConnectedAssistantsCard({
 
           {isTierGated ? (
             <div className="px-4 py-3.5">
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Available on Connect and Max</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Available on every paid plan</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Connecting an AI assistant to your Sorted data is included in the Connect and Max plans.
+                Connecting an AI assistant to your Sorted data is included in every paid plan.
               </p>
             </div>
           ) : connected.length === 0 ? (
@@ -443,16 +442,16 @@ export default function ConnectedAssistantsCard({
             <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">{packError}</p>
           )}
           {/* B26: "while billing is being built" is a promise that this
-              app will eventually sell Max in-app, which is true on web
+              app will eventually sell Plus in-app, which is true on web
               and never true on native (no in-app-purchase integration),
               so native keeps only the part of the sentence that stays
               true either way. No CTA here either way, so this was a
               copy-accuracy fix, not a 3.1.1 gate. */}
-          {tier === "max" && !billingLive && (
+          {tier === "plus" && !billingLive && (
             <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
               {purchasingAllowed
-                ? "Everyone is on the Max plan with 5,000 calls a month while billing is being built."
-                : "Everyone is on the Max plan with 5,000 calls a month."}
+                ? "Everyone is on the Plus plan with 5,000 calls a month while billing is being built."
+                : "Everyone is on the Plus plan with 5,000 calls a month."}
             </p>
           )}
         </div>

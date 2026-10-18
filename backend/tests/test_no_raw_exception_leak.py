@@ -55,9 +55,11 @@ ALLOWLIST: set[tuple[str, int]] = {
     # record_intent / update_checkpoint (G242 PATCH) with an authored message
     # ("ref must be a non-empty category name", "aim_amount must be a
     # number", "answer must be 'one_off' or 'new_normal'", etc.)
-    ("app/routers/checkpoints.py", 39),
-    ("app/routers/checkpoints.py", 71),
-    ("app/routers/checkpoints.py", 118),
+    # G286 adds history/evidence routes above the existing PATCH and intent
+    # handlers. Same three authored validation forwards, new line positions.
+    ("app/routers/checkpoints.py", 42),
+    ("app/routers/checkpoints.py", 98),
+    ("app/routers/checkpoints.py", 145),
     # app.services.broadcast.BroadcastError — admin-only broadcast compose/
     # send, authored messages only.
     ("app/routers/broadcast.py", 94),
@@ -108,21 +110,21 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 5173),
-    ("app/services/penny_tools.py", 5338),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 5847),
-    ("app/services/penny_tools.py", 5867),
-    ("app/services/penny_tools.py", 5903),
-    ("app/services/penny_tools.py", 5926),
-    ("app/services/penny_tools.py", 6068),
-    ("app/services/penny_tools.py", 6073),
-    ("app/services/penny_tools.py", 6078),
-    ("app/services/penny_tools.py", 6176),
-    ("app/services/penny_tools.py", 6181),
-    ("app/services/penny_tools.py", 6186),
-    ("app/services/penny_tools.py", 7127),
-    ("app/services/penny_tools.py", 7782),
-    ("app/services/penny_tools.py", 7796),
+    ("app/services/penny_tools.py", 5124),
+    ("app/services/penny_tools.py", 5289),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 5798),
+    ("app/services/penny_tools.py", 5818),
+    ("app/services/penny_tools.py", 5854),
+    ("app/services/penny_tools.py", 5877),
+    ("app/services/penny_tools.py", 6019),
+    ("app/services/penny_tools.py", 6024),
+    ("app/services/penny_tools.py", 6029),
+    ("app/services/penny_tools.py", 6127),
+    ("app/services/penny_tools.py", 6132),
+    ("app/services/penny_tools.py", 6137),
+    ("app/services/penny_tools.py", 7078),
+    ("app/services/penny_tools.py", 7733),
+    ("app/services/penny_tools.py", 7747),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
@@ -130,7 +132,7 @@ ALLOWLIST: set[tuple[str, int]] = {
     # letter of "reaches an HTTP response body", allowlisted rather than
     # silently skipped; tighten this if the webhook response is ever
     # surfaced anywhere a person reads it.
-    ("app/services/billing.py", 546),
+    ("app/services/billing.py", 554),
 }
 
 

@@ -25,6 +25,7 @@
 // "Always file X as Y?" -> POST /rules; either choice ends on an undo toast
 // that reverts the categorisation (and the rule, if one was saved).
 
+import { displayAccountName } from "@/lib/accountName";
 import { useState, useEffect, useRef, type MutableRefObject } from "react";
 import { Check, Undo2, ChevronRight, ChevronLeft } from "lucide-react";
 import { Transaction, Commitment, Account, api } from "@/lib/api";
@@ -405,7 +406,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                       size={18}
                       initialsSize="7px"
                     />
-                    {account.name}
+                    {displayAccountName(account.name)}
                   </>
                 )}
               </p>

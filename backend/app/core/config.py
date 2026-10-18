@@ -81,7 +81,7 @@ SESSION_MAX_AGE     = 7 * 24 * 3600
 # Subscription tier a user gets when they have no subscription doc (or an
 # expired/unrecognised one) — see app.core.subscription. Nobody should be
 # restricted before launch, so this defaults to the top tier.
-DEFAULT_TIER        = os.getenv("DEFAULT_TIER", "max")
+DEFAULT_TIER        = os.getenv("DEFAULT_TIER", "plus")
 
 _GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
 
@@ -567,7 +567,11 @@ STRIPE_PRICE_IDS: dict[str, str] = _parse_stripe_price_ids(os.getenv("STRIPE_PRI
 # requires a price id for it either — 16 keys now, not 20. Kept as its own
 # tuple rather than importing SUBSCRIPTION_PERIODS_ENABLED, for the same
 # leaf-of-the-import-graph reason as the comment below.
-_STRIPE_PAID_TIERS = ("lite", "standard", "connect", "max")
+_STRIPE_PAID_TIERS = ("lite", "standard", "plus")
+# B53: Stripe price keys of the retired Connect and Max tiers. Never sold and
+# never required; read only so a webhook for an existing Stripe subscription
+# on one of those prices still resolves (to "plus").
+_STRIPE_LEGACY_PAID_TIERS = ("connect", "max")
 _STRIPE_LONGER_PERIODS = ("six_months", "annual")
 _STRIPE_REQUIRED_PRICE_KEYS = (
     *_STRIPE_PAID_TIERS,

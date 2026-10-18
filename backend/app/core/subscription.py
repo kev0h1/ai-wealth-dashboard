@@ -2,10 +2,13 @@
 connection limits). See CLAUDE.md "Codex design round" section for the
 retirement of the old free/pro/premium/family tiers.
 
-Tiers: Statements (free, statement upload only) < Lite < Standard < Connect
-< Max. Nobody should be restricted before launch — the tier a user gets
-when they have no subscription doc (or an expired/unrecognised one) is
-DEFAULT_TIER (app.core.config), which defaults to "max"."""
+Tiers: Statements (free, statement upload only) < Lite < Standard < Plus
+(B53, 2026-10-18: Plus replaced Connect and Max; legacy stored "connect" and
+"max" map to Plus). Every paid tier gets every feature; tiers differ only by
+connected-account cap and Penny messages a month. Nobody should be
+restricted before launch — the tier a user gets when they have no
+subscription doc (or an expired/unrecognised one) is DEFAULT_TIER
+(app.core.config), which defaults to "plus"."""
 import logging
 from datetime import date, datetime, timedelta, timezone
 from enum import IntEnum
@@ -22,16 +25,14 @@ class Tier(IntEnum):
     STATEMENTS = 0   # free: statement upload only, no open banking
     LITE = 1
     STANDARD = 2
-    CONNECT = 3
-    MAX = 4
+    PLUS = 3
 
 
 TIER_NAMES = {
     Tier.STATEMENTS: "statements",
     Tier.LITE:       "lite",
     Tier.STANDARD:   "standard",
-    Tier.CONNECT:    "connect",
-    Tier.MAX:        "max",
+    Tier.PLUS:       "plus",
 }
 TIER_BY_NAME = {v: k for k, v in TIER_NAMES.items()}
 
@@ -39,8 +40,7 @@ TIER_PRICES_GBP = {
     "statements": 0.0,
     "lite":       5.99,
     "standard":   9.99,
-    "connect":    12.99,
-    "max":        16.99,
+    "plus":       12.99,
 }
 
 # B21: the full set of billing periods the schema understands. This stays
@@ -73,8 +73,7 @@ TIER_BILLING_PRICES_GBP = {
     "statements": {"monthly": 0.0,   "three_months": 0.0,   "six_months": 0.0,    "annual": 0.0},
     "lite":       {"monthly": 5.99,  "three_months": 16.99, "six_months": 31.99,  "annual": 59.99},
     "standard":   {"monthly": 9.99,  "three_months": 28.99, "six_months": 53.99,  "annual": 99.99},
-    "connect":    {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99,  "annual": 129.99},
-    "max":        {"monthly": 16.99, "three_months": 48.99, "six_months": 91.99,  "annual": 169.99},
+    "plus":       {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99,  "annual": 129.99},
 }
 
 # Kevin decides: which periods are offered at all. He dropped "three_months"
@@ -130,9 +129,10 @@ def billing_period_detail(tier: str, period: str) -> dict:
 
 # B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9): three
 # top-up packs, good/better/best. The middle pack is the target ("Most
-# popular"); the largest is priced about 10% under the Standard-to-Max
-# marginal rate so a repeat buyer is nudged towards the sheet's "Move to
-# Max" row (see penny_allowance's packs_bought_this_month) rather than
+# popular"); the largest was priced about 10% under the old Standard-to-Max
+# marginal rate (B53: Standard to Plus is now cheaper per message, see
+# docs/pricing/tiering-unit-economics-mcp-2026-09.md 4a) so a repeat buyer
+# is nudged towards the sheet's "Move to Plus" row (see penny_allowance's packs_bought_this_month) rather than
 # living on packs. Prices sit on standard App Store / Play price points so
 # the same SKU works in-app and on Stripe.
 PENNY_TOPUP_PACKS = [
@@ -154,10 +154,10 @@ PENNY_TOPUP = {"messages": PENNY_TOPUP_PACKS[1]["messages"], "price_gbp": PENNY_
 
 # F9: one MCP connector call pack, same mechanics as the Penny packs above
 # (`_settle_packs`/`mcp_allowance` below share the implementation with
-# `settle_topups`/`penny_allowance`). Only Connect and Max have the
-# connector at all (`mcp_tool_calls_per_month` 2000/5000), so this is the
-# only pack a Connect user would reach for; Max's 5000/month is the
-# DEFAULT_TIER today (see module docstring) so nobody needs it yet.
+# `settle_topups`/`penny_allowance`). Every paid tier has the same
+# `mcp_tool_calls_per_month` (5000, B53); the connector itself is gated
+# separately by MCP_CONNECTOR_ENABLED. Plus is the DEFAULT_TIER today (see
+# module docstring) so nobody needs the pack yet.
 MCP_CALL_PACKS = [
     {"id": "mcp_1000", "calls": 1000, "price_gbp": 2.99, "badge": None},
 ]
@@ -176,40 +176,30 @@ TIER_LIMITS = {
     },
     Tier.LITE: {
         "open_banking":                True,
-        "max_banks":                   3,
-        "max_accounts":                None,
-        "refresh":                     "daily",
+        "max_banks":                   None,
+        "max_accounts":                10,
+        "refresh":                     "4h",
         "penny_messages_per_month":    40,
-        "mcp_tool_calls_per_month":    0,
-        "history_days":                180,
+        "mcp_tool_calls_per_month":    5000,
+        "history_days":                None,
         "statement_uploads_per_month": None,
     },
     Tier.STANDARD: {
         "open_banking":                True,
         "max_banks":                   None,
-        "max_accounts":                20,
+        "max_accounts":                25,
         "refresh":                     "4h",
         "penny_messages_per_month":    150,
-        "mcp_tool_calls_per_month":    0,
+        "mcp_tool_calls_per_month":    5000,
         "history_days":                None,
         "statement_uploads_per_month": None,
     },
-    Tier.CONNECT: {
-        "open_banking":                True,
-        "max_banks":                   None,
-        "max_accounts":                20,
-        "refresh":                     "4h",
-        "penny_messages_per_month":    150,
-        "mcp_tool_calls_per_month":    2000,
-        "history_days":                None,
-        "statement_uploads_per_month": None,
-    },
-    Tier.MAX: {
+    Tier.PLUS: {
         "open_banking":                True,
         "max_banks":                   None,
         "max_accounts":                None,
-        "refresh":                     "priority",
-        "penny_messages_per_month":    400,
+        "refresh":                     "4h",
+        "penny_messages_per_month":    300,
         "mcp_tool_calls_per_month":    5000,
         "history_days":                None,
         "statement_uploads_per_month": None,
@@ -221,9 +211,27 @@ TIER_LIMITS = {
 # (looked up lazily in get_subscription to avoid a stale import-time value).
 _LEGACY_TIER_MAP = {
     "pro":     Tier.STANDARD,
-    "premium": Tier.MAX,
-    "family":  Tier.MAX,
+    "premium": Tier.PLUS,
+    "family":  Tier.PLUS,
+    # B53: Max and Connect were replaced by Plus. Stored docs keep the old
+    # name until their next write; they read as Plus here.
+    "max":     Tier.PLUS,
+    "connect": Tier.PLUS,
 }
+
+
+def canonical_tier_name(stored_name: str | None) -> str | None:
+    """B53: the current tier name for a stored one, mapping retired names
+    (max, connect, premium, family, pro) onto their replacement. Unknown
+    names come back as given (lower-cased), so callers can still treat them
+    as unrecognised."""
+    name = (stored_name or "").strip().lower()
+    if not name:
+        return None
+    if name in TIER_BY_NAME:
+        return name
+    legacy = _LEGACY_TIER_MAP.get(name)
+    return TIER_NAMES[legacy] if legacy is not None else name
 
 
 class Subscription:
@@ -258,7 +266,8 @@ class Subscription:
 
 def _default_tier() -> Tier:
     from app.core.config import DEFAULT_TIER
-    return TIER_BY_NAME.get(DEFAULT_TIER.strip().lower(), Tier.MAX)
+    name = DEFAULT_TIER.strip().lower()
+    return TIER_BY_NAME.get(name) or _LEGACY_TIER_MAP.get(name, Tier.PLUS)
 
 
 # C21/C24: every payment provider that may own a subscriptions_col document.
@@ -658,8 +667,8 @@ async def penny_allowance(email: str, *, persist: bool = True) -> dict:
 async def mcp_allowance(email: str, *, persist: bool = True) -> dict:
     """This calendar month's MCP connector call allowance for `email` — the
     F9 twin of `penny_allowance` above, sharing `_settle_packs` via
-    `settle_mcp_packs`. Only Connect and Max have `mcp_tool_calls_per_month`
-    set at all (0 for every tier below); a tier without the connector gets
+    `settle_mcp_packs`. Every paid tier has `mcp_tool_calls_per_month` 5000
+    (B53); Statements has 0; a tier without the connector gets
     NO pack credit folded in even if it somehow holds an active pack
     (`limit` stays 0), since a pack only makes sense on top of a tier that
     already has the connector.
@@ -796,7 +805,7 @@ async def check_connection_limit(email: str) -> None:
     `max_banks` counts completed TrueLayer connections, connected Finexer
     consents, and Yapily consents. `max_accounts` counts `accounts_col`
     docs for the user. Either cap being None means unlimited. With the
-    default tier at max, this is a no-op today."""
+    default tier at plus (unlimited accounts), this is a no-op today."""
     from app.db.collections import (
         accounts_col, connections_col, finexer_consents_col, yapily_consents_col,
     )

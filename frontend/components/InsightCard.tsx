@@ -6,11 +6,9 @@
 // transactions page, see DESIGN.md's 2026-09-05 note). This file is now the
 // single home for the tip-card anatomy: the full InsightCard, its
 // compact/quiet-state row (CompactInsightRow via isCompactPullInsight), the
-// workflow personalisation drawer it opens, and InsightsHero (the retired
-// page's own hero, kept only because the standing design twin at
-// app/design/insights-live/InsightsLiveClient.tsx still renders it against
-// fixtures — nothing on the real app renders InsightsHero any more,
-// MoneyShapeHero replaced it there 2026-09-02).
+// workflow personalisation drawer it opens. G283 (Kevin, 2026-10-17): tips
+// state facts only. The retired page's InsightsHero (which totalled estimated
+// and "banked" savings) is deleted, and no card shows a saving estimate.
 //
 // Every comment below is carried over verbatim from InsightsPage.tsx; only
 // cross-file references were updated where they pointed at that file itself.
@@ -18,14 +16,15 @@
 import { useState, useCallback, useRef, useId, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Bookmark, BookmarkCheck, ChevronDown, ChevronRight, CheckCircle2, Circle,
-  RotateCcw, ExternalLink, SlidersHorizontal, RefreshCw, PartyPopper,
+  Bookmark, BookmarkCheck, ChevronDown, ChevronRight, CheckCircle2,
+  RotateCcw, ExternalLink, SlidersHorizontal, RefreshCw,
 } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
+import { actionHref } from "@/lib/actionRoutes";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
@@ -87,7 +86,7 @@ function CategoryChip({ category, label }: { category: string; label: string }) 
 // rendering as a hollow full card while groceries/gym/subscriptions — the
 // same untapped state — correctly rendered compact): this used to
 // re-derive "nothing furnished yet" from FIVE separate boolean fields
-// (research_pull, research_fresh, verified_savings, substituted, is_new).
+// (research_pull, research_fresh, verified, substituted, is_new).
 // Any one of them being absent/undefined instead of an explicit `false` on
 // a given doc silently changed the outcome for that card only — a tri-state
 // slip no single field-level fix can fully rule out. `insight.state` is
@@ -429,26 +428,14 @@ export function InsightCard({
   workflow,
   onPin,
   onContextSaved,
-  anyOpenHasEstimate,
   inSheet = false,
 }: {
   insight: SavingsInsight;
   workflow: WorkflowDef | null;
   onPin: (id: string) => void;
   onContextSaved: () => void;
-  /** Whether ANY currently-open insight (across the whole rendered list, not
-   *  just this card) carries a `savings_estimate_monthly` — mirrors the
-   *  approved hero preview's `showNoEstimateLabel` gate (see
-   *  /design/insights-hero InsightRow): "No number yet" only earns its
-   *  place when it distinguishes costed cards from uncosted ones. When
-   *  nothing anywhere has a number, the hero's own headline already says
-   *  so once ("none with a number attached yet") — repeating a quiet grey
-   *  label on every single card underneath would just add noise, not
-   *  information, so the label is suppressed entirely in that state. */
-  anyOpenHasEstimate: boolean;
   /** True only when this card renders inside a TipStrip on a category's
-   *  transactions page (app/design/spend-tips/TransactionsMock.tsx, a mock
-   *  of the real app/transactions/TransactionsPage.tsx), a payments
+   *  transactions page (app/transactions/TransactionsPage.tsx), a payments
    *  drill-down that already shows the category chip (the page's own
    *  filter chip) and the transactions themselves (the page's own list).
    *  Strips the card down to the fact line, body, estimate, and age line
@@ -470,8 +457,7 @@ export function InsightCard({
   const [compactOpen, setCompactOpen] = useState(false);
   // Engagement signal (Insights honesty review, Package A #1) — fired once
   // per card, the first time its evidence footer/workflow expands or its
-  // CTA is tapped, so the copy-tier logic (server-side `verified_tier`) can
-  // later tell an earned celebration from a plain fact. The ref guards
+  // CTA is tapped, as a record that the card was looked at. The ref guards
   // against re-firing the network call on every toggle within one page
   // visit; the backend itself is also idempotent (first-write-wins), so a
   // duplicate call from a remount is harmless either way.
@@ -501,7 +487,7 @@ export function InsightCard({
   // server-derived source of truth; see `isCompactPullInsight` above for why
   // the old combination-of-booleans approach was the root cause of
   // incoherence B). `contentLive` gates the researched title/body/
-  // savings_estimate/expiry_line — anything else (verified, substituted, or
+  // expiry_line — anything else (verified, substituted, or
   // "quiet") renders nothing here (OWNER RULING 2026-09-02: no content, no
   // furniture, not even a resolved-state placeholder or a "between
   // refreshes" caption). "quiet" is only reachable here at all when a
@@ -560,26 +546,20 @@ export function InsightCard({
             </div>
           )}
 
-          {/* Closure: the loop actually closed — celebrate. Copy is server-
-              composed and already tier-aware (verified_savings_line is the
-              honest "fact" sentence unless verified_tier is "earned" — see
-              _verified_copy_tier in savings_insights.py), so this renders
-              verbatim with no client-side "You did it" fallback that could
-              disagree with the tier the backend actually earned. Deterministic
-              (a bank-confirmed cessation), so it belongs in Zone 1, not the
-              researched Zone 2 below. */}
-          {(insight.state ? insight.state === "verified" : !!insight.verified_savings) ? (
-            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-200 dark:border-emerald-800">
-              <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-snug">
-                {insight.verified_savings_line}
+          {/* Resolution: a plain fact, never a claim. G283: no pounds figure, no
+              "saved" wording, no celebration styling. The line is server-composed
+              (stopped_line) and rendered verbatim. */}
+          {insight.state === "verified" ? (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+              <CheckCircle2 size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-slate-600 dark:text-slate-300 leading-snug">
+                {insight.stopped_line}
               </p>
             </div>
-          ) : (insight.state ? insight.state === "substituted" : !!insight.substituted) ? (
-            /* Neutral, not celebratory — the merchant went silent but the
-               whole category didn't net down (see `substituted` on
-               SavingsInsight), so this is honestly NOT a saving. Slate, no
-               green, no checkmark. */
+          ) : insight.state === "substituted" ? (
+            /* Neutral fact line: the merchant went silent but the whole
+               category didn't net down (see `substituted` on SavingsInsight).
+               Slate, no green. */
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
               <RotateCcw size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-slate-600 dark:text-slate-300 leading-snug">
@@ -613,7 +593,7 @@ export function InsightCard({
               list already shows. */}
           {!inSheet && insight.app_route && (
             <button
-              onClick={() => { markOpened(); router.push(insight.app_route!); }}
+              onClick={() => { markOpened(); router.push(actionHref(insight.app_route!)); }}
               className="self-start inline-flex items-center gap-0.5 py-3 -my-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:scale-95 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
               {APP_ROUTE_LABELS[insight.category] ?? "See it in your spending"}
@@ -651,41 +631,12 @@ export function InsightCard({
               {/* Body — truncated to ~2 sentences with a "more" toggle */}
               {insight.body && <InsightBody body={insight.body} />}
 
-              {/* Estimate line — gated on `savings_estimate_monthly != null`, the
-                  exact same condition the hero above uses for its coverage
-                  counters (heroOpenWithEstimate). Gating this pill on the raw
-                  `savings_estimate` STRING instead used to disagree with the
-                  hero: the backend allows a hedge string that carries no
-                  parseable `£` figure (_savings_estimate_is_derivable / the
-                  locked-in "reduce your outgoings soon" -> null case in
-                  test_serialize_insight_estimate.py), which is truthy as a
-                  string but null as a number — the card would show the costed
-                  treatment for an insight the hero was counting as "no number".
-                  A hedge string with no parsed figure still renders, but as
-                  plain prose (no mono/tabular money styling, no "estimated
-                  saving" label) so it's visibly NOT a costed figure, and it
-                  does not count as `anyOpenHasEstimate` either. Verified cards
-                  skip this entirely, the Zone 1 emerald banner above already
-                  carries the real (not estimated) figure. */}
-              {!insight.verified_savings && !insight.substituted && insight.savings_estimate_monthly != null ? (
-                <p className="text-[12px] font-mono tabular-nums text-slate-500 dark:text-slate-400 italic">
-                  <MoneyText text={insight.savings_estimate ?? ""} />{" "}
-                  <span className="not-italic font-sans font-medium">estimated saving</span>
-                </p>
-              ) : !insight.verified_savings && !insight.substituted && insight.savings_estimate ? (
-                <p className="text-[12px] text-slate-500 dark:text-slate-400 italic">
-                  <MoneyText text={insight.savings_estimate} />
-                </p>
-              ) : !insight.verified_savings && !insight.substituted && anyOpenHasEstimate ? (
-                <p className="text-[11px] text-slate-400 dark:text-slate-500">No number yet</p>
-              ) : null}
-
               {/* Age/deadline stamp — always shown while content is live
                   (Insights honesty review, Package A #4; OWNER RULING
                   2026-09-02: internal refresh scheduling is never narrated
                   to the user, so this carries no "weekly"/"refreshes"
                   wording any more): server-composed, house-style-consistent
-                  sentence (same pattern as verified_savings_line/
+                  sentence (same pattern as stopped_line/
                   substituted_line) — "Valid until Mon 8 Sep" for a real,
                   dated offer (a fact about the offer), else "Researched 2d
                   ago" for generic content on the default TTL (honesty about
@@ -823,178 +774,5 @@ export function InsightCard({
         />
       )}
     </>
-  );
-}
-
-// ── Insights Hero (retired from the real page 2026-09-02, MoneyShapeHero
-// replaced it there — kept here only because the standing design twin,
-// app/design/insights-live/InsightsLiveClient.tsx, still renders it against
-// fixtures) ─────────────────────────────────────────────────────────────
-// Ported from the approved /design/insights-hero preview (Variant B,
-// "Opportunity leads" — see that file for the full four-state rationale).
-
-function SectionLabel({ children }: { children: ReactNode }) {
-  return (
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-      {children}
-    </p>
-  );
-}
-
-function RateFigure({ figure }: { figure: string }) {
-  return (
-    <p className="mt-1 flex items-baseline gap-1.5">
-      <span className="text-[30px] leading-tight font-bold tracking-tight font-mono tabular-nums text-slate-900 dark:text-slate-100">
-        {figure}
-      </span>
-      <span className="text-[14px] font-medium text-slate-400 dark:text-slate-500">/mo</span>
-    </p>
-  );
-}
-
-// The earned verified-savings chip — present in every hero state. `hero`
-// widens it for the "nothing open" state, where it's the only real number
-// left on the card and needs to read as the payoff, not a footnote.
-function VerifiedChip({
-  verified,
-  hero,
-  trailingLabel,
-}: {
-  verified: number;
-  hero?: boolean;
-  trailingLabel?: string;
-}) {
-  if (verified > 0) {
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 ${
-          hero ? "min-h-[40px] pl-3 pr-4 py-2" : "min-h-[32px] pl-2.5 pr-3 py-1.5"
-        }`}
-      >
-        <CheckCircle2
-          size={hero ? 18 : 14}
-          className="text-emerald-600 dark:text-emerald-400 flex-shrink-0"
-          aria-hidden
-        />
-        <span
-          className={`font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-300 ${
-            hero ? "text-[16px]" : "text-[12px]"
-          }`}
-        >
-          £{verified.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </span>
-        <span className={`font-medium text-emerald-700 dark:text-emerald-300 ${hero ? "text-[13px]" : "text-[12px]"}`}>
-          {trailingLabel ?? "already banked"}
-        </span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 min-h-[32px] rounded-full pl-2.5 pr-3 py-1.5 bg-slate-100 dark:bg-slate-700/60">
-      <Circle size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden />
-      <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">Nothing banked yet, that&apos;s next</span>
-    </span>
-  );
-}
-
-function moneyEstimate(n: number): string {
-  return `~£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`;
-}
-
-export function InsightsHero({
-  open,
-  openWithEstimate,
-  openMonthlySaving,
-  verifiedMonthlySaving,
-  insightsActedOn,
-  changesNoticed,
-  resolvedCount,
-}: {
-  open: number;
-  openWithEstimate: number;
-  openMonthlySaving: number;
-  verifiedMonthlySaving: number;
-  /** Verified wins with confirmed engagement BEFORE they verified
-   *  (`verified_tier === "earned"`, see savings_insights.py's
-   *  _verified_copy_tier) — the only count this product can honestly credit
-   *  to the user having acted. */
-  insightsActedOn: number;
-  /** Verified wins with no such engagement evidence — real, provable
-   *  changes (the spend genuinely stopped AND the category confirmed the
-   *  drop), just not ones we can honestly say the user "acted on". Insights
-   *  honesty review, Package A #3: this is the honest alternative headline
-   *  when `insightsActedOn` is 0 but real change still happened. */
-  changesNoticed: number;
-  /** Incoherence E (owner phone report 2026-09-01: hero said "1 of 7 open
-   *  ideas" while 8 cards were visible below) — the count of rendered cards
-   *  that are resolved (verified + substituted) and therefore excluded from
-   *  `open`, but still on the page as their own banner card. Named in the
-   *  copy below so "N open" and "the cards you can count" never look like
-   *  they disagree; 0 when every rendered card is still open (the common
-   *  case), which adds nothing to the sentence. */
-  resolvedCount: number;
-}) {
-  const fullCoverage = open > 0 && openWithEstimate === open;
-  const partialCoverage = open > 0 && openWithEstimate > 0 && openWithEstimate < open;
-  const noCoverage = open > 0 && openWithEstimate === 0;
-  const nothingOpen = open === 0;
-  const resolvedClause = resolvedCount > 0
-    ? ` ${resolvedCount} more sorted below.`
-    : "";
-
-  return (
-    <section className="glass-hero rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
-      {nothingOpen ? (
-        <>
-          <SectionLabel>Ways to save, all clear</SectionLabel>
-          <p className="mt-1 text-[19px] leading-snug font-bold text-slate-900 dark:text-slate-100 text-pretty">
-            Every idea on your list has been sorted.
-          </p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 text-pretty">
-            {insightsActedOn > 0
-              ? `${insightsActedOn} idea${insightsActedOn === 1 ? "" : "s"} acted on over time, nothing left open right now.`
-              : changesNoticed > 0
-              ? `${changesNoticed} change${changesNoticed === 1 ? "" : "s"} noticed over time, nothing left open right now.`
-              : "Nothing acted on yet, nothing left open right now."}
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            <PartyPopper size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" aria-hidden />
-            <VerifiedChip verified={verifiedMonthlySaving} hero trailingLabel="kept every month" />
-          </div>
-        </>
-      ) : (
-        <>
-          <SectionLabel>
-            {noCoverage ? "Open ideas, no numbers yet" : "Identified, every month · estimated"}
-          </SectionLabel>
-
-          {(fullCoverage || partialCoverage) && (
-            <>
-              <RateFigure figure={moneyEstimate(openMonthlySaving)} />
-              <p className="mt-1 text-[12px] italic text-slate-500 dark:text-slate-400 text-pretty">
-                {(fullCoverage
-                  ? `Across ${open} open idea${open === 1 ? "" : "s"} below, estimated from your own spending, not yet acted on.`
-                  : `Across ${openWithEstimate} of ${open} open ideas, the ones with a number so far.`) + resolvedClause}
-              </p>
-            </>
-          )}
-
-          {noCoverage && (
-            <>
-              <p className="mt-1 text-[19px] leading-snug font-bold text-slate-900 dark:text-slate-100 text-pretty">
-                {open} idea{open === 1 ? "" : "s"} worth a look, none with a number attached yet.
-              </p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 text-pretty">
-                {`Open the top one below, it's usually the easiest place to start.${resolvedClause}`}
-              </p>
-            </>
-          )}
-
-          <div className="mt-3">
-            <VerifiedChip verified={verifiedMonthlySaving} />
-          </div>
-        </>
-      )}
-    </section>
   );
 }
