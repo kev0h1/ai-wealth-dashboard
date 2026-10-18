@@ -7,6 +7,7 @@
 // mobile handle, desktop centered modal) is new, matching the pattern used
 // by CategorisationRulesSheet.
 
+import { displayAccountName } from "@/lib/accountName";
 import { useState } from "react";
 import { X, CheckCircle2, Circle, Shield, Pencil, Plus, ChevronDown } from "lucide-react";
 import { api, SavingsInsights, SavingsGoalInput, SavingsAccountOption } from "@/lib/api";
@@ -172,7 +173,7 @@ export function useSavingsGoalEditor({
                     style={on ? { borderColor: accent, background: `${accent}10` } : undefined}>
                     {on ? <CheckCircle2 className={`w-5 h-5 flex-shrink-0 ${accentText}`} /> : <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600 flex-shrink-0" />}
                     <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{a.name}</span>
+                      <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{displayAccountName(a.name)}</span>
                       <span className="block text-[11px] text-slate-500 dark:text-slate-400">{a.manual ? "Offline account" : a.provider}</span>
                     </span>
                     <span className={`text-sm font-semibold text-slate-600 dark:text-slate-300 ${appearance === "sheet" ? "font-mono tabular-nums" : ""}`}>{hideValues ? "••••" : fmt(a.balance, sym)}</span>

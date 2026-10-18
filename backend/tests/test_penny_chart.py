@@ -496,7 +496,7 @@ def test_account_resolution_is_whole_word_and_case_insensitive(monkeypatch):
     _accounts(monkeypatch, [MONZO, AMEX])
     for name in ("monzo", "MONZO current", "my Monzo"[3:], "Amex Platinum", "amex"):
         assert _search({"account": name})["account_recognised"] is True, name
-    assert _search({"account": "Amex"})["matched_account"] == "AMEX Platinum"
+    assert _search({"account": "Amex"})["matched_account"] == "Amex Platinum"  # G282, Kevin 2026-10-17: one shared name function, Amex brand form
     for bad in ("mon", "onzo", "zo"):  # substrings never match
         assert _search({"account": bad})["account_recognised"] is False, bad
 
@@ -507,7 +507,7 @@ def test_ambiguous_or_unknown_account_declines_and_never_falls_back_to_merchants
     res = _search({"account": "Monzo", "as_chart": "line", "_chart_ok": True})
     assert res["account_recognised"] is False and res["reason"] == "ambiguous"
     assert "_chart" not in res and "transactions" not in res
-    assert "Monzo Current" in res["available_accounts"] and "AMEX Platinum" in res["available_accounts"]
+    assert "Monzo Current" in res["available_accounts"] and "Amex Platinum" in res["available_accounts"]
     exact = _search({"account": "Monzo Current"})
     assert exact["account_recognised"] is True  # an exact name wins over the shared word
     unknown = _search({"account": "Barclays", "as_chart": "line", "_chart_ok": True})

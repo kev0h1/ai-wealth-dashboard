@@ -24,6 +24,7 @@ import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
+import { actionHref } from "@/lib/actionRoutes";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
@@ -592,7 +593,7 @@ export function InsightCard({
               list already shows. */}
           {!inSheet && insight.app_route && (
             <button
-              onClick={() => { markOpened(); router.push(insight.app_route!); }}
+              onClick={() => { markOpened(); router.push(actionHref(insight.app_route!)); }}
               className="self-start inline-flex items-center gap-0.5 py-3 -my-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:scale-95 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
               {APP_ROUTE_LABELS[insight.category] ?? "See it in your spending"}

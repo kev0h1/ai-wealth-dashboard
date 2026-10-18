@@ -35,6 +35,7 @@ from app.db.collections import (
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
     confirmed_transfer_pairs_col, pending_transactions_col, card_terms_col,
 )
+from app.services.account_names import display_account_name
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
@@ -4357,7 +4358,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "expected_date":   display_d.isoformat(),
                 "days_away":       (display_d - today_d).days,
                 "account_id":      r.get("account_id"),
-                "account_name":    r.get("account_name"),
+                "account_name":    display_account_name(r.get("account_name")) if r.get("account_name") else r.get("account_name"),
                 "account_bank":    _bank_label(r.get("account_bank")),
                 "account_balance": r.get("account_balance"),
                 "is_credit_card":  r.get("is_credit_card", False),
@@ -4457,10 +4458,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     "expected_date":       e["expected_date"],
                     "days_away":           e["days_away"],
                     "account_id":          r["dest_account_id"],
-                    "account_name":        r.get("dest_account_name"),
+                    "account_name":        display_account_name(r.get("dest_account_name")) if r.get("dest_account_name") else r.get("dest_account_name"),
                     "account_bank":        _bank_label(r.get("dest_account_bank")),
                     "source_account_id":   e["account_id"],
-                    "source_account_name": e["account_name"],
+                    "source_account_name": display_account_name(e["account_name"]) if e["account_name"] else e["account_name"],
                     # True only when the destination is inside the
                     # SPENDABLE pool (`_split_balances`'s own rule, via
                     # `_account_pool_kind` -- see `_learn_transfer_destinations`).
@@ -4529,7 +4530,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "expected_date":   display_d.isoformat(),
                 "days_away":       days_away,
                 "account_id":      acc_id,
-                "account_name":    acc_name,
+                "account_name":    display_account_name(acc_name) if acc_name else acc_name,
                 "account_bank":    acc_bank,
                 "account_balance": acc_balance,
                 "is_credit_card":  acc_is_credit_card,
@@ -4575,7 +4576,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             "expected_date":   display_d.isoformat(),
             "days_away":       (display_d - today_d).days,
             "account_id":      bp.get("account_id"),
-            "account_name":    bp.get("account_name"),
+            "account_name":    display_account_name(bp.get("account_name")) if bp.get("account_name") else bp.get("account_name"),
             "account_bank":    _bank_label(bp.get("account_bank")),
             "account_balance": bp.get("account_balance"),
             "is_credit_card":  bp.get("is_credit_card", False),
@@ -4633,7 +4634,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "edited":        edited,
                 "rule_label":    rules.get(r["key"], {}).get("label"),
                 "account_id":      r.get("account_id"),
-                "account_name":    r.get("account_name"),
+                "account_name":    display_account_name(r.get("account_name")) if r.get("account_name") else r.get("account_name"),
                 "account_bank":    _bank_label(r.get("account_bank")),
                 "account_balance": r.get("account_balance"),
                 "occurrences":     r.get("occurrences"),

@@ -21,6 +21,7 @@
 // search matching the FULL account set regardless of shortlist/expanded
 // state so nothing is ever unreachable.
 
+import { displayAccountName } from "@/lib/accountName";
 import { useMemo, useState } from "react";
 import { Search, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge, RadioDot } from "@/components/AccountMiniCard";
@@ -85,7 +86,7 @@ function AccountRow({
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
       <span className="flex-1 min-w-0">
-        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{account.manual ? account.name : tidyAccountText(account.name)}</span>
+        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{displayAccountName(account.name)}</span>
         <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{balanceCaption(account)}</span>
       </span>
       <RadioDot selected={value === account.id} />

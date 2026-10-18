@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -28,6 +29,7 @@ import MoneyText from "@/components/MoneyText";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
+import { actionHref } from "@/lib/actionRoutes";
 
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
 const PlanEasingSheet = dynamic(() => import("@/components/PlanEasingSheet").then((m) => m.PlanEasingSheet));
@@ -288,7 +290,7 @@ function MoveRouteSummary({
         <MoveAccountIcon account={destination} />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
-          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{destination.name}</p>
+          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{displayAccountName(destination.name)}</p>
         </div>
       </div>
     </div>
@@ -643,7 +645,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
   if (hidden) return null;
 
   function handleGo() {
-    if (item.action) router.push(item.action.route);
+    if (item.action) router.push(actionHref(item.action.route));
   }
 
   async function handleNotNow() {
@@ -860,7 +862,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       )}
       {item.action && (
         <footer className={ACTION_DOCK}>
-          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+          <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>
             <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
@@ -1007,7 +1009,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
             const { suggestion, moves: accountMoves } = group;
             const sources = (suggestion.suggested_sources ?? []).map(source => ({
               provider: source.provider,
-              name: source.name,
+              name: displayAccountName(source.name),
               amount: source.amount,
             }));
             const latestMove = accountMoves[accountMoves.length - 1];
@@ -1108,7 +1110,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
-                    <p className="text-[12px] text-slate-400 dark:text-slate-500 truncate">{m.source_name} · {dateStr}</p>
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500 truncate">{displayAccountName(m.source_name)} · {dateStr}</p>
                   </div>
                   <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
                     {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
@@ -1417,7 +1419,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         )}
         {item.action && (
           <footer className={ACTION_DOCK}>
-            <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
+            <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
           </footer>
         )}
         {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
@@ -1474,7 +1476,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
                     />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{item.dest_row?.title ?? dest.name}</span>
+                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{item.dest_row?.title ?? displayAccountName(dest.name)}</span>
                     <span className="block text-[12px] text-slate-600 dark:text-slate-300 leading-snug"><MoneyText text={maskAmounts(tileText)} /></span>
                   </span>
                 </div>
@@ -1548,7 +1550,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       )}
       {item.action && (
         <footer className={ACTION_DOCK}>
-          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+          <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>
             <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
@@ -1953,7 +1955,7 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
   const moveTotal = data.moves.reduce((sum, m) => sum + m.amount, 0);
   const moveWho = moveNames.length <= 1 ? moveNames[0] : moveNames.length === 2 ? `${moveNames[0]} and ${moveNames[1]}` : `${moveNames.length} accounts`;
   const money = (v: number) => setAsideMoney(v, hideNetWorth);
-  const payer = data.estimated ? `Paid from ${paying.name}, based on recent transfers.` : `Paid from ${paying.name}.`;
+  const payer = data.estimated ? `Paid from ${displayAccountName(paying.name)}, based on recent transfers.` : `Paid from ${displayAccountName(paying.name)}.`;
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
@@ -2361,7 +2363,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             </p>
             {needleItem.action && (
               <button
-                onClick={() => router.push(needleItem.action!.route)}
+                onClick={() => router.push(actionHref(needleItem.action!.route))}
                 className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
                 <ActionLabel>{needleItem.action.label}</ActionLabel>

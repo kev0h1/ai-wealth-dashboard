@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useId, useMemo, useState } from "react";
 import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
@@ -32,13 +33,13 @@ function AccountRow({ account, result, onOpen }: { account: UpcomingAccountSumma
     type="button"
     data-account-row={account.id}
     onClick={() => onOpen(account)}
-    aria-label={`Open ${account.bank}, ${account.name}: ${result.amount === null ? result.label : `${money(result.amount)}, ${result.label.toLowerCase()}`}${result.estimated ? ", estimated" : ""}`}
+    aria-label={`Open ${account.bank}, ${displayAccountName(account.name)}: ${result.amount === null ? result.label : `${money(result.amount)}, ${result.label.toLowerCase()}`}${result.estimated ? ", estimated" : ""}`}
     className={`grid min-h-16 w-full grid-cols-[2rem_minmax(0,1fr)_1rem_minmax(0,8rem)] items-start gap-x-2 px-3 py-3 text-left hover:bg-slate-50 active:opacity-70 min-[360px]:px-4 dark:hover:bg-slate-700/50 ${focus}`}
   >
     <span data-bank-badge className="col-start-1 row-span-3 row-start-1 w-8 pt-0.5"><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
     <span className="col-start-2 row-span-3 row-start-1 min-w-0 pr-1">
       <span className="block break-words text-sm font-semibold leading-5 text-slate-800 dark:text-slate-100">{account.bank}</span>
-      <span className="mt-0.5 block break-words text-xs leading-4 text-slate-600 dark:text-slate-400">{account.name}</span>
+      <span className="mt-0.5 block break-words text-xs leading-4 text-slate-600 dark:text-slate-400">{displayAccountName(account.name)}</span>
     </span>
     <Signal signal={result.signal} />
     <span data-status-amount className={`col-start-4 row-start-1 whitespace-nowrap text-right text-sm font-bold leading-5 text-slate-900 dark:text-slate-100 ${result.amount === null ? "font-sans" : "font-mono tabular-nums"}`}>{result.amount === null ? "Unavailable" : money(result.amount)}</span>

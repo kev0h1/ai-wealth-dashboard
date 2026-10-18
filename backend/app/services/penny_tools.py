@@ -100,6 +100,7 @@ from app.services.affordability import check_affordability as _check_affordabili
 from app.services.categories import (
     get_category_kinds, is_non_spend, normalise_name, resolve_category_name,
 )
+from app.services.account_names import display_account_name
 from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
@@ -3064,7 +3065,7 @@ def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> di
     by_date = sorted(rows, key=lambda d: d.get("date") or datetime.min)
     return {
         "account_id": acc.id,
-        "name": acc.name,
+        "name": display_account_name(acc.name),
         "balance": _money(acc.balance),
         "money_in": _money(money_in),
         "money_out": _money(money_out),
@@ -3125,7 +3126,7 @@ async def _exec_get_account_activity(
                     "ambiguous": True,
                     "matches": [
                         {
-                            "id": a.id, "name": a.name, "provider": a.provider,
+                            "id": a.id, "name": display_account_name(a.name), "provider": a.provider,
                             "balance_formatted": _money(a.balance)["formatted"],
                         }
                         for a in name_matches
@@ -3227,7 +3228,7 @@ async def _exec_get_accounts(uid: str) -> dict:
             # tool returns an explicit `ambiguous` result with each
             # candidate's id in exactly that case).
             "id": a.id,
-            "name": a.name,
+            "name": display_account_name(a.name),
             "provider": a.provider,
             "type": a.type,
             "subtype": a.subtype,
@@ -4355,7 +4356,7 @@ def _shape_plan_dest(dest: dict | None) -> dict | None:
 def _shape_leg_account(acc: dict | None) -> dict | None:
     if not acc:
         return None
-    return {"name": acc.get("name"), "balance": _money(acc.get("balance"))}
+    return {"name": display_account_name(acc.get("name")), "balance": _money(acc.get("balance"))}
 
 
 def _shape_payday_plan(item: dict) -> dict:
@@ -5127,7 +5128,7 @@ async def _exec_get_fill_candidates(uid: str, account_id_or_name: str | None) ->
     items = resp.get("items") or []
     return {
         "account_id": account.id,
-        "account_name": account.name,
+        "account_name": display_account_name(account.name),
         "candidates": [
             {
                 "display_name": c.get("display_name"),
@@ -5410,7 +5411,7 @@ async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None)
         if len(matches) > 1:
             return {
                 "ambiguous": True,
-                "matches": [{"id": a.id, "name": a.name, "provider": a.provider} for a in matches],
+                "matches": [{"id": a.id, "name": display_account_name(a.name), "provider": a.provider} for a in matches],
             }
         target = matches[0] if matches else None
     if target is None:
@@ -5635,7 +5636,7 @@ def _last4(account_number: str | None) -> str | None:
 def _card_candidate_summary(a) -> dict:
     return {
         "id": a.id,
-        "name": a.name,
+        "name": display_account_name(a.name),
         "bank": a.provider,
         "balance_formatted": _money(a.balance)["formatted"],
         "last4": _last4(getattr(a, "account_number", None)),
@@ -6950,7 +6951,7 @@ async def _resolve_offline_account_for_propose(uid: str, account_ref: str) -> di
                 "ambiguous": True,
                 "matches": [
                     {
-                        "id": a["_id"], "name": a.get("name"),
+                        "id": a["_id"], "name": display_account_name(a.get("name")),
                         "account_type": a.get("account_type"), "balance": _money(a.get("balance", 0)),
                     }
                     for a in matches
@@ -7063,7 +7064,7 @@ async def _resolve_source_account_for_propose(uid: str, ref: str) -> dict:
         if len(matches) > 1:
             return {
                 "ambiguous": True,
-                "matches": [{"id": a.id, "name": a.name, "provider": a.provider} for a in matches],
+                "matches": [{"id": a.id, "name": display_account_name(a.name), "provider": a.provider} for a in matches],
             }
         target = matches[0] if matches else None
     if target is None:
@@ -7075,7 +7076,7 @@ async def _resolve_source_account_for_propose(uid: str, ref: str) -> dict:
         resolved_id = await _route_resolve_source_scope(uid, target.id)
     except HTTPException as e:
         return {"error": str(e.detail)}
-    return {"account_id": resolved_id, "account_name": target.name}
+    return {"account_id": resolved_id, "account_name": display_account_name(target.name)}
 
 
 async def _resolve_bank_connection_for_propose(uid: str, ref: str) -> dict:

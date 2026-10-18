@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
@@ -7,6 +8,8 @@ import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, Inv
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
+import AccountsEstateControls from "@/components/AccountsEstateControls";
+import AccountGroupCard from "@/components/AccountGroupCard";
 import { formatUpdated } from "@/lib/updatedLabel";
 import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
@@ -240,8 +243,8 @@ const MANUAL_KIND: Record<ManualAccountType, AccountKind> = {
 function AccountsSkeleton() {
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-hidden="true">
-      <div className="px-4 pt-4 animate-pulse">
-        <div className="mb-4">
+      <div className="px-4 pt-5 animate-pulse">
+        <div>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
@@ -260,7 +263,7 @@ function AccountsSkeleton() {
         </div>
       </div>
 
-      <div className="px-4 pt-4 space-y-3">
+      <div className="px-4 pt-3 space-y-3">
         <div className="h-11 rounded-xl bg-slate-200 dark:bg-slate-700 animate-pulse" />
         <div className="flex items-center gap-1.5 overflow-hidden">
           {["All", "Current", "Savings", "Credit", "Investment", "Owed"].map((l) => (
@@ -1571,7 +1574,7 @@ export default function AccountsPage() {
       if (!raw) continue; // no matching Account — nothing to click through to
       rows.push({
         id: m.id,
-        name: m.name,
+        name: displayAccountName(m.name),
         provider: "Offline",
         kind: MANUAL_KIND[m.account_type],
         balance: m.account_type === "credit_card" ? -Math.abs(m.balance) : m.balance,
@@ -1880,7 +1883,7 @@ export default function AccountsPage() {
                   <CustomSelect
                     value={ruleTarget}
                     onChange={v => setRuleTarget(v)}
-                    options={manualAccounts.map(a => ({ value: a.id, label: a.name }))}
+                    options={manualAccounts.map(a => ({ value: a.id, label: displayAccountName(a.name) }))}
                     className="w-full mb-4"
                   />
                 </>
@@ -1924,7 +1927,7 @@ export default function AccountsPage() {
                           brandBg={brand.background}
                         />
                         <span className="flex-1 min-w-0">
-                          <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
+                          <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</span>
                           {acc.provider && (
                             <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
                           )}
@@ -2292,7 +2295,7 @@ export default function AccountsPage() {
 
           {/* Statement block */}
           <AccountDetailIdentity
-            name={selectedAccount.name}
+            name={displayAccountName(selectedAccount.name)}
             logoSrc={brand.logoSrc}
             initials={brand.initials}
             label={brand.label}
@@ -2517,7 +2520,7 @@ export default function AccountsPage() {
                         <p className={`text-sm font-semibold truncate ${rule.active ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500 line-through"}`}>{rule.name}</p>
                         <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
                           {rule.match_type === "category" ? "Category" : rule.match_type === "description_equals" ? "Exactly" : "Contains"}{" "}&ldquo;{rule.match_value}&rdquo;{" "}&middot;{" "}{rule.sign === "opposite" ? "Offset" : "Shadow"}
-                          {rule.source_account_id && <>{" "}&middot;{" "}{rule.source_account_name ?? "One account"}</>}
+                          {rule.source_account_id && <>{" "}&middot;{" "}{rule.source_account_name ? displayAccountName(rule.source_account_name) : "One account"}</>}
                         </p>
                       </div>
                       <button
@@ -2636,7 +2639,7 @@ export default function AccountsPage() {
           DOM order. */}
       {(tab === "Banks" || investmentAccounts.length === 0) && (
       <div
-        className="px-4 pt-4 pb-4"
+        className="px-4 pt-5"
       >
         <AccountsHeader
           netWorth={headerNetWorth}
@@ -2814,14 +2817,14 @@ export default function AccountsPage() {
       {tab === "Banks" && (
         <>
           {connectNotice && (
-            <div className="mx-4 mt-4 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3">
+            <div className="mx-4 mt-3 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3">
               <p className="flex-1 text-sm text-slate-700 dark:text-slate-300">No accounts were linked.</p>
               <button onClick={() => setConnectNotice(false)} aria-label="Dismiss" className="min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-slate-400 hover:text-slate-600"><X size={16} /></button>
             </div>
           )}
 
           {syncBannerInfos.length > 0 && (
-            <div className="mx-4 mt-4">
+            <div className="mx-4 mt-3">
               <AccountsSyncBanner
                 connections={syncBannerInfos}
                 onRetry={isSyncing && syncTimedOut ? () => { setSyncTimedOut(false); setSyncPollKey(k => k + 1); } : handleSyncRetry}
@@ -2830,7 +2833,7 @@ export default function AccountsPage() {
           )}
 
           {reconnectWarning && (
-            <div className="mx-4 mt-4 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
+            <div className="mx-4 mt-3 flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
               <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Wrong account connected</p>
@@ -2840,7 +2843,7 @@ export default function AccountsPage() {
             </div>
           )}
 
-          <div className="px-4 pt-4 space-y-3">
+          <div className="px-4 pt-3 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Spinner size={32} />
@@ -2893,7 +2896,7 @@ export default function AccountsPage() {
             ) : (
               <>
                 {pinMsg && (
-                  <div className="mb-1 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  <div className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
                     {pinMsg}
                   </div>
                 )}
@@ -2930,44 +2933,11 @@ export default function AccountsPage() {
                   <ReconnectStrip providers={reconnectProviders} onReconnect={handleEstateReconnect} />
                 )}
 
-                {/* Find bar */}
-                <div className="relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" aria-hidden="true" />
-                  <input
-                    type="text"
-                    value={estateQuery}
-                    onChange={(e) => setEstateQuery(e.target.value)}
-                    placeholder="Find an account…"
-                    aria-label="Find an account"
-                    className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                {/* Lens chips */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {(["All", "Current", "Savings", "Credit", "Investment", "Owed"] as const).map((l) => {
-                    const active = estateLens === l;
-                    return (
-                      <button
-                        key={l}
-                        type="button"
-                        onClick={() => setEstateLens(l)}
-                        aria-pressed={active}
-                        className={`shrink-0 min-h-[44px] px-3.5 rounded-full text-[13px] font-semibold transition-colors ${
-                          active
-                            ? "bg-indigo-500 text-white"
-                            : "glass-tile text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-white/10"
-                        }`}
-                      >
-                        {l}
-                      </button>
-                    );
-                  })}
-                </div>
+                <AccountsEstateControls query={estateQuery} onQuery={setEstateQuery} lens={estateLens} onLens={setEstateLens} />
 
                 {estateIsFiltering ? (
                   <div>
-                    <p className="px-1 mb-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
+                    <p className="px-1 mb-2 text-xs font-medium text-slate-400 dark:text-slate-500">
                       {estateFilteredRows.length} result{estateFilteredRows.length === 1 ? "" : "s"}
                     </p>
                     {estateFilteredRows.length === 0 ? (
@@ -3077,52 +3047,11 @@ export default function AccountsPage() {
                       estate.groups.map((group) => {
                         const isCollapsed = collapsedGroups[group.label] ?? (group.kind === "Credit" && group.count > 4);
                         return (
-                          <section
-                            key={group.label}
-                            className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none"
-                            aria-label={`${group.label} accounts`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => toggleEstateGroup(group.label)}
-                              aria-expanded={!isCollapsed}
-                              className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${isCollapsed ? "rounded-2xl" : "rounded-t-2xl"}`}
-                            >
-                              <span>
-                                <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{group.label}</span>
-                                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{group.count} {group.count === 1 ? "account" : "accounts"}</span>
-                              </span>
-                              <span className="flex items-center gap-2">
-                                <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">
-                                  {hideNetWorth
-                                    ? "£••••"
-                                    : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
-                                </span>
-                                <ChevronDown
-                                  size={16}
-                                  className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${isCollapsed ? "" : "rotate-180"}`}
-                                  aria-hidden="true"
-                                />
-                              </span>
-                            </button>
-                            <div
-                              className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
-                                isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
-                              }`}
-                            >
-                              <div
-                                className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
-                                  isCollapsed ? "opacity-0" : "opacity-100"
-                                }`}
-                              >
-                                <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-                                  {group.rows.map((row) => (
-                                    <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} />
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </section>
+                          <AccountGroupCard key={group.label} label={group.label} count={group.count} subtotal={group.subtotal} hidden={hideNetWorth} collapsed={isCollapsed} onToggle={() => toggleEstateGroup(group.label)}>
+                            {group.rows.map((row) => (
+                              <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} />
+                            ))}
+                          </AccountGroupCard>
                         );
                       })
                     )}
@@ -3186,7 +3115,7 @@ export default function AccountsPage() {
               accounts inside the filtered results list above, so showing
               this too would duplicate them. */}
           {!estateIsFiltering && (
-            <div className="px-4 pt-6">
+            <div className="px-4 mt-5">
               <div className="mb-2">
                 <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Offline accounts</h2>
                 <p className="text-xs text-slate-400 dark:text-slate-500">Track balances we can&apos;t connect to: pots, cash, store cards. Tap to add transactions &amp; rules.</p>
@@ -3197,7 +3126,7 @@ export default function AccountsPage() {
                   <p className="text-sm text-slate-400 dark:text-slate-500">No offline accounts yet.</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {manualAccounts.map((acc) => {
                     const meta = MANUAL_TYPES.find(t => t.value === acc.account_type) ?? MANUAL_TYPES[0];
                     const isCredit = acc.account_type === "credit_card";
@@ -3214,7 +3143,7 @@ export default function AccountsPage() {
                           <meta.Icon size={16} className="text-slate-500 dark:text-slate-300" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{acc.name}</p>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</p>
                           <p className="text-xs text-slate-400 dark:text-slate-500">{meta.label} · Offline</p>
                         </div>
                         <span className={`text-sm font-bold flex-shrink-0 font-mono tabular-nums ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
