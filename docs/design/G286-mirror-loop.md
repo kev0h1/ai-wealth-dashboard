@@ -1,35 +1,50 @@
 # G286: a Mirror that closes the loop
 
-Design round only. Operate mode, extending the established Calm Cockpit. Kevin asked for alternatives, not a production change. The new interaction is proposed in local prototypes; current production components remain unchanged and are shown through fixture props where their safe interfaces permit it.
+**Approved A, folded in 18 October 2026.** This is an ordinary extension of the existing Calm Cockpit, not a new product world. The temporary 17 October design round is retained below as historical evidence. Its two alternatives have been superseded by the approved production loop. The temporary preview and its index entry have been removed under H113; the original remains in Git history.
 
 ## Direction contract
 
-THESIS: make a chosen trait lead to one visible next step, transaction evidence and a calm reflection, instead of a detached list of aims.
+THESIS: keep consent, the chosen next step, transaction evidence and calm reflection with one trait, rather than a detached list of aims.
 
-OWN-WORLD: existing slate canvas, Figtree, mono currency, ink figures and category identity. No warning colours for personality or passing an aim, no score and no new visual identity.
+OWN-WORLD: inherit the slate canvas, Figtree, mono currency, category identity and restrained indigo actions. No warning treatment for a trait or an aim result.
 
-STORY: notice the evidence, choose keep or change, see what is being checked, review a completed period, then keep, adjust or stop that particular aim. A kept trait never receives coaching.
+STORY: notice a pattern, choose keep or change, check the current pace, review a completed result, then choose whether to keep that pace, adjust or leave the check complete. Kept and unchosen traits receive no coaching.
 
-FIRST VIEWPORT: A attaches the active loop to its trait, with a readable current/result comparison. B leads with one period review, with the quieter portrait below. Desktop uses evidence space alongside the focused loop; phones retain one reading column.
+FIRST VIEWPORT: the approved A trait card leads, with its current or completed check attached. Evidence sits alongside on desktop and follows below on phones. Other patterns remain available but quiet.
 
-FORM: two coded alternatives inside the existing Mirror surface, not a replacement-world exercise. Local choices and editors demonstrate the loop without customer writes or automatic completion. Existing production aim and next-step primitives are reused where applicable. New outcome and history views are labelled synthetic proposals, not claimed server capabilities.
+FORM: Kevin's coded A, chosen 18 October 2026, extends the existing Mirror. No new identity or concept roll. Use the shared AimSheet, owned transaction evidence and original recorded benchmarks, not the prototype's local fixture state.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
 
-## Boundaries and acceptance
+## Chosen direction and current contract
 
-- BEHAVIOURS.md remains authority: explicit trait-level consent, one next step, no goal dashboard, no self-report completion, no invented causal attribution or peer scoring. Aim outcomes describe actual spend against a chosen pace, never good or bad character. Checkpoints require transaction evidence.
-- Required fixtures: an undecided trait, kept trait, active change with an aim, completed period below/near/past the aim, thin history, stale/error history and a long-money case. Show what changed over time with dated transaction-derived evidence, and do not infer why it changed.
-- Explain payment reliability using four explicit dated fee/payment records. Do not conflate fees with a verified missed payment, or treat a merchant/category as proof of a sensitive trait. The A165 profiling/DPIA work is pending specialist review; this round makes no legal conclusions and uses no customer data or external model service.
-- Keep, change, adjust, stop, evidence and reflection controls operate on local fixture state only. Do not call the production TraitCard's write handler from the auth-exempt route. Any shipped reference card with an internal API handler is inert and labelled as a reference.
-- Currency keeps grouping, pence when meaningful and a real minus sign. Money masks without leaking into accessible names. No em dashes in user-facing copy; British English.
-- Root reviews 390px in both themes plus 320px and desktop, keyboard/focus, all material states and inert operations in one batched inspection with at most one root refinement batch. Independent finish review follows. Existing DESIGN.md is preserved during the round; any future doctrine amendment requires Kevin's choice.
-- Register `/design/mirror-loop`, run the design-index and stale gates and finish G286 with `--uat-review`. The coordinator publishes the preview before Kevin is asked to choose. Remove this temporary route on fold-in under H113.
+**A: Trait in motion** attaches one active, consented trait to its own evidence and one pace check. The Mirror remains descriptive first: a trait is never a warning, score, diagnosis or instruction. The user explicitly chooses keep or change for that trait. Keep leaves coaching off. Change permits one next step only, with no goal dashboard, checklist or self-reported completion.
 
-## Review evidence, 17 October 2026
+For a category-backed trait, that step is an aim: a neutral pace check, not a budget or moral limit. It appears in the approved `MirrorFeedbackCard`, alongside cited trait evidence, and uses the shared `AimSheet` for create and adjust actions. Choosing change does **not** open the editor automatically. The user takes the explicit edit or set-aim action, and masked figures prevent setting or adjusting an aim until figures are shown. A stopped aim leaves the trait choice untouched; stopping is confirmed and can be cancelled. A save failure is visible and retryable.
 
-- Root inspected both alternatives in one initial batch, corrected the shell-hidden evidence panel in one batch, then confirmed the final matrix. Local evidence is retained under `frontend/.impeccable/review/g286/`, not shipped as app assets: 48 viewport/state captures and 12 interaction captures. Coverage is 390px in both themes, 320px long figures, 1440px desktop and masked figures. The browser check asserts that evidence is visible and money stays inside the viewport.
-- Local interaction checks cover keep/change consent, the positive-amount editor and its error, saving an aim, completed-period reflection, stop confirmation/restart, unavailable-history recovery and expanded masked evidence. Choosing a new next-period pace never rewrites the completed period's original benchmark. All customer API requests were intercepted; no customer writes, unexpected external requests or page exceptions occurred.
-- Production build, scoped ESLint, fixture checks, design-index and strict design-stale checks passed. The final `session.sh finish --uat-review` gate additionally requires the disposable-database backend suite, typecheck and every registered frontend check. Its delivery result belongs on the board.
-- A fresh independent finish reviewer returned `disposition: ship`, with no material fixes, for the preview's consent loop, financial evidence, responsive rendering and existing-system fidelity. This is readiness for Kevin's design choice, not approval to implement either alternative.
-- The Impeccable launcher/detector returned permission denied. No automated detector pass is claimed. Manual craft-floor and current Web Interface Guidelines checks, plus a fresh independent reviewer, were used. The specialised reviewer and documenter roles were unavailable; fresh isolated fallback agents performed those audits. The documentation audit found no missing truth and preserved canonical `DESIGN.md` and its sidecar. No raster assets were introduced.
+The card separates the current pay-period check from a completed check. A current check uses the server-provided period and pace data. A completed check retains its original aim benchmark and result, with a checked date; selecting a new current-period pace never rewrites that completed record. With both present, the completed check is available behind an explicit disclosure. With a completed check but no active aim, the user may keep that pace for the current pay period or open the shared editor. A closed check has no stop control.
+
+The owned history endpoint returns at most 12 completed aims; the card uses the latest completed record for its category. Evidence shows spending net of refunds for that aim's period, with up to five named records and a reconciled remainder. Separately, four completed seven-day windows show payment counts, excluding refunds; these windows can predate the aim. They are not four aim outcomes or a projection. Payment-keyword records are bounded to the user's own TrueLayer transaction evidence, with a maximum of six shown, and are available only in the hygiene trait's evidence context. A matching description does not prove a missed payment. The A165 profiling and DPIA work remains pending specialist review; G286 makes no legal conclusion, introduces no LLM work and adds no retention regime.
+
+## Boundaries
+
+- `BEHAVIOURS.md` remains authoritative: explicit trait-level consent; one next step; no goal dashboard; no self-report completion; no invented causal attribution, peer comparison or scoring. Checkpoint and aim outcomes rest on transaction evidence.
+- The established Mirror calls remain the source for portrait and consent. Aim feedback comes from stored checkpoint history and current checkpoint records, resolved by the backend. The client does not rebuild a finished benchmark from a browser date or a later aim.
+- Currency retains grouping, meaningful pence and the real minus sign. Masked amounts do not leak through accessible names. User-facing copy uses British English and no em dashes.
+- Red remains for genuine financial risk only. A trait, a choice to change, a pace result and a payment-hygiene observation are not financial risk, so they use existing slate, indigo and category identity rather than warning treatment. Penny's indigo-to-violet gradient remains Penny-only.
+- This implementation adds no new retention, automated inference, personal-data source or external model call. Thin, unavailable and failed feedback is stated as such rather than filled with a claim.
+
+## Production review, 18 October 2026
+
+- Production components reviewed: `frontend/app/mirror/MirrorPage.tsx`, `frontend/components/MirrorFeedbackCard.tsx`, `MirrorEvidence.tsx`, `AimSheet.tsx`, `mirrorFeedback.module.css`, and `frontend/lib/mirrorFeedback.ts`. The feedback view is attached to the focused trait and uses existing stored checkpoint-feedback records.
+- Fresh independent UI review found two initial issues. Both were corrected and the reviewer’s final disposition was **ship**. The separate financial review confirmed the DST and trait-context fixes; strict source-failure handling was added. This disposition covers the reviewed implementation, not a claim that the full delivery gate has finished.
+- Twenty-six targeted backend tests passed, together with the current TypeScript check, G242 checks, new G286 render checks and production build. The full `session.sh finish` gate remains pending and its result belongs on the board.
+- Real production components were rendered temporarily through `/design/mirror-loop?production=1`, with all financial API requests intercepted. Evidence is fixture-only: it is not a capture of a customer-authenticated page. The review covered nine matrix cases and two expanded screenshots, including light and dark views, compact width, long or masked figures, active, completed, thin and error feedback. Kept consent is checked in the interactions; late-data reconciliation is checked in backend tests, not claimed as a captured state.
+- Synthetic interaction checks covered pence editing, negative-value validation, consent failure, stop confirmation and cancellation, focus return, closed checks retaining their original benchmark, and masked figures without horizontal overflow. Local QA evidence sits in the ignored `frontend/.impeccable/review/g286/` directory and is not a shipped asset.
+- The Impeccable launcher/detector was unavailable because of a permission denial. No automated detector pass is claimed. Manual Web Interface Guidelines and fresh-fallback reviews were used; the specialised documenter role was unavailable. No raster asset was introduced.
+
+## Historical design-round evidence, 17 October 2026
+
+The original round proposed two local, fixture-only alternatives: A, Trait in motion, and B, Period review. It explored an undecided trait, kept trait, active change with an aim, completed result below, near and past the aim, thin and unavailable history, long money, and dated fee/payment evidence. It used local choices and intercepted requests, so it made no customer write and no production claim. Kevin chose A on 18 October; B is retained here only as the design-round comparison, not as a current option.
+
+The round’s initial review corrected the shell-hidden evidence panel and then recorded the preview matrix. The earlier preview checks, preview build, lint, fixture checks, design-index and strict design-stale result are historical preview evidence only. They do not substitute for the current implementation review or for the still-pending full finish gate.

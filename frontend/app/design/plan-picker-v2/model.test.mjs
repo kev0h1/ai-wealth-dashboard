@@ -35,8 +35,8 @@ for (const plan of PLANS) {
   }
 }
 for (const platform of ["web", "ios", "android"]) {
-  assert.deepEqual(plansFor(platform, false).map(p => p.id), ["statements", "lite", "standard", "max"]);
-  assert.equal(plansFor(platform, true).some(p => p.id === "connect"), platform === "web");
+  assert.deepEqual(plansFor(platform, false).map(p => p.id), ["statements", "lite", "standard", "plus"]);
+  assert.equal(plansFor(platform, true).some(p => p.id === "connect" || p.id === "max"), false);
   for (const scenario of SCENARIOS) {
     for (const provider of ["stripe", "apple", "google"]) {
       const fixture = fixtureFor(scenario.id, platform, provider);
@@ -73,7 +73,7 @@ for (const platform of ["web", "ios", "android"]) {
 assert.equal(offerFor(fixtureFor("free", "web"), "web", "statements", "annual", "onboarding").disabled, false);
 assert.match(accountReading(fixtureFor("cancelled", "web")).detail, /will not renew/);
 assert.equal(fixtureFor("legacy-connect", "ios").provider, "stripe");
-assert.equal(fixtureFor("legacy-connect", "android").info.tier, "connect");
+assert.equal(fixtureFor("legacy-connect", "android").info.tier, "plus");
 const ui = readFileSync(new URL("./PlanPickerV2Client.tsx", import.meta.url), "utf8");
 assert.match(ui, /previewOnly/);
 assert.doesNotMatch(ui, /(?:fetch\(|localStorage|sessionStorage|api\.|\/api\/)/);

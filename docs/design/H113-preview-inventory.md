@@ -50,7 +50,6 @@ The importer detection matched the word `from` on comment lines, so account-pick
 | `finexer-consent-intro` | imported/read by frontend/scripts/a155-consent-journeys.test.mjs, frontend/scripts/g226-finexer-intro.test.mjs |
 | `first-sync` | open G214(in-progress) |
 | `g100-scenario-canvas` | open item G100 (uat); name match, not slug |
-| `g119-transactions-live` | open A29(todo) |
 | `g124-upcoming-refine` | open G125(uat),H86(todo) |
 | `g134-home-inventory` | open G134(uat),H92(todo) |
 | `g149-transfer-review-placement` | open H92(todo) |
@@ -92,7 +91,6 @@ The importer detection matched the word `from` on comment lines, so account-pick
 | `spend-live` | open A29(todo) |
 | `spend-pace-copy` | imported/read by frontend/scripts/g140-pace-copy.test.mjs |
 | `spend-tips` | imported by a kept preview (design-internal import) |
-| `spend-verdict-a` | open A29(todo) |
 | `sts-accounts-route` | imported/read by frontend/scripts/g219-accounts-route.test.mjs, frontend/scripts/g221-home-cleanup.test.mjs |
 | `sync-loading` | open G214(in-progress) |
 | `transactions-canvas-before-cards` | open G118(todo) |

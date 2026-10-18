@@ -42,10 +42,10 @@ const aim82 = { id: "a1", aim_amount: 100, spent_so_far: 82, days_left: 6, on_tr
 // 1. the ring is always there ---------------------------------------------
 const tip = {
   id: "t1", category: "eating", app_category: "Eating Out", icon: "x", label: "Lunch",
-  title: "Pack lunch twice a week", body: "A cheaper option exists.",
-  savings_estimate: "~£20/mo", savings_estimate_monthly: 20, pinned: false, is_new: false,
-  refreshed_at: null, verified_savings: null, verified_merchant: null, substituted: false,
-  substituted_merchant: null, substituted_amount: null, claim_valid_until: null,
+  title: "You spend about £60 a month on eating out", body: "That is based on 5 payments in the last 90 days.",
+  pinned: false, is_new: false,
+  refreshed_at: null, substituted: false,
+  substituted_merchant: null, claim_valid_until: null,
   content_valid_until: null, expiry_line: "Researched 2d ago", researched_at: null, state: "fresh",
   triggered_by: [{ merchant_key: "pret", display_name: "Pret", monthly_amount: 40, occurrences: 6 }],
   user_context: null, has_workflow: false, app_route: null,

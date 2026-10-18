@@ -1,11 +1,20 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import Link from "next/link";
+import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Smartphone, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
-import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { usePurchaseChannel, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import {
+  loadPlayConfig, loadPlaySubscriptionProducts, openManagePlaySubscriptions, purchasePlaySubscription,
+  restorePlayPurchases, type PlayBillingConfig, type PlayProductView,
+} from "@/lib/playBilling";
+import {
+  loadIapConfig, loadStoreProducts, openManageSubscriptions, purchaseSubscription, restorePurchases,
+  syncUnfinishedTransactions, type AppleIapConfig, type StoreProductView,
+} from "@/lib/storekit";
 import type {
   SubscriptionBillingPeriod,
   SubscriptionBillingPeriodDetail,
@@ -34,28 +43,21 @@ const TIERS: Tier[] = [
     id: "lite",
     name: "Lite",
     lead: "Keep up with day-to-day money across your main banks.",
-    includes: ["Up to 3 connected banks", "Daily bank updates", "6 months of history", "40 Penny messages a month"],
+    includes: ["Up to 10 connected accounts", "40 Penny messages a month", "All features"],
     icon: Landmark,
   },
   {
     id: "standard",
     name: "Standard",
     lead: "Your full money picture, kept up to date through the day.",
-    includes: ["Up to 20 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"],
+    includes: ["Up to 25 connected accounts", "150 Penny messages a month", "All features"],
     icon: Zap,
   },
   {
-    id: "connect",
-    name: "Connect",
-    lead: "Use your Sorted figures in an assistant you connect.",
-    includes: ["Everything in Standard", "2,000 connected-assistant calls a month", "Read-only sharing you can revoke"],
-    icon: Link2,
-  },
-  {
-    id: "max",
-    name: "Max",
-    lead: "The highest limits and fastest updates.",
-    includes: ["All your bank accounts", "Priority bank updates", "400 Penny messages a month", "5,000 connected-assistant calls a month"],
+    id: "plus",
+    name: "Plus",
+    lead: "No limit on accounts, and the most Penny messages.",
+    includes: ["Unlimited connected accounts", "300 Penny messages a month", "All features"],
     icon: Crown,
   },
 ];
@@ -102,6 +104,24 @@ const RENEWAL_WORDS: Partial<Record<SubscriptionBillingPeriod, string>> = {
 // already have) does not apply.
 const NATIVE_MANAGE_SUBSCRIPTION_LINE = "You can update your payment method, change your plan, or cancel from a browser at wealth.auriqltd.co.uk, under Settings, Your plan.";
 
+// C21: the key a (tier, period) pair has in the server's product table
+// (GET /billing/apple/account-token): the tier name for monthly, then
+// "<tier>_<period>". The product id behind it comes from that response, never
+// from this file.
+function storeProductKey(tier: SubscriptionTier, period: SubscriptionBillingPeriod): string {
+  return period === "monthly" ? tier : `${tier}_${period}`;
+}
+
+// C21: iOS Settings is where an App Store subscription is changed or
+// cancelled, so this is the manage line for an Apple-sourced plan on any
+// platform (B29's browser line is for Stripe-sourced plans).
+const APPLE_MANAGE_LINE = "Change or cancel it in iOS Settings, under Subscriptions.";
+
+// C24: Google Play is where a Play subscription is changed or cancelled. The
+// plugin cannot send Play's replacement mode, so a second subscription is
+// never bought on top of a live one; the change happens in Google Play.
+const PLAY_MANAGE_LINE = "Change or cancel it in Google Play, under Subscriptions.";
+
 function money(value: number): string {
   return Number.isFinite(value) ? `£${value.toFixed(2)}` : "Price unavailable";
 }
@@ -133,6 +153,12 @@ function periodDetailsFor(info: SubscriptionInfo, tier: SubscriptionTier): Subsc
 
 function displayIsoDate(value: string): string {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
+}
+
+function accountDate(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" }).format(date) : null;
 }
 
 function MoneyCopy({ text }: { text: string }) {
@@ -186,29 +212,34 @@ export default function PlanPicker({
   const chosen = TIERS.find((tier) => tier.id === selected) ?? TIERS[0];
   const periods = useMemo(() => periodDetailsFor(info, selected), [info, selected]);
   const chosenPeriod = periods.find((item) => item.id === period) ?? periods[0];
+  const effectivePeriod = chosenPeriod?.id ?? period;
   const total = chosenPeriod?.total ?? Number.NaN;
-  const renewalWords = RENEWAL_WORDS[period] ?? "each period";
+  const priceReady = Number.isFinite(total) && total > 0;
+  const renewalWords = RENEWAL_WORDS[effectivePeriod] ?? "each period";
   const trialDays = info.trial_days ?? 14;
   // B22: which periods carry the trial is server-decided (Kevin-flippable,
   // app.core.subscription.SUBSCRIPTION_TRIAL_PERIODS) — no longer hardcoded
   // to annual. An older API payload without `trial_periods` falls back to
   // annual-only, matching pre-B22 behaviour.
   const trialPeriods = info.trial_periods ?? ["annual"];
-  const isTrialPeriod = trialPeriods.includes(period);
+  const isTrialPeriod = trialPeriods.includes(effectivePeriod);
   const chargeDateText = info.trial_charge_on ? displayIsoDate(info.trial_charge_on) : null;
   const trialChargeTiming = chargeDateText ? `on ${chargeDateText}` : `after your ${trialDays}-day trial`;
   const cancelByText = chargeDateText ? `before ${chargeDateText}` : "before your trial ends";
   const billingLive = info.billing_live ?? false;
   const hasPaidSubscription = info.has_paid_subscription === true;
   const managedPaidSubscription = hasPaidSubscription && ["active", "trialing", "past_due"].includes(info.status);
-  const billingChangeInPortal = context === "settings" && managedPaidSubscription;
+  // C21: an Apple-sourced plan never goes to the Stripe portal (that account
+  // does not exist); it is managed in iOS Settings.
+  // C24: likewise a Google Play plan is managed in Google Play, never Stripe.
+  const billingChangeInPortal = context === "settings" && managedPaidSubscription && info.billing_provider !== "apple" && info.billing_provider !== "google";
   // B45: every paid plan starts with the trial, so it is no longer an
   // opt-in switch. It simply applies whenever the period carries one and
   // Checkout would grant it (one per person, `trial_eligible` from the
   // server; absent or null when the check could not run, in which case no trial
   // statement is promised and Checkout still decides).
   const trialEligible = info.trial_eligible ?? false;
-  const trialActive = isTrialPeriod && trialEligible && !hasPaidSubscription;
+  const trialActive = isTrialPeriod && trialEligible && !hasPaidSubscription && priceReady;
   // B26: Apple's guideline 3.1.1 (and, for now, Android not being enrolled
   // in Play's billing-choice programme) means a native build can never
   // start Stripe Checkout or open the Stripe customer portal, regardless
@@ -221,8 +252,94 @@ export default function PlanPicker({
   // so this starts (and, on the server, stays) "unknown" — never "web" —
   // until an effect resolves it against the real Capacitor bridge after
   // mount; see that hook's own comment.
-  const availability = usePurchaseAvailability();
-  const purchasingAllowed = nativeOverride === undefined ? availability === "web" : !nativeOverride;
+  const channel = usePurchaseChannel();
+  const purchasingAllowed = nativeOverride === undefined ? channel === "stripe_web" : !nativeOverride;
+  // C21: the iOS build buys through StoreKit, never Stripe. `storekit` is only
+  // true in a real iOS binary that contains the plugin (see
+  // lib/purchaseChannel.ts); the design preview's nativeOverride never
+  // enables it.
+  const storekit = nativeOverride === undefined && channel === "storekit";
+  const appleManaged = context === "settings" && managedPaidSubscription && info.billing_provider === "apple";
+  const [iap, setIap] = useState<AppleIapConfig | null>(null);
+  const [iapState, setIapState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [storeProducts, setStoreProducts] = useState<Record<string, StoreProductView>>({});
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // C24: the Android build buys through Google Play Billing, never Stripe.
+  // `play` is only true in a real Android binary that contains the plugin
+  // (lib/purchaseChannel.ts); the design preview's nativeOverride never
+  // enables it. Product ids, prices and the trial all come from the server
+  // config and the store, nothing is written in this file.
+  const play = nativeOverride === undefined && channel === "play";
+  const playManaged = context === "settings" && managedPaidSubscription && info.billing_provider === "google";
+  const [playCfg, setPlayCfg] = useState<PlayBillingConfig | null>(null);
+  const [playState, setPlayState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [playProducts, setPlayProducts] = useState<Record<string, PlayProductView>>({});
+
+  useEffect(() => {
+    if (!play) return;
+    let live = true;
+    setPlayState("loading");
+    (async () => {
+      try {
+        const config = await loadPlayConfig();
+        if (!live) return;
+        setPlayCfg(config);
+        if (!config.enabled) { setPlayState("failed"); return; }
+        const ids = Object.entries(config.products ?? {}).filter(([key]) => !key.startsWith("penny_")).map(([, id]) => id);
+        const views = await loadPlaySubscriptionProducts(ids);
+        if (!live) return;
+        setPlayProducts(views);
+        setPlayState("ready");
+        // A purchase whose verification was interrupted is still held by Play;
+        // restoring re-sends it (idempotent) and refreshes the plan.
+        const { restored } = await restorePlayPurchases(config);
+        if (restored > 0) { await invalidateOpenBankingAccess(); }
+      } catch {
+        if (live) setPlayState("failed");
+      }
+    })();
+    return () => { live = false; };
+  }, [play]);
+
+  useEffect(() => {
+    if (!storekit) return;
+    let live = true;
+    setIapState("loading");
+    (async () => {
+      try {
+        const config = await loadIapConfig();
+        if (!live) return;
+        setIap(config);
+        if (!config.enabled) { setIapState("failed"); return; }
+        const views = await loadStoreProducts(Object.entries(config.products).filter(([key]) => !key.startsWith("penny_")).map(([, id]) => id));
+        if (!live) return;
+        setStoreProducts(views);
+        setIapState("ready");
+        // A purchase whose verification was interrupted is still queued in StoreKit.
+        if (await syncUnfinishedTransactions(config)) { await invalidateOpenBankingAccess(); }
+      } catch {
+        if (live) setIapState("failed");
+      }
+    })();
+    return () => { live = false; };
+  }, [storekit]);
+
+  const selectedStoreKey = selected === "statements" ? null : storeProductKey(selected, effectivePeriod);
+  const selectedStoreView = selectedStoreKey && iap ? storeProducts[iap.products[selectedStoreKey]] : undefined;
+  const storeBuy = storekit && !billingChangeInPortal && !appleManaged && selected !== "statements";
+  const storeReady = Boolean(iap?.enabled && iap.purchase_allowed && iapState === "ready" && selectedStoreView);
+
+  const selectedPlayKey = selected === "statements" ? null : storeProductKey(selected, effectivePeriod);
+  const selectedPlayView = selectedPlayKey && playCfg?.products ? playProducts[playCfg.products[selectedPlayKey]] : undefined;
+  const playBuy = play && !billingChangeInPortal && !playManaged && selected !== "statements";
+  const playReady = Boolean(
+    playCfg?.enabled && !playCfg.purchase_blocked && !playCfg.subscription_managed_in_play
+    && playState === "ready" && selectedPlayView,
+  );
+  // One in-app store purchase at a time: StoreKit or Play, never both.
+  const inAppBuy = storeBuy || playBuy;
+  const inAppView = storeBuy ? selectedStoreView : playBuy ? selectedPlayView : undefined;
 
   // B22: the exact disclosure the trial control needs adjacent to it —
   // the amount, the named charge date, and a cancel-any-time line naming
@@ -233,6 +350,36 @@ export default function PlanPicker({
   const trialCancelText = trialCancelLine(cancelByText);
 
   const disclosure = useMemo(() => {
+    if (appleManaged) {
+      if (info.status === "past_due") return "Your last payment did not go through. Update your payment method in your Apple ID settings.";
+      if (info.cancel_at_period_end) return "Your subscription is cancelled and will not renew. You keep access until the end of the period you have paid for.";
+      return "Your plan is billed through the App Store and renews automatically.";
+    }
+    if (playManaged) {
+      if (info.status === "past_due") return "Your last payment did not go through. Update your payment method in Google Play.";
+      if (info.cancel_at_period_end) return "Your subscription is cancelled and will not renew. You keep access until the end of the period you have paid for.";
+      return "Your plan is billed through Google Play and renews automatically.";
+    }
+    if (playBuy) {
+      // C24: every figure here is the store's own (price string, offer
+      // period); nothing is taken from the web price table or written here.
+      if (playCfg?.purchase_blocked) return playCfg.purchase_blocked;
+      if (playCfg?.subscription_managed_in_play) return "Change or cancel your plan in Google Play.";
+      if (!selectedPlayView) return playState === "failed" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from Google Play.";
+      const trial = selectedPlayView.freeTrial;
+      const cancelIn = "Cancel any time in Google Play, under Subscriptions.";
+      if (trial) return `${trial.periodText} free, then ${selectedPlayView.priceString} ${renewalWords} unless you cancel before the free period ends. ${cancelIn}`;
+      return `${selectedPlayView.priceString} ${renewalWords} unless you cancel. ${cancelIn}`;
+    }
+    if (storeBuy) {
+      // C21: every figure here is the store's own (price string, offer
+      // period); nothing is taken from the web price table or written here.
+      if (!selectedStoreView) return iapState === "failed" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from the App Store.";
+      const trial = selectedStoreView.freeTrial;
+      const cancelIn = "Cancel any time in iOS Settings, under Subscriptions.";
+      if (trial) return `${trial.periodText} free, then ${selectedStoreView.priceString} ${renewalWords} unless you cancel at least 24 hours before the free days end. ${cancelIn}`;
+      return `${selectedStoreView.priceString} ${renewalWords} unless you cancel. ${cancelIn}`;
+    }
     if (billingChangeInPortal) {
       if (!purchasingAllowed) {
         // B26: no "open billing" phrasing (there is nothing to open here)
@@ -252,9 +399,10 @@ export default function PlanPicker({
     }
     if (selected === "statements") return "Free. No card and no automatic renewal.";
     if (!purchasingAllowed) return PURCHASE_UNAVAILABLE_SENTENCE;
+    if (!priceReady) return "This plan’s price is unavailable. Refresh the page to try again.";
     if (trialActive) return `${trialDisclosureText} ${trialCancelText}`;
     return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
-  }, [billingChangeInPortal, info.cancel_at_period_end, info.status, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelText, trialDisclosureText]);
+  }, [appleManaged, billingChangeInPortal, iapState, info.cancel_at_period_end, info.status, playBuy, playCfg, playManaged, playState, priceReady, selectedPlayView, selectedStoreView, storeBuy, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelText, trialDisclosureText]);
 
   async function openPortal() {
     const { url } = await api.openBillingPortal();
@@ -269,6 +417,52 @@ export default function PlanPicker({
       if (previewOnly) {
         setError("Preview only. No plan or payment has changed.");
         setBusy(false);
+        return;
+      }
+      // C21: an App Store plan is managed in iOS Settings, never the Stripe portal.
+      if (appleManaged) {
+        if (storekit) await openManageSubscriptions();
+        setBusy(false);
+        return;
+      }
+      // C24: a Google Play plan is managed in Google Play, never the Stripe portal.
+      if (playManaged) {
+        if (play) await openManagePlaySubscriptions();
+        setBusy(false);
+        return;
+      }
+      // C24: the Android build buys through Google Play Billing and has no
+      // route to Stripe. The server verifies the purchase; this call only
+      // hands it the token.
+      if (playBuy) {
+        if (!playCfg || !selectedPlayKey || !selectedPlayView) { setBusy(false); return; }
+        if (context === "onboarding") localStorage.setItem("wealth_onboarding_resume", "plan");
+        const outcome = await purchasePlaySubscription(selectedPlayKey, playCfg, selectedPlayView);
+        if (outcome.ok) {
+          await invalidateOpenBankingAccess();
+          setBusy(false);
+          onContinue?.();
+          return;
+        }
+        setBusy(false);
+        if (!outcome.cancelled) setError(outcome.message);
+        return;
+      }
+      // C21: the iOS build buys through StoreKit and has no route to Stripe.
+      // Reaching here with a paid selection on a build that is not "storekit"
+      // or "stripe_web" falls to the B26 guard below and does nothing.
+      if (storeBuy) {
+        if (!iap || !selectedStoreKey) { setBusy(false); return; }
+        if (context === "onboarding") localStorage.setItem("wealth_onboarding_resume", "plan");
+        const outcome = await purchaseSubscription(selectedStoreKey, iap);
+        if (outcome.ok) {
+          await invalidateOpenBankingAccess();
+          setBusy(false);
+          onContinue?.();
+          return;
+        }
+        setBusy(false);
+        if (!outcome.cancelled) setError(outcome.message);
         return;
       }
       // B26: belt and braces alongside the button itself not rendering in
@@ -312,9 +506,10 @@ export default function PlanPicker({
         await openPortal();
         return;
       }
+      if (!priceReady) { setBusy(false); return; }
       if (context === "onboarding") localStorage.setItem("wealth_onboarding_resume", "plan");
       const { url } = await api.startCheckout("subscription", selected as PaidTier, {
-        billing_period: period,
+        billing_period: effectivePeriod,
         trial: trialActive,
         flow: context,
       });
@@ -333,123 +528,130 @@ export default function PlanPicker({
   // showActionButton hid the button outright, but would have silently
   // reopened the native purchase gate the moment showActionButton's own
   // condition was loosened by someone who never looked at these two.
-  const canStartPurchaseFlow = purchasingAllowed && billingLive;
+  const canStartPurchaseFlow = (purchasingAllowed && billingLive) || (storeBuy && storeReady) || (playBuy && playReady);
 
   const primaryLabel = (() => {
     if (busy) return "Opening…";
+    if (appleManaged || playManaged) return "Manage plan and renewal";
     if (billingChangeInPortal) return info.status === "past_due" ? "Fix payment in billing" : "Manage plan and renewal";
     if (selected === "statements") {
       return context === "onboarding" ? "Continue with Statements" : current === "statements" ? "Current plan" : "Choose Statements";
     }
+    if (storeBuy && !storeReady && iapState !== "failed") return iap && !iap.purchase_allowed ? "Manage in Your plan" : "Loading plans…";
+    if (playBuy && !playReady && playState !== "failed") {
+      return playCfg?.subscription_managed_in_play || playCfg?.purchase_blocked ? "Manage in Your plan" : "Loading plans…";
+    }
+    if (!inAppBuy && !priceReady) return "Price unavailable";
     if (!canStartPurchaseFlow) return "Paid plans are not available yet";
+    if (inAppBuy && inAppView?.freeTrial) return `Start ${inAppView.freeTrial.periodText} free trial`;
     if (trialActive) return `Start ${trialDays}-day free trial`;
     return `Choose ${chosen.name}`;
   })();
 
-  const disabled = busy || (!billingChangeInPortal && selected !== "statements" && !canStartPurchaseFlow) || (context === "settings" && selected === "statements" && current === "statements");
+  const disabled = busy || (!appleManaged && !playManaged && !billingChangeInPortal && selected !== "statements" && (!canStartPurchaseFlow || (!inAppBuy && !priceReady))) || (context === "settings" && selected === "statements" && current === "statements");
   // B26: the primary button itself only ever starts a Stripe action
   // (Checkout or the customer portal) unless the selection is the free
   // Statements plan with no existing paid subscription to manage — that
   // free-plan path stays available everywhere, the Stripe paths never
   // render on a platform that can't legally reach them.
-  const showActionButton = purchasingAllowed || (!billingChangeInPortal && selected === "statements");
+  // C21: an Apple-managed plan only ever offers iOS's own manage sheet, and
+  // only inside the iOS build; a StoreKit purchase button renders only there too.
+  // C24: likewise a Play-managed plan only offers Google Play's own page, and
+  // only inside the Android build.
+  const showActionButton = appleManaged
+    ? storekit
+    : playManaged
+      ? play
+      : purchasingAllowed || storeBuy || playBuy || (!billingChangeInPortal && selected === "statements");
+  const trialEnds = accountDate(info.trial_ends_at);
+  const accessEnds = info.status === "trialing" ? trialEnds : accountDate(info.renews_at);
+  const renewsOn = accountDate(info.renews_at);
+
+  const periodControls = selected !== "statements" && !billingChangeInPortal && !appleManaged && !playManaged && (purchasingAllowed || inAppBuy) && (
+    <section aria-label="Billing period" className="py-1">
+      <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Billing period</h3>
+      <div role="radiogroup" aria-label="Billing period" className="flex flex-wrap gap-2">
+        {periods.map((item, index) => <button
+          key={item.id}
+          type="button"
+          role="radio"
+          aria-checked={effectivePeriod === item.id}
+          tabIndex={effectivePeriod === item.id ? 0 : -1}
+          disabled={busy}
+          onClick={() => setPeriod(item.id)}
+          onKeyDown={event => moveRadio(event, index, periods.length, next => setPeriod(periods[next].id))}
+          className={`min-h-11 touch-manipulation rounded-xl border px-3 text-sm font-semibold outline-none transition-colors hover:opacity-80 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 motion-reduce:transition-none ${effectivePeriod === item.id ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-700 dark:border-slate-500 dark:text-slate-200"}`}
+        >{SHORT_LABELS[item.id] ?? item.label}</button>)}
+      </div>
+    </section>
+  );
 
   return (
-    <div className="space-y-4">
-      <div role="radiogroup" aria-label="Choose a plan" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
+    <div className="space-y-3" data-plan-picker="focused">
+      <div className="text-sm text-slate-900 dark:text-slate-100">
+        <p className="font-semibold">Current plan: {TIERS.find(tier => tier.id === current)?.name ?? current}</p>
+        {info.cancel_at_period_end ? <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Renewal cancelled. {accessEnds ? `Access ends on ${accessEnds}.` : "Access continues until your current period ends."}</p>
+          : info.status === "trialing" ? <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{trialEnds ? `Free until ${trialEnds}.` : "Your free trial is active."} Choosing a plan here does not restart it.</p>
+          : managedPaidSubscription && info.status === "active" && renewsOn ? <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Your current renewal is on {renewsOn}. Comparing plans does not change it.</p> : null}
+        {info.status === "past_due" && <p className="mt-1 flex items-center gap-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />Your payment needs attention.</p>}
+      </div>
+      {periodControls}
+      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+        Every paid plan has all features, savings tips and investments included. Plans differ only in connected accounts and Penny messages.
+      </p>
+      <div role="radiogroup" aria-label="Choose a plan" className="flex flex-wrap gap-2">
         {TIERS.map((tier, index) => {
           const active = tier.id === selected;
-          const Icon = tier.icon;
-          const monthly = info.prices_gbp?.[tier.id];
           return (
-            <div key={tier.id} className={index ? "border-t border-slate-100 dark:border-white/[0.06]" : ""}>
               <button
+                key={tier.id}
                 type="button"
                 role="radio"
                 aria-checked={active}
                 tabIndex={active ? 0 : -1}
+                disabled={busy}
                 onClick={() => { setSelected(tier.id); setError(null); }}
                 onKeyDown={(event) => moveRadio(event, index, TIERS.length, (next) => { setSelected(TIERS[next].id); setError(null); })}
-                className={`flex min-h-[68px] w-full items-center gap-3 px-4 text-left outline-none transition-colors active:bg-slate-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:active:bg-white/[0.04] ${active ? "bg-indigo-50/70 dark:bg-indigo-400/[0.06]" : ""}`}
+                className={`min-h-11 touch-manipulation rounded-xl border px-3 text-sm font-semibold outline-none transition-colors hover:opacity-80 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 motion-reduce:transition-none ${active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-700 dark:border-slate-500 dark:text-slate-200"}`}
               >
-                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 dark:bg-white/[0.06] dark:text-slate-400"}`}>
-                  <Icon size={16} aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{tier.name}</span>
-                    {context === "settings" && tier.id === current && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-white/[0.07] dark:text-slate-300">Current</span>}
-                  </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-slate-500 dark:text-slate-400">{tier.lead}</span>
-                </span>
-                <span className="whitespace-nowrap text-right text-slate-950 dark:text-white">
-                  <span className="money block text-sm font-bold">{monthly === 0 ? "Free" : typeof monthly === "number" ? money(monthly) : "Unavailable"}</span>
-                  {typeof monthly === "number" && monthly > 0 && <span className="block text-[10px] text-slate-600 dark:text-slate-300">a month</span>}
-                </span>
-                <ChevronDown size={15} aria-hidden="true" className={`shrink-0 text-slate-400 transition-transform motion-reduce:transition-none ${active ? "rotate-180" : ""}`} />
+                {tier.name}
+                {tier.id === current && <span className="sr-only">, current plan</span>}
               </button>
-              {active && (
-                <div className="border-t border-indigo-100/70 bg-indigo-50/40 px-4 pb-4 pt-3 dark:border-indigo-400/10 dark:bg-indigo-400/[0.035]">
-                  <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{tier.lead}</p>
-                  <ul className="mt-3 space-y-2">
-                    {tier.includes.map((item) => (
-                      <li key={item} className="flex items-start gap-2 text-xs leading-snug text-slate-600 dark:text-slate-300">
-                        <Check size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-400" strokeWidth={2.5} />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
           );
         })}
       </div>
 
-      {/* B26: this whole card is Stripe pricing/period choice on the way to
-          Checkout, it has nothing to do once purchasing isn't allowed, so
-          it does not render there rather than sitting inert. */}
-      {selected !== "statements" && !billingChangeInPortal && purchasingAllowed && (
-        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">How often would you like to pay?</p>
-          <div role="radiogroup" aria-label="Billing period" className="mt-3 grid grid-cols-2 gap-2">
-            {periods.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                role="radio"
-                aria-checked={period === item.id}
-                tabIndex={period === item.id ? 0 : -1}
-                onClick={() => setPeriod(item.id)}
-                onKeyDown={(event) => moveRadio(event, index, periods.length, (next) => setPeriod(periods[next].id))}
-                className={`min-h-11 rounded-xl px-3 text-xs font-semibold outline-none transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 ${period === item.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:ring-slate-600"}`}
-              >
-                <span className="block">{SHORT_LABELS[item.id] ?? item.label}</span>
-                <span className={`money mt-0.5 block text-xs ${period === item.id ? "text-indigo-100" : "text-slate-600 dark:text-slate-300"}`}>{money(item.total)}</span>
-                {item.id !== "monthly" && item.saving_gbp > 0 && (
-                  <span className={`money mt-0.5 block text-xs font-semibold ${period === item.id ? "text-white" : "text-emerald-700 dark:text-emerald-400"}`}>Save {money(item.saving_gbp)}</span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {period === "annual" && chosenPeriod && chosenPeriod.saving_gbp > 0 && (
-            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400"><MoneyCopy text={`${money(chosenPeriod.per_month_gbp)} a month, billed yearly.`} /></p>
-          )}
-
-          {trialActive && (
-            <div className="mt-3 rounded-xl bg-indigo-50 px-3 py-2.5 ring-1 ring-indigo-200 dark:bg-indigo-400/[0.08] dark:ring-indigo-400/20">
-              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">{trialHeadline(trialDays)}</p>
-              <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300"><MoneyCopy text={trialTermsLine(total, renewalWords)} /></p>
-              <p className="mt-2 text-[11px] leading-relaxed text-slate-700 dark:text-slate-300"><MoneyCopy text={trialDisclosureText} /></p>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{trialCancelText}</p>
-            </div>
-          )}
+      <section aria-label="Selected plan and offer" className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 aria-live="polite" className="text-[19px] font-bold leading-snug text-slate-900 dark:text-slate-100">{chosen.name}</h3>
+          {selected === current && <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-white/[0.07] dark:text-slate-300">Current plan</span>}
         </div>
-      )}
-
-      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
-        <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={disclosure} /></p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{chosen.lead}</p>
+        <ul className="my-3 space-y-2">
+          {chosen.includes.map(item => <li key={item} className="flex items-start gap-2 text-sm leading-relaxed text-slate-700 dark:text-slate-200"><Check size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" /><span>{item}</span></li>)}
+        </ul>
+        <div className="space-y-1 border-y border-slate-200 py-3 dark:border-slate-600">
+          <p aria-live="polite" aria-atomic="true" className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-slate-900 dark:text-slate-100">
+            <strong className={`text-[19px] ${selected !== "statements" && (inAppBuy || priceReady) ? "money tabular-nums" : ""}`}>{selected === "statements" ? "Free" : inAppBuy ? (inAppView?.priceString ?? "…") : priceReady ? money(total) : "Price unavailable"}</strong>
+            {selected !== "statements" && (inAppBuy || priceReady) && <span className="text-sm">{renewalWords}</span>}
+          </p>
+          {selected !== "statements" && !inAppBuy && priceReady && chosenPeriod && chosenPeriod.id !== "monthly" && <>
+            {chosenPeriod.saving_gbp > 0 && <p className="text-xs text-slate-600 dark:text-slate-300"><MoneyCopy text={`Save ${money(chosenPeriod.saving_gbp)} against monthly`} /></p>}
+            <p className="text-xs text-slate-600 dark:text-slate-300"><MoneyCopy text={`${money(chosenPeriod.per_month_gbp)} equivalent per month`} /></p>
+          </>}
+          {selected !== "statements" && !purchasingAllowed && !inAppBuy && <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">Web plan price for comparison only.</p>}
+          {billingChangeInPortal && <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">Comparison price, not a change to your current renewal. Billing confirms any change.</p>}
+        </div>
+        {inAppBuy && inAppView?.freeTrial && <div className="mt-3">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{inAppView.freeTrial.periodText} free trial</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+            {storeBuy ? "Billed by the App Store. Cancel any time in iOS Settings, under Subscriptions." : "Billed by Google Play. Cancel any time in Google Play, under Subscriptions."}
+          </p>
+        </div>}
+        {trialActive && purchasingAllowed && !billingChangeInPortal && <div className="mt-3">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{trialHeadline(trialDays)}</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={trialTermsLine(total, renewalWords)} /></p>
+        </div>}
         {/* B29: the only path a native user with an existing paid
             subscription has anywhere in the app. Plain ink text with a
             small neutral signifier (DESIGN.md's "figures are ink, amber
@@ -457,6 +659,18 @@ export default function PlanPicker({
             since needing a browser is a fact of the platform, not a
             financial risk. Never a link or button: this names an
             existing account, it does not start a purchase. */}
+        {appleManaged && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+            <Smartphone size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
+            <span>{APPLE_MANAGE_LINE}</span>
+          </p>
+        )}
+        {playManaged && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+            <Smartphone size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
+            <span>{PLAY_MANAGE_LINE}</span>
+          </p>
+        )}
         {billingChangeInPortal && !purchasingAllowed && (
           <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
             <Globe size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
@@ -471,16 +685,92 @@ export default function PlanPicker({
             type="button"
             onClick={handlePrimary}
             disabled={disabled}
-            className="mt-3 min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white outline-none transition hover:bg-indigo-700 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+            className="mt-3 min-h-11 w-full touch-manipulation rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-indigo-700 active:opacity-80 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400 motion-reduce:transition-none"
           >
             {primaryLabel}
           </button>
         )}
+        <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={disclosure} /></p>
         {purchasingAllowed && selected !== "statements" && !billingLive && (
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">You can compare every plan now. Paid checkout will open when billing is live.</p>
         )}
+        {storekit && iap?.enabled && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (busy || !iap) return;
+              setBusy(true);
+              setError(null);
+              setNotice(null);
+              try {
+                const { restored } = await restorePurchases(iap);
+                if (restored > 0) {
+                  await invalidateOpenBankingAccess();
+                  setBusy(false);
+                  setNotice("Your plan has been restored.");
+                  onContinue?.();
+                  return;
+                }
+                setNotice("There were no purchases to restore.");
+              } catch {
+                setError("Could not restore purchases. Try again in a moment.");
+              }
+              setBusy(false);
+            }}
+            disabled={busy}
+            className="mt-2 min-h-11 w-full touch-manipulation rounded-xl px-4 text-sm font-medium text-indigo-600 outline-none transition-colors hover:bg-indigo-50 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-indigo-400 dark:hover:bg-indigo-900/10"
+          >
+            Restore purchases
+          </button>
+        )}
+        {/* C24: the same restore on the Google Play channel. */}
+        {play && playCfg?.enabled && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (busy || !playCfg) return;
+              setBusy(true);
+              setError(null);
+              setNotice(null);
+              try {
+                const { restored } = await restorePlayPurchases(playCfg);
+                if (restored > 0) {
+                  await invalidateOpenBankingAccess();
+                  setBusy(false);
+                  setNotice("Your plan has been restored.");
+                  onContinue?.();
+                  return;
+                }
+                setNotice("There were no purchases to restore.");
+              } catch {
+                setError("Could not restore purchases. Try again in a moment.");
+              }
+              setBusy(false);
+            }}
+            disabled={busy}
+            className="mt-2 min-h-11 w-full touch-manipulation rounded-xl px-4 text-sm font-medium text-indigo-600 outline-none transition-colors hover:bg-indigo-50 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-indigo-400 dark:hover:bg-indigo-900/10"
+          >
+            Restore purchases
+          </button>
+        )}
+        {notice && <p role="status" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{notice}</p>}
         {error && <p role="alert" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{error}</p>}
-      </div>
+        <p className="mt-3 flex gap-4 text-xs text-slate-600 dark:text-slate-300"><Link href="/terms" className="inline-flex min-h-11 touch-manipulation items-center underline underline-offset-4 hover:text-indigo-600 active:opacity-70 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-indigo-400">Terms</Link><Link href="/privacy" className="inline-flex min-h-11 touch-manipulation items-center underline underline-offset-4 hover:text-indigo-600 active:opacity-70 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-indigo-400">Privacy</Link></p>
+      </section>
+
+      <details className="group" data-plan-comparison>
+        <summary className="flex min-h-11 touch-manipulation cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-1 text-sm font-semibold text-slate-700 outline-none hover:bg-slate-100 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200 dark:hover:bg-white/[0.05] [&::-webkit-details-marker]:hidden">
+          Compare all plans
+          <ChevronDown size={16} aria-hidden="true" className="shrink-0 text-slate-500 group-open:rotate-180 dark:text-slate-400" />
+        </summary>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          {TIERS.map(tier => <article key={tier.id} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
+            <h4 className="text-base font-bold text-slate-900 dark:text-slate-100">{tier.name}{tier.id === current && <span className="ml-2 text-xs font-normal text-slate-600 dark:text-slate-300">Current plan</span>}</h4>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{tier.lead}</p>
+            <ul className="mt-3 list-disc space-y-1 pl-4 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{tier.includes.map(item => <li key={item}>{item}</li>)}</ul>
+          </article>)}
+        </div>
+      </details>
     </div>
   );
 }

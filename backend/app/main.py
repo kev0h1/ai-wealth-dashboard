@@ -32,7 +32,8 @@ from app.db.collections import (
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
     bot_credential_uses_col, bot_credential_unknown_col, bot_credentials_col,
-    billing_customers_col, billing_events_col,
+    billing_customers_col, billing_events_col, apple_account_tokens_col,
+    play_purchases_col, play_account_ids_col,
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
     session_tombstones_col,
@@ -53,7 +54,7 @@ from app.routers import (
     commitments, spend_verdict, tax, allocations, money_shape,
     penny_chip, penny_conversations, ops, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
-    diagnostics, uat_trial_reset,
+    diagnostics, uat_trial_reset, play_billing as play_billing_router,
 )
 
 # E6: Sentry is a no-op without SENTRY_DSN; every event and breadcrumb is
@@ -121,6 +122,7 @@ def _routers(
         admin_usage.router,
         admin_allowlist.router,
         billing_router.router,
+        play_billing_router.router,
         broadcast_router.router,
         diagnostics.router,
     ]
@@ -249,6 +251,12 @@ def build_app(
     # browser), unlike frontend/next.config.ts's.
     built.middleware("http")(security_headers_middleware)
 
+    # E7: outermost of all, so the per-route latency ring buffer (bounded,
+    # in-memory, no bodies or user ids) times every response including
+    # auth and rate-limit short-circuits. Pure ASGI, never raises.
+    from app.services.health.latency import LatencyMiddleware
+    built.add_middleware(LatencyMiddleware)
+
     # mcp_only mounts ONLY the connector (mcp + oauth routers, which between
     # them also cover the /.well-known/oauth-* discovery paths, see
     # app/routers/oauth.py); the rest of `_routers()` (accounts, profile,
@@ -293,6 +301,28 @@ def _normalise_index_key(keys) -> list[tuple]:
     if isinstance(keys, str):
         return [(keys, 1)]
     return [tuple(k) for k in keys]
+
+
+async def _ensure_subscriptions_provider_index() -> None:
+    """C21 (docs/pricing/store-billing-c13.md section 2.1): subscriptions_col
+    is one document per (user, provider), so Stripe and Apple can coexist.
+    Swaps the old unique index on user_id alone for a unique compound index
+    on (user_id, provider). Safe before the data migration has run: a
+    document with no provider field indexes as provider null, and one such
+    document per user is exactly what the old index already guaranteed.
+    The compound index is created FIRST, so there is never a window with no
+    uniqueness at all; the old index is dropped only once it exists, and a
+    failure to drop is logged, never fatal (_ensure_index's own doctrine)."""
+    log = logging.getLogger("app.startup")
+    await _ensure_index(subscriptions_col, [("user_id", 1), ("provider", 1)], unique=True)
+    try:
+        info = await subscriptions_col.index_information()
+        old = info.get("user_id_1")
+        if old and old.get("unique") and [k for k, _ in old.get("key", [])] == ["user_id"]:
+            await subscriptions_col.drop_index("user_id_1")
+            log.info("subscriptions: dropped legacy unique index user_id_1 (C21)")
+    except Exception:
+        log.exception("subscriptions: could not drop legacy index user_id_1; Apple documents will be rejected until it is dropped")
 
 
 async def _ensure_index(col, keys, **kwargs) -> None:
@@ -404,7 +434,7 @@ async def _create_indexes():
     await _ensure_index(savings_insights_col, "expires_at", expireAfterSeconds=0, sparse=True)
     await _ensure_index(savings_insights_col, [("user_id", 1), ("category", 1)])
     await _ensure_index(savings_labels_col, [("user_id", 1), ("merchant_key", 1)], unique=True)
-    await _ensure_index(subscriptions_col, "user_id", unique=True)
+    await _ensure_subscriptions_provider_index()
     await _ensure_index(subscription_usage_col, [("user_id", 1), ("year_month", 1)], unique=True)
     # Statements-tier upload cap (app.core.subscription check_statement_upload_allowed).
     await _ensure_index(statement_uploads_col, [("user_id", 1), ("year_month", 1)])
@@ -517,6 +547,21 @@ async def _create_indexes():
     await _ensure_index(billing_customers_col, "user_id", unique=True)
     await _ensure_index(billing_customers_col, "stripe_customer_id", unique=True, sparse=True)
     await _ensure_index(billing_events_col, "event_id", unique=True)
+    # C24 Google Play: one document per purchase token, one account id per user.
+    await _ensure_index(play_purchases_col, "purchase_token", unique=True)
+    await _ensure_index(play_purchases_col, "user_id")
+    await _ensure_index(play_account_ids_col, "user_id", unique=True)
+    await _ensure_index(play_account_ids_col, "account_id", unique=True)
+    # C21 S1: one pack grant per store transaction, enforced by the database.
+    from app.db.collections import mcp_call_packs_col, penny_topups_col
+    for _pack_col in (penny_topups_col, mcp_call_packs_col):
+        await _ensure_index(
+            _pack_col, [("provider", 1), ("store_transaction_id", 1)], unique=True,
+            partialFilterExpression={"store_transaction_id": {"$type": "string"}},
+            name="store_transaction_unique",
+        )
+    await _ensure_index(apple_account_tokens_col, "user_id", unique=True)
+    await _ensure_index(apple_account_tokens_col, "app_account_token", unique=True)
     # B20 admin broadcasts. One index on `created_at`, not two: a TTL
     # index is still an ordinary ascending btree index on that field, so
     # it already serves the /ops history list's `.sort("created_at", -1)`
@@ -632,6 +677,38 @@ async def _migrate():
     asyncio.create_task(_migrate_penny_topup_packs())
     asyncio.create_task(_seed_mcp_call_counters())
     asyncio.create_task(_migrate_bot_credential_expiry())
+
+
+_health_sampler_task: "asyncio.Task | None" = None
+
+
+@app.on_event("startup")
+async def _start_health_sampler():
+    """E7: write an `api_latency` trend sample every 5 minutes. The ring
+    buffer lives in this process, so the worker's cron cannot sample it.
+    Off for the MCP-only instance and when HEALTH_API_SAMPLER=0. Never
+    blocks or fails start-up."""
+    global _health_sampler_task
+    if MCP_ONLY or (os.getenv("HEALTH_API_SAMPLER") or "1").strip() == "0":
+        return
+    try:
+        from app.db.collections import db, health_samples_col
+        from app.db.collections import error_types_seen_col
+        from app.services.health import ApiLatencyCollector, alerts, error_types, samples
+        await samples.ensure_collection(db)
+        await error_types.ensure_indexes(error_types_seen_col)
+        error_types.install()      # E8: exception class names only, for the new-error-type alert
+        _health_sampler_task = asyncio.create_task(
+            samples.api_sampler_loop([ApiLatencyCollector()], health_samples_col, after=alerts.after_api_sample)
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("health sampler not started: %s", type(exc).__name__)
+
+
+@app.on_event("shutdown")
+async def _stop_health_sampler():
+    if _health_sampler_task is not None:
+        _health_sampler_task.cancel()
 
 
 async def _encrypt_plaintext_tokens():
@@ -887,6 +964,7 @@ async def _seed_subscriptions():
         tier = "free" if email in FREE_USERS else "premium"
         await subscriptions_col.insert_one({
             "user_id":    email,
+            "provider":   "stripe",
             "tier":       tier,
             "status":     "active",
             "managed_by": "manual",

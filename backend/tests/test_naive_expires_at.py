@@ -18,6 +18,15 @@ class _Col:
     async def find_one(self, query):
         return self.doc
 
+    def find(self, query=None, projection=None):
+        # C21: get_subscription reads every per-provider document.
+        docs = [self.doc] if self.doc else []
+
+        async def gen():
+            for d in docs:
+                yield d
+        return gen()
+
 
 def _naive(delta):
     return (datetime.now(timezone.utc) + delta).replace(tzinfo=None)
@@ -34,7 +43,7 @@ def _sub(monkeypatch, expires_at):
 def test_naive_past_expires_at_is_expired(monkeypatch):
     sub = _sub(monkeypatch, _naive(timedelta(days=-2)))
     assert sub.status == "expired"
-    assert sub.tier == Tier.MAX  # default tier, not the stored lite
+    assert sub.tier == Tier.PLUS  # default tier, not the stored lite
 
 
 def test_naive_future_expires_at_is_active(monkeypatch):

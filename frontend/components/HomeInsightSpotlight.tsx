@@ -166,7 +166,7 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
               as nagging. Calm/muted, not amber: this is a routine update, not a
               warning (amber is reserved for pace alerts). The backend's own
               return_reason text is already a complete, self-explanatory
-              sentence (e.g. "Updated: estimated saving now ~£83/mo"), so no
+              sentence, so no
               "Back because:" prefix or arrow is added here. */}
           {insight.return_reason && (
             <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
@@ -181,14 +181,6 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 text-pretty">
             <MoneyText text={insight.body} />
           </p>
-
-          {/* No savings_estimate badge here: the canonical InsightCard
-              (components/InsightCard.tsx, rendered via TipsLine.tsx on
-              /transactions now) never surfaces the raw LLM-projected
-              estimate as a callout, only verified_savings (genuine,
-              emerald) and the user's own transaction figure (plain ink).
-              Matching that, the spotlight drops the estimate badge too,
-              the body copy already carries the value story. */}
 
           <div className="flex items-center gap-1 mt-3.5 text-sm font-semibold text-violet-600 dark:text-violet-400">
             See the payments

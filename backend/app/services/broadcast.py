@@ -109,7 +109,7 @@ async def _all_user_ids() -> list[str]:
     user_profiles doc from a single authenticated request timestamp, no
     preferences, no subscription, no account, no transaction, ever — a
     session token decoded once and nothing else), and
-    a.odonde@gmail.com / ndolomeshack@gmail.com (a "connect" subscriptions
+    a.odonde@gmail.com / ndolomeshack@gmail.com (a legacy "connect" subscriptions
     doc with managed_by: "manual" and NOTHING else — no user_profiles
     stamp, meaning the identity has never made a single authenticated
     request despite "owning" an active paid tier). Every one of those
@@ -212,7 +212,7 @@ async def resolve_audience(audience: dict) -> list[str]:
     fixtures and stray single-document identities were resolving into
     every audience, including "everyone"). The "tier" branch additionally
     requires a STORED subscriptions_col document before matching a tier at
-    all: `get_subscription`'s DEFAULT_TIER fallback (today "max") is a
+    all: `get_subscription`'s DEFAULT_TIER fallback (today "plus") is a
     real in-app entitlement decision for a genuine user with no
     subscription doc yet ("nobody restricted before launch", see
     app.core.subscription's own module docstring), not a tier assertion

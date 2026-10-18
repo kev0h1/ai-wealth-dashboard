@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { api, Checkpoint } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -31,6 +31,8 @@ function roundTo5(n: number): number {
   return Math.max(5, Math.round(n / 5) * 5);
 }
 
+const subscribeToMount = () => () => {};
+
 // Aim editor (G242). Sets, edits and removes an aim for any category. Reached from
 // the transactions hub's aim block, from the Mirror's "change it" step and from
 // a notable's "New normal" answer.
@@ -40,25 +42,21 @@ function roundTo5(n: number): number {
 // ~93% of usual rounded to £5), and saves via POST /checkpoints. Cancelling
 // keeps the recorded choice — no checkpoint is created.
 export default function AimSheet({ category, onClose, onSaved, baseline, existingAmount, onSubmit, onRemove }: AimSheetProps) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(subscribeToMount, () => true, () => false);
 
-  const [loading, setLoading] = useState(true);
-  const [usual, setUsual] = useState<number | null>(null);
-  const [amount, setAmount] = useState("");
+  const seededUsual = baseline?.usual ?? null;
+  const [loading, setLoading] = useState(!baseline);
+  const [usual, setUsual] = useState<number | null>(seededUsual);
+  const [amount, setAmount] = useState(() => {
+    const prefill = existingAmount ?? baseline?.suggestedAim ?? (seededUsual != null ? roundTo5(seededUsual * 0.93) : null);
+    return prefill == null ? "" : String(Math.round(prefill * 100) / 100);
+  });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (baseline) {
-      const u = baseline.usual ?? baseline.suggestedAim ?? null;
-      setUsual(u);
-      const prefill = existingAmount ?? baseline.suggestedAim ?? (u != null ? roundTo5(u * 0.93) : null);
-      if (prefill != null) setAmount(String(Math.round(prefill)));
-      setLoading(false);
-      return;
-    }
+    if (baseline) return;
     let cancelled = false;
     api.categorySignals()
       .then(d => {
@@ -72,7 +70,7 @@ export default function AimSheet({ category, onClose, onSaved, baseline, existin
         setUsual(u);
         // Prefill: the backend-derived aim where available, else ~93% of usual
         const prefill = existingAmount ?? sig?.suggested_aim ?? (u != null ? roundTo5(u * 0.93) : null);
-        if (prefill != null) setAmount(String(Math.round(prefill)));
+        if (prefill != null) setAmount(String(Math.round(prefill * 100) / 100));
       })
       .catch(() => {
         // No baseline available — input stays empty; backend derives on save
@@ -83,10 +81,11 @@ export default function AimSheet({ category, onClose, onSaved, baseline, existin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 
-  const parsed = parseFloat(amount.replace(/[^0-9.]/g, ""));
-  const amountValid = !isNaN(parsed) && parsed > 0;
+  const parsed = Number(amount.trim());
+  const amountValid = /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(amount.trim())
+    && Number.isFinite(parsed) && parsed > 0 && parsed <= 1_000_000;
   // Empty input is allowed — the backend derives the aim from the baseline.
-  const canSave = !saving && (amountValid || amount.trim() === "");
+  const canSave = !saving && (amountValid || (existingAmount == null && amount.trim() === ""));
 
   async function handleSave() {
     if (!canSave) return;
@@ -162,9 +161,12 @@ export default function AimSheet({ category, onClose, onSaved, baseline, existin
                     <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 bg-slate-50 dark:bg-slate-700 focus-within:ring-2 focus-within:ring-indigo-500">
                       <span className="text-[15px] text-slate-500 dark:text-slate-400">£</span>
                       <input
+                        name="aim_amount"
+                        autoComplete="off"
                         inputMode="decimal"
                         aria-label="Aim amount"
-                        placeholder="Amount"
+                        aria-invalid={amount.trim() !== "" && !amountValid}
+                        placeholder="e.g. 100.00"
                         value={amount}
                         onChange={e => { setAmount(e.target.value); setSaveError(false); }}
                         className="text-[15px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-24 [@media(pointer:coarse)]:w-28"
@@ -181,6 +183,7 @@ export default function AimSheet({ category, onClose, onSaved, baseline, existin
                   <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
                     A pace check, not a limit. Spending past it is fine, you will just see where you are.
                   </p>
+                  {amount.trim() !== "" && !amountValid && <p role="alert" className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">Enter an amount above £0 and up to £1,000,000, with no more than 2 decimal places.</p>}
                   {onRemove && existingAmount != null && (
                     <button
                       type="button"

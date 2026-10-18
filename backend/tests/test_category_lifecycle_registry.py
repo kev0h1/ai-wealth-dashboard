@@ -198,7 +198,7 @@ def test_serializer_downgrades_when_serve_time_stripping_empties_a_fresh_doc(mon
     """THE INVARIANT's second enforcement point: a doc whose STORED
     title/body pass `_has_researched_content` (so `_derive_insight_state`
     legitimately said "fresh") but whose content is entirely an unsupported
-    savings claim — stripped to "" by `_strip_unsupported_savings_claims`
+    savings claim — stripped to "" by the tip copy checks
     inside `_serialize_insight`, using the doc's OWN `triggered_by` (as if a
     later cron pass had refreshed it to figures the stored prose no longer
     matches) — must be re-derived as `quiet`, not served as `fresh` with

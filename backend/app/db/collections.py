@@ -126,6 +126,24 @@ mcp_call_packs_col      = db["mcp_call_packs"]
 billing_customers_col  = db["billing_customers"]
 billing_events_col     = db["billing_events"]
 
+# C24: Google Play Billing. play_purchases_col is one document per Play
+# purchase token (unique), {purchase_token, user_id, kind ("subscription" |
+# "pack"), product_id, order_id, state, granted_at, acknowledged_at,
+# consumed_at, voided_at, linked_purchase_token, created_at, updated_at}: the
+# dedupe ledger and the lookup that resolves a Voided Purchases or RTDN
+# message back to a user without trusting its contents. play_account_ids_col
+# maps a user to the salted-hash obfuscatedAccountId sent to Google at
+# purchase time, {user_id, account_id, created_at}, both unique, minted lazily.
+play_purchases_col     = db["play_purchases"]
+play_account_ids_col   = db["play_account_ids"]
+# C21: Apple in-app purchase. Maps a user to the random UUID passed as the
+# StoreKit purchase option appAccountToken and echoed back in every
+# transaction and server notification, so a receipt resolves to a user without
+# an email or Apple ID ever being stored. {user_id (unique), app_account_token
+# (unique), created_at}, minted lazily once per user
+# (app.services.apple_billing.get_or_create_account_token).
+apple_account_tokens_col = db["apple_account_tokens"]
+
 # Cashflow cache (computed after sync, read at page load)
 cashflow_cache_col      = db["cashflow_cache"]
 
@@ -153,6 +171,16 @@ locks_col               = db["locks"]
 # GET /admin/sync-stats (app/routers/admin_usage.py) rather than a full run
 # history. See app/workers/sync_worker.py's task_reconcile_truelayer.
 worker_runs_col         = db["worker_runs"]
+
+# E7: capped trend store for /ops/health (app/services/health/samples.py): one
+# sample per collector per 5 minutes, no user data. Created by
+# samples.ensure_collection, never auto-created uncapped.
+health_samples_col      = db["health_samples"]
+# E8: alert throttle state (one document per alert key, plus the hourly cap
+# counter) and the exception class names seen by this deployment. Operational
+# only: keys, counts and timestamps, no user id, no payloads.
+alert_state_col         = db["alert_state"]
+error_types_seen_col    = db["error_types_seen"]
 
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
@@ -540,7 +568,8 @@ ERASURE_MANIFEST = frozenset({
     "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",
     "investment_notes_col", "shopping_baskets_col", "subscriptions_col",
     "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
-    "billing_customers_col", "billing_events_col", "cashflow_cache_col",
+    "billing_customers_col", "billing_events_col", "apple_account_tokens_col", "play_purchases_col",
+    "play_account_ids_col", "cashflow_cache_col",
     "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
     "webhook_events_col", "excluded_accounts_col", "locks_col",
     "worker_runs_col", "finexer_consents_col", "finexer_customers_col",
@@ -582,6 +611,12 @@ ERASURE_MANIFEST = frozenset({
     # interest to complete the revocation, and is deleted after 90 days from
     # failed_at at the latest (retention._ORPHAN_MAX_AGE), with an error log.
     "orphaned_revocations_col",
+    # E7: operational metrics only (collector name, status, numbers), no user id
+    # on any document, so erase_user's sweep deliberately matches nothing.
+    "health_samples_col",
+    # E8: alert keys and exception class names only, no user id on any document.
+    "alert_state_col",
+    "error_types_seen_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98

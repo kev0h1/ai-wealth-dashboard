@@ -443,7 +443,7 @@ def test_tools_call_tier_with_zero_allowance_gets_a_distinct_error(monkeypatch):
     }))
     assert resp["error"]["code"] == -32002
     assert resp["error"]["code"] != -32000
-    assert "Connect and Max" in resp["error"]["message"]
+    assert "included in Plus" in resp["error"]["message"]
 
 
 def _this_year_month() -> str:

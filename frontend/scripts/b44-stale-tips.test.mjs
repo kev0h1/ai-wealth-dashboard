@@ -27,18 +27,13 @@ const tip = (state, over = {}) => ({
   app_category: "Bills",
   icon: "x",
   label: "Mobile",
-  title: "Switch to a SIM-only plan",
-  body: "A cheaper SIM-only plan exists.",
-  savings_estimate: "~£10/mo",
-  savings_estimate_monthly: 10,
+  title: "You pay EE £57 a month",
+  body: "SIM-only plans are listed at £5 to £20 a month. Checked 1 Sep.",
   pinned: false,
   is_new: false,
   refreshed_at: null,
-  verified_savings: null,
-  verified_merchant: null,
   substituted: false,
   substituted_merchant: null,
-  substituted_amount: null,
   claim_valid_until: null,
   content_valid_until: null,
   expiry_line: state === "fresh" ? "Researched 2d ago" : null,
@@ -61,10 +56,10 @@ assert.equal(tipsForMerchants(["EE"], [tip("stale")], "mobile-stale").length, 1)
 const card = (t) =>
   renderToStaticMarkup(
     h(AppRouterContext.Provider, { value: router },
-      h(InsightCard, { insight: t, workflow: null, onPin: noop, onContextSaved: noop, anyOpenHasEstimate: true, inSheet: true })),
+      h(InsightCard, { insight: t, workflow: null, onPin: noop, onContextSaved: noop, inSheet: true })),
   );
 const staleHtml = card(tip("stale"));
-assert.ok(staleHtml.includes("Switch to a SIM-only plan"), "stale title renders");
+assert.ok(staleHtml.includes("You pay EE"), "stale title renders");
 assert.ok(staleHtml.includes(NOTE), "stale note renders in InsightCard");
 assert.ok(!card(tip("fresh")).includes(NOTE), "fresh card has no note");
 

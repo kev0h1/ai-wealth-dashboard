@@ -70,7 +70,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.config import (
-    BILLING_ENABLED, STRIPE_PRICE_IDS, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+    BILLING_ENABLED, STRIPE_PRICE_IDS, _STRIPE_LEGACY_PAID_TIERS, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
 )
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP_PACKS, SUBSCRIPTION_BILLING_PERIODS,
@@ -211,6 +211,16 @@ async def _claim_subscription_checkout(
     raise BillingError("A subscription checkout is already open")
 
 
+def _stripe_doc_filter(uid: str) -> dict:
+    """C21: the Stripe-side subscriptions_col filter. `provider` is
+    "stripe" on every document this module writes; a document that predates
+    the field (not migrated yet, scripts/migrate_subscriptions_provider.py)
+    has none, and was written by this module or shares its single-user slot,
+    so a missing provider matches too. It can never match an Apple document,
+    so a Stripe event cannot read or overwrite one."""
+    return {"user_id": uid, "provider": {"$in": ["stripe", None]}}
+
+
 async def _validate_subscription_checkout(uid: str, trial: bool) -> None:
     """Prevent duplicate subscriptions and repeat introductory trials.
 
@@ -221,7 +231,7 @@ async def _validate_subscription_checkout(uid: str, trial: bool) -> None:
     """
     from app.db.collections import subscriptions_col
 
-    doc = await subscriptions_col.find_one({"user_id": uid})
+    doc = await subscriptions_col.find_one(_stripe_doc_filter(uid))
     if not doc:
         return
     stripe_backed = bool(doc.get("source") == "stripe" or doc.get("stripe_subscription_id"))
@@ -490,6 +500,14 @@ def _subscription_for_price_id(price_id: str) -> tuple[str, str] | None:
             key = _subscription_price_key(tier_name, billing_period)
             if STRIPE_PRICE_IDS.get(key) == price_id:
                 return tier_name, billing_period
+    # B53: retired Connect and Max prices resolve to Plus, for existing Stripe
+    # subscriptions only. They are never offered at checkout (_price_id_for
+    # only knows TIER_BY_NAME).
+    for legacy_name in _STRIPE_LEGACY_PAID_TIERS:
+        for billing_period in SUBSCRIPTION_BILLING_PERIODS:
+            key = _subscription_price_key(legacy_name, billing_period)
+            if STRIPE_PRICE_IDS.get(key) == price_id:
+                return "plus", billing_period
     return None
 
 
@@ -602,9 +620,11 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
         trial_started_at = datetime.fromtimestamp(trial_start, tz=timezone.utc) if trial_start else now
     subscription_fields = {
         "user_id":               uid,
+        "provider":              "stripe",
         "tier":                  tier,
         "status":                status,
         "stripe_subscription_id": sub_obj.get("id"),
+        "provider_subscription_id": sub_obj.get("id"),
         "billing_period":        billing_period,
         "expires_at":            expires_at,
         "trial_ends_at":         trial_ends_at,
@@ -617,7 +637,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
     if trial_started_at:
         subscription_fields["trial_used_at"] = trial_started_at
 
-    existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
+    existing = dict(await subscriptions_col.find_one(_stripe_doc_filter(uid)) or {})
     stale = _stale_subscription_event(existing, sub_obj, status)
     if stale:
         return {"handled": False, "reason": stale}
@@ -635,7 +655,7 @@ async def _handle_subscription_upsert(sub_obj: dict) -> dict:
     # A document already "expired" that Stripe now reports active or
     # trialing (the user resubscribed through a new Checkout) is simply
     # overwritten, which is what re-enables sync: nothing else is stored.
-    await subscriptions_col.update_one({"user_id": uid}, update, upsert=True)
+    await subscriptions_col.update_one(_stripe_doc_filter(uid), update, upsert=True)
 
     landed = status == "expired" and existing.get("status") != "expired"
     effects = await _after_transition(uid, newly_past_due=newly_past_due, landed_on_statements=landed)
@@ -744,25 +764,25 @@ async def _handle_subscription_deleted(sub_obj: dict) -> dict:
     if not uid:
         return _no_uid()
 
-    existing = dict(await subscriptions_col.find_one({"user_id": uid}) or {})
+    existing = dict(await subscriptions_col.find_one(_stripe_doc_filter(uid)) or {})
     deleted_id = sub_obj.get("id")
     if existing and deleted_id:
         # Record the ended id whatever is stored: a `deleted` for a NEW
         # subscription can arrive before its own created/active event, and
         # that later event must then be ignored.
         await subscriptions_col.update_one(
-            {"user_id": uid}, {"$set": {"ended_subscription_ids": _with_ended(existing, deleted_id)}},
+            _stripe_doc_filter(uid), {"$set": {"ended_subscription_ids": _with_ended(existing, deleted_id)}},
         )
     if deleted_id and existing.get("stripe_subscription_id") and existing["stripe_subscription_id"] != deleted_id:
         # A superseded subscription ending (the user has since resubscribed)
         # must not expire the live one.
         return {"handled": False, "reason": "deleted subscription is not the current one"}
     update = {
-        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe",  # naive-ok: persisted audit instant
+        "$set": {"status": "expired", "updated_at": datetime.now(timezone.utc), "source": "stripe", "provider": "stripe",  # naive-ok: persisted audit instant
                  "ended_at": datetime.now(timezone.utc)},  # naive-ok: persisted audit instant
         "$unset": {"past_due_since": "", "grace_until": ""},
     }
-    await subscriptions_col.update_one({"user_id": uid}, update)
+    await subscriptions_col.update_one(_stripe_doc_filter(uid), update)
     effects = await _after_transition(uid, landed_on_statements=existing.get("status") != "expired")
     return {"handled": True, "action": "subscription_deleted", "uid": uid, **effects}
 
@@ -774,7 +794,7 @@ async def _handle_payment_failed(invoice_obj: dict) -> dict:
     if not uid:
         return _no_uid()
 
-    existing = await subscriptions_col.find_one({"user_id": uid})
+    existing = await subscriptions_col.find_one(_stripe_doc_filter(uid))
     if not existing:
         return {"handled": False, "reason": "no subscription on file"}
     # Stripe does not order events: a late failure for an ended subscription,
@@ -785,9 +805,9 @@ async def _handle_payment_failed(invoice_obj: dict) -> dict:
     if not invoice_sub or invoice_sub != existing.get("stripe_subscription_id"):
         return {"handled": False, "reason": "invoice is not for the current subscription"}
     now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
-    fields = {"status": "past_due", "updated_at": now, "source": "stripe"}
+    fields = {"status": "past_due", "updated_at": now, "source": "stripe", "provider": "stripe"}
     newly = _stamp_past_due(fields, existing, now)
-    await subscriptions_col.update_one({"user_id": uid}, {"$set": fields})
+    await subscriptions_col.update_one(_stripe_doc_filter(uid), {"$set": fields})
     effects = await _after_transition(uid, newly_past_due=newly)
     return {"handled": True, "action": "payment_failed", "uid": uid, **effects}
 
@@ -823,7 +843,7 @@ async def _handle_invoice_paid(invoice_obj: dict) -> dict:
     if not (invoice_obj.get("amount_paid") or 0) > 0:
         return {"handled": False, "reason": "zero-amount invoice, nothing to convert"}
 
-    existing = await subscriptions_col.find_one({"user_id": uid})
+    existing = await subscriptions_col.find_one(_stripe_doc_filter(uid))
     if not existing:
         return {"handled": False, "reason": "no subscription on file"}
     invoice_sub = _invoice_subscription_id(invoice_obj)
@@ -833,13 +853,13 @@ async def _handle_invoice_paid(invoice_obj: dict) -> dict:
     if invoice_sub and invoice_sub in _ended_ids(existing):
         return {"handled": False, "reason": "invoice belongs to an ended subscription"}
     now = datetime.now(timezone.utc)  # naive-ok: persisted audit instant
-    fields = {"status": "active", "updated_at": now, "source": "stripe"}
+    fields = {"status": "active", "updated_at": now, "source": "stripe", "provider": "stripe"}
     period_end = _invoice_period_end(invoice_obj)
     if period_end:
         fields["expires_at"] = datetime.fromtimestamp(period_end, tz=timezone.utc)
     fields["last_paid_at"] = now
     await subscriptions_col.update_one(
-        {"user_id": uid},
+        _stripe_doc_filter(uid),
         {"$set": fields, "$unset": {"past_due_since": "", "grace_until": "", "ended_at": ""}},
     )
     return {"handled": True, "action": "invoice_paid", "uid": uid, "status": "active"}
@@ -856,7 +876,7 @@ async def _handle_trial_will_end(sub_obj: dict) -> dict:
     uid = await _resolve_uid(sub_obj)
     if not uid:
         return _no_uid()
-    doc = await subscriptions_col.find_one({"user_id": uid})
+    doc = await subscriptions_col.find_one(_stripe_doc_filter(uid))
     if not doc or doc.get("status") != "trialing":
         return {"handled": False, "reason": "not trialing"}
     if doc.get("cancel_at_period_end"):
@@ -871,7 +891,7 @@ async def _handle_trial_will_end(sub_obj: dict) -> dict:
     sent = await billing_lifecycle.notify(uid, copy[0], copy[1])
     if sent:
         await subscriptions_col.update_one(
-            {"user_id": uid}, {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
+            _stripe_doc_filter(uid), {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
         )
     return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": sent}
 
@@ -912,7 +932,7 @@ async def handle_event(event: dict) -> dict:
             return {"ok": True, "idempotent": True, "result": existing.get("result")}
         if not existing:
             await billing_events_col.insert_one({
-                "event_id": event_id, "type": event_type,
+                "event_id": event_id, "provider": "stripe", "type": event_type,
                 "received_at": now, "processed_at": None, "result": None,
             })
 

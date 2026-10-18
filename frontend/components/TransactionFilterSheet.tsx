@@ -1,7 +1,7 @@
 "use client";
 
 // The transactions hub's filter sheet — folded in from the G119 design
-// round (app/design/g119-transactions-live/FilterSheet.tsx). Every
+// round. Every
 // dimension here is one GET /transactions/search actually accepts (see
 // lib/transactionFilters.ts's own SearchFilters docstring): category
 // (multi-select), merchant name (free text, same substring-OR the

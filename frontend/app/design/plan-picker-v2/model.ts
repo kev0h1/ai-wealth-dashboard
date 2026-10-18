@@ -11,7 +11,7 @@ export const SCENARIOS: { id: Scenario; label: string }[] = [
   { id: "paid", label: "Paid account" }, { id: "cancelled", label: "Cancelled renewal" },
   { id: "past-due", label: "Payment retry" }, { id: "eligibility-unknown", label: "Eligibility unknown" },
   { id: "trial-ineligible", label: "No trial available" }, { id: "store-unavailable", label: "Store unavailable" },
-  { id: "price-unavailable", label: "Price unavailable" }, { id: "legacy-connect", label: "Existing Connect plan" },
+  { id: "price-unavailable", label: "Price unavailable" }, { id: "legacy-connect", label: "Existing Max or Connect plan" },
   { id: "loading", label: "Loading" }, { id: "error", label: "Load error" }, { id: "long-copy", label: "Long descriptions" },
 ];
 export const PERIODS: { id: PeriodId; label: string; months: number; renewal: string }[] = [
@@ -25,23 +25,20 @@ export const PRICE_PENCE: Record<TierId, Record<PeriodId, number>> = {
   statements: { monthly: 0, six_months: 0, annual: 0 },
   lite: { monthly: 599, six_months: 3199, annual: 5999 },
   standard: { monthly: 999, six_months: 5399, annual: 9999 },
-  connect: { monthly: 1299, six_months: 6999, annual: 12999 },
-  max: { monthly: 1699, six_months: 9199, annual: 16999 },
+  plus: { monthly: 1299, six_months: 6999, annual: 12999 },
 };
 export const LIMITS: Record<TierId, SubscriptionLimits> = {
   statements: { open_banking: false, max_banks: 0, max_accounts: 0, refresh: "on_upload", penny_messages_per_month: 10, mcp_tool_calls_per_month: 0, history_days: 90, statement_uploads_per_month: 3 },
-  lite: { open_banking: true, max_banks: 3, max_accounts: null, refresh: "daily", penny_messages_per_month: 40, mcp_tool_calls_per_month: 0, history_days: 180, statement_uploads_per_month: null },
-  standard: { open_banking: true, max_banks: null, max_accounts: 20, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 0, history_days: null, statement_uploads_per_month: null },
-  connect: { open_banking: true, max_banks: null, max_accounts: 20, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 2000, history_days: null, statement_uploads_per_month: null },
-  max: { open_banking: true, max_banks: null, max_accounts: null, refresh: "priority", penny_messages_per_month: 400, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
+  lite: { open_banking: true, max_banks: null, max_accounts: 10, refresh: "4h", penny_messages_per_month: 40, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
+  standard: { open_banking: true, max_banks: null, max_accounts: 25, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
+  plus: { open_banking: true, max_banks: null, max_accounts: null, refresh: "4h", penny_messages_per_month: 300, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
 };
 export type Plan = { id: TierId; name: string; lead: string; includes: string[]; banks: string; history: string; updates: string; messages: number };
 export const PLANS: Plan[] = [
   { id: "statements", name: "Statements", lead: "A clear money view from uploaded statements.", includes: ["3 statement uploads a month", "90 days of history", "10 Penny messages a month"], banks: "Statement uploads only", history: "90 days", updates: "When you upload", messages: 10 },
-  { id: "lite", name: "Lite", lead: "Keep up with day-to-day money across your main banks.", includes: ["Up to 3 connected banks", "Daily bank updates", "6 months of history", "40 Penny messages a month"], banks: "Up to 3 banks", history: "6 months", updates: "Daily", messages: 40 },
-  { id: "standard", name: "Standard", lead: "Your full money picture, kept up to date through the day.", includes: ["Up to 20 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"], banks: "Up to 20 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
-  { id: "connect", name: "Connect", lead: "Use your Sorted figures in an assistant you connect.", includes: ["Everything in Standard", "2,000 connected-assistant calls a month", "Read-only sharing you can revoke"], banks: "Up to 20 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
-  { id: "max", name: "Max", lead: "The highest limits and fastest updates.", includes: ["All your bank accounts", "Priority bank updates", "400 Penny messages a month"], banks: "All your bank accounts", history: "Full history", updates: "Priority", messages: 400 },
+  { id: "lite", name: "Lite", lead: "Keep up with day-to-day money across your main banks.", includes: ["Up to 10 connected accounts", "40 Penny messages a month", "All features"], banks: "Up to 10 accounts", history: "Full history", updates: "Every 4 hours", messages: 40 },
+  { id: "standard", name: "Standard", lead: "Your full money picture, kept up to date through the day.", includes: ["Up to 25 connected accounts", "150 Penny messages a month", "All features"], banks: "Up to 25 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
+  { id: "plus", name: "Plus", lead: "No limit on accounts, and the most Penny messages.", includes: ["Unlimited connected accounts", "300 Penny messages a month", "All features"], banks: "Unlimited accounts", history: "Full history", updates: "Every 4 hours", messages: 300 },
 ];
 export const SNAPSHOT_LABEL = "17 October 2026";
 export const CHARGE_DATE = "31 October 2026";
@@ -50,7 +47,7 @@ export const PLATFORM_NAMES: Record<Platform, string> = { web: "Web", ios: "iOS"
 export const providerFor = (platform: Platform): Provider => platform === "ios" ? "apple" : platform === "android" ? "google" : "stripe";
 export const gbp = (value: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 export const planFor = (id: TierId) => PLANS.find(plan => plan.id === id)!;
-export const plansFor = (platform: Platform, connectEnabled: boolean) => PLANS.filter(plan => plan.id !== "connect" || (platform === "web" && connectEnabled));
+export const plansFor = (_platform: Platform, _unused?: boolean) => PLANS;
 
 export function periodFor(tier: TierId, period: PeriodId): SubscriptionBillingPeriodDetail {
   const meta = PERIODS.find(item => item.id === period)!;
@@ -61,7 +58,7 @@ export function periodFor(tier: TierId, period: PeriodId): SubscriptionBillingPe
 export type Fixture = { scenario: Scenario; info: SubscriptionInfo; provider: Provider; phase: "ready" | "loading" | "error"; priceReady: boolean; eligible: boolean | null };
 export function fixtureFor(scenario: Scenario, platform: Platform, source?: Provider): Fixture {
   const managed = ["trialling", "paid", "cancelled", "past-due", "legacy-connect"].includes(scenario);
-  const tier: TierId = scenario === "legacy-connect" ? "connect" : managed ? "standard" : "statements";
+  const tier: TierId = scenario === "legacy-connect" ? "plus" : managed ? "standard" : "statements";
   const eligible = scenario === "eligibility-unknown" || scenario === "store-unavailable" ? null : !managed && scenario !== "trial-ineligible";
   const info: SubscriptionInfo = {
     tier, status: scenario === "trialling" ? "trialing" : scenario === "past-due" ? "past_due" : "active",
@@ -89,7 +86,7 @@ export function accountReading(fixture: Fixture): { title: string; detail: strin
   if (fixture.scenario === "trialling") return { title: `${name} trial`, detail: `Free until ${CHARGE_DATE}, then £9.99 every month through ${provider}.`, attention: false };
   if (fixture.scenario === "cancelled") return { title: `${name} · renewal cancelled`, detail: `Access ends on ${CHARGE_DATE}. It will not renew. Managed through ${provider}.`, attention: false };
   if (fixture.scenario === "past-due") return { title: `${name} · payment needs a look`, detail: `Your payment is being retried. Access is kept until 24 October 2026 in this example. Review it with ${provider}.`, attention: true };
-  if (fixture.scenario === "legacy-connect") return { title: "Your existing Connect plan", detail: "Not offered for new subscriptions here. Your current subscription is unchanged; review any change with Stripe.", attention: false };
+  if (fixture.scenario === "legacy-connect") return { title: "Your existing plan, now Plus", detail: "Connect and Max subscriptions move to Plus with the same renewal. Your current subscription is unchanged; review any change with Stripe.", attention: false };
   if (isManaged(fixture)) return { title: `Your current plan · ${name}`, detail: `£9.99 renews on ${CHARGE_DATE}, then every month. Managed through ${provider}.`, attention: false };
   return { title: "Your current plan · Statements", detail: "Free, with no automatic renewal. Choosing below only changes this preview.", attention: false };
 }
@@ -101,7 +98,7 @@ export function offerFor(fixture: Fixture, platform: Platform, selected: TierId,
   const base = { provider: owner, disabled: false, localNotice: `Preview only. ${provider} would review this next. No subscription, payment or account has changed.` };
   if (isManaged(fixture)) return { ...base, kind: "manage", label: fixture.scenario === "past-due" ? "Review payment" : selected === fixture.info.tier ? "Manage plan and renewal" : "Review plan change", details: [`Your existing subscription stays with ${provider}. Review any change and final charge there; this does not start a second subscription.`] };
   if (selected === "statements") return { ...base, kind: "free", label: context === "onboarding" ? "Continue with Statements" : "Current plan", details: ["Free. No card and no automatic renewal."], disabled: context === "settings", localNotice: "Preview only. In onboarding this would continue with Statements. No plan has changed." };
-  if (!fixture.priceReady || fixture.phase !== "ready" || (selected === "connect" && platform !== "web")) return { ...base, kind: "unavailable", label: "Price unavailable", details: ["We cannot confirm a price or offer for this example. You can compare the plans, but not continue to a purchase."], disabled: true };
+  if (!fixture.priceReady || fixture.phase !== "ready" || false) return { ...base, kind: "unavailable", label: "Price unavailable", details: ["We cannot confirm a price or offer for this example. You can compare the plans, but not continue to a purchase."], disabled: true };
   const price = periodFor(selected, period);
   const renewal = PERIODS.find(item => item.id === period)!.renewal;
   const eligible = fixture.eligible === true && (fixture.info.trial_periods ?? []).includes(period);

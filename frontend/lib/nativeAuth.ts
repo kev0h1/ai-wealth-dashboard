@@ -5,6 +5,9 @@ import { App } from "@capacitor/app";
 import { API_BASE, api, gatedFetch } from "./api";
 import { getToken, setTokenAsync, clearToken } from "./auth";
 import { runMobileLoginLoop, type LoginResult } from "./mobileLoginLoop";
+import { resolvePurchaseChannel, type PurchaseChannel } from "./purchaseChannel";
+import { hasStoreKitPlugin } from "./storekit";
+import { hasPlayPlugin } from "./playBilling";
 import {
   PENDING_LOGIN_TTL_MS,
   clearPendingLogin,
@@ -111,6 +114,40 @@ export function usePurchaseAvailability(): PurchaseAvailability {
     setAvailability(canPurchaseInApp() ? "web" : "native");
   }, []);
   return availability;
+}
+
+// C21: the answer canPurchaseInApp() could not give. "stripe_web" is
+// the unchanged web Checkout, "storekit" is the iOS in-app purchase and "play"
+// the Android one (C24; each only when the plugin is really in the binary),
+// "none" is every other native build and any uncertainty. Fails closed exactly like canPurchaseInApp(): a detection
+// error is treated as native, so Stripe is never reachable by mistake. The
+// decision itself is the pure resolvePurchaseChannel() in purchaseChannel.ts.
+export function purchaseChannel(): PurchaseChannel {
+  let native = true;
+  let platform: string | null = null;
+  try {
+    native = Capacitor.isNativePlatform();
+    platform = Capacitor.getPlatform();
+  } catch {
+    native = true;
+    platform = null;
+  }
+  return resolvePurchaseChannel({
+    native, platform,
+    storekitPluginPresent: native && hasStoreKitPlugin(),
+    // C24: Android sells through Google Play Billing, never Stripe.
+    playPluginPresent: native && hasPlayPlugin(),
+  });
+}
+
+/** Render-safe hook (see usePurchaseAvailability): "unknown" until mounted,
+ *  and "unknown" must be treated like "none". */
+export function usePurchaseChannel(): PurchaseChannel | "unknown" {
+  const [channel, setChannel] = useState<PurchaseChannel | "unknown">("unknown");
+  useEffect(() => {
+    setChannel(purchaseChannel());
+  }, []);
+  return channel;
 }
 
 // Sign in with Apple is only offered on iOS native builds — there's no

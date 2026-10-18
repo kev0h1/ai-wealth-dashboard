@@ -177,6 +177,13 @@ def join(prices, registry):
 def _atomic_write(name, payload):
     os.makedirs(CACHE_DIR, exist_ok=True)
     out = os.path.join(CACHE_DIR, name)
+    # H117: stdlib-only copy of app/core/safe_write.refuse_special_target (this
+    # file ships alone to the UK droplet). os.replace onto a device node, such
+    # as /dev/null, would swap the node for a regular file.
+    if os.path.lexists(out):
+        import stat as _stat
+        if not _stat.S_ISREG(os.stat(out).st_mode) or os.path.samefile(out, os.devnull):
+            raise OSError(f"refusing to atomically replace {out}: not a regular file")
     fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, prefix=".fuel_", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:

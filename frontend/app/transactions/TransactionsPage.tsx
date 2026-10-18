@@ -105,8 +105,7 @@ export default function TransactionsPage() {
   // list; the sheet just renders without an account line until this
   // resolves.
   const [accounts, setAccounts] = useState<Account[]>([]);
-  // Savings insights for the collapsed tips line under the chips (Step 4,
-  // spend-tips promotion) — the same api.getSavingsInsights() call
+  // Savings insights for the collapsed tips line under the chips — the same api.getSavingsInsights() call
   // SpendPage.tsx uses for its own categoryInsights, fetched once here on
   // mount and tolerant of failure (no line at all rather than an error UI).
   const [insights, setInsights] = useState<SavingsInsight[]>([]);
@@ -543,10 +542,8 @@ export default function TransactionsPage() {
         ) : (
           <>
             {/* G122: day-group headings ("13 September"), matching the G119
-                preview's approved Variant A grammar — grouping now lives in
-                lib/transactionGrouping.ts, shared verbatim with
-                app/design/g119-transactions-live/VariantA.tsx so this page
-                can't silently drift from what Kevin approved. Grouping is
+                preview's approved Variant A grammar. Grouping lives in
+                lib/transactionGrouping.ts. Grouping is
                 built from THIS PAGE's current items only, so it re-groups
                 fresh on every page change; a calendar day that straddles a
                 page boundary legitimately reopens its own heading on the

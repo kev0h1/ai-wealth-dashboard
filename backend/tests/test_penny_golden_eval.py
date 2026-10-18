@@ -259,7 +259,7 @@ PINNED_TOOL_DESCRIPTION_HASHES = {
     "get_category_spend": "8a9dce2167d309f5eab3cb026098bc2c9fc9b6a615e4479e4b91343f641fab18",
     "get_debt_position": "4384fc55409fa7e83abb58d1edd609406ee2d36085f5fe3839e36da194480fbf",
     "get_goals": "7b86b15a50184eee52984f959b3b71c4816dc03235e0ec8e28fe9c1b89140605",
-    "get_insights": "3a6f2039c14cae734953e189a4328f17d54111b25cfdfed1b17acbdc03763796",
+    "get_insights": "8b00e5bbbe65e52a364501da51e20887de7f37701a9873093971dbe5ce78894b",
     "get_mirror": "62c640cc13425dff91c281793ad8570f1ec4f0858d82ccfed6ca421781cce73e",
     "get_recurring_payments": "e4caca1797c55e0241e0c70d74a473c5ece947dd2c1e51875b00ecfb18117156",
     "get_safe_to_spend": "baaa1f0578aa7c514542cd4e8f2d39c18cef781080f06572eeabcf59ad41e0c6",
@@ -745,11 +745,11 @@ GOLDEN_CASES = [
     dict(
         id="insights-01-best-tip",
         source="insights-accounts-mirror.md",
-        question="What's the best money-saving tip you've got for me right now?",
+        question="What tips have you got for me right now?",
         screen="insights",
         expected=["get_insights"],
         source_quote="start with the top one",
-        why="'What's the best insight' is get_insights' own worked example; rank 1 must be reproduced, never re-ranked.",
+        why="A question about the user's tips is get_insights' own worked shape; the tool states each tip's dated facts verbatim and never claims or estimates a saving (G283).",
     ),
     dict(
         id="insights-02-account-balance",

@@ -32,9 +32,8 @@ function Preview({ search }: { search: string }) {
   const context: Context = params.get("context") === "onboarding" ? "onboarding" : "settings";
   const scenario = (SCENARIOS.some(item => item.id === (params.get("scenario") ?? params.get("state"))) ? (params.get("scenario") ?? params.get("state")) : "free") as Scenario;
   const source: Provider | undefined = params.get("source") === "apple" ? "apple" : params.get("source") === "google" ? "google" : params.get("source") === "stripe" ? "stripe" : undefined;
-  const connect = params.get("connect") === "1";
   const fixture = fixtureFor(scenario, platform, source) as ReturnType<typeof fixtureFor> & { info: SubscriptionInfo & { billing_periods: Record<string, SubscriptionBillingPeriodDetail[]> } };
-  const visiblePlans = plansFor(platform, connect);
+  const visiblePlans = plansFor(platform);
   const requestedPlan = params.get("plan") as TierId | null;
   const initialPlan = visiblePlans.some(p => p.id === requestedPlan) ? requestedPlan! : visiblePlans.some(p => p.id === fixture.info.tier) ? fixture.info.tier : "standard";
   const requestedPeriod = params.get("period") as PeriodId | null;
@@ -101,7 +100,6 @@ function Preview({ search }: { search: string }) {
           {(["light", "dark"] as const).map(value => <a key={value} href={href({ mode: value })} aria-current={mode === value ? "page" : undefined}>{value}</a>)}
           {(["settings", "onboarding"] as Context[]).map(value => <a key={value} href={href({ context: value })} aria-current={context === value ? "page" : undefined}>{value}</a>)}
           {(["stripe", "apple", "google"] as Provider[]).map(value => <a key={value} href={href({ source: value })} aria-current={source === value ? "page" : undefined}>{value}</a>)}
-          <a href={href({ connect: connect ? "0" : "1" })}>{connect ? "Hide Connect sample" : "Enable web Connect sample"}</a>
         </div>}
       </header>
 

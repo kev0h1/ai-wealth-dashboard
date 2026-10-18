@@ -23,6 +23,15 @@ class _FakeFindOneCollection:
     async def find_one(self, query):
         return self.doc
 
+    def find(self, query=None, projection=None):
+        # C21: get_subscription reads every per-provider document.
+        docs = [self.doc] if self.doc else []
+
+        async def gen():
+            for d in docs:
+                yield d
+        return gen()
+
 
 class _FakeUploadsCollection:
     """Stores docs in a plain list and answers count_documents/insert_one
@@ -71,7 +80,7 @@ def test_open_banking_gate_raises_402_for_statements_tier(monkeypatch):
     assert detail["kind"] == "open_banking"
 
 
-@pytest.mark.parametrize("tier_name", ["lite", "standard", "connect", "max"])
+@pytest.mark.parametrize("tier_name", ["lite", "standard", "plus"])
 def test_open_banking_gate_is_noop_for_paid_tiers(monkeypatch, tier_name):
     _set_tier(monkeypatch, tier_name)
     asyncio.run(check_open_banking_allowed(f"{tier_name}-user@example.com"))

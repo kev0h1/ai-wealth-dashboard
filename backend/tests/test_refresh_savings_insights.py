@@ -23,7 +23,7 @@ No mongomock is available in this environment (see test_verified_saving.py's
 own note), so `savings_insights_col` is replaced with a tiny in-memory fake,
 and the collaborators `_refresh_savings_insights_for_user` fans out to
 (`_detect_insight_categories`, `_find_triggered_transactions`,
-`_check_verified_saving`, `_generate_savings_insight_content`) are replaced
+`_check_verified_saving`, `_tip_content_for`) are replaced
 with async stubs — the same monkeypatch-the-module-level-name pattern
 already established in test_verified_saving.py / test_savings_insight_triggers.py.
 """
@@ -133,7 +133,7 @@ def _setup(monkeypatch, *, mobile_doc, mobile_triggered_by, generated_content=_U
     path is covered by test_verified_saving.py, not here.
 
     `generated_content`: pass `None` explicitly to simulate a generation
-    failure (e.g. Tavily quota exhausted) — `_generate_savings_insight_content`
+    failure (e.g. Tavily quota exhausted) — `_tip_content_for`
     then returns `None` itself, exactly as it does in production. Leave
     unset to get the default successful-generation stub content.
 
@@ -270,7 +270,7 @@ def test_spend_changed_fires_once_the_seven_day_floor_has_passed(monkeypatch):
 
 def test_generation_failure_refreshes_triggered_by_but_not_refreshed_at_or_version(monkeypatch):
     # prompt_upgraded forces `reason` to fire regardless of age, so a real
-    # attempt is made — but _generate_savings_insight_content comes back
+    # attempt is made — but _tip_content_for comes back
     # empty (Tavily HTTP 432 in production). The stored triggered_by is
     # stale/corrupt (old substring-matching bug); the freshly computed one
     # is correct and free, so it must still be persisted even though the

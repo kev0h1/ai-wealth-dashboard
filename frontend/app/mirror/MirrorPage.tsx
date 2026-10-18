@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, useCallback, useId, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, RefreshCw } from "lucide-react";
-import { api, MirrorPortrait, MirrorTrait, ActiveAim } from "@/lib/api";
+import { api, MirrorPortrait, MirrorTrait, ActiveAim, type CompletedAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import AimSheet from "@/components/AimSheet";
 import MirrorNextStep, { type MirrorStepKind } from "@/components/MirrorNextStep";
-import PennyMark from "@/components/PennyMark";
+import MirrorFeedbackCard from "@/components/MirrorFeedbackCard";
+import MirrorEvidence from "@/components/MirrorEvidence";
+import { DisclosureChevron } from "@/components/Disclosure";
+import { usePreferences } from "@/components/PreferencesContext";
+import { completedFor, leadingTrait, mirrorCategory } from "@/lib/mirrorFeedback";
 import { invalidateSignalsCache, fetchSignals, type SignalMap } from "@/lib/signalsCache";
 
 // Kind → colour chip accent (Category Voice Rule: ~15% tint bg + full-strength icon)
@@ -170,214 +174,214 @@ function SkeletonCard() {
 }
 
 export default function MirrorPage() {
+  return <Suspense fallback={<div className="mx-auto max-w-2xl p-4"><SkeletonCard /></div>}><MirrorContent /></Suspense>;
+}
+
+function MirrorContent() {
   const router = useRouter();
+  const fromSpend = useSearchParams().get("from") === "spend";
+  const { hideNetWorth, preferencesReady } = usePreferences();
+  const masked = !preferencesReady || hideNetWorth;
   const [portrait, setPortrait] = useState<MirrorPortrait | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [aims, setAims] = useState<ActiveAim[]>([]);
-  const [aimCategory, setAimCategory] = useState<string | null>(null);
-  // Suggested aim amounts, for the "Set an aim" step's pre-fill hint.
+  const [history, setHistory] = useState<CompletedAim[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(true);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [signals, setSignals] = useState<SignalMap>({});
-  // The Spend route links here with ?from=spend; only then does the back control say so.
-  const [fromSpend, setFromSpend] = useState(false);
-  useEffect(() => {
-    setFromSpend(new URLSearchParams(window.location.search).get("from") === "spend");
-    fetchSignals(0).then(setSignals).catch(() => {});
-  }, []);
+  const [editor, setEditor] = useState<{ category: string; activeId?: string; seed?: number } | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [otherPatternsOpen, setOtherPatternsOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const portraitRequest = useRef(0);
+  const feedbackRequest = useRef(0);
+  const primaryPanel = useRef<HTMLDivElement>(null);
+  const otherPatternsId = useId();
 
-  const refreshAims = useCallback(() => {
-    api.listCheckpoints()
-      .then(d => setAims(d.checkpoints))
-      .catch(() => {});
-  }, []);
-
-  const load = useCallback(async (refresh = false) => {
+  const loadFeedback = useCallback(async () => {
+    const request = ++feedbackRequest.current;
+    setFeedbackLoading(true);
+    setFeedbackError(null);
     try {
-      const data = await api.getMirror(refresh);
-      setPortrait(data);
+      // Resolution happens on the server. No browser-date outcome or
+      // reconstruction of a completed benchmark from the current aim.
+      const [active, completed] = await Promise.all([api.listCheckpoints(), api.completedCheckpoints()]);
+      if (request !== feedbackRequest.current) return;
+      setAims(active.checkpoints);
+      setHistory(completed.checkpoints);
     } catch {
-      setPortrait(null);
+      if (request === feedbackRequest.current) setFeedbackError("Aim feedback could not be loaded.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (request === feedbackRequest.current) setFeedbackLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadPortrait = useCallback(async (refresh = false) => {
+    const request = ++portraitRequest.current;
+    setLoadError(false);
+    try {
+      const data = await api.getMirror(refresh);
+      if (request === portraitRequest.current) setPortrait(data);
+    } catch {
+      if (request === portraitRequest.current) setLoadError(true);
+    } finally {
+      if (request === portraitRequest.current) { setLoading(false); setRefreshing(false); }
+    }
+  }, []);
 
-  useEffect(() => { refreshAims(); }, [refreshAims]);
-
-  function aimsChanged() {
-    invalidateSignalsCache();
-    refreshAims();
-  }
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    await load(true);
-  }
-
-  function handleChoice(traitId: string, choice: "keep" | "change") {
-    setPortrait(prev => {
-      if (!prev || prev.status !== "ok") return prev;
-      return {
-        ...prev,
-        traits: prev.traits.map(t =>
-          t.id === traitId ? { ...t, choice } : t
-        ),
-      };
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) { void loadPortrait(); void loadFeedback(); }
     });
+    fetchSignals(0).then(data => { if (!cancelled) setSignals(data); }).catch(() => {});
+    return () => {
+      cancelled = true;
+      // These are request generations, not element refs. Invalidate every
+      // outstanding response, including a refresh started after mount.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      ++portraitRequest.current;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      ++feedbackRequest.current;
+    };
+  }, [loadPortrait, loadFeedback]);
+
+  const traits = portrait?.status === "ok" ? portrait.traits : [];
+  const primary = traits.find(t => t.id === focusedId) ?? leadingTrait(traits, aims, history);
+  const others = traits.filter(t => t.id !== primary?.id);
+  const category = primary ? mirrorCategory(primary) : null;
+  const current = category ? aims.find(a => a.ref === category) ?? null : null;
+  const completed = completedFor(category, history);
+  const monthsLabel = portrait?.status === "ok" ? Math.round(portrait.window_days / 30) : 6;
+
+  async function choose(trait: MirrorTrait, choice: "keep" | "change") {
+    await api.setMirrorChoice(trait.id, choice);
+    setFocusedId(id => id ?? primary?.id ?? trait.id);
+    setPortrait(previous => previous?.status === "ok" ? {
+      ...previous, traits: previous.traits.map(t => t.id === trait.id ? { ...t, choice } : t),
+    } : previous);
   }
 
-  const monthsLabel = portrait?.status === "ok"
-    ? `${Math.round(portrait.window_days / 30)} months`
-    : null;
+  function openEditor(trait: MirrorTrait, seed?: number) {
+    const ref = mirrorCategory(trait);
+    if (!ref) return;
+    if (masked) { setNotice("Show figures to set or adjust an aim."); return; }
+    const active = aims.find(a => a.ref === ref);
+    setEditor({ category: ref, activeId: active?.id, seed: active?.aim_amount ?? seed });
+  }
+
+  function afterAimWrite() {
+    invalidateSignalsCache();
+    void loadFeedback();
+  }
+
+  async function keepPace(trait: MirrorTrait, amount: number) {
+    if (masked) throw new Error("Show figures before choosing an aim.");
+    const ref = mirrorCategory(trait);
+    if (!ref) throw new Error("This trait has no category aim.");
+    const active = aims.find(a => a.ref === ref);
+    if (active) await api.updateCheckpoint(active.id, amount);
+    else await api.createCheckpoint(ref, amount);
+    afterAimWrite();
+  }
+
+  async function stopAim(trait: MirrorTrait) {
+    const active = aims.find(a => a.ref === mirrorCategory(trait));
+    if (!active) throw new Error("There is no active aim to stop.");
+    await api.cancelCheckpoint(active.id);
+    setAims(previous => previous.filter(a => a.id !== active.id));
+    afterAimWrite();
+  }
+
+  function renderTrait(trait: MirrorTrait) {
+    const ref = mirrorCategory(trait);
+    const active = ref ? aims.find(a => a.ref === ref) ?? null : null;
+    const last = completedFor(ref, history);
+    const kind = nextStepKind(trait);
+    return <MirrorFeedbackCard
+      key={trait.id}
+      trait={trait} category={ref} activeAim={active} completed={last}
+      loading={feedbackLoading} error={feedbackError} masked={masked}
+      onChoice={choice => choose(trait, choice)}
+      onEdit={seed => openEditor(trait, seed)}
+      onKeep={amount => keepPace(trait, amount)}
+      onStop={() => stopAim(trait)}
+      onRetry={() => void loadFeedback()}
+      nextStep={kind ? <MirrorNextStep
+        kind={kind} category={ref ?? undefined}
+        amount={masked ? null : ref ? signals[ref]?.suggested_aim ?? null : null}
+        onAct={() => kind === "plan" ? router.push("/planning") : openEditor(trait)}
+        onSeeNext={() => router.push("/spend?view=period")}
+      /> : undefined}
+    />;
+  }
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
-        {/* Header block with rise-in */}
-        <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
-          {/* Back nav: "Back to Spend" when we arrived from Spend's route (G242), else history. */}
-          <button
-            onClick={() => (fromSpend ? router.push("/spend?view=period") : goBack(router))}
-            className="flex min-h-[44px] items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 active:opacity-70 transition-[transform,opacity] mb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <ChevronLeft size={15} aria-hidden="true" />
-            {fromSpend ? "Back to Spend" : "Back"}
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] text-slate-900 dark:text-slate-100 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <main className="mx-auto max-w-[1080px] px-4 pb-2 pt-6">
+        <header className="max-w-2xl">
+          <button type="button" onClick={() => fromSpend ? router.push("/spend?view=period") : goBack(router)} className="mb-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-medium text-slate-600 active:opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-slate-300">
+            <ChevronLeft size={16} aria-hidden="true" />{fromSpend ? "Back to Spend" : "Back"}
           </button>
-
-          {/* Header */}
-          <div className="flex items-start justify-between mb-1">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">
-                THE MIRROR
-              </p>
-              <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
-                How your money behaves
-              </h1>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
-                <PennyMark size={16} className="text-indigo-500" />
-              </div>
-            </div>
-          </div>
-
-          {/* Intro paragraph */}
-          <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mt-3 mb-6">
-            Computed from your last {monthsLabel ?? "6 months"} of transactions. No judgement, just what the data says.
-          </p>
-
-          {/* Refresh button */}
-          {!loading && portrait?.status === "ok" && (
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="flex items-center gap-1.5 text-xs font-semibold text-indigo-500 dark:text-indigo-400 mb-5 active:opacity-70 transition-[transform,opacity]"
-            >
-              <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
-              {refreshing ? "Recomputing…" : "Recompute"}
-            </button>
-          )}
-        </div>
-
-        {/* Active aims — what the user has chosen to work on this period */}
-        {aims.length > 0 && (
-          <div className="rise-in mb-6" style={{ "--rise-index": 0 } as React.CSSProperties}>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">
-              WHAT YOU&apos;RE WORKING ON
-            </p>
-            <div className="space-y-2">
-              {aims.map(aim => (
-                <div key={aim.id} className="glass-card rounded-2xl px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{aim.ref}</p>
-                  <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    <span className="font-mono tabular-nums">£{Math.round(aim.spent_so_far).toLocaleString("en-GB")}</span> of your <span className="font-mono tabular-nums">£{Math.round(aim.aim_amount).toLocaleString("en-GB")}</span> aim
-                    {" · "}
-                    {aim.days_left <= 0 ? "last day" : aim.days_left === 1 ? "1 day left" : `${aim.days_left} days left`}
-                  </p>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.cancelCheckpoint(aim.id);
-                        invalidateSignalsCache();
-                        setAims(prev => prev.filter(a => a.id !== aim.id));
-                      } catch {
-                        // silent — the row stays, user can try again
-                      }
-                    }}
-                    className="mt-1 inline-flex min-h-[44px] items-center text-[12px] text-slate-600 dark:text-slate-400 active:opacity-60 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                  >
-                    Cancel this aim
+          <h1 className="text-[28px] font-bold leading-tight tracking-tight">How your money behaves</h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Computed from your last {monthsLabel} months of transactions. No judgement, just what the data says.</p>
+          {!loading && portrait?.status === "ok" && <button
+            type="button" disabled={refreshing} onClick={() => { setRefreshing(true); void loadPortrait(true); void loadFeedback(); }}
+            className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg text-[13px] font-semibold text-indigo-700 hover:text-indigo-800 active:opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50 dark:text-indigo-300 dark:hover:text-indigo-200"
+          ><RefreshCw size={16} aria-hidden="true" className={`text-slate-500 dark:text-slate-400 ${refreshing ? "animate-spin motion-reduce:animate-none" : ""}`} />{refreshing ? "Recomputing…" : "Recompute"}</button>}
+        </header>
+        {notice && <p role="status" className="mt-3 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{notice}</p>}
+        {loading ? <div className="mt-5 max-w-2xl space-y-4" role="status" aria-label="Loading your money patterns">{[1, 2].map(i => <SkeletonCard key={i} />)}</div>
+          : loadError && !portrait ? <section className="mt-5 max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <h2 className="text-base font-bold">Your patterns could not be loaded</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">No new result has been estimated. Try again when you have a connection.</p>
+            <button type="button" onClick={() => void loadPortrait()} className="mt-2 min-h-11 rounded-lg text-sm font-semibold text-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-indigo-300">Try again</button>
+          </section>
+          : portrait?.status === "insufficient_data" ? <section className="mt-5 max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <h2 className="text-base font-bold">Not enough history yet</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">The Mirror needs at least 60 days of transactions. A result waits until there is enough recorded history.</p>
+          </section>
+          : primary && portrait?.status === "ok" ? <>
+            {loadError && <p role="status" className="mt-3 text-[13px] text-slate-600 dark:text-slate-300">The refresh did not finish. The portrait below is the previous snapshot, checked on {new Date(portrait.computed_at).toLocaleDateString("en-GB")}.</p>}
+            <div className="mt-5 grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] min-[900px]:gap-6">
+              <div className="min-w-0">
+                <div ref={primaryPanel} tabIndex={-1} className="rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-500">{renderTrait(primary)}</div>
+                {others.length > 0 && <section className="mt-4 border-t border-slate-300 dark:border-slate-600">
+                  <button type="button" aria-expanded={otherPatternsOpen} aria-controls={otherPatternsId} onClick={() => setOtherPatternsOpen(open => !open)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+                    Other patterns<DisclosureChevron open={otherPatternsOpen} />
                   </button>
-                </div>
-              ))}
+                  <div id={otherPatternsId} hidden={!otherPatternsOpen} className="space-y-4 pt-2">
+                    <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">Each trait has its own choice. Kept traits receive no coaching.</p>
+                    {others.map(trait => <div key={trait.id}>
+                      {renderTrait(trait)}
+                      <button type="button" onClick={() => {
+                        setFocusedId(trait.id);
+                        setOtherPatternsOpen(false);
+                        requestAnimationFrame(() => { primaryPanel.current?.focus(); primaryPanel.current?.scrollIntoView({ block: "start" }); });
+                      }} className="mt-1 inline-flex min-h-11 items-center rounded-lg text-[13px] font-semibold text-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-indigo-300">View this pattern’s evidence</button>
+                    </div>)}
+                  </div>
+                </section>}
+              </div>
+              <MirrorEvidence key={`${primary.id}:${current?.id ?? completed?.id ?? "portrait"}`} trait={primary} checkpointId={primary.choice === "change" && !feedbackLoading && !feedbackError ? current?.id ?? completed?.id ?? null : null} masked={masked} computedAt={portrait.computed_at} />
             </div>
-          </div>
-        )}
-
-        {/* Content */}
-        {loading ? (
-          <div className="space-y-4">
-            {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
-          </div>
-        ) : !portrait || portrait.status === "insufficient_data" ? (
-          <div className="rounded-2xl glass-card p-6 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center mx-auto mb-4">
-              <PennyMark size={22} className="text-slate-400" />
-            </div>
-            <p className="text-base font-bold text-slate-900 dark:text-slate-100 mb-2">
-              Not enough data yet
-            </p>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-              The Mirror needs at least 60 days of transactions to compute your behavioural portrait. Check back after a couple of months of connected banking.
-            </p>
-          </div>
-        ) : portrait.traits.length === 0 ? (
-          <div className="rounded-2xl glass-card p-6 text-center">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              No distinct patterns detected yet, check back after more transactions have been synced.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {portrait.traits.map((trait, i) => {
-              const cat = traitCategory(trait);
-              const activeAim = cat ? aims.find(a => a.ref === cat) ?? null : null;
-              const kind = nextStepKind(trait);
-              return (
-                <div key={trait.id} className="rise-in" style={{ "--rise-index": i + 1 } as React.CSSProperties}>
-                  <TraitCard
-                    trait={trait}
-                    activeAim={activeAim}
-                    onChoice={handleChoice}
-                    onSetAim={setAimCategory}
-                    nextStep={kind ? (
-                      <MirrorNextStep
-                        kind={kind}
-                        category={cat ?? undefined}
-                        amount={cat ? signals[cat]?.suggested_aim ?? null : null}
-                        status={activeAim ? "done" : "open"}
-                        onAct={() => (kind === "plan" ? router.push("/planning") : cat && setAimCategory(cat))}
-                        onSeeNext={() => router.push("/spend?view=period")}
-                      />
-                    ) : undefined}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {aimCategory && (
-        <AimSheet
-          category={aimCategory}
-          onClose={() => setAimCategory(null)}
-          onSaved={aimsChanged}
-        />
-      )}
+          </> : <p className="mt-5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">No distinct patterns are recorded yet. Check again after more transactions have synced.</p>}
+      </main>
+      {editor && !masked && <AimSheet
+        category={editor.category}
+        existingAmount={editor.activeId ? editor.seed : undefined}
+        baseline={editor.seed != null ? { usual: null, suggestedAim: editor.seed } : undefined}
+        onClose={() => setEditor(null)}
+        onSubmit={async amount => {
+          if (editor.activeId) {
+            if (amount == null) throw new Error("Enter an amount for this aim.");
+            await api.updateCheckpoint(editor.activeId, amount);
+          } else await api.createCheckpoint(editor.category, amount);
+          afterAimWrite();
+        }}
+      />}
     </div>
   );
 }

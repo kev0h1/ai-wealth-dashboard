@@ -15,8 +15,7 @@
 //   /design/month-story?variant=b   no spotlight, content centred
 //   /design/month-story?variant=c   tight spotlight hugging the subject, content centred
 // Defaults to "a" when the param is missing or unrecognised, following the
-// same "?state=" pattern the other /design/* routes use (see
-// spend-verdict-a/SpendVerdictAClient.tsx's STATES/hrefFor convention).
+// same "?state=" pattern the other /design/* routes use.
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";

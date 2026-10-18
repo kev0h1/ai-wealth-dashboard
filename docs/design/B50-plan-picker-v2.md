@@ -1,5 +1,33 @@
 # B50: room to choose a plan
 
+## Approved B fold-in, 18 October 2026
+
+Kevin chose B, One clear choice. The following contract applies to the production fold-in; the original preview-round record remains below.
+
+THESIS: one selected plan gets a readable description, feature list and offer, rather than squeezing five descriptions and prices into rows.
+
+OWN-WORLD: inherit the Calm Cockpit's Figtree, mono money, slate surfaces and indigo selection. No new tokens or identity.
+
+STORY: see the current plan, choose a period and plan, read its total and truthful offer, then continue through the existing billing path. Comparison expands inline and never changes the subscription.
+
+FIRST VIEWPORT: a quiet current-plan reading, wrapped 44px period and plan choices, then one full-width detail/action card. Prices use the 19px card step, descriptions 14px. Expanded comparison uses two columns when the host is wide enough.
+
+FORM: code-led extension, pinned by Kevin's B choice, no new seed or concept round. The catalogue and platform handlers belong to B51/B52/B53 and C21/C24; do not import mocked store offers into production. Displayed period, renewal and checkout use one effective period. Missing prices withhold a new purchase and trial claim.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+
+The preview is temporarily retained under H113: the open B53 branch explicitly edits its catalogue model and documentation. Removing it now would create a modify/delete conflict with that live pricing work. No production code imports the preview. Remove the preview and index entry once that dependency is reconciled; this is not a permanent per-surface gate.
+
+### Fold-in verification
+
+The real production component was checked through a temporary synthetic harness, not inferred from the preview markup. Twelve captures cover 320px, 390px and 1440px, both themes, current/trial/paid/cancelled and native-gated states, unknown trial eligibility, unavailable prices, expanded comparison and the real `SheetFrame`. Root inspected every capture. No horizontal overflow, page errors, API writes or controls below 44px were observed; keyboard radios, comparison and inert action feedback passed. The temporary harness was removed before commit.
+
+The new production-picker render test covers the single detail card, enabled catalogue compatibility, effective-period fallback, renewal/trial reconciliation, invalid-price gating and native restrictions. The existing purchase endpoints, platform restrictions and billing integrations are retained. Checkout now sends the same effective period the user sees; missing prices disable a fresh purchase and suppress trial claims.
+
+Fresh independent manual review confirmed B fidelity and the production diff. Its subsequent scoped verdict scored the recovery-copy correction and native-safe Terms/Privacy links resolved. The specialised reviewer/documenter and automated detector were unavailable, so fallback reviewers were used and no automated design verdict is claimed. The documentation audit preserves `PRODUCT.md`, `DESIGN.md` and the design sidecar unchanged. Final production-build and complete session-gate results are recorded on the board before coordinator handoff; no store-runtime or purchase-flow verification is claimed here.
+
+## Original design round, 17 October 2026
+
 Design round only. Operate mode inside the established Calm Cockpit. Prices, entitlements, purchasing policy and legal terms are not being changed. The task is to make choosing and comparing readable on a phone, with an honest current-plan and trial state.
 
 ## Direction contract
@@ -18,7 +46,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 ## Product and billing truth
 
-- Four default plans: Statements, Lite, Standard and Max. Connect appears only in an explicitly enabled web/UAT fixture, never as an iOS/Android SKU. A legacy Connect subscriber can still see their existing state without being silently moved to another tier. B51 owns actual tier availability and any migration decision.
+- Four plans: Statements, Lite, Standard and Plus (B53, 2026-10-18: Plus replaced Max and Connect, and every paid plan has all features; Lite 10 accounts and 40 Penny, Standard 25 and 150, Plus unlimited and 300). The preview's Connect toggle is gone; legacy Max and Connect subscribers read as Plus (the legacy-connect fixture shows this).
 - Prices and enabled periods mirror `backend/app/core/subscription.py`: monthly, six months and annual. Savings are the exact pounds against the same number of monthly payments, not a free-month claim. Equivalent monthly prices are subordinate to the actual charged total. Static tests compare the fixture against the backend's literal catalogue without importing application code or touching a database.
 - B50's original Android external-Stripe wording and the older C13 spec are superseded by Kevin's C24 decision of 17 October 2026: Google Play Billing on Android, StoreKit on iOS, Stripe on web. The latest C21/C24 correction records store target prices matching web, with no Connect products. This round changes none of those integrations.
 - Store-ready examples are labelled proposals with mocked product/eligibility responses, not currently live functionality. Actual store product prices and eligibility must be fetched and verified before a purchase. Missing products/prices and unknown eligibility never promise a trial or enable a purchase.

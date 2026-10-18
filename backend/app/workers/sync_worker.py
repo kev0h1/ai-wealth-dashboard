@@ -161,7 +161,7 @@ def _refresh_window(refresh: Optional[str]) -> Optional[timedelta]:
     TIER_LIMITS) onto the stale window task_reconcile_truelayer uses to
     decide whether a connection needs re-syncing this cycle.
 
-    "4h" (Standard/Connect) and "priority" (Max) both get the cron's own
+    "4h" (every paid tier, B53) and the legacy "priority" value both get the cron's own
     just-under-the-4-hour-interval window (see _DEFAULT_REFRESH_WINDOW) —
     today's unchanged behaviour. "daily" (Lite) gets the same "just under
     the interval" treatment scaled to a 24h cadence: 23h30, so a
@@ -231,9 +231,8 @@ async def task_reconcile_truelayer(ctx):
     tier. Each user's tier is resolved at most once per run and cached
     locally; a subscriptions read failure for one user falls back to the
     default cadence rather than ever stopping that user's sync. Within
-    each of the TrueLayer/Finexer groups, priority-tier (Max) users'
-    sync jobs are enqueued before everyone else's, oldest-connection-first
-    within each of those two groups.
+    each of the TrueLayer/Finexer groups, jobs are enqueued
+    oldest-connection-first (B53: no tier is prioritised over another).
 
     NB: Mongo returns naive UTC datetimes, so all comparisons here use naive
     utcnow — mixing in tz-aware datetimes raises TypeError.
@@ -266,10 +265,6 @@ async def task_reconcile_truelayer(ctx):
             window_cache[refresh] = _refresh_window(refresh)
         return window_cache[refresh]
 
-    def _is_priority(uid: str) -> bool:
-        sub = tier_cache.get(uid)
-        return sub is not None and sub.limit("refresh") == "priority"
-
     # Oldest first, so when duplicates remain the newest connection syncs
     # last and wins the account claims.
     all_conns = await connections_col.find(
@@ -296,12 +291,9 @@ async def task_reconcile_truelayer(ctx):
         else:
             skipped_fresh += 1
 
-    # Priority-tier users first; each group keeps the oldest-first order
-    # the query above already produced.
-    tl_ordered = (
-        [c for c in tl_candidates if _is_priority(c[1])]
-        + [c for c in tl_candidates if not _is_priority(c[1])]
-    )
+    # B53: every paid tier refreshes the same way, so there is no priority
+    # ordering; candidates keep the oldest-first order the query produced.
+    tl_ordered = tl_candidates
 
     # Retry webhook events that failed or got stuck in pending > 15 minutes
     # — unconditional on tier, these are missed-webhook catch-ups, not the
@@ -342,10 +334,7 @@ async def task_reconcile_truelayer(ctx):
         else:
             skipped_fresh += 1
 
-    fx_ordered = (
-        [c for c in fx_candidates if _is_priority(c[1])]
-        + [c for c in fx_candidates if not _is_priority(c[1])]
-    )
+    fx_ordered = fx_candidates
 
     # Spread every job this run is about to enqueue — TL syncs, webhook
     # retries, then Finexer syncs, in that order, matching the priority
@@ -686,6 +675,12 @@ async def task_trial_reminder(ctx):
         trial_ends_at = doc.get("trial_ends_at")
         if not uid or not isinstance(trial_ends_at, datetime):
             continue
+        if doc.get("provider") == "apple":
+            # C21: an App Store trial converts at the store's own price (the
+            # iOS price, not the web table this copy quotes) and is cancelled
+            # in iOS Settings, not "Settings, Your plan". Apple sends its own
+            # renewal notice, so this reminder would state the wrong amount.
+            continue
         if doc.get("trial_reminder_sent_at") or doc.get("cancel_at_period_end"):
             continue  # already reminded, or cancelled (nothing will be charged)
         if not (now <= trial_ends_at <= warn_cutoff):
@@ -759,7 +754,38 @@ async def _on_startup(ctx: dict) -> None:
     task so the queue is served from the first second; the engine-build
     stamp makes a restart without a code change a no-op. The task handle
     is kept on `ctx` so it cannot be garbage-collected mid-flight."""
+    try:   # E8: record exception class names (only) for the new-error-type alert
+        from app.db.collections import error_types_seen_col
+        from app.services.health import error_types
+        error_types.install()
+        await error_types.ensure_indexes(error_types_seen_col)
+    except Exception as exc:
+        logger.warning("error type tracking not started: %s", type(exc).__name__)
     ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
+
+
+async def task_health_samples(ctx) -> dict:
+    """E7: every 5 minutes, one /ops/health trend sample per collector that
+    lives outside the API process (app.services.health.samples). Each
+    collector runs under its own 2 s budget; a failure is logged by class and
+    never raises, so this cron cannot wedge the worker."""
+    try:
+        from app.db.collections import db, health_samples_col
+        from app.services.health import default_collectors, samples
+        await samples.ensure_collection(db)
+        mine = [c for c in default_collectors() if not c.external and c.name != "api_latency"]
+        written = await samples.write_samples(mine, health_samples_col)
+        out = {"written": written}
+        try:   # E8: alerts evaluate the samples just written; never fails the cron
+            from app.services.health import alerts
+            out["alerts"] = await alerts.run_alerts()
+            out["new_errors"] = await alerts.process_new_error_types()
+        except Exception as exc:
+            logger.warning("health alerts: failed (%s)", type(exc).__name__)
+        return out
+    except Exception as exc:
+        logger.warning("health samples: failed (%s)", type(exc).__name__)
+        return {"written": 0}
 
 
 class WorkerSettings:
@@ -770,7 +796,7 @@ class WorkerSettings:
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
-                 task_safe_to_spend_snapshot]
+                 task_safe_to_spend_snapshot, task_health_samples]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -789,6 +815,8 @@ class WorkerSettings:
         # 09:00 UTC daily: B22's trial-conversion disclosure reminder,
         # 3 days out from trial_ends_at.
         cron(task_trial_reminder, hour=9, minute=0, run_at_startup=False),
+        # E7: every 5 minutes, the /ops/health trend samples (capped store).
+        cron(task_health_samples, minute=set(range(0, 60, 5)), run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5
