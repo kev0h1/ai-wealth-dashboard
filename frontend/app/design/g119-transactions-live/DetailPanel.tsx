@@ -1,35 +1,11 @@
 "use client";
 
-// The row-tap detail treatment for all three G119 variants. Faithfully
-// ports TeachingSheet.tsx's real fork logic and copy (ENGINE.md
-// "Destination Rule": a movement-kind read asks WHERE the money went/came
-// from, a spend-kind read asks WHAT category it is) rather than inventing a
-// new editor, per the brief. The one deliberate difference from the real
-// sheet: every action here writes to LOCAL STATE ONLY — no
-// api.patchTransaction / api.resolveMovement / api.addRule call exists
-// anywhere in this file — so this can safely run against Kevin's own real,
-// authenticated transaction data without ever mutating it. The one
-// exception is intentional and still read-only: in "full" layout (Variant
-// C) with a live (non-fixture) transaction, choosing "All from X" / "Future
-// from X" calls the real api.similarTransactions GET so the scope picker
-// shows genuine matches, never a write.
-//
-// `layout` changes the chrome around this content, not the content itself:
-//   sheet   — bottom sheet over the list (Variant A, closest to production)
-//   inline  — no chrome, meant to be mounted directly inside an expanded
-//             row (Variant B)
-//   full    — a dedicated full-bleed screen replacing the list (Variant C)
-//
-// Design-hook note: the text-[11px]/[12px]/[13px]/[14px] sizes below are
-// verbatim copies of TeachingSheet.tsx's own already-shipped type sizes
-// (not new steps introduced by this preview) — same reasoning
-// app/design/cards-page/CardsPageVariantsClient.tsx's review note gives for
-// leaving a verbatim-matched pre-existing size alone rather than drifting
-// this port away from the real sheet's proven sizing. Left as-is.
+// Shared local-only detail editor for the three G119 layouts. All rows
+// are synthetic and every edit stays in component state.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Undo2, X } from "lucide-react";
-import { api, type Account, type Transaction } from "@/lib/api";
+import type { Account, Transaction } from "@/lib/api";
 import { getCategoryColour, inferCategoryKind } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useColours } from "@/components/ColourProvider";
@@ -49,13 +25,10 @@ interface DetailPanelProps {
   transaction: Transaction;
   account?: Account;
   layout: Layout;
-  /** True when `transaction` came from the real backend (a real Mongo id) —
-   *  gates the one real network read (similar-matches) in "full" layout. */
-  isLive: boolean;
   onClose: () => void;
 }
 
-export default function DetailPanel({ transaction, account, layout, isLive, onClose }: DetailPanelProps) {
+export default function DetailPanel({ transaction, account, layout, onClose }: DetailPanelProps) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const { allCategories, customCategories, kinds } = useCategories();
@@ -74,28 +47,6 @@ export default function DetailPanel({ transaction, account, layout, isLive, onCl
   const [namingText, setNamingText] = useState("");
 
   const [scope, setScope] = useState<Scope>("single");
-  const [similar, setSimilar] = useState<Transaction[] | null>(null);
-  const [loadingSimilar, setLoadingSimilar] = useState(false);
-
-  useEffect(() => {
-    if (layout !== "full" || scope === "single") {
-      setSimilar(null);
-      return;
-    }
-    if (!isLive) {
-      // Fixture data has no real match set behind it — say so rather than
-      // faking a network round trip.
-      setSimilar([]);
-      return;
-    }
-    let active = true;
-    setLoadingSimilar(true);
-    api.similarTransactions(transaction.id, scope)
-      .then((rows) => { if (active) setSimilar(rows); })
-      .catch(() => { if (active) setSimilar([]); })
-      .finally(() => { if (active) setLoadingSimilar(false); });
-    return () => { active = false; };
-  }, [layout, scope, isLive, transaction.id]);
 
   const colour = getCategoryColour(originalCategory, colours);
   const CategoryIcon = getCategoryIcon(originalCategory, iconOverrides);
@@ -349,10 +300,7 @@ export default function DetailPanel({ transaction, account, layout, isLive, onCl
         </div>
       )}
 
-      {/* "Apply to" scope — TransactionSheet.tsx's own concept, ported into
-          the full-screen layout only (Variant C). With real data this makes
-          one genuine read call (GET /transactions/{id}/similar); with
-          fixture data it says so instead of faking a network round trip. */}
+      {/* Scope control demonstrates layout only, without account history. */}
       {layout === "full" && (
         <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700">
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">
@@ -376,34 +324,9 @@ export default function DetailPanel({ transaction, account, layout, isLive, onCl
           </div>
           {scope !== "single" && (
             <div className="mt-3">
-              {!isLive ? (
-                <p className="text-[12px] text-slate-500 dark:text-slate-400">
-                  Real matches appear here once you're signed in — this preview row has no history behind it.
-                </p>
-              ) : loadingSimilar ? (
-                <div className="space-y-2">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-12 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse" />
-                  ))}
-                </div>
-              ) : similar && similar.length > 0 ? (
-                <div className="space-y-1 rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
-                  {similar.slice(0, 8).map((tx) => (
-                    <div key={tx.id} className="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-slate-800">
-                      <span className="flex-1 min-w-0 text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
-                        {tx.merchant_name || tx.description}
-                      </span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0">{formatDate(tx.date)}</span>
-                      <span className="text-xs font-semibold flex-shrink-0 text-slate-700 dark:text-slate-200">
-                        {tx.transaction_type === "credit" ? "+" : MINUS}
-                        {formatCurrency(tx.amount, tx.currency)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[12px] text-slate-500 dark:text-slate-400">No similar transactions found.</p>
-              )}
+              <p className="text-[12px] text-slate-500 dark:text-slate-400">
+                Example data only. No account history is loaded in this preview.
+              </p>
             </div>
           )}
         </div>

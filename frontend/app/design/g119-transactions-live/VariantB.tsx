@@ -20,7 +20,7 @@ import type { Account, Transaction } from "@/lib/api";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { formatCurrency } from "@/lib/currency";
-import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
+import { fetchTransactionsPage, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
 import { groupByDay } from "@/lib/transactionGrouping";
 import DetailPanel from "./DetailPanel";
 
@@ -76,7 +76,6 @@ export default function VariantB({
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [page, setPage] = useState(1);
-  const [source, setSource] = useState<Source>("fixture");
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -87,11 +86,10 @@ export default function VariantB({
   // the accumulated list from page 1, same as forcedFixture already does.
   useEffect(() => {
     setItems([]); setPage(1); setLoading(true);
-    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture, filters).then(({ result, source: src }) => {
+    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture, filters).then(({ result }) => {
       setItems(result.items);
       setTotal(result.total);
       setPages(result.pages);
-      setSource(src);
       setLoading(false);
     });
   }, [forcedFixture, filters]);
@@ -130,7 +128,7 @@ export default function VariantB({
   return (
     <div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
-        {source === "live" ? "Showing your data" : "Showing example data · sign in to see yours"} · {items.length} of {total} loaded
+        Showing example data · {items.length} of {total} loaded
       </p>
 
       {loading ? (
@@ -162,7 +160,6 @@ export default function VariantB({
                         transaction={openTx}
                         account={accounts.find((a) => a.id === openTx.account_id)}
                         layout="inline"
-                        isLive={source === "live"}
                         onClose={() => setOpenId(null)}
                       />
                     )}

@@ -1839,6 +1839,13 @@ function isAppLockExemptPath(input: RequestInfo | URL): boolean {
 }
 
 function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  // A29: public design previews can render product components which call
+  // this client internally. Refuse reads AND writes before any request
+  // leaves the browser, including the app-lock exemptions. Check at call
+  // time so client-side navigation into and out of /design is covered.
+  if (typeof window !== "undefined" && /^\/design(?:\/|$)/.test(window.location?.pathname ?? "")) {
+    return Promise.reject(new Error("Preview only. Nothing has been saved."));
+  }
   if (isAppLocked() && !isAppLockExemptPath(input)) return Promise.reject(new AppLockedError());
   return globalThis.fetch(input, init);
 }

@@ -12,7 +12,6 @@
 
 import { useRef, useState, type RefObject } from "react";
 import { ChevronLeft, Search, ShieldCheck, X } from "lucide-react";
-import { resolveApiAsset } from "@/lib/api";
 import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { SheetFrame } from "@/components/SheetFrame";
 import { pickerDescription, type Bank } from "@/components/BankPickerSheet";
@@ -49,7 +48,7 @@ function Mark({ bank, large = false }: { bank: Bank; large?: boolean }) {
   return <span aria-hidden="true" className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-100 bg-white dark:border-slate-600 ${large ? "size-12" : "size-10"}`}>
     {bank.logo
       // eslint-disable-next-line @next/next/no-img-element
-      ? <img src={resolveApiAsset(bank.logo)} alt="" width={large ? 36 : 32} height={large ? 36 : 32} className={large ? "size-9 object-contain" : "size-8 object-contain"} />
+      ? <img src={bank.logo} alt="" width={large ? 36 : 32} height={large ? 36 : 32} className={large ? "size-9 object-contain" : "size-8 object-contain"} />
       : <span className="text-sm font-bold text-slate-700">{bank.name[0]}</span>}
   </span>;
 }

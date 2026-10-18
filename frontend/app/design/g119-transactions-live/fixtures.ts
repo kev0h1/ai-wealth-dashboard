@@ -1,7 +1,5 @@
-// Synthetic transaction fixtures — the fallback path for this preview when
-// nobody is signed in, and the deterministic path for the loading/empty/
-// long-list review states (?state=…). Every row here is invented, no real
-// user data is ever committed to this file or this repo.
+// Synthetic transaction fixtures for every preview state, independent of
+// the browser's session. Every row here is invented.
 import type { Transaction } from "@/lib/api";
 
 // Deterministic PRNG (mulberry32) so the fixtures are identical on server

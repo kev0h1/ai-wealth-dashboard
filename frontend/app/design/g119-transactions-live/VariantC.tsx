@@ -1,24 +1,13 @@
 "use client";
 
-// Variant C — the heaviest treatment: tapping a row doesn't open a sheet or
-// expand in place, it swaps the whole screen to a dedicated full-bleed
-// detail (DetailPanel layout="full", with the "Apply to" scope control and
-// its one real read call). Pagination is manual "Load more" chunks only —
-// no auto-scroll trigger — presented in the cadence a cursor-paginated feed
-// would have (append-only, no page-number UI). Under the hood this still
-// calls GET /transactions/search with page/page_size (the only pagination
-// contract that endpoint actually offers today); see this route's
-// pagination recommendation for why a true cursor belongs on the backend
-// before this UX ships for real, and app/mcp-activity/McpActivityPage.tsx
-// for what that already looks like elsewhere in this app (GET /mcp/audit's
-// real `cursor`/`next_cursor`).
+// Variant C: local fixture pages, manual Load more and full-screen detail.
 
 import { useEffect, useState } from "react";
 import type { Account, Transaction } from "@/lib/api";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { formatCurrency } from "@/lib/currency";
-import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
+import { fetchTransactionsPage, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
 import { groupByDay } from "@/lib/transactionGrouping";
 import DetailPanel from "./DetailPanel";
 
@@ -62,7 +51,6 @@ export default function VariantC({
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [page, setPage] = useState(1);
-  const [source, setSource] = useState<Source>("fixture");
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [open, setOpen] = useState<Transaction | null>(null);
@@ -71,11 +59,10 @@ export default function VariantC({
   // the accumulated list from page 1, same as forcedFixture already does.
   useEffect(() => {
     setItems([]); setPage(1); setLoading(true); setOpen(null);
-    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture, filters).then(({ result, source: src }) => {
+    fetchTransactionsPage(1, PAGE_SIZE, forcedFixture, filters).then(({ result }) => {
       setItems(result.items);
       setTotal(result.total);
       setPages(result.pages);
-      setSource(src);
       setLoading(false);
     });
   }, [forcedFixture, filters]);
@@ -97,7 +84,6 @@ export default function VariantC({
         transaction={open}
         account={accounts.find((a) => a.id === open.account_id)}
         layout="full"
-        isLive={source === "live"}
         onClose={() => setOpen(null)}
       />
     );
@@ -108,7 +94,7 @@ export default function VariantC({
   return (
     <div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
-        {source === "live" ? "Showing your data" : "Showing example data · sign in to see yours"} · {items.length} of {total} loaded
+        Showing example data · {items.length} of {total} loaded
       </p>
 
       {loading ? (

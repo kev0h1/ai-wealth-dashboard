@@ -4,10 +4,8 @@
 // Renders the REAL SpendVerdictView + SpendHeader components (not redrawn
 // mockups) with fixture /spend/verdict payloads, so design review sees the
 // exact rendered truth for all five backend states, in both themes, with
-// zero auth. The notable-card intent buttons (onIntent) call the real,
-// unauthenticated backend and genuinely 401 — same reasoning as the
-// teaching-sheet demo modes below: this route exists to show the real
-// failure path, not an always-succeeds stub.
+// zero auth. Actions use a local rejection to show the failure state;
+// lib/api also refuses requests from imported product components here.
 //
 // Deep-linkable:
 //   /design/spend-live?mode=light|dark&state=normal|nothing|everything|nobaseline|early
@@ -41,7 +39,7 @@ import {
   PREVIEW_SIGNALS,
   SPEND_VERDICT_FIXTURES,
 } from "./fixtures";
-import { api } from "@/lib/api";
+import { previewAction } from "./previewAction";
 import type { SpendVerdictState, Transaction } from "@/lib/api";
 import { DEFAULT_PAY_PERIOD_CONFIG, prevPeriodWithConfig } from "@/lib/payPeriod";
 import { OPEN_TIPS } from "./tips";
@@ -49,10 +47,8 @@ import { noticeSheet } from "@/components/ConfirmSheet";
 
 // Fixture transactions for the teaching-sheet demo modes below — one per
 // fork (ENGINE.md Destination Rule: movement gets destinations, spend gets
-// vocabulary). This route is unauthenticated, so any submit inside the real
-// TeachingSheet will fail its network call and surface the sheet's own
-// inline error copy — expected here; the point is the rendered surface, not
-// a working mutation.
+// vocabulary). The API client's design gate refuses any submit from the
+// real TeachingSheet locally, surfacing its inline error without a request.
 const MOVE_FIXTURE_TX: Transaction = {
   id: "fixture-wise-1",
   account_id: "fixture-account",
@@ -295,12 +291,7 @@ export default function SpendLiveClient({ hidePreviewControls = false }: { hideP
                 verdict={verdict}
                 colours={{}}
                 onOpenCategory={() => {}}
-                // This route is unauthenticated (see file header), so this hits
-                // the real backend and genuinely 401s — same pattern as the
-                // teaching-sheet demo entries below: design review sees the
-                // exact rendered truth, including the failure path, not an
-                // always-succeeds stub.
-                onIntent={(category, answer) => api.recordTrendIntent(category, answer).then(() => {})}
+                onIntent={() => previewAction()}
                 signals={PREVIEW_SIGNALS}
                 sym="£"
                 onAimChanged={() => {}}

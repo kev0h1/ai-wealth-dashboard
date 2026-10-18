@@ -26,8 +26,8 @@
 //     "Set an aim" also moves from an 11px corner link into a full-width
 //     labelled row.
 //
-// Simplification vs production: "New normal" posts directly through
-// `onIntent` here rather than opening the Intent Consent Sheet first — this
+// Simplification vs production: "New normal" uses the local failure demo
+// through `onIntent` rather than opening the Intent Consent Sheet first. This
 // route is a visual exploration of the card's OWN chrome (badge/buttons/aim
 // placement), not a re-test of the consent-sheet flow, which is unchanged
 // production behaviour outside this card's scope.
@@ -36,7 +36,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, ChevronUp, Target } from "lucide-react";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
-import { api } from "@/lib/api";
+import { previewAction } from "../spend-live/previewAction";
 import type { Checkpoint, SpendVerdictCause, SpendVerdictNotable } from "@/lib/api";
 import { fmtWhole as fmtAimWhole, daysLabel } from "@/lib/aimFormat";
 import MoneyText from "@/components/MoneyText";
@@ -138,7 +138,7 @@ function AimBlockA({ category, multiple, suggestedAim, checkpoint, sym, onChange
 
   // State A — live checkpoint: progress + cancel.
   if (localCheckpoint) {
-    const { id, aim_amount, spent_so_far, days_left } = localCheckpoint;
+    const { aim_amount, spent_so_far, days_left } = localCheckpoint;
     return (
       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
@@ -152,7 +152,7 @@ function AimBlockA({ category, multiple, suggestedAim, checkpoint, sym, onChange
           type="button"
           onClick={async () => {
             try {
-              await api.cancelCheckpoint(id);
+              await previewAction();
               setLocalCheckpoint(null);
               onChanged();
             } catch {
@@ -186,11 +186,11 @@ function AimBlockA({ category, multiple, suggestedAim, checkpoint, sym, onChange
   }
 
   // State B — the ask, expanded inline.
-  async function handleSetAim(amount?: number) {
+  async function handleSetAim() {
     setSaving(true);
     setSaveError(false);
     try {
-      const cp = await api.createCheckpoint(category, amount);
+      const cp = await previewAction<Checkpoint>();
       setLocalCheckpoint(cp);
       setAimOpen(false);
       setCustomMode(false);
@@ -220,7 +220,7 @@ function AimBlockA({ category, multiple, suggestedAim, checkpoint, sym, onChange
           <button
             type="button"
             disabled={saving}
-            onClick={() => handleSetAim(undefined)}
+            onClick={() => handleSetAim()}
             className="min-h-[44px] text-[12px] font-semibold text-white rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-60"
             style={{ backgroundColor: "#4f46e5" }}
           >
@@ -251,7 +251,7 @@ function AimBlockA({ category, multiple, suggestedAim, checkpoint, sym, onChange
           <button
             type="button"
             disabled={saving || !customValid}
-            onClick={() => handleSetAim(parsedCustom)}
+            onClick={() => handleSetAim()}
             className="min-h-[44px] text-[12px] font-semibold text-white rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-60"
             style={{ backgroundColor: "#4f46e5" }}
           >

@@ -19,7 +19,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { SPEND_VERDICT_FIXTURES, PREVIEW_INCOME_TXNS, PREVIEW_SIGNALS, PREVIEW_ACCOUNTS } from "../spend-live/fixtures";
-import { api } from "@/lib/api";
+import { previewAction } from "../spend-live/previewAction";
 import type { SpendVerdictState } from "@/lib/api";
 import VerdictHeaderA from "./VerdictHeaderA";
 import NotableCardA from "./NotableCardA";
@@ -99,25 +99,8 @@ export default function SpendVerdictAClient() {
                     daysElapsed={verdict.period.days_elapsed}
                     rank={i}
                     onOpenCategory={() => {}}
-                    // This route is unauthenticated (fixture preview), so
-                    // this hits the real backend and genuinely 401s — same
-                    // pattern as /design/spend-live: design review sees the
-                    // exact rendered failure path, not an always-succeeds
-                    // stub.
-                    //
-                    // Scope note (adjudicated): production never posts
-                    // "New normal" directly like this — it always opens the
-                    // Intent Consent Sheet first (see SpendVerdictView.tsx's
-                    // onNewNormalRequest / components/IntentConsentSheet.tsx),
-                    // pricing the change in plain language before filing.
-                    // This preview deliberately skips that handoff — the
-                    // brief for this card was the button pair's visual
-                    // weight and contrast, not re-testing the consent-sheet
-                    // flow — so both "One-off" and "New normal" here call
-                    // the same bare intent endpoint. Do not treat this as
-                    // the real flow; wire the consent sheet before any of
-                    // this card's chrome graduates out of /design.
-                    onIntent={(category, answer) => api.recordTrendIntent(category, answer).then(() => {})}
+                    // Local failure-state demo, independent of the session.
+                    onIntent={() => previewAction()}
                     sym="£"
                     suggestedAim={PREVIEW_SIGNALS[n.category]?.suggested_aim ?? null}
                     checkpoint={PREVIEW_SIGNALS[n.category]?.checkpoint ?? null}

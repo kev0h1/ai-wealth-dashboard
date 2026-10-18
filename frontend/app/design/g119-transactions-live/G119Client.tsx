@@ -1,65 +1,12 @@
 "use client";
 
-// G119 — Transactions round, take two, on real data with real pagination.
-//
-// Replaces G92 (app/design/transactions-canvas-before-cards), which failed
-// its own brief: every row was a <button> toggling one GROUP-level panel
-// with a fixed teaching sentence (a false affordance), A/B/C were barely
-// distinguishable at 390px, and the preview never exercised real depth or
-// pagination. This round fixes all three:
-//   - date groupings kept (Kevin's own feedback on G92)
-//   - tapping a row opens THAT transaction's real detail with the ability
-//     to change it (DetailPanel.tsx — a faithful, non-mutating port of the
-//     real TeachingSheet.tsx fork logic, never a popup/group toggle)
-//   - driven by the real backend (dataSource.ts calls the exact
-//     api.transactionsSearch TransactionsPage.tsx already uses), read-only,
-//     session-scoped, with a synthetic fixture fallback when signed out
-//
-//   /design/g119-transactions-live?variant=a|b|c&mode=light|dark
-//   /design/g119-transactions-live?variant=a&state=long&mode=dark  (forced
-//     fixture states for deterministic review — never touches the network)
-//
-// Variant summary (each genuinely different AT 390px, not just desktop):
-//   A — day-group cards + page-based Prev/Next pager, row tap opens a
-//       bottom sheet. Closest to today's production shape.
-//   B — day-group cards + infinite scroll (auto + manual "Load more"), row
-//       tap expands that row in place (accordion), no overlay. A "Back to
-//       top" pill appears once scrolled past the fold.
-//   C — day-group cards + manual "Load more" only (cursor cadence, see
-//       dataSource.ts/VariantC.tsx), row tap replaces the whole screen with
-//       a dedicated full-bleed detail screen carrying an "Apply to" scope
-//       control (ported from TransactionSheet.tsx) that makes one real
-//       read call (GET /transactions/{id}/similar) against live data.
-//
-// Read-only / session-scoped guarantee: see dataSource.ts's own docstring.
-// This file and every file it imports contain zero calls to
-// api.patchTransaction / api.resolveMovement / api.addRule / any other
-// mutating api.* function — grep app/design/g119-transactions-live for
-// "patchTransaction|resolveMovement|addRule|deleteRule" to verify.
-//
-// UAT-review revision (Kevin, after seeing the merged preview):
-//   1. Variant A's row now shows the real category icon instead of the
-//      colour bar (VariantA.tsx) — B/C keep the bar for comparison.
-//   2. The filter control ("that three-line thing") is back — a
-//      SlidersHorizontal button opening FilterSheet.tsx — and it now
-//      genuinely filters (the old G92 preview's version never did; see
-//      FilterSheet.tsx's own docstring for why account-scope isn't one of
-//      its dimensions).
-//   3. Deep-linked filters (?category=/?categories=/?label=/?merchants=/
-//      ?from=/?to=/?txn_type=, the same params TransactionsPage.tsx reads)
-//      now seed this same filter state and render as the same removable
-//      chips a user-applied filter renders as — one code path, so a filter
-//      that arrived from another page is indistinguishable from one set
-//      here. Chip grouping is ported verbatim from TransactionsPage.tsx:
-//      category + categoryLabel + txnType clear together as ONE unit (a
-//      multi-category deep link always carries a direction with it),
-//      merchants and the date window are each independently removable.
+// G119 transaction layout comparison, using synthetic fixtures in every
+// state. Pagination, filters and detail edits stay local to this preview.
+// /design/g119-transactions-live?variant=a|b|c&state=auto|populated|long|empty|loading&mode=light|dark
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { Account } from "@/lib/api";
-import { getAccountsCached } from "@/lib/accountsCache";
 import { FIXTURE_EMPTY, FIXTURE_LONG, FIXTURE_POPULATED } from "./fixtures";
 import type { SearchFilters } from "@/lib/transactionFilters";
 import { hasActiveFilters } from "@/lib/transactionFilters";
@@ -84,7 +31,7 @@ const VARIANTS: { value: Variant; label: string }[] = [
   { value: "c", label: "C · Full screen" },
 ];
 const STATES: { value: ReviewState; label: string }[] = [
-  { value: "auto", label: "Live/fixture" },
+  { value: "auto", label: "Default" },
   { value: "populated", label: "Populated" },
   { value: "long", label: "Long list" },
   { value: "empty", label: "Empty" },
@@ -146,7 +93,6 @@ export default function G119Client() {
     : "auto";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
 
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
 
   // Deep-linked filter state — the exact same param names and shapes
@@ -185,18 +131,7 @@ export default function G119Client() {
     document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", mode === "dark" ? "dark" : "only light");
   }, [mode]);
 
-  useEffect(() => {
-    // Read-only, tolerant of failure — same pattern
-    // app/transactions/TransactionsPage.tsx uses to resolve the bank badge
-    // in the detail sheet. Never fetched when a forced fixture state is
-    // active (accounts stay empty; DetailPanel already renders fine
-    // without an `account` prop, same as TeachingSheet does today).
-    if (state !== "auto") return;
-    getAccountsCached().then(setAccounts).catch(() => {});
-  }, [state]);
-
-  // `null` here means "attempt the real backend"; any non-null array forces
-  // that fixture and skips the network entirely (dataSource.ts).
+  // A missing override selects the default synthetic dataset.
   const forcedFixture =
     state === "populated" ? FIXTURE_POPULATED
     : state === "long" ? FIXTURE_LONG
@@ -355,7 +290,7 @@ export default function G119Client() {
               <div className="h-32 animate-pulse rounded-2xl bg-slate-200 dark:bg-slate-700" />
             </div>
           ) : (
-            <VariantComponent key={`${variant}-${state}`} forcedFixture={forcedFixture} accounts={accounts} filters={filters} />
+            <VariantComponent key={`${variant}-${state}`} forcedFixture={forcedFixture} accounts={[]} filters={filters} />
           )}
         </main>
         <Switcher variant={variant} state={state} mode={mode} filterQuery={filterQuery} />
