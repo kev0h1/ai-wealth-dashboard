@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Zap } from "lucide-react";
+import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Smartphone, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
-import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { usePurchaseChannel, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import {
+  loadIapConfig, loadStoreProducts, openManageSubscriptions, purchaseSubscription, restorePurchases,
+  syncUnfinishedTransactions, type AppleIapConfig, type StoreProductView,
+} from "@/lib/storekit";
 import type {
   SubscriptionBillingPeriod,
   SubscriptionBillingPeriodDetail,
@@ -95,6 +99,19 @@ const RENEWAL_WORDS: Partial<Record<SubscriptionBillingPeriod, string>> = {
 // 3.1.1 (which restricts starting a new purchase, not managing one you
 // already have) does not apply.
 const NATIVE_MANAGE_SUBSCRIPTION_LINE = "You can update your payment method, change your plan, or cancel from a browser at wealth.auriqltd.co.uk, under Settings, Your plan.";
+
+// C21: the key a (tier, period) pair has in the server's product table
+// (GET /billing/apple/account-token): the tier name for monthly, then
+// "<tier>_<period>". The product id behind it comes from that response, never
+// from this file.
+function storeProductKey(tier: SubscriptionTier, period: SubscriptionBillingPeriod): string {
+  return period === "monthly" ? tier : `${tier}_${period}`;
+}
+
+// C21: iOS Settings is where an App Store subscription is changed or
+// cancelled, so this is the manage line for an Apple-sourced plan on any
+// platform (B29's browser line is for Stripe-sourced plans).
+const APPLE_MANAGE_LINE = "Change or cancel it in iOS Settings, under Subscriptions.";
 
 function money(value: number): string {
   return Number.isFinite(value) ? `£${value.toFixed(2)}` : "Price unavailable";
@@ -203,7 +220,9 @@ export default function PlanPicker({
   const billingLive = info.billing_live ?? false;
   const hasPaidSubscription = info.has_paid_subscription === true;
   const managedPaidSubscription = hasPaidSubscription && ["active", "trialing", "past_due"].includes(info.status);
-  const billingChangeInPortal = context === "settings" && managedPaidSubscription;
+  // C21: an Apple-sourced plan never goes to the Stripe portal (that account
+  // does not exist); it is managed in iOS Settings.
+  const billingChangeInPortal = context === "settings" && managedPaidSubscription && info.billing_provider !== "apple";
   // B45: every paid plan starts with the trial, so it is no longer an
   // opt-in switch. It simply applies whenever the period carries one and
   // Checkout would grant it (one per person, `trial_eligible` from the
@@ -223,8 +242,46 @@ export default function PlanPicker({
   // so this starts (and, on the server, stays) "unknown" — never "web" —
   // until an effect resolves it against the real Capacitor bridge after
   // mount; see that hook's own comment.
-  const availability = usePurchaseAvailability();
-  const purchasingAllowed = nativeOverride === undefined ? availability === "web" : !nativeOverride;
+  const channel = usePurchaseChannel();
+  const purchasingAllowed = nativeOverride === undefined ? channel === "stripe_web" : !nativeOverride;
+  // C21: the iOS build buys through StoreKit, never Stripe. `storekit` is only
+  // true in a real iOS binary that contains the plugin (see
+  // lib/purchaseChannel.ts); the design preview's nativeOverride never
+  // enables it.
+  const storekit = nativeOverride === undefined && channel === "storekit";
+  const appleManaged = context === "settings" && managedPaidSubscription && info.billing_provider === "apple";
+  const [iap, setIap] = useState<AppleIapConfig | null>(null);
+  const [iapState, setIapState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [storeProducts, setStoreProducts] = useState<Record<string, StoreProductView>>({});
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!storekit) return;
+    let live = true;
+    setIapState("loading");
+    (async () => {
+      try {
+        const config = await loadIapConfig();
+        if (!live) return;
+        setIap(config);
+        if (!config.enabled) { setIapState("failed"); return; }
+        const views = await loadStoreProducts(Object.entries(config.products).filter(([key]) => !key.startsWith("penny_")).map(([, id]) => id));
+        if (!live) return;
+        setStoreProducts(views);
+        setIapState("ready");
+        // A purchase whose verification was interrupted is still queued in StoreKit.
+        if (await syncUnfinishedTransactions(config)) { await invalidateOpenBankingAccess(); }
+      } catch {
+        if (live) setIapState("failed");
+      }
+    })();
+    return () => { live = false; };
+  }, [storekit]);
+
+  const selectedStoreKey = selected === "statements" ? null : storeProductKey(selected, effectivePeriod);
+  const selectedStoreView = selectedStoreKey && iap ? storeProducts[iap.products[selectedStoreKey]] : undefined;
+  const storeBuy = storekit && !billingChangeInPortal && !appleManaged && selected !== "statements";
+  const storeReady = Boolean(iap?.enabled && iap.purchase_allowed && iapState === "ready" && selectedStoreView);
 
   // B22: the exact disclosure the trial control needs adjacent to it —
   // the amount, the named charge date, and a cancel-any-time line naming
@@ -235,6 +292,20 @@ export default function PlanPicker({
   const trialCancelText = trialCancelLine(cancelByText);
 
   const disclosure = useMemo(() => {
+    if (appleManaged) {
+      if (info.status === "past_due") return "Your last payment did not go through. Update your payment method in your Apple ID settings.";
+      if (info.cancel_at_period_end) return "Your subscription is cancelled and will not renew. You keep access until the end of the period you have paid for.";
+      return "Your plan is billed through the App Store and renews automatically.";
+    }
+    if (storeBuy) {
+      // C21: every figure here is the store's own (price string, offer
+      // period); nothing is taken from the web price table or written here.
+      if (!selectedStoreView) return iapState === "failed" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from the App Store.";
+      const trial = selectedStoreView.freeTrial;
+      const cancelIn = "Cancel any time in iOS Settings, under Subscriptions.";
+      if (trial) return `${trial.periodText} free, then ${selectedStoreView.priceString} ${renewalWords} unless you cancel at least 24 hours before the free days end. ${cancelIn}`;
+      return `${selectedStoreView.priceString} ${renewalWords} unless you cancel. ${cancelIn}`;
+    }
     if (billingChangeInPortal) {
       if (!purchasingAllowed) {
         // B26: no "open billing" phrasing (there is nothing to open here)
@@ -257,7 +328,7 @@ export default function PlanPicker({
     if (!priceReady) return "This plan’s price is unavailable. Refresh the page to try again.";
     if (trialActive) return `${trialDisclosureText} ${trialCancelText}`;
     return `${money(total)} today, then ${money(total)} ${renewalWords} unless you cancel. Cancel any time from Settings, Your plan.`;
-  }, [billingChangeInPortal, info.cancel_at_period_end, info.status, priceReady, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelText, trialDisclosureText]);
+  }, [appleManaged, billingChangeInPortal, iapState, info.cancel_at_period_end, info.status, priceReady, selectedStoreView, storeBuy, purchasingAllowed, renewalWords, selected, total, trialActive, trialCancelText, trialDisclosureText]);
 
   async function openPortal() {
     const { url } = await api.openBillingPortal();
@@ -272,6 +343,29 @@ export default function PlanPicker({
       if (previewOnly) {
         setError("Preview only. No plan or payment has changed.");
         setBusy(false);
+        return;
+      }
+      // C21: an App Store plan is managed in iOS Settings, never the Stripe portal.
+      if (appleManaged) {
+        if (storekit) await openManageSubscriptions();
+        setBusy(false);
+        return;
+      }
+      // C21: the iOS build buys through StoreKit and has no route to Stripe.
+      // Reaching here with a paid selection on a build that is not "storekit"
+      // or "stripe_web" falls to the B26 guard below and does nothing.
+      if (storeBuy) {
+        if (!iap || !selectedStoreKey) { setBusy(false); return; }
+        if (context === "onboarding") localStorage.setItem("wealth_onboarding_resume", "plan");
+        const outcome = await purchaseSubscription(selectedStoreKey, iap);
+        if (outcome.ok) {
+          await invalidateOpenBankingAccess();
+          setBusy(false);
+          onContinue?.();
+          return;
+        }
+        setBusy(false);
+        if (!outcome.cancelled) setError(outcome.message);
         return;
       }
       // B26: belt and braces alongside the button itself not rendering in
@@ -337,32 +431,39 @@ export default function PlanPicker({
   // showActionButton hid the button outright, but would have silently
   // reopened the native purchase gate the moment showActionButton's own
   // condition was loosened by someone who never looked at these two.
-  const canStartPurchaseFlow = purchasingAllowed && billingLive;
+  const canStartPurchaseFlow = (purchasingAllowed && billingLive) || (storeBuy && storeReady);
 
   const primaryLabel = (() => {
     if (busy) return "Opening…";
+    if (appleManaged) return "Manage plan and renewal";
     if (billingChangeInPortal) return info.status === "past_due" ? "Fix payment in billing" : "Manage plan and renewal";
     if (selected === "statements") {
       return context === "onboarding" ? "Continue with Statements" : current === "statements" ? "Current plan" : "Choose Statements";
     }
-    if (!priceReady) return "Price unavailable";
+    if (storeBuy && !storeReady && iapState !== "failed") return iap && !iap.purchase_allowed ? "Manage in Your plan" : "Loading plans…";
+    if (!storeBuy && !priceReady) return "Price unavailable";
     if (!canStartPurchaseFlow) return "Paid plans are not available yet";
+    if (storeBuy && selectedStoreView?.freeTrial) return `Start ${selectedStoreView.freeTrial.periodText} free trial`;
     if (trialActive) return `Start ${trialDays}-day free trial`;
     return `Choose ${chosen.name}`;
   })();
 
-  const disabled = busy || (!billingChangeInPortal && selected !== "statements" && (!canStartPurchaseFlow || !priceReady)) || (context === "settings" && selected === "statements" && current === "statements");
+  const disabled = busy || (!appleManaged && !billingChangeInPortal && selected !== "statements" && (!canStartPurchaseFlow || (!storeBuy && !priceReady))) || (context === "settings" && selected === "statements" && current === "statements");
   // B26: the primary button itself only ever starts a Stripe action
   // (Checkout or the customer portal) unless the selection is the free
   // Statements plan with no existing paid subscription to manage — that
   // free-plan path stays available everywhere, the Stripe paths never
   // render on a platform that can't legally reach them.
-  const showActionButton = purchasingAllowed || (!billingChangeInPortal && selected === "statements");
+  // C21: an Apple-managed plan only ever offers iOS's own manage sheet, and
+  // only inside the iOS build; a StoreKit purchase button renders only there too.
+  const showActionButton = appleManaged
+    ? storekit
+    : purchasingAllowed || storeBuy || (!billingChangeInPortal && selected === "statements");
   const trialEnds = accountDate(info.trial_ends_at);
   const accessEnds = info.status === "trialing" ? trialEnds : accountDate(info.renews_at);
   const renewsOn = accountDate(info.renews_at);
 
-  const periodControls = selected !== "statements" && !billingChangeInPortal && purchasingAllowed && (
+  const periodControls = selected !== "statements" && !billingChangeInPortal && !appleManaged && (purchasingAllowed || storeBuy) && (
     <section aria-label="Billing period" className="py-1">
       <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Billing period</h3>
       <div role="radiogroup" aria-label="Billing period" className="flex flex-wrap gap-2">
@@ -427,16 +528,20 @@ export default function PlanPicker({
         </ul>
         <div className="space-y-1 border-y border-slate-200 py-3 dark:border-slate-600">
           <p aria-live="polite" aria-atomic="true" className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-slate-900 dark:text-slate-100">
-            <strong className={`text-[19px] ${selected !== "statements" && priceReady ? "money tabular-nums" : ""}`}>{selected === "statements" ? "Free" : priceReady ? money(total) : "Price unavailable"}</strong>
-            {selected !== "statements" && priceReady && <span className="text-sm">{renewalWords}</span>}
+            <strong className={`text-[19px] ${selected !== "statements" && (storeBuy || priceReady) ? "money tabular-nums" : ""}`}>{selected === "statements" ? "Free" : storeBuy ? (selectedStoreView?.priceString ?? "…") : priceReady ? money(total) : "Price unavailable"}</strong>
+            {selected !== "statements" && (storeBuy || priceReady) && <span className="text-sm">{renewalWords}</span>}
           </p>
-          {selected !== "statements" && priceReady && chosenPeriod && chosenPeriod.id !== "monthly" && <>
+          {selected !== "statements" && !storeBuy && priceReady && chosenPeriod && chosenPeriod.id !== "monthly" && <>
             {chosenPeriod.saving_gbp > 0 && <p className="text-xs text-slate-600 dark:text-slate-300"><MoneyCopy text={`Save ${money(chosenPeriod.saving_gbp)} against monthly`} /></p>}
             <p className="text-xs text-slate-600 dark:text-slate-300"><MoneyCopy text={`${money(chosenPeriod.per_month_gbp)} equivalent per month`} /></p>
           </>}
-          {selected !== "statements" && !purchasingAllowed && <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">Web plan price for comparison only.</p>}
+          {selected !== "statements" && !purchasingAllowed && !storeBuy && <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">Web plan price for comparison only.</p>}
           {billingChangeInPortal && <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">Comparison price, not a change to your current renewal. Billing confirms any change.</p>}
         </div>
+        {storeBuy && selectedStoreView?.freeTrial && <div className="mt-3">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{selectedStoreView.freeTrial.periodText} free trial</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Billed by the App Store. Cancel any time in iOS Settings, under Subscriptions.</p>
+        </div>}
         {trialActive && purchasingAllowed && !billingChangeInPortal && <div className="mt-3">
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{trialHeadline(trialDays)}</p>
           <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={trialTermsLine(total, renewalWords)} /></p>
@@ -448,6 +553,12 @@ export default function PlanPicker({
             since needing a browser is a fact of the platform, not a
             financial risk. Never a link or button: this names an
             existing account, it does not start a purchase. */}
+        {appleManaged && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+            <Smartphone size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
+            <span>{APPLE_MANAGE_LINE}</span>
+          </p>
+        )}
         {billingChangeInPortal && !purchasingAllowed && (
           <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
             <Globe size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
@@ -471,6 +582,36 @@ export default function PlanPicker({
         {purchasingAllowed && selected !== "statements" && !billingLive && (
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">You can compare every plan now. Paid checkout will open when billing is live.</p>
         )}
+        {storekit && iap?.enabled && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (busy || !iap) return;
+              setBusy(true);
+              setError(null);
+              setNotice(null);
+              try {
+                const { restored } = await restorePurchases(iap);
+                if (restored > 0) {
+                  await invalidateOpenBankingAccess();
+                  setBusy(false);
+                  setNotice("Your plan has been restored.");
+                  onContinue?.();
+                  return;
+                }
+                setNotice("There were no purchases to restore.");
+              } catch {
+                setError("Could not restore purchases. Try again in a moment.");
+              }
+              setBusy(false);
+            }}
+            disabled={busy}
+            className="mt-2 min-h-11 w-full touch-manipulation rounded-xl px-4 text-sm font-medium text-indigo-600 outline-none transition-colors hover:bg-indigo-50 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-indigo-400 dark:hover:bg-indigo-900/10"
+          >
+            Restore purchases
+          </button>
+        )}
+        {notice && <p role="status" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{notice}</p>}
         {error && <p role="alert" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{error}</p>}
         <p className="mt-3 flex gap-4 text-xs text-slate-600 dark:text-slate-300"><Link href="/terms" className="inline-flex min-h-11 touch-manipulation items-center underline underline-offset-4 hover:text-indigo-600 active:opacity-70 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-indigo-400">Terms</Link><Link href="/privacy" className="inline-flex min-h-11 touch-manipulation items-center underline underline-offset-4 hover:text-indigo-600 active:opacity-70 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-indigo-400">Privacy</Link></p>
       </section>

@@ -3936,6 +3936,17 @@ export const api = {
 
   selectFreePlan: () => post<{ ok: true; tier: "statements" }>("/subscription/select-free", {}),
 
+  // C21: StoreKit in-app purchase (iOS). The account token, the store product
+  // ids and whether a purchase may start; then the server-side verification
+  // of a signed transaction (purchase and restore). Deliberately no
+  // platformHeaders(): these are the iOS path, not the Stripe routes the B31
+  // backstop guards.
+  getAppleIapConfig: () => get<import("./storekit").AppleIapConfig>("/billing/apple/account-token"),
+  verifyAppleTransaction: (signedTransaction: string) =>
+    post<{ ok: boolean; handled: boolean; reason: string | null; tier: string | null; status: string | null }>(
+      "/billing/apple/verify", { signed_transaction: signedTransaction },
+    ),
+
   // B5: opens Stripe's customer portal (manage/cancel a subscription,
   // update the card on file) for the signed-in user. 404s if they have no
   // Stripe customer yet (never started a checkout).

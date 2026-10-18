@@ -25,10 +25,10 @@ import type { SubscriptionInfo } from "@/lib/api";
 import PennyUsageRow from "@/components/PennyUsageRow";
 import PlanPicker from "@/components/PlanPicker";
 import { refreshPennyUsage } from "@/components/PennySheetProvider";
-import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { usePurchaseChannel, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import { SheetFrame } from "@/components/SheetFrame";
 import { api } from "@/lib/api";
-import { endsOnLine, FIX_PAYMENT_LABEL, paymentFailedBody, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
+import { appleManageLine, endsOnLine, FIX_PAYMENT_LABEL, paymentFailedBody, paymentFailedBodyApple, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
 
 const INDIGO = "#4f46e5";
 
@@ -103,7 +103,11 @@ export default function YourPlanCard({
     }
   }
   const subtitle = formatSubtitle(info, error);
-  const purchaseAvailability = usePurchaseAvailability();
+  // C21: "stripe_web" is the unchanged web path, "storekit" the iOS app (buys
+  // in the app, manages in iOS Settings), "none" any other native build.
+  // "unknown" (before mount) reads like "none": nothing purchasable is shown.
+  const channel = usePurchaseChannel();
+  const appleSourced = info?.billing_provider === "apple";
 
   return (
     <>
@@ -132,8 +136,8 @@ export default function YourPlanCard({
             <span aria-hidden="true" className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
             {PAYMENT_FAILED_TITLE}
           </p>
-          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{paymentFailedBody(info.grace_days)}</p>
-          {purchaseAvailability === "web" && (
+          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{appleSourced ? paymentFailedBodyApple(info.grace_days) : paymentFailedBody(info.grace_days)}</p>
+          {channel === "stripe_web" && !appleSourced && (
             <button
               type="button"
               onClick={fixPayment}
@@ -170,7 +174,10 @@ export default function YourPlanCard({
             call in render could. "unknown" reads the same as "native"
             here (falls into the unavailable-sentence branch), matching
             the fail-closed direction of canPurchaseInApp() itself. */}
-        {purchaseAvailability !== "web" ? (
+        {appleSourced && (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{appleManageLine}</p>
+        )}
+        {channel === "storekit" ? null : channel !== "stripe_web" ? (
           info?.tier === "statements" && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PURCHASE_UNAVAILABLE_SENTENCE}</p>
           )

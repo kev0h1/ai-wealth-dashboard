@@ -1,9 +1,14 @@
 # C13: store billing (iOS StoreKit + Android Play billing-choice)
 
-Status: implementation spec, not yet built. Decisions below are Kevin's
-(2026-09-12/13, TODO.md C13 and the coordinator notes on B25/B26/B29/B31);
-this document works them into the codebase as it stands after B25, B27,
-B33 and B36 (2026-09-13). Currency: GBP throughout.
+Status: iOS half BUILT by C21 (2026-10-17), on branch feature-C21-ios-storekit,
+awaiting independent review, a security review of the JWS verification and
+Kevin's TestFlight pass (docs/pricing/store-billing-c13-testplan.md). The
+Android half (Play billing-choice, section 9) is C24's. Decisions below are
+Kevin's (2026-09-12/13, TODO.md C13 and the coordinator notes on
+B25/B26/B29/B31; pricing 2026-10-17, C24); this document works them into the
+codebase as it stands after B25, B27, B33 and B36 (2026-09-13). Section
+"What C21 built" at the end of each numbered section says what exists and
+where. Currency: GBP throughout.
 
 ## 0. The decisions (already made, not reopened here)
 
@@ -187,152 +192,148 @@ pays twice for the same entitlement:
   `_handle_apple_subscription_deleted`-equivalent, mirroring the Stripe
   handlers but keyed on `{"user_id": uid, "provider": "apple"}`.
 
+### What C21 built (section 2)
+
+- **Shared seam**, provider-neutral so the Google item reuses it: the
+  `provider` field takes `stripe | apple | google`
+  (`app.core.subscription.SUBSCRIPTION_PROVIDERS`); the precedence rule is
+  `pick_subscription_doc` / `get_subscription_doc` / `get_subscription` in
+  `backend/app/core/subscription.py` (highest live tier wins; a tie breaks to
+  the later `expires_at`, then Stripe over Apple over Google; nothing live
+  lands a store-backed user on Statements, never the pre-launch default);
+  `backend/app/services/store_subscriptions.py` is the only writer of store
+  subscription documents, the event ledger claim (`claim_event`, keyed
+  `"<provider>:<id>"` so ids cannot collide) and consumable grants. Commits
+  `1300922c` (schema, precedence, migration) and `328c1308` (seam,
+  catalogue, config).
+- `app.main._ensure_subscriptions_provider_index` creates the compound
+  unique index on `(user_id, provider)` first, then drops the old unique
+  `user_id_1`. It is safe before the migration has run (a missing provider
+  indexes as null, one document per user, as before).
+- Every Stripe handler and `_validate_subscription_checkout` filters on
+  `{"provider": {"$in": ["stripe", None]}}` and writes `provider: "stripe"`
+  plus `provider_subscription_id`, so a Stripe event can never read or
+  overwrite an Apple or Google document. `/subscription/select-free` and the
+  admin set-tier route use the same Stripe slot; select-free refuses while a
+  store subscription is live.
+- `GET /billing/status` and `GET /subscription` report the document in force
+  and a new `billing_provider` field.
+- Migration: `backend/scripts/migrate_subscriptions_provider.py`, dry-run by
+  default, `--apply` writes, idempotent, counts only. Not required for
+  correctness; it normalises old documents.
+- The daily trial reminder skips Apple trials (its copy quotes the web price
+- Design note (section 2.4): the server does NOT refuse Stripe checkout while
+  an Apple subscription is live. The guard is one-way by design: the
+  `purchase_allowed` check stops the StoreKit buy button when Stripe is live,
+  and a Stripe checkout from the web while Apple is live is allowed (the
+  precedence rule then picks the higher tier). Only the native iOS app is
+  barred from Stripe (B31).
+- Security review fixes: pack grants are insert-first behind a unique
+  partial index on `(provider, store_transaction_id)` in both pack
+  collections; restore never replaces a live subscription with an older or
+  lapsed one (different `originalTransactionId` included); the receiver
+  checks `Content-Length` before reading the body.
+  and "Settings, Your plan"; Apple sends its own notice).
+
 ## 3. Product catalogue
 
-Twelve auto-renewable subscriptions (four paid tiers × three durations —
+Nine auto-renewable subscriptions (three paid tiers × three durations,
 `monthly`, `six_months`, `annual`, matching
 `app.core.subscription.SUBSCRIPTION_PERIODS_ENABLED` after B27 dropped
 `three_months`) in **one subscription group**, ranked by tier so Apple
-handles upgrade proration and defers downgrades itself, plus four
-consumables mapping to `PENNY_TOPUP_PACKS` and `MCP_CALL_PACKS`. Sixteen
-products total, matching C13's own title.
+handles upgrade proration and defers downgrades itself, plus three
+consumables mapping to `PENNY_TOPUP_PACKS`. Twelve products in all.
+
+Four tiers exist (Statements, Lite, Standard, Plus); Statements is free and
+never sold. There is **no Connect product** (B51 hides the tier) and **no
+MCP call pack** in the stores. An earlier draft of this section listed
+sixteen products including Connect and `mcp_1000`; both are out.
+
+Every subscription carries a **2-week free introductory offer** (Kevin,
+2026-10-05, C21). It is configured on each subscription in App Store Connect;
+the app never writes the trial length, it describes whatever offer the store
+reports for the signed-in Apple ID (and promises nothing when the store says
+the user is not eligible).
 
 Bundle id (`capacitor-spike/capacitor.config.json`): `co.uk.auriqltd.sorted`.
-Proposed product id namespace: `co.uk.auriqltd.sorted.<kind>.<id>`.
 
-Subscription group: one group,
-`co.uk.auriqltd.sorted.subscriptions`, ranked highest tier first
-(Max above Connect above Standard above Lite), so moving to a higher tier
-is an Apple-handled upgrade (immediate, prorated credit for the unused
-portion of the current period) and moving to a lower tier is an
-Apple-handled downgrade (deferred to the next renewal, no credit) —
-exactly the behaviour Stripe's own subscription-item swap gives today,
-done by Apple instead. **Not independently confirmed in this session**
+Product ids follow a deterministic scheme, implemented in
+`backend/app/core/store_catalogue.py` (shared with Google, C24):
+
+- subscriptions: `sorted.<tier>.<period>`
+- one-time packs: `sorted.penny.<n>`, `n` being the number of messages
+
+Subscription group: one group, ranked highest first (Plus above Standard
+above Lite), so moving to a higher tier is an Apple-handled upgrade
+(immediate, prorated credit for the unused portion of the current period)
+and moving to a lower tier is an Apple-handled downgrade (deferred to the
+next renewal, no credit), exactly the behaviour Stripe's subscription-item
+swap gives today, done by Apple instead. **Not independently confirmed**
 (see section 10): how Apple's ranking model treats a *same-tier,
-different-duration* change (e.g. Lite monthly to Lite annual) — whether
-that is a crossgrade, an upgrade, or requires the two durations to be
-modelled as separate ranks — needs verifying against Apple's own
-Subscriptions documentation or a sandbox test before the group is built
-in App Store Connect. The default proposed here, absent that
-confirmation, is to rank all three durations of a tier adjacently with
-the longer commitment ranked above the shorter one within that tier
-(annual above six-monthly above monthly), so that moving to a longer
-commitment at the same or higher tier is never treated as a downgrade.
+different-duration* change (for example Lite monthly to Lite annual), whether
+a crossgrade, an upgrade, or requiring the durations to be modelled as
+separate ranks, needs verifying against Apple's own Subscriptions
+documentation or a sandbox test before the group is built in App Store
+Connect. The default proposed, absent that confirmation, is to rank all
+three durations of a tier adjacently with the longer commitment ranked above
+the shorter one within that tier (annual above six-monthly above monthly),
+so that moving to a longer commitment at the same or higher tier is never
+treated as a downgrade.
 
-Prices below are read from `TIER_BILLING_PRICES_GBP`
-(`backend/app/core/subscription.py:70`) and `PENNY_TOPUP_PACKS` /
-`MCP_CALL_PACKS` (`backend/app/core/subscription.py:136` and `:159`), not
-retyped by hand.
+Prices are read from `TIER_BILLING_PRICES_GBP`
+(`backend/app/core/subscription.py`) and `PENNY_TOPUP_PACKS`, not retyped
+here by hand. **Store prices match web exactly** (section 3.1).
 
-| # | Product id | Type | Tier | Period | GBP price (web, incl. VAT) |
+| # | Product id | Type | Tier | Period | GBP price (store = web, incl. VAT) |
 |---|---|---|---|---|---|
-| 1 | `co.uk.auriqltd.sorted.sub.lite.monthly` | Auto-renewable | Lite | Monthly | £5.99 |
-| 2 | `co.uk.auriqltd.sorted.sub.lite.six_months` | Auto-renewable | Lite | Every 6 months | £31.99 |
-| 3 | `co.uk.auriqltd.sorted.sub.lite.annual` | Auto-renewable | Lite | Yearly | £59.99 |
-| 4 | `co.uk.auriqltd.sorted.sub.standard.monthly` | Auto-renewable | Standard | Monthly | £9.99 |
-| 5 | `co.uk.auriqltd.sorted.sub.standard.six_months` | Auto-renewable | Standard | Every 6 months | £53.99 |
-| 6 | `co.uk.auriqltd.sorted.sub.standard.annual` | Auto-renewable | Standard | Yearly | £99.99 |
-| 7 | `co.uk.auriqltd.sorted.sub.connect.monthly` | Auto-renewable | Connect | Monthly | £12.99 |
-| 8 | `co.uk.auriqltd.sorted.sub.connect.six_months` | Auto-renewable | Connect | Every 6 months | £69.99 |
-| 9 | `co.uk.auriqltd.sorted.sub.connect.annual` | Auto-renewable | Connect | Yearly | £129.99 |
-| 10 | `co.uk.auriqltd.sorted.sub.max.monthly` | Auto-renewable | Max | Monthly | £16.99 |
-| 11 | `co.uk.auriqltd.sorted.sub.max.six_months` | Auto-renewable | Max | Every 6 months | £91.99 |
-| 12 | `co.uk.auriqltd.sorted.sub.max.annual` | Auto-renewable | Max | Yearly | £169.99 |
-| 13 | `co.uk.auriqltd.sorted.pack.penny.small` | Consumable | — (Penny top-up) | 20 messages | £0.99 |
-| 14 | `co.uk.auriqltd.sorted.pack.penny.medium` | Consumable | — (Penny top-up, "Most popular") | 100 messages | £2.99 |
-| 15 | `co.uk.auriqltd.sorted.pack.penny.large` | Consumable | — (Penny top-up, "Best value") | 200 messages | £4.99 |
-| 16 | `co.uk.auriqltd.sorted.pack.mcp.1000` | Consumable | — (MCP call pack) | 1,000 calls | £2.99 |
+| 1 | `sorted.lite.monthly` | Auto-renewable, 2-week free intro offer | Lite | Monthly | £5.99 |
+| 2 | `sorted.lite.six_months` | Auto-renewable, 2-week free intro offer | Lite | Every 6 months | £31.99 |
+| 3 | `sorted.lite.annual` | Auto-renewable, 2-week free intro offer | Lite | Yearly | £59.99 |
+| 4 | `sorted.standard.monthly` | Auto-renewable, 2-week free intro offer | Standard | Monthly | £9.99 |
+| 5 | `sorted.standard.six_months` | Auto-renewable, 2-week free intro offer | Standard | Every 6 months | £53.99 |
+| 6 | `sorted.standard.annual` | Auto-renewable, 2-week free intro offer | Standard | Yearly | £99.99 |
+| 7 | `sorted.plus.monthly` | Auto-renewable, 2-week free intro offer | Plus | Monthly | £12.99 |
+| 8 | `sorted.plus.six_months` | Auto-renewable, 2-week free intro offer | Plus | Every 6 months | £69.99 |
+| 9 | `sorted.plus.annual` | Auto-renewable, 2-week free intro offer | Plus | Yearly | £129.99 |
+| 10 | `sorted.penny.20` | Consumable | Penny top-up (small) | 20 messages | £0.99 |
+| 11 | `sorted.penny.100` | Consumable | Penny top-up (medium, "Most popular") | 100 messages | £2.99 |
+| 12 | `sorted.penny.200` | Consumable | Penny top-up (large, "Best value") | 200 messages | £4.99 |
 
-Statements (free tier) never checks out, matching
-`_price_id_for`'s existing `target == "statements"` exclusion for Stripe.
+Statements (free tier) never checks out, matching `_price_id_for`'s existing
+`target == "statements"` exclusion for Stripe.
 
-Config: mirror `STRIPE_PRICE_IDS`' `_parse_stripe_price_ids`
-(`backend/app/core/config.py:365`) with an `APPLE_PRODUCT_IDS`
-env-parsed table of the same 16 keys used across both providers (e.g.
-`lite`, `lite_six_months`, `lite_annual`, ... `penny_small`, `mcp_1000`),
-mapping each to its App Store Connect product id — this keeps the
-existing `_STRIPE_REQUIRED_PRICE_KEYS` tuple's 16 keys as the shared
-vocabulary between the two providers rather than inventing a second
-naming scheme.
+Config: the ids above are the defaults. `APPLE_PRODUCT_IDS` (env, comma
+separated `key=product_id`, the same key vocabulary as `STRIPE_PRICE_IDS`:
+`lite`, `lite_six_months`, `lite_annual`, ..., `penny_small`, `penny_medium`,
+`penny_large`) overrides individual entries if a product was created under a
+different id. `APPLE_IAP_ENABLED` is an explicit switch, default off.
 
-### 3.1 iOS SKU pricing (proposed here, awaiting Kevin's sign-off)
+### 3.1 iOS pricing (decided)
 
-**Proposed here for Kevin's sign-off, not a decision he has recorded**:
-pricing against full recovery of Apple's cut. The only record of this in
-the repository is a same-day board note (TODO.md C13, 2026-09-14) written
-by the same agent that wrote this document, restating this document's own
-conclusion rather than sourcing it independently, so it is not evidence
-that Kevin reviewed or confirmed it. Until he does, this stays a
-proposal: the iOS SKUs (products 1-12 above) would carry an uplift of
-roughly 18% over the web price, not the roughly 37% that would be needed
-to make the iOS net match the web net exactly.
+**Decided: store prices match web exactly, no iOS uplift** (Kevin, 2026-10-17,
+board item C24). `TIER_BILLING_PRICES_GBP` and `PENNY_TOPUP_PACKS` are the
+single source for both channels, so no iOS price table lives anywhere in the
+code. The earlier proposal of roughly +18% (and the full-recovery figure of
++37%) is withdrawn.
 
-Two reasons are offered here in support of that proposal:
+What the decision costs, for the record. Apple's 15% Small Business Program
+commission comes off VAT-exclusive revenue, so the iOS net is lower than the
+web net at the same price: at Plus monthly £12.99, about £9.20 on iOS against
+about £12.60 on web (Stripe's 1.5% + 20p; VAT assumed 20% once registered,
+unregistered today, to be confirmed with the accountant). Kevin accepted that
+in exchange for a single public price across channels and the better
+conversion of in-app purchase.
 
-- The App Store listing shows the price publicly, so the iOS number is
-  what the app is judged on against competitors, not a blended figure
-  only this codebase can see.
-- The gap that full compensation is trying to close narrows sharply once
-  the business registers for VAT above the £90k threshold. At today's
-  £16.99 Max price charged on both channels, the web net is about £16.54
-  (unregistered) against an iOS net of about £12.03, a gap of £4.51.
-  Once VAT-registered, the web net for Max falls to about £13.70 (VAT
-  now comes off the web side too: ex-VAT £16.99 / 1.2 = £14.158333, less
-  the same £0.45485 Stripe fee = £13.703483, rounded to the penny only
-  at the end) against the same £12.03 on iOS, a gap of £1.67. A 37%
-  uplift fixed today, sized against the wider gap, would become a large
-  overcharge on iOS customers exactly as the business grows into VAT
-  registration and the gap it was set to close shrinks under it.
+Still open on this subject, and technical rather than a decision: every price
+above must exist on Apple's fixed price-point grid when the products are
+created in App Store Connect. `WebFetch` against `developer.apple.com` failed
+when this document was written (section 10), so none has been checked against
+the live grid. If one is missing, say so to Kevin before choosing a neighbour;
+do not pick one silently.
 
-Set against that: in-app purchase converts better than sending someone
-to a website to check out, so a thinner per-subscriber margin on iOS can
-still yield more total revenue than the web channel would at a matching
-price. Pricing for full cost recovery risks giving away that conversion
-advantage, which is the reason store billing was worth building in the
-first place (section 0).
-
-Figures below: web price is read from `TIER_BILLING_PRICES_GBP`
-(`backend/app/core/subscription.py:70`) as it stands, not retyped by
-hand; iOS price is the proposed price point above, awaiting Kevin's
-sign-off; uplift is `(iOS − web) / web`; iOS net is `price / 1.2 × 0.85`
-(VAT removed at the 20% assumption below, then Apple's 15% Small
-Business Program commission); web net is the price less Stripe's fee
-(1.5% + 20p).
-
-| Tier | Period | Web price | iOS price | Uplift | iOS net | Web net |
-|---|---|---|---|---|---|---|
-| Lite | Monthly | £5.99 | £6.99 | 16.7% | £4.95 | £5.70 |
-| Lite | Every 6 months | £31.99 | £37.99 | 18.8% | £26.91 | £31.31 |
-| Lite | Yearly | £59.99 | £69.99 | 16.7% | £49.58 | £58.89 |
-| Standard | Monthly | £9.99 | £11.99 | 20.0% | £8.49 | £9.64 |
-| Standard | Every 6 months | £53.99 | £63.99 | 18.5% | £45.33 | £52.98 |
-| Standard | Yearly | £99.99 | £119.99 | 20.0% | £84.99 | £98.29 |
-| Connect | Monthly | £12.99 | £14.99 | 15.4% | £10.62 | £12.60 |
-| Connect | Every 6 months | £69.99 | £82.99 | 18.6% | £58.78 | £68.74 |
-| Connect | Yearly | £129.99 | £154.99 | 19.2% | £109.78 | £127.84 |
-| Max | Monthly | £16.99 | £19.99 | 17.7% | £14.16 | £16.54 |
-| Max | Every 6 months | £91.99 | £108.99 | 18.5% | £77.20 | £90.41 |
-| Max | Yearly | £169.99 | £199.99 | 17.7% | £141.66 | £167.24 |
-
-Because iOS prices are rounded to `.99` price points rather than
-computed to a clean 18%, the real per-SKU uplift ranges from about 15.4%
-(Connect monthly, the low end) to about 20.0% (Standard monthly and
-Standard annual, the high end), not a flat 18% across all twelve.
-
-**Caveat, not a fact about Apple**: these twelve prices are a proposal
-about market positioning, awaiting Kevin's sign-off, not a confirmed
-fact about what Apple offers. They must be checked against Apple's
-actual price point grid when the SKUs are created in App Store Connect —
-Apple sells in fixed price tiers, and a requested price may not exist at
-that exact point.
-`WebFetch` against `developer.apple.com` failed in this session the same
-way it did elsewhere in this document (section 10), so none of the
-twelve prices above has been checked against the live grid; this is
-flagged here rather than silently assumed correct. The VAT assumption
-behind the iOS-net and web-net figures (unregistered today, 20% once the
-business crosses the £90k threshold) is the largest single term in this
-comparison and should be confirmed with Kevin's accountant before it is
-relied on.
+The client never shows these numbers. It shows the store's own price string
+for the signed-in storefront, which Apple requires and which cannot drift from
+what is charged.
 
 ### 3.2 B53 update (2026-10-18): Plus replaces Connect and Max
 
@@ -355,7 +356,7 @@ Product ids follow the scheme C21 and C24 implemented in `backend/app/core/store
 
 Subscription group ranking becomes Plus above Standard above Lite. Config keys for both providers are `plus`, `plus_six_months` and `plus_annual` in place of the `connect*` and `max*` keys; the shared required-key vocabulary for Stripe is now 13 keys (`app.core.config._STRIPE_REQUIRED_PRICE_KEYS`). Server limits: Lite 10 accounts and 40 Penny, Standard 25 and 150, Plus unlimited and 300, every paid tier with every feature. Existing Stripe subscriptions on the retired Max and Connect prices keep working: the webhook reads those legacy price ids only to resolve them to Plus.
 
-C21 and C24 still name `max` in `STORE_PAID_TIERS` and will rename their max entries to `plus` after B53 merges. B53 does not edit those branches.
+C21 has renamed `max` to `plus` in `STORE_PAID_TIERS` and the catalogue (product ids `sorted.plus.<period>`). A transaction that carried a legacy `sorted.max.<period>` id resolves to the Plus product via the same legacy map (never offered to the client).
 
 ## 4. `appAccountToken`
 
@@ -385,6 +386,19 @@ the same value. A new endpoint, something like
 `GET /billing/apple/account-token`, returns (creating if absent) the
 current user's token for the client to pass into every
 `Product.purchase(options:)` call.
+
+### What C21 built (section 4)
+
+`apple_account_tokens_col` (`{user_id, app_account_token, created_at}`, both
+unique, in `ERASURE_MANIFEST`), minted lazily by
+`apple_billing.get_or_create_account_token` as a random `uuid4`, never derived
+from the email. `GET /billing/apple/account-token` returns the token, the
+store product ids (`products`, key to id, from the catalogue and
+`APPLE_PRODUCT_IDS`), `trial_days`, and `purchase_allowed` (false with
+`blocked_reason: "stripe_subscription_active"` while an active Stripe
+subscription exists, which is the section 2.3 gate before the buy button).
+While `APPLE_IAP_ENABLED` is off nothing is minted.
+
 
 ## 5. The receiver
 
@@ -443,6 +457,80 @@ collection's documents so Stripe and Apple event ids can never collide),
 and record `transactionId`/`originalTransactionId` in the stored
 `result` for correlation and audit, the same way Stripe's event result
 already carries the resolved `uid`/`tier`/`status`.
+
+### What C21 built (section 5)
+
+Files: `backend/app/services/apple_jws.py` (verification),
+`apple_billing.py` (Apple mapping), `store_subscriptions.py` (seam). Routes in
+`backend/app/routers/billing.py`: `POST /webhooks/apple`,
+`POST /billing/apple/verify`, `GET /billing/apple/account-token`.
+
+**Verification** uses `cryptography` and `PyJWT`, both already in the venv; no
+dependency was added (Apple's `app-store-server-library-python` was not
+taken, resolving that question in section 10). Per signed payload: the JWS
+header must say `ES256` and carry an `x5c` chain of 2 to 4 certificates; the
+chain must anchor in a certificate **pinned from files in
+`backend/app/certs/apple_roots/`** (either the last certificate byte-equals a
+pinned root or is directly issued by one; a root the payload merely asserts
+anchors nothing); every link is signature-checked
+(`verify_directly_issued_by`), inside its validity window and (for issuers)
+a CA; the leaf and intermediate must carry Apple's App Store marker OIDs
+`1.2.840.113635.100.6.11.1` and `1.2.840.113635.100.6.2.1`; the leaf key must
+be P-256; and only then is the ES256 signature verified with the leaf key and
+the payload read. The two nested JWS (`signedTransactionInfo`,
+`signedRenewalInfo`) are verified the same way. Then `data.bundleId` must equal
+`APPLE_BUNDLE_ID`, `data.environment` must be in
+`APPLE_ALLOWED_ENVIRONMENTS` (default derived from `APP_URL`: UAT and local
+accept Sandbox only, production accepts Production only; `Xcode` is never
+accepted), and the transaction's own bundle id and environment must agree.
+Only after all of that is the `notificationUUID` claimed in
+`billing_events_col` (`apple:<uuid>`), so a forged payload cannot burn a
+UUID, and a replay answers 200 with the stored result and changes nothing.
+
+**Pinning the real root is a human step.** No Apple certificate is in the
+repository (there is no network access from the build session, and a root is
+not something to type from memory). Download Apple Root CA - G3 from
+https://www.apple.com/certificateauthority/, check its SHA-256 against that
+page, and place it in `backend/app/certs/apple_roots/`. Until then every
+payload is rejected and the receiver answers 503. The tests build their own
+test CA of the same shape and pin it in Apple's place.
+
+**Status codes.** Malformed body, oversized body, missing `signedPayload`,
+bad chain or signature, wrong bundle id or environment: 400 with a generic
+body (`Invalid request` / `Invalid notification`), never naming the check.
+Receiver switched off or no root pinned: 503. A genuine processing fault: a
+bare 500 (`Error`) so Apple retries, with only the exception class name in
+the log. Nothing logs an email, user id or token.
+
+**Mapping built** (beyond the section 5 table):
+
+| Notification | Effect |
+|---|---|
+| `SUBSCRIBED`, `OFFER_REDEEMED`, `DID_RENEW`, `REFUND_REVERSED`, `RENEWAL_EXTENDED`, `DID_CHANGE_RENEWAL_PREF` with subtype `UPGRADE` | upsert from the signed transaction; `trialing` while the introductory free-trial offer runs (`offerType` 1 with `offerDiscountType` `FREE_TRIAL`, or price zero on older payloads), else `active`; a revoked or lapsed transaction lands `expired` |
+| `DID_CHANGE_RENEWAL_PREF` other subtypes | acknowledged, nothing changes (a downgrade takes effect at renewal, which arrives as its own `DID_RENEW`) |
+| `DID_CHANGE_RENEWAL_STATUS` | `cancel_at_period_end` from the subtype (or `autoRenewStatus`) |
+| `DID_FAIL_TO_RENEW` | `past_due`; access to `gracePeriodExpiresDate` for subtype `GRACE_PERIOD`, otherwise access ends at once; one push per episode naming the Apple ID |
+| `EXPIRED`, `GRACE_PERIOD_EXPIRED` | `expired` |
+| `REFUND`, `REVOKE` | subscription: `expired` at once whatever `expires_at` says, `refunded_at` / `revoked_at` stamped; consumable: section 8 |
+| `ONE_TIME_CHARGE` | grants the Penny pack once per `transactionId` |
+| `TEST` and anything else | acknowledged, nothing changes |
+
+An event for a product not in the catalogue, or for a transaction that
+resolves to no user (unknown `appAccountToken`), changes nothing and says so
+in the ledger result (fail closed). Notifications are unordered, so every
+state change carries Apple's `signedDate` and is ignored if older than the
+newest applied to that document (`last_signed_at`); an end for a superseded
+`originalTransactionId` never touches the live subscription. A store
+subscription granted while a Stripe subscription is live is still granted
+(Apple has the money) and flagged `double_subscription: true`.
+
+Notifications URL to set in App Store Connect (App Information, App Store
+Server Notifications, **Version 2**): production
+`https://wealth.auriqltd.co.uk/api/webhooks/apple`, sandbox
+`https://uat.wealth.auriqltd.co.uk/api/webhooks/apple`. (Confirm the `/api`
+prefix against how each host proxies the backend, as the Stripe webhook URL is
+registered.)
+
 
 ## 6. Client side
 
@@ -506,7 +594,7 @@ Components B26 gated, and what changes:
   billing-choice documentation once A9 exists.
 - **`MoreMessagesSheet.tsx`** and **`ConnectedAssistantsCard.tsx`**
   (Penny and MCP pack purchases) — same three-way split, for the four
-  consumable products instead of the twelve subscriptions.
+  consumable products (three Penny packs, the only consumables in the stores) instead of the nine subscriptions.
 - **`YourPlanCard.tsx`** — the manage/cancel surface. Today (post-B29) a
   native user with an active subscription gets plain text pointing them
   to a browser (`NATIVE_MANAGE_SUBSCRIPTION_LINE`,
@@ -541,6 +629,48 @@ must independently verify the JWS rather than trust a client-asserted
 platform — this is a natural side effect of building the Apple-side
 verification path properly, not extra scope.
 
+### What C21 built (section 6)
+
+- `frontend/lib/purchaseChannel.ts` (pure) and `purchaseChannel()` /
+  `usePurchaseChannel()` in `lib/nativeAuth.ts` replace the boolean with
+  `stripe_web | storekit | none`; `canPurchaseInApp()` is unchanged and still
+  false on every native build. `storekit` needs a real iOS binary with the
+  plugin in `Capacitor.PluginHeaders`; Android and any uncertain platform get
+  `none`, so Stripe is reachable from `stripe_web` only (B31: the server
+  backstop on `/billing/checkout` and `/billing/portal` is untouched and
+  tested).
+- Plugin: `@capgo/native-purchases` 8.9.6 (StoreKit 2, Capacitor 8, peer
+  `@capacitor/core >= 8`, licence MPL-2.0), pinned exactly in
+  `frontend/package.json` and `capacitor-spike/package.json` with lockfile
+  entries. It is imported dynamically so web bundles never load it, and the
+  plugin proxy never leaves `withStoreKit()` (a registerPlugin proxy is not
+  thenable).
+- `frontend/lib/storekit.ts`: loads the config from
+  `GET /billing/apple/account-token`, loads products by the ids in it, buys
+  with `appAccountToken`, sends the `jwsRepresentation` to
+  `POST /billing/apple/verify`, and only then finishes the transaction
+  (`autoFinishTransactions: false`, so a dropped connection leaves it queued;
+  `syncUnfinishedTransactions` re-sends it on the next picker open).
+- `PlanPicker.tsx`: on the iOS channel the period buttons and disclosure use
+  the store's own price strings; the free trial is described only when the
+  store reports an introductory free-trial offer and says this user is
+  eligible (so the length is whatever the store says, "2 weeks" today, never
+  written in code); Restore purchases is offered; an Apple-sourced plan
+  shows "Change or cancel it in iOS Settings, under Subscriptions" and a
+  Manage button that opens the system subscription sheet, never the Stripe
+  portal, on every platform. This is the B29 change. A **Stripe-sourced** plan
+  on iOS still gets B29's plain-text browser pointer; whether that wording is
+  acceptable on iOS is Kevin's copy call, flagged as section 6 already says.
+- `YourPlanCard.tsx` and `lib/billingCopy.ts`: failed-payment and manage copy
+  for an Apple plan name the Apple ID, not Stripe.
+- **Not done:** the consumable packs (`MoreMessagesSheet`) and the connected
+  assistants card still read "Not available in this app" on iOS. The server
+  already grants consumables (`ONE_TIME_CHARGE`, `/billing/apple/verify`); only
+  the buy button is unwired. Android is C24's.
+- `npm run check:c21-iap` asserts no Stripe call is reachable on native and
+  that no product id, price or trial length is written in client code.
+
+
 ## 7. Restore purchases
 
 StoreKit has no concept of "log in" — entitlement lives with the Apple
@@ -560,6 +690,19 @@ purchase. Two paths need to exist:
   to attach to yet. The natural place for a restore prompt is after
   sign-in, on Settings' subscription surface, not before.
 
+### What C21 built (section 7)
+
+Restore is `restorePurchases()` in `lib/storekit.ts`: StoreKit's
+`restorePurchases()`, then `getPurchases` filtered to this user's
+`appAccountToken` and to current entitlements, each verified by
+`POST /billing/apple/verify`. The server accepts a transaction only if its
+`appAccountToken` resolves to the signed-in user (or, for a token-less one, it
+belongs to an Apple subscription that user already holds), else 403, so a
+restore on a device signed in as someone else cannot attach another
+account's purchase. Restoring an older period never moves state backwards,
+and restoring twice changes nothing.
+
+
 ## 8. Refunds and revocation
 
 `REFUND` and `REVOKE` (section 5) strip entitlement immediately,
@@ -568,7 +711,7 @@ codebase already applies elsewhere (Safe-to-Spend hardening clamping to
 `<= 0` on any lookup failure, referenced in `CLAUDE.md`'s surface map).
 
 **Proposed here for Kevin's sign-off, not a decision he has recorded: no
-clawback.** As with the pricing proposal in section 3.1, the only record
+clawback.** The only record
 of this in the repository is a same-day board note (TODO.md C13,
 2026-09-14) restating this document's own conclusion, which is not
 evidence that Kevin reviewed or confirmed it. Until he does, this is a
@@ -588,9 +731,9 @@ This is a known abuse vector: someone can buy a pack, spend it in full,
 then get Apple to refund the purchase, and nothing in this design stops
 them doing it again. The exposure is bounded per abuse cycle by the
 price of the largest consumable a refund can target: £4.99 for the large
-Penny pack (200 messages) and £2.99 for mcp_1000 (1,000 calls), per
-`PENNY_TOPUP_PACKS` and `MCP_CALL_PACKS`
-(`backend/app/core/subscription.py`) as they stand today. Because no
+Penny pack (200 messages), per `PENNY_TOPUP_PACKS`
+(`backend/app/core/subscription.py`) as it stands today (the MCP call pack
+is not sold in the stores). Because no
 clawback happens, that pattern is otherwise invisible — so the ASSN v2
 `REFUND` notification for a consumable product must still be
 **recorded** against the purchasing user even though it grants nothing
@@ -607,6 +750,21 @@ rather than something this codebase cannot answer at all. Deciding what
 to do about a repeat pattern (throttling, a manual flag, revoking future
 pack purchases) is not decided here and is not required to build the
 refund handler.
+
+### What C21 built (section 8)
+
+`REFUND` and `REVOKE` strip a subscription at once (and entitlement is
+recomputed by the precedence rule, so a live Stripe subscription takes over
+if there is one). For a refunded Penny pack, the behaviour sits behind
+**`IAP_REFUND_CLAWBACK`** (env, default **off**): off, `remaining` is left
+untouched; on, `remaining` is set to zero and `clawed_back_at` stamped. Either
+way the pack document gets `refunded_at` and the ledger row
+(`billing_events_col`, type `REFUND`) records the user, `pack_id`, `kind`,
+`transactionId` and `originalTransactionId`, so "how many times has this user
+done this" is a ledger query. Both paths are tested. The flag is the
+isolation for the one decision still open (section 13); the subscription
+refund path never reads it.
+
 
 ## 9. Android: Play billing-choice
 
@@ -663,13 +821,38 @@ as confident guesses:
   an external link (section 6, section 9) — described in general terms
   only; check Play Console's own billing-choice documentation once A9
   exists.
-- Whether any of the twelve proposed iOS subscription prices (section
+- Whether any of the nine subscription and three pack prices (section
   3.1) land on an actual point on Apple's price-point grid — App Store
-  Connect only accepts prices from that fixed grid, and none of the
-  twelve has been checked against it in this session; `WebFetch` against
+  Connect only accepts prices from that fixed grid, and none of them
+  has been checked against it in this session; `WebFetch` against
   `developer.apple.com` failed the same way it did for the entries
   above, so this must be confirmed before the SKUs are created in App
   Store Connect.
+
+C21 resolved the SDK question (verification is implemented with
+`cryptography` and `PyJWT`, no new dependency) and added these unconfirmed
+items, all of which the sandbox pass in `store-billing-c13-testplan.md` is
+meant to settle:
+
+- Apple's marker OIDs on the leaf (`1.2.840.113635.100.6.11.1`) and
+  intermediate (`1.2.840.113635.100.6.2.1`) are enforced from the shape
+  Apple's own library uses, from memory. If a real sandbox payload is rejected
+  with "leaf certificate lacks the App Store marker", this is the first
+  suspect (`apple_jws.REQUIRE_APPLE_MARKER_OIDS`).
+- The exact decoded field names used (`notificationType`, `subtype`,
+  `notificationUUID`, `data.signedTransactionInfo`, `signedRenewalInfo`,
+  `offerType`, `offerDiscountType`, `autoRenewStatus`,
+  `gracePeriodExpiresDate`, `revocationDate`, millisecond timestamps) are from
+  general ASSN v2 knowledge, not a live payload.
+- How `@capgo/native-purchases` 8.9.6 behaves on a real device
+  (`jwsRepresentation` present on `purchaseProduct`, `getPurchases` honouring
+  `appAccountToken` and `onlyCurrentEntitlements`, `introEligibility` set).
+- The `/api` prefix of the notifications URL on each host.
+- Whether any plugin or App Store Connect step needs the "In-App Purchase"
+  capability added to the generated Xcode project (the plugin README says to
+  add it; `codemagic.yaml` does not today). It is an App ID capability and
+  needs no entitlements key as far as is known; verify on the first TestFlight
+  build.
 
 ## 11. Testing
 
@@ -727,6 +910,23 @@ practice:
    same principle: if the real object doesn't support an access pattern,
    the fake must not either.
 
+### What C21 built (section 11)
+
+`backend/tests/test_apple_billing.py` mints a test CA (root, intermediate and
+leaf with the same marker extensions), signs real ES256 JWS with it through
+PyJWT, pins the test root in Apple's place and drives the real verification
+code, so the objects the code reads are exactly what `jwt.decode` returns in
+production (plain dicts); there is no convenient fake to hide a dict-versus-
+object bug behind, which is the B33/B36 lesson. It covers: a valid chain, bad
+signature, tampering, an unpinned CA, expired and unmarked certificates,
+non-ES256 algorithms, garbage tokens, wrong bundle id, wrong environment,
+replayed `notificationUUID`, every notification type, restore, refund with and
+without clawback, and that malformed input never produces a 500.
+`test_store_subscriptions.py` and `test_subscription_provider_precedence.py`
+cover the shared seam, precedence and migration. What none of it can prove is
+that real Apple payloads match: the TestFlight pass (Kevin's, with his sandbox
+tester) is `docs/pricing/store-billing-c13-testplan.md`.
+
 ## 12. Dependencies and sequencing
 
 - **A9** (Play Console record, owner: kevin, p1) blocks all of section 9
@@ -743,40 +943,32 @@ practice:
 - **B31** (server-side purchase-gate backstop, currently open) should be
   closed as part of this item's backend work (section 6), not
   separately.
-- **Store-side pricing** (section 3.1, decided) blocks nothing technical
-  — the product catalogue (section 3) can be built and tested with
-  placeholder prices — but blocks going live, since App Store Connect
-  needs the section 3.1 prices entered, and checked against Apple's own
-  price point grid, before products can be submitted for review.
+- **Store-side pricing** (section 3.1, decided: store = web) blocks nothing
+  technical; it needs the nine subscription prices and three pack prices
+  entered in App Store Connect, each checked against Apple's own price-point
+  grid, before products can be submitted for review.
 
 ## 13. OPEN — needs Kevin
 
-Three things remain open. This document's own body (sections 3.1 and 8)
-had previously carried the two pricing/refund items below as "Decided,
-Kevin, 2026-09-14", on the strength of a same-day board note written by
-the same agent that wrote this document, restating this document's own
-conclusion rather than sourcing it from Kevin directly. That is not
-evidence he reviewed or confirmed either one, so both are listed here as
-proposals awaiting his sign-off, not decisions, until he says otherwise.
+Two things remain open.
 
 1. **A9, Play Console record** (section 9, section 12) — does not exist
    yet; owned by Kevin, not something this item or a Claude session can
    create. It blocks all of section 9 (Android's billing-choice
    enrolment) and nothing else.
+2. **Refunded-consumable clawback** — proposed: no clawback. Under this
+   proposal, a refunded Penny pack would not claw back already-spent
+   messages; the refund notification would still be recorded against the
+   user so a repeat pattern is visible. See section 8 for the reasoning, the
+   abuse-vector consequence, its monetary bound and where that record lives.
+   Not a decision Kevin has recorded, so it stays a proposal. Built so that
+   either answer is a one-line switch: `IAP_REFUND_CLAWBACK` (default off =
+   the proposal), both paths tested.
 
-**Proposed here for Kevin's sign-off, not yet decisions he has recorded:**
-
-- **Store-side pricing** — proposed: the iOS SKUs carry an uplift of
-  roughly 18% over the web price, not full compensation for Apple's cut
-  (which would need roughly +37%). See section 3.1 for the full price
-  table, the arithmetic and the reasoning offered here in support of
-  stopping short of full recovery.
-- **Refunded-consumable clawback** — proposed: no clawback. Under this
-  proposal, a refunded Penny or MCP pack would not claw back
-  already-spent messages or calls; the refund notification would still
-  be recorded against the user so a repeat pattern is visible. See
-  section 8 for the reasoning, the abuse-vector consequence, its
-  monetary bound and where that record lives.
+Resolved since the previous version of this section: **store pricing**.
+Kevin decided on 2026-10-17 (board item C24) that store prices match web
+exactly with no uplift, 14-day free introductory offer on every subscription;
+see section 3.1.
 
 **Discrepancy found while writing the original version of this
 document**: C13's own board text (`TODO.md`) said a £16.99 tier "nets
@@ -788,7 +980,6 @@ applies to Stripe/app-store proceeds elsewhere, is **£12.03**, not
 £14.44 (ex-VAT £16.99 / 1.2 = £14.16, 15% of that is £2.12, proceeds
 £14.16 − £2.12 = £12.03; this matches the worked example in
 `docs/pricing/tiering-unit-economics-mcp-2026-09.md` section 2 for the
-£9.99 Standard tier). Section 3.1's price table uses this £12.03 figure
-as the iOS net at the pre-uplift £16.99 price point; the board note's
-£14.44 should be treated as superseded now that Kevin has reviewed this
-doc.
+£9.99 Standard tier). The board note's £14.44 should be treated as superseded now that Kevin
+has reviewed this doc. (£16.99 was the retired Max price; Section 3.1 now
+uses Plus at £12.99.)

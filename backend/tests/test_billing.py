@@ -68,6 +68,12 @@ class _FakeCol:
                 if (key in d) is not bool(value["$exists"]):
                     return False
                 continue
+            if isinstance(value, dict) and "$in" in value:
+                # C21: Stripe-side filters match provider in ("stripe", None);
+                # None matches a document with no provider field.
+                if d.get(key) not in value["$in"]:
+                    return False
+                continue
             if isinstance(value, dict) and "$lte" in value:
                 if key not in d or d[key] > value["$lte"]:
                     return False
@@ -82,6 +88,9 @@ class _FakeCol:
             if self._match(d, query):
                 return d
         return None
+
+    def find(self, query=None, projection=None):
+        return _FakeCursor([d for d in self.docs if self._match(d, query or {})])
 
     async def insert_one(self, doc):
         doc = dict(doc)
@@ -120,6 +129,23 @@ class _FakeCol:
             self.docs.append(new_doc)
             return new_doc
         return None
+
+
+class _FakeCursor:
+    """C21: get_subscription reads every per-provider document through
+    `async for` over find(), and some callers use `.to_list()`."""
+
+    def __init__(self, docs):
+        self._docs = docs
+
+    def __aiter__(self):
+        async def gen():
+            for d in self._docs:
+                yield d
+        return gen()
+
+    async def to_list(self, _length=None):
+        return list(self._docs)
 
 
 class _InsertResult:

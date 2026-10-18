@@ -672,6 +672,12 @@ async def task_trial_reminder(ctx):
         trial_ends_at = doc.get("trial_ends_at")
         if not uid or not isinstance(trial_ends_at, datetime):
             continue
+        if doc.get("provider") == "apple":
+            # C21: an App Store trial converts at the store's own price (the
+            # iOS price, not the web table this copy quotes) and is cancelled
+            # in iOS Settings, not "Settings, Your plan". Apple sends its own
+            # renewal notice, so this reminder would state the wrong amount.
+            continue
         if doc.get("trial_reminder_sent_at") or doc.get("cancel_at_period_end"):
             continue  # already reminded, or cancelled (nothing will be charged)
         if not (now <= trial_ends_at <= warn_cutoff):

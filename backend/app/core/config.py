@@ -611,6 +611,73 @@ REVOKE_CONSENT_ON_DOWNGRADE: bool = os.getenv("REVOKE_CONSENT_ON_DOWNGRADE", "fa
 # when it finally cancels; this bounds our side so access cannot outlive it.
 BILLING_PAST_DUE_GRACE_DAYS: int = int(os.getenv("BILLING_PAST_DUE_GRACE_DAYS", "7") or 7)
 
+# ── Apple in-app purchase (C21, docs/pricing/store-billing-c13.md) ────────────
+# Prices are NOT configured here: Kevin decided (C24, 2026-10-17) that store
+# prices match web exactly, so app.core.subscription.TIER_BILLING_PRICES_GBP
+# and PENNY_TOPUP_PACKS are the single source and the client shows the
+# store's own price string. Product ids follow a deterministic scheme in
+# app.core.store_catalogue; APPLE_PRODUCT_IDS below only overrides entries of
+# it ("key=product_id", same key vocabulary as STRIPE_PRICE_IDS), for the
+# case where Kevin created a product under a different id. The refunded
+# consumable clawback is the one decision still open with Kevin.
+APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.sorted").strip()
+
+
+def _parse_apple_product_ids(raw: str) -> dict[str, str]:
+    """Parse APPLE_PRODUCT_IDS ("key=product_id,key=product_id,...") into a
+    dict of overrides. A malformed entry is skipped with a warning (one typo
+    must not crash import), leaving that product on its default id."""
+    out: dict[str, str] = {}
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        key, sep, product_id = chunk.partition("=")
+        key, product_id = key.strip(), product_id.strip()
+        if not sep or not key or not product_id:
+            logging.getLogger("app.startup").warning("APPLE_PRODUCT_IDS: skipping malformed entry %r", chunk)
+            continue
+        out[key] = product_id
+    return out
+
+
+APPLE_PRODUCT_IDS: dict[str, str] = _parse_apple_product_ids(os.getenv("APPLE_PRODUCT_IDS", ""))
+
+# Explicit switch, default OFF (fail closed): Kevin turns it on once the
+# products exist in App Store Connect and the Apple root certificate is
+# pinned. While off, the client is told IAP is unavailable, an account token
+# is never minted and the receiver answers 503.
+APPLE_IAP_ENABLED: bool = _parse_flag(os.getenv("APPLE_IAP_ENABLED"))
+
+APPLE_ROOT_CERTS_DIR = Path(os.getenv("APPLE_ROOT_CERTS_DIR") or (_BACKEND_DIR / "app" / "certs" / "apple_roots"))
+
+
+def _parse_apple_environments(raw: str | None) -> frozenset[str]:
+    allowed = {"Sandbox", "Production"}
+    out = {p.strip().capitalize() for p in (raw or "").split(",") if p.strip()}
+    return frozenset(out & allowed)
+
+
+# Which App Store Server Notification environments this deployment accepts.
+# Default is derived from APP_URL exactly like TRUELAYER_ENABLED: UAT and
+# local take Sandbox only (TestFlight and sandbox testers), the production
+# host takes Production only, so a sandbox purchase can never grant a paid
+# tier in production and a production notice can never reach UAT. An
+# unrecognised APP_URL is treated as production (fails closed). Override with
+# APPLE_ALLOWED_ENVIRONMENTS="Sandbox,Production" only deliberately, for
+# example to let App Review's sandbox purchases through in production.
+APPLE_ALLOWED_ENVIRONMENTS: frozenset[str] = (
+    _parse_apple_environments(os.getenv("APPLE_ALLOWED_ENVIRONMENTS"))
+    or (frozenset({"Sandbox"}) if _is_non_production(APP_URL) else frozenset({"Production"}))
+)
+
+# C13 section 8, the ONE decision still open with Kevin (proposal: no clawback). When false, a
+# refunded Penny or MCP pack leaves its remaining messages or calls alone and
+# the refund is only recorded. When true, the pack's remaining balance is set
+# to zero. The subscription refund path (entitlement stripped at once) is
+# unaffected by this flag.
+IAP_REFUND_CLAWBACK: bool = _parse_flag(os.getenv("IAP_REFUND_CLAWBACK"))
+
 # ── Reconcile spread (E2) ────────────────────────────────────────────────────
 # task_reconcile_truelayer (app/workers/sync_worker.py) used to enqueue every
 # stale connection's sync job in one burst every 4 hours. That's fine at
