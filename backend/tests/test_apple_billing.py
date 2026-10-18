@@ -350,7 +350,7 @@ def test_account_token_endpoint_blocks_purchase_while_stripe_is_live(env):
 def test_product_ids_come_from_config_overrides(env, monkeypatch):
     monkeypatch.setattr(config, "APPLE_PRODUCT_IDS", {"lite": "kevin.lite.m"})
     out = _run(billing_router.apple_account_token({"email": UID}))
-    assert out["products"]["lite"] == "kevin.lite.m" and out["products"]["max"] == "sorted.max.monthly"
+    assert out["products"]["lite"] == "kevin.lite.m" and out["products"]["plus"] == "sorted.plus.monthly"
     # The receiver follows the same table: the overridden id is now the Lite product.
     res = _send(env, "SUBSCRIBED", tx=_tx(env, product="kevin.lite.m"))
     assert res["result"]["handled"] and res["result"]["tier"] == "lite"
@@ -412,14 +412,14 @@ def test_did_change_renewal_status_toggles_cancel_at_period_end(env):
 
 
 def test_did_fail_to_renew_with_grace_keeps_access_until_grace_ends(env):
-    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.max.monthly", expires=NOW - timedelta(hours=1)))
+    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.plus.monthly", expires=NOW - timedelta(hours=1)))
     t = NOW + timedelta(seconds=5)
     grace = NOW + timedelta(days=6)
     res = _send(env, "DID_FAIL_TO_RENEW", subtype="GRACE_PERIOD", tx=_tx(env, signed=t), signed=t,
                 renewal={"gracePeriodExpiresDate": _ms(grace), "environment": "Sandbox"})
     assert res["result"]["status"] == "past_due"
     assert _doc(env)["status"] == "past_due"
-    assert _run(get_subscription(UID)).tier == Tier.MAX
+    assert _run(get_subscription(UID)).tier == Tier.PLUS
     assert len(env["pushes"]) == 1 and "Apple ID" in env["pushes"][0][1]
 
 
@@ -443,10 +443,10 @@ def test_expiry_notifications_expire_the_subscription(env, ntype):
 
 @pytest.mark.parametrize("ntype", ["REFUND", "REVOKE"])
 def test_refund_and_revoke_strip_the_subscription_whatever_expires_at_says(env, ntype):
-    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.max.annual", expires=NOW + timedelta(days=360)))
-    assert _run(get_subscription(UID)).tier == Tier.MAX
+    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.plus.annual", expires=NOW + timedelta(days=360)))
+    assert _run(get_subscription(UID)).tier == Tier.PLUS
     t = NOW + timedelta(seconds=5)
-    res = _send(env, ntype, tx=_tx(env, product="sorted.max.annual", signed=t, revocation=t), signed=t)
+    res = _send(env, ntype, tx=_tx(env, product="sorted.plus.annual", signed=t, revocation=t), signed=t)
     assert res["result"]["handled"] and res["result"]["kind"] == "subscription"
     d = _doc(env)
     assert d["status"] == "expired" and d["expires_at"] > NOW + timedelta(days=300)
@@ -459,11 +459,11 @@ def test_refund_recomputes_entitlement_back_to_a_live_stripe_subscription(env):
         "user_id": UID, "provider": "stripe", "source": "stripe", "stripe_subscription_id": "s",
         "tier": "lite", "status": "active", "expires_at": NOW + timedelta(days=20),
     })
-    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.max.monthly"))
+    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.plus.monthly"))
     assert _doc(env)["double_subscription"] is True
-    assert _run(get_subscription(UID)).tier == Tier.MAX
+    assert _run(get_subscription(UID)).tier == Tier.PLUS
     t = NOW + timedelta(seconds=5)
-    _send(env, "REFUND", tx=_tx(env, product="sorted.max.monthly", signed=t), signed=t)
+    _send(env, "REFUND", tx=_tx(env, product="sorted.plus.monthly", signed=t), signed=t)
     sub = _run(get_subscription(UID))
     assert sub.tier == Tier.LITE and sub.provider == "stripe"
 
@@ -471,11 +471,11 @@ def test_refund_recomputes_entitlement_back_to_a_live_stripe_subscription(env):
 def test_upgrade_moves_the_tier_and_a_downgrade_waits_for_renewal(env):
     _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.lite.monthly"))
     t = NOW + timedelta(seconds=5)
-    _send(env, "DID_CHANGE_RENEWAL_PREF", subtype="UPGRADE", tx=_tx(env, product="sorted.max.monthly", signed=t), signed=t)
-    assert _doc(env)["tier"] == "max"
+    _send(env, "DID_CHANGE_RENEWAL_PREF", subtype="UPGRADE", tx=_tx(env, product="sorted.plus.monthly", signed=t), signed=t)
+    assert _doc(env)["tier"] == "plus"
     t2 = NOW + timedelta(seconds=9)
     res = _send(env, "DID_CHANGE_RENEWAL_PREF", subtype="DOWNGRADE", tx=_tx(env, product="sorted.lite.monthly", signed=t2), signed=t2)
-    assert res["result"]["handled"] is False and _doc(env)["tier"] == "max"
+    assert res["result"]["handled"] is False and _doc(env)["tier"] == "plus"
 
 
 def test_one_time_charge_grants_a_penny_pack_once(env):
@@ -730,7 +730,7 @@ def test_a_failed_attempt_is_retried_not_lost(env, monkeypatch):
 
 def test_processing_logs_carry_no_user_data(env, caplog):
     caplog.set_level("DEBUG")
-    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.max.monthly"))
+    _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.plus.monthly"))
     _send(env, "ONE_TIME_CHARGE", tx=_tx(env, product="sorted.penny.20", original="p", txid="p"))
     token = _token(env)
     assert UID not in caplog.text and token not in caplog.text and "example.com" not in caplog.text
@@ -828,7 +828,7 @@ def test_purchase_while_stripe_is_live_is_granted_and_flagged(env):
         "user_id": UID, "provider": "stripe", "source": "stripe", "stripe_subscription_id": "s",
         "tier": "standard", "status": "active", "expires_at": NOW + timedelta(days=9),
     })
-    res = _verify(env, _signed_tx(env, product="sorted.max.monthly"))
+    res = _verify(env, _signed_tx(env, product="sorted.plus.monthly"))
     assert res["handled"] and _doc(env)["double_subscription"] is True
     assert _doc(env, "stripe")["status"] == "active"  # untouched
 
@@ -866,13 +866,13 @@ def test_stripe_checkout_and_portal_still_refuse_a_native_ios_client(env):
 
 
 def test_restore_of_a_different_older_or_lapsed_subscription_never_replaces_a_live_one(env):
-    _verify(env, _signed_tx(env, original="live", product="sorted.max.monthly", expires=NOW + timedelta(days=60)))
+    _verify(env, _signed_tx(env, original="live", product="sorted.plus.monthly", expires=NOW + timedelta(days=60)))
     older = _signed_tx(env, original="other-1", expires=NOW + timedelta(days=10))
     lapsed = _signed_tx(env, original="other-2", expires=NOW - timedelta(days=3))
     for tx in (older, lapsed):
         assert _verify(env, tx).get("unchanged") is True
     d = _doc(env)
-    assert d["provider_subscription_id"] == "live" and d["tier"] == "max" and d["status"] == "active"
+    assert d["provider_subscription_id"] == "live" and d["tier"] == "plus" and d["status"] == "active"
     newer = _signed_tx(env, original="other-3", product="sorted.standard.annual", expires=NOW + timedelta(days=300))
     _verify(env, newer)
     assert _doc(env)["provider_subscription_id"] == "other-3"

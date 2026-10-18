@@ -244,7 +244,7 @@ Nine auto-renewable subscriptions (three paid tiers × three durations,
 handles upgrade proration and defers downgrades itself, plus three
 consumables mapping to `PENNY_TOPUP_PACKS`. Twelve products in all.
 
-Four tiers exist (Statements, Lite, Standard, Max); Statements is free and
+Four tiers exist (Statements, Lite, Standard, Plus); Statements is free and
 never sold. There is **no Connect product** (B51 hides the tier) and **no
 MCP call pack** in the stores. An earlier draft of this section listed
 sixteen products including Connect and `mcp_1000`; both are out.
@@ -263,7 +263,7 @@ Product ids follow a deterministic scheme, implemented in
 - subscriptions: `sorted.<tier>.<period>`
 - one-time packs: `sorted.penny.<n>`, `n` being the number of messages
 
-Subscription group: one group, ranked highest first (Max above Standard
+Subscription group: one group, ranked highest first (Plus above Standard
 above Lite), so moving to a higher tier is an Apple-handled upgrade
 (immediate, prorated credit for the unused portion of the current period)
 and moving to a lower tier is an Apple-handled downgrade (deferred to the
@@ -292,9 +292,9 @@ here by hand. **Store prices match web exactly** (section 3.1).
 | 4 | `sorted.standard.monthly` | Auto-renewable, 2-week free intro offer | Standard | Monthly | £9.99 |
 | 5 | `sorted.standard.six_months` | Auto-renewable, 2-week free intro offer | Standard | Every 6 months | £53.99 |
 | 6 | `sorted.standard.annual` | Auto-renewable, 2-week free intro offer | Standard | Yearly | £99.99 |
-| 7 | `sorted.max.monthly` | Auto-renewable, 2-week free intro offer | Max | Monthly | £16.99 |
-| 8 | `sorted.max.six_months` | Auto-renewable, 2-week free intro offer | Max | Every 6 months | £91.99 |
-| 9 | `sorted.max.annual` | Auto-renewable, 2-week free intro offer | Max | Yearly | £169.99 |
+| 7 | `sorted.plus.monthly` | Auto-renewable, 2-week free intro offer | Plus | Monthly | £12.99 |
+| 8 | `sorted.plus.six_months` | Auto-renewable, 2-week free intro offer | Plus | Every 6 months | £69.99 |
+| 9 | `sorted.plus.annual` | Auto-renewable, 2-week free intro offer | Plus | Yearly | £129.99 |
 | 10 | `sorted.penny.20` | Consumable | Penny top-up (small) | 20 messages | £0.99 |
 | 11 | `sorted.penny.100` | Consumable | Penny top-up (medium, "Most popular") | 100 messages | £2.99 |
 | 12 | `sorted.penny.200` | Consumable | Penny top-up (large, "Best value") | 200 messages | £4.99 |
@@ -318,8 +318,8 @@ code. The earlier proposal of roughly +18% (and the full-recovery figure of
 
 What the decision costs, for the record. Apple's 15% Small Business Program
 commission comes off VAT-exclusive revenue, so the iOS net is lower than the
-web net at the same price: at Max monthly £16.99, about £12.03 on iOS against
-about £16.54 on web (Stripe's 1.5% + 20p; VAT assumed 20% once registered,
+web net at the same price: at Plus monthly £12.99, about £9.20 on iOS against
+about £12.60 on web (Stripe's 1.5% + 20p; VAT assumed 20% once registered,
 unregistered today, to be confirmed with the accountant). Kevin accepted that
 in exchange for a single public price across channels and the better
 conversion of in-app purchase.
@@ -356,7 +356,7 @@ Product ids follow the scheme C21 and C24 implemented in `backend/app/core/store
 
 Subscription group ranking becomes Plus above Standard above Lite. Config keys for both providers are `plus`, `plus_six_months` and `plus_annual` in place of the `connect*` and `max*` keys; the shared required-key vocabulary for Stripe is now 13 keys (`app.core.config._STRIPE_REQUIRED_PRICE_KEYS`). Server limits: Lite 10 accounts and 40 Penny, Standard 25 and 150, Plus unlimited and 300, every paid tier with every feature. Existing Stripe subscriptions on the retired Max and Connect prices keep working: the webhook reads those legacy price ids only to resolve them to Plus.
 
-C21 and C24 still name `max` in `STORE_PAID_TIERS` and will rename their max entries to `plus` after B53 merges. B53 does not edit those branches.
+C21 has renamed `max` to `plus` in `STORE_PAID_TIERS` and the catalogue (product ids `sorted.plus.<period>`). A transaction that carried a legacy `sorted.max.<period>` id resolves to the Plus product via the same legacy map (never offered to the client).
 
 ## 4. `appAccountToken`
 
@@ -980,6 +980,6 @@ applies to Stripe/app-store proceeds elsewhere, is **£12.03**, not
 £14.44 (ex-VAT £16.99 / 1.2 = £14.16, 15% of that is £2.12, proceeds
 £14.16 − £2.12 = £12.03; this matches the worked example in
 `docs/pricing/tiering-unit-economics-mcp-2026-09.md` section 2 for the
-£9.99 Standard tier). Section 3.1 quotes this £12.03 figure as the iOS net
-at the £16.99 Max price; the board note's £14.44 should be treated as
-superseded now that Kevin has reviewed this doc.
+£9.99 Standard tier). The board note's £14.44 should be treated as superseded now that Kevin
+has reviewed this doc. (£16.99 was the retired Max price; Section 3.1 now
+uses Plus at £12.99.)

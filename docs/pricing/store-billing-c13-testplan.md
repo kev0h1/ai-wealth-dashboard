@@ -33,9 +33,9 @@ Group reference name: `Sorted subscriptions`. Ranking (level 1 is highest):
 
 | Level | Product id | Duration | GBP price |
 |---|---|---|---|
-| 1 | `sorted.max.annual` | 1 year | £169.99 |
-| 2 | `sorted.max.six_months` | 6 months | £91.99 |
-| 3 | `sorted.max.monthly` | 1 month | £16.99 |
+| 1 | `sorted.plus.annual` | 1 year | £129.99 |
+| 2 | `sorted.plus.six_months` | 6 months | £69.99 |
+| 3 | `sorted.plus.monthly` | 1 month | £12.99 |
 | 4 | `sorted.standard.annual` | 1 year | £99.99 |
 | 5 | `sorted.standard.six_months` | 6 months | £53.99 |
 | 6 | `sorted.standard.monthly` | 1 month | £9.99 |
