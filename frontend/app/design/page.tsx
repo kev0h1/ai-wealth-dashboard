@@ -158,6 +158,14 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
   },
   {
+    slug: "sts-tone",
+    name: "Calm, useful Safe to Spend · G287",
+    description: "A Quiet instrument, B Next step first. Ink amounts, precise risk signifiers and the same forecast working. One-off and repeated cash gaps, optional plans and a coverable account gap remain distinct. The unchanged production card is the current reference. Synthetic examples, no account changes. ?variant=a|b&state=one-off|habitual|plans|move|small|urgent|loading|stale|error|long&mode=light|dark",
+    states: [{ label: "Repeated shortfall", value: "habitual" }, { label: "One-off", value: "one-off" }, { label: "Plans only", value: "plans" }, { label: "Account move", value: "move" }, { label: "Small gap", value: "small" }, { label: "Payment at risk", value: "urgent" }, { label: "Loading", value: "loading" }, { label: "Stale", value: "stale" }, { label: "Error", value: "error" }, { label: "Long figures", value: "long" }],
+    variants: [{ label: "A · Quiet instrument", value: "a" }, { label: "B · Next step first", value: "b" }],
+    group: "current",
+  },
+  {
     slug: "safe-to-spend-figure",
     name: "Safe to Spend figure colour · G218 · approved B, folded in",
     description:
