@@ -209,3 +209,8 @@ def test_b53_admin_cannot_set_retired_tier():
         with pytest.raises(HTTPException) as exc:
             _a.run(router.admin_set_tier({"email": "x@example.com", "tier": name}, user={"name": "Bot", "email": "b@example.com"}))
         assert exc.value.status_code == 400
+
+
+def test_b53_plus_allows_one_hundred_accounts(monkeypatch):
+    _patch_counts(monkeypatch, "plus", accounts=100, banks=40)
+    asyncio.run(check_connection_limit("plus-user@example.com"))
