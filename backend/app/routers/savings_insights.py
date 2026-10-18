@@ -314,8 +314,8 @@ _DATED_PROMO_RE = re.compile(
 
 def _parse_claim_valid_until(raw: Optional[str]) -> Optional[datetime]:
     """Parse a `claim_valid_until` value the generation prompt was asked to
-    supply whenever the dated-promo guardrail above fires (see the hard_rules
-    contract in `_generate_savings_insight_content`). Returns a real date, or
+    supply whenever the dated-promo guardrail above fires (the deal's
+    `valid_until`, parsed in `_build_findings`). Returns a real date, or
     None when `raw` is missing, blank, the literal 'no_expiry_known', or not
     parseable as a date. Deliberately reuses the same three date shapes
     `_parse_deadline` already accepts ('2027-03-31', '2027-03', 'March
@@ -348,48 +348,6 @@ def _parse_claim_valid_until(raw: Optional[str]) -> Optional[datetime]:
         if 2020 <= year <= 2100:
             return datetime(year, month, monthrange(year, month)[1])
     return None
-
-
-# Dated-promo STRIP FALLBACK (owner phone report 2026-09-01, 20:04, live tap
-# on subscriptions): the guardrail above is right that a dated claim without
-# a parseable claim_valid_until must never be stored, but dropping the WHOLE
-# insight when both generation attempts trip it made deal-heavy categories
-# (subscriptions especially — the underlying web results are almost always
-# phrased as "offer ends...", bundle deals, etc.) structurally unable to
-# produce a card at all: three straight 502s in one session. The retry
-# already tells the model exactly what to fix (see the
-# "dated_promo_missing_expiry" branch in the attempt-prompt chain below), so
-# a second failure means the model still couldn't comply, not that it wasn't
-# told. Rather than burn a third attempt or drop everything, this removes
-# only the offending SENTENCE(s) and keeps the rest of the body/title —
-# degrade by stripping, not dropping, same philosophy as
-# `_strip_unsupported_savings_claims` just above.
-#
-# Sentence, not clause, granularity: a dated-promo claim reads as a whole
-# sentence ("Switch during this January's offer, it ends soon.") rather than
-# a comma-separated fragment the way an unsupported-savings clause does, so
-# splitting on `,` (as the clause-level stripper does) would either leave the
-# promo half of the sentence behind or mangle unrelated prose sharing the
-# same sentence. `_DATED_PROMO_RE`'s own inner `(?:(?!\.).){0,60}?` already
-# refuses to span a literal "." (see the regex above), so a single sentence
-# is also the largest unit that regex can match within, which keeps this
-# strip precise: dropping sentence N never touches sentence N+1.
-def _strip_dated_promo_sentences(text: Optional[str]) -> Optional[str]:
-    """Remove every sentence in `text` that matches `_DATED_PROMO_RE` (a
-    dated/time-bound promo claim), keep every other sentence untouched, and
-    rejoin. Blank input, or input with nothing left after stripping, returns
-    "" — same "never re-show a blank as content" contract
-    `_strip_unsupported_savings_claims` already follows. Returns `text`
-    byte-for-byte unchanged when no sentence actually matches, so a title/body
-    that never tripped the guardrail can't pick up an incidental
-    reformatting side effect."""
-    if not text:
-        return text
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-    kept = [s for s in sentences if s.strip() and not _DATED_PROMO_RE.search(s)]
-    if len(kept) == len([s for s in sentences if s.strip()]):
-        return text  # nothing matched — unchanged, byte-for-byte
-    return " ".join(kept).strip()
 
 
 def _house_style(text: str) -> str:
@@ -431,7 +389,7 @@ def _substituted_line(merchant: Optional[str], category_label: Optional[str]) ->
 # Savings-estimate guardrail: the prompt tells the model savings_estimate may
 # only be a figure lifted straight from the sources or the arithmetic
 # difference of two such figures — but models drift into "typical" ranges
-# anyway (see _generate_savings_insight_content docstring history). This is
+# anyway. This is
 # the post-hoc backstop: every number quoted in the estimate is checked
 # against an allowed set built from the actual inputs (Tavily snippets, user
 # context, the user's own spend facts), their pairwise differences, and
@@ -702,8 +660,7 @@ assert set(CATEGORY_LIFECYCLE) == set(INSIGHT_CATEGORIES) and set(CATEGORY_LIFEC
 # Categories with no CATEGORY_WORKFLOWS field that anchors a real deal/
 # contract/renewal date (a step whose id is one of _DEADLINE_KEYS, feeding
 # `_parse_deadline`) — car_finance, gym, subscriptions, groceries, eating_out.
-# Used ONLY by the dated-promo guardrail in `_generate_savings_insight_content`
-# (a specific, time-bound promo claim needs its own `claim_valid_until`
+# Used by the dated-promo coverage tests (a specific, time-bound promo claim needs its own `claim_valid_until`
 # precisely because nothing else here is keeping it honest over time) — NOT a
 # cadence signal any more (see CATEGORY_LIFECYCLE above; every category is
 # push/weekly regardless of membership here). Computed directly from
@@ -2475,7 +2432,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     # automatically pick up any correction — never trust the stored copy.
     _cfg = INSIGHT_CATEGORIES.get(cat) or LABEL_OPTIONS.get(cat) or {}
     # House-style at SERVE time, not just generation time: _house_style() is
-    # applied when new content is written (_generate_savings_insight_content),
+    # applied when new content is written (the tip composer),
     # but docs written before that guardrail existed (prompt_version < 4, or
     # even some prompt_version 4 docs generated in the gap before the dash
     # guardrail landed — content_hash isn't versioned on copy-only fixes)
@@ -2522,7 +2479,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     # STRUCTURAL FIX comment there), so `state == "fresh"` is guaranteed
     # non-empty on the DOC'S OWN STORED fields at the moment `state` was
     # computed, a few lines above. But the belt-and-braces
-    # `_strip_unsupported_savings_claims` pass just above THIS comment can
+    # tip_copy.is_clean pass just above THIS comment can
     # still reduce that same title/body to "" on THIS read — e.g. a later
     # cron pass refreshed `triggered_by` to a different set of monetary
     # figures than the ones the stored prose was written against, so a
@@ -2978,7 +2935,7 @@ def _regen_reason(existing: dict | None, triggered_by: list[dict], now: datetime
         return "deadline_window"
     # Dated-promo guardrail (Package A #5): a generated body claimed a
     # specific time-bound offer and gave a `claim_valid_until` date for it
-    # (see `_generate_savings_insight_content`) — once that date passes, the
+    # (set from the deal `valid_until` in `_build_findings`) — once that date passes, the
     # researched body/title/estimate are stale and must regenerate. The
     # deterministic half (triggered_by, the user's own spend facts) is
     # unaffected either way; it's recomputed fresh on every pass regardless
@@ -3137,10 +3094,10 @@ async def mark_insight_opened(insight_id: str, user: dict = Depends(current_user
     frontend fires this the first time a card's evidence footer or workflow
     drawer is expanded, or its primary CTA is tapped. It's the only proof
     this product has that a human actually looked at an insight — the
-    copy-tier logic (`_verified_copy_tier`) needs `card_opened_at` to decide
-    whether a later "spend ceased" win is earned (engaged before it
-    verified) or just an honest fact (no engagement evidence, including
-    every insight that existed before this endpoint shipped).
+    verified-saving logic reads `card_opened_at` to tell whether a later
+    "spend ceased" win is earned (engaged before it verified) or just an
+    honest fact (no engagement evidence, including every insight that
+    existed before this endpoint shipped).
 
     First-write-wins / idempotent: once stamped, later calls are a no-op, so
     a genuinely early engagement can never be overwritten by a later one,

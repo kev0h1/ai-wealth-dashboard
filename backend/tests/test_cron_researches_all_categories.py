@@ -6,7 +6,7 @@ push-generated call from this cron at all (see the now-deleted
 test_refresh_savings_insights_pull_categories.py).
 
 "Through the honesty chain" here means: the real `_regen_reason` gate
-decides whether to call `_generate_savings_insight_content` (not a
+decides whether to call `_tip_content_for` (not a
 category-membership skip), and the result is stamped with
 `content_valid_until` via `_compute_content_valid_until` exactly like every
 other category — no separate code path any more.
