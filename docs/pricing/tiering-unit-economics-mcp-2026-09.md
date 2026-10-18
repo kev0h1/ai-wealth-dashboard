@@ -69,20 +69,20 @@ Users understand "messages", not tokens. Sell Penny in messages, meter tokens in
 | Tier | Price | Bank connections | Refresh | Penny messages / month | MCP connector | History | Notes |
 |---|---|---|---|---|---|---|---|
 | Statements (free) | £0 | none; statement upload only | on upload | 10 | no | 90 days | 3 uploads a month; no Finexer cost |
-| Lite | £5.99 | up to 10 accounts | daily | 40 | no | 6 months | |
-| Standard | £9.99 | up to 25 accounts (B53; was 20) | 4-hourly plus manual | 150 | no | full | insights, debt plan, allocations |
-| Plus (B53, replaces Connect and Max) | £12.99 | unlimited (fair use 40 accounts) | priority | 300 | yes, 5,000 tool calls (connector hidden in production, B51) | full | every paid tier has every feature |
+| Lite | £5.99 | up to 10 accounts | 4-hourly | 40 | yes, 5,000 tool calls | full | every paid tier has every feature |
+| Standard | £9.99 | up to 25 accounts | 4-hourly | 150 | yes, 5,000 tool calls | full | every paid tier has every feature |
+| Plus | £12.99 | unlimited (fair use 40 accounts) | 4-hourly | 300 | yes, 5,000 tool calls | full | every paid tier has every feature |
 | Top-up | £2.99 | | | +100 messages | | | cost about £1.50 cached; expires with the billing month |
 
-Worst-case Penny cost at the cap (cached): Lite £0.60, Standard £2.25, Max £6.00. Contribution at the cap with app store billing: Lite about £2.80, Standard about £4.50, Max about £5.70. Every tier stays positive at its cap, which is the point of the caps.
+Worst-case Penny cost at the cap (cached): Lite £0.60, Standard £2.25, Plus £4.50. Contribution at the cap with app store billing and the account cap fully used (section 4a): Lite about £2.57, Standard about £2.26, Plus about £0.64. Every tier stays positive at its cap, which is the point of the caps. The MCP connector is available on every paid tier (5,000 calls a month) and is gated separately by `MCP_CONNECTOR_ENABLED`, off in production.
 
-Account limits are not the margin lever. Each account costs about 10p a month, so a user with 17 accounts costs £1.70, well inside a £9.99 subscription, and competitors such as Emma offer unlimited connections at a similar price. Worst case on Standard, 20 accounts and all 150 Penny messages, still contributes about £2.75 after store fees; the 20-account cap costs at most £2 a month in Finexer fees and gives Max a reason to exist beyond Penny volume. Lite is capped at 10 accounts (Kevin, 2026-10-18; was 3 banks), at most about £1 a month in Finexer fees. The difference between Lite and Standard is the account cap, refresh cadence, history depth and Penny allowance.
+Account limits are the margin lever, together with Penny messages. Each account costs about 10p a month, so a user with 17 accounts costs £1.70, well inside a £9.99 subscription, and competitors such as Emma offer unlimited connections at a similar price. Worst case on Standard, 25 accounts and all 150 Penny messages, contributes about £2.26 after store fees (it was about £2.76 at the old 20-account cap). Lite is capped at 10 accounts (Kevin, 2026-10-18), at most about £1 a month in Finexer fees. From B53 the paid tiers differ only in the account cap and the Penny allowance.
 
-Why the MCP tiers are the best margin in the table: an external assistant (Claude, ChatGPT) does the reasoning on the user's own subscription. Sorted only answers deterministic tool calls, so the cost is API compute, not model tokens. The £3 uplift on Connect is almost entirely margin, bounded only by rate limits.
+Why the MCP connector is cheap to include: an external assistant (Claude, ChatGPT) does the reasoning on the user's own subscription. Sorted only answers deterministic tool calls, so the cost is API compute, not model tokens, bounded by rate limits.
 
 Billing channel: digital subscriptions bought inside the iOS or Android app must use Apple or Google billing (15% at this size). Web checkout via Stripe avoids that. Recommendation: Stripe on the website as the primary checkout, in-app purchase offered at the same price for people who buy inside the app, and no mention of web pricing inside the app.
 
-Migration from the current code: replace the four existing tiers (free, pro, premium, family) and `TIER_LIMITS` with the five above; `check_connection_limit` already exists and is wired on connect; `require_tier` gates exist on categories and investments. New work is the metering and the caps.
+Migration from the current code (done): the old free, pro, premium and family tiers became Statements, Lite, Standard and Plus (B53); legacy stored names read as Plus or Standard.
 
 ### 4a. B53 revision (2026-10-18): Lite, Standard and Plus
 
@@ -106,7 +106,7 @@ Plus keeps the old Connect price points. Legacy stored tiers `max`, `connect`, `
 | Standard, 25 accounts, 150 messages | £8.33 | £1.25 | £2.25 | £2.50 | £0.07 | about £2.26 |
 | Plus, 40 accounts, 300 messages | £10.83 | £1.62 | £4.50 | £4.00 | £0.07 | about £0.64 |
 
-Every tier stays positive at its cap, but Plus is thin: a Plus user who connects more than about 46 accounts and also uses the full 300 messages loses money. "Unlimited" therefore needs a fair-use ceiling in the Terms (see docs/pricing/plus-tier-terms-proposal.md). Standard's worst case falls from about £2.83 (20 accounts) to about £2.26.
+Every tier stays positive at its cap, but Plus is thin: a Plus user who connects more than about 46 accounts and also uses the full 300 messages loses money. "Unlimited" therefore needs a fair-use ceiling in the Terms (see docs/pricing/plus-tier-terms-proposal.md). Standard's worst case falls from about £2.76 (20 accounts) to about £2.26.
 
 **Penny pack nudge.** The marginal Standard to Plus step is £3.00 for 150 more messages, 2.0p each, now below the large pack (2.5p each). Section 9's rule that the large pack sits about 10% under the next tier's marginal rate no longer holds: moving to Plus is better value than the large pack for any repeat buyer. The sheet already leads with the Plus row after a second pack in a month. Pack prices are unchanged by B53; Kevin to decide whether to leave them or reprice.
 
