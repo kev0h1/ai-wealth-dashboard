@@ -34,21 +34,21 @@ const TIERS: Tier[] = [
     id: "lite",
     name: "Lite",
     lead: "Keep up with day-to-day money across your main banks.",
-    includes: ["Up to 10 connected accounts", "40 Penny messages a month", "Daily bank updates", "6 months of history"],
+    includes: ["Up to 10 connected accounts", "40 Penny messages a month", "All features"],
     icon: Landmark,
   },
   {
     id: "standard",
     name: "Standard",
     lead: "Your full money picture, kept up to date through the day.",
-    includes: ["Up to 25 connected accounts", "150 Penny messages a month", "Updates every 4 hours", "Full history"],
+    includes: ["Up to 25 connected accounts", "150 Penny messages a month", "All features"],
     icon: Zap,
   },
   {
     id: "plus",
     name: "Plus",
     lead: "No limit on accounts, and the most Penny messages.",
-    includes: ["Unlimited connected accounts", "300 Penny messages a month", "Priority bank updates", "Full history"],
+    includes: ["Unlimited connected accounts", "300 Penny messages a month", "All features"],
     icon: Crown,
   },
 ];
@@ -350,7 +350,7 @@ export default function PlanPicker({
   return (
     <div className="space-y-4">
       <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-        Every paid plan has all features, savings tips and investments included. Accounts and Penny messages grow with each plan.
+        Every paid plan has all features, savings tips and investments included. Plans differ only in connected accounts and Penny messages.
       </p>
       <div role="radiogroup" aria-label="Choose a plan" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
         {TIERS.map((tier, index) => {

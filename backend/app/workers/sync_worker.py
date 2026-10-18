@@ -160,7 +160,7 @@ def _refresh_window(refresh: Optional[str]) -> Optional[timedelta]:
     TIER_LIMITS) onto the stale window task_reconcile_truelayer uses to
     decide whether a connection needs re-syncing this cycle.
 
-    "4h" (Standard/Connect) and "priority" (Max) both get the cron's own
+    "4h" (every paid tier, B53) and the legacy "priority" value both get the cron's own
     just-under-the-4-hour-interval window (see _DEFAULT_REFRESH_WINDOW) —
     today's unchanged behaviour. "daily" (Lite) gets the same "just under
     the interval" treatment scaled to a 24h cadence: 23h30, so a
@@ -230,9 +230,8 @@ async def task_reconcile_truelayer(ctx):
     tier. Each user's tier is resolved at most once per run and cached
     locally; a subscriptions read failure for one user falls back to the
     default cadence rather than ever stopping that user's sync. Within
-    each of the TrueLayer/Finexer groups, priority-tier (Max) users'
-    sync jobs are enqueued before everyone else's, oldest-connection-first
-    within each of those two groups.
+    each of the TrueLayer/Finexer groups, jobs are enqueued
+    oldest-connection-first (B53: no tier is prioritised over another).
 
     NB: Mongo returns naive UTC datetimes, so all comparisons here use naive
     utcnow — mixing in tz-aware datetimes raises TypeError.
@@ -265,10 +264,6 @@ async def task_reconcile_truelayer(ctx):
             window_cache[refresh] = _refresh_window(refresh)
         return window_cache[refresh]
 
-    def _is_priority(uid: str) -> bool:
-        sub = tier_cache.get(uid)
-        return sub is not None and sub.limit("refresh") == "priority"
-
     # Oldest first, so when duplicates remain the newest connection syncs
     # last and wins the account claims.
     all_conns = await connections_col.find(
@@ -295,12 +290,9 @@ async def task_reconcile_truelayer(ctx):
         else:
             skipped_fresh += 1
 
-    # Priority-tier users first; each group keeps the oldest-first order
-    # the query above already produced.
-    tl_ordered = (
-        [c for c in tl_candidates if _is_priority(c[1])]
-        + [c for c in tl_candidates if not _is_priority(c[1])]
-    )
+    # B53: every paid tier refreshes the same way, so there is no priority
+    # ordering; candidates keep the oldest-first order the query produced.
+    tl_ordered = tl_candidates
 
     # Retry webhook events that failed or got stuck in pending > 15 minutes
     # — unconditional on tier, these are missed-webhook catch-ups, not the
@@ -341,10 +333,7 @@ async def task_reconcile_truelayer(ctx):
         else:
             skipped_fresh += 1
 
-    fx_ordered = (
-        [c for c in fx_candidates if _is_priority(c[1])]
-        + [c for c in fx_candidates if not _is_priority(c[1])]
-    )
+    fx_ordered = fx_candidates
 
     # Spread every job this run is about to enqueue — TL syncs, webhook
     # retries, then Finexer syncs, in that order, matching the priority

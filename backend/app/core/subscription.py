@@ -129,9 +129,10 @@ def billing_period_detail(tier: str, period: str) -> dict:
 
 # B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9): three
 # top-up packs, good/better/best. The middle pack is the target ("Most
-# popular"); the largest is priced about 10% under the Standard-to-Max
-# marginal rate so a repeat buyer is nudged towards the sheet's "Move to
-# Max" row (see penny_allowance's packs_bought_this_month) rather than
+# popular"); the largest was priced about 10% under the old Standard-to-Max
+# marginal rate (B53: Standard to Plus is now cheaper per message, see
+# docs/pricing/tiering-unit-economics-mcp-2026-09.md 4a) so a repeat buyer
+# is nudged towards the sheet's "Move to Plus" row (see penny_allowance's packs_bought_this_month) rather than
 # living on packs. Prices sit on standard App Store / Play price points so
 # the same SKU works in-app and on Stripe.
 PENNY_TOPUP_PACKS = [
@@ -153,10 +154,10 @@ PENNY_TOPUP = {"messages": PENNY_TOPUP_PACKS[1]["messages"], "price_gbp": PENNY_
 
 # F9: one MCP connector call pack, same mechanics as the Penny packs above
 # (`_settle_packs`/`mcp_allowance` below share the implementation with
-# `settle_topups`/`penny_allowance`). Only Connect and Max have the
-# connector at all (`mcp_tool_calls_per_month` 2000/5000), so this is the
-# only pack a Connect user would reach for; Max's 5000/month is the
-# DEFAULT_TIER today (see module docstring) so nobody needs it yet.
+# `settle_topups`/`penny_allowance`). Every paid tier has the same
+# `mcp_tool_calls_per_month` (5000, B53); the connector itself is gated
+# separately by MCP_CONNECTOR_ENABLED. Plus is the DEFAULT_TIER today (see
+# module docstring) so nobody needs the pack yet.
 MCP_CALL_PACKS = [
     {"id": "mcp_1000", "calls": 1000, "price_gbp": 2.99, "badge": None},
 ]
@@ -177,10 +178,10 @@ TIER_LIMITS = {
         "open_banking":                True,
         "max_banks":                   None,
         "max_accounts":                10,
-        "refresh":                     "daily",
+        "refresh":                     "4h",
         "penny_messages_per_month":    40,
-        "mcp_tool_calls_per_month":    0,
-        "history_days":                180,
+        "mcp_tool_calls_per_month":    5000,
+        "history_days":                None,
         "statement_uploads_per_month": None,
     },
     Tier.STANDARD: {
@@ -189,7 +190,7 @@ TIER_LIMITS = {
         "max_accounts":                25,
         "refresh":                     "4h",
         "penny_messages_per_month":    150,
-        "mcp_tool_calls_per_month":    0,
+        "mcp_tool_calls_per_month":    5000,
         "history_days":                None,
         "statement_uploads_per_month": None,
     },
@@ -197,7 +198,7 @@ TIER_LIMITS = {
         "open_banking":                True,
         "max_banks":                   None,
         "max_accounts":                None,
-        "refresh":                     "priority",
+        "refresh":                     "4h",
         "penny_messages_per_month":    300,
         "mcp_tool_calls_per_month":    5000,
         "history_days":                None,
@@ -586,8 +587,8 @@ async def penny_allowance(email: str, *, persist: bool = True) -> dict:
 async def mcp_allowance(email: str, *, persist: bool = True) -> dict:
     """This calendar month's MCP connector call allowance for `email` — the
     F9 twin of `penny_allowance` above, sharing `_settle_packs` via
-    `settle_mcp_packs`. Only Connect and Max have `mcp_tool_calls_per_month`
-    set at all (0 for every tier below); a tier without the connector gets
+    `settle_mcp_packs`. Every paid tier has `mcp_tool_calls_per_month` 5000
+    (B53); Statements has 0; a tier without the connector gets
     NO pack credit folded in even if it somehow holds an active pack
     (`limit` stays 0), since a pack only makes sense on top of a tier that
     already has the connector.

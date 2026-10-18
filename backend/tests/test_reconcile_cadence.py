@@ -128,7 +128,7 @@ def _patch_now(monkeypatch, now=NOW):
 
 # ── _refresh_window unit tests ──────────────────────────────────────────
 
-def test_refresh_window_4h_and_priority_unchanged():
+def test_refresh_window_4h_and_legacy_priority_unchanged():
     assert sync_worker._refresh_window("4h") == timedelta(hours=3, minutes=30)
     assert sync_worker._refresh_window("priority") == timedelta(hours=3, minutes=30)
 
@@ -148,7 +148,7 @@ def test_refresh_window_unknown_or_none_fails_open_to_4h(caplog):
 
 # ── task_reconcile_truelayer: TrueLayer cadence ─────────────────────────
 
-def test_lite_connection_synced_5h_ago_not_enqueued(monkeypatch):
+def test_lite_connection_synced_5h_ago_is_enqueued_like_every_paid_tier(monkeypatch):
     connections = FakeCol([
         {"_id": "conn-lite", "user_id": "lite@example.com", "last_synced": NOW - timedelta(hours=5),
          "access_token": "tok", "created_at": NOW - timedelta(days=1)},
@@ -164,9 +164,10 @@ def test_lite_connection_synced_5h_ago_not_enqueued(monkeypatch):
 
     result = asyncio.run(sync_worker.task_reconcile_truelayer(_ctx(arq)))
 
-    assert arq.calls == []
-    assert result["reconciled"] == 0
-    assert result["skipped_fresh"] == 1
+    # B53: Lite refreshes on the same 4h cadence as Standard and Plus.
+    assert len(arq.calls) == 1
+    assert result["reconciled"] == 1
+    assert result["skipped_fresh"] == 0
 
 
 def test_lite_connection_synced_24h_ago_is_enqueued(monkeypatch):
@@ -236,9 +237,9 @@ def test_statements_connection_never_enqueued(monkeypatch):
     assert result["skipped_fresh"] == 0
 
 
-def test_priority_tier_enqueued_before_standard(monkeypatch):
+def test_no_tier_is_enqueued_ahead_of_another(monkeypatch):
     # Standard connection appears first in the (oldest-first) query result,
-    # but the Max/priority user's job must still be enqueued first.
+    # and B53 removed the Plus-only priority branch, so order stays oldest-first.
     connections = FakeCol([
         {"_id": "conn-std", "user_id": "std@example.com", "last_synced": NOW - timedelta(hours=5),
          "access_token": "tok", "created_at": NOW - timedelta(days=2)},
@@ -262,7 +263,7 @@ def test_priority_tier_enqueued_before_standard(monkeypatch):
 
     result = asyncio.run(sync_worker.task_reconcile_truelayer(_ctx(arq)))
 
-    assert [c[1]["connection_id"] for c in arq.calls] == ["conn-max", "conn-std"]
+    assert [c[1]["connection_id"] for c in arq.calls] == ["conn-std", "conn-max"]
     assert result["reconciled"] == 2
 
 
@@ -290,7 +291,7 @@ def test_get_subscription_failure_falls_back_to_4h_window(monkeypatch):
 
 # ── task_reconcile_truelayer: Finexer cadence ───────────────────────────
 
-def test_finexer_lite_consent_synced_5h_ago_not_enqueued(monkeypatch):
+def test_finexer_lite_consent_synced_5h_ago_is_enqueued_like_every_paid_tier(monkeypatch):
     finexer = FakeCol([
         {"_id": "fx-1", "user_id": "lite@example.com", "status": "authorized",
          "last_synced": NOW - timedelta(hours=5), "created_at": NOW - timedelta(days=1)},
@@ -305,8 +306,8 @@ def test_finexer_lite_consent_synced_5h_ago_not_enqueued(monkeypatch):
 
     result = asyncio.run(sync_worker.task_reconcile_truelayer(_ctx(arq)))
 
-    assert arq.calls == []
-    assert result["skipped_fresh"] == 1
+    assert len(arq.calls) == 1
+    assert result["skipped_fresh"] == 0
 
 
 def test_finexer_lite_consent_synced_24h_ago_is_enqueued(monkeypatch):

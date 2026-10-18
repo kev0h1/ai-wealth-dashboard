@@ -142,7 +142,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // ASSUMPTION (contract doesn't name this key explicitly — flagged in this
   // feature's own report): `prices_gbp` is keyed by SubscriptionTier value,
   // same as every other tier reference in this codebase (SubscriptionTier
-  // itself is "statements" | "lite" | "standard" | "connect" | "plus"), so
+  // itself is "statements" | "lite" | "standard" | "plus"), so
   // the Plus tier's own monthly price is `prices_gbp.plus`.
   const plusPrice = info?.prices_gbp?.plus;
   const billingLive = info?.billing_live ?? false;

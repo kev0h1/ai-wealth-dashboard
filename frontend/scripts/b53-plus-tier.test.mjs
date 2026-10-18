@@ -19,16 +19,18 @@ assert.ok(!/"Max"|"Connect"|id: "max"|id: "connect"/.test(tiersBlock), "no Max o
 for (const line of [
   "Up to 10 connected accounts", "40 Penny messages a month",
   "Up to 25 connected accounts", "150 Penny messages a month",
-  "Unlimited connected accounts", "300 Penny messages a month",
+  "Unlimited connected accounts", "300 Penny messages a month", "All features",
 ]) assert.ok(tiersBlock.includes(`"${line}"`), `picker includes "${line}"`);
 assert.ok(!tiersBlock.includes("Up to 3 connected banks") && !tiersBlock.includes("Up to 20 connected accounts"), "old limits gone");
+assert.ok(!/Daily bank updates|months of history|Priority bank updates|Updates every 4 hours|Full history/.test(tiersBlock), "paid bullets are accounts, Penny and all features only");
+assert.ok(picker.includes("Plans differ only in connected accounts and Penny messages."), "picker states the true differentiator");
 assert.ok(picker.includes("Every paid plan has all features"), "picker says every paid plan has all features");
 assert.ok(onboarding.includes("Every paid plan has all features"), "onboarding says every paid plan has all features");
 
 assert.match(types, /export type SubscriptionTier = "statements" \| "lite" \| "standard" \| "plus";/);
 assert.ok(more.includes("Move to Plus, 300 a month"), "Penny sheet upsell is Plus, 300 a month");
 assert.ok(!/Move to Max/.test(more), "Penny sheet no longer says Move to Max");
-assert.ok(assistants.includes("Available on Plus") && !/Connect and Max/.test(assistants), "assistants card names Plus");
+assert.ok(assistants.includes("Available on every paid plan") && !/Connect and Max|on Plus/.test(assistants), "assistants card names every paid plan");
 
 for (const text of [tiersBlock, more, assistants, onboarding.slice(onboarding.indexOf("Choose your plan"), onboarding.indexOf("Choose your plan") + 400)]) {
   const copyStrings = [...text.matchAll(/"([^"\n]{12,})"/g)].map((m) => m[1]);

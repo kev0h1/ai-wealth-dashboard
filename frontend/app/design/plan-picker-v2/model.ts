@@ -29,16 +29,16 @@ export const PRICE_PENCE: Record<TierId, Record<PeriodId, number>> = {
 };
 export const LIMITS: Record<TierId, SubscriptionLimits> = {
   statements: { open_banking: false, max_banks: 0, max_accounts: 0, refresh: "on_upload", penny_messages_per_month: 10, mcp_tool_calls_per_month: 0, history_days: 90, statement_uploads_per_month: 3 },
-  lite: { open_banking: true, max_banks: null, max_accounts: 10, refresh: "daily", penny_messages_per_month: 40, mcp_tool_calls_per_month: 0, history_days: 180, statement_uploads_per_month: null },
-  standard: { open_banking: true, max_banks: null, max_accounts: 25, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 0, history_days: null, statement_uploads_per_month: null },
-  plus: { open_banking: true, max_banks: null, max_accounts: null, refresh: "priority", penny_messages_per_month: 300, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
+  lite: { open_banking: true, max_banks: null, max_accounts: 10, refresh: "4h", penny_messages_per_month: 40, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
+  standard: { open_banking: true, max_banks: null, max_accounts: 25, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
+  plus: { open_banking: true, max_banks: null, max_accounts: null, refresh: "4h", penny_messages_per_month: 300, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
 };
 export type Plan = { id: TierId; name: string; lead: string; includes: string[]; banks: string; history: string; updates: string; messages: number };
 export const PLANS: Plan[] = [
   { id: "statements", name: "Statements", lead: "A clear money view from uploaded statements.", includes: ["3 statement uploads a month", "90 days of history", "10 Penny messages a month"], banks: "Statement uploads only", history: "90 days", updates: "When you upload", messages: 10 },
-  { id: "lite", name: "Lite", lead: "Keep up with day-to-day money across your main banks.", includes: ["Up to 10 connected accounts", "Daily bank updates", "6 months of history", "40 Penny messages a month"], banks: "Up to 10 accounts", history: "6 months", updates: "Daily", messages: 40 },
-  { id: "standard", name: "Standard", lead: "Your full money picture, kept up to date through the day.", includes: ["Up to 25 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"], banks: "Up to 25 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
-  { id: "plus", name: "Plus", lead: "No limit on accounts, and the most Penny messages.", includes: ["Unlimited connected accounts", "Priority bank updates", "300 Penny messages a month", "Every feature, like every plan"], banks: "Unlimited accounts", history: "Full history", updates: "Priority", messages: 300 },
+  { id: "lite", name: "Lite", lead: "Keep up with day-to-day money across your main banks.", includes: ["Up to 10 connected accounts", "40 Penny messages a month", "All features"], banks: "Up to 10 accounts", history: "Full history", updates: "Every 4 hours", messages: 40 },
+  { id: "standard", name: "Standard", lead: "Your full money picture, kept up to date through the day.", includes: ["Up to 25 connected accounts", "150 Penny messages a month", "All features"], banks: "Up to 25 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
+  { id: "plus", name: "Plus", lead: "No limit on accounts, and the most Penny messages.", includes: ["Unlimited connected accounts", "300 Penny messages a month", "All features"], banks: "Unlimited accounts", history: "Full history", updates: "Every 4 hours", messages: 300 },
 ];
 export const SNAPSHOT_LABEL = "17 October 2026";
 export const CHARGE_DATE = "31 October 2026";

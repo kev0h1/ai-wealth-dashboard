@@ -179,6 +179,10 @@ def test_b53_tier_table_accounts_penny_prices():
 
 
 def test_b53_legacy_max_connect_premium_family_map_to_plus(monkeypatch):
+    from app.core import config as config_module
+    # Pin the default to standard so a legacy name falling through to the
+    # default (instead of the map) would read as standard and fail here.
+    monkeypatch.setattr(config_module, "DEFAULT_TIER", "standard")
     for legacy_name in ("max", "connect", "premium", "family"):
         monkeypatch.setattr(
             collections_module, "subscriptions_col",
@@ -214,3 +218,17 @@ def test_b53_admin_cannot_set_retired_tier():
 def test_b53_plus_allows_one_hundred_accounts(monkeypatch):
     _patch_counts(monkeypatch, "plus", accounts=100, banks=40)
     asyncio.run(check_connection_limit("plus-user@example.com"))
+
+
+def test_b53_paid_tiers_differ_only_by_accounts_and_penny():
+    from app.core.subscription import TIER_LIMITS
+    paid = [TIER_LIMITS[t] for t in (Tier.LITE, Tier.STANDARD, Tier.PLUS)]
+    for key in ("open_banking", "max_banks", "refresh", "history_days",
+                "mcp_tool_calls_per_month", "statement_uploads_per_month"):
+        assert len({repr(limits[key]) for limits in paid}) == 1, key
+    assert paid[0]["refresh"] == "4h"
+    assert paid[0]["history_days"] is None
+    assert paid[0]["mcp_tool_calls_per_month"] == 5000
+    # Statements is unchanged.
+    st = TIER_LIMITS[Tier.STATEMENTS]
+    assert (st["refresh"], st["history_days"], st["mcp_tool_calls_per_month"]) == ("on_upload", 90, 0)

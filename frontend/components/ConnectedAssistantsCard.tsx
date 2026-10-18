@@ -360,9 +360,9 @@ export default function ConnectedAssistantsCard({
 
           {isTierGated ? (
             <div className="px-4 py-3.5">
-              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Available on Plus</p>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Available on every paid plan</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Connecting an AI assistant to your Sorted data is included in the Plus plan.
+                Connecting an AI assistant to your Sorted data is included in every paid plan.
               </p>
             </div>
           ) : connected.length === 0 ? (
