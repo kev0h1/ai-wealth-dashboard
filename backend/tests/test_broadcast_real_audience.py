@@ -129,10 +129,10 @@ def _wire(monkeypatch, *, account_data_owner: str):
         {"_id": "p4", "user_id": OPTED_OUT_REAL},
     ])
     subscriptions = _FindCol([
-        {"_id": "s1", "user_id": REAL_FULL, "tier": "connect"},
-        {"_id": "s2", "user_id": REAL_ON_FIXTURE_LOOKING_DOMAIN, "tier": "connect"},
-        {"_id": "s3", "user_id": STRAY_SUB_ONLY, "tier": "connect", "managed_by": "manual"},
-        {"_id": "s4", "user_id": OPTED_OUT_REAL, "tier": "connect"},
+        {"_id": "s1", "user_id": REAL_FULL, "tier": "plus"},
+        {"_id": "s2", "user_id": REAL_ON_FIXTURE_LOOKING_DOMAIN, "tier": "plus"},
+        {"_id": "s3", "user_id": STRAY_SUB_ONLY, "tier": "plus", "managed_by": "manual"},
+        {"_id": "s4", "user_id": OPTED_OUT_REAL, "tier": "plus"},
     ])
     monkeypatch.setattr(broadcast, "user_profiles_col", user_profiles)
     monkeypatch.setattr(broadcast, "preferences_col", preferences)
@@ -216,7 +216,7 @@ def test_stray_subscription_document_only_is_excluded(monkeypatch):
     _wire(monkeypatch, account_data_owner=REAL_FULL)
     everyone = run(broadcast.resolve_audience({"type": "everyone"}))
     assert STRAY_SUB_ONLY not in everyone
-    connect = run(broadcast.resolve_audience({"type": "tier", "tier": "connect"}))
+    connect = run(broadcast.resolve_audience({"type": "tier", "tier": "plus"}))
     assert STRAY_SUB_ONLY not in connect
 
 

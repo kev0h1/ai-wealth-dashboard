@@ -200,7 +200,7 @@ def test_100_candidates_spread_respects_40_per_minute_ceiling(monkeypatch):
     assert result["spread_minutes"] == 210
 
 
-def test_priority_users_get_earliest_offsets(monkeypatch):
+def test_offsets_follow_oldest_first_order_for_every_tier(monkeypatch):
     connections = FakeCol([
         {"_id": "conn-std", "user_id": "std@example.com", "last_synced": NOW - timedelta(hours=5),
          "access_token": "tok", "created_at": NOW - timedelta(days=2)},
@@ -217,14 +217,14 @@ def test_priority_users_get_earliest_offsets(monkeypatch):
         sync_worker, "get_subscription",
         _make_subscription_lookup({
             "std@example.com": Tier.STANDARD,
-            "max@example.com": Tier.MAX,
+            "max@example.com": Tier.PLUS,
         }),
     )
     arq = FakeArq()
 
     result = asyncio.run(sync_worker.task_reconcile_truelayer(_ctx(arq)))
 
-    assert [c[1]["connection_id"] for c in arq.calls] == ["conn-max", "conn-std"]
+    assert [c[1]["connection_id"] for c in arq.calls] == ["conn-std", "conn-max"]
     offsets = [c[1]["_defer_by"].total_seconds() for c in arq.calls]
     assert offsets[0] < offsets[1]
     assert result["reconciled"] == 2

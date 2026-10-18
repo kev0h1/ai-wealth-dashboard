@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
+import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
@@ -35,28 +35,21 @@ const TIERS: Tier[] = [
     id: "lite",
     name: "Lite",
     lead: "Keep up with day-to-day money across your main banks.",
-    includes: ["Up to 10 connected accounts", "Daily bank updates", "6 months of history", "40 Penny messages a month"],
+    includes: ["Up to 10 connected accounts", "40 Penny messages a month", "All features"],
     icon: Landmark,
   },
   {
     id: "standard",
     name: "Standard",
     lead: "Your full money picture, kept up to date through the day.",
-    includes: ["Up to 20 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"],
+    includes: ["Up to 25 connected accounts", "150 Penny messages a month", "All features"],
     icon: Zap,
   },
   {
-    id: "connect",
-    name: "Connect",
-    lead: "Use your Sorted figures in an assistant you connect.",
-    includes: ["Everything in Standard", "2,000 connected-assistant calls a month", "Read-only sharing you can revoke"],
-    icon: Link2,
-  },
-  {
-    id: "max",
-    name: "Max",
-    lead: "The highest limits and fastest updates.",
-    includes: ["All your bank accounts", "Priority bank updates", "400 Penny messages a month", "5,000 connected-assistant calls a month"],
+    id: "plus",
+    name: "Plus",
+    lead: "No limit on accounts, and the most Penny messages.",
+    includes: ["Unlimited connected accounts", "300 Penny messages a month", "All features"],
     icon: Crown,
   },
 ];
@@ -398,6 +391,9 @@ export default function PlanPicker({
         {info.status === "past_due" && <p className="mt-1 flex items-center gap-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />Your payment needs attention.</p>}
       </div>
       {periodControls}
+      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+        Every paid plan has all features, savings tips and investments included. Plans differ only in connected accounts and Penny messages.
+      </p>
       <div role="radiogroup" aria-label="Choose a plan" className="flex flex-wrap gap-2">
         {TIERS.map((tier, index) => {
           const active = tier.id === selected;

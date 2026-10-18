@@ -18,7 +18,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.core import timeutil
-from app.core.subscription import TIER_BILLING_PRICES_GBP
+from app.core.subscription import TIER_BILLING_PRICES_GBP, canonical_tier_name
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,8 @@ def trial_reminder_copy(doc: dict) -> tuple[str, str] | None:
     """(title, body) for the pre-conversion reminder, or None when the
     document has no resolvable price or trial end. Hedged: it says what is
     expected to happen, not a promise about Stripe's charge."""
-    tier = doc.get("tier")
+    # B53: a trial started on the retired Max or Connect tier reads as Plus.
+    tier = canonical_tier_name(doc.get("tier"))
     period = doc.get("billing_period")
     total = TIER_BILLING_PRICES_GBP.get(tier, {}).get(period)
     trial_ends_at = timeutil.as_utc(doc.get("trial_ends_at"))

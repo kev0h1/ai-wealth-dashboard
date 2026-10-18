@@ -49,7 +49,7 @@ def env(monkeypatch):
                        billing_customers_col=_FakeCol([{"user_id": UID, "stripe_customer_id": "cus_1"}]),
                        finexer_consents_col=_FakeCol())
     monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
-    monkeypatch.setattr(config_module, "DEFAULT_TIER", "max")
+    monkeypatch.setattr(config_module, "DEFAULT_TIER", "plus")
     pushes = []
 
     async def _push(user_id, title, body, url="/"):
@@ -71,7 +71,7 @@ def test_trial_periods_cover_every_offered_period():
     assert {"monthly", "six_months", "annual"} <= set(sub_module.SUBSCRIPTION_TRIAL_PERIODS)
 
 
-@pytest.mark.parametrize("tier", ["lite", "standard", "connect", "max"])
+@pytest.mark.parametrize("tier", ["lite", "standard", "plus"])
 @pytest.mark.parametrize("period", ["monthly", "six_months", "annual"])
 def test_checkout_trial_requires_card_for_every_tier_and_period(monkeypatch, tier, period):
     fake = _make_fake_stripe()
@@ -203,7 +203,7 @@ def test_ended_statuses_land_on_statements_not_default_tier(env, stripe_status):
     _feed(_sub_event("e1", stripe_status))
     assert subs.docs[0]["status"] == "expired"
     sub = _run(sub_module.get_subscription(UID))
-    assert sub.tier == sub_module.Tier.STATEMENTS  # DEFAULT_TIER is "max" here
+    assert sub.tier == sub_module.Tier.STATEMENTS  # DEFAULT_TIER is "plus" here
 
 
 def test_subscription_deleted_lands_on_statements_and_keeps_data(env):

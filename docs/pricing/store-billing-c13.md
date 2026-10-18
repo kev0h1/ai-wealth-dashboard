@@ -334,6 +334,29 @@ business crosses the £90k threshold) is the largest single term in this
 comparison and should be confirmed with Kevin's accountant before it is
 relied on.
 
+### 3.2 B53 update (2026-10-18): Plus replaces Connect and Max
+
+Kevin's B53 decision changes the catalogue above: the paid tiers are Lite, Standard and **Plus**; Connect and Max are retired. Nine auto-renewable subscriptions (three tiers by three periods) plus three Penny packs replace the sixteen products in the table above. There is no Connect product and no MCP pack in the stores.
+
+Product ids follow the scheme C21 and C24 implemented in `backend/app/core/store_catalogue.py` (`sorted.<tier>.<period>` and `sorted.penny.<n>`), which supersedes the longer `co.uk.auriqltd.sorted.sub...` namespace used earlier in this section, so the spec and the code agree. Kevin decided on 2026-10-17 (C24) that store prices match web exactly, with no uplift, so the iOS and Play prices equal `TIER_BILLING_PRICES_GBP`, and the uplift proposal in 3.1 is superseded for every tier.
+
+| Product id | Tier | Period | Store price (same as web) |
+|---|---|---|---|
+| `sorted.lite.monthly` | Lite | Monthly | £5.99 |
+| `sorted.lite.six_months` | Lite | Every 6 months | £31.99 |
+| `sorted.lite.annual` | Lite | Yearly | £59.99 |
+| `sorted.standard.monthly` | Standard | Monthly | £9.99 |
+| `sorted.standard.six_months` | Standard | Every 6 months | £53.99 |
+| `sorted.standard.annual` | Standard | Yearly | £99.99 |
+| `sorted.plus.monthly` | Plus | Monthly | £12.99 |
+| `sorted.plus.six_months` | Plus | Every 6 months | £69.99 |
+| `sorted.plus.annual` | Plus | Yearly | £129.99 |
+| `sorted.penny.20`, `sorted.penny.100`, `sorted.penny.200` | Penny packs | 20, 100, 200 messages | £0.99, £2.99, £4.99 |
+
+Subscription group ranking becomes Plus above Standard above Lite. Config keys for both providers are `plus`, `plus_six_months` and `plus_annual` in place of the `connect*` and `max*` keys; the shared required-key vocabulary for Stripe is now 13 keys (`app.core.config._STRIPE_REQUIRED_PRICE_KEYS`). Server limits: Lite 10 accounts and 40 Penny, Standard 25 and 150, Plus unlimited and 300, every paid tier with every feature. Existing Stripe subscriptions on the retired Max and Connect prices keep working: the webhook reads those legacy price ids only to resolve them to Plus.
+
+C21 and C24 still name `max` in `STORE_PAID_TIERS` and will rename their max entries to `plus` after B53 merges. B53 does not edit those branches.
+
 ## 4. `appAccountToken`
 
 An Apple transaction belongs to an Apple ID, not to this app's account —

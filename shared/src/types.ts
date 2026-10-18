@@ -662,7 +662,7 @@ export interface BillLabel {
   is_skip: boolean;
 }
 
-export type SubscriptionTier = "statements" | "lite" | "standard" | "connect" | "max";
+export type SubscriptionTier = "statements" | "lite" | "standard" | "plus";
 
 export interface SubscriptionLimits {
   open_banking: boolean;
@@ -717,7 +717,7 @@ export interface SubscriptionUsage {
    *  null with no active packs. */
   penny_topup_expires_soonest?: string | null;
   /** How many packs this user bought THIS calendar month, any source —
-   *  MoreMessagesSheet.tsx leads with "Move to Max" instead of the packs
+   *  MoreMessagesSheet.tsx leads with "Move to Plus" instead of the packs
    *  once this reaches 2. */
   penny_packs_bought_this_month?: number;
 }
@@ -807,7 +807,7 @@ export interface SubscriptionInfo {
   limits: SubscriptionLimits;
   usage: SubscriptionUsage;
   /** True once real billing (item B5) is live. False today — DEFAULT_TIER
-   *  is "max", so everyone gets the Max tier's allowances (including 5000
+   *  is "plus", so everyone gets the Plus tier's allowances (including 5000
    *  free MCP calls/month) with no card on file; the frontend uses this
    *  flag rather than hardcoding that as permanent copy. Optional so a
    *  client running against an older backend degrades to not showing the
