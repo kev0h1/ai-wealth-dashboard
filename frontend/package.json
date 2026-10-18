@@ -27,6 +27,7 @@
     "check:g201-settings-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g201-settings-directory.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:b50-plan-picker-v2": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs app/design/plan-picker-v2/model.test.mjs",
+    "check:b50-plan-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b50-plan-picker.test.mjs",
     "check:design-stale": "node scripts/check-design-stale.mjs --strict",
     "check:design-stale-detect": "node scripts/design-stale-detect.test.mjs",
     "check:signin-handoff": "node scripts/check-signin-handoff.mjs",
