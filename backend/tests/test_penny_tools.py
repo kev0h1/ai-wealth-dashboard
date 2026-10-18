@@ -323,10 +323,8 @@ def _patch_today_items_collections(monkeypatch, uid, savings_insight_docs):
 
 
 def _verified_saving_doc():
-    """A savings insight whose triggering merchant has gone silent long
-    enough to be a verified saving, not yet celebrated and not lapsed --
-    exactly the shape that stamps `celebrated_at` (the one-time burn write)
-    the first time it's ever seen."""
+    """A savings insight that carries an internal verified resolution. G283: it
+    is never narrated as a celebration and never stamped, with persist on or off."""
     return {
         "_id": "insight1", "insight_id": "insight1", "user_id": "kevin",
         "verified_savings": 12.0, "verified_merchant": "Gymbox",
@@ -341,28 +339,24 @@ def test_get_today_brief_via_real_engine_makes_zero_writes(monkeypatch):
 
     result = asyncio.run(execute_tool("kevin", "get_today_brief", {}))
 
-    # The one-time surprise is still SEEN (the whole point of the fix: a
-    # persist=False call must not consume it unseen) ...
-    assert any(i["type"] == "celebration" for i in result["items"])
-    # ... but genuinely nothing was written anywhere in the call chain.
+    assert not any(str(i.get("id", "")).startswith("insight_win:") for i in result.get("items", []))
+    assert "Gymbox" not in repr(result) and "£12" not in repr(result)
     assert companion_items.write_calls == []
     assert behaviour_portrait.write_calls == []
     assert savings_insights.write_calls == []
 
 
-def test_compute_today_items_persist_true_still_writes(monkeypatch):
-    """Guard against persist accidentally defaulting to off: the exact same
-    fixture, called with persist=True (the default GET /today itself
-    relies on), must still stamp celebrated_at for real."""
+def test_compute_today_items_never_narrates_a_verified_saving_even_with_persist(monkeypatch):
     companion_items, behaviour_portrait, savings_insights = _patch_today_items_collections(
         monkeypatch, "kevin", [_verified_saving_doc()],
     )
 
     items = asyncio.run(companion_module.compute_today_items("kevin", persist=True))
 
-    assert any(i["type"] == "celebration" for i in items)
-    assert savings_insights.write_calls == ["update_one"]
-    assert savings_insights.docs[0]["celebrated_at"] is not None
+    assert not any(str(i.get("id", "")).startswith("insight_win:") for i in items)
+    assert "verified saving" not in repr(items)
+    assert savings_insights.write_calls == []
+    assert "celebrated_at" not in savings_insights.docs[0]
 
 
 # ── 2. get_safe_to_spend / recurring payments ───────────────────────────
@@ -1062,7 +1056,7 @@ def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatc
     assert "raw transaction" in text            # no raw transactions
     assert "Settings" in text and "Connected assistants" in text  # where to get the URL
     assert "sign in" in text.lower()            # sign-in required
-    assert "Connect and Max" in text            # tiers
+    assert "the Plus plan" in text            # tiers
     assert "—" not in text and "–" not in text  # no em/en-dashes
 
 
@@ -1177,7 +1171,7 @@ def test_run_penny_agent_kevins_mcp_question_reaches_explain_mcp_connector(monke
     assert result is not None
     assert result["tools_used"] == ["explain"]
     assert result["reply"] == expected_text
-    assert "Connect and Max" in result["reply"]
+    assert "Plus plan" in result["reply"]
 
 
 def test_run_penny_agent_mcp_question_on_disabled_deployment_gets_no_connector_copy(monkeypatch):
@@ -1258,7 +1252,7 @@ def test_run_penny_agent_mcp_question_on_disabled_deployment_gets_no_connector_c
         )
     )
     assert result is not None
-    assert "Connect and Max" not in result["reply"]
+    assert "Plus plan" not in result["reply"]
     assert "read-only" not in result["reply"]
     assert result["reply"] == "I don't have information on that."
 
@@ -1650,30 +1644,21 @@ def test_get_insights_enrichment_fields_present(monkeypatch):
         # field, and every real stored doc always has one.
         "category": "energy", "insight_id": "energy-abc", "_id": "energy-abc",
         "title": "EDF crept up", "body": "Your EDF bill has risen.",
-        "savings_estimate": "£12/mo", "pinned": False, "verified_savings": None,
+        "pinned": False, "verified_savings": None,
         "triggered_by": [{"display_name": "EDF", "monthly_amount": 60.0, "occurrences": 3}],
         "verified_merchant": None, "deadline_at": None, "is_new": True,
         "_return_reason": None,
     }]
     monkeypatch.setattr(penny_tools_module, "savings_insights_col", _FakeCollection(docs))
 
-    import app.routers.analytics as analytics_router_module
-
-    async def fake_value_delivered(user):
-        return {
-            "insights_acted_on": 2, "total_monthly_saving": 22.0, "verified_monthly_saving": 10.0,
-            "breakdown": [{"title": "Stopped paying Gymbox", "monthly_saving": 10.0, "estimate_label": "verified"}],
-        }
-
-    monkeypatch.setattr(analytics_router_module, "get_value_delivered", fake_value_delivered)
-
     result = asyncio.run(execute_tool("kevin", "get_insights", {}))
     insight = result["insights"][0]
     assert insight["triggered_by"][0]["merchant"] == "EDF"
     assert insight["triggered_by"][0]["monthly_amount"] == 60.0
     assert insight["is_new"] is True
-    assert result["value_delivered"]["insights_acted_on"] == 2
-    assert result["value_delivered"]["breakdown"][0]["estimate_label"] == "verified"
+    assert "value_delivered" not in result
+    for gone in ("estimated_saving", "verified_savings", "verified_merchant", "state"):
+        assert gone not in insight
 
 
 def test_get_accounts_enrichment_fields_present(monkeypatch):

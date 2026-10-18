@@ -80,7 +80,7 @@ def test_open_banking_gate_raises_402_for_statements_tier(monkeypatch):
     assert detail["kind"] == "open_banking"
 
 
-@pytest.mark.parametrize("tier_name", ["lite", "standard", "connect", "max"])
+@pytest.mark.parametrize("tier_name", ["lite", "standard", "plus"])
 def test_open_banking_gate_is_noop_for_paid_tiers(monkeypatch, tier_name):
     _set_tier(monkeypatch, tier_name)
     asyncio.run(check_open_banking_allowed(f"{tier_name}-user@example.com"))

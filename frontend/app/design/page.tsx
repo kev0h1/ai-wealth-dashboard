@@ -32,19 +32,20 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "plan-picker-v2",
+    name: "Choose what fits · B50",
+    description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
+    variants: [{ label: "A · Room to compare", value: "a" }, { label: "B · One clear choice", value: "b" }],
+    states: [{ label: "Free account", value: "free" }, { label: "In a trial", value: "trialling" }, { label: "Paid account", value: "paid" }],
+    group: "current",
+  },
+  {
     slug: "keep-money-here",
     name: "Keep money in this account · G274",
     description: "G274: A Reserve here, B Details then review. Purpose and amount first, reserve in the paying account by default, optional receiving account and transfer rule. One/several/no-context/no-eligible-source fixtures, both themes, local draft confirmation only. No real changes · ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
     variants: [{ label: "A · Reserve here", value: "a" }, { label: "B · Details then review", value: "b" }],
     states: [{ label: "Ready", value: "ready" }, { label: "Load failure", value: "load-error" }, { label: "Save failure", value: "save-error" }],
     group: "current",
-  },
-  {
-    slug: "spend-tips",
-    name: "spend-tips",
-    description:
-      "Spend tips integration round (owner brief 2026-09-04: 'Penny noticed' rows wedged under category rows break the list grammar, truncate the fact and contradict 'Looking normal'; corrected 2026-09-05: a category tap routes to the transactions page, not a sheet) · A tip count + estimate folded into the category subline, tip waits behind a one-line row under the filter chips on the transactions page, above the payments / B one 'Ways to save' card under the list with a reconciled total and a door to Patterns / C both · real InsightCard over the owner's live tips · ?variant=a|b|c&mode=light|dark",
-    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "marketing-kit",
@@ -148,6 +149,14 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G214, Kevin's pick B (stale-marked figure), now shipped: while a bank sync runs the Safe to Spend figure steps down to secondary ink with Last known amount and an as-of time, the chip carries the ring, and Accounts shows a ring beside the balance, Pending for a never-synced bank and a banner with Try again once a sync stalls or fails · the first sign-up has no hero yet, so the same grammar shows No figure yet above the sign-in ledger · renders the production SafeToSpendCard, FirstSyncCard, AccountLedgerRow and SyncNote with fixture props, nothing syncs · ?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark",
     states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
+  },
+  {
+    slug: "sts-tone",
+    name: "Calm, useful Safe to Spend · G287",
+    description: "A Quiet instrument, B Next step first. Ink amounts, precise risk signifiers and the same forecast working. One-off and repeated cash gaps, optional plans and a coverable account gap remain distinct. The unchanged production card is the current reference. Synthetic examples, no account changes. ?variant=a|b&state=one-off|habitual|plans|move|small|urgent|loading|stale|error|long&mode=light|dark",
+    states: [{ label: "Repeated shortfall", value: "habitual" }, { label: "One-off", value: "one-off" }, { label: "Plans only", value: "plans" }, { label: "Account move", value: "move" }, { label: "Small gap", value: "small" }, { label: "Payment at risk", value: "urgent" }, { label: "Loading", value: "loading" }, { label: "Stale", value: "stale" }, { label: "Error", value: "error" }, { label: "Long figures", value: "long" }],
+    variants: [{ label: "A · Quiet instrument", value: "a" }, { label: "B · Next step first", value: "b" }],
+    group: "current",
   },
   {
     slug: "safe-to-spend-figure",
@@ -428,6 +437,16 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "home-accounts-rhythm",
+    name: "home-accounts-rhythm",
+    description:
+      "G282 (Kevin 2026-10-17, skill: impeccable, audit then fix, no variant round) · one account display name on every surface (THE NUMBER ONE reads The Number One, MAINGI K M keeps its initials, PERSONAL GBP keeps GBP, mixed-case nicknames untouched) and one spacing rhythm on Home and Accounts (12 between cards in a group, 20 between sections, 8 under a section label) · HONEST SCOPE: HomePage and AccountsPage fetch their own data, so this renders the production sections they are composed of with fixtures through props (SafeToSpendCard, HomeBrief cards, Coming up strip, tip, estate section, transactions; AccountsHeader, ReconnectStrip, find bar and chips, group cards, ledger rows), with the wrapper spacing between them mirrored and pinned against the page source; the Home greeting row and the Accounts Offline block are stand-ins · synthetic accounts, no live data · ?surface=home|accounts&mode=light|dark",
+    states: [
+      { label: "Home", value: "home" },
+      { label: "Accounts", value: "accounts" },
+    ],
+  },
+  {
     slug: "home-cleanup",
     name: "home-cleanup",
     description:
@@ -607,7 +626,7 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "insights-live",
     name: "insights-live",
-    description: "STANDING design twin for Insights, kept even after the Insights page itself retired 2026-09-05 (owner phone report 2026-09-01, \"still empty cards\"; updated same-day for the cost-driven TTL reversal; extended 2026-09-02 for the money-shape redesign, then again same-day for Kevin's phone feedback — job rows link to real transactions not Planning, and (after a short-lived separate \"Over time\" block was retired the same day per Kevin's redirect) a period/average PICKER built into the hero itself) · renders the REAL exported components/InsightCard.tsx components (InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero) against fixture payloads shaped field-for-field like the live GET /savings-insights serializer output · one fixture per insight.state (fresh with the weekly-default expiry line, fresh with a dated-claim expiry line, quiet never-researched, quiet expired-since-last-pass, substituted, verified) plus the is_new invariant case · ALSO renders the real MoneyShapeHero/WhatWorksCard/ReferenceShapesRow (now app/spend/shape/) against MONEY_SHAPE_FIXTURES (GET /money-shape shaped fixtures, copy mirrors backend/app/services/money_shape.py's deterministic templates) independently selectable via its own `shape` param: ok_change (live Penny proposal, carries 8 periods + 3/6-month averages exercising the hero's own period/average picker sheet), ok_keep (trait kept, celebration chip), ok_nochoice (undecided trait, \"choose in your Mirror\" link), no_pattern (headline-only, no rows), thin (both cards fall back to their one-line placeholder), overspent (\"Beyond take-home\" row, no red, calm_start proposal) · closes the verification blind spot that let three prior fix rounds ship on code-trace alone, before this twin existed nobody ever rendered the pixels · ?mode=light|dark&state=all|fresh_weekly|fresh_claim|quiet_never_researched|quiet_expired|substituted|verified|is_new&shape=ok_change|ok_keep|ok_nochoice|no_pattern|thin|overspent",
+    description: "STANDING design twin for Insights, kept even after the Insights page itself retired 2026-09-05 (owner phone report 2026-09-01, \"still empty cards\"; updated same-day for the cost-driven TTL reversal; extended 2026-09-02 for the money-shape redesign, then again same-day for Kevin's phone feedback — job rows link to real transactions not Planning, and (after a short-lived separate \"Over time\" block was retired the same day per Kevin's redirect) a period/average PICKER built into the hero itself) · renders the REAL exported components/InsightCard.tsx components (InsightCard, CompactInsightRow, isCompactPullInsight) against fixture payloads shaped field-for-field like the live GET /savings-insights serializer output · one fixture per insight.state (fresh with the weekly-default expiry line, fresh with a dated-claim expiry line, quiet never-researched, quiet expired-since-last-pass, substituted, verified) plus the is_new invariant case · ALSO renders the real MoneyShapeHero/WhatWorksCard/ReferenceShapesRow (now app/spend/shape/) against MONEY_SHAPE_FIXTURES (GET /money-shape shaped fixtures, copy mirrors backend/app/services/money_shape.py's deterministic templates) independently selectable via its own `shape` param: ok_change (live Penny proposal, carries 8 periods + 3/6-month averages exercising the hero's own period/average picker sheet), ok_keep (trait kept, celebration chip), ok_nochoice (undecided trait, \"choose in your Mirror\" link), no_pattern (headline-only, no rows), thin (both cards fall back to their one-line placeholder), overspent (\"Beyond take-home\" row, no red, calm_start proposal) · closes the verification blind spot that let three prior fix rounds ship on code-trace alone, before this twin existed nobody ever rendered the pixels · ?mode=light|dark&state=all|fresh_weekly|fresh_claim|quiet_never_researched|quiet_expired|substituted|verified|is_new&shape=ok_change|ok_keep|ok_nochoice|no_pattern|thin|overspent",
     states: [{ label: "Everything", value: "all" }],
   },
   {

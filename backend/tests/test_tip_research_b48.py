@@ -6,6 +6,7 @@ in-memory. Nothing here touches a real user.
 """
 import asyncio
 import json
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -27,7 +28,7 @@ SNIPPET = ("SIM-only deals typically cost between £8 and £25 a month. Giffgaff
            "Lebara 30GB for £12. Switching offer ends 2099-03-31.")
 LLM_FINDINGS = {
     "typical_low": 8, "typical_high": 25,
-    "headline": "SIM-only plans are typically cheaper than handset contracts",
+    "headline": "SIM-only plans are typically cheaper than handset contracts",  # G283: ignored
     "alternatives": [{"name": "Giffgaff", "price": 10, "note": None},
                      {"name": "Lebara", "price": 12, "note": "30GB"}],
     "deal": {"text": "A switching offer is running", "valid_until": "2099-03-31"},
@@ -312,7 +313,8 @@ def test_two_users_same_provider_and_band_cause_one_research_call(pass_env):
     assert set(calls.tavily_pipelines) == {"tip_research_tavily"}
     a, b = _mobile_doc(insights, ALICE), _mobile_doc(insights, BOB)
     assert "£27" in a["title"] and "£33" in b["title"]  # personal layer: each user's own figure
-    assert a["body"].count("Market check") == 1 and "typically cost £8 to £25 a month" in a["body"]
+    assert a["body"].count("Checked ") == 1 and "listed at £8 to £25 a month" in a["body"]
+    assert a["body"].endswith("source example.com.")
 
 
 def test_sequential_second_user_reuses_stored_findings(pass_env):
@@ -556,7 +558,7 @@ def test_deal_past_its_deadline_is_not_shown_at_compose_time():
     }
     tb = [{"merchant_key": "ee", "display_name": "Ee", "monthly_amount": 30.0, "is_recurring": True}]
     live = si._compose_tip_content("mobile", doc, tb, None, datetime(2026, 10, 4).date())
-    assert "switching offer" in live["body"] and "Offer ends 5 Oct" in live["body"]
+    assert "switching offer" in live["body"] and "Offer listed until 5 Oct" in live["body"]
     assert live["claim_valid_until"] == datetime(2026, 10, 5)
     past = si._compose_tip_content("mobile", doc, tb, None, datetime(2026, 10, 6).date())
     assert "switching offer" not in past["body"] and past["claim_valid_until"] is None
@@ -590,22 +592,23 @@ def test_composed_tip_is_personal_hedged_dated_and_in_house_style(pass_env):
     doc = _mobile_doc(insights, ALICE)
     text = doc["title"] + " " + doc["body"]
     assert doc["title"] == "You pay EE £27 a month"
-    assert "typically" in doc["body"] and "Market check" in doc["body"]
+    assert "listed at £8 to £25 a month" in doc["body"] and re.search(r"Checked \d{1,2} \w{3}, source example\.com\.", doc["body"])
     assert "—" not in text and "–" not in text and "!" not in text
-    assert doc["savings_estimate"] is None  # 27 is above the typical top of 25, but by under £3
+    assert "savings_estimate" not in doc
     assert doc["claim_valid_until"] == datetime(2099, 3, 31)
     assert doc["researched_at"] is not None and doc["prompt_version"] == si.PROMPT_VERSION
     out = si._serialize_insight(doc)
     assert out["state"] == "fresh" and out["title"] == doc["title"]
 
 
-def test_savings_estimate_is_derived_from_user_figure_minus_top_of_range(pass_env):
+def test_no_saving_is_claimed_or_estimated_even_when_the_user_pays_above_the_range(pass_env):
     *_, insights, _ = pass_env
     run(si._refresh_savings_insights_for_user(CAROL))
     doc = _mobile_doc(insights, CAROL)
-    assert doc["savings_estimate"] == "~£32/mo"  # 56.71 - 25, rounded
-    assert "could save about £32 a month against the top of that range" in doc["body"]
-    assert si._serialize_insight(doc)["savings_estimate_monthly"] == 32.0
+    assert "savings_estimate" not in doc
+    assert "could save" not in doc["body"] and "£32" not in doc["body"]
+    assert si.tip_copy.find_banned(doc["title"]) is None and si.tip_copy.find_banned(doc["body"]) is None
+    assert "savings_estimate" not in si._serialize_insight(doc)
 
 
 def test_phrasing_step_is_off_by_default_and_never_searches(pass_env, monkeypatch):
@@ -617,7 +620,7 @@ def test_phrasing_step_is_off_by_default_and_never_searches(pass_env, monkeypatc
 def test_phrasing_step_keeps_composed_text_unless_every_figure_survives(monkeypatch):
     monkeypatch.setattr(si, "TIP_LLM_PHRASING", True)
     monkeypatch.setattr(si, "OPENROUTER_API_KEY", "k")
-    content = {"title": "You pay EE £27 a month", "body": "Plans typically cost £8 to £25 a month. Market check 12 Oct."}
+    content = {"title": "You pay EE £27 a month", "body": "SIM-only plans are listed at £8 to £25 a month. Checked 12 Oct, source example.com."}
 
     class R:
         status_code = 200
@@ -646,12 +649,12 @@ def test_phrasing_step_keeps_composed_text_unless_every_figure_survives(monkeypa
         return R(seen["payload"])
 
     monkeypatch.setattr(si, "openrouter_chat", fake_llm)
-    seen["payload"] = {"title": "EE costs you £27 a month", "body": "Similar plans typically cost £8 to £25 a month. Market check 12 Oct."}
+    seen["payload"] = {"title": "EE costs you £27 a month", "body": "SIM-only plans are listed at £8 to £25 a month. Checked 12 Oct, source example.com."}
     out = run(si._maybe_rephrase("u@example.com", content, None))
     assert out["title"] == "EE costs you £27 a month" and seen["pipeline"] == "tip_phrasing"
     seen["payload"] = {"title": "EE costs you £99 a month", "body": content["body"]}
     assert run(si._maybe_rephrase("u@example.com", content, None)) == content
-    seen["payload"] = {"title": content["title"], "body": "Plans typically cost £8 to £25 a month."}
+    seen["payload"] = {"title": content["title"], "body": "SIM-only plans are listed at £8 to £25 a month."}
     assert run(si._maybe_rephrase("u@example.com", content, None)) == content
 
 

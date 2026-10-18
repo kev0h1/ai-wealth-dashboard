@@ -5,6 +5,7 @@ import { ArrowRightLeft, CalendarClock, X } from "lucide-react";
 import type { CompanionItem } from "@/lib/api";
 import SettleMark from "@/components/SettleMark";
 import ActionLabel from "@/components/ActionLabel";
+import { actionHref } from "@/lib/actionRoutes";
 
 interface CompanionStackProps {
   items: CompanionItem[];
@@ -58,7 +59,7 @@ export default function CompanionStack({ items, onDismiss }: CompanionStackProps
               </p>
               {item.action && (
                 <button
-                  onClick={() => router.push(item.action!.route)}
+                  onClick={() => router.push(actionHref(item.action!.route))}
                   className="mt-2.5 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-xl active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <ActionLabel>{item.action.label}</ActionLabel>

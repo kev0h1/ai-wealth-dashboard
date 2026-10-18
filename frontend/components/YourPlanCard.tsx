@@ -193,7 +193,7 @@ export default function YourPlanCard({
       {pickerOpen && info && (
         <SheetFrame
           title="Choose what fits"
-          description="Compare all five plans, then choose how often you want a paid plan to renew."
+          description="Compare all four plans, then choose how often you want a paid plan to renew."
           onClose={() => setPickerOpen(false)}
         >
               <PlanPicker

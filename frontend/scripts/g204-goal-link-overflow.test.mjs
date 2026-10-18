@@ -32,6 +32,7 @@ const picker = source("../components/AccountRadioPicker.tsx");
 assert.match(picker, /flex-1 min-w-0/);
 assert.doesNotMatch(picker, /\bw-\[\d+px\]|min-w-\[\d+px\]/);
 assert.equal(tidyAccountText("BARCLAYS BANK PLC"), "Barclays bank PLC");
-assert.match(picker, /account\.manual \? account\.name : tidyAccountText\(account\.name\)/, "typed manual names are never tidied");
+// G282, Kevin 2026-10-17: the picker uses the one shared display name; a mixed-case typed name is never altered by it.
+assert.match(picker, /displayAccountName\(account\.name\)/, "picker uses the shared display name");
 assert.match(picker, /if \(account\.manual\) return account\.provider/);
 console.log("g204-goal-link-overflow OK");

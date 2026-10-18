@@ -41,6 +41,7 @@
 //      `sourceClass` resolves to "current" — a savings account is excluded
 //      the same way a credit card is: never admitted to the candidate list.
 
+import { displayAccountName } from "./accountName";
 import type { Account, AccountEligibility } from "./api";
 import { sourceClass } from "./coverPlanSourceClass";
 
@@ -102,7 +103,7 @@ export type SpendFromResult =
   | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null };
 
 function toSpendFromAccount(a: Account, headroom: number, capped = false): SpendFromAccount {
-  return { accountId: a.id, name: a.name, provider: a.provider, headroom, capped, account: a };
+  return { accountId: a.id, name: displayAccountName(a.name), provider: a.provider, headroom, capped, account: a };
 }
 
 function rankByHeadroom(

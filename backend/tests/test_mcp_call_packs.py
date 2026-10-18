@@ -111,7 +111,7 @@ class _FakeConnectSub:
     messages/month — GET /subscription's shape test exercises both
     `mcp_allowance` and `penny_allowance` off the same faked subscription)."""
     tier_name = "connect"
-    tier = subscription_module.Tier.CONNECT
+    tier = subscription_module.Tier.PLUS
     status = "active"
 
     def limit(self, key):

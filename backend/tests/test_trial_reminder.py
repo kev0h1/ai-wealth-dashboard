@@ -77,7 +77,7 @@ def test_trial_reminder_sends_inside_three_day_window(monkeypatch):
     push = calls[0]
     assert push["user_id"] == "kevin@example.com"
     assert push["url"] == "/settings"
-    assert "£169.99" in push["body"]
+    assert "£129.99" in push["body"]
     assert "unless you cancel from Settings, Your plan" in push["body"]
     assert fake_subs.docs[0]["trial_reminder_sent_at"] is not None
 

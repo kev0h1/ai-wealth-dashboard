@@ -27,6 +27,8 @@ ssh -i "$KEY" -o UserKnownHostsFile="$KNOWN" -o StrictHostKeyChecking=accept-new
 # Validate before publishing: must be JSON with a plausible station count.
 python3 -c "import json,sys;d=json.load(open('$TMP'));sys.exit(0 if d.get('station_count',0)>1000 else 1)"
 
+# H117: mv onto a device node (for example /dev/null) replaces the node.
+if [ -e "$OUT" ] && [ ! -f "$OUT" ]; then echo "refusing to replace $OUT: not a regular file" >&2; exit 1; fi
 mv "$TMP" "$OUT"
 trap - EXIT
 echo "$(date -u +%FT%TZ)  refreshed $OUT ($(python3 -c "import json;print(json.load(open('$OUT'))['station_count'])") stations)"

@@ -100,6 +100,7 @@ from app.services.affordability import check_affordability as _check_affordabili
 from app.services.categories import (
     get_category_kinds, is_non_spend, normalise_name, resolve_category_name,
 )
+from app.services.account_names import display_account_name
 from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
@@ -578,14 +579,14 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_insights",
             "description": (
-                "The user's savings insights: general-information tips generated "
-                "from their own transactions (a bill that's crept up, a cheaper "
-                "alternative, a pattern worth knowing about), the same ones "
-                "surfaced on Home and, filtered by category, on the transactions "
-                "page, ranked the same way. Use this for "
-                "questions about insights, tips, saving ideas, or 'what's the "
-                "best insight'. Rank 1 IS the top/best insight, never re-rank. "
-                "Quote each tip's own figures verbatim, never recompute them."
+                "The user's tips: facts drawn from their own transactions and "
+                "from a dated market check (what they pay, to whom and how often, "
+                "and what comparable options are listed at, with a source date), "
+                "the same ones surfaced on Home and, filtered by category, on the "
+                "transactions page, in the same order. Use this for questions about "
+                "tips or insights. State only what the tip states: never claim or "
+                "estimate a saving, never recommend a provider, never call one the "
+                "best option. Quote each tip's own figures verbatim, never recompute them."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -3064,7 +3065,7 @@ def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> di
     by_date = sorted(rows, key=lambda d: d.get("date") or datetime.min)
     return {
         "account_id": acc.id,
-        "name": acc.name,
+        "name": display_account_name(acc.name),
         "balance": _money(acc.balance),
         "money_in": _money(money_in),
         "money_out": _money(money_out),
@@ -3125,7 +3126,7 @@ async def _exec_get_account_activity(
                     "ambiguous": True,
                     "matches": [
                         {
-                            "id": a.id, "name": a.name, "provider": a.provider,
+                            "id": a.id, "name": display_account_name(a.name), "provider": a.provider,
                             "balance_formatted": _money(a.balance)["formatted"],
                         }
                         for a in name_matches
@@ -3227,7 +3228,7 @@ async def _exec_get_accounts(uid: str) -> dict:
             # tool returns an explicit `ambiguous` result with each
             # candidate's id in exactly that case).
             "id": a.id,
-            "name": a.name,
+            "name": display_account_name(a.name),
             "provider": a.provider,
             "type": a.type,
             "subtype": a.subtype,
@@ -4257,24 +4258,15 @@ def _category_months_table(category: str, rows_raw: list[dict], start_d: date, e
 
 # ── get_insights ──────────────────────────────────────────────────────────
 def _insights_rank_key(d: dict) -> tuple:
-    """Byte-for-byte the same tie-break GET /savings-insights uses
-    (savings_insights.py's own nested `_rank_key`, not importable — pinned,
-    then verified, then the largest parsed £ estimate, then the largest
-    triggering monthly spend) so "the best insight" here can never disagree
-    with the order those same insights show in on Home or Spend."""
-    from app.routers.analytics import _parse_saving_amount
-
-    estimate = _parse_saving_amount(d.get("savings_estimate")) or 0.0
+    """Same tie-break GET /savings-insights uses (pinned, then the largest
+    triggering monthly spend), so "the first tip" here can never disagree
+    with the order those same tips show in on Home or Spend. G283: no
+    savings figure takes part in the ranking."""
     spend = sum(float(t.get("monthly_amount") or 0) for t in d.get("triggered_by") or [])
-    # `and not d.get("substituted_at")`: same precedence
-    # `_derive_insight_state` resolves (incoherence A) — kept in lockstep
-    # with GET /savings-insights' own `_rank_key`, see that function.
-    is_verified = bool(d.get("verified_savings")) and not d.get("substituted_at")
-    return (bool(d.get("pinned")), is_verified, estimate, spend)
+    return (bool(d.get("pinned")), spend)
 
 
 _INSIGHT_TRIGGER_CAP = 5
-_VALUE_DELIVERED_CAP = 10
 
 
 def _fmt_insight_deadline(value) -> str | None:
@@ -4313,7 +4305,6 @@ async def _exec_get_insights(uid: str) -> dict:
                 "rank": i + 1,
                 "title": (s := _serialize_insight(d))["title"] or "",
                 "summary": s["body"] or "",
-                "estimated_saving": s["savings_estimate"],
                 # Enrichment pass, 2026-08-27: why-fields the insights
                 # engine already computes (savings_insights.py's own
                 # serializer) that this tool used to drop.
@@ -4325,28 +4316,6 @@ async def _exec_get_insights(uid: str) -> dict:
                     }
                     for t in (d.get("triggered_by") or [])[:_INSIGHT_TRIGGER_CAP]
                 ],
-                # Read off `s` (the serialized doc), not `d` (the raw one):
-                # `_serialize_insight` resolves the verified-vs-substituted
-                # precedence (see `_derive_insight_state` in
-                # savings_insights.py) before these fields are ever set, so
-                # Penny can't narrate a "verified saving" for a category the
-                # engine actually resolved as `substituted` (incoherence A —
-                # owner phone report 2026-09-01, confirmed live for exactly
-                # this document shape: both `verified_savings` and
-                # `substituted_at` set on the same raw doc).
-                "verified_savings": (
-                    _money(s["verified_savings"]) if s["verified_savings"] else None
-                ),
-                "verified_merchant": s["verified_merchant"],
-                # STRUCTURAL FIX — the same single-source state every other
-                # consumer now switches on (see `_derive_insight_state`):
-                # "verified" | "substituted" | "fresh" | "quiet". Lets Penny
-                # distinguish a real win from a substitution ("that spend
-                # just moved elsewhere, not a saving") instead of only ever
-                # seeing a raw £ figure.
-                "state": s["state"],
-                "substituted": s["substituted"],
-                "substituted_merchant": s["substituted_merchant"],
                 "deadline_at": _fmt_insight_deadline(d.get("deadline_at")),
                 "is_new": bool(d.get("is_new", False)),
                 # Stored with a leading underscore (`_return_reason`), served
@@ -4355,24 +4324,6 @@ async def _exec_get_insights(uid: str) -> dict:
             }
             for i, d in enumerate(docs[:5])
         ]
-    try:
-        from app.routers.analytics import get_value_delivered as _route_get_value_delivered
-        vd = await _route_get_value_delivered(user={"email": uid})
-        result["value_delivered"] = {
-            "insights_acted_on": vd.get("insights_acted_on"),
-            "total_monthly_saving": _money(vd.get("total_monthly_saving")),
-            "verified_monthly_saving": _money(vd.get("verified_monthly_saving")),
-            "breakdown": [
-                {
-                    "title": b.get("title"),
-                    "monthly_saving": _money(b.get("monthly_saving")),
-                    "estimate_label": b.get("estimate_label"),
-                }
-                for b in (vd.get("breakdown") or [])[:_VALUE_DELIVERED_CAP]
-            ],
-        }
-    except Exception:
-        logger.exception("penny_tools: get_insights value-delivered lookup failed for %s", uid)
     return result
 
 
@@ -4405,7 +4356,7 @@ def _shape_plan_dest(dest: dict | None) -> dict | None:
 def _shape_leg_account(acc: dict | None) -> dict | None:
     if not acc:
         return None
-    return {"name": acc.get("name"), "balance": _money(acc.get("balance"))}
+    return {"name": display_account_name(acc.get("name")), "balance": _money(acc.get("balance"))}
 
 
 def _shape_payday_plan(item: dict) -> dict:
@@ -4736,7 +4687,7 @@ _MCP_CONNECTOR_REPLY = (
     "Spend verdict and account balances, never your raw transaction list. "
     "To connect one, sign in to Sorted first, then in Settings open "
     "Connected assistants and paste the address shown there into your "
-    "assistant. It's included on the Connect and Max plans."
+    "assistant. It's included on the Plus plan."
 )
 
 # ── explain(topic) — terms registry ──────────────────────────────────────
@@ -5177,7 +5128,7 @@ async def _exec_get_fill_candidates(uid: str, account_id_or_name: str | None) ->
     items = resp.get("items") or []
     return {
         "account_id": account.id,
-        "account_name": account.name,
+        "account_name": display_account_name(account.name),
         "candidates": [
             {
                 "display_name": c.get("display_name"),
@@ -5460,7 +5411,7 @@ async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None)
         if len(matches) > 1:
             return {
                 "ambiguous": True,
-                "matches": [{"id": a.id, "name": a.name, "provider": a.provider} for a in matches],
+                "matches": [{"id": a.id, "name": display_account_name(a.name), "provider": a.provider} for a in matches],
             }
         target = matches[0] if matches else None
     if target is None:
@@ -5685,7 +5636,7 @@ def _last4(account_number: str | None) -> str | None:
 def _card_candidate_summary(a) -> dict:
     return {
         "id": a.id,
-        "name": a.name,
+        "name": display_account_name(a.name),
         "bank": a.provider,
         "balance_formatted": _money(a.balance)["formatted"],
         "last4": _last4(getattr(a, "account_number", None)),
@@ -7000,7 +6951,7 @@ async def _resolve_offline_account_for_propose(uid: str, account_ref: str) -> di
                 "ambiguous": True,
                 "matches": [
                     {
-                        "id": a["_id"], "name": a.get("name"),
+                        "id": a["_id"], "name": display_account_name(a.get("name")),
                         "account_type": a.get("account_type"), "balance": _money(a.get("balance", 0)),
                     }
                     for a in matches
@@ -7113,7 +7064,7 @@ async def _resolve_source_account_for_propose(uid: str, ref: str) -> dict:
         if len(matches) > 1:
             return {
                 "ambiguous": True,
-                "matches": [{"id": a.id, "name": a.name, "provider": a.provider} for a in matches],
+                "matches": [{"id": a.id, "name": display_account_name(a.name), "provider": a.provider} for a in matches],
             }
         target = matches[0] if matches else None
     if target is None:
@@ -7125,7 +7076,7 @@ async def _resolve_source_account_for_propose(uid: str, ref: str) -> dict:
         resolved_id = await _route_resolve_source_scope(uid, target.id)
     except HTTPException as e:
         return {"error": str(e.detail)}
-    return {"account_id": resolved_id, "account_name": target.name}
+    return {"account_id": resolved_id, "account_name": display_account_name(target.name)}
 
 
 async def _resolve_bank_connection_for_propose(uid: str, ref: str) -> dict:

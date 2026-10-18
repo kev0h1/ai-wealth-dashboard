@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { KPIs, SafeToSpend, CompanionItem, GoalSummary, ValueDelivered } from "@/lib/api";
+import type { KPIs, SafeToSpend, CompanionItem, GoalSummary } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { resolveDisplayName } from "@/lib/displayName";
 
@@ -17,7 +17,6 @@ export interface HomeTopData {
   companionItems: CompanionItem[];
   goals: GoalSummary[];
   goalsStatus: "loading" | "ready" | "failed";
-  valueDelivered: ValueDelivered | null;
   firstName?: string;
   reload: () => void;
 }
@@ -34,7 +33,6 @@ export function useHomeTopData(): HomeTopData {
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>([]);
   const [goals, setGoals] = useState<GoalSummary[]>([]);
   const [goalsStatus, setGoalsStatus] = useState<"loading" | "ready" | "failed">("loading");
-  const [valueDelivered, setValueDelivered] = useState<ValueDelivered | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -44,19 +42,17 @@ export function useHomeTopData(): HomeTopData {
       api.safeToSpend(),
       api.getToday(),
       api.goalsSummary(),
-      api.valueDelivered(),
-    ]).then(([kpiR, safeR, todayR, goalsR, valueR]) => {
+    ]).then(([kpiR, safeR, todayR, goalsR]) => {
       if (kpiR.status === "fulfilled") setKpis(kpiR.value);
       if (safeR.status === "fulfilled") setSafeToSpend(safeR.value);
       if (todayR.status === "fulfilled") setCompanionItems(todayR.value.items);
       if (goalsR.status === "fulfilled") { setGoals(goalsR.value.goals); setGoalsStatus("ready"); }
       else setGoalsStatus("failed");
-      if (valueR.status === "fulfilled") setValueDelivered(valueR.value);
       setLoading(false);
     });
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
 
-  return { loading, kpis, safeToSpend, companionItems, goals, goalsStatus, valueDelivered, firstName, reload };
+  return { loading, kpis, safeToSpend, companionItems, goals, goalsStatus, firstName, reload };
 }

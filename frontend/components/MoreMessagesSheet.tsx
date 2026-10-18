@@ -15,7 +15,7 @@
 // The shared task sheet opens above Penny, retaining its conversation below.
 //
 // B5: rows are real buttons once `info.billing_live` is true (POST
-// /billing/checkout, api.startCheckout) — tapping a pack or the Move to Max
+// /billing/checkout, api.startCheckout) — tapping a pack or the Move to Plus
 // row starts a Stripe Checkout session and redirects the browser to it
 // (window.location.assign). Until BILLING_ENABLED flips true somewhere
 // (no Stripe account exists yet, see CLAUDE.md's Backlog B5 note), every
@@ -38,10 +38,10 @@
 // `info.topup` if an older backend hasn't deployed `topups` yet). Packs
 // last 90 days and draw down after the monthly allowance — the footnote
 // below says so. After a user's SECOND pack purchase in one calendar month
-// (`usage.penny_packs_bought_this_month`), the Move to Max row leads and
+// (`usage.penny_packs_bought_this_month`), the Move to Plus row leads and
 // the packs render below it instead of above.
 //
-// Copy rules: no em dashes, British English, "Move to Max" not "upgrade"
+// Copy rules: no em dashes, British English, "Move to Plus" not "upgrade"
 // (Kevin's framing, see the design preview's own header comment for why).
 
 import { useState } from "react";
@@ -142,9 +142,9 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // ASSUMPTION (contract doesn't name this key explicitly — flagged in this
   // feature's own report): `prices_gbp` is keyed by SubscriptionTier value,
   // same as every other tier reference in this codebase (SubscriptionTier
-  // itself is "statements" | "lite" | "standard" | "connect" | "max"), so
-  // the Max tier's own monthly price is `prices_gbp.max`.
-  const maxPrice = info?.prices_gbp?.max;
+  // itself is "statements" | "lite" | "standard" | "plus"), so
+  // the Plus tier's own monthly price is `prices_gbp.plus`.
+  const plusPrice = info?.prices_gbp?.plus;
   const billingLive = info?.billing_live ?? false;
   // B26: neither row can ever become a real button on a native build, see
   // this file's top comment — computed once and fed into every row's
@@ -156,12 +156,12 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // !== "web" branch as "native".
   const purchasingAllowed = usePurchaseAvailability() === "web";
   const rowStatus: PurchaseRowStatus = !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
-  // Hide the Max row entirely once the user is already on it — there is
+  // Hide the Plus row entirely once the user is already on it — there is
   // nothing to move to.
-  const onMax = info?.tier === "max";
-  // Leads with Move to Max once a second pack has been bought this month
+  const onPlus = info?.tier === "plus";
+  // Leads with Move to Plus once a second pack has been bought this month
   // (section 9's cannibalisation guard for the large pack).
-  const maxLeads = (info?.usage.penny_packs_bought_this_month ?? 0) >= 2 && !onMax;
+  const plusLeads = (info?.usage.penny_packs_bought_this_month ?? 0) >= 2 && !onPlus;
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -179,25 +179,25 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
     }
   }
 
-  const maxRow = !onMax && (
+  const plusRow = !onPlus && (
     rowStatus === "buy" ? (
       <button
         type="button"
-        onClick={() => buy("subscription", "max")}
+        onClick={() => buy("subscription", "plus")}
         disabled={!!pendingId}
         className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px] text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-          Move to Max, 400 a month
+          Move to Plus, 300 a month
         </span>
-        <TrailingPrice priceGbp={maxPrice} status={rowStatus} busy={pendingId === "max"} />
+        <TrailingPrice priceGbp={plusPrice} status={rowStatus} busy={pendingId === "plus"} />
       </button>
     ) : (
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-          Move to Max, 400 a month
+          Move to Plus, 300 a month
         </span>
-        <TrailingPrice priceGbp={maxPrice} status={rowStatus} busy={false} />
+        <TrailingPrice priceGbp={plusPrice} status={rowStatus} busy={false} />
       </div>
     )
   );
@@ -221,15 +221,15 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
         </p>
 
         <div className="space-y-2">
-          {maxLeads ? (
+          {plusLeads ? (
             <>
-              {maxRow}
+              {plusRow}
               {packRows}
             </>
           ) : (
             <>
               {packRows}
-              {maxRow}
+              {plusRow}
             </>
           )}
         </div>

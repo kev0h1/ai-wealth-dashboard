@@ -42,7 +42,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         # B11 top-up packs (docs/pricing/tiering-unit-economics-mcp-2026-09.md
         # section 9): soonest expiry among the user's currently active packs
         # (None if they have none), and how many packs they bought THIS
-        # calendar month — MoreMessagesSheet.tsx leads with "Move to Max"
+        # calendar month — MoreMessagesSheet.tsx leads with "Move to Plus"
         # instead of the packs once this reaches 2.
         "penny_topup_expires_soonest": None, "penny_packs_bought_this_month": 0,
     }

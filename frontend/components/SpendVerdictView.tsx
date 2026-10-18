@@ -974,7 +974,7 @@ export interface SpendVerdictViewProps {
   /** Every current insight, unfiltered — each row/card derives its own
    *  category's OPEN tips via openTipsFor(category, categoryInsights),
    *  which is what actually excludes quiet/verified/substituted entries.
-   *  Feeds only the subline signifier now (count + estimate); tips never
+   *  Feeds only the subline signifier now (a count); tips never
    *  render as a callout on Spend, see DESIGN.md "Tips on Spend and the
    *  transactions page". */
   categoryInsights?: SavingsInsight[];
@@ -1343,7 +1343,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
               <div>
                 <h2 className="text-xl font-bold text-slate-950 dark:text-white">The rest of your spending</h2>
                 <p className="mt-1 text-[12px] text-slate-600 dark:text-slate-400">
-                  {nonZeroRows.length} quieter categor{nonZeroRows.length === 1 ? "y" : "ies"}, with saving tips shown where available.
+                  {nonZeroRows.length} quieter categor{nonZeroRows.length === 1 ? "y" : "ies"}, with tips shown where available.
                 </p>
               </div>
               <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-slate-900 dark:text-white">{fmt(headerSum)}</span>

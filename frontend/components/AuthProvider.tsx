@@ -358,6 +358,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const pendingOauthReq = sessionStorage.getItem("wd_oauth_consent_req");
             if (pendingOauthReq) {
               sessionStorage.removeItem("wd_oauth_consent_req");
+              // g284-allow: oauth consent hop (web-only flow, route excluded from native)
               window.location.replace(`/oauth/consent?req=${encodeURIComponent(pendingOauthReq)}`);
               return;
             }

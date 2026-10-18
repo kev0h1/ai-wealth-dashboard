@@ -23,12 +23,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError, type BroadcastAudience, type BroadcastRecord } from "@/lib/api";
 
-const TIER_LABELS: Record<"statements" | "lite" | "standard" | "connect" | "max", string> = {
+const TIER_LABELS: Record<"statements" | "lite" | "standard" | "plus", string> = {
   statements: "Statements",
   lite: "Lite",
   standard: "Standard",
-  connect: "Connect",
-  max: "Max",
+  plus: "Plus",
 };
 
 const STATE_LABELS: Record<"penny_cap", string> = {

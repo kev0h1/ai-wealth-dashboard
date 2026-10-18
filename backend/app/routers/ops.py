@@ -294,3 +294,64 @@ async def ops_health(user: dict = Depends(current_user)):
     except Exception:
         mongo = {"ok": False, "ping_ms": None}
     return {**host_metrics.snapshot(), "mongo": mongo}
+
+
+# E7 slice 2: the metrics collectors (app/services/health). Each collector has
+# its own time budget and the endpoints never wait on one that hangs.
+@router.get("/health/collectors")
+async def ops_health_collectors(user: dict = Depends(current_user)):
+    _require_owner(user)
+    from app.services import health
+
+    collectors = health.default_collectors()
+    results = await health.run_all(collectors)
+    return {
+        "budget_s": health.BUDGET_S,
+        "collectors": [results[c.name] | {"title": c.title} for c in collectors],
+    }
+
+
+@router.get("/health/collectors/{name}")
+async def ops_health_collector(name: str, user: dict = Depends(current_user)):
+    _require_owner(user)
+    from app.services import health
+
+    for c in health.default_collectors():
+        if c.name == name:
+            return await health.run_collector(c) | {"title": c.title}
+    raise HTTPException(404, "Unknown collector")
+
+
+@router.get("/health/trends")
+async def ops_health_trends(user: dict = Depends(current_user)):
+    _require_owner(user)
+    from app.db.collections import health_samples_col
+    from app.services.health import samples
+
+    try:
+        return {"metrics": await samples.trends(health_samples_col)}
+    except Exception:
+        return {"metrics": {}, "error": True}
+
+
+# E8 slice 3: alerts block on /ops/health. Owner-only like the rest.
+@router.get("/health/alerts")
+async def ops_health_alerts(user: dict = Depends(current_user)):
+    _require_owner(user)
+    from app.db.collections import alert_state_col
+    from app.services.health import alerts
+
+    try:
+        return await alerts.snapshot(alert_state_col)
+    except Exception:
+        return {"enabled": False, "open": [], "history": [], "error": True}
+
+
+@router.post("/health/alerts/test")
+async def ops_health_alerts_test(user: dict = Depends(current_user)):
+    """One throttled test push (at most one a minute) to the owner."""
+    _require_owner(user)
+    from app.db.collections import alert_state_col
+    from app.services.health import alerts
+
+    return await alerts.send_test(alert_state_col)

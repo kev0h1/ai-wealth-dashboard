@@ -34,7 +34,6 @@ import app.routers.savings_insights as savings_insights
 from app.routers.savings_insights import (
     _derive_insight_state,
     _serialize_insight,
-    _strip_unsupported_savings_claims,
     _refresh_savings_insights_for_user,
     _expiry_line,
     _job_for_category,
@@ -171,10 +170,8 @@ def test_incoherence_a_tri_state_doc_serializes_as_substituted_only(monkeypatch)
     assert out["state"] == "substituted"
     # Banked must mean verified-tier only — a doc corrupted with both
     # resolutions must show ZERO toward "banked", not the losing £49.10.
-    assert out["verified_savings"] is None
-    assert out["verified_merchant"] is None
-    assert out["verified_tier"] is None
-    assert out["verified_savings_line"] is None
+    assert "verified_savings" not in out
+    assert out["stopped_line"] is None
     # The substituted fact-banner is what actually renders.
     assert out["substituted"] is True
     assert out["substituted_merchant"] == "Nandos"
@@ -272,90 +269,44 @@ def test_incoherence_b_identical_states_render_identically(monkeypatch):
     assert list(states.values())[0] == "quiet"
 
 
-# ── Incoherence C: body claims a number the estimate guardrail rejected ────
+# ── G283: a stored tip that claims a saving is never served ───────────────
 
-def test_incoherence_c_energy_title_strips_the_ungrounded_figure_leaves_the_users_own(monkeypatch):
-    """Confirmed live: energy's title was "You pay £160/mo, fixed deals
-    could save up to £173" with `savings_estimate` correctly nulled by the
-    derivability guard — but the £173 claim survived in the title anyway.
-    The user's own £160 (from `triggered_by`) must survive; only the
-    ungrounded £173 clause is stripped."""
+def test_stored_savings_claim_is_never_served_and_downgrades_to_quiet(monkeypatch):
+    """A tip stored before tips became facts-only ("could save up to £173") is
+    gated at serve time by the banned-phrase list: its text is withheld and the
+    insight falls to the no-content state until the next pass rewrites it."""
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
     monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "energy-x", "category": "energy",
         "title": "You pay £160/mo, fixed deals could save up to £173",
         "body": "Fuse Energy and Octopus Energy are offering some of the cheapest fixed tariffs.",
-        "savings_estimate": None, "researched_at": NOW - timedelta(hours=1),
+        "savings_estimate": "~£173/mo", "researched_at": NOW - timedelta(hours=1),
         "content_valid_until": NOW + timedelta(days=6),
         "pinned": False, "is_new": False, "refreshed_at": NOW,
         "triggered_by": [{"merchant_key": "british gas", "display_name": "British Gas",
                            "monthly_amount": 159.7, "occurrences": 2}],
     }
     out = _serialize_insight(doc)
-    assert out["state"] == "fresh"
-    assert "£173" not in out["title"]
-    assert "£160" in out["title"]
-    assert out["savings_estimate"] is None
-    assert out["savings_estimate_monthly"] is None
+    assert out["state"] == "quiet"
+    assert out["title"] == "" and out["body"] == ""
+    assert "savings_estimate" not in out and "savings_estimate_monthly" not in out
 
 
-def test_incoherence_c_repaired_at_serve_time_without_a_regen(monkeypatch):
-    """Belt-and-braces: a doc generated BEFORE this guardrail existed (no
-    special marker, just the raw stored text) must be repaired on every
-    serve, not require a regen to pick up the fix."""
+def test_stored_fact_tip_is_served(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
     monkeypatch.setattr(timeutil, "datetime", _FrozenTimeutilDatetime)
     doc = {
         "_id": "x", "insight_id": "energy-x", "category": "energy",
-        "title": "Switching could save you up to £999 this year",
-        "body": "No supporting figure anywhere else on this doc.",
-        "savings_estimate": None, "researched_at": NOW - timedelta(hours=1),
+        "title": "You pay British Gas £160 a month",
+        "body": "Energy tariffs are listed at £90 to £140 a month. Checked 14 Oct, source uswitch.com.",
+        "researched_at": NOW - timedelta(hours=1),
         "content_valid_until": NOW + timedelta(days=6),
         "pinned": False, "is_new": False, "refreshed_at": NOW, "triggered_by": [],
     }
     out = _serialize_insight(doc)
-    # The strip empties the title entirely (its only clause is the
-    # unsupported claim), which downgrades state via the invariant below —
-    # same as it always did; this test only pins that the ungrounded figure
-    # itself never survives to the response either way.
-    assert "£999" not in out["title"]
-
-
-def test_strip_unsupported_savings_claims_keeps_the_users_own_figure():
-    result = _strip_unsupported_savings_claims(
-        "You pay £160/mo, fixed deals could save up to £173", False,
-        [{"monthly_amount": 159.7}],
-    )
-    assert result == "You pay £160/mo."
-
-
-def test_strip_unsupported_savings_claims_leaves_a_legitimate_price_statement_alone():
-    # No "save"-shaped word near the £ figure — a market price statement,
-    # not a savings claim, must never be touched.
-    text = "Virgin Media M1 broadband from £17.99 a month"
-    assert _strip_unsupported_savings_claims(text, False, []) == text
-
-
-def test_strip_unsupported_savings_claims_noop_when_estimate_present():
-    text = "You pay £160/mo, fixed deals could save up to £173"
-    assert _strip_unsupported_savings_claims(text, True, []) == text
-
-
-def test_strip_unsupported_savings_claims_protects_thousands_separator():
-    # A naive comma-split would corrupt "£1,124" into "£1, 124" even when
-    # nothing needs stripping — the £1,124 figure matches the user's own
-    # triggered_by amount, so this must return the string byte-for-byte
-    # unchanged, not just semantically equivalent.
-    text = "Your £1,124 mortgage could drop with a remortgage"
-    result = _strip_unsupported_savings_claims(text, False, [{"monthly_amount": 1124.44}])
-    assert result == text
-    assert ", 1" not in result
-
-
-def test_strip_unsupported_savings_claims_returns_empty_when_everything_is_unsupported():
-    result = _strip_unsupported_savings_claims("Could save up to £500 a month", False, [])
-    assert result == ""
+    assert out["state"] == "fresh"
+    assert out["title"] == "You pay British Gas £160 a month"
 
 
 # ── Incoherence D: stored content is never blanked by a failed regen ───────
@@ -394,8 +345,8 @@ def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(m
     old_mobile = {
         "category": "mobile", "user_id": "kevin", "insight_id": "mobile-x",
         "icon": "📱", "label": "Mobile", "pinned": False,
-        "title": "You pay EE £57/mo", "body": "SIM-only could cut that sharply",
-        "savings_estimate": "~£52/mo", "content_hash": "h", "is_new": False,
+        "title": "You pay EE £57/mo", "body": "SIM-only plans are listed at £10 a month.",
+        "content_hash": "h", "is_new": False,
         "refreshed_at": NOW - timedelta(days=200),  # long past TTL/30-day window
         "researched_at": NOW - timedelta(days=200),
         "prompt_version": PROMPT_VERSION, "triggered_by": [],
@@ -428,8 +379,7 @@ def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(m
 
     mobile_after = col.docs["mobile"]
     assert mobile_after["title"] == "You pay EE £57/mo"
-    assert mobile_after["body"] == "SIM-only could cut that sharply"
-    assert mobile_after["savings_estimate"] == "~£52/mo"
+    assert mobile_after["body"] == "SIM-only plans are listed at £10 a month."
 
 
 def test_incoherence_d_quiet_state_renders_when_content_genuinely_absent(monkeypatch):
@@ -510,19 +460,19 @@ _STATE_ANATOMY: dict[str, dict[str, bool]] = {
     # state: {field: must_be_present (True) / must_be_absent (False)}
     "fresh": {
         "title": True, "body": True,
-        "verified_savings_line": False, "substituted_line": False,
+        "stopped_line": False, "substituted_line": False,
     },
     "quiet": {
         "title": False, "body": False, "expiry_line": False,
-        "verified_savings_line": False, "substituted_line": False,
+        "stopped_line": False, "substituted_line": False,
     },
     "verified": {
         "title": False, "body": False, "expiry_line": False,
-        "verified_savings_line": True, "substituted_line": False,
+        "stopped_line": True, "substituted_line": False,
     },
     "substituted": {
         "title": False, "body": False, "expiry_line": False,
-        "verified_savings_line": False, "substituted_line": True,
+        "stopped_line": False, "substituted_line": True,
     },
 }
 

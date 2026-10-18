@@ -378,13 +378,6 @@ export type TransportSummary = {
   top_transactions: TransportTx[];
 };
 
-export type ValueDelivered = {
-  insights_acted_on: number;
-  total_monthly_saving: number;
-  verified_monthly_saving?: number;
-  breakdown: { title: string; monthly_saving: number; estimate_label: string }[];
-};
-
 export type MirrorTrait = {
   id: string;
   title: string;
@@ -460,7 +453,41 @@ export type AimNudge = {
 };
 
 // GET /checkpoints also returns `ref` — the category the aim is anchored to.
-export type ActiveAim = Checkpoint & { ref: string };
+export type ActiveAim = Checkpoint & { ref: string; period_start?: string; period_end?: string };
+
+/** A completed check keeps its original benchmark, not today's edited aim. */
+export type CompletedAim = {
+  id: string;
+  ref: string;
+  aim_amount: number;
+  period_start: string;
+  period_end: string;
+  status: "met" | "missed";
+  result_amount: number;
+  resolved_at: string;
+};
+
+export type AimEvidence = {
+  checkpoint_id: string;
+  ref: string;
+  period_start: string;
+  period_end: string;
+  total: number;
+  recorded_result: number | null;
+  changed_since_result: boolean;
+  transactions: { id: string; name: string; date: string; amount: number }[];
+  remainder_amount: number;
+  remainder_count: number;
+  weekly_counts: { period_start: string; period_end: string; count: number }[];
+  checked_at: string;
+};
+
+export type MirrorPaymentRecords = {
+  records: { id: string; name: string; date: string; amount: number }[];
+  window_start: string;
+  window_end: string;
+  checked_at: string;
+};
 
 export type PaceChoice = {
   category: string;
@@ -1871,6 +1898,50 @@ export type OpsHealth = {
   sentry: { configured: boolean; environment: string; links: { label: string; url: string }[] };
   mongo: { ok: boolean; ping_ms: number | null };
 };
+export type OpsCollector = {
+  name: string;
+  title: string;
+  state: "ok" | "timed_out" | "not_configured" | "omitted" | "error";
+  status: "ok" | "warn" | "crit" | "unknown";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  values: Record<string, any>;
+  as_of: string | null;
+  note: string | null;
+};
+export type OpsTrendSummary = { n: number; min: number | null; avg: number | null; max: number | null; points: number[] };
+export type OpsTrends = {
+  metrics: Record<string, { label: string; unit: string; h24: OpsTrendSummary; d7: OpsTrendSummary }>;
+  error?: boolean;
+};
+// E8: GET /ops/health/alerts and POST /ops/health/alerts/test.
+export type OpsAlert = {
+  key: string;
+  state: "open" | "resolved";
+  severity: "warn" | "crit" | null;
+  title: string | null;
+  body: string | null;
+  first_seen: string | null;
+  last_notified: string | null;
+  resolved_at: string | null;
+  count: number;
+};
+export type OpsAlerts = {
+  enabled: boolean;
+  config?: { cooldown_hours: number; warn_streak: number; hourly_cap: number };
+  open: OpsAlert[];
+  history: OpsAlert[];
+  cap?: { sent_this_hour: number; suppressed_this_hour: number };
+  error_types_last_hour?: number;
+  error?: boolean;
+};
+export type OpsAlertTest = {
+  sent: boolean;
+  throttled: boolean;
+  enabled: boolean;
+  retry_after_s?: number;
+  delivery?: { attempted: number; delivered: number; failed: number };
+  note?: string | null;
+};
 export type OpsLlmUsage = {
   month: string;
   totals: { cost_usd: number; calls: number; users: number };
@@ -1917,7 +1988,7 @@ export type AllowlistResponse = {
 // broadcast.py's `_public_broadcast`.
 export type BroadcastAudience =
   | { type: "everyone" }
-  | { type: "tier"; tier: "statements" | "lite" | "standard" | "connect" | "max" }
+  | { type: "tier"; tier: "statements" | "lite" | "standard" | "plus" }
   | { type: "state"; state: "penny_cap" };
 
 export type BroadcastRecord = {
@@ -2735,7 +2806,6 @@ export const api = {
   dismissUnresolvedAsk: (txnId: string) =>
     post<{ ok: boolean }>("/spend/verdict/dismiss-unresolved", { txn_id: txnId }),
   cashflow: () => get<CashflowData>("/cashflow"),
-  valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>
     get<MirrorPortrait>(`/mirror${refresh ? "?refresh=1" : ""}`),
   // F2: OAuth 2.1 authorisation server. getOAuthRequest/decideOAuthRequest
@@ -3934,6 +4004,9 @@ export const api = {
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),
   listCheckpoints: () => get<{ checkpoints: ActiveAim[] }>("/checkpoints"),
+  completedCheckpoints: () => get<{ checkpoints: CompletedAim[] }>("/checkpoints/history?limit=12"),
+  checkpointEvidence: (id: string) => get<AimEvidence>(`/checkpoints/${encodeURIComponent(id)}/evidence`),
+  mirrorPaymentRecords: () => get<MirrorPaymentRecords>("/mirror/payment-records"),
   cancelCheckpoint: (id: string) =>
     fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -3971,6 +4044,10 @@ export const api = {
   // page re-renders from truth instead of guessing at the new state.
   getGoLive: () => get<GoLiveResponse>("/ops/go-live"),
   getOpsHealth: () => get<OpsHealth>("/ops/health"),
+  getOpsCollector: (name: string) => get<OpsCollector>(`/ops/health/collectors/${encodeURIComponent(name)}`),
+  getOpsTrends: () => get<OpsTrends>("/ops/health/trends"),
+  getOpsAlerts: () => get<OpsAlerts>("/ops/health/alerts"),
+  sendOpsTestAlert: () => post<OpsAlertTest>("/ops/health/alerts/test"),
   getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
   getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),
   goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>

@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -28,6 +29,7 @@ import MoneyText from "@/components/MoneyText";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
+import { actionHref } from "@/lib/actionRoutes";
 
 const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
 const PlanEasingSheet = dynamic(() => import("@/components/PlanEasingSheet").then((m) => m.PlanEasingSheet));
@@ -99,8 +101,6 @@ interface HomeBriefProps {
   hasAccounts?: boolean;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onClearedChange. */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
-  /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onInsightWinVisibleChange. */
-  onInsightWinVisibleChange?: (visible: boolean) => void;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onCoverMoveVisibleChange. */
   onCoverMoveVisibleChange?: (visible: boolean) => void;
   /**
@@ -290,7 +290,7 @@ function MoveRouteSummary({
         <MoveAccountIcon account={destination} />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
-          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{destination.name}</p>
+          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{displayAccountName(destination.name)}</p>
         </div>
       </div>
     </div>
@@ -645,7 +645,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
   if (hidden) return null;
 
   function handleGo() {
-    if (item.action) router.push(item.action.route);
+    if (item.action) router.push(actionHref(item.action.route));
   }
 
   async function handleNotNow() {
@@ -862,7 +862,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
       )}
       {item.action && (
         <footer className={ACTION_DOCK}>
-          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+          <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>
             <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
@@ -1009,7 +1009,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
             const { suggestion, moves: accountMoves } = group;
             const sources = (suggestion.suggested_sources ?? []).map(source => ({
               provider: source.provider,
-              name: source.name,
+              name: displayAccountName(source.name),
               amount: source.amount,
             }));
             const latestMove = accountMoves[accountMoves.length - 1];
@@ -1110,7 +1110,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
-                    <p className="text-[12px] text-slate-400 dark:text-slate-500 truncate">{m.source_name} · {dateStr}</p>
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500 truncate">{displayAccountName(m.source_name)} · {dateStr}</p>
                   </div>
                   <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
                     {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
@@ -1419,7 +1419,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         )}
         {item.action && (
           <footer className={ACTION_DOCK}>
-            <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
+            <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
           </footer>
         )}
         {dismissible && <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />}
@@ -1476,7 +1476,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
                     />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{item.dest_row?.title ?? dest.name}</span>
+                    <span className="block truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{item.dest_row?.title ?? displayAccountName(dest.name)}</span>
                     <span className="block text-[12px] text-slate-600 dark:text-slate-300 leading-snug"><MoneyText text={maskAmounts(tileText)} /></span>
                   </span>
                 </div>
@@ -1550,7 +1550,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       )}
       {item.action && (
         <footer className={ACTION_DOCK}>
-          <Link href={item.action.route} className={`${PRIMARY_ACTION} w-full`}>
+          <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>
             <ActionLabel>{item.action.label}</ActionLabel>
           </Link>
         </footer>
@@ -1955,7 +1955,7 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
   const moveTotal = data.moves.reduce((sum, m) => sum + m.amount, 0);
   const moveWho = moveNames.length <= 1 ? moveNames[0] : moveNames.length === 2 ? `${moveNames[0]} and ${moveNames[1]}` : `${moveNames.length} accounts`;
   const money = (v: number) => setAsideMoney(v, hideNetWorth);
-  const payer = data.estimated ? `Paid from ${paying.name}, based on recent transfers.` : `Paid from ${paying.name}.`;
+  const payer = data.estimated ? `Paid from ${displayAccountName(paying.name)}, based on recent transfers.` : `Paid from ${displayAccountName(paying.name)}.`;
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
@@ -2145,20 +2145,6 @@ export interface BriefBodyProps {
    */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
   /**
-   * Home-only: reports whether a LIVE insight_win celebration ("£49/mo is
-   * staying in your pocket", type "celebration", id prefixed
-   * `insight_win:`) is currently visible on Home — present in the
-   * dismissed-filtered `items` this component actually renders, i.e. the
-   * SAME set CelebrationCard below reads from. Owner decision A1, Home
-   * dedup review 2026-08-31: while that card is live, ValueDeliveredStat's
-   * "£X/mo saved" chip hides (one voice at a time, story before ledger);
-   * the moment it lapses or is dismissed on Home, this flips false in the
-   * SAME render pass and the chip reappears. Undefined on Penny — the
-   * effect below no-ops entirely when this is omitted, same convention as
-   * onClearedChange above.
-   */
-  onInsightWinVisibleChange?: (visible: boolean) => void;
-  /**
    * Home-only: reports whether a cover-plan move card is currently visible
    * after the same local-dismissal filter MoveCard renders from. Home passes
    * this to SafeToSpendCard so G115 can say a visible move above is already
@@ -2167,19 +2153,12 @@ export interface BriefBodyProps {
   onCoverMoveVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
   const onHomeDismiss = dismissible ? homeDismiss : undefined;
 
-  // Same dismissed-filtered `items` CelebrationCard renders from below —
-  // narrowed to the insight_win kind specifically (type "celebration" is
-  // shared with the payday-plan "Sorted" card and the saving-streak card,
-  // neither of which gates ValueDeliveredStat under owner decision A1).
-  const hasInsightWinCelebration = items.some(
-    i => i.type === "celebration" && i.id.startsWith("insight_win:")
-  );
   const hasVisibleCoverMove = hasFundedCoverMove(items);
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
@@ -2223,23 +2202,6 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dismissible, rawItems.length, items.length, rawItems[0]?.type]);
-
-  // Same ref pattern as onClearedChange above, same reason: no stability
-  // requirement on the callback identity. Reports in the SAME render pass
-  // a dismiss (or a natural 7-day lapse dropping the item from the feed)
-  // flips `hasInsightWinCelebration` — see BriefBodyProps' doc comment.
-  // useLayoutEffect (not useEffect): BriefBody first mounts on the same
-  // render `loading` flips to false, so a plain effect would let
-  // ValueDeliveredStat paint for one frame with the stale `false` default
-  // before this fires. The layout effect flushes HomePage's state update
-  // synchronously before that paint, so the chip and the card never both
-  // show, even for a frame.
-  const onInsightWinVisibleChangeRef = useRef(onInsightWinVisibleChange);
-  onInsightWinVisibleChangeRef.current = onInsightWinVisibleChange;
-
-  useLayoutEffect(() => {
-    onInsightWinVisibleChangeRef.current?.(hasInsightWinCelebration);
-  }, [hasInsightWinCelebration]);
 
   const onCoverMoveVisibleChangeRef = useRef(onCoverMoveVisibleChange);
   onCoverMoveVisibleChangeRef.current = onCoverMoveVisibleChange;
@@ -2401,7 +2363,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             </p>
             {needleItem.action && (
               <button
-                onClick={() => router.push(needleItem.action!.route)}
+                onClick={() => router.push(actionHref(needleItem.action!.route))}
                 className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
                 <ActionLabel>{needleItem.action.label}</ActionLabel>
@@ -2524,7 +2486,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const name = firstName || "there";
 
@@ -2596,7 +2558,7 @@ export default function HomeBrief({ items, firstName, displayName, safeToSpend, 
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}
       </div>
 

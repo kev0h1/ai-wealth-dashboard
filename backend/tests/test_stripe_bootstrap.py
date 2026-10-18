@@ -46,7 +46,7 @@ def _obj(**kw):
 # ── Fake stripe ──────────────────────────────────────────────────────────
 
 # Intentionally tiny so a test can put more than one "page" of objects in
-# the fake state cheaply (the real catalog here is already 6 products / 16
+# the fake state cheaply (the real catalog here is already 5 products / 13
 # prices, so with a real-sized page of 100 every existing test would
 # accidentally already prove multi-page correctness without ever showing
 # a naive `.data`-only read failing). A `.list(...)` call only ever
@@ -208,21 +208,22 @@ def test_plan_produces_every_required_key():
     _, prices = stripe_bootstrap.build_plan()
     assert {p.lookup_key for p in prices} == set(_STRIPE_REQUIRED_PRICE_KEYS)
     # B27 (2026-09-12) dropped three_months from SUBSCRIPTION_PERIODS_ENABLED,
-    # narrowing _STRIPE_REQUIRED_PRICE_KEYS from 20 to 16 (4 tiers x 3
-    # periods + 4 pack keys). If this ever goes back to 20, it means
+    # narrowing _STRIPE_REQUIRED_PRICE_KEYS from 20 to 16; B53 (Plus
+    # replaced Connect and Max) makes it 13 (3 tiers x 3 periods + 4 pack keys).
+    # If this ever goes back to 20, it means
     # three_months was re-enabled and this test's own expectation is
     # correctly out of date, not a code bug.
-    assert len(_STRIPE_REQUIRED_PRICE_KEYS) == 16
+    assert len(_STRIPE_REQUIRED_PRICE_KEYS) == 13
 
 
 def test_plan_amounts_match_pence_exactly():
     _, prices = stripe_bootstrap.build_plan()
     by_key = {p.lookup_key: p for p in prices}
-    assert by_key["max_annual"].unit_amount == 16999
+    assert by_key["plus_annual"].unit_amount == 12999
     assert by_key["lite_six_months"].unit_amount == 3199
     # cross-check every key against the source table directly, not a
     # second hand-copied expectation.
-    for tier in ("lite", "standard", "connect", "max"):
+    for tier in ("lite", "standard", "plus"):
         for period, key in (
             ("monthly", tier), ("six_months", f"{tier}_six_months"), ("annual", f"{tier}_annual"),
         ):
@@ -245,12 +246,12 @@ def test_statements_gets_no_product_or_price():
     products, prices = stripe_bootstrap.build_plan()
     assert not any("statements" in p.product_key for p in products)
     assert not any("statements" in p.metadata.get("tier", "") for p in prices)
-    # 4 tier products + penny_topups + mcp_calls, never a 5th tier product.
-    assert len(products) == 6
-    # 4 tiers x 3 enabled periods + 3 penny packs + 1 mcp pack, never the
+    # 3 tier products + penny_topups + mcp_calls, never a 4th tier product.
+    assert len(products) == 5
+    # 3 tiers x 3 enabled periods + 3 penny packs + 1 mcp pack, never the
     # 20 you'd get with three_months still in the loop, and never the 24
     # you'd get if statements' all-zero periods were wrongly included too.
-    assert len(prices) == 16
+    assert len(prices) == 13
 
 
 # ── 2. Safety gate ──────────────────────────────────────────────────────────
@@ -294,15 +295,15 @@ def test_dry_run_makes_no_stripe_calls(monkeypatch, capsys):
 
 # ── 3. Real run — idempotency ───────────────────────────────────────────────
 
-def test_fresh_run_creates_all_16_keys(monkeypatch):
+def test_fresh_run_creates_all_13_keys(monkeypatch):
     fake = _make_fake_stripe()
     monkeypatch.setattr(stripe_bootstrap, "stripe", fake)
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
 
     result_ids = stripe_bootstrap.run_real("sk_test_dummy", *stripe_bootstrap.build_plan())
     assert set(result_ids.keys()) == set(_STRIPE_REQUIRED_PRICE_KEYS)
-    assert len(fake.product_create_calls) == 6
-    assert len(fake.price_create_calls) == 16
+    assert len(fake.product_create_calls) == 5
+    assert len(fake.price_create_calls) == 13
 
 
 def test_second_run_creates_nothing_new(monkeypatch):
@@ -369,7 +370,7 @@ def test_product_names_match_expected_strings():
     products, _ = stripe_bootstrap.build_plan()
     names = {p.name for p in products}
     assert names == {
-        "Sorted Lite", "Sorted Standard", "Sorted Connect", "Sorted Max",
+        "Sorted Lite", "Sorted Standard", "Sorted Plus",
         "Sorted Penny message top-ups", "Sorted MCP call pack",
     }
 
@@ -382,7 +383,7 @@ def test_second_run_across_multiple_pages_creates_nothing_new(monkeypatch):
     a `.data`-only read would eventually go blind past the first page and
     this idempotent script would start creating duplicates at lookup_keys
     that already exist. The fake's page size (_FAKE_PAGE_SIZE=2) is tiny
-    enough that this catalog's own 6 products / 16 prices already span
+    enough that this catalog's own 5 products / 13 prices already span
     several pages, so a correct second run over the same state proving
     zero new creates is only possible if _ensure_products/_ensure_prices
     actually walk every page (auto_paging_iter()), not just the first."""
@@ -395,7 +396,7 @@ def test_second_run_across_multiple_pages_creates_nothing_new(monkeypatch):
 
     ids_1 = stripe_bootstrap.run_real("sk_test_dummy", products, prices)
     creates_after_1 = (len(fake.product_create_calls), len(fake.price_create_calls))
-    assert creates_after_1 == (6, 16)
+    assert creates_after_1 == (5, 13)
 
     ids_2 = stripe_bootstrap.run_real("sk_test_dummy", products, prices)
     creates_after_2 = (len(fake.product_create_calls), len(fake.price_create_calls))
@@ -447,7 +448,7 @@ def test_every_created_price_is_tax_behavior_inclusive(monkeypatch):
     products, prices = stripe_bootstrap.build_plan()
     stripe_bootstrap.run_real("sk_test_dummy", products, prices)
 
-    assert len(fake.price_create_calls) == 16
+    assert len(fake.price_create_calls) == 13
     for call in fake.price_create_calls:
         assert call.get("tax_behavior") == "inclusive", call
 
