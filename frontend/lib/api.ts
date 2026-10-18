@@ -1917,7 +1917,7 @@ export type AllowlistResponse = {
 // broadcast.py's `_public_broadcast`.
 export type BroadcastAudience =
   | { type: "everyone" }
-  | { type: "tier"; tier: "statements" | "lite" | "standard" | "connect" | "max" }
+  | { type: "tier"; tier: "statements" | "lite" | "standard" | "plus" }
   | { type: "state"; state: "penny_cap" };
 
 export type BroadcastRecord = {

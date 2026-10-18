@@ -1062,7 +1062,7 @@ def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatc
     assert "raw transaction" in text            # no raw transactions
     assert "Settings" in text and "Connected assistants" in text  # where to get the URL
     assert "sign in" in text.lower()            # sign-in required
-    assert "Connect and Max" in text            # tiers
+    assert "the Plus plan" in text            # tiers
     assert "—" not in text and "–" not in text  # no em/en-dashes
 
 
@@ -1177,7 +1177,7 @@ def test_run_penny_agent_kevins_mcp_question_reaches_explain_mcp_connector(monke
     assert result is not None
     assert result["tools_used"] == ["explain"]
     assert result["reply"] == expected_text
-    assert "Connect and Max" in result["reply"]
+    assert "Plus plan" in result["reply"]
 
 
 def test_run_penny_agent_mcp_question_on_disabled_deployment_gets_no_connector_copy(monkeypatch):
@@ -1258,7 +1258,7 @@ def test_run_penny_agent_mcp_question_on_disabled_deployment_gets_no_connector_c
         )
     )
     assert result is not None
-    assert "Connect and Max" not in result["reply"]
+    assert "Plus plan" not in result["reply"]
     assert "read-only" not in result["reply"]
     assert result["reply"] == "I don't have information on that."
 

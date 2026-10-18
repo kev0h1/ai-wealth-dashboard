@@ -1,4 +1,4 @@
-"""Tests for the new Statements/Lite/Standard/Connect/Max tier model
+"""Tests for the new Statements/Lite/Standard/Plus tier model
 (app.core.subscription) — replaces the old free/pro/premium/family tiers.
 
 Default tier (no doc, expired doc, or unrecognised stored name) is

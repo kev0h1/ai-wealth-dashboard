@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Link2, Zap } from "lucide-react";
+import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
@@ -34,28 +34,21 @@ const TIERS: Tier[] = [
     id: "lite",
     name: "Lite",
     lead: "Keep up with day-to-day money across your main banks.",
-    includes: ["Up to 10 connected accounts", "Daily bank updates", "6 months of history", "40 Penny messages a month"],
+    includes: ["Up to 10 connected accounts", "40 Penny messages a month", "Daily bank updates", "6 months of history"],
     icon: Landmark,
   },
   {
     id: "standard",
     name: "Standard",
     lead: "Your full money picture, kept up to date through the day.",
-    includes: ["Up to 20 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"],
+    includes: ["Up to 25 connected accounts", "150 Penny messages a month", "Updates every 4 hours", "Full history"],
     icon: Zap,
   },
   {
-    id: "connect",
-    name: "Connect",
-    lead: "Use your Sorted figures in an assistant you connect.",
-    includes: ["Everything in Standard", "2,000 connected-assistant calls a month", "Read-only sharing you can revoke"],
-    icon: Link2,
-  },
-  {
-    id: "max",
-    name: "Max",
-    lead: "The highest limits and fastest updates.",
-    includes: ["All your bank accounts", "Priority bank updates", "400 Penny messages a month", "5,000 connected-assistant calls a month"],
+    id: "plus",
+    name: "Plus",
+    lead: "No limit on accounts, and the most Penny messages.",
+    includes: ["Unlimited connected accounts", "300 Penny messages a month", "Priority bank updates", "Full history"],
     icon: Crown,
   },
 ];
@@ -356,6 +349,9 @@ export default function PlanPicker({
 
   return (
     <div className="space-y-4">
+      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+        Every paid plan has all features, savings tips and investments included. Accounts and Penny messages grow with each plan.
+      </p>
       <div role="radiogroup" aria-label="Choose a plan" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
         {TIERS.map((tier, index) => {
           const active = tier.id === selected;

@@ -4737,7 +4737,7 @@ _MCP_CONNECTOR_REPLY = (
     "Spend verdict and account balances, never your raw transaction list. "
     "To connect one, sign in to Sorted first, then in Settings open "
     "Connected assistants and paste the address shown there into your "
-    "assistant. It's included on the Connect and Max plans."
+    "assistant. It's included on the Plus plan."
 )
 
 # ── explain(topic) — terms registry ──────────────────────────────────────

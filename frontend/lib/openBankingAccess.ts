@@ -26,7 +26,7 @@
 // `Onboarding` once (AuthProvider.tsx:190) and every step after that is a
 // `setStep` inside that same instance, with no navigation anywhere in the
 // file. So the plan step and the bank step are the same mount. A user on
-// today's configuration (DEFAULT_TIER unset, so "max") reads `max` at mount,
+// today's configuration (DEFAULT_TIER unset, so "plus") reads `plus` at mount,
 // accepts the free Statements plan the very next screen offers, and then
 // meets a bank step still rendering "Connect your first bank" — because
 // clearing a cache nothing re-reads changes nothing. Picking a bank there
