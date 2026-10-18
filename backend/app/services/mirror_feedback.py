@@ -141,5 +141,5 @@ async def latest_payment_records(uid: str) -> dict:
         "records": records[:_MAX_RECORDS],
         "window_start": window_start.isoformat(),
         "window_end": today.isoformat(),
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": timeutil.user_now().isoformat(),
     }
