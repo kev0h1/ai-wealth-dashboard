@@ -626,6 +626,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): Finexer docs (Set up webhooks, read 2026-10-18) applied at 22f54bba: real event names (bank_account.*, consent.authorized/canceled/created/expired), evt envelope, id/type fields, 2xx-or-pause retry rule. consent.expired handled as expiry (status expired, reconsent nag via consent watch), NOT revocation. Only the signature FORMAT page is still pending; scheme stays configurable (default t_s_hmac_sha256). Dashboard steps in docs/ops/FINEXER_WEBHOOKS.md.
   - note (2026-10-18, claude): Merged origin/main at f05a6d78 (kept both sides in ops.py health), design-stale gate green, branch pushed. Running session.sh finish once.
   - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on f05a6d78: security review PASS after the debounce fix 971a0872; Finexer's documented events applied; polling keeps the tier cadence unless a handled webhook arrived within FINEXER_WEBHOOK_STALE_HOURS, so a misconfigured or rejected webhook leaves syncing as before. Kevin to confirm consent.expired = expiry (reconsent nag), not revocation; signature format page still pending (scheme configurable).
+- [ ] **A168. Log why a Finexer webhook delivery fails signature verification (header missing, timestamp, mismatch) without leaking secrets** [owner: claude]
 
 ## B. Penny cost, tiers and billing
 
