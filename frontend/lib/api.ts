@@ -3952,6 +3952,18 @@ export const api = {
   // Stripe customer yet (never started a checkout).
   openBillingPortal: () => post<{ url: string }>("/billing/portal", {}, platformHeaders()),
 
+  // C24: Google Play Billing (Android). The product ids, the obfuscatedAccountId
+  // and whether a purchase may start; then the server-side verification of a
+  // purchase token (purchase and restore). The token is only a lookup key: the
+  // server asks the Developer API and decides. Deliberately no
+  // platformHeaders(): these are the Android path, not the Stripe routes the
+  // B31 backstop guards.
+  getPlayBillingConfig: () => get<import("./playBilling").PlayBillingConfig>("/billing/play/config"),
+  verifyPlayPurchase: (purchaseToken: string, productId: string) =>
+    post<{ handled?: boolean; action?: string; tier?: string; status?: string; reason?: string }>(
+      "/billing/play/purchase", { purchase_token: purchaseToken, product_id: productId },
+    ),
+
   getIncomeStreams: () => get<IncomeStream[]>("/income/streams"),
   confirmIncomeStream: (key: string) =>
     post<IncomeStream>("/income/streams/confirm", { key }),

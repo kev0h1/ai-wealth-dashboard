@@ -7,6 +7,7 @@ import { getToken, setTokenAsync, clearToken } from "./auth";
 import { runMobileLoginLoop, type LoginResult } from "./mobileLoginLoop";
 import { resolvePurchaseChannel, type PurchaseChannel } from "./purchaseChannel";
 import { hasStoreKitPlugin } from "./storekit";
+import { hasPlayPlugin } from "./playBilling";
 import {
   PENDING_LOGIN_TTL_MS,
   clearPendingLogin,
@@ -115,10 +116,10 @@ export function usePurchaseAvailability(): PurchaseAvailability {
   return availability;
 }
 
-// C21: the three-way answer canPurchaseInApp() could not give. "stripe_web" is
-// the unchanged web Checkout, "storekit" is the iOS in-app purchase (only when
-// the plugin is really in the binary), "none" is every other native build and
-// any uncertainty. Fails closed exactly like canPurchaseInApp(): a detection
+// C21: the answer canPurchaseInApp() could not give. "stripe_web" is
+// the unchanged web Checkout, "storekit" is the iOS in-app purchase and "play"
+// the Android one (C24; each only when the plugin is really in the binary),
+// "none" is every other native build and any uncertainty. Fails closed exactly like canPurchaseInApp(): a detection
 // error is treated as native, so Stripe is never reachable by mistake. The
 // decision itself is the pure resolvePurchaseChannel() in purchaseChannel.ts.
 export function purchaseChannel(): PurchaseChannel {
@@ -131,7 +132,12 @@ export function purchaseChannel(): PurchaseChannel {
     native = true;
     platform = null;
   }
-  return resolvePurchaseChannel({ native, platform, storekitPluginPresent: native && hasStoreKitPlugin() });
+  return resolvePurchaseChannel({
+    native, platform,
+    storekitPluginPresent: native && hasStoreKitPlugin(),
+    // C24: Android sells through Google Play Billing, never Stripe.
+    playPluginPresent: native && hasPlayPlugin(),
+  });
 }
 
 /** Render-safe hook (see usePurchaseAvailability): "unknown" until mounted,

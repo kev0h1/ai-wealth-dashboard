@@ -795,6 +795,9 @@ export interface SubscriptionInfo {
    *  can say where to manage it (the Stripe portal, or iOS Settings).
    *  null/absent: no store or Stripe subscription. */
   billing_provider?: "stripe" | "apple" | "google" | null;
+  /** C24: a second live Google Play subscription was granted and flagged;
+   *  the plan card points at Google Play to cancel one. */
+  double_play_subscription?: boolean;
   /** B45: whether Checkout would grant a trial right now (one per person).
    *  null/absent: unknown, fall back to `!has_paid_subscription`. */
   trial_eligible?: boolean | null;

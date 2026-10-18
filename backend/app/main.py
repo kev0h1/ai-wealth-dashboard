@@ -33,6 +33,7 @@ from app.db.collections import (
     allowed_signups_col,
     bot_credential_uses_col, bot_credential_unknown_col, bot_credentials_col,
     billing_customers_col, billing_events_col, apple_account_tokens_col,
+    play_purchases_col, play_account_ids_col,
     broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
     session_tombstones_col,
@@ -53,7 +54,7 @@ from app.routers import (
     commitments, spend_verdict, tax, allocations, money_shape,
     penny_chip, penny_conversations, ops, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
-    diagnostics, uat_trial_reset,
+    diagnostics, uat_trial_reset, play_billing as play_billing_router,
 )
 
 # E6: Sentry is a no-op without SENTRY_DSN; every event and breadcrumb is
@@ -121,6 +122,7 @@ def _routers(
         admin_usage.router,
         admin_allowlist.router,
         billing_router.router,
+        play_billing_router.router,
         broadcast_router.router,
         diagnostics.router,
     ]
@@ -536,6 +538,11 @@ async def _create_indexes():
     await _ensure_index(billing_customers_col, "user_id", unique=True)
     await _ensure_index(billing_customers_col, "stripe_customer_id", unique=True, sparse=True)
     await _ensure_index(billing_events_col, "event_id", unique=True)
+    # C24 Google Play: one document per purchase token, one account id per user.
+    await _ensure_index(play_purchases_col, "purchase_token", unique=True)
+    await _ensure_index(play_purchases_col, "user_id")
+    await _ensure_index(play_account_ids_col, "user_id", unique=True)
+    await _ensure_index(play_account_ids_col, "account_id", unique=True)
     # C21 S1: one pack grant per store transaction, enforced by the database.
     from app.db.collections import mcp_call_packs_col, penny_topups_col
     for _pack_col in (penny_topups_col, mcp_call_packs_col):

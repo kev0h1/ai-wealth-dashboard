@@ -386,7 +386,16 @@ async def get_subscription_doc(email: str) -> tuple[dict | None, Subscription]:
     from app.db.collections import subscriptions_col
 
     docs = [d async for d in subscriptions_col.find({"user_id": email})]
-    return pick_subscription_doc(docs, _default_tier())
+    doc, sub = pick_subscription_doc(docs, _default_tier())
+    # C24: a second live Play subscription was granted and flagged (see
+    # app.services.play_billing). Reported whichever document is in force so
+    # Your plan can point at Google Play to cancel one.
+    sub.double_play_subscription = any(
+        d.get("provider") == "google" and d.get("play_double_subscription")
+        and d.get("status") in ("active", "trialing", "past_due")
+        for d in docs
+    )
+    return doc, sub
 
 
 async def get_subscription(email: str) -> Subscription:

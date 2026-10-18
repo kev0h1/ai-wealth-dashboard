@@ -28,7 +28,7 @@ import { refreshPennyUsage } from "@/components/PennySheetProvider";
 import { usePurchaseChannel, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
 import { SheetFrame } from "@/components/SheetFrame";
 import { api } from "@/lib/api";
-import { appleManageLine, endsOnLine, FIX_PAYMENT_LABEL, paymentFailedBody, paymentFailedBodyApple, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
+import { appleManageLine, endsOnLine, FIX_PAYMENT_LABEL, googleManageLine, paymentFailedBody, paymentFailedBodyApple, paymentFailedBodyGoogle, PAYMENT_FAILED_TITLE } from "@/lib/billingCopy";
 
 const INDIGO = "#4f46e5";
 
@@ -108,6 +108,8 @@ export default function YourPlanCard({
   // "unknown" (before mount) reads like "none": nothing purchasable is shown.
   const channel = usePurchaseChannel();
   const appleSourced = info?.billing_provider === "apple";
+  // C24: a Google Play plan is billed and managed in Google Play, never by Stripe.
+  const googleSourced = info?.billing_provider === "google";
 
   return (
     <>
@@ -136,8 +138,8 @@ export default function YourPlanCard({
             <span aria-hidden="true" className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
             {PAYMENT_FAILED_TITLE}
           </p>
-          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{appleSourced ? paymentFailedBodyApple(info.grace_days) : paymentFailedBody(info.grace_days)}</p>
-          {channel === "stripe_web" && !appleSourced && (
+          <p className="mt-1 pl-4 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{appleSourced ? paymentFailedBodyApple(info.grace_days) : googleSourced ? paymentFailedBodyGoogle(info.grace_days) : paymentFailedBody(info.grace_days)}</p>
+          {channel === "stripe_web" && !appleSourced && !googleSourced && (
             <button
               type="button"
               onClick={fixPayment}
@@ -177,7 +179,10 @@ export default function YourPlanCard({
         {appleSourced && (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{appleManageLine}</p>
         )}
-        {channel === "storekit" ? null : channel !== "stripe_web" ? (
+        {(googleSourced || info?.double_play_subscription === true) && (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{googleManageLine}</p>
+        )}
+        {channel === "storekit" || channel === "play" ? null : channel !== "stripe_web" ? (
           info?.tier === "statements" && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{PURCHASE_UNAVAILABLE_SENTENCE}</p>
           )
