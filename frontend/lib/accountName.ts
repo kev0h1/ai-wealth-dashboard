@@ -1,39 +1,80 @@
-// Tidy display name for an account row on Home (G221, approved C).
+// The ONE account display-name function (G282, Kevin 2026-10-17).
 //
-// Bank strings often arrive wholly upper-case ("PREMIER CURRENT"). This turns
-// those into sentence case and leaves everything else alone: a mixed-case name
-// is the user's or the bank's own choice. Brands and acronyms keep their own
-// casing through BRANDS, so "NATWEST ISA" reads "NatWest ISA", not "Natwest isa".
-// resolveDisplayName in lib/displayName.ts is a PERSON-name helper and is not
-// related. Home estate rows only; the Accounts page rows are unchanged.
+// Mirror of backend/app/services/account_names.py: both read the same table in
+// shared/account-name-cases.json so web, app and API agree. Every surface that
+// shows an account name (Home estate, Accounts rows, Upcoming By account, the
+// plan and set-aside pickers, Spend from, Penny) goes through this.
+//
+// Rules:
+//  - a name that mixes upper and lower case is the user's or the bank's own
+//    choice and is never altered ("Premier Current Account", "Kevin's Pot");
+//  - a wholly upper-case (or wholly lower-case) name is title-cased, with small
+//    words ("and", "of") kept lower case after the first word;
+//  - brands and acronyms keep their own casing (HSBC, ISA, GBP, NatWest, AJ, S&P);
+//  - a run of two or more single-letter initials stays upper case ("Maingi K M");
+//  - tokens with digits (masked numbers, "ISA 2025") are left alone.
+// resolveDisplayName in lib/displayName.ts is a PERSON-name helper and unrelated.
+// Bank (provider) text is a separate concern: lib/accountDisplay.ts tidyAccountText.
 
 const BRAND_LIST = [
   "NatWest", "HSBC", "TSB", "RBS", "Amex", "ISA", "LISA", "JISA", "SIPP", "ETF", "FTSE", "GIA", "PAYE",
-  "GBP", "USD", "EUR", "UK", "NS&I", "ATM", "FX", "PEP",
+  "GBP", "USD", "EUR", "UK", "NS&I", "S&P", "M&S", "ATM", "FX", "PEP", "NW", "AJ", "BOS", "AIB", "JLP", "PCA", "PLC", "MBNA", "PayPal",
   "Lloyds", "Barclays", "Barclaycard", "Halifax", "Santander", "Nationwide", "Monzo", "Starling", "Revolut", "Vanguard",
 ];
 const BRANDS = new Map(BRAND_LIST.map((b) => [b.toUpperCase(), b]));
-
+const SMALL_WORDS = new Set(["and", "of", "the", "for", "to", "in", "on", "at", "or", "an", "with", "by", "from"]);
 const TRIM = /^[^A-Za-z0-9&]+|[^A-Za-z0-9&]+$/g;
 
-export function tidyAccountName(raw: string): string {
-  const name = raw.trim();
+const JOINERS = new Set(["op", "and", "in", "on", "operative"]);
+
+function capWord(word: string): string {
+  const lower = word.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+// Capitalise after an apostrophe only for a leading single letter O, D or L
+// (O'Brien, D'Arcy, L'Oreal); "Kevin's" keeps its lower-case s.
+function cap(part: string): string {
+  const i = part.indexOf("'");
+  if (i < 0) return capWord(part);
+  const head = part.slice(0, i);
+  const tail = part.slice(i + 1);
+  if (/^[odlODL]$/.test(head) && tail) return head.toUpperCase() + "'" + capWord(tail);
+  return capWord(head) + "'" + tail.toLowerCase();
+}
+
+export function displayAccountName(raw: string | null | undefined): string {
+  const name = (raw ?? "").trim();
   const letters = name.replace(/[^A-Za-z]/g, "");
-  // Only wholly upper-case names are touched.
-  if (letters.length < 2 || letters !== letters.toUpperCase()) return name;
-  const out = name
-    .split(/(\s+)/)
-    .map((w) => {
-      if (/^\s*$/.test(w)) return w;
-      if (/\d/.test(w)) return w; // masked digits, account numbers
-      const core = w.replace(TRIM, "");
+  if (letters.length < 2) return name;
+  // Mixed case is someone's own choice: leave it exactly as it is.
+  if (letters !== letters.toUpperCase() && letters !== letters.toLowerCase()) return name;
+  const tokens = name.split(/(\s+)/);
+  const words = tokens.filter((t) => !/^\s*$/.test(t));
+  const coreOf = (w: string) => w.replace(TRIM, "");
+  const isInitial = (w: string) => /^[A-Za-z]$/.test(coreOf(w));
+  const inInitialRun = words.map((w, i) => isInitial(w) && (isInitial(words[i - 1] ?? "") || isInitial(words[i + 1] ?? "")));
+  let wi = -1;
+  return tokens
+    .map((t) => {
+      if (/^\s*$/.test(t)) return t;
+      wi += 1;
+      if (/\d/.test(t)) return t;
+      const core = coreOf(t);
       const brand = BRANDS.get(core.toUpperCase());
-      if (brand) return w.replace(core, brand);
-      // Initialisms joined by "&" (M&S) keep their capitals.
-      if (/^[A-Z]+(?:&[A-Z]+)+$/.test(core)) return w;
-      return w.toLowerCase();
+      if (brand) return t.replace(core, brand);
+      if (inInitialRun[wi]) return t.toUpperCase();
+      if (/^[A-Za-z]+(?:&[A-Za-z]+)+$/.test(core)) return t.toUpperCase();
+      if (wi > 0 && SMALL_WORDS.has(core.toLowerCase())) return t.toLowerCase();
+      return t.split("-").map((part, pi) => {
+        const lead = part.match(/^[^A-Za-z]*/)![0];
+        const rest = part.slice(lead.length);
+        if (pi > 0 && JOINERS.has(rest.toLowerCase())) return lead + rest.toLowerCase();
+        return lead + cap(rest);
+      }).join("-");
     })
     .join("");
-  // Sentence case: capitalise the first letter unless a brand already set it.
-  return out.charAt(0).toUpperCase() + out.slice(1);
 }
+
+/** Kept for existing imports: the same function under its G221 name. */
+export const tidyAccountName = displayAccountName;

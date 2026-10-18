@@ -1,11 +1,13 @@
 "use client";
 
 import { useId, useState } from "react";
+import Link from "next/link";
 import { Check, ChevronDown, ChevronRight, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
 import type { GrowLadderStep } from "@wealth/shared";
 import { formatCurrency } from "@/lib/currency";
 import type { CheckpointFigures } from "@/lib/planningCheckpointFigures";
 import MoneyText from "@/components/MoneyText";
+import { actionHref } from "@/lib/actionRoutes";
 
 type ExpandGroup = "done" | "later" | "all" | null;
 
@@ -51,7 +53,7 @@ function Detail({ step, figures, hideValues, active = false }: { step: GrowLadde
       {hasFigure && <Figure step={step} figures={figures} hideValues={hideValues} />}
       <p className={`${hasFigure ? "col-span-2" : "mt-1"} min-w-0 text-sm leading-5 text-slate-600 dark:text-slate-300`}><MoneyText text={maskMoney(step.detail, hideValues)} /></p>
     </div>}
-    {step.link && <a href={step.link.route} className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-lg text-sm font-semibold text-indigo-700 transition-[transform,opacity] hover:opacity-80 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">{step.link.label}<ChevronRight size={15} aria-hidden="true" /></a>}
+    {step.link && <Link href={actionHref(step.link.route)} className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-lg text-sm font-semibold text-indigo-700 transition-[transform,opacity] hover:opacity-80 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">{step.link.label}<ChevronRight size={15} aria-hidden="true" /></Link>}
     {active && step.state === "active" && step.options.length > 0 && <ul className="mt-4 space-y-2 border-t border-slate-200 pt-4 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">
       {step.options.map((option) => <li key={option} className="flex gap-2"><span className="text-indigo-500" aria-hidden="true">·</span><span><MoneyText text={maskMoney(option, hideValues)} /></span></li>)}
     </ul>}
@@ -90,7 +92,7 @@ export default function PlanningCheckpointTimeline({ steps, hideValues, figures,
   const done = steps.filter((step) => step.state === "done");
   const active = steps.filter((step) => step.state === "active");
   const locked = steps.filter((step) => step.state === "locked");
-  if (!steps.length) return <section className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300"><h2 className="font-bold text-slate-900 dark:text-white">No checkpoints yet</h2><p className="mt-1">Planning needs a live reading to order your next steps.</p><a href="/accounts" className="mt-3 inline-flex min-h-11 items-center rounded-lg text-sm font-semibold text-indigo-700 transition-[transform,opacity] hover:opacity-80 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Add an account <ChevronRight className="ml-1" size={15} aria-hidden="true" /></a></section>;
+  if (!steps.length) return <section className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300"><h2 className="font-bold text-slate-900 dark:text-white">No checkpoints yet</h2><p className="mt-1">Planning needs a live reading to order your next steps.</p><Link href="/accounts" className="mt-3 inline-flex min-h-11 items-center rounded-lg text-sm font-semibold text-indigo-700 transition-[transform,opacity] hover:opacity-80 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Add an account <ChevronRight className="ml-1" size={15} aria-hidden="true" /></Link></section>;
   return <section data-g187-timeline="b" data-tutorial-id="tutorial-planning-ladder" aria-labelledby="planning-checkpoints-heading">
     <div className="mb-4"><h2 id="planning-checkpoints-heading" className="text-base font-bold text-slate-950 dark:text-white">Priority checkpoints</h2></div>
     <div className="relative ml-8 space-y-4 sm:ml-10">

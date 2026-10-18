@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "plan-picker-v2",
+    name: "Choose what fits · B50",
+    description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
+    variants: [{ label: "A · Room to compare", value: "a" }, { label: "B · One clear choice", value: "b" }],
+    states: [{ label: "Free account", value: "free" }, { label: "In a trial", value: "trialling" }, { label: "Paid account", value: "paid" }],
+    group: "current",
+  },
+  {
     slug: "keep-money-here",
     name: "Keep money in this account · G274",
     description: "G274: A Reserve here, B Details then review. Purpose and amount first, reserve in the paying account by default, optional receiving account and transfer rule. One/several/no-context/no-eligible-source fixtures, both themes, local draft confirmation only. No real changes · ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
@@ -148,6 +156,14 @@ const ROUTES: PreviewRoute[] = [
     description:
       "G214, Kevin's pick B (stale-marked figure), now shipped: while a bank sync runs the Safe to Spend figure steps down to secondary ink with Last known amount and an as-of time, the chip carries the ring, and Accounts shows a ring beside the balance, Pending for a never-synced bank and a banner with Try again once a sync stalls or fails · the first sign-up has no hero yet, so the same grammar shows No figure yet above the sign-in ledger · renders the production SafeToSpendCard, FirstSyncCard, AccountLedgerRow and SyncNote with fixture props, nothing syncs · ?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark",
     states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
+  },
+  {
+    slug: "sts-tone",
+    name: "Calm, useful Safe to Spend · G287",
+    description: "A Quiet instrument, B Next step first. Ink amounts, precise risk signifiers and the same forecast working. One-off and repeated cash gaps, optional plans and a coverable account gap remain distinct. The unchanged production card is the current reference. Synthetic examples, no account changes. ?variant=a|b&state=one-off|habitual|plans|move|small|urgent|loading|stale|error|long&mode=light|dark",
+    states: [{ label: "Repeated shortfall", value: "habitual" }, { label: "One-off", value: "one-off" }, { label: "Plans only", value: "plans" }, { label: "Account move", value: "move" }, { label: "Small gap", value: "small" }, { label: "Payment at risk", value: "urgent" }, { label: "Loading", value: "loading" }, { label: "Stale", value: "stale" }, { label: "Error", value: "error" }, { label: "Long figures", value: "long" }],
+    variants: [{ label: "A · Quiet instrument", value: "a" }, { label: "B · Next step first", value: "b" }],
+    group: "current",
   },
   {
     slug: "safe-to-spend-figure",
@@ -385,6 +401,14 @@ const ROUTES: PreviewRoute[] = [
   },
   { slug: "g99-month-story-canvas", name: "g99-month-story-canvas", description: "G99 Canvas Before Cards review for the Month story · A anchored spotlight / B quiet centre / C close focus · the real production StoryPlayer renders fixture data through its supported design-review props, retaining its immersive dark canvas, playback controls, reduced-motion treatment and return path · no API calls or mutations · ?variant=a|b|c&state=interactive", states: [{ label: "Interactive story", value: "interactive" }], variants: [{ label: "A · Anchored spotlight", value: "a" }, { label: "B · Quiet centre", value: "b" }, { label: "C · Close focus", value: "c" }] },
   { slug: "g98-month-canvas", name: "g98-month-canvas", description: "G98 Canvas Before Cards review for Month · A reading / B evidence rail / C editorial ledger · monthly verdict and explanation live on the canvas, with reconciled evidence earning its boundary and a preserved path to the month story · static fixtures, no API calls or mutations · ?variant=a|b|c&state=ahead|steady|short|empty|loading|error&mode=light|dark", states: [{ label: "Ahead", value: "ahead" }, { label: "Steady", value: "steady" }, { label: "Short", value: "short" }, { label: "History building", value: "empty" }, { label: "Loading", value: "loading" }, { label: "Error", value: "error" }], variants: [{ label: "A · Reading", value: "a" }, { label: "B · Evidence rail", value: "b" }, { label: "C · Editorial ledger", value: "c" }] },
+  {
+    slug: "mirror-loop",
+    name: "The Mirror closes the loop · G286",
+    description: "A Trait in motion, B Period review. Follow a local choice through a transaction-evidence example and a calm reflection. Current, kept, completed and unavailable history, with dated fee evidence. Illustrative figures only; no account changes or production edits. ?variant=a|b&state=active|choose|kept|below|near|past|thin|stale|error|long&mode=light|dark",
+    states: [{ label: "Active change", value: "active" }, { label: "Choose", value: "choose" }, { label: "Kept", value: "kept" }, { label: "Below aim", value: "below" }, { label: "Near aim", value: "near" }, { label: "Past aim", value: "past" }, { label: "Thin history", value: "thin" }, { label: "Stale", value: "stale" }, { label: "Error", value: "error" }, { label: "Long figures", value: "long" }],
+    variants: [{ label: "A · Trait in motion", value: "a" }, { label: "B · Period review", value: "b" }],
+    group: "current",
+  },
   {slug:"mirror-canvas-before-cards",name:"mirror-canvas-before-cards",description:"G97 Canvas Before Cards review for Mirror · A editorial reading / B paired traits / C progressive evidence · behavioural reading stays on the canvas, while selectable aims and bounded transaction evidence earn a card · fixture-only, no API calls or production edits · ?variant=a|b|c&state=portrait|aim|empty&mode=light|dark",states:[{label:"Portrait",value:"portrait"},{label:"Active aim",value:"aim"},{label:"Not enough data",value:"empty"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Paired",value:"b"},{label:"C · Evidence",value:"c"}]},
   {slug:"money-shape-canvas-before-cards",name:"money-shape-canvas-before-cards",description:"G95 Canvas Before Cards review for Your money shape · A editorial instrument / B split reading / C progressive reference rail · one pay-shape instrument leads on the canvas while explanation and reference shapes are disclosed only when useful · fixture-only, no API calls or production edits · ?variant=a|b|c&state=steady|changed|thin&mode=light|dark",states:[{label:"Steady",value:"steady"},{label:"Changed",value:"changed"},{label:"Thin history",value:"thin"}],variants:[{label:"A · Editorial",value:"a"},{label:"B · Split",value:"b"},{label:"C · Reference",value:"c"}]},
   { slug: "transactions-canvas-before-cards", name: "transactions-canvas-before-cards", description: "G92 Canvas Before Cards review for Transactions · A canvas search reading / B desktop context rail / C evidence-forward groups · search, context and summary stay on canvas while dense date groups and expandable teaching evidence keep earned boundaries · populated, long-list, loading, empty and error fixtures only · ?variant=a|b|c&state=populated|long|loading|empty|error&mode=light|dark", states: [{label:"Populated",value:"populated"},{label:"Long list",value:"long"},{label:"Loading",value:"loading"},{label:"Empty",value:"empty"},{label:"Error",value:"error"}], variants: [{label:"A · Canvas",value:"a"},{label:"B · Context rail",value:"b"},{label:"C · Evidence",value:"c"}] },
@@ -425,6 +449,16 @@ const ROUTES: PreviewRoute[] = [
     states: [
       { label: "Offline account", value: "offline" },
       { label: "Bank account", value: "bank" },
+    ],
+  },
+  {
+    slug: "home-accounts-rhythm",
+    name: "home-accounts-rhythm",
+    description:
+      "G282 (Kevin 2026-10-17, skill: impeccable, audit then fix, no variant round) · one account display name on every surface (THE NUMBER ONE reads The Number One, MAINGI K M keeps its initials, PERSONAL GBP keeps GBP, mixed-case nicknames untouched) and one spacing rhythm on Home and Accounts (12 between cards in a group, 20 between sections, 8 under a section label) · HONEST SCOPE: HomePage and AccountsPage fetch their own data, so this renders the production sections they are composed of with fixtures through props (SafeToSpendCard, HomeBrief cards, Coming up strip, tip, estate section, transactions; AccountsHeader, ReconnectStrip, find bar and chips, group cards, ledger rows), with the wrapper spacing between them mirrored and pinned against the page source; the Home greeting row and the Accounts Offline block are stand-ins · synthetic accounts, no live data · ?surface=home|accounts&mode=light|dark",
+    states: [
+      { label: "Home", value: "home" },
+      { label: "Accounts", value: "accounts" },
     ],
   },
   {

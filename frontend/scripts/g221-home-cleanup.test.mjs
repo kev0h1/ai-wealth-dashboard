@@ -78,7 +78,7 @@ for (const c of ["1", "4", "20"]) {
   assert.ok(empty.includes("empty state placeholder") && !empty.includes("data-accounts-route"), "zero accounts: the empty state, no footer");
 }
 // Names are tidied on Home rows.
-assert.ok(estate("20").includes("Premier current"), "Home rows show the tidy name");
+assert.ok(estate("20").includes("Premier Current"), "Home rows show the shared display name") // G282, Kevin 2026-10-17;
 
 // Hero keeps its one route; the fresh user's route stays on the connect card.
 const hero = renderToStaticMarkup(
@@ -128,23 +128,23 @@ assert.match(brief, /\{\/\* Brief body \*\/\}\n\s+<div className="space-y-3">/, 
 const tut = read("../components/TutorialContext.tsx");
 assert.ok(tut.includes('target: "tutorial-manage-link"') && !/Manage opens/.test(tut), "tutorial step points at the footer and does not say Manage");
 
-// 3. Account names: shouting names are tidied, brands and acronyms are kept.
+// 3. Account names (G282, Kevin 2026-10-17: title case, supersedes G221 sentence case): shouting names are tidied, brands and acronyms are kept.
 const cases = [
-  ["PREMIER CURRENT", "Premier current"],
+  ["PREMIER CURRENT", "Premier Current"],
   ["NATWEST ISA", "NatWest ISA"],
-  ["NATWEST EVERYDAY", "NatWest everyday"],
-  ["HSBC ADVANCE", "HSBC advance"],
-  ["TSB CLUB LISA", "TSB club LISA"],
-  ["RBS SELECT", "RBS select"],
-  ["AMEX PLATINUM", "Amex platinum"],
-  ["STOCKS AND SHARES JISA", "Stocks and shares JISA"],
+  ["NATWEST EVERYDAY", "NatWest Everyday"],
+  ["HSBC ADVANCE", "HSBC Advance"],
+  ["TSB CLUB LISA", "TSB Club LISA"],
+  ["RBS SELECT", "RBS Select"],
+  ["AMEX PLATINUM", "Amex Platinum"],
+  ["STOCKS AND SHARES JISA", "Stocks and Shares JISA"],
   ["WORKPLACE SIPP", "Workplace SIPP"],
   ["WORLD ETF", "World ETF"],
-  ["FTSE TRACKER", "FTSE tracker"],
+  ["FTSE TRACKER", "FTSE Tracker"],
   ["GIA", "GIA"],
-  ["PAYE REFUND POT", "PAYE refund pot"],
-  ["SAVE & SPEND", "Save & spend"],
-  ["NS&I PREMIUM BONDS", "NS&I premium bonds"],
+  ["PAYE REFUND POT", "PAYE Refund Pot"],
+  ["SAVE & SPEND", "Save & Spend"],
+  ["NS&I PREMIUM BONDS", "NS&I Premium Bonds"],
   ["ISA 2025", "ISA 2025"],
   ["Joint Current", "Joint Current"],
   ["Monzo Bills", "Monzo Bills"],

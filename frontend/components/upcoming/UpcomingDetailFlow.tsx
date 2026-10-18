@@ -1,5 +1,6 @@
 "use client";
 
+import { displayAccountName } from "@/lib/accountName";
 import { useEffect, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
 import { api, type Account, type Allocation } from "@/lib/api";
@@ -81,7 +82,7 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
       const editable = new Map<string, string>();
       for (const event of account.events) { const match = event.source ? payments.find((item) => item.source === event.source) : undefined; if (match) editable.set(event.id, match.id); }
       return {
-        title: account.bank, subtitle: `${account.name} · ${props.periodLabel}`,
+        title: account.bank, subtitle: `${displayAccountName(account.name)} · ${props.periodLabel}`,
         leading: <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2)} altText="" size={36} />,
         body: <UpcomingAccountDetails account={account} periodLabel={props.periodLabel} plans={plans} plansStatus={props.plansStatus} onPlan={(id) => navigation.goTo({ kind: "plan", id })} editableEventIds={new Set(editable.keys())} onEvent={(eventId) => { const id = editable.get(eventId); if (id) navigation.goTo({ kind: "payment", id }); }} />, footer: done,
       };
@@ -107,7 +108,7 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
       const source = accounts.find((account) => account.id === plan.sourceId);
       return {
         title: plan.name, subtitle: `${plan.kind === "allocation" ? "Allocation" : "Goal"} · This pay period`, leading: <PlanIcon kind={plan.kind} />,
-        body: <UpcomingPlanDetails plan={plan} accountName={source && plan.evidence !== "unknown" ? `${source.provider} · ${source.name}` : null} />,
+        body: <UpcomingPlanDetails plan={plan} accountName={source && plan.evidence !== "unknown" ? `${source.provider} · ${displayAccountName(source.name)}` : null} />,
         footer: <button type="button" data-flow-focus={`edit-${plan.id}`} className={flowSecondary} onClick={() => navigation.goTo({ kind: "edit-plan", id: plan.id })}><Pencil size={16} aria-hidden="true" />{plan.kind === "allocation" ? "Edit allocation" : "Change paying account"}</button>,
       };
     }

@@ -30,6 +30,7 @@ from app.db.collections import (
 log = logging.getLogger(__name__)
 from app.routers.analytics import _bank_label, _build_cashflow_response, income_credit_ok, is_assessable_bill
 from app.routers.allocations import list_active_allocations
+from app.services.account_names import display_account_name
 from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account as _is_current,
@@ -204,43 +205,17 @@ def _clean_descriptor_for_display(text: str) -> str:
     return cleaned
 
 
-# Small allowlist of known acronyms/initialisms that must stay upper-case
-# when humanising an account/product display name (e.g. "NW World
-# Mastercard" should keep "NW", not become "Nw"). Deliberately tiny and
-# scoped to humanise_account_name only — not shared with the broader
-# _humanise_bill_name pipeline above.
-_ACCOUNT_NAME_ACRONYMS = {"NW", "HSBC", "ISA", "AMEX"}
-
-
 def humanise_account_name(name: str) -> str:
-    """Title-case a shouty ALL-CAPS account/product name for display, e.g.
-    "THE NUMBER ONE REWARD PLATINUM" -> "The Number One Reward Platinum".
-    Words already in `_ACCOUNT_NAME_ACRONYMS` are left upper-case; mixed-case
-    names (already human-formatted) pass through untouched. This only
-    re-cases — it never repairs upstream truncation/spelling issues (e.g. a
-    provider-supplied "Mastercar").
-
-    Used only in the payday-gap/cliff/trajectory message templates below —
-    does not globally rewrite account names anywhere else in the app. Every
-    one of those templates interpolates the result immediately before a
-    sentence-ending "." (e.g. "...gap before {name} payday.", "...carried on
-    {name}."); a provider-supplied name that itself ends in "." (seen live —
-    "THE NUMBER ONE REWARD PLATINUM" style names occasionally arrive with a
-    trailing full stop) would otherwise render as a double period. Stripped
-    here, once, so every calling template gets exactly one terminator.
-    """
+    """Display name for message templates (G282: delegates to the one shared
+    helper in `services/account_names.py`). Also strips a trailing "." because
+    every template interpolates the result immediately before a
+    sentence-ending ".", and a provider-supplied name that ends in "." (seen
+    live) would otherwise render a double period."""
     raw = (name or "").strip()
     if not raw:
         return raw
-    raw = raw.rstrip(".").rstrip()
+    return display_account_name(raw.rstrip(".").rstrip())
 
-    def _title_word(m: re.Match) -> str:
-        w = m.group(0)
-        if w.upper() in _ACCOUNT_NAME_ACRONYMS:
-            return w.upper()
-        return w.title() if len(w) >= 2 and w.isupper() else w
-
-    return re.sub(r"[A-Za-z]+", _title_word, raw)
 
 def celebration_payload(
     stored: dict,
@@ -478,8 +453,12 @@ def _fmt_overdrawn(amount: float) -> str:
 
 def _clean_name(name: str | None, fallback: str = "") -> str:
     """Account names arrive from providers padded with whitespace; user-facing
-    copy must never carry it."""
-    return " ".join(str(name or "").split()) or fallback
+    copy must never carry it. G282 (Kevin 2026-10-17): the cleaned name also
+    goes through the one shared display-name function, so every card the
+    companion builds (payday plan, moves, covers) shows the same casing as the
+    Accounts page. The fallback (often a raw id) is returned untouched."""
+    cleaned = " ".join(str(name or "").split())
+    return display_account_name(cleaned) if cleaned else fallback
 
 
 # Raw provider/account ids are 16+ hex chars — they must never reach copy.
@@ -5652,7 +5631,7 @@ async def compute_today_items(
     # The id carries the verdict so a worsening verdict re-appears immediately
     # (deliberately NOT the trend: the flat band is only £1 wide, so keying
     # dismissal on direction would let a card the user hid re-surface on noise).
-    # The /debt-plan page now exists — wire the button.
+    # The button goes to /cards (the /debt-plan page was retired; G284).
     #
     # G103: the words, figures and signifier all come from `trajectory_copy`
     # above, which leads on the three-month MOVEMENT in what is owed rather
@@ -5683,7 +5662,7 @@ async def compute_today_items(
                     "type": "trajectory",
                     "headline": _traj["headline"],
                     "body": _traj["body"],
-                    "action": {"label": "See the route", "route": "/debt-plan"},
+                    "action": {"label": "See the route", "route": "/cards"},
                     "estimated": False,
                     "tone": _traj["tone"],
                     "trend": _traj["trend"],

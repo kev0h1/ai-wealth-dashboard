@@ -1,5 +1,5 @@
 """Pydantic response models."""
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 from typing import Optional
 from datetime import datetime
 
@@ -29,6 +29,14 @@ class Account(BaseModel):
     # G231: false when the user has chosen not to count this account towards
     # Safe to Spend. Absent on the document means counted.
     include_in_safe_to_spend: bool = True
+
+    # G282: the one shared display name (services/account_names.py), so every
+    # client shows an account identically. `name` stays the raw stored value.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def display_name(self) -> str:
+        from app.services.account_names import display_account_name
+        return display_account_name(self.name)
 
 
 class Transaction(BaseModel):
