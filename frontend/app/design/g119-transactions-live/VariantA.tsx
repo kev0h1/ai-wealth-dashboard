@@ -2,8 +2,7 @@
 
 // Variant A — closest to today's production /transactions hub: day-group
 // cards (the grammar Kevin liked from G92), page-based Prev/Next pagination
-// (the EXACT page/page_size contract TransactionsPage.tsx already uses via
-// api.transactionsSearch), and a row tap opens a real bottom sheet carrying
+// using local fixture pages. A row tap opens a bottom sheet carrying
 // THIS transaction's own detail (DetailPanel, layout="sheet") — not a
 // group-level toggle, not a fixed teaching sentence.
 //
@@ -33,7 +32,7 @@ import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Account, Transaction } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
-import { fetchTransactionsPage, type Source, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
+import { fetchTransactionsPage, type SearchFilters, EMPTY_FILTERS } from "./dataSource";
 import { groupByDay } from "@/lib/transactionGrouping";
 import DetailPanel from "./DetailPanel";
 
@@ -52,7 +51,6 @@ export default function VariantA({
   const [items, setItems] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
-  const [source, setSource] = useState<Source>("fixture");
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Transaction | null>(null);
 
@@ -63,12 +61,11 @@ export default function VariantA({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchTransactionsPage(page, PAGE_SIZE, forcedFixture, filters).then(({ result, source: src }) => {
+    fetchTransactionsPage(page, PAGE_SIZE, forcedFixture, filters).then(({ result }) => {
       if (cancelled) return;
       setItems(result.items);
       setTotal(result.total);
       setPages(result.pages);
-      setSource(src);
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -79,7 +76,7 @@ export default function VariantA({
   return (
     <div>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">
-        {source === "live" ? "Showing your data" : "Showing example data · sign in to see yours"} · {total} payment{total !== 1 ? "s" : ""} · page {page} of {pages}
+        Showing example data · {total} payment{total !== 1 ? "s" : ""} · page {page} of {pages}
       </p>
 
       {loading ? (
@@ -140,7 +137,6 @@ export default function VariantA({
           transaction={open}
           account={accounts.find((a) => a.id === open.account_id)}
           layout="sheet"
-          isLive={source === "live"}
           onClose={() => setOpen(null)}
         />
       )}
