@@ -886,7 +886,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): B53 aligned: Play tiers Lite/Standard/Plus (sorted.plus.<period>, 12.99/69.99/129.99), legacy sorted.max ids resolve to plus, 3 Penny packs kept. Merged main and C21 6eee7d2d (its B53 rename). Play re-applied to the redesigned picker and packs sheet. Docs 9.1/9.6 and test plan updated. Kevin types Play product text after B52/B53. Clawback open.
   - note (2026-10-18, claude): Aligned to Plus after B53 and C21, merged main, checks green. Kevin's Play Console setup is docs/pricing/store-billing-c13.md section 9.6 (type product text after B53's descriptions). Clawback decision still open.
   - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on 0e3e6f08: security review PASS with fixes ec7f000a, 14934f86, 47b22ad3 stands; since then main and C21 merged and the Play side aligned to B53 Plus. B52 dependency met. Kevin's Play Console setup is store-billing-c13.md section 9.6; refund clawback decision still open.
-- [ ] **C25. Pin Apple Root CA - G3 in backend/app/certs/apple_roots/ for the C21 notification receiver** [owner: claude]
+- [ ] **C25. Pin Apple Root CA - G3 in backend/app/certs/apple_roots/ for the C21 notification receiver** [owner: claude] [state: in-progress] [branch: feature-C25-apple-root-g3]
 
 ## D. Identity and sign-up
 
