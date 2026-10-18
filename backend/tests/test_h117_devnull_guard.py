@@ -94,12 +94,64 @@ _DIR_ONLY_ALLOW = {"scripts/frontend_build.py"}  # renames build directories, ga
 _SKIP_DIRS = {"node_modules", ".venv", ".git", "tests", ".next", ".frontend-staging"}
 
 
-def _py_files():
-    for root in ("backend", "scripts"):
-        for p in (REPO / root).rglob("*.py"):
-            if _SKIP_DIRS & set(p.relative_to(REPO).parts):
-                continue
-            yield p
+_IGNORED_PARTS = {
+    "venv", ".venv", "node_modules", "site-packages", ".next", "out",
+    ".git", ".frontend-staging", "__pycache__",
+}
+
+
+def tracked_files(listing: "list[str] | None" = None) -> list[Path]:
+    """Tracked files only (`git ls-files`), minus venv-like and build dirs.
+
+    Walking the tree picked up an old gitignored virtualenv in the shared
+    tree (backend/venv) and blocked an integrate pass. `listing` lets a test
+    pass a fake tracked list."""
+    if listing is None:
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, capture_output=True, text=True, check=True).stdout
+        listing = [x for x in out.split("\0") if x]
+    files = []
+    for rel in listing:
+        if _IGNORED_PARTS & set(Path(rel).parts):
+            continue
+        p = REPO / rel
+        if p.is_file():
+            files.append(p)
+    return files
+
+
+def _tracked(prefixes, suffix, listing=None, recursive=True):
+    res = []
+    for p in tracked_files(listing):
+        rel = p.relative_to(REPO)
+        if p.suffix != suffix:
+            continue
+        for pre in prefixes:
+            pre_parts = Path(pre).parts
+            if rel.parts[:len(pre_parts)] == pre_parts and (recursive or len(rel.parts) == len(pre_parts) + 1):
+                res.append(p)
+                break
+    return res
+
+
+def _py_files(listing=None):
+    for p in _tracked(("backend", "scripts"), ".py", listing):
+        if "tests" in p.relative_to(REPO).parts:
+            continue
+        yield p
+
+
+def test_scans_ignore_untracked_and_venv_like_files(tmp_path):
+    listing = [
+        "backend/venv/lib/python3.12/site-packages/x/mod.py",
+        "backend/.venv/lib/y.py",
+        "backend/app/definitely_untracked_h117.py",
+        "backend/app/core/safe_write.py",
+    ]
+    names = {str(p.relative_to(REPO)) for p in _py_files(listing)}
+    assert names == {"backend/app/core/safe_write.py"}
+    # and the real listing never includes a venv or untracked scratch file
+    real = {str(p.relative_to(REPO)) for p in _py_files()}
+    assert not any("site-packages" in n or "/venv/" in n for n in real)
 
 
 def _is_rename_call(node: ast.Call) -> bool:
@@ -213,7 +265,7 @@ def js_unguarded_renames(src: str) -> list[int]:
 
 def test_mjs_renames_with_non_literal_destination_are_guarded():
     bad = []
-    for p in (REPO / "frontend" / "scripts").glob("*.mjs"):
+    for p in _tracked(("frontend/scripts",), ".mjs", recursive=False):
         for ln in js_unguarded_renames(p.read_text(encoding="utf-8")):
             bad.append(f"{p.relative_to(REPO)}:{ln}")
     assert not bad, "fs rename with a variable destination and no stat guard: " + ", ".join(bad)
@@ -252,7 +304,7 @@ _SHELL_MV_ALLOW = {
 
 def test_shell_mv_onto_variable_is_guarded():
     bad = []
-    for p in list((REPO / "scripts").glob("*.sh")) + list((REPO / "frontend" / "scripts").glob("*.sh")) + list((REPO / "capacitor-spike").rglob("*.sh") if (REPO / "capacitor-spike").exists() else []):
+    for p in _tracked(("scripts", "frontend/scripts", "capacitor-spike"), ".sh"):
         if str(p.relative_to(REPO)) in _SHELL_MV_ALLOW:
             continue
         lines = p.read_text(encoding="utf-8").splitlines()
