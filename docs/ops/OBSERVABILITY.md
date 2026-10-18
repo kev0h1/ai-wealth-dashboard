@@ -152,9 +152,36 @@ Railway and Vercel are off (`not_configured`) unless their tokens are set and `H
 
 Slice 3 adds alerts (below).
 
-## Alerts (slice 3, for the record)
+## Alerts (slice 3, E8)
 
-Push to Kevin through the existing FCM and APNs path on: a new error type (first seen in Sentry), an error-rate spike, a sync failure surge, Tavily or OpenRouter quota hits, disk or memory thresholds. Throttling so there is never a flood: one alert per key per cool-down window (suggested 6 hours, 1 hour for disk and memory while still breaching), a daily cap, and a single summary push when more than three keys fire in a window. Alert state lives in one Mongo document per key (`last_sent_at`, `count_suppressed`), so a restart does not re-fire.
+Built in `backend/app/services/health/alerts.py`, run by the `task_health_samples` cron (every 5 minutes, right after the samples are written) and, for new error types, by the API process's own 5 minute sampler loop. Off unless `ALERTS_ENABLED` is set. Pushes go to the account owner only, through the existing `send_push_to_user` path (APNs, FCM, web push), as the `ops_alerts` notification kind (default on, in `NOTIF_DEFAULTS`); the tap opens `/ops/health`. No new channel and no email path.
+
+Sentry-side alerts (issue alerts, spike and regression rules) are configured in Sentry by Kevin. Sentry has no inbound hook on this deployment, so this is the self-hosted complement: it covers what Sentry cannot see (platform health) and gives a "new error type" signal without Sentry.
+
+Conditions, read from the `health_samples` trend store (a sample older than 15 minutes counts as no data, never as clear):
+
+| Key | Fires when | Severity |
+|---|---|---|
+| `error_rate` | API 5xx share at or above 10% (`ALERT_ERROR_RATE`) in two consecutive samples, with at least 20 requests | crit |
+| `api_p95` | API p95 at or above 3000 ms in two consecutive samples | crit |
+| `sync_failures` | bank connections that failed to sync in 24 h at or above 5 (`ALERT_SYNC_FAILURES`) | warn, crit at three times that |
+| `quota_tavily` | Tavily research in back-off (quota or rate limit) | crit |
+| `quota_openrouter` | model spend at or above `LLM_MONTHLY_BUDGET_USD` | crit |
+| `vps_disk`, `vps_memory` | disk or memory used at 90% or more, or under 700 MB free | crit |
+| `collector:<name>` | any collector reports crit, or warn for `ALERT_WARN_STREAK` samples in a row; skipped while a rule above already speaks for that collector | crit or warn |
+| `new_error:<Class>` | an exception class name not seen in the last 7 days appears | event |
+
+New error types: a logging handler (installed in the API and the worker) records the class name of every error-level log record that carries an exception, and nothing else (no message, traceback or arguments). The in-process set is bounded to 200 names, names must be plain identifiers, and a flush upserts them into `error_types_seen` (30 day TTL). The first flush into an empty collection is a silent baseline, and the baseline keeps growing while alerts are off so enabling them does not announce every class ever raised. Per-process: the API and the worker each flush their own.
+
+Throttling and state, in one `alert_state` collection (one document per key: `first_seen`, `last_notified`, `count`, `state` open or resolved, plus an hourly counter document):
+
+- At most one push per key per cool-down (`ALERT_COOLDOWN_HOURS`, default 6). A warn that becomes crit re-notifies once; a crit already announced never repeats because it flapped.
+- One "Resolved" push when the condition has been clear for 2 consecutive samples (only if the alert was announced). A relapse resets the count; no data holds an alert open.
+- A global cap of `ALERT_HOURLY_CAP` pushes per hour (default 5). Alerts over the cap are held (still open, retried next sample) and counted once per key; the next hour sends one summary, for example "3 more alerts suppressed in the last hour".
+- Replicas: every state change is a filtered update. A new key is an insert-if-absent, and the first evaluation of a key in a 5 minute bucket claims `last_eval_bucket`, so two evaluators notify once and count one clear sample.
+- Copy is short and factual, with no payloads, no secrets and no user data, for example "API error rate 12% over the last hour, above 10%" and "Resolved: API error rate".
+
+`/ops/health` has an Alerts block (open alerts, the last 24 hours, and a "Send test alert" button). `GET /ops/health/alerts` and `POST /ops/health/alerts/test` are owner-only; the test push is limited to one a minute, does not use the hourly cap, and works while `ALERTS_ENABLED` is off so delivery can be checked first. The error rate and p95 are the collector's one-hour window, so "over the last hour" is the honest wording.
 
 ## PRIVACY.md wording (PROPOSED, for Kevin's approval)
 
@@ -172,6 +199,6 @@ Sentry's free tier keeps 30 days and longer retention is plan-dependent, so Kevi
 
 1. **Slice 1 (this item, E6):** the spec, error capture with scrubbing on all three surfaces, and the first `/ops/health`.
 2. **Slice 2 (follow-up item):** `/ops/health` metrics collectors (list above).
-3. **Slice 3 (follow-up item):** alerts, throttled.
+3. **Slice 3 (E8):** alerts, throttled.
 
 Before E6 finishes, an independent reviewer audits the diff and a privacy review audits the scrubbing; neither is skipped for slice 1.
