@@ -460,7 +460,41 @@ export type AimNudge = {
 };
 
 // GET /checkpoints also returns `ref` — the category the aim is anchored to.
-export type ActiveAim = Checkpoint & { ref: string };
+export type ActiveAim = Checkpoint & { ref: string; period_start?: string; period_end?: string };
+
+/** A completed check keeps its original benchmark, not today's edited aim. */
+export type CompletedAim = {
+  id: string;
+  ref: string;
+  aim_amount: number;
+  period_start: string;
+  period_end: string;
+  status: "met" | "missed";
+  result_amount: number;
+  resolved_at: string;
+};
+
+export type AimEvidence = {
+  checkpoint_id: string;
+  ref: string;
+  period_start: string;
+  period_end: string;
+  total: number;
+  recorded_result: number | null;
+  changed_since_result: boolean;
+  transactions: { id: string; name: string; date: string; amount: number }[];
+  remainder_amount: number;
+  remainder_count: number;
+  weekly_counts: { period_start: string; period_end: string; count: number }[];
+  checked_at: string;
+};
+
+export type MirrorPaymentRecords = {
+  records: { id: string; name: string; date: string; amount: number }[];
+  window_start: string;
+  window_end: string;
+  checked_at: string;
+};
 
 export type PaceChoice = {
   category: string;
@@ -3923,6 +3957,9 @@ export const api = {
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),
   listCheckpoints: () => get<{ checkpoints: ActiveAim[] }>("/checkpoints"),
+  completedCheckpoints: () => get<{ checkpoints: CompletedAim[] }>("/checkpoints/history?limit=12"),
+  checkpointEvidence: (id: string) => get<AimEvidence>(`/checkpoints/${encodeURIComponent(id)}/evidence`),
+  mirrorPaymentRecords: () => get<MirrorPaymentRecords>("/mirror/payment-records"),
   cancelCheckpoint: (id: string) =>
     fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
       method: "DELETE",
