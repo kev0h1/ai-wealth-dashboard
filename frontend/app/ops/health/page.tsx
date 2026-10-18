@@ -91,7 +91,7 @@ function formatDate(iso?: string): string {
 }
 
 function HealthBlocks({ health }: { health: OpsHealth }) {
-  const { build, memory, disk, load, mongo, sentry, uptime_hours } = health;
+  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw } = health;
   const loadPerCpu = load ? load.load_5m / load.cpus : null;
   return (
     <>
@@ -161,6 +161,22 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
           )}
         </div>
       </Block>
+
+      {fxw && (
+        <Block title="Finexer webhooks">
+          <div className={CARD}>
+            <p className={`text-sm font-semibold ${fxw.authorized_consents > 0 && (fxw.minutes_ago === null || fxw.minutes_ago > fxw.stale_hours * 60) ? WARN : "text-slate-900 dark:text-slate-100"}`}>
+              {fxw.line}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Stat label="Signing" value={fxw.signing_configured ? "Enforced" : "Not set"} tone={fxw.signing_configured ? OK : WARN} />
+              <Stat label="Without webhook" value={`${fxw.consents_without_webhook}`} hint={`of ${fxw.authorized_consents} connected`} />
+              <Stat label="API calls today" value={`${fxw.api_calls_today}`} hint={`yesterday ${fxw.api_calls_yesterday}`} />
+              <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook`} hint={`${fxw.poll_syncs_today} polled`} />
+            </div>
+          </div>
+        </Block>
+      )}
     </>
   );
 }

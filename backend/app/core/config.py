@@ -500,8 +500,8 @@ else:
 # Signing secret Finexer issues after the webhook is registered in their
 # dashboard (used to verify the "fx-signature" header) — unlike the URL secret
 # above, this is NEVER auto-generated: it must come from Finexer. Empty string
-# means "not configured yet", which the receiver treats as pre-registration
-# deploy state and skips signature verification (logging a warning).
+# means "not configured yet": the URL path secret is then the only gate (startup
+# logs that once). When set, the signature is mandatory and fails closed (A167).
 _finexer_webhook_signing_secret_file = _BACKEND_DIR / ".finexer_webhook_signing_secret"
 if _fwss := os.getenv("FINEXER_WEBHOOK_SIGNING_SECRET"):
     FINEXER_WEBHOOK_SIGNING_SECRET = _fwss
