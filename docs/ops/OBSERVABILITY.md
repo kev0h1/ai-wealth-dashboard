@@ -1,6 +1,6 @@
 # Observability: error collection and platform health (E6)
 
-Status: slice 1 built on branch `feature-E6-observability` (error capture on all three surfaces, scrubbing, a first `/ops/health`). Slices 2 and 3 are separate board items (see "Slices").
+Status: slice 1 is on main (error capture on all three surfaces, scrubbing, a first `/ops/health`). Slice 2 (E7, the metrics collectors) is built on `feature-E7-e6-slice-2-ops`; slice 3 (alerts) is a separate board item (see "Slices").
 
 ## Decision (Kevin, 2026-10-16, as recorded on E6)
 
@@ -124,7 +124,31 @@ Slice 1 shows what existing data supports:
 
 Colour is information: slate for figures, green for healthy, amber from 75 percent, red only for a genuinely failing state (database not responding, memory, disk or load at 90 percent or more).
 
-Slice 2 adds (collectors writing small time-bucketed documents, never a new service): API p50 and p95 latency and error rate per route; Finexer sync success and failure and pending revocations over time; worker queue depth and job failures; LLM spend against a budget and Tavily quota (B44, B48); Mongo size and slow queries; Railway and Vercel usage (deployment counts, since the Vercel billing API returns "Plan not found" for this team) and build minutes (H115); push delivery rates; and the **upgrade signals**: p95 creeping up, worker backlog, Railway plan limits, Mongo tier.
+### Slice 2 (E7): metrics collectors
+
+Code: `backend/app/services/health/` (one small module per collector, shared interface in `base.py`), endpoints in `routers/ops.py`, page `frontend/app/ops/health/page.tsx` with the section list in `sections.ts` (pinned by `npm run check:e7-health-page`).
+
+**Interface and budget.** Every collector has `name`, `title`, `budget_s` (2 s) and `async collect()` returning `{name, state, status, values, as_of, note}`. `state` is how collection went: `ok`, `timed_out`, `not_configured`, `omitted` (source does not exist here, feature-detected) or `error` (class name only, never upstream text). `status` is what the values mean: `ok`, `warn`, `crit`, or `unknown` whenever `state` is not `ok`. `run_collector` wraps each in `asyncio.wait_for(budget)` and never raises; `run_all` runs them with `asyncio.gather`, so one hanging source costs at most its own budget and blocks nothing. Endpoints (all owner-only, 403 otherwise): `GET /ops/health/collectors` (all, concurrent), `GET /ops/health/collectors/{name}` (one; the page calls this per section so each block loads, times out or shows "Not configured" independently), `GET /ops/health/trends`. `GET /ops/health` itself is unchanged and stays fast.
+
+| Collector | Source | warn / crit |
+|---|---|---|
+| `api_latency` | in-process ring buffer (10 000 samples, route template, method, status, ms; no ids, bodies or query strings), fed by a pure ASGI middleware registered outermost; per process, resets on restart, last hour | p95 1500 / 3000 ms; 5xx rate 2% / 10% (only with 20+ requests) |
+| `finexer_sync` | `worker_runs` reconcile summary, `finexer_consents.last_synced` and `last_sync_error_at` (24 h success and failure counts), `orphaned_revocations` (A106); no-webhook-in-24 h is feature-detected on `last_webhook_at` (A167) and omitted, with a note, until any consent carries it | reconcile age 8 / 12 h; pending revocations 1 / 5; failure share 20% / 50% (5+ attempts); any consent without a webhook warns |
+| `worker` | arq Redis keys, read-only: `arq:queue` depth and oldest age, `arq:in-progress:*`, `arq:result:*` (failures decoded with arq's own decoder), heartbeat | depth 50 / 200; oldest waiting 10 / 60 min; failed 1 / 10. Arq keeps results for about an hour, so failures cover what Redis retains, not 24 h |
+| `llm_tavily` | `llm_usage` aggregates (same grouping as `/admin/llm-usage`) for this month and last 7 days per pipeline; Tavily calls (model `tavily`, B48) and B44's backoff record | spend vs `LLM_MONTHLY_BUDGET_USD` 75% / 100% (no budget means shown only); Tavily failing warns, failing with backoff active is crit |
+| `mongo` | `dbStats` and `profile: -1` (reads the level, never enables the profiler); slow-query count only when the profiler is already on | stored vs `MONGO_STORAGE_LIMIT_MB` 75% / 90% (unset means shown only); slow queries (100 ms+, 24 h) 20 / 200 |
+| `vps` | `host_metrics` memory, disk, load per CPU, CPU count, uptime | memory, disk, load 75% / 90%; available memory under 1500 / 700 MB (H95) |
+| `railway` | GraphQL with a project token (`Project-Access-Token`): service list and each service's latest deployment status and age | latest deployment FAILED or CRASHED is crit |
+| `vercel` | `GET /v6/deployments` with a bearer token: latest state and age, deployments created this month (billing API not called: "Plan not found") | latest state ERROR is crit |
+| `push` | `push_log` {ts, status} if it exists; none exists on main, so omitted with a note | failure share 10% / 30% (10+ sends) |
+
+Railway and Vercel are off (`not_configured`) unless their tokens are set and `HEALTH_EXTERNAL_CALLS` is not 0; tokens go only into a request header, never into a result, a log line or an error, and they are never sampled. Without a token no network call is made.
+
+**Trend store.** `health_samples` is a capped collection (created idempotently by `samples.ensure_collection`; max documents = 7 sampled collectors x 288 five-minute buckets x 30 days + slack, 64 MB ceiling). `_id` is `<collector>:<5 minute bucket>`, so replicas and retries cannot double-write. The arq cron `task_health_samples` (every 5 minutes) writes samples for every collector that lives with the worker (`finexer_sync`, `worker`, `llm_tavily`, `mongo`, `vps`, `push`); `api_latency` is sampled by a small loop in the API process (`HEALTH_API_SAMPLER=0` disables it) because its ring buffer exists only there. Tracked metrics: API p95, worker backlog, database size, memory used. The page shows 24 h and 7 d min, avg and max per metric as plain lines (tokens only, red only for a `crit` status elsewhere on the page).
+
+**Caveats.** Decoding arq results unpickles values read from Redis (arq's own `deserialize_result`), which is safe only while Redis is trusted (private, local or Railway-internal); do not point `REDIS_URL` at a shared or untrusted instance. With two API replicas, each writes its own `api_latency` sample but the `_id` is per bucket, so only the first replica's sample per bucket is kept. A missing arq heartbeat is `warn` (`crit` with a non-empty queue). Unmatched 401 responses (auth short-circuits) are not recorded by the latency buffer.
+
+**For E8 (alerts).** Consume `status` per collector (`ok`, `warn`, `crit`; `unknown` means the source could not be read and is not itself an alert) from `run_all(default_collectors())`, and the thresholds above live in the collector modules as module constants. E8 owns throttling and state; collectors hold none. A hung or erroring source yields `state` `timed_out` or `error`, which E8 may count across consecutive runs before alerting.
 
 Slice 3 adds alerts (below).
 
