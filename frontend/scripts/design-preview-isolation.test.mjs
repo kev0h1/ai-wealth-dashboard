@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { api, gatedFetch, authHeaders, setUnauthorizedHandler } from "../lib/api";
 import { setAppLocked } from "../lib/appLock";
-import { fetchTransactionsPage } from "../app/design/g119-transactions-live/dataSource";
-import { FIXTURE_POPULATED, FIXTURE_LONG } from "../app/design/g119-transactions-live/fixtures";
 import { previewAction } from "../app/design/spend-live/previewAction";
 
 // All requests stay in this process, including the product-route controls.
@@ -32,7 +30,7 @@ try {
     () => api.patchTransaction("synthetic-transaction", { category: "Groceries" }),
     () => api.addRule("Preview rule", "synthetic-merchant", "Groceries"),
   ];
-  for (const pathname of ["/design", "/design/", "/design/spend-live", "/design/g119-transactions-live"]) {
+  for (const pathname of ["/design", "/design/", "/design/spend-live", "/design/some-preview"]) {
     window.location.pathname = pathname;
     for (const action of actions) {
       await assert.rejects(action, /Preview only/);
@@ -50,24 +48,6 @@ try {
   assert.equal(unauthorised, 0, "local preview refusals must not sign the visitor out");
 
   await assert.rejects(previewAction(), /Preview only/);
-  for (const fixture of [null, [], FIXTURE_POPULATED, FIXTURE_LONG]) {
-    const page = await fetchTransactionsPage(1, 5, fixture);
-    assert.equal(page.source, "fixture");
-    assert.equal(page.result.total, (fixture ?? FIXTURE_POPULATED).length);
-    assert.ok(page.result.items.every(row => row.id.startsWith("fixture-")));
-  }
-  const filtered = await fetchTransactionsPage(1, 5, FIXTURE_LONG, {
-    categories: ["Groceries"], merchants: ["tesco"], txnType: "debit",
-  });
-  assert.ok(filtered.result.total > 5, "fixture filters retain paginated matches");
-  assert.ok(filtered.result.items.every(row => row.category === "Groceries" && row.merchant_name === "Tesco" && row.transaction_type === "debit"));
-  const nextPage = await fetchTransactionsPage(2, 5, FIXTURE_LONG, {
-    categories: ["Groceries"], merchants: ["tesco"], txnType: "debit",
-  });
-  assert.equal(nextPage.result.total, filtered.result.total);
-  assert.ok(nextPage.result.items.every(row => !filtered.result.items.some(first => first.id === row.id)));
-  assert.equal(requests.length, 0, "fixture filtering and pagination must not issue requests");
-
   // Call-time checks allow navigation back to the product without a reload,
   // and do not over-match other path segments or change SSR behaviour.
   for (const pathname of ["/spend", "/transactions", "/designer", "/design-system"]) {
@@ -87,4 +67,4 @@ try {
   setUnauthorizedHandler(null);
 }
 
-console.log("design-preview-isolation OK (zero preview requests, fixture pagination, product navigation)");
+console.log("design-preview-isolation OK (zero preview requests, product navigation)");

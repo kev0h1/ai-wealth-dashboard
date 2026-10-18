@@ -1,6 +1,6 @@
 // Canonical shape of "what GET /transactions/search can actually narrow by"
 // (backend/app/routers/transactions.py `_search_query`) — extracted out of
-// the G119 design round (app/design/g119-transactions-live/dataSource.ts)
+// the G119 design round
 // so the production transactions hub (app/transactions/TransactionsPage.tsx)
 // and its filter chips/sheet (components/TransactionFilterChips.tsx,
 // components/TransactionFilterSheet.tsx) share ONE definition instead of
