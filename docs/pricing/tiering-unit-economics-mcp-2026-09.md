@@ -70,9 +70,8 @@ Users understand "messages", not tokens. Sell Penny in messages, meter tokens in
 |---|---|---|---|---|---|---|---|
 | Statements (free) | £0 | none; statement upload only | on upload | 10 | no | 90 days | 3 uploads a month; no Finexer cost |
 | Lite | £5.99 | up to 10 accounts | daily | 40 | no | 6 months | |
-| Standard | £9.99 | up to 20 accounts | 4-hourly plus manual | 150 | no | full | insights, debt plan, allocations |
-| Connect | £12.99 | up to 20 accounts | 4-hourly plus manual | 150 | yes, 2,000 tool calls | full | Standard plus MCP |
-| Max | £16.99 | unlimited (fair use 40 accounts) | priority | 400 | yes, 5,000 tool calls | full | |
+| Standard | £9.99 | up to 25 accounts (B53; was 20) | 4-hourly plus manual | 150 | no | full | insights, debt plan, allocations |
+| Plus (B53, replaces Connect and Max) | £12.99 | unlimited (fair use 40 accounts) | priority | 300 | yes, 5,000 tool calls (connector hidden in production, B51) | full | every paid tier has every feature |
 | Top-up | £2.99 | | | +100 messages | | | cost about £1.50 cached; expires with the billing month |
 
 Worst-case Penny cost at the cap (cached): Lite £0.60, Standard £2.25, Max £6.00. Contribution at the cap with app store billing: Lite about £2.80, Standard about £4.50, Max about £5.70. Every tier stays positive at its cap, which is the point of the caps.
@@ -84,6 +83,32 @@ Why the MCP tiers are the best margin in the table: an external assistant (Claud
 Billing channel: digital subscriptions bought inside the iOS or Android app must use Apple or Google billing (15% at this size). Web checkout via Stripe avoids that. Recommendation: Stripe on the website as the primary checkout, in-app purchase offered at the same price for people who buy inside the app, and no mention of web pricing inside the app.
 
 Migration from the current code: replace the four existing tiers (free, pro, premium, family) and `TIER_LIMITS` with the five above; `check_connection_limit` already exists and is wired on connect; `require_tier` gates exist on categories and investments. New work is the metering and the caps.
+
+### 4a. B53 revision (2026-10-18): Lite, Standard and Plus
+
+Kevin's decision: Connect and Max are retired and replaced by Plus. Every paid tier has every feature (savings tips and investment tracking included, B52 revised); tiers differ only by connected accounts and Penny messages a month. Statements stays free.
+
+| Tier | Accounts | Penny / month | Monthly | Six months | Yearly |
+|---|---|---|---|---|---|
+| Lite | 10 | 40 | £5.99 | £31.99 | £59.99 |
+| Standard | 25 | 150 | £9.99 | £53.99 | £99.99 |
+| Plus | unlimited | 300 | £12.99 | £69.99 | £129.99 |
+
+Plus keeps the old Connect price points. Legacy stored tiers `max`, `connect`, `premium` and `family` read as Plus, so existing Max users keep unlimited accounts (their Penny allowance falls from 400 to 300). Derived figures below use the same inputs as sections 1 to 3 (VAT out at 20%, cached Penny at £0.015 a message, Finexer 10p an account, non-Penny AI £0.07, store fee 15%, Stripe 1.5% + 20p).
+
+**Break-even with Plus.** A Plus subscriber is £12.99, ex VAT £10.83. Average case, assuming 120 Penny messages (£1.80) and 8 accounts (£0.80): £10.83 less £1.62 store fee, £0.07, £1.80 and £0.80 gives about **£6.54 via app store billing, about £7.80 via Stripe** (store fee replaced by £0.36). That is more than the Standard figure of £5.81, so a paying base weighted towards Plus breaks even slightly sooner: £585 / £6.54 is about 90 paying users on app store billing (Standard only: about 100). The 20 to 25% paying-share target in section 3 is unchanged.
+
+**Worst case at each cap (app store billing, fair use 40 accounts on Plus).**
+
+| Tier | Ex VAT | Store fee | Penny at cap | Finexer at cap | Other AI | Contribution |
+|---|---|---|---|---|---|---|
+| Lite, 10 accounts, 40 messages | £4.99 | £0.75 | £0.60 | £1.00 | £0.07 | about £2.57 |
+| Standard, 25 accounts, 150 messages | £8.33 | £1.25 | £2.25 | £2.50 | £0.07 | about £2.26 |
+| Plus, 40 accounts, 300 messages | £10.83 | £1.62 | £4.50 | £4.00 | £0.07 | about £0.64 |
+
+Every tier stays positive at its cap, but Plus is thin: a Plus user who connects more than about 46 accounts and also uses the full 300 messages loses money. "Unlimited" therefore needs a fair-use ceiling in the Terms (see docs/pricing/plus-tier-terms-proposal.md). Standard's worst case falls from about £2.83 (20 accounts) to about £2.26.
+
+**Penny pack nudge.** The marginal Standard to Plus step is £3.00 for 150 more messages, 2.0p each, now below the large pack (2.5p each). Section 9's rule that the large pack sits about 10% under the next tier's marginal rate no longer holds: moving to Plus is better value than the large pack for any repeat buyer. The sheet already leads with the Plus row after a second pack in a month. Pack prices are unchanged by B53; Kevin to decide whether to leave them or reprice.
 
 ## 5. Build order (proposal)
 
@@ -166,14 +191,14 @@ Via Stripe on the web the net is about £0.62 / £2.25 / £3.80 respectively (ex
 
 The large pack sits about 10% under the Standard to Max marginal rate. That is deliberate: rounder numbers convert better than 175 for £4.99, and the sheet handles the cannibalisation risk in software instead:
 
-- The "Move to Max, 400 a month" row stays on the sheet as the anchor under the packs.
-- After a user's second pack purchase in one calendar month, the sheet leads with Move to Max and shows the packs below it.
+- The "Move to Plus, 300 a month" row (B53; was Max, 400) stays on the sheet as the anchor under the packs.
+- After a user's second pack purchase in one calendar month, the sheet leads with Move to Plus and shows the packs below it.
 - Pack messages are consumed only after the monthly allowance is used up, and they no longer expire at month end. They last 90 days from purchase. "This month only" makes the large pack a bad buy in the last week of a month and suppresses exactly the purchase we most want. This changes `penny_topups` from a `year_month` keyed record to a purchase record with `expires_at` and `remaining`, and `penny_allowance` in `core/subscription.py` draws down the oldest unexpired pack first.
 - Packs are available on every tier including Statements (free). The free tier's 10 messages plus a £0.99 pack is the cheapest possible first transaction.
 
 Copy on the sheet (no em dashes): "20 messages, £0.99", "100 messages, £2.99, Most popular", "200 messages, £4.99, Best value", footnote "Packs last 90 days and are used after your monthly allowance. Quick questions from the chips are always free."
 
-Implementation touch points: `PENNY_TOPUP` in `backend/app/core/subscription.py` becomes a list of packs served as `topups` from `GET /subscription`; `components/MoreMessagesSheet.tsx` renders the three rows plus the Max row; the design preview at `app/design/penny-usage-ring/MoreMessagesSheet.tsx` gets the same three rows; billing wiring is item B5.
+Implementation touch points: `PENNY_TOPUP` in `backend/app/core/subscription.py` becomes a list of packs served as `topups` from `GET /subscription`; `components/MoreMessagesSheet.tsx` renders the three rows plus the Plus row; the design preview at `app/design/penny-usage-ring/MoreMessagesSheet.tsx` gets the same three rows; billing wiring is item B5.
 
 ### MCP call pack (F9, 2026-09-08)
 

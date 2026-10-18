@@ -334,6 +334,20 @@ business crosses the £90k threshold) is the largest single term in this
 comparison and should be confirmed with Kevin's accountant before it is
 relied on.
 
+### 3.2 B53 update (2026-10-18): Plus replaces Connect and Max
+
+Kevin's B53 decision changes the catalogue above: the paid tiers are Lite, Standard and **Plus**; Connect and Max are retired (Connect was never an iOS or Android SKU, C21/C24). Nine auto-renewable subscriptions (three tiers by three periods) plus the Penny packs replace the twelve in the table; products 7 to 12 are dropped and replaced by:
+
+| Product id | Type | Tier | Period | GBP price (web, incl. VAT) | Proposed iOS price |
+|---|---|---|---|---|---|
+| `co.uk.auriqltd.sorted.sub.plus.monthly` | Auto-renewable | Plus | Monthly | £12.99 | £14.99 |
+| `co.uk.auriqltd.sorted.sub.plus.six_months` | Auto-renewable | Plus | Every 6 months | £69.99 | £82.99 |
+| `co.uk.auriqltd.sorted.sub.plus.annual` | Auto-renewable | Plus | Yearly | £129.99 | £154.99 |
+
+In the shorthand of the board item, these are `sorted.plus.<period>`; the full id keeps this section's `co.uk.auriqltd.sorted.sub.<tier>.<period>` namespace. The prices are the old Connect price points, and the iOS prices are the Connect rows of the 3.1 table (net £10.62, £58.78 and £109.78 on iOS), still a proposal awaiting Kevin and Apple's price grid. Subscription group ranking becomes Plus above Standard above Lite. Config keys for both providers become `plus`, `plus_six_months`, `plus_annual` in place of the `connect*` and `max*` keys; the shared required-key vocabulary is now 13 keys (`app.core.config._STRIPE_REQUIRED_PRICE_KEYS`), not 16. The server tier limits are Lite 10 accounts and 40 Penny, Standard 25 and 150, Plus unlimited and 300, and every paid tier has every feature. Existing Stripe subscriptions on the retired Max and Connect prices keep working: the webhook reads those legacy price ids only to resolve them to Plus.
+
+C21 and C24 are not edited by B53. They align on these ids and prices after B53 merges.
+
 ## 4. `appAccountToken`
 
 An Apple transaction belongs to an Apple ID, not to this app's account —
