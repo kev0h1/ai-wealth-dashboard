@@ -1,10 +1,9 @@
 // Date-group helpers for payment lists — grouped by calendar day under a
 // heading ("13 September"). Originally built for the G119 design round
-// (app/design/g119-transactions-live) after Kevin's own feedback on the
+// after Kevin's own feedback on the
 // prior G92 round was to KEEP the day groupings; extracted here for G122 so
 // the production transactions hub (app/transactions/TransactionsPage.tsx)
-// and that preview's Variant A share ONE grouping implementation instead of
-// the preview staying a copy production can silently drift from — the same
+// has ONE grouping implementation, the same
 // reasoning lib/transactionFilters.ts already documents for the filter
 // chips/sheet.
 //

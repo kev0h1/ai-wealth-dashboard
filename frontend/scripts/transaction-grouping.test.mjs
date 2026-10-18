@@ -1,9 +1,6 @@
 // Plain-Node regression test for the G122 independent-review findings
 // against lib/transactionGrouping.ts, the shared grouping helper behind
-// both app/transactions/TransactionsPage.tsx and the g119-transactions-live
-// preview's Variant A (see that file's own header for why they share one
-// implementation rather than the preview staying a copy production can
-// drift from).
+// app/transactions/TransactionsPage.tsx.
 //
 // Two defects, both reproduced by the reviewer on the version of this file
 // that shipped before this fix:

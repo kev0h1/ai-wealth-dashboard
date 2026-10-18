@@ -542,10 +542,8 @@ export default function TransactionsPage() {
         ) : (
           <>
             {/* G122: day-group headings ("13 September"), matching the G119
-                preview's approved Variant A grammar — grouping now lives in
-                lib/transactionGrouping.ts, shared verbatim with
-                app/design/g119-transactions-live/VariantA.tsx so this page
-                can't silently drift from what Kevin approved. Grouping is
+                preview's approved Variant A grammar. Grouping lives in
+                lib/transactionGrouping.ts. Grouping is
                 built from THIS PAGE's current items only, so it re-groups
                 fresh on every page change; a calendar day that straddles a
                 page boundary legitimately reopens its own heading on the
