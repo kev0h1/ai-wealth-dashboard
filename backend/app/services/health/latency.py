@@ -77,7 +77,7 @@ def aggregate(samples: list[tuple], top: int = 12) -> dict:
 class ApiLatencyCollector(Collector):
     name = "api_latency"
     title = "API latency"
-    sample_fields = {"p95_ms": "p95_ms", "error_rate": "error_rate"}
+    sample_fields = {"p95_ms": "p95_ms", "error_rate": "error_rate", "count": "count"}
 
     def __init__(self, ring: RingBuffer = RING, now=time.time):
         self.ring = ring

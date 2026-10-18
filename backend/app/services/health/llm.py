@@ -49,6 +49,8 @@ def _fold(rows: list[dict]) -> tuple[list[dict], dict]:
 class LlmTavilyCollector(Collector):
     name = "llm_tavily"
     title = "Model spend and Tavily"
+    # E8: numeric top-level values the alert evaluator reads from the trend store.
+    sample_fields = {"tavily_backoff": "tavily_backoff", "budget_used_pct": "budget_used_pct"}
 
     def __init__(self, usage=None, research_loader=None):
         from app.db import collections as c
@@ -81,6 +83,8 @@ class LlmTavilyCollector(Collector):
 
         skip_until = (doc or {}).get("skip_until")
         values = {
+            "tavily_backoff": 1 if backoff else 0,
+            "budget_used_pct": round(month_cost / budget * 100, 1) if budget and budget > 0 else None,
             "month_cost_usd": month_cost, "week_cost_usd": week_cost,
             "budget_usd": budget, "month_by_pipeline": month_p[:10], "week_by_pipeline": week_p[:10],
             "tavily": {

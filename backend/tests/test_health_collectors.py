@@ -514,7 +514,7 @@ def test_write_samples_one_doc_per_collector_per_bucket_skips_external():
     docs = list(col.docs.values())
     assert {d["collector"] for d in docs} == {"fast", "vps"}
     vps = next(d for d in docs if d["collector"] == "vps")
-    assert vps["metrics"] == {"memory_used_pct": 60.0} and vps["status"] == "ok"
+    assert vps["metrics"] == {"memory_used_pct": 60.0, "memory_available_mb": 4000, "disk_used_pct": 50.0} and vps["status"] == "ok"
 
 
 def test_cron_task_writes_samples_for_worker_world_only(monkeypatch):

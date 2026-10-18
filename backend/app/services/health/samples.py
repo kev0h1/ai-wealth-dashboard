@@ -123,7 +123,7 @@ async def trends(col) -> dict:
     return out
 
 
-async def api_sampler_loop(collectors: list[Collector], col, interval_s: float = BUCKET_S) -> None:
+async def api_sampler_loop(collectors: list[Collector], col, interval_s: float = BUCKET_S, after=None) -> None:
     """API-process loop writing `api_latency` samples (its ring buffer lives
     only here). Errors never escape; cancellation ends it."""
     mine = [c for c in collectors if c.name == "api_latency"]
@@ -131,6 +131,8 @@ async def api_sampler_loop(collectors: list[Collector], col, interval_s: float =
         try:
             await asyncio.sleep(interval_s)
             await write_samples(mine, col)
+            if after is not None:
+                await after()      # E8: flush this process's new error types
         except asyncio.CancelledError:
             raise
         except Exception as exc:

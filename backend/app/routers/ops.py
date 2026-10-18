@@ -332,3 +332,26 @@ async def ops_health_trends(user: dict = Depends(current_user)):
         return {"metrics": await samples.trends(health_samples_col)}
     except Exception:
         return {"metrics": {}, "error": True}
+
+
+# E8 slice 3: alerts block on /ops/health. Owner-only like the rest.
+@router.get("/health/alerts")
+async def ops_health_alerts(user: dict = Depends(current_user)):
+    _require_owner(user)
+    from app.db.collections import alert_state_col
+    from app.services.health import alerts
+
+    try:
+        return await alerts.snapshot(alert_state_col)
+    except Exception:
+        return {"enabled": False, "open": [], "history": [], "error": True}
+
+
+@router.post("/health/alerts/test")
+async def ops_health_alerts_test(user: dict = Depends(current_user)):
+    """One throttled test push (at most one a minute) to the owner."""
+    _require_owner(user)
+    from app.db.collections import alert_state_col
+    from app.services.health import alerts
+
+    return await alerts.send_test(alert_state_col)
