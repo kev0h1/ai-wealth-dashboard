@@ -242,6 +242,19 @@ async def _claim_debounce(consent_id: str, window_seconds: int) -> bool:
         return True
 
 
+async def _release_debounce(consent_id: str) -> None:
+    """Best effort: drop the debounce key so a retry after a failed enqueue is
+    not coalesced into a job that was never queued."""
+    try:
+        pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+        try:
+            await pool.delete(f"fx_webhook_debounce:{consent_id}")
+        finally:
+            await pool.aclose()
+    except Exception:
+        logger.exception("Finexer webhook: could not release debounce key")
+
+
 async def _enqueue_sync_debounced(consent_id: str, user_id: str) -> bool:
     """Coalesce a burst for one consent into a single task_sync_finexer,
     deferred by the debounce window so the sync runs after the burst (trailing
@@ -250,11 +263,16 @@ async def _enqueue_sync_debounced(consent_id: str, user_id: str) -> bool:
     if window > 0 and not await _claim_debounce(consent_id, window):
         await fxw.bump_daily_counters(webhook_events_coalesced=1)
         return False
-    if window > 0:
-        await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id,
-                       _defer_by=timedelta(seconds=window))
-    else:
-        await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id)
+    try:
+        if window > 0:
+            await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id,
+                           _defer_by=timedelta(seconds=window))
+        else:
+            await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id)
+    except Exception:
+        if window > 0:
+            await _release_debounce(consent_id)
+        raise
     await fxw.bump_daily_counters(webhook_syncs_enqueued=1)
     return True
 
@@ -337,11 +355,14 @@ async def finexer_webhook(secret: str, request: Request):
         return {"ok": True}
 
     # Freshness signal for /ops/health and the polling fallback: any authentic
-    # event for a known consent counts, whatever its type.
-    await finexer_consents_col.update_one(
-        {"_id": doc["_id"]},
-        {"$set": {"last_webhook_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
-    )
+    # event for a known consent counts, whatever its type. Stamped only once the
+    # event is handled (or recorded as a no-op), never on the 503 path, so a
+    # failed enqueue cannot make the consent look webhook-healthy.
+    async def _stamp():
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"last_webhook_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+        )
 
     action = fxw.resolve_action(event_type)
     await _set({"action": action})
@@ -350,6 +371,7 @@ async def finexer_webhook(secret: str, request: Request):
         logger.info("Finexer webhook type not mapped, recorded and ignored: %s",
                     fxw.safe_type_for_log(event_type))
         await _set({"status": "ignored"})
+        await _stamp()
         return {"ok": True}
 
     if action == fxw.ACTION_CONSENT_REVOKED:
@@ -358,6 +380,7 @@ async def finexer_webhook(secret: str, request: Request):
             {"$set": {"status": "revoked", "revoked_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
         )
         await _set({"status": "noted"})
+        await _stamp()
         return {"ok": True}
 
     if action == fxw.ACTION_CONSENT_EXPIRING:
@@ -366,12 +389,14 @@ async def finexer_webhook(secret: str, request: Request):
             {"$set": {"webhook_expiring_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
         )
         await _set({"status": "noted"})
+        await _stamp()
         return {"ok": True}
 
     # ACTION_SYNC_CONSENT / ACTION_CONSENT_AUTHORISED
     user_id = doc.get("user_id")
     if not user_id:
         await _set({"status": "skipped", "skip_reason": "no user_id"})
+        await _stamp()
         return {"ok": True}
 
     try:
@@ -385,6 +410,7 @@ async def finexer_webhook(secret: str, request: Request):
         )
         raise HTTPException(status_code=503, detail="Temporarily unavailable")
 
+    await _stamp()
     if enqueued:
         await _set({"status": "queued", "user_id": user_id, "queued_at": now,
                     "resolved_consent_id": str(doc["_id"])})

@@ -132,8 +132,12 @@ def env(monkeypatch):
         claimed.add(consent_id)
         return True
 
+    async def fake_release(consent_id):
+        claimed.discard(consent_id)
+
     monkeypatch.setattr(wh, "_enqueue", fake_enqueue)
     monkeypatch.setattr(wh, "_claim_debounce", fake_claim)
+    monkeypatch.setattr(wh, "_release_debounce", fake_release)
     return {"consents": consents, "events": events, "runs": runs, "calls": calls, "claimed": claimed}
 
 
@@ -223,10 +227,14 @@ def test_enqueue_failure_releases_event_id_so_retry_is_processed(env, monkeypatc
         _post(_Req(payload))
     assert exc.value.status_code == 503
     assert "event_id" not in env["events"].docs[0]
-    env["claimed"].clear()
+    # The failed enqueue released the debounce key and did not stamp freshness.
+    assert env["claimed"] == set()
+    assert "last_webhook_at" not in env["consents"].docs[0]
     monkeypatch.setattr(wh, "_enqueue", good)
-    _post(_Req(payload))
+    _post(_Req(payload))  # Finexer's retry, same event id
     assert len(env["calls"]) == 1
+    assert env["calls"][0]["consent_id"] == "c1"
+    assert env["consents"].docs[0]["last_webhook_at"] is not None
 
 
 # (d) a burst coalesces

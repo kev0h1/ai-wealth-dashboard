@@ -42,6 +42,21 @@ Actions available in the table: `sync_consent`, `consent_authorised`,
 `unknown`: recorded in `webhook_events` (30 day TTL) and ignored, with only the
 type string logged.
 
+## Caveats for Kevin
+
+- `raw_hmac_sha256` must be paired with `FINEXER_WEBHOOK_TIMESTAMP_HEADER`.
+  Without a timestamp header nothing bounds replay except the event-id dedupe
+  (and only when Finexer sends an id), so a captured request stays valid forever.
+- `consent_revoked` sets the LOCAL consent status only. The event means the
+  consent is already revoked at the remote end, so no revoke call is made and
+  A106's pending-revocation path is not involved.
+- Mapping `consent.expired` to `consent_revoked` is an assumption. Please
+  confirm it against Finexer's docs; if expiry is recoverable by reconsent it
+  should be `consent_expiring` instead (override in `FINEXER_WEBHOOK_EVENT_ACTIONS`).
+- On an enqueue failure the receiver returns 503, releases the event id and the
+  debounce key and does not stamp `last_webhook_at`, so Finexer's retry is
+  processed normally.
+
 ## Other config keys (all env, defaults in `app/core/config.py`)
 
 - `FINEXER_WEBHOOK_SIGNING_SECRET`: when set, the signature is mandatory and
