@@ -10,6 +10,10 @@ same writes from the terminal. All three (the markdown, the page and the
 CLI) go through one shared library, `backend/app/services/backlog.py`, so
 they can never drift from each other.
 
+The optional [Codex board watcher](CODEX_BOARD_WATCHER.md) (H118) polls without
+LLM calls and dispatches bounded work only for actionable Codex board events.
+It does not replace the state machine, design approval or coordinator merge gates.
+
 ## The model
 
 A TODO.md item line looks like this:
