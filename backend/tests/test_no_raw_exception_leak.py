@@ -55,9 +55,11 @@ ALLOWLIST: set[tuple[str, int]] = {
     # record_intent / update_checkpoint (G242 PATCH) with an authored message
     # ("ref must be a non-empty category name", "aim_amount must be a
     # number", "answer must be 'one_off' or 'new_normal'", etc.)
-    ("app/routers/checkpoints.py", 39),
-    ("app/routers/checkpoints.py", 71),
-    ("app/routers/checkpoints.py", 118),
+    # G286 adds history/evidence routes above the existing PATCH and intent
+    # handlers. Same three authored validation forwards, new line positions.
+    ("app/routers/checkpoints.py", 42),
+    ("app/routers/checkpoints.py", 98),
+    ("app/routers/checkpoints.py", 145),
     # app.services.broadcast.BroadcastError — admin-only broadcast compose/
     # send, authored messages only.
     ("app/routers/broadcast.py", 94),
