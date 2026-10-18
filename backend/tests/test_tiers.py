@@ -99,15 +99,19 @@ def test_new_tier_names_pass_through_unchanged(monkeypatch):
         assert sub.tier == expected
 
 
-def test_check_connection_limit_raises_402_for_lite_at_bank_cap(monkeypatch):
+def _patch_counts(monkeypatch, tier, *, accounts=0, banks=0):
     monkeypatch.setattr(
         collections_module, "subscriptions_col",
-        _FakeFindOneCollection({"tier": "lite", "status": "active"}),
+        _FakeFindOneCollection({"tier": tier, "status": "active"}),
     )
-    monkeypatch.setattr(collections_module, "connections_col", _FakeCountCollection(3))
+    monkeypatch.setattr(collections_module, "connections_col", _FakeCountCollection(banks))
     monkeypatch.setattr(collections_module, "finexer_consents_col", _FakeCountCollection(0))
     monkeypatch.setattr(collections_module, "yapily_consents_col", _FakeCountCollection(0))
-    monkeypatch.setattr(collections_module, "accounts_col", _FakeCountCollection(0))
+    monkeypatch.setattr(collections_module, "accounts_col", _FakeCountCollection(accounts))
+
+
+def test_check_connection_limit_raises_402_for_lite_at_ten_accounts(monkeypatch):
+    _patch_counts(monkeypatch, "lite", accounts=10, banks=3)
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(check_connection_limit("lite-user@example.com"))
@@ -115,12 +119,35 @@ def test_check_connection_limit_raises_402_for_lite_at_bank_cap(monkeypatch):
     assert exc_info.value.status_code == 402
     detail = exc_info.value.detail
     assert detail["code"] == "CONNECTION_LIMIT_REACHED"
-    assert detail["kind"] == "banks"
+    assert detail["kind"] == "accounts"
     assert detail["current_tier"] == "lite"
-    assert detail["limit"] == 3
-    assert detail["message"] == "Your Lite plan allows up to 3 connected banks."
+    assert detail["limit"] == 10
+    assert detail["message"] == "Your Lite plan allows up to 10 connected accounts."
     assert "Pro" not in detail["message"]
     assert "Premium" not in detail["message"]
+
+
+def test_lite_allows_up_to_nine_accounts_and_more_than_three_banks(monkeypatch):
+    _patch_counts(monkeypatch, "lite", accounts=9, banks=5)
+    asyncio.run(check_connection_limit("lite-user@example.com"))
+
+
+def test_lite_limits_are_ten_accounts_and_forty_penny():
+    from app.core.subscription import TIER_LIMITS
+    assert TIER_LIMITS[Tier.LITE]["max_accounts"] == 10
+    assert TIER_LIMITS[Tier.LITE]["max_banks"] is None
+    assert TIER_LIMITS[Tier.LITE]["penny_messages_per_month"] == 40
+
+
+def test_standard_and_max_account_limits_unchanged_by_b52(monkeypatch):
+    from app.core.subscription import TIER_LIMITS
+    assert TIER_LIMITS[Tier.STANDARD]["max_accounts"] == 20
+    assert TIER_LIMITS[Tier.MAX]["max_accounts"] is None
+    _patch_counts(monkeypatch, "standard", accounts=19)
+    asyncio.run(check_connection_limit("std@example.com"))
+    _patch_counts(monkeypatch, "standard", accounts=20)
+    with pytest.raises(HTTPException):
+        asyncio.run(check_connection_limit("std@example.com"))
 
 
 def test_check_connection_limit_is_noop_for_max_tier(monkeypatch):
