@@ -432,7 +432,7 @@ async def run_alerts(samples_col=None, state_col=None, now=None, send: Optional[
         return {"enabled": True, **await process(state_col, results, now, cfg, send or default_send)}
     except Exception as exc:
         log.warning("health alerts failed: %s", type(exc).__name__)
-        return {"enabled": True, "error": type(exc).__name__}
+        return {"enabled": True, "error": True}
 
 
 # ---- new error types --------------------------------------------------------
@@ -460,7 +460,7 @@ async def process_new_error_types(seen_col=None, state_col=None, now=None, send:
         return {"enabled": True, "new": len(new), **stats}
     except Exception as exc:
         log.warning("new error type check failed: %s", type(exc).__name__)
-        return {"enabled": cfg.enabled, "error": type(exc).__name__}
+        return {"enabled": cfg.enabled, "error": True}
 
 
 # ---- page data and the test button -----------------------------------------

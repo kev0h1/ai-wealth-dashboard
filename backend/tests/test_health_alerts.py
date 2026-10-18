@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import HTTPException
 
+from app.db.guard import guarded_drop_collection
 from app.services.health import alerts, error_types
 from app.services.health.alerts import Config, Condition
 
@@ -59,7 +60,7 @@ def with_state(fn):
         try:
             return await fn(col)
         finally:
-            await col.drop()
+            await guarded_drop_collection(client, col.database.name, col.name)
             client.close()
     return run(go())
 
@@ -440,7 +441,7 @@ def test_new_error_type_flush_and_alert():
         error_types.record("QuietError")
         out = await alerts.process_new_error_types(seen, col, now=at(20), send=send, cfg=cfg(enabled=False))
         assert out["enabled"] is False and len(send.calls) == 2 and await seen.find_one({"_id": "QuietError"})
-        await seen.drop()
+        await guarded_drop_collection(col.database.client, col.database.name, seen.name)
         error_types.clear()
     with_state(go)
 
