@@ -249,6 +249,12 @@ def build_app(
     # browser), unlike frontend/next.config.ts's.
     built.middleware("http")(security_headers_middleware)
 
+    # E7: outermost of all, so the per-route latency ring buffer (bounded,
+    # in-memory, no bodies or user ids) times every response including
+    # auth and rate-limit short-circuits. Pure ASGI, never raises.
+    from app.services.health.latency import LatencyMiddleware
+    built.add_middleware(LatencyMiddleware)
+
     # mcp_only mounts ONLY the connector (mcp + oauth routers, which between
     # them also cover the /.well-known/oauth-* discovery paths, see
     # app/routers/oauth.py); the rest of `_routers()` (accounts, profile,
@@ -623,6 +629,35 @@ async def _migrate():
     asyncio.create_task(_migrate_penny_topup_packs())
     asyncio.create_task(_seed_mcp_call_counters())
     asyncio.create_task(_migrate_bot_credential_expiry())
+
+
+_health_sampler_task: "asyncio.Task | None" = None
+
+
+@app.on_event("startup")
+async def _start_health_sampler():
+    """E7: write an `api_latency` trend sample every 5 minutes. The ring
+    buffer lives in this process, so the worker's cron cannot sample it.
+    Off for the MCP-only instance and when HEALTH_API_SAMPLER=0. Never
+    blocks or fails start-up."""
+    global _health_sampler_task
+    if MCP_ONLY or (os.getenv("HEALTH_API_SAMPLER") or "1").strip() == "0":
+        return
+    try:
+        from app.db.collections import db, health_samples_col
+        from app.services.health import ApiLatencyCollector, samples
+        await samples.ensure_collection(db)
+        _health_sampler_task = asyncio.create_task(
+            samples.api_sampler_loop([ApiLatencyCollector()], health_samples_col)
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("health sampler not started: %s", type(exc).__name__)
+
+
+@app.on_event("shutdown")
+async def _stop_health_sampler():
+    if _health_sampler_task is not None:
+        _health_sampler_task.cancel()
 
 
 async def _encrypt_plaintext_tokens():
