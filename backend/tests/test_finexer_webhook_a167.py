@@ -485,3 +485,81 @@ def test_api_call_counter_increments(monkeypatch):
     doc = runs.docs[0]
     assert doc["_id"].startswith("finexer_api_calls:")
     assert doc["requests"] == 2 and doc["rate_limited"] == 1
+
+
+# A168: explain_signature_failure reasons, never leaking secret or signature
+def _explain(headers, raw=b"{}", now=None):
+    return fxw.explain_signature_failure(
+        raw, headers, secret=SIGNING, scheme=fxw.SCHEME_T_S_HMAC_SHA256,
+        header_name="fx-signature", tolerance_seconds=300, now=now,
+    )
+
+
+def _hdr(raw=b"{}", secret=SIGNING, ts=None):
+    ts = ts or datetime.now(timezone.utc).isoformat()
+    mac = hmac.new(secret.encode(), f"{ts}.".encode() + raw, hashlib.sha256).hexdigest()
+    return {"fx-signature": f"t={ts};s={mac}"}, mac
+
+
+def test_explain_header_missing():
+    assert _explain({}) == "header_missing"
+
+
+def test_explain_header_malformed():
+    assert _explain({"fx-signature": "garbage"}) == "header_malformed"
+    assert _explain({"fx-signature": "t=2026-01-01T00:00:00Z"}) == "header_malformed"
+
+
+def test_explain_timestamp_unparseable():
+    assert _explain({"fx-signature": "t=notatime;s=abc"}) == "timestamp_unparseable"
+
+
+def test_explain_timestamp_stale():
+    ts = (datetime.now(timezone.utc) - timedelta(seconds=412)).isoformat()
+    headers, _ = _hdr(ts=ts)
+    reason = _explain(headers)
+    assert reason.startswith("timestamp_stale(skew=41") and reason.endswith("s)")
+
+
+def test_explain_digest_mismatch_and_ok():
+    headers, _ = _hdr(secret="wrong")
+    assert _explain(headers) == "digest_mismatch"
+    good, _ = _hdr()
+    assert _explain(good) == "ok"
+
+
+def test_explain_no_secret_and_unknown_scheme():
+    assert fxw.explain_signature_failure(b"{}", {}, secret="") == "no_secret"
+    headers, _ = _hdr()
+    assert fxw.explain_signature_failure(
+        b"{}", headers, secret=SIGNING, scheme="bogus", header_name="fx-signature"
+    ) == "unknown_scheme"
+
+
+def test_router_logs_rejection_reason_without_secrets(env, monkeypatch, caplog):
+    monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SIGNING_SECRET", SIGNING)
+    req = _signed({"id": "e", "type": "bank_account.synced", "consent_id": "c1"}, secret="wrong")
+    sig_value = req.headers["fx-signature"]
+    mac = sig_value.split("s=", 1)[1]
+    req.headers["user-agent"] = "FXC-UrlReachability/1.0"
+    with caplog.at_level("INFO"):
+        with pytest.raises(HTTPException) as exc:
+            _post(req)
+    assert exc.value.detail == "Invalid token"
+    assert "Finexer webhook rejected: reason=digest_mismatch ua=FXC-UrlReachability/1.0" in caplog.text
+    assert "has_header=True" in caplog.text
+    assert SIGNING not in caplog.text and "wrong" not in caplog.text
+    assert mac not in caplog.text and sig_value not in caplog.text
+    assert SECRET not in caplog.text
+
+
+def test_router_logs_missing_header_and_ok(env, monkeypatch, caplog):
+    monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SIGNING_SECRET", SIGNING)
+    with caplog.at_level("INFO"):
+        with pytest.raises(HTTPException):
+            _post(_Req({"id": "e", "type": "bank_account.synced", "consent_id": "c1"}))
+    assert "reason=header_missing" in caplog.text and "has_header=False" in caplog.text
+    caplog.clear()
+    with caplog.at_level("INFO"):
+        _post(_signed({"id": "evt_9", "type": "bank_account.synced", "consent_id": "c1"}))
+    assert "Finexer webhook signature ok" in caplog.text
