@@ -96,6 +96,13 @@ export async function resolve(specifier, context, nextResolve) {
 }
 
 export async function load(url, context, nextLoad) {
+  // CSS modules are a bundler concern. Server-rendered contract tests need
+  // stable class identifiers, not a second CSS implementation. Real layout
+  // and theme verification still run against the Next build in a browser.
+  if (url.startsWith("file:") && url.endsWith(".module.css")) {
+    const names = [...readFileSync(fileURLToPath(url), "utf8").matchAll(/\.([A-Za-z_][\w-]*)/g)].map(match => match[1]);
+    return { format: "module", source: `export default ${JSON.stringify(Object.fromEntries(names.map(name => [name, name])))}`, shortCircuit: true };
+  }
   if (url.startsWith("file:") && /\.tsx?$/.test(url)) {
     const filename = fileURLToPath(url);
     const { outputText, diagnostics } = ts.transpileModule(readFileSync(filename, "utf8"), {
