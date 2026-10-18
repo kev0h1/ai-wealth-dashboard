@@ -500,10 +500,9 @@ def today_str() -> str:
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp{__import__('os').getpid()}")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    # H117: refuses a device-node target (see app/core/safe_write.py).
+    from app.core.safe_write import atomic_write_text
+    atomic_write_text(path, text)
 
 
 @contextmanager
