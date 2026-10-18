@@ -106,12 +106,12 @@ const nativeAuth = read("lib/nativeAuth.ts");
 
 check("playBilling.ts reaches no Stripe checkout or portal", !/startCheckout|openBillingPortal|\/billing\/checkout|\/billing\/portal|stripe/i.test(play));
 check("playBilling.ts never navigates the window (no hosted checkout redirect)", !/window\.location|Browser\.open/.test(play));
-check("playBilling.ts writes no product id (ids come from the config response)", !/sorted\.(lite|standard|max|penny)|co\.uk\.auriqltd|\.sub\.|\.pack\./.test(play));
+check("playBilling.ts writes no product id (ids come from the config response)", !/sorted\.(lite|standard|plus|max|penny)|co\.uk\.auriqltd|\.sub\.|\.pack\./.test(play));
 check("playBilling.ts writes no price", !/£\s*\d|\d+\.\d\d/.test(play));
 check("playBilling.ts writes no trial length", !/\b(2|two|14|fourteen)[- ]days?\b|14[- ]day|free for/i.test(play));
 check("purchases read the product id from config.products", (play.match(/config\.products\?\.\[productKey\]/g) ?? []).length === 2);
-check("the picker looks products up through playCfg.products, not a literal id", /playCfg\?\.products/.test(picker) && !/sorted\.(lite|standard|max|penny)/.test(picker));
-check("the sheet looks packs up through the config, not a literal id", /playCfg\?\.products\?\.\[`penny_\$\{packId\}`\]/.test(sheet) && !/sorted\.(lite|standard|max|penny)/.test(sheet));
+check("the picker looks products up through playCfg.products, not a literal id", /playCfg\?\.products/.test(picker) && !/sorted\.(lite|standard|plus|max|penny)/.test(picker));
+check("the sheet looks packs up through the config, not a literal id", /playCfg\?\.products\?\.\[`penny_\$\{packId\}`\]/.test(sheet) && !/sorted\.(lite|standard|plus|max|penny)/.test(sheet));
 check("the config comes from the server's play config route", /getPlayBillingConfig:[\s\S]{0,200}\/billing\/play\/config/.test(api));
 check("the purchase carries the obfuscated account id from that config", (play.match(/purchaseProduct\(\{[^}]*?appAccountToken:\s*config\.account_id as string/g) ?? []).length === 2);
 check("the client sends the token to the server verify route", /verifyPlayPurchase:[\s\S]{0,300}\/billing\/play\/purchase/.test(api) && /api\.verifyPlayPurchase\(tx\.purchaseToken, tx\.productIdentifier\)/.test(play));

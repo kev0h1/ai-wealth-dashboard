@@ -80,12 +80,12 @@ expectation is a defect: record the step, the `billing_events` result and the
 As built (C13 section 9.5), the app does not buy a second subscription over a live
 one.
 
-1. With a live Standard plan, open the picker and choose Max. Expected: the
+1. With a live Standard plan, open the picker and choose Plus. Expected: the
    buy button is replaced by a pointer to Google Play; no Play sheet opens.
 2. Change the plan in Google Play if the page offers it (or cancel and wait for
-   expiry, then buy Max). Expected: the new token names the old one in
+   expiry, then buy Plus). Expected: the new token names the old one in
    `linkedPurchaseToken`, the old `play_purchases` row gets `superseded_at`, the
-   `subscriptions` document now shows Max, and a late event for the old token
+   `subscriptions` document now shows Plus, and a late event for the old token
    changes nothing.
 3. Record in the item note whether Play let the user switch products from its
    own page. If it did not, in-app upgrade needs the native follow-up in section 9.5.

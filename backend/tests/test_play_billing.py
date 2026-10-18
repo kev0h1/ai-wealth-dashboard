@@ -349,14 +349,14 @@ def test_every_subscription_notification_type_rereads_the_purchase(env, client, 
 
 
 def test_active_maps_tier_period_expiry_and_provider(env):
-    env.api.subs[T1] = sub_payload("sorted.max.annual", expiry_days=300)
+    env.api.subs[T1] = sub_payload("sorted.plus.annual", expiry_days=300)
     result = _run(play_billing.process_subscription(T1))
     doc = sub_doc(env)
-    assert (doc["tier"], doc["billing_period"], doc["status"], doc["provider"], doc["source"]) == ("max", "annual", "active", "google", "google")
+    assert (doc["tier"], doc["billing_period"], doc["status"], doc["provider"], doc["source"]) == ("plus", "annual", "active", "google", "google")
     assert doc["expires_at"] > NOW + timedelta(days=299)
     assert result["acknowledged"] is True
     assert doc["provider_subscription_id"] != T1 and len(doc["provider_subscription_id"]) == 64
-    assert _run(get_subscription(UID)).tier == Tier.MAX
+    assert _run(get_subscription(UID)).tier == Tier.PLUS
 
 
 def test_free_trial_offer_is_trialing_with_a_trial_end(env):
@@ -643,28 +643,28 @@ def test_a_live_play_subscription_is_managed_in_play_until_it_lapses(env, client
 
 # ── Precedence with Stripe ───────────────────────────────────────────────────
 
-def _stripe_doc(tier="max", status="active"):
+def _stripe_doc(tier="plus", status="active"):
     return {"user_id": UID, "provider": "stripe", "source": "stripe", "stripe_subscription_id": "sub_1",
             "tier": tier, "status": status, "billing_period": "monthly", "expires_at": NOW + timedelta(days=20)}
 
 
 def test_highest_tier_wins_over_stripe_and_the_double_is_flagged(env):
-    env.cols["subscriptions_col"].docs.append(_stripe_doc("max"))
+    env.cols["subscriptions_col"].docs.append(_stripe_doc("plus"))
     env.api.subs[T1] = sub_payload("sorted.lite.monthly")
     result = _run(play_billing.process_subscription(T1))
     assert result["double_subscription"] is True and sub_doc(env)["double_subscription"] is True
     sub = _run(get_subscription(UID))
-    assert sub.tier == Tier.MAX and sub.provider == "stripe"
+    assert sub.tier == Tier.PLUS and sub.provider == "stripe"
     # The Stripe document was never touched.
-    assert sub_doc(env, "stripe")["tier"] == "max"
+    assert sub_doc(env, "stripe")["tier"] == "plus"
 
 
 def test_google_tier_wins_when_higher_and_stripe_is_untouched(env):
     env.cols["subscriptions_col"].docs.append(_stripe_doc("lite"))
-    env.api.subs[T1] = sub_payload("sorted.max.monthly")
+    env.api.subs[T1] = sub_payload("sorted.plus.monthly")
     _run(play_billing.process_subscription(T1))
     sub = _run(get_subscription(UID))
-    assert sub.tier == Tier.MAX and sub.provider == "google"
+    assert sub.tier == Tier.PLUS and sub.provider == "google"
     assert sub_doc(env, "stripe")["tier"] == "lite" and sub_doc(env, "stripe")["status"] == "active"
 
 
@@ -675,7 +675,7 @@ def test_client_is_told_not_to_buy_while_a_stripe_subscription_is_live(env, clie
 
 
 def test_google_event_never_touches_an_apple_document(env):
-    env.cols["subscriptions_col"].docs.append({"user_id": UID, "provider": "apple", "source": "apple", "tier": "max",
+    env.cols["subscriptions_col"].docs.append({"user_id": UID, "provider": "apple", "source": "apple", "tier": "plus",
                                                "status": "active", "provider_subscription_id": "ap1",
                                                "expires_at": NOW + timedelta(days=9)})
     env.api.subs[T1] = sub_payload()
@@ -683,7 +683,7 @@ def test_google_event_never_touches_an_apple_document(env):
     env.api.subs[T1] = sub_payload(state="EXPIRED", expiry_days=-1)
     _run(play_billing.process_subscription(T1))
     apple = sub_doc(env, "apple")
-    assert apple["status"] == "active" and apple["tier"] == "max"
+    assert apple["status"] == "active" and apple["tier"] == "plus"
 
 
 # ── Plan changes ─────────────────────────────────────────────────────────────
@@ -691,15 +691,15 @@ def test_google_event_never_touches_an_apple_document(env):
 def test_upgrade_replaces_the_subscription_and_a_late_old_token_event_is_ignored(env):
     env.api.subs[T1] = sub_payload("sorted.lite.monthly")
     _run(play_billing.process_subscription(T1))
-    env.api.subs[T2] = sub_payload("sorted.max.monthly", linked=T1)
+    env.api.subs[T2] = sub_payload("sorted.plus.monthly", linked=T1)
     _run(play_billing.process_subscription(T2))
-    assert sub_doc(env)["tier"] == "max"
+    assert sub_doc(env)["tier"] == "plus"
     old = next(d for d in env.cols["play_purchases_col"].docs if d["purchase_token"] == T1)
     assert old.get("superseded_at") is not None
-    # The replaced purchase now reads EXPIRED: it must not expire the live max plan.
+    # The replaced purchase now reads EXPIRED: it must not expire the live plus plan.
     env.api.subs[T1] = sub_payload("sorted.lite.monthly", state="EXPIRED", expiry_days=-1)
     result = _run(play_billing.process_subscription(T1))
-    assert sub_doc(env)["status"] == "active" and sub_doc(env)["tier"] == "max"
+    assert sub_doc(env)["status"] == "active" and sub_doc(env)["tier"] == "plus"
     assert result["handled"] is False
 
 
@@ -1007,10 +1007,10 @@ def test_oversized_declared_content_length_is_rejected_before_the_body_is_read(e
 def test_second_live_play_subscription_is_granted_flagged_and_reported(env, client):
     env.api.subs[T1] = sub_payload("sorted.lite.monthly")
     _run(play_billing.process_subscription(T1))
-    env.api.subs[T2] = sub_payload("sorted.max.monthly")  # no linkedPurchaseToken
+    env.api.subs[T2] = sub_payload("sorted.plus.monthly")  # no linkedPurchaseToken
     result = _run(play_billing.process_subscription(T2))
     doc = sub_doc(env)
-    assert result["double_subscription"] is True and doc["tier"] == "max"
+    assert result["double_subscription"] is True and doc["tier"] == "plus"
     assert doc["double_subscription"] is True and doc["play_double_subscription"] is True
     # A renewal of the flagged purchase keeps the flag.
     _run(play_billing.process_subscription(T2))
@@ -1018,14 +1018,14 @@ def test_second_live_play_subscription_is_granted_flagged_and_reported(env, clie
     from app.core.subscription import get_subscription_doc
     assert _run(get_subscription_doc(UID))[1].double_play_subscription is True
     # The client summary carries it.
-    summary = _run(play_billing.verify_client_purchase(UID, T2, "sorted.max.monthly"))
+    summary = _run(play_billing.verify_client_purchase(UID, T2, "sorted.plus.monthly"))
     assert summary["double_subscription"] is True
 
 
 def test_replacing_purchase_naming_the_old_token_is_not_flagged(env):
     env.api.subs[T1] = sub_payload("sorted.lite.monthly")
     _run(play_billing.process_subscription(T1))
-    env.api.subs[T2] = sub_payload("sorted.max.monthly", linked=T1)
+    env.api.subs[T2] = sub_payload("sorted.plus.monthly", linked=T1)
     result = _run(play_billing.process_subscription(T2))
     assert "double_subscription" not in result or result["double_subscription"] is False
     assert not sub_doc(env).get("play_double_subscription")
@@ -1036,17 +1036,27 @@ def test_new_purchase_after_the_old_one_lapsed_is_not_flagged(env):
     _run(play_billing.process_subscription(T1))
     env.api.subs[T1] = sub_payload(state="EXPIRED", expiry_days=-1)
     _run(play_billing.process_subscription(T1))
-    env.api.subs[T2] = sub_payload("sorted.max.monthly")
+    env.api.subs[T2] = sub_payload("sorted.plus.monthly")
     result = _run(play_billing.process_subscription(T2))
     assert not result.get("double_subscription") and not sub_doc(env).get("play_double_subscription")
 
 
 def test_client_product_id_must_match_the_purchased_product(env, client, caplog):
-    env.api.subs[T1] = sub_payload("sorted.max.annual", expiry_days=300)
+    env.api.subs[T1] = sub_payload("sorted.plus.annual", expiry_days=300)
     resp = client.post("/billing/play/purchase", json={"purchase_token": T1, "product_id": "sorted.lite.monthly"})
     assert resp.status_code == 400 and resp.json()["detail"]["code"] == "PLAY_PURCHASE_REFUSED"
-    assert "product_mismatch" not in resp.text and "sorted.max.annual" not in resp.text
+    assert "product_mismatch" not in resp.text and "sorted.plus.annual" not in resp.text
     assert sub_doc(env) is None and env.api._count("ack") == 0
     assert any("does not match purchased product" in r.getMessage() for r in caplog.records)
-    ok = client.post("/billing/play/purchase", json={"purchase_token": T1, "product_id": "sorted.max.annual"})
-    assert ok.status_code == 200 and sub_doc(env)["tier"] == "max"
+    ok = client.post("/billing/play/purchase", json={"purchase_token": T1, "product_id": "sorted.plus.annual"})
+    assert ok.status_code == 200 and sub_doc(env)["tier"] == "plus"
+
+
+def test_legacy_max_product_ids_resolve_to_plus(env):
+    # B53: Max became Plus. A purchase made under a product id created while
+    # Max still existed (sorted.max.<period>) is granted as Plus.
+    env.api.subs[T1] = sub_payload("sorted.max.annual", expiry_days=300)
+    _run(play_billing.process_subscription(T1))
+    doc = sub_doc(env)
+    assert (doc["tier"], doc["billing_period"]) == ("plus", "annual")
+    assert _run(get_subscription(UID)).tier == Tier.PLUS

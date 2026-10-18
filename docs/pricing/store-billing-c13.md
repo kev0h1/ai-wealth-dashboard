@@ -782,13 +782,13 @@ precedence rule apply to `provider: "google"` unchanged.
 
 Nine subscription products and three one-time products, ids from
 `app.core.store_catalogue` (`sorted.<tier>.<period>`, `sorted.penny.<n>`), each
-overridable with `PLAY_PRODUCT_IDS`. No Connect (B51) and no MCP pack on Play.
+overridable with `PLAY_PRODUCT_IDS`. Tiers are Lite, Standard and Plus (B53: Plus replaced Max); there is no Connect (B51) and no MCP pack on Play. A purchase made under a legacy `sorted.max.<period>` product id resolves to Plus through the catalogue's `_LEGACY_TIER_MAP` alias.
 
 | Product id | Type | Price (web price) |
 |---|---|---|
 | `sorted.lite.monthly` / `.six_months` / `.annual` | Subscription | £5.99 / £31.99 / £59.99 |
 | `sorted.standard.monthly` / `.six_months` / `.annual` | Subscription | £9.99 / £53.99 / £99.99 |
-| `sorted.max.monthly` / `.six_months` / `.annual` | Subscription | £16.99 / £91.99 / £169.99 |
+| `sorted.plus.monthly` / `.six_months` / `.annual` | Subscription | £12.99 / £69.99 / £129.99 |
 | `sorted.penny.20` / `.100` / `.200` | One-time (consumable) | £0.99 / £2.99 / £4.99 |
 
 Every subscription carries a 14-day free-trial offer (Play Console, section
@@ -966,9 +966,9 @@ refused.
 Nothing here can be done by an agent. Do them in this order; the app stays
 switched off (`PLAY_IAP_ENABLED` unset) until the last step.
 
-0. **Wait for B52 first.** B52 reshapes the Lite tier's features and
+0. **Wait for B52 and B53 first.** They reshape the tiers (Lite features, Plus replacing Max) and
    descriptions (not the catalogue shape). Do not type any product title or
-   description into Play Console until B52's Lite description is final.
+   description into Play Console until B52's Lite description is final (and B53's Plus description).
 1. **Play Console record (A9)**: organisation account, app
    `co.uk.auriqltd.sorted`, Finance category, financial features declaration,
    payments profile and merchant account. The Board flavour has a different
