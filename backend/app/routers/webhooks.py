@@ -331,8 +331,17 @@ async def finexer_webhook(secret: str, request: Request):
     body = await _read_body_bounded(request, _cfg.FINEXER_WEBHOOK_MAX_BODY_BYTES)
 
     if FINEXER_WEBHOOK_SIGNING_SECRET:
+        ua = str(request.headers.get("user-agent") or request.headers.get("User-Agent") or "")[:60]
         if not _verify_finexer_signature(body, request.headers):
+            hdr = _cfg.FINEXER_WEBHOOK_SIGNATURE_HEADER
+            reason = fxw.explain_signature_failure(body, request.headers, secret=FINEXER_WEBHOOK_SIGNING_SECRET)
+            has_header = bool(request.headers.get(hdr) or request.headers.get(hdr.lower()))
+            logger.warning(
+                "Finexer webhook rejected: reason=%s ua=%s body_bytes=%d has_header=%s",
+                reason, ua, len(body), has_header,
+            )
             raise HTTPException(status_code=401, detail="Invalid token")
+        logger.info("Finexer webhook signature ok ua=%s body_bytes=%d", ua, len(body))
 
     try:
         event = json.loads(body)

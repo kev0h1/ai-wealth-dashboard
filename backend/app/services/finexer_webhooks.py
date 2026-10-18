@@ -210,6 +210,78 @@ def verify_signature(
     return False
 
 
+def explain_signature_failure(
+    raw_body: bytes,
+    headers: Mapping[str, str],
+    *,
+    secret: str,
+    scheme: Optional[str] = None,
+    header_name: Optional[str] = None,
+    timestamp_header: Optional[str] = None,
+    tolerance_seconds: Optional[int] = None,
+    now: Optional[datetime] = None,
+) -> str:
+    """Diagnostic twin of verify_signature (A168): re-runs the same parsing
+    steps and returns a short reason code for the log. Never includes the
+    secret, the signature value or the body. Returns "ok" if the request would
+    in fact verify."""
+    if not secret:
+        return "no_secret"
+    scheme = scheme or cfg.FINEXER_WEBHOOK_SIGNATURE_SCHEME
+    header_name = header_name or cfg.FINEXER_WEBHOOK_SIGNATURE_HEADER
+    tolerance = cfg.FINEXER_WEBHOOK_TOLERANCE_SECONDS if tolerance_seconds is None else tolerance_seconds
+    ts_header = cfg.FINEXER_WEBHOOK_TIMESTAMP_HEADER if timestamp_header is None else timestamp_header
+
+    value = headers.get(header_name) or headers.get(header_name.lower())
+    if not value or not isinstance(value, str):
+        return "header_missing"
+
+    def _skew(event_time: datetime) -> Optional[str]:
+        current = now or datetime.now(timezone.utc)  # naive-ok: tz-aware, compared to a parsed aware timestamp
+        skew = (current - event_time).total_seconds()
+        if abs(skew) > tolerance:
+            return f"timestamp_stale(skew={round(skew)}s)"
+        return None
+
+    if scheme == SCHEME_T_S_HMAC_SHA256:
+        parts: dict[str, str] = {}
+        for chunk in value.split(";"):
+            if "=" not in chunk:
+                continue
+            k, v = chunk.split("=", 1)
+            parts[k.strip()] = v.strip()
+        ts, sig = parts.get("t"), parts.get("s")
+        if not ts or not sig:
+            return "header_malformed"
+        event_time = _parse_timestamp(ts)
+        if event_time is None:
+            return "timestamp_unparseable"
+        stale = _skew(event_time)
+        if stale:
+            return stale
+        expected = hmac.new(secret.encode(), f"{ts}.".encode() + raw_body, hashlib.sha256).hexdigest()
+        return "ok" if hmac.compare_digest(expected.encode(), sig.encode()) else "digest_mismatch"
+
+    if scheme == SCHEME_RAW_HMAC_SHA256:
+        if ts_header:
+            raw_ts = headers.get(ts_header) or headers.get(ts_header.lower())
+            if not isinstance(raw_ts, str) or not raw_ts:
+                return "header_missing"
+            event_time = _parse_timestamp(raw_ts)
+            if event_time is None:
+                return "timestamp_unparseable"
+            stale = _skew(event_time)
+            if stale:
+                return stale
+        sig = value.strip()
+        if sig.lower().startswith("sha256="):
+            sig = sig[7:]
+        expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+        return "ok" if hmac.compare_digest(expected.encode(), sig.lower().encode()) else "digest_mismatch"
+
+    return "unknown_scheme"
+
+
 _signing_status_logged = False
 
 
