@@ -1,7 +1,7 @@
 # Finexer webhooks (A167)
 
-Status: receiver built and hardened against Finexer's documentation. One fact
-is still pending: the exact signature FORMAT (see "Pending").
+Status: receiver built and hardened against Finexer's documentation. The
+signature format is confirmed (see "Signature format (confirmed)").
 
 ## Confirmed
 
@@ -16,7 +16,7 @@ screenshots supplied by Kevin).
 | For `consent.*`, `data.object` is the consent (`id` cst_..., `customer`, `provider`, `expiry_date`, `failure_code`, `failure_message`, `status`, `metadata`) | consent id = `data.object.id` |
 | For `bank_account.*`, `data.object` is the bank account (shape not shown) | consent from `data.object.consent` if present, else our stored map `accounts.connection_id` (Finexer accounts), else the event is recorded as `skipped / unresolved` |
 | One POST per event; reply 2xx (200 or 204); on timeout or non-2xx Finexer retries every 3 s; after 10 consecutive failures the webhook is PAUSED and the owner is emailed | every authentic delivery gets 200. The only non-2xx after authentication is 503 on a genuine enqueue failure, which releases the event id and debounce key so the retry is processed |
-| Every delivery is HMAC-SHA256 signed in the `fx-signature` header with a per-webhook key shown in the dashboard after creation | that key is `FINEXER_WEBHOOK_SIGNING_SECRET` |
+| Every delivery is HMAC-SHA256 signed in the `fx-signature` header with the webhook's own `secret` (see "Signature format (confirmed)") | that key is `FINEXER_WEBHOOK_SIGNING_SECRET` |
 | A static token in the URL query is allowed as auth | our path secret (`/webhooks/finexer/{secret}`) is the equivalent and stays |
 
 Event actions (`FINEXER_WEBHOOK_EVENT_ACTIONS` can override any type):
@@ -34,20 +34,37 @@ Event actions (`FINEXER_WEBHOOK_EVENT_ACTIONS` can override any type):
 Other actions exist for config use: `consent_expiring` (stamps
 `webhook_expiring_at`; no Finexer event is known to map to it).
 
-## Pending
+## Signature format (confirmed)
 
-- The signature FORMAT ("Webhook signatures" docs page was not captured). The
-  header name `fx-signature` and HMAC-SHA256 are confirmed. The value layout is
-  an assumption: default scheme `t_s_hmac_sha256` (`t=<ISO8601>;s=<hex>`, HMAC
-  over `"<t>.<raw body>"`, inherited from A89). `raw_hmac_sha256` (hex or
-  `sha256=` prefixed HMAC of the raw body) is available. Set with
-  `FINEXER_WEBHOOK_SIGNATURE_SCHEME`, `FINEXER_WEBHOOK_SIGNATURE_HEADER`,
-  `FINEXER_WEBHOOK_TIMESTAMP_HEADER`, `FINEXER_WEBHOOK_TOLERANCE_SECONDS`.
-  `raw_hmac_sha256` MUST be paired with a timestamp header, otherwise replay is
-  bounded only by the event-id dedupe. Until the page is checked, do not set
-  `FINEXER_WEBHOOK_SIGNING_SECRET` on an environment where real deliveries
-  would be rejected: a wrong scheme fails closed and pauses the webhook after 10
-  failures.
+Source: Finexer docs, Webhook signatures page, supplied by Kevin 2026-10-18.
+
+- Every delivery carries an `fx-signature` header in the form
+  `t={time};s={hash}`. `{time}` is a UTC ISO 8601 timestamp (for example
+  `2020-05-12T14:45:00Z`), generated fresh for every attempt, retries included.
+- `{hash}` is the hex-encoded HMAC-SHA256 of the string `"{time}.{raw body}"`,
+  using the exact raw request bytes (never re-serialised), keyed with the
+  webhook object's `secret` field. Find it in the Dashboard (Modify webhook,
+  bottom of the popup) or via the webhook GET endpoint. It is not the webhook
+  id.
+- Finexer does not reject replays. The receiver enforces its own tolerance
+  (`FINEXER_WEBHOOK_TOLERANCE_SECONDS`, default 300).
+- This is the default scheme `t_s_hmac_sha256`, so no
+  `FINEXER_WEBHOOK_SIGNATURE_SCHEME` override is needed. `raw_hmac_sha256`
+  stays as a fallback only and must be paired with a timestamp header,
+  otherwise replay is bounded only by the event-id dedupe.
+- Delivery and retries: a non-2xx response or a timeout is retried every 3 s;
+  10 consecutive failures pause the webhook and email the account owner.
+  Delivery attempts and status codes are visible under the event's Webhook
+  Details on the Dashboard Events page.
+
+## Redirect callback signatures (not the webhook)
+
+Consent and payment redirect callbacks carry a separate `fx_signature` query
+parameter, plus `fx_timestamp`, and only on successful authorisations. It is the
+HMAC-SHA256 hex of the full redirect URL minus that parameter, keyed with the
+account's primary API secret key. The app does not currently verify it (a grep of
+the backend finds no use of `fx_signature`); it is unrelated to the webhook
+signature above.
 
 ## Kevin: dashboard steps
 
@@ -58,7 +75,7 @@ Other actions exist for config use: `consent_expiring` (stamps
 2. Select the eight events: bank_account.created, bank_account.deleted,
    bank_account.synced, bank_account.updated, consent.authorized,
    consent.canceled, consent.created, consent.expired.
-3. Copy the signature key Finexer shows after creation into
+3. Copy the webhook's `secret` field (Modify webhook, bottom of the popup) into
    `FINEXER_WEBHOOK_SIGNING_SECRET` on each environment (never paste it into
    chat or the repo).
 4. Confirm on `/ops/health` that "webhooks: last received N min ago" moves.
