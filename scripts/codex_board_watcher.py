@@ -26,6 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from app.core.safe_write import refuse_special_target
 
 
+# Module-local clock seam: tests patch this alias, never the global time.monotonic
+# (background threads such as pymongo's RTT monitor read the real one).
+_monotonic = time.monotonic
+
 DAY = 86400
 MAX_STATE_BYTES = 8 * 1024 * 1024
 MAX_LOG_BYTES = 64 * 1024 * 1024
@@ -147,14 +151,14 @@ def board_guard(repo: Path):
     # Same lock as every board writer. Hold it only through the final check
     # and spawn, NEVER through the model run (the worker needs board writes).
     fd = os.open(repo / ".backlog.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    deadline = time.monotonic() + 5
+    deadline = _monotonic() + 5
     try:
         while True:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
-                if time.monotonic() >= deadline:
+                if _monotonic() >= deadline:
                     raise WatcherError("Board is busy; no dispatch")
                 time.sleep(0.05)
         yield
@@ -398,9 +402,9 @@ def launch(repo: Path, directory: Path, state: dict, event: dict, codex: str, ti
                 process.stdin.write(worker_prompt(event))
                 process.stdin.close()
             audit(directory, "spawned", item_id=event["item_id"], event_key=event["key"], pid=process.pid)
-            deadline = time.monotonic() + timeout
+            deadline = _monotonic() + timeout
             while process.poll() is None:
-                if interrupted or time.monotonic() >= deadline or max(output.stat().st_size, errors.stat().st_size) > MAX_LOG_BYTES:
+                if interrupted or _monotonic() >= deadline or max(output.stat().st_size, errors.stat().st_size) > MAX_LOG_BYTES:
                     stopped = True
                     terminate_worker(process)
                     break

@@ -239,7 +239,9 @@ def test_timeout_kills_the_worker_process_group_and_only_failure_gets_attention(
     monkeypatch.setattr(watcher.subprocess, "Popen", lambda *args, **kwargs: Process())
     monkeypatch.setattr(watcher.os, "killpg", lambda pid, signal: killed.append((pid, signal)))
     monkeypatch.setattr(watcher.signal, "signal", lambda *_args: None)
-    monkeypatch.setattr(watcher.time, "monotonic", iter([0, 2]).__next__)
+    ticks = iter([0])
+    # Module-local seam only; never exhausts, so an extra call cannot raise StopIteration.
+    monkeypatch.setattr(watcher, "_monotonic", lambda: next(ticks, 2))
     monkeypatch.setattr(watcher, "report_attention", lambda *_args: attention.append(True))
 
     watcher.launch(tmp_path, directory, state, event, "/not/codex", 1)
