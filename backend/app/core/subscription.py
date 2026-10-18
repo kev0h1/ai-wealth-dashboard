@@ -176,8 +176,8 @@ TIER_LIMITS = {
     },
     Tier.LITE: {
         "open_banking":                True,
-        "max_banks":                   3,
-        "max_accounts":                None,
+        "max_banks":                   None,
+        "max_accounts":                10,
         "refresh":                     "daily",
         "penny_messages_per_month":    40,
         "mcp_tool_calls_per_month":    0,

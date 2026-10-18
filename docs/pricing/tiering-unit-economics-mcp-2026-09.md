@@ -69,7 +69,7 @@ Users understand "messages", not tokens. Sell Penny in messages, meter tokens in
 | Tier | Price | Bank connections | Refresh | Penny messages / month | MCP connector | History | Notes |
 |---|---|---|---|---|---|---|---|
 | Statements (free) | £0 | none; statement upload only | on upload | 10 | no | 90 days | 3 uploads a month; no Finexer cost |
-| Lite | £5.99 | up to 3 connected banks | daily | 40 | no | 6 months | |
+| Lite | £5.99 | up to 10 accounts | daily | 40 | no | 6 months | |
 | Standard | £9.99 | up to 20 accounts | 4-hourly plus manual | 150 | no | full | insights, debt plan, allocations |
 | Connect | £12.99 | up to 20 accounts | 4-hourly plus manual | 150 | yes, 2,000 tool calls | full | Standard plus MCP |
 | Max | £16.99 | unlimited (fair use 40 accounts) | priority | 400 | yes, 5,000 tool calls | full | |
@@ -77,7 +77,7 @@ Users understand "messages", not tokens. Sell Penny in messages, meter tokens in
 
 Worst-case Penny cost at the cap (cached): Lite £0.60, Standard £2.25, Max £6.00. Contribution at the cap with app store billing: Lite about £2.80, Standard about £4.50, Max about £5.70. Every tier stays positive at its cap, which is the point of the caps.
 
-Account limits are not the margin lever. Each account costs about 10p a month, so a user with 17 accounts costs £1.70, well inside a £9.99 subscription, and competitors such as Emma offer unlimited connections at a similar price. Worst case on Standard, 20 accounts and all 150 Penny messages, still contributes about £2.75 after store fees; the 20-account cap costs at most £2 a month in Finexer fees and gives Max a reason to exist beyond Penny volume. Lite keeps a low cap because at £5.99 the per-account fee adds up faster and it gives Standard a clear reason to exist beyond Penny. The difference between Lite and Standard is refresh cadence, history depth and Penny allowance.
+Account limits are not the margin lever. Each account costs about 10p a month, so a user with 17 accounts costs £1.70, well inside a £9.99 subscription, and competitors such as Emma offer unlimited connections at a similar price. Worst case on Standard, 20 accounts and all 150 Penny messages, still contributes about £2.75 after store fees; the 20-account cap costs at most £2 a month in Finexer fees and gives Max a reason to exist beyond Penny volume. Lite is capped at 10 accounts (Kevin, 2026-10-18; was 3 banks), at most about £1 a month in Finexer fees. The difference between Lite and Standard is the account cap, refresh cadence, history depth and Penny allowance.
 
 Why the MCP tiers are the best margin in the table: an external assistant (Claude, ChatGPT) does the reasoning on the user's own subscription. Sorted only answers deterministic tool calls, so the cost is API compute, not model tokens. The £3 uplift on Connect is almost entirely margin, bounded only by rate limits.
 

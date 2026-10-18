@@ -34,7 +34,7 @@ const TIERS: Tier[] = [
     id: "lite",
     name: "Lite",
     lead: "Keep up with day-to-day money across your main banks.",
-    includes: ["Up to 3 connected banks", "Daily bank updates", "6 months of history", "40 Penny messages a month"],
+    includes: ["Up to 10 connected accounts", "Daily bank updates", "6 months of history", "40 Penny messages a month"],
     icon: Landmark,
   },
   {
