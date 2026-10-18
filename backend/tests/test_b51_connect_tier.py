@@ -46,8 +46,14 @@ def _config_in_subprocess(env_extra: dict, expr: str) -> str:
     process with a controlled environment (no reload of the live module)."""
     import os
     import subprocess
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("CONNECT_TIER_ENABLED", "CONNECT_SUBSCRIBER_POLICY", "STRIPE_SECRET_KEY", "STRIPE_PRICE_IDS")}
+    env = dict(os.environ)
+    # Hermetic: app.core.config calls load_dotenv(backend/.env), which never
+    # overrides a variable that is already present in the environment. So
+    # each name is set to "" (the unset-equivalent every parser here treats
+    # as default), not just removed, otherwise UAT's real backend/.env
+    # (CONNECT_TIER_ENABLED=true) would leak into the "default" assertions.
+    for name in ("CONNECT_TIER_ENABLED", "CONNECT_SUBSCRIBER_POLICY", "STRIPE_SECRET_KEY", "STRIPE_PRICE_IDS"):
+        env[name] = ""
     env.update(env_extra)
     backend = str(Path(__file__).resolve().parents[1])
     out = subprocess.run(
