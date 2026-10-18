@@ -1886,6 +1886,35 @@ export type OpsTrends = {
   metrics: Record<string, { label: string; unit: string; h24: OpsTrendSummary; d7: OpsTrendSummary }>;
   error?: boolean;
 };
+// E8: GET /ops/health/alerts and POST /ops/health/alerts/test.
+export type OpsAlert = {
+  key: string;
+  state: "open" | "resolved";
+  severity: "warn" | "crit" | null;
+  title: string | null;
+  body: string | null;
+  first_seen: string | null;
+  last_notified: string | null;
+  resolved_at: string | null;
+  count: number;
+};
+export type OpsAlerts = {
+  enabled: boolean;
+  config?: { cooldown_hours: number; warn_streak: number; hourly_cap: number };
+  open: OpsAlert[];
+  history: OpsAlert[];
+  cap?: { sent_this_hour: number; suppressed_this_hour: number };
+  error_types_last_hour?: number;
+  error?: boolean;
+};
+export type OpsAlertTest = {
+  sent: boolean;
+  throttled: boolean;
+  enabled: boolean;
+  retry_after_s?: number;
+  delivery?: { attempted: number; delivered: number; failed: number };
+  note?: string | null;
+};
 export type OpsLlmUsage = {
   month: string;
   totals: { cost_usd: number; calls: number; users: number };
@@ -3977,6 +4006,8 @@ export const api = {
   getOpsHealth: () => get<OpsHealth>("/ops/health"),
   getOpsCollector: (name: string) => get<OpsCollector>(`/ops/health/collectors/${encodeURIComponent(name)}`),
   getOpsTrends: () => get<OpsTrends>("/ops/health/trends"),
+  getOpsAlerts: () => get<OpsAlerts>("/ops/health/alerts"),
+  sendOpsTestAlert: () => post<OpsAlertTest>("/ops/health/alerts/test"),
   getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
   getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),
   goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>

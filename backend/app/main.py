@@ -645,10 +645,13 @@ async def _start_health_sampler():
         return
     try:
         from app.db.collections import db, health_samples_col
-        from app.services.health import ApiLatencyCollector, samples
+        from app.db.collections import error_types_seen_col
+        from app.services.health import ApiLatencyCollector, alerts, error_types, samples
         await samples.ensure_collection(db)
+        await error_types.ensure_indexes(error_types_seen_col)
+        error_types.install()      # E8: exception class names only, for the new-error-type alert
         _health_sampler_task = asyncio.create_task(
-            samples.api_sampler_loop([ApiLatencyCollector()], health_samples_col)
+            samples.api_sampler_loop([ApiLatencyCollector()], health_samples_col, after=alerts.after_api_sample)
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("health sampler not started: %s", type(exc).__name__)

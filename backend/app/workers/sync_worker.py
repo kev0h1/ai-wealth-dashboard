@@ -756,6 +756,13 @@ async def _on_startup(ctx: dict) -> None:
     task so the queue is served from the first second; the engine-build
     stamp makes a restart without a code change a no-op. The task handle
     is kept on `ctx` so it cannot be garbage-collected mid-flight."""
+    try:   # E8: record exception class names (only) for the new-error-type alert
+        from app.db.collections import error_types_seen_col
+        from app.services.health import error_types
+        error_types.install()
+        await error_types.ensure_indexes(error_types_seen_col)
+    except Exception as exc:
+        logger.warning("error type tracking not started: %s", type(exc).__name__)
     ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
 
 
@@ -770,7 +777,14 @@ async def task_health_samples(ctx) -> dict:
         await samples.ensure_collection(db)
         mine = [c for c in default_collectors() if not c.external and c.name != "api_latency"]
         written = await samples.write_samples(mine, health_samples_col)
-        return {"written": written}
+        out = {"written": written}
+        try:   # E8: alerts evaluate the samples just written; never fails the cron
+            from app.services.health import alerts
+            out["alerts"] = await alerts.run_alerts()
+            out["new_errors"] = await alerts.process_new_error_types()
+        except Exception as exc:
+            logger.warning("health alerts: failed (%s)", type(exc).__name__)
+        return out
     except Exception as exc:
         logger.warning("health samples: failed (%s)", type(exc).__name__)
         return {"written": 0}

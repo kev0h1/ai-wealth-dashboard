@@ -18,7 +18,10 @@ AVAIL_WARN_MB, AVAIL_CRIT_MB = 1500, 700
 class VpsCollector(Collector):
     name = "vps"
     title = "This server"
-    sample_fields = {"memory_used_pct": "memory_used_pct"}
+    sample_fields = {
+        "memory_used_pct": "memory_used_pct", "memory_available_mb": "memory_available_mb",
+        "disk_used_pct": "disk_used_pct",
+    }
 
     def __init__(self, metrics=host_metrics):
         self.m = metrics

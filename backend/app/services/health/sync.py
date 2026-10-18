@@ -39,6 +39,7 @@ def _parse(value):
 class FinexerSyncCollector(Collector):
     name = "finexer_sync"
     title = "Bank sync"
+    sample_fields = {"failed_24h": "failed_24h"}   # E8: the sync-failure surge rule
 
     def __init__(self, worker_runs=None, consents=None, orphaned=None):
         from app.db import collections as c

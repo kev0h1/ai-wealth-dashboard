@@ -158,6 +158,11 @@ worker_runs_col         = db["worker_runs"]
 # sample per collector per 5 minutes, no user data. Created by
 # samples.ensure_collection, never auto-created uncapped.
 health_samples_col      = db["health_samples"]
+# E8: alert throttle state (one document per alert key, plus the hourly cap
+# counter) and the exception class names seen by this deployment. Operational
+# only: keys, counts and timestamps, no user id, no payloads.
+alert_state_col         = db["alert_state"]
+error_types_seen_col    = db["error_types_seen"]
 
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
@@ -590,6 +595,9 @@ ERASURE_MANIFEST = frozenset({
     # E7: operational metrics only (collector name, status, numbers), no user id
     # on any document, so erase_user's sweep deliberately matches nothing.
     "health_samples_col",
+    # E8: alert keys and exception class names only, no user id on any document.
+    "alert_state_col",
+    "error_types_seen_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98
