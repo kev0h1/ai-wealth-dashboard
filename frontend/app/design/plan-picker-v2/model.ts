@@ -30,7 +30,7 @@ export const PRICE_PENCE: Record<TierId, Record<PeriodId, number>> = {
 };
 export const LIMITS: Record<TierId, SubscriptionLimits> = {
   statements: { open_banking: false, max_banks: 0, max_accounts: 0, refresh: "on_upload", penny_messages_per_month: 10, mcp_tool_calls_per_month: 0, history_days: 90, statement_uploads_per_month: 3 },
-  lite: { open_banking: true, max_banks: 3, max_accounts: null, refresh: "daily", penny_messages_per_month: 40, mcp_tool_calls_per_month: 0, history_days: 180, statement_uploads_per_month: null },
+  lite: { open_banking: true, max_banks: null, max_accounts: 10, refresh: "daily", penny_messages_per_month: 40, mcp_tool_calls_per_month: 0, history_days: 180, statement_uploads_per_month: null },
   standard: { open_banking: true, max_banks: null, max_accounts: 20, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 0, history_days: null, statement_uploads_per_month: null },
   connect: { open_banking: true, max_banks: null, max_accounts: 20, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 2000, history_days: null, statement_uploads_per_month: null },
   max: { open_banking: true, max_banks: null, max_accounts: null, refresh: "priority", penny_messages_per_month: 400, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
@@ -38,7 +38,7 @@ export const LIMITS: Record<TierId, SubscriptionLimits> = {
 export type Plan = { id: TierId; name: string; lead: string; includes: string[]; banks: string; history: string; updates: string; messages: number };
 export const PLANS: Plan[] = [
   { id: "statements", name: "Statements", lead: "A clear money view from uploaded statements.", includes: ["3 statement uploads a month", "90 days of history", "10 Penny messages a month"], banks: "Statement uploads only", history: "90 days", updates: "When you upload", messages: 10 },
-  { id: "lite", name: "Lite", lead: "Keep up with day-to-day money across your main banks.", includes: ["Up to 3 connected banks", "Daily bank updates", "6 months of history", "40 Penny messages a month"], banks: "Up to 3 banks", history: "6 months", updates: "Daily", messages: 40 },
+  { id: "lite", name: "Lite", lead: "Keep up with day-to-day money across your main banks.", includes: ["Up to 10 connected accounts", "Daily bank updates", "6 months of history", "40 Penny messages a month"], banks: "Up to 10 accounts", history: "6 months", updates: "Daily", messages: 40 },
   { id: "standard", name: "Standard", lead: "Your full money picture, kept up to date through the day.", includes: ["Up to 20 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"], banks: "Up to 20 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
   { id: "connect", name: "Connect", lead: "Use your Sorted figures in an assistant you connect.", includes: ["Everything in Standard", "2,000 connected-assistant calls a month", "Read-only sharing you can revoke"], banks: "Up to 20 accounts", history: "Full history", updates: "Every 4 hours", messages: 150 },
   { id: "max", name: "Max", lead: "The highest limits and fastest updates.", includes: ["All your bank accounts", "Priority bank updates", "400 Penny messages a month"], banks: "All your bank accounts", history: "Full history", updates: "Priority", messages: 400 },
