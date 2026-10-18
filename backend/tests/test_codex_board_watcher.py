@@ -409,6 +409,16 @@ def test_real_preflight_refuses_worktree_code_even_with_shared_repo_argument(mon
         module.dispatch_preflight(module.SHARED_REPO)
 
 
+def test_state_write_refuses_special_file_without_replacing_it(watcher, tmp_path):
+    target = tmp_path / "state.json"
+    watcher.os.mkfifo(target)
+    before = target.stat()
+    with pytest.raises(OSError, match="device, socket or fifo"):
+        watcher.save_state(target, watcher.empty_state())
+    assert target.stat().st_ino == before.st_ino
+    assert list(tmp_path.iterdir()) == [target]
+
+
 def test_usage_counts_tokens_without_inventing_dollar_cost(watcher, tmp_path):
     events = tmp_path / "events.jsonl"
     events.write_text("\n".join([

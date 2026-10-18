@@ -22,6 +22,9 @@ from typing import Any
 
 from codex_board_events import reconcile, signature
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from app.core.safe_write import refuse_special_target
+
 
 DAY = 86400
 MAX_STATE_BYTES = 8 * 1024 * 1024
@@ -53,9 +56,11 @@ def empty_state() -> dict:
 
 
 def load_state(path: Path) -> dict:
+    if path.is_symlink():
+        raise WatcherError("State file must not be a symlink")
     if not path.exists():
         return empty_state()
-    if path.is_symlink() or path.stat().st_size > MAX_STATE_BYTES:
+    if not path.is_file() or path.stat().st_size > MAX_STATE_BYTES:
         raise WatcherError("Unsafe or oversized state file; no dispatch")
     state = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(state, dict) or not isinstance(state.get("runs"), list):
@@ -76,6 +81,9 @@ def load_state(path: Path) -> dict:
 
 
 def save_state(path: Path, state: dict) -> None:
+    if path.is_symlink():
+        raise WatcherError("State file must not be a symlink")
+    refuse_special_target(path)
     payload = json.dumps(state, sort_keys=True, allow_nan=False).encode()
     if len(payload) > MAX_STATE_BYTES:
         raise WatcherError("State size limit reached; retain history and inspect before continuing")
@@ -86,6 +94,7 @@ def save_state(path: Path, state: dict) -> None:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
+        refuse_special_target(path)
         os.replace(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
@@ -100,7 +109,7 @@ def save_state(path: Path, state: dict) -> None:
 def audit(directory: Path, event: str, **details: Any) -> None:
     # No board prose, credentials, model output, or shell output in the journal.
     path = directory / "audit.jsonl"
-    if path.is_symlink():
+    if path.is_symlink() or (path.exists() and not path.is_file()):
         raise WatcherError("Unsafe audit path; no dispatch")
     if path.exists() and path.stat().st_size > MAX_LOG_BYTES:
         raise WatcherError("Audit size limit reached; archive it before continuing")
