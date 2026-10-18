@@ -1,0 +1,12 @@
+[Unit]
+Description=Observe the Codex board every minute without idle LLM calls
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Unit=codex-board-watch.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target
