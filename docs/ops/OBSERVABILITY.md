@@ -154,7 +154,7 @@ Slice 3 adds alerts (below).
 
 ## Alerts (slice 3, E8)
 
-Built in `backend/app/services/health/alerts.py`, run by the `task_health_samples` cron (every 5 minutes, right after the samples are written) and, for new error types, by the API process's own 5 minute sampler loop. Off unless `ALERTS_ENABLED` is set. Pushes go to the account owner only, through the existing `send_push_to_user` path (APNs, FCM, web push), as the `ops_alerts` notification kind (default on, in `NOTIF_DEFAULTS`); the tap opens `/ops/health`. No new channel and no email path.
+Built in `backend/app/services/health/alerts.py`, run by the `task_health_samples` cron (every 5 minutes, right after the samples are written) and, for new error types, by the API process's own 5 minute sampler loop. Off unless `ALERTS_ENABLED` is set: while off, no alert state is written and nothing is sent, but the new-error-type baseline is still recorded. Pushes go to the account owner only, through the existing `send_push_to_user` path (APNs, FCM, web push), as the `ops_alerts` notification kind (default on, in `NOTIF_DEFAULTS`); the tap opens `/ops/health`. No new channel and no email path.
 
 Sentry-side alerts (issue alerts, spike and regression rules) are configured in Sentry by Kevin. Sentry has no inbound hook on this deployment, so this is the self-hosted complement: it covers what Sentry cannot see (platform health) and gives a "new error type" signal without Sentry.
 
@@ -171,7 +171,7 @@ Conditions, read from the `health_samples` trend store (a sample older than 15 m
 | `collector:<name>` | any collector reports crit, or warn for `ALERT_WARN_STREAK` samples in a row; skipped while a rule above already speaks for that collector | crit or warn |
 | `new_error:<Class>` | an exception class name not seen in the last 7 days appears | event |
 
-New error types: a logging handler (installed in the API and the worker) records the class name of every error-level log record that carries an exception, and nothing else (no message, traceback or arguments). The in-process set is bounded to 200 names, names must be plain identifiers, and a flush upserts them into `error_types_seen` (30 day TTL). The first flush into an empty collection is a silent baseline, and the baseline keeps growing while alerts are off so enabling them does not announce every class ever raised. Per-process: the API and the worker each flush their own.
+New error types: a logging handler (installed in the API and the worker) records the class name of every error-level log record that carries an exception, and nothing else (no message, traceback or arguments). The in-process set is bounded to 200 names, names must be plain identifiers, and a flush upserts them into `error_types_seen` (30 day TTL). The first flush into an empty collection is a silent baseline, and the baseline keeps growing while alerts are off so enabling them does not announce every class ever raised. Per-process: the API and the worker each flush their own. The handler has level NOTSET and hands records to `logging.lastResort` itself when nothing else would print them, because adding a root handler would otherwise silence the app's warnings and tracebacks in the journal.
 
 Throttling and state, in one `alert_state` collection (one document per key: `first_seen`, `last_notified`, `count`, `state` open or resolved, plus an hourly counter document):
 
