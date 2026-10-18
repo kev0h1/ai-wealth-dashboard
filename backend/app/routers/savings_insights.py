@@ -19,7 +19,7 @@ from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, TIP_LLM_PHRASING, TIP_RESEARCH_PROFILE_KEYS
 from app.core.llm import openrouter_chat, record_tavily_call
 from app.core import timeutil
-from app.services import tip_research, tips_research_health
+from app.services import tip_copy, tip_research, tips_research_health
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
@@ -35,52 +35,52 @@ log    = logging.getLogger(__name__)
 INSIGHT_CATEGORIES: dict[str, dict] = {
     "energy": {
         "icon": "⚡", "label": "Energy",
-        "query": "best energy tariff switch UK {year} cheapest deals save money",
+        "query": "UK energy tariff prices per month {year} unit rates standing charge",
         "triggers": ["british gas", "eon", "edf", "scottish power", "octopus energy", "npower", "sse", "bulb energy", "shell energy", "utilita", "utility warehouse", "bg energy"],
     },
     "mortgage": {
         "icon": "🏠", "label": "Mortgage",
-        "query": "best mortgage remortgage deals UK {year} lowest fixed rate switch lender",
+        "query": "UK mortgage fixed rates listed {year} lenders",
         "triggers": ["mortgage", "nationwide", "halifax", "santander mortgage", "barclays mortgage", "lloyds mortgage", "natwest mortgage", "hsbc mortgage", "virgin money mortgage", "mortg"],
     },
     "car_finance": {
         "icon": "🚘", "label": "Car Finance",
-        "query": "refinance car loan UK {year} best rate save money PCP HP alternatives",
+        "query": "UK car finance rates listed {year} PCP HP lenders",
         "triggers": ["black horse", "close brothers", "moneybarn", "evolution funding", "motonovo", "car loan", "car finance", "hire purchase", "santander consumer", "toyota finance", "volkswagen finance"],
     },
     "car_insurance": {
         "icon": "🚗", "label": "Car Insurance",
-        "query": "cheapest car insurance deals UK {year} comparison save",
+        "query": "UK car insurance average premium {year} comparison sites",
         "triggers": ["direct line", "admiral", "aviva", "hastings direct", "churchill", "more than", "lv=", "esure", "elephant auto"],
     },
     "broadband": {
         "icon": "📡", "label": "Broadband",
-        "query": "best broadband deals UK {year} switch provider save money",
+        "query": "UK broadband deals listed prices per month {year} providers",
         "triggers": ["bt", "bt group", "virgin media", "sky broadband", "talktalk", "vodafone broadband", "now broadband", "plusnet", "community fibre", "hyperoptic"],
     },
     "mobile": {
         "icon": "📱", "label": "Mobile",
-        "query": "best SIM only mobile plan UK {year} cheapest deal",
+        "query": "UK SIM only plans listed prices per month {year} providers",
         "triggers": ["ee ltd", "ee limited", "ee", "o2", "vodafone", "three", "giffgaff", "sky mobile", "tesco mobile", "id mobile", "lycamobile"],
     },
     "groceries": {
         "icon": "🛒", "label": "Groceries",
-        "query": "cheapest UK supermarket comparison {year} where to shop save groceries",
+        "query": "UK supermarket price comparison {year} basket prices",
         "triggers": ["tesco", "sainsbury", "asda", "morrisons", "waitrose", "lidl", "aldi", "co-op", "marks and spencer food", "ocado", "m&s food"],
     },
     "eating_out": {
         "icon": "🍽️", "label": "Eating Out",
-        "query": "restaurant dining offers discounts UK {year} deals save money eating out",
+        "query": "UK restaurant dining offers {year} listed deals",
         "triggers": ["restaurant", "mcdonald", "kfc", "nando", "wagamama", "pizza express", "prezzo", "costa coffee", "starbucks", "pret a manger", "itsu", "leon", "subway"],
     },
     "gym": {
         "icon": "💪", "label": "Gym",
-        "query": "best value gym membership UK {year} cheapest monthly no contract",
+        "query": "UK gym membership prices per month {year} no contract",
         "triggers": ["pure gym", "the gym group", "david lloyd", "virgin active", "anytime fitness", "nuffield health", "fitness first", "bannatyne", "everyone active"],
     },
     "subscriptions": {
         "icon": "📺", "label": "Subscriptions",
-        "query": "how to save on streaming subscriptions UK {year} cheaper alternatives deals",
+        "query": "UK streaming subscription prices per month {year}",
         "triggers": ["netflix", "spotify", "amazon prime", "disney+", "disney plus", "apple tv", "youtube premium", "now tv", "sky entertainment", "paramount+", "apple music"],
     },
 }
@@ -118,7 +118,9 @@ INSIGHT_CATEGORIES: dict[str, dict] = {
 # (app.services.tip_research) plus the user's own figures, so every stored tip
 # regenerates once into the new shape; the cost is one fetch per shared key,
 # not one per user.
-PROMPT_VERSION = 7
+# v8 (G283): tips state facts only, with no saving claimed or estimated, so every
+# stored tip regenerates once into the fact style (see app.services.tip_copy).
+PROMPT_VERSION = 8
 
 # In-app destination per category — the screen where the user can act on the
 # insight with their own data (frontend renders this as the primary action).
@@ -404,85 +406,24 @@ def _house_style(text: str) -> str:
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
 
 
-def _verified_saving_sentence(merchant: Optional[str], amount: float, tier: str) -> str:
-    """The loop-closed sentence for a verified saving (a trigger merchant
-    with 45+ days of silence AND category-net confirmation, see
-    `_check_verified_saving` / `_verified_copy_tier`).
-
-    Two copy tiers, per the Insights honesty review (Package A #2) — a
-    celebratory "You did it" is an unearned claim unless we have actual
-    evidence the user looked at this card before the win fired:
-
-    - "earned": the celebratory tier. Only reachable when
-      `_verified_copy_tier` confirms `card_opened_at` predates `verified_at`
-      — the user engaged with this insight's evidence/CTA before the spend
-      genuinely ceased, so crediting them for the change is honest.
-    - "fact": the honest default. No "You did it", no "staying in your
-      pocket" (both imply agency/reward we can't actually attribute) — just
-      the two facts a deterministic check can prove: the payment stopped,
-      and what it was worth. This is also what every PRE-EXISTING stored
-      insight regenerates to, since none of them carry a `card_opened_at`
-      from before this feature existed.
-
-    `tier` has no default — every call site must consciously choose one
-    rather than silently inheriting the old always-celebratory behaviour.
-
-    Built as whole phrase CHUNKS joined with `" ".join()`, never by splicing
-    a bare `{merchant}` straight up against the next word in one f-string.
-    Each chunk already carries its own boundary space, and `join()` enforces
-    exactly one space between chunks — so a merchant name landing flush
-    against the following word (the class of bug this guards against, e.g.
-    a name rendering as "Nandoshave" with the space silently dropped) is
-    structurally impossible here, not just avoided by convention. The
-    trailing whitespace-collapse is a second belt-and-braces pass in case a
-    future edit interpolates a value that itself carries stray whitespace.
-    """
+def _stopped_line(merchant: Optional[str]) -> str:
+    """G283: the one fact a verified resolution may state, that the payments
+    stopped. No amount, no claim about money saved, no tier of celebration."""
     merchant = (merchant or "").strip()
-    amt = f"{amount:,.0f}"
-    if tier == "earned":
-        chunks = [
-            "You did it,",
-            f"payments to {merchant} have stopped." if merchant else "that payment has stopped.",
-            f"That's ~£{amt}/mo staying in your pocket.",
-        ]
-    else:
-        chunks = [
-            f"Payments to {merchant} stopped." if merchant else "That payment stopped.",
-            f"That was ~£{amt}/mo.",
-        ]
-    return _WHITESPACE_RUN_RE.sub(" ", " ".join(chunks)).strip()
-
-
-def _verified_copy_tier(d: dict) -> str:
-    """"earned" only when the user is confirmed to have opened this card's
-    evidence/workflow/CTA (`card_opened_at`, stamped by
-    POST /savings-insights/{id}/opened) BEFORE the spend was confirmed to
-    have ceased (`verified_at`) — i.e. before the cessation window closed.
-    Everything else, including an insight with no engagement recorded at
-    all (every insight that existed before this feature shipped), is the
-    honest "fact" default. Never guess engagement from anything other than
-    this explicit, first-write-wins timestamp."""
-    verified_at = d.get("verified_at")
-    opened_at   = d.get("card_opened_at")
-    if verified_at and opened_at and opened_at < verified_at:
-        return "earned"
-    return "fact"
+    line = f"Payments to {merchant} stopped." if merchant else "That payment stopped."
+    return _WHITESPACE_RUN_RE.sub(" ", line)
 
 
 def _substituted_line(merchant: Optional[str], category_label: Optional[str]) -> str:
-    """Neutral (not celebratory) sentence for the `substituted` state
-    (Package B #6): the triggering merchant genuinely went silent, but the
-    insight's whole spend category didn't net down — the money most likely
-    moved to a different merchant in the same category, not out of the
-    budget entirely. Same whole-chunk-join discipline as
-    `_verified_saving_sentence` for the same reason (no flush-merchant-name
-    bug)."""
+    """Neutral fact line for the `substituted` state: the triggering merchant
+    went silent, but the insight's whole spend category didn't net down. Same
+    whole-chunk-join discipline as `_stopped_line` for the same reason (no
+    flush-merchant-name bug). G283: states what happened, nothing else."""
     merchant = (merchant or "").strip()
     chunks = [
         f"Payments to {merchant} stopped," if merchant else "That payment stopped,",
-        (f"but {category_label} overall hasn't moved." if category_label
-         else "but your overall spending here hasn't moved."),
-        "Worth a look at where it went.",
+        (f"and {category_label} overall hasn't moved." if category_label
+         else "and your overall spending here hasn't moved."),
     ]
     return _WHITESPACE_RUN_RE.sub(" ", " ".join(chunks)).strip()
 
@@ -557,135 +498,6 @@ def _number_is_derivable(n: float, allowed: set[float]) -> bool:
     if n == 0:
         return True  # "£0"/free is never a fabricated figure
     return any(abs(n - a) <= _SAVINGS_ESTIMATE_TOLERANCE for a in allowed)
-
-
-def _savings_estimate_is_derivable(estimate: Optional[str], allowed: set[float]) -> bool:
-    """True iff every number quoted in the estimate is derivable from the
-    inputs (a source/user figure, or the difference/×12/÷12 of two of them).
-    One fabricated number sitting next to a real one still fails the whole
-    estimate — there's no way to tell which part the model made up."""
-    if not estimate:
-        return True  # null is always fine — nothing to check
-    nums = _extract_numbers(estimate)
-    if not nums:
-        return True  # e.g. "Save on your plan" — no figure to fabricate
-    return all(_number_is_derivable(n, allowed) for n in nums)
-
-
-# Unsupported-savings-claim guardrail (Insights honesty review, incoherence
-# C — owner phone report 2026-09-01: energy's card showed "No number yet"
-# directly under a title claiming "fixed deals could save up to £173", with
-# savings_estimate correctly nulled by the derivability guard above. Root
-# cause: `_savings_estimate_is_derivable` only ever checked the
-# `savings_estimate` FIELD — a number the model embedded straight into the
-# title or body prose instead of (or in addition to) `savings_estimate` was
-# never checked against anything, so a rejected/fabricated figure could
-# still reach the screen as a plain sentence. Facts/Voice rule: either a
-# number is derivable (then it belongs in `savings_estimate`) or the prose
-# must not assert it — so once `savings_estimate` is null, any clause that
-# both names a specific £ figure AND claims a saving ("could save up to
-# £173", "cut your bill by £40") is stripped, UNLESS that £ figure is
-# actually the user's own known spend (`triggered_by`'s monthly_amount,
-# e.g. "your £1,124 mortgage could drop" — £1,124 is a fact this product
-# already knows and states elsewhere, not a fabricated saving). Narrower
-# than re-running the full derivability check on title/body: it doesn't
-# need the ephemeral Tavily `web_text` that produced generation-time
-# `allowed`, so it is safe to run again at SERVE time (see
-# `_serialize_insight`) against docs generated before this guardrail
-# existed, without the false-positive risk of treating every legitimately-
-# sourced £ figure ("Virgin Media M1 broadband from £17.99 a month" — a
-# price statement, not a savings claim, no "save" word nearby) as
-# unsupported. Applied at generation time too (see
-# `_generate_savings_insight_content`) so new content is clean from write,
-# not just cleaned on the way out.
-_SAVE_CLAIM_WORD_RE = re.compile(r"\b(?:save|saves|saving|savings|cut|drop|reduce\w*)\b", re.IGNORECASE)
-_MONEY_TOKEN_RE = re.compile(r"£\s*\d[\d,]*(?:\.\d+)?")
-
-_THOUSANDS_COMMA_RE = re.compile(r"(?<=\d),(?=\d)")
-_THOUSANDS_COMMA_PLACEHOLDER = "\0"
-
-
-def _clause_asserts_unsupported_saving(clause: str, allowed: set[float]) -> bool:
-    if not _SAVE_CLAIM_WORD_RE.search(clause):
-        return False
-    money_matches = _MONEY_TOKEN_RE.findall(clause)
-    if not money_matches:
-        return False
-    nums = [float(m.lstrip("£").replace(" ", "").replace(",", "")) for m in money_matches]
-    return any(not _number_is_derivable(n, allowed) for n in nums)
-
-
-def _strip_unsupported_savings_claims(
-    text: Optional[str], has_estimate: bool, triggered_by: Optional[list[dict]] = None,
-) -> Optional[str]:
-    """Remove any comma-separated clause from `text` that both claims a
-    saving and names a £ figure NOT traceable to the user's own known spend
-    (`triggered_by`'s `monthly_amount` figures — always legitimate to
-    restate), UNLESS `has_estimate` is True (a real, guardrail-passed
-    `savings_estimate` exists elsewhere on the card, so the prose's own
-    figure is trusted). A clause is the unit removed, not the whole
-    sentence — "You pay £160/mo, fixed deals could save up to £173" keeps
-    the user's own, verifiable £160 figure and drops only the ungrounded
-    "£173" clause, leaving "You pay £160/mo." Blank input, or a sentence
-    with nothing left after stripping, returns "" (never re-shown as-is) —
-    the caller's existing `{insight.title && ...}` / `{insight.body &&
-    ...}` guards already treat an empty string as "nothing to render here",
-    which is the honest outcome once every numeric claim in it turns out to
-    be unsupported.
-
-    Returns `text` completely UNCHANGED (not just semantically equivalent)
-    when nothing needs stripping — this function never reformats
-    punctuation it didn't have a reason to touch, so a title with no
-    unsupported claim at all can't pick up an incidental side effect like a
-    trailing full stop it never had.
-
-    A thousands-separator comma inside a figure like "£1,124" is protected
-    before splitting (same placeholder-then-restore technique the
-    frontend's InsightBody sentence-splitter already uses for decimal
-    points) — a naive `text.split(",")` would otherwise cut "£1,124
-    mortgage could drop" into "£1" and "124 mortgage could drop", corrupting
-    the number into "£1, 124" once rejoined even when neither half ends up
-    stripped."""
-    if not text or has_estimate:
-        return text
-    if not _SAVE_CLAIM_WORD_RE.search(text) or not _MONEY_TOKEN_RE.search(text):
-        return text  # nothing that could possibly be an unsupported claim
-
-    allowed: set[float] = set()
-    for t in (triggered_by or []):
-        amt = t.get("monthly_amount")
-        if amt is not None:
-            allowed.add(round(float(amt), 2))
-
-    protected = _THOUSANDS_COMMA_RE.sub(_THOUSANDS_COMMA_PLACEHOLDER, text)
-    sentences = re.split(r"(?<=[.!?])\s+", protected)
-    any_removed = False
-    out_sentences: list[str] = []
-    for sent in sentences:
-        # Restore the placeholder back to "," immediately after splitting —
-        # the placeholder's only job was to survive the split() call intact;
-        # every clause below must have its real punctuation back before it's
-        # matched (a still-placeholder'd "£1\0124" would extract as the
-        # money token "£1", not "£1,124", corrupting the derivability check
-        # itself) or rendered.
-        clauses = [c.strip().replace(_THOUSANDS_COMMA_PLACEHOLDER, ",") for c in sent.split(",")]
-        non_empty = [c for c in clauses if c]
-        kept = [c for c in non_empty if not _clause_asserts_unsupported_saving(c, allowed)]
-        if len(kept) != len(non_empty):
-            any_removed = True
-        if not kept:
-            continue
-        rejoined = ", ".join(kept)
-        if rejoined and rejoined[-1] not in ".!?":
-            rejoined += "."
-        out_sentences.append(rejoined)
-    if not any_removed:
-        # Nothing was actually stripped — return the original, byte-for-byte
-        # unchanged (never pick up an incidental side effect, like a
-        # trailing full stop a title never had, from a rebuild that turned
-        # out to have nothing to do).
-        return text
-    return " ".join(out_sentences).strip()
 
 
 LABEL_OPTIONS: dict[str, dict] = {
@@ -1556,368 +1368,6 @@ async def _tavily_search(
     return web_snippets, urls
 
 
-async def _generate_savings_insight_content(
-    category_key: str,
-    user_id: str,
-    user_context: Optional[dict] = None,
-    triggered_by: Optional[list[dict]] = None,
-) -> Optional[dict]:
-    # B44: `outcome`, when the weekly pass has set one (a ContextVar, so the
-    # function signature stays stable for its many callers and stubs), is filled with {"failure": <static code>}
-    # whenever the research provider (Tavily) is the reason nothing came
-    # back, so the weekly pass can tell an outage from an ordinary empty
-    # result. Codes: quota, auth, rate, server, timeout, client, error,
-    # backoff (a recent quota/auth/rate failure is still suppressing calls).
-    outcome      = _RESEARCH_OUTCOME.get()
-    cfg          = INSIGHT_CATEGORIES[category_key]
-    now          = datetime.utcnow()
-    today_label  = now.strftime("%B %Y")
-    query        = cfg["query"].format(year=now.year)
-    searched = await _tavily_search(
-        f"{query} {today_label}", category_key, outcome, pipeline="savings_insights_tavily",
-    )
-    if searched is None:
-        return None
-    web_snippets, _urls = searched
-
-    if not web_snippets:
-        log.warning(
-            "savings_insights research: no usable web snippets for category=%s, aborting",
-            category_key,
-        )
-        return None
-    if not OPENROUTER_API_KEY:
-        log.warning(
-            "savings_insights research: OPENROUTER_API_KEY not configured, aborting for category=%s",
-            category_key,
-        )
-        return None
-
-    web_text = "\n\n".join(web_snippets)
-
-    uk_rules = (
-        f"Today is {today_label}. UK only — never recommend services, providers or products "
-        "unavailable in the UK; all figures in GBP (£). "
-        "Never present a past month or year as the current one; if the search results are dated, "
-        "omit the date rather than repeating it.\n"
-    )
-
-    hard_rules = (
-        "HARD RULES — non-negotiable:\n"
-        "1. Balance transfers and moving credit card debt are NEVER advice in this product. "
-        "Never tell the user to transfer, move, shift or consolidate a credit card balance, or "
-        "to open a new card to pay off existing card debt. This ban is specifically about credit "
-        "card debt movement — switching a mortgage or car finance deal to a new lender is NOT "
-        "covered by this ban and is exactly what this insight should help with.\n"
-        "2. Never promise or predict what a third party (a lender, bank or provider) will do. "
-        "Every forward-looking statement about rates, offers or providers must be hedged — use "
-        "words like 'expected', 'about', '~', 'could' or 'typically', never state it as certain.\n"
-        "3. No alarm framing. A savings opportunity is not a risk — never use 'urgent', 'warning', "
-        "'risk' or red/danger language.\n"
-        "4. Any savings figure is an estimate, never a guarantee — hedge it ('~', 'could save', "
-        "'typically saves'), never state it as a fact.\n"
-        "5. savings_estimate must be DERIVED, never ESTIMATED. It may only be one of two things: "
-        "(a) a figure stated explicitly in the search results or the user's own facts above, quoted "
-        "as-is, or (b) the arithmetic difference between two figures explicitly stated in those "
-        "sources (e.g. today's price cap minus a cheapest fixed deal, both given as numbers above). "
-        "If neither (a) nor (b) is possible — no principal, no current rate, no two comparable prices "
-        "to subtract — savings_estimate MUST be null. Never invent a figure from 'typical' savings, "
-        "never guess a plausible-sounding range, never estimate from general knowledge of the market. "
-        "null is a correct, expected, and common answer here, not a failure — a hedge word like '~' "
-        "does not make an invented number acceptable, because the number itself must be real, not "
-        "just softly worded.\n"
-        "6. savings_estimate is always on a MONTHLY basis ('~£15/mo' style) — never annualise it to "
-        "'/yr', even if a source figure is yearly (convert it down to monthly first). A monthly figure "
-        "reads as a smaller, more honest number than its yearly multiple; the app shows the yearly "
-        "total elsewhere if the user wants it.\n"
-        "7. Write in plain, human punctuation: no em-dashes (—) or en-dashes (–) anywhere in title or "
-        "body. Use a comma, a full stop, a colon, or a plain conjunction ('and', 'but', 'so') instead. "
-        "A plain hyphen (-) is fine only inside a compound word (e.g. 'zero-percent') or a number range "
-        "(e.g. '15-30').\n"
-        "8. If your body mentions a SPECIFIC, time-bound offer, discount, deal, promotion or sale (e.g. "
-        "'this January's switching offer', 'a Black Friday deal'), you MUST also set claim_valid_until "
-        "to either the date or month that offer is valid until (e.g. '2027-03-31' or 'March 2027'), or "
-        "the literal string 'no_expiry_known' if the sources never state one. If nothing in your answer "
-        "is a limited-time promotion, set claim_valid_until to null. Never invent a date that isn't in "
-        "the sources above.\n"
-    )
-
-    facts_block  = ""
-    verdict_rule = ""
-    if triggered_by:
-        facts_lines = "\n".join(
-            f"- {t.get('display_name') or t.get('merchant_key', '')}: "
-            f"~£{float(t.get('monthly_amount') or 0):.0f}/month "
-            f"({t.get('occurrences', 0)} transactions in the last 90 days)"
-            for t in triggered_by[:4]
-        )
-        facts_block = (
-            f"The user's own {cfg['label'].lower()} spending, from their bank transactions:\n"
-            f"{facts_lines}\n\n"
-        )
-        verdict_rule = (
-            "RULE — verdict first: the title or the opening sentence of the body MUST lead with the "
-            "user's own figure from their spending above, e.g. "
-            '"You pay EE £46/mo, SIM-only could cut that to ~£12". '
-            "Their spending figures are facts; any saving is an estimate, hedge it with '~' or 'could'.\n"
-        )
-
-    if user_context:
-        ctx_lines = "\n".join(f"- {k.replace('_', ' ').title()}: {v}" for k, v in user_context.items() if v)
-        prompt    = (
-            f"{uk_rules}{hard_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
-            f"{facts_block}"
-            f"The user's current {cfg['label'].lower()} situation:\n{ctx_lines}\n\n"
-            "Write a HIGHLY PERSONALISED savings insight. Reference their specific spend, rate, provider, "
-            "amount or end date where relevant. Give concrete next steps they should take right now.\n"
-            f"{verdict_rule}"
-            "JSON: title (max 10 words, specific to their situation), "
-            "body (2–3 sentences, direct advice referencing their details), "
-            "savings_estimate (per rules 5–6 above: a stated figure or a subtraction of two stated "
-            "figures, always /mo, else null — null is expected and fine), "
-            "claim_valid_until (per rule 8 above, else null)\n\n"
-            'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"...",'
-            '"claim_valid_until":"..."}'
-        )
-    else:
-        prompt = (
-            f"{uk_rules}{hard_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
-            f"{facts_block}"
-            "Write a concise savings insight card in JSON with three fields:\n"
-            "- title: max 10 words, punchy, present tense\n"
-            "- body: 1–2 sentences, specific deal or tip, no filler\n"
-            "- savings_estimate: per rules 5–6 above — e.g. '~£15/mo' ONLY if that figure or its two "
-            "source numbers are stated above, else null (null is expected and fine)\n"
-            "- claim_valid_until: per rule 8 above, else null\n"
-            f"{verdict_rule}\n"
-            'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"...",'
-            '"claim_valid_until":"..."}'
-        )
-
-    # Two attempts: if the model names a non-UK product (Hulu, Venmo, 401(k)…),
-    # suggests moving/transferring/consolidating credit card debt, or claims
-    # a duplicate/repeat payment the transaction data doesn't back up, we
-    # regenerate once with a sharper instruction, then drop the insight —
-    # never store garbage, never store regulated-sounding debt advice, and
-    # never store a false "you're paying twice" accusation.
-    violation: Optional[str] = None
-    # Last successfully-parsed attempt's title/body, kept regardless of
-    # whether it went on to trip a guardrail — the dated-promo STRIP FALLBACK
-    # below needs the actual offending text to strip sentences out of, not
-    # just the fact that attempt 2 also failed. Only ever read after the loop
-    # exits without an early `return`, i.e. every attempt tripped a guardrail.
-    last_content: Optional[dict] = None
-    for attempt in range(2):
-        if attempt == 0:
-            attempt_prompt = prompt
-        elif violation == "card_debt":
-            attempt_prompt = (
-                prompt
-                + "\n\nIMPORTANT: your previous answer suggested transferring, moving, shifting "
-                  "or consolidating a credit card balance/debt. That is NEVER allowed in this "
-                  "product — remove any card balance-transfer or debt-consolidation suggestion "
-                  "entirely. You may still suggest switching a mortgage or car finance deal to a "
-                  "new lender; that is fine."
-            )
-        elif violation == "duplicate_claim":
-            attempt_prompt = (
-                prompt
-                + "\n\nIMPORTANT: your previous answer claimed the user is being charged twice, "
-                  "multiple times, or N separate times for the same thing. Their transaction data "
-                  "does not show genuinely overlapping charges (similar-amount payments landing in "
-                  "the same month) — the merchant lines above may just be one subscription or bill "
-                  "billed once a month under slightly different bank descriptor text each time. Do "
-                  "not claim duplicate, repeat or multiple billing; describe it as a single "
-                  "recurring payment instead."
-            )
-        elif violation == "dated_promo_missing_expiry":
-            attempt_prompt = (
-                prompt
-                + "\n\nIMPORTANT: your previous answer mentioned a specific time-bound offer, "
-                  "discount, deal or promotion but did not give a usable claim_valid_until. Either "
-                  "state the exact date or month the offer is valid until in claim_valid_until, or "
-                  "set claim_valid_until to the literal string 'no_expiry_known', or remove the "
-                  "specific time-bound claim from the body entirely and describe the saving in "
-                  "general, evergreen terms instead."
-            )
-        else:
-            attempt_prompt = (
-                prompt
-                + "\n\nIMPORTANT: your previous answer mentioned a non-UK product or US-only term. "
-                  "Mention ONLY services, providers and terms available in the UK."
-            )
-        parsed = None
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                r = await openrouter_chat(
-                    {"model": "anthropic/claude-haiku-4-5", "max_tokens": 220,
-                     "messages": [{"role": "user", "content": attempt_prompt}],
-                     "response_format": {"type": "json_object"}},
-                    user_id=user_id, pipeline="savings_insights", client=client,
-                )
-                if r.status_code == 200:
-                    raw = r.json()["choices"][0]["message"]["content"].strip()
-                    if raw.startswith("```"):
-                        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-                        raw = re.sub(r'\s*```$', '', raw).strip()
-                    try:
-                        parsed = json.loads(raw)
-                    except (json.JSONDecodeError, ValueError) as e:
-                        log.warning(
-                            "savings_insights research: LLM response not valid JSON for "
-                            "category=%s attempt=%d: %r", category_key, attempt, e,
-                        )
-                else:
-                    log.warning(
-                        "savings_insights research: LLM HTTP %s for category=%s attempt=%d",
-                        r.status_code, category_key, attempt,
-                    )
-            except httpx.TimeoutException:
-                log.warning(
-                    "savings_insights research: LLM timeout for category=%s attempt=%d",
-                    category_key, attempt,
-                )
-            except Exception as e:
-                log.warning(
-                    "savings_insights research: LLM request error for category=%s attempt=%d: %r",
-                    category_key, attempt, e,
-                )
-        if not isinstance(parsed, dict):
-            continue
-        title    = _house_style(str(parsed.get("title", cfg["label"])))
-        body     = _house_style(str(parsed.get("body", "")))
-        estimate = str(parsed.get("savings_estimate") or "")
-        combined = f"{title} {body} {estimate}"
-        last_content = {"title": title, "body": body, "parsed": parsed}
-        if _NON_UK_RE.search(combined):
-            violation = "non_uk"
-            continue
-        if _CARD_DEBT_MOVE_RE.search(combined):
-            violation = "card_debt"
-            continue
-        if not _duplicate_claim_is_supported(combined, triggered_by):
-            violation = "duplicate_claim"
-            continue
-
-        claim_valid_until_dt: Optional[datetime] = None
-        if category_key in _CATEGORIES_WITHOUT_WORKFLOW_EXPIRY and _DATED_PROMO_RE.search(combined):
-            raw_claim = parsed.get("claim_valid_until")
-            raw_claim_str = str(raw_claim).strip() if raw_claim not in (None, "") else ""
-            if not raw_claim_str:
-                violation = "dated_promo_missing_expiry"
-                continue
-            if raw_claim_str.lower() != "no_expiry_known":
-                claim_valid_until_dt = _parse_claim_valid_until(raw_claim_str)
-                if claim_valid_until_dt is None:
-                    violation = "dated_promo_missing_expiry"
-                    continue
-
-        savings_estimate = parsed.get("savings_estimate") or None
-        if savings_estimate is not None:
-            # House-style (incl. the decimal-space repair) at write-time too,
-            # not just at serve-time in _serialize_insight — mirrors the
-            # title/body treatment above so a stored doc is clean from the
-            # moment it's written, not only when read back through the API.
-            savings_estimate = _house_style(str(savings_estimate))
-            allowed = _build_allowed_savings_numbers(web_text, user_context, triggered_by)
-            if not _savings_estimate_is_derivable(savings_estimate, allowed):
-                log.warning(
-                    "savings_insights: ungrounded savings_estimate nulled — category=%s estimate=%r",
-                    category_key, savings_estimate,
-                )
-                savings_estimate = None
-
-        # Unsupported-savings-claim guardrail (incoherence C — see
-        # _strip_unsupported_savings_claims above): once savings_estimate is
-        # settled (possibly just nulled above), a title/body clause that
-        # still claims a specific £ saving with nothing backing it must not
-        # be stored in the first place.
-        has_estimate = savings_estimate is not None
-        title = _strip_unsupported_savings_claims(title, has_estimate, triggered_by)
-        body  = _strip_unsupported_savings_claims(body, has_estimate, triggered_by)
-
-        return {
-            "title": title,
-            "body":  body,
-            "savings_estimate": savings_estimate,
-            "claim_valid_until": claim_valid_until_dt,
-        }
-    if violation == "dated_promo_missing_expiry" and last_content is not None:
-        # STRIP FALLBACK (owner phone report 2026-09-01, 20:04): both
-        # attempts still tripped the dated-promo guardrail even after the
-        # second one was told exactly what to fix (see the
-        # "dated_promo_missing_expiry" branch in the attempt-prompt chain
-        # above) — for deal-heavy categories like subscriptions the model
-        # can genuinely fail to produce a compliant answer twice in a row.
-        # Degrade by stripping the offending sentence(s), not by dropping
-        # the whole card.
-        raw_title = last_content["title"]
-        raw_body  = last_content["body"]
-        stripped_title = _strip_dated_promo_sentences(raw_title) or ""
-        stripped_body  = _strip_dated_promo_sentences(raw_body) or ""
-
-        # Belt-and-braces (same pattern as the serve-time repairs): the
-        # surviving content must not itself still match the dated-promo
-        # pattern. Sentence-level stripping should always clear this — the
-        # regex's own `(?:(?!\.).){0,60}?` refuses to span a literal "."  —
-        # but if it somehow doesn't, treat the strip as failed rather than
-        # ever store a dated claim with no expiry attached.
-        still_dated = bool(_DATED_PROMO_RE.search(f"{stripped_title} {stripped_body}"))
-
-        # "Meaningful" is conservative on purpose: a body under ~40 chars
-        # ("Switch and save." with nothing else) isn't a real card, even if
-        # it's technically non-empty. title empty AND body too short is the
-        # only case that 502s — anything else survives with what's left.
-        meaningful = bool(stripped_title.strip()) or len(stripped_body.strip()) >= 40
-
-        if still_dated or not meaningful:
-            log.warning(
-                "savings_insights research: dated-promo strip left nothing usable for "
-                "category=%s (still_dated=%s title=%r body_len=%d), dropping",
-                category_key, still_dated, stripped_title, len(stripped_body),
-            )
-            return None
-
-        log.warning(
-            "savings_insights research: dated-promo guardrail tripped both attempts for "
-            "category=%s, stripped offending sentence(s) and kept surviving content "
-            "(title_changed=%s body_changed=%s)",
-            category_key, stripped_title != raw_title, stripped_body != raw_body,
-        )
-
-        parsed = last_content["parsed"]
-        savings_estimate = parsed.get("savings_estimate") or None
-        if savings_estimate is not None:
-            savings_estimate = _house_style(str(savings_estimate))
-            allowed = _build_allowed_savings_numbers(web_text, user_context, triggered_by)
-            if not _savings_estimate_is_derivable(savings_estimate, allowed):
-                log.warning(
-                    "savings_insights: ungrounded savings_estimate nulled — category=%s estimate=%r",
-                    category_key, savings_estimate,
-                )
-                savings_estimate = None
-
-        has_estimate = savings_estimate is not None
-        stripped_title = _strip_unsupported_savings_claims(stripped_title, has_estimate, triggered_by) or ""
-        stripped_body  = _strip_unsupported_savings_claims(stripped_body, has_estimate, triggered_by) or ""
-
-        return {
-            "title": stripped_title or cfg["label"],
-            "body":  stripped_body,
-            "savings_estimate": savings_estimate,
-            # The dated claim itself was stripped out, not kept with a real
-            # expiry attached — nothing here to anchor a claim_valid_until to.
-            "claim_valid_until": None,
-        }
-
-    if violation:
-        log.warning(
-            "savings_insights research: guardrail violation exhausted both attempts for "
-            "category=%s, dropping: %s", category_key, violation,
-        )
-    return None
-
-
 # ── B48: shared research layer and personal composition ─────────────────────
 #
 # A tip is two layers. The research layer (typical prices, alternatives, a deal
@@ -2065,18 +1515,21 @@ def _build_findings(
             return ""
         return text
 
-    headline = grounded_text(parsed.get("headline"), 160)
+    # G283: the model's free-text headline is no longer asked for or kept. A tip
+    # states prices and names, not a view on the market.
+    headline = ""
     alternatives: list[dict] = []
     for a in (parsed.get("alternatives") or [])[:3]:
         if not isinstance(a, dict):
             continue
         name = re.sub(r"[^A-Za-z0-9 &'+.\-]", "", str(a.get("name") or "")).strip()[:40]
-        if not name or not _is_shareable_text(name):
+        if not name or not _is_shareable_text(name) or not tip_copy.is_clean(name):
             continue
+        note = grounded_text(a.get("note"), 60)
         alternatives.append({
             "name": name,
             "price": _grounded_number(a.get("price"), allowed),
-            "note": grounded_text(a.get("note"), 60) or None,
+            "note": (note if tip_copy.is_clean(note) else "") or None,
         })
 
     deal: Optional[dict] = None
@@ -2094,6 +1547,8 @@ def _build_findings(
             keep = False  # already past its deadline
         if keep and not all(_number_is_derivable(n, allowed) for n in _extract_numbers(deal_text)):
             keep = False
+        if keep and not tip_copy.is_clean(deal_text):
+            keep = False  # G283: promo wording such as "save 20%" is never stored
         if keep:
             claim_dt = until_dt
             deal = {"text": deal_text, "valid_until": until_dt.date().isoformat() if until_dt else None}
@@ -2152,17 +1607,17 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
         "address or describe one. JSON fields:\n"
         "- typical_low and typical_high: numbers, the typical MONTHLY price range in GBP for comparable "
         "offers stated in the results (convert yearly to monthly), else null. Never invent a figure.\n"
-        "- headline: one plain sentence, max 25 words, on what the market looks like right now. Hedge "
-        "with 'typically' or 'about'.\n"
         "- alternatives: up to 3 objects {name, price, note}: a UK provider or product, its monthly GBP "
         "price if stated (else null), and a note of at most 8 words (else null).\n"
         "- deal: null, or {text, valid_until}: one sentence on a specific time-bound offer, and the date "
         "or month it is valid until ('2027-03-31' or 'March 2027'), or the literal 'no_expiry_known' if "
         "the sources never say. Never invent a date.\n"
-        "HARD RULES: never advise balance transfers or moving credit card debt. Never promise what a "
+        "HARD RULES: state listed prices and names only, as facts. Never advise, recommend, compare "
+        "against any person, or say anything is best, cheaper or a saving. Never advise balance "
+        "transfers or moving credit card debt. Never promise what a "
         "third party will do. No alarm language. Plain punctuation: no em dashes, no en dashes, no "
         "exclamation marks.\n"
-        'Respond ONLY with valid JSON: {"typical_low":null,"typical_high":null,"headline":"",'
+        'Respond ONLY with valid JSON: {"typical_low":null,"typical_high":null,'
         '"alternatives":[],"deal":null}'
     )
 
@@ -2217,12 +1672,25 @@ def _provider_display(name: Optional[str]) -> str:
     return n.upper() if n.lower() in _SHORT_PROVIDER_NAMES else n
 
 
-def _market_check_label(as_of: Optional[str]) -> Optional[str]:
+def _checked_label(as_of: Optional[str]) -> Optional[str]:
     try:
         d = datetime.strptime(str(as_of), "%Y-%m-%d")
     except (TypeError, ValueError):
         return None
-    return f"Market check {d.day} {d.strftime('%b')}."
+    return f"{d.day} {d.strftime('%b')}"
+
+
+def _source_label(findings: dict) -> Optional[str]:
+    """The host names of the pages the shared findings came from (at most two),
+    for the "source" half of a tip's fact line. A host that would trip the
+    banned-phrase list is left out rather than shown."""
+    hosts: list[str] = []
+    for u in (findings.get("sources") or []):
+        host = (urlparse(str(u)).netloc or "").lower()
+        host = host[4:] if host.startswith("www.") else host
+        if host and host not in hosts and tip_copy.is_clean(host):
+            hosts.append(host)
+    return " and ".join(hosts[:2]) or None
 
 
 def _context_sentence(user_context: Optional[dict]) -> Optional[str]:
@@ -2241,7 +1709,12 @@ def _compose_tip_content(
     user_context: Optional[dict], today,
 ) -> Optional[dict]:
     """The personal layer: shared findings plus the user's own figures, no
-    external call. Deterministic. A deal past its deadline is never included."""
+    external call. Deterministic. G283: a tip states facts only, namely what the
+    user pays, to whom and how often, and what comparable options are listed at
+    with a source and a date. It never claims or estimates a saving, never
+    recommends, never names a product as the best option. A deal past its
+    deadline is never included. `_tip_content_for` gates every string against
+    the banned-phrase list (app.services.tip_copy) and drops the tip on a hit."""
     cfg = INSIGHT_CATEGORIES[category_key]
     f = doc.get("findings") or {}
     label = cfg["label"]
@@ -2257,26 +1730,33 @@ def _compose_tip_content(
     elif tb:
         title = f"You pay {_money(total)} a month on {label_l}"
     else:
-        title = f"{label} deals worth comparing"
+        title = f"Listed prices for {label_l}"
 
     sentences: list[str] = []
+    if len(tb) > 1:
+        sentences.append("By merchant: " + ", ".join(
+            f"{_provider_display(t.get('display_name'))} {_money(float(t['monthly_amount']))} a month"
+            for t in tb[:4]
+        ) + ".")
+    elif primary and not primary.get("is_recurring") and primary.get("occurrences"):
+        n = int(primary["occurrences"])
+        sentences.append(f"That is based on {n} payment{'s' if n != 1 else ''} in the last 90 days.")
+
     low, high = f.get("typical_low"), f.get("typical_high")
     noun = _RANGE_NOUN.get(category_key)
     if noun and low is not None and high is not None:
-        sentences.append(f"Similar {noun} typically cost {_money(low)} to {_money(high)} a month.")
-    if f.get("headline"):
-        sentences.append(f["headline"].rstrip(".") + ".")
+        sentences.append(f"{noun[:1].upper()}{noun[1:]} are listed at {_money(low)} to {_money(high)} a month.")
     alts = f.get("alternatives") or []
     if alts:
         parts = []
         for a in alts[:3]:
             extra = ""
             if a.get("price") is not None:
-                extra = f" (typically about {_money(a['price'])} a month)"
+                extra = f" {_money(a['price'])} a month"
             elif a.get("note"):
                 extra = f" ({a['note']})"
             parts.append(f"{a['name']}{extra}")
-        sentences.append("Worth comparing: " + ", ".join(parts) + ".")
+        sentences.append("Also listed: " + ", ".join(parts) + ".")
 
     claim_dt: Optional[datetime] = None
     deal = f.get("deal")
@@ -2290,19 +1770,9 @@ def _compose_tip_content(
         if until is None or until.date() >= today:  # never show a deal past its deadline
             text = deal["text"].rstrip(".") + "."
             if until is not None:
-                text += f" Offer ends {until.day} {until.strftime('%b')}."
+                text += f" Offer listed until {until.day} {until.strftime('%b')}."
             sentences.append(text)
             claim_dt = until
-
-    savings_estimate: Optional[str] = None
-    if noun and high is not None and primary and len(tb) == 1 and total - high >= 3:
-        est = f"~{_money(total - high)}/mo"
-        allowed = _build_allowed_savings_numbers(f"{low} {high}", None, tb)
-        if _savings_estimate_is_derivable(est, allowed):
-            savings_estimate = est
-            sentences.append(
-                f"That could save about {_money(total - high)} a month against the top of that range."
-            )
 
     ctx = _context_sentence(user_context)
     if ctx:
@@ -2310,11 +1780,18 @@ def _compose_tip_content(
     if not sentences:
         return None
     core = " ".join(sentences)
-    check = _market_check_label(doc.get("as_of"))
+    checked = _checked_label(doc.get("as_of"))
+    source = _source_label(f)
+    if checked and source:
+        check = f"Checked {checked}, source {source}."
+    elif checked:
+        check = f"Checked {checked}."
+    else:
+        check = None
     body = f"{core} {check}" if check else core
     title, body = _house_style(title), _house_style(body)
     return {
-        "title": title, "body": body, "savings_estimate": savings_estimate,
+        "title": title, "body": body,
         "claim_valid_until": claim_dt,
         "researched_at": doc.get("fetched_at"),
         "content_valid_until": doc.get("content_valid_until"),
@@ -2328,14 +1805,16 @@ _PHRASING_FIGURES = re.compile(r"£\s*\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?%")
 async def _maybe_rephrase(user_id: str, content: dict, user_context: Optional[dict]) -> dict:
     """Optional LLM wording pass, off unless TIP_LLM_PHRASING is set. Sends only
     this user's own composed text and context (no search, no other user's
-    data) and keeps the composed text unless every figure and the market check
-    sentence survive."""
+    data) and keeps the composed text unless every figure and the "Checked"
+    sentence survive and the reworded text passes the banned-phrase list."""
     if not TIP_LLM_PHRASING or not OPENROUTER_API_KEY:
         return content
     prompt = (
-        "Reword this savings tip in warm, plain British English. Keep every figure and every date "
-        "exactly as written, add no new facts, no em dashes, no exclamation marks, and keep the "
-        "final 'Market check' sentence unchanged.\n"
+        "Reword this tip in plain British English. It states facts only: keep every figure, name "
+        "and date exactly as written, add no new facts, give no advice, make no claim or estimate "
+        "about money saved, never say any option is best or cheaper, never use the words save, "
+        "saving, cut, cheaper, could, should, recommend or best, no em dashes, no exclamation marks, "
+        "and keep the final 'Checked' sentence unchanged.\n"
         f"Title: {content['title']}\nBody: {content['body']}\n"
         'Respond ONLY with JSON: {"title":"...","body":"..."}'
     )
@@ -2356,10 +1835,12 @@ async def _maybe_rephrase(user_id: str, content: dict, user_context: Optional[di
     original = content["title"] + " " + content["body"]
     if sorted(_PHRASING_FIGURES.findall(title + " " + body)) != sorted(_PHRASING_FIGURES.findall(original)):
         return content
-    check = re.search(r"Market check \d{1,2} \w{3}\.", content["body"])
+    check = re.search(r"Checked \d{1,2} \w{3}[^.]*\.", content["body"])
     if check and check.group(0) not in body:
         return content
     if "!" in title + body or _NON_UK_RE.search(title + body) or _CARD_DEBT_MOVE_RE.search(title + body):
+        return content
+    if not tip_copy.is_clean(title, body):
         return content
     return {**content, "title": title, "body": body}
 
@@ -2374,6 +1855,8 @@ async def _tip_content_for(
       failure  static code when the provider is why nothing came back (B44)
       fetched  True when THIS call performed the shared fetch
       deferred True when no fetch was allowed and nothing usable was cached
+      copy_rejected  tip_copy.BANNED_FAILURE_CODE when the composed tip tripped
+               the banned-phrase list and was dropped (G283)
     A user who has tips switched off never reaches here (G189: callers check)."""
     outcome = _RESEARCH_OUTCOME.get()
     if category_key not in INSIGHT_CATEGORIES:
@@ -2394,7 +1877,15 @@ async def _tip_content_for(
     content = _compose_tip_content(category_key, result.doc, triggered_by, user_context, timeutil.user_today())
     if content is None:
         return None
-    return await _maybe_rephrase(user_id, content, user_context)
+    content = await _maybe_rephrase(user_id, content, user_context) if tip_copy.is_clean(
+        content.get("title"), content.get("body"),
+    ) else content
+    if not tip_copy.is_clean(content.get("title"), content.get("body")):
+        if outcome is not None:
+            outcome["copy_rejected"] = tip_copy.BANNED_FAILURE_CODE
+        log.warning("tip copy rejected category=%s code=%s", category_key, tip_copy.BANNED_FAILURE_CODE)
+        return None
+    return content
 
 
 async def _refresh_single_insight(user_id: str, category_key: str, user_context: Optional[dict] = None) -> None:
@@ -2413,14 +1904,13 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         return
     title          = content["title"]
     body_text      = content["body"]
-    savings_estimate = content.get("savings_estimate")
     content_hash   = hashlib.md5(content.get("hash_basis", f"{title}{body_text}").encode()).hexdigest()
     now            = datetime.utcnow()
     existing       = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
     is_new         = not existing or existing.get("content_hash") != content_hash
     claim_valid_until_dt = content.get("claim_valid_until")
     base_update: dict = {
-        "title": title, "body": body_text, "savings_estimate": savings_estimate,
+        "title": title, "body": body_text,
         "triggered_by": triggered_by, "refreshed_at": now,
         "content_hash": content_hash, "is_new": is_new,
         "prompt_version": PROMPT_VERSION,
@@ -2449,7 +1939,7 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         # `_refresh_savings_insights_for_user`.
         await savings_insights_col.update_one(
             {"_id": existing["_id"]},
-            {"$set": base_update, "$unset": {"retired_at": "", "retire_reason": ""}},
+            {"$set": base_update, "$unset": {"retired_at": "", "retire_reason": "", "savings_estimate": ""}},
         )
     else:
         insight_id = f"{category_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
@@ -2495,6 +1985,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
     # reproduce or add print debugging after the fact.
     researched: list[str] = []
     fetches = 0  # B48: shared fetches this user's pass triggered (cap: MAX_RESEARCHED_PER_PASS)
+    copy_rejected_n = 0  # G283: tips dropped by the banned-phrase gate this pass (count only)
     skipped: list[str] = []
     failed: list[str] = []
     # B44: once a quota/auth/rate failure (or an active backoff) is seen,
@@ -2670,6 +2161,8 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 # Cap reached and nothing cached: left untouched, picked up next pass.
                 skipped.append(cat_key)
                 continue
+        if outcome.get("copy_rejected"):
+            copy_rejected_n += 1
         provider_failure = outcome.get("failure")
         if provider_failure and not research_halted and (
             provider_failure in tips_research_health.BACKOFF_CODES or provider_failure == "backoff"
@@ -2702,7 +2195,6 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             continue
         title          = content["title"]
         body           = content["body"]
-        savings_estimate = content.get("savings_estimate")
         claim_valid_until_dt = content.get("claim_valid_until")
         content_hash   = hashlib.md5(content.get("hash_basis", f"{title}{body}").encode()).hexdigest()
         now            = datetime.utcnow()
@@ -2716,7 +2208,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
 
         if existing:
             update: dict = {
-                "title": title, "body": body, "savings_estimate": savings_estimate,
+                "title": title, "body": body,
                 "triggered_by": triggered_by, "refreshed_at": now,
                 "content_hash": content_hash, "is_new": is_new,
                 "prompt_version": PROMPT_VERSION,
@@ -2732,13 +2224,15 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             }
             if not existing.get("pinned"):
                 update["expires_at"] = now + timedelta(days=30)
-            await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": update})
+            await savings_insights_col.update_one(
+                {"_id": existing["_id"]}, {"$set": update, "$unset": {"savings_estimate": ""}},
+            )
         else:
             insight_id = f"{cat_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
             await savings_insights_col.insert_one({
                 "insight_id": insight_id, "user_id": user_id, "category": cat_key,
                 "icon": cfg["icon"], "label": cfg["label"],
-                "title": title, "body": body, "savings_estimate": savings_estimate,
+                "title": title, "body": body,
                 "triggered_by": triggered_by, "pinned": False, "created_at": now,
                 "refreshed_at": now, "expires_at": now + timedelta(days=30),
                 "content_hash": content_hash, "is_new": True,
@@ -2760,6 +2254,9 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         _uid_hash(user_id), len(researched), len(skipped), len(failed),
         ",".join(researched) or "none", ",".join(failed) or "none",
     )
+    if copy_rejected_n:
+        log.warning("savings_insights tips dropped by the copy gate in a pass: %d (code %s)",
+                    copy_rejected_n, tip_copy.BANNED_FAILURE_CODE)
     if fetches:
         # B48: shared fetch count, deliberately without the user hash.
         log.warning("savings_insights shared research fetches in a pass: %d", fetches)
@@ -2797,25 +2294,6 @@ def _merchant_scoped_route(category: str, triggered_by: list[dict]) -> Optional[
         return route
     sep = "&" if "?" in route else "?"
     return f"{route}{sep}merchants={','.join(quote(n, safe='') for n in names)}"
-
-
-def _savings_estimate_monthly(estimate: Optional[str]) -> Optional[float]:
-    """Numeric monthly £ figure behind a `savings_estimate` display string,
-    or None when there's nothing to parse.
-
-    Delegates the actual parsing to analytics._parse_saving_amount (lazy
-    import, same circular-import workaround already used elsewhere in this
-    file) rather than re-deriving the regex here — one parser, one place it
-    can drift. That helper returns 0.0 both for a blank/None estimate AND
-    for a string with no £ amount in it (e.g. a malformed value), so the
-    presence of a literal "£" is checked here first: without it, there's
-    nothing for the helper to have found, so the result is null rather than
-    a 0.0 that would read as a genuine (and wrong) zero-cost estimate.
-    """
-    if not estimate or "£" not in estimate:
-        return None
-    from app.routers.analytics import _parse_saving_amount
-    return _parse_saving_amount(estimate)
 
 
 # ── Single-source insight state (STRUCTURAL FIX, Insights honesty review,
@@ -3022,7 +2500,6 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     # turned out not to be a real saving); `quiet` has no current content by
     # construction.
     content_live = state in {"fresh", "stale"}
-    savings_estimate = d.get("savings_estimate") if content_live else None
     title_raw = d.get("title", "") if content_live else ""
     body_raw = d.get("body", "") if content_live else ""
     # A stale tip shows its text but never an expiry or deadline stamp: its
@@ -3030,19 +2507,14 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     claim_valid_until_raw = d.get("claim_valid_until") if state == "fresh" else None
     content_valid_until_raw = d.get("content_valid_until") if state == "fresh" else None
 
-    # Unsupported-savings-claim repair (incoherence C): belt-and-braces,
-    # same pattern as the em/en-dash and decimal-space repairs above — runs
-    # at SERVE time too, not just generation time, so a doc written before
-    # this guardrail existed (or one whose estimate got nulled by a change
-    # to the derivability check after it was generated) never shows a
-    # dangling "could save up to £NNN" next to a "No number yet" pill. See
-    # `_strip_unsupported_savings_claims` for why this is safe to re-run
-    # without the generation-time `allowed` set (it targets specifically
-    # save-worded clauses, not every £ figure).
-    has_estimate = savings_estimate is not None
-    _triggered_by = d.get("triggered_by")
-    title_raw = _strip_unsupported_savings_claims(title_raw, has_estimate, _triggered_by)
-    body_raw = _strip_unsupported_savings_claims(body_raw, has_estimate, _triggered_by)
+    # G283: copy gate at SERVE time. A stored tip written before tips became
+    # facts-only (or any stored text that trips the banned-phrase list) is
+    # never served; it falls through to the no-content downgrade below and is
+    # rewritten on the next pass (PROMPT_VERSION 8 forces that).
+    title_raw = _house_style(title_raw)
+    body_raw = _house_style(body_raw)
+    if not tip_copy.is_clean(title_raw, body_raw):
+        title_raw = body_raw = ""
 
     # THE INVARIANT, enforced a second time, at the end of the line (owner
     # phone report 2026-09-01): `_derive_insight_state` already requires
@@ -3065,7 +2537,6 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     if content_live and not (title_raw.strip() and body_raw.strip()):
         state = "quiet"
         content_live = False
-        savings_estimate = None
         claim_valid_until_raw = None
         content_valid_until_raw = None
 
@@ -3140,55 +2611,24 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         "label":           _cfg.get("label") or d.get("label", cat.replace("_", " ").title()),
         "title":           _house_style(title_raw),
         "body":            _house_style(body_raw),
-        "savings_estimate": _house_style(savings_estimate) if savings_estimate else savings_estimate,
-        # Numeric twin of the display string above, for clients that need to
-        # sum estimates (the Insights hero) without re-parsing "~£32/mo"
-        # themselves — reimplementing that parse in the frontend would drift
-        # from _parse_saving_amount (analytics.py) the moment either changes.
-        # null whenever the string is absent OR has no £ amount to parse
-        # (e.g. a malformed/legacy value) — never a silent 0.0, which would
-        # read as a real, costed £0 estimate to a summing caller.
-        "savings_estimate_monthly": _savings_estimate_monthly(savings_estimate),
         "pinned":          d.get("pinned", False),
         "is_new":          is_new,
         # Stored naive-UTC; the Z suffix makes browsers parse it as UTC, not local
         "refreshed_at":    d["refreshed_at"].isoformat() + "Z" if d.get("refreshed_at") else None,
         "return_reason":   _house_style(d["_return_reason"]) if d.get("_return_reason") else d.get("_return_reason"),
-        "verified_savings": d.get("verified_savings") if is_verified else None,
-        "verified_merchant": (
-            (_house_style(d["verified_merchant"]) if d.get("verified_merchant") else d.get("verified_merchant"))
-            if is_verified else None
+        # G283: a verified resolution carries no pounds figure and no claim of
+        # money saved, only the fact the payments stopped. The stored
+        # `verified_savings` amount stays internal and is never serialised.
+        "stopped_line": (
+            _stopped_line(d.get("verified_merchant")) if is_verified else None
         ),
-        # "fact" (honest default — no card_opened_at recorded before the
-        # cessation window closed) or "earned" (the user is confirmed to
-        # have engaged with this card's evidence/CTA before it verified) —
-        # see _verified_copy_tier. Only meaningful when verified_savings is
-        # set; null otherwise.
-        "verified_tier": _verified_copy_tier(d) if is_verified and d.get("verified_savings") else None,
-        # Server-composed celebration/fact copy (see _verified_saving_sentence)
-        # — the client renders this string verbatim instead of re-splicing
-        # verified_merchant into its own JSX/template, so the sentence has
-        # exactly one source of truth and can't drift out of house style (or
-        # out of spacing, or out of tier) per surface.
-        "verified_savings_line": (
-            _verified_saving_sentence(
-                d.get("verified_merchant"), float(d["verified_savings"]), _verified_copy_tier(d),
-            )
-            if is_verified and d.get("verified_savings") else None
-        ),
-        # `substituted` (Package B #6): the triggering merchant went silent,
-        # but the insight's whole spend category never net'd down — the
-        # money most likely moved to a different merchant in the same
-        # category, so this is NOT a verified saving (verified_savings stays
-        # unset, never counts toward /value-delivered's verified_monthly_saving
-        # or the Home "insight_win" celebration — both gate on verified_savings
-        # alone). Neutral copy, no celebration styling.
+        # `substituted`: the triggering merchant went silent, but the whole
+        # category never net'd down. Neutral fact line, no celebration styling.
         "substituted":          is_substituted,
         "substituted_merchant": (
             (_house_style(d["substituted_merchant"]) if d.get("substituted_merchant") else d.get("substituted_merchant"))
             if is_substituted else None
         ),
-        "substituted_amount":   d.get("substituted_amount") if is_substituted else None,
         "substituted_line": (
             _substituted_line(d.get("substituted_merchant"), _cfg.get("label"))
             if is_substituted else None
@@ -3208,7 +2648,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         # live, same as claim_valid_until_raw.
         "content_valid_until": content_valid_until_raw.isoformat() + "Z" if content_valid_until_raw else None,
         # Zone 2's expiry indicator — server-composed sentence, same house-
-        # style-consistency pattern as verified_savings_line/substituted_line
+        # style-consistency pattern as stopped_line/substituted_line
         # above (see `_expiry_line`). Only meaningful (non-null) while
         # content_live.
         "expiry_line": (
@@ -3262,8 +2702,6 @@ def _parse_deadline(context: dict | None) -> Optional[datetime]:
 
 def _material_change_reason(d: dict) -> Optional[str]:
     """Why a dismissed insight has earned its way back, or None if it hasn't."""
-    from app.routers.analytics import _parse_saving_amount
-
     # G161 follow-up: the 60-day "is this deadline coming up" window is
     # compared as Europe/London calendar dates, so a deadline stored as a
     # late-UTC instant doesn't drop out of (or into) the window a day early
@@ -3275,19 +2713,6 @@ def _material_change_reason(d: dict) -> Optional[str]:
         _deadline_ld = timeutil.to_user_date(deadline)
         if _today_ld < _deadline_ld <= _today_ld + timedelta(days=60):
             return f"Your deal ends around {deadline.strftime('%b %Y')}"
-
-    old = d.get("estimate_at_dismissal")
-    new = _parse_saving_amount(d.get("savings_estimate"))
-    if old and new and abs(new - old) >= max(10.0, 0.2 * old):
-        # Self-explanatory sentence, no arrow character and no "up"/"down"
-        # direction word (the arrow-and-verb format this replaced read like
-        # a diff, not prose) — the frontend renders this verbatim with no
-        # "Back because:" prefix added. Both figures are named: the old
-        # estimate is what the user dismissed against, so dropping it left
-        # the callout unable to say what actually changed (H28 — the
-        # material-change rule fired but the reason it returned couldn't
-        # explain why).
-        return f"Updated: estimated saving now ~£{new:,.0f}/mo (was ~£{old:,.0f}/mo)"
 
     # Left as a raw UTC-instant TTL check (G161 review, deliberate): this is
     # a 30-day cooldown gate on an internal decision (does the callout
@@ -3573,8 +2998,7 @@ def _spotlight_candidates(docs: list[dict]) -> list[dict]:
     """Insights eligible for the home spotlight, ranked pinned-first then freshest.
 
     Dismissal is durable: a retired insight only returns after a 30-day
-    cooldown, or earlier when something material changed (estimate moved
-    ≥20%/£10, or a user-provided deadline is inside 60 days) — and then it
+    cooldown, or earlier when a user-provided deadline is inside 60 days — and then it
     carries the reason so the card can say why it's back.
 
     Content-presence gate (owner phone report 2026-09-01, "should we render
@@ -3654,19 +3078,11 @@ async def get_savings_insights(user: dict = Depends(current_user)):
         if d.get("spotlight_retired"):
             d["_return_reason"] = _material_change_reason(d) or None
 
-    # Biggest-impact card first: pinned, then verified wins, then the largest
-    # parsed £ estimate, then the largest triggering monthly spend.
-    from app.routers.analytics import _parse_saving_amount
-
+    # Pinned first, then the largest triggering monthly spend (G283: no savings
+    # estimate or verified figure takes part in ranking).
     def _rank_key(d: dict):
-        estimate = _parse_saving_amount(d.get("savings_estimate")) or 0.0
         spend    = sum(float(t.get("monthly_amount") or 0) for t in d.get("triggered_by") or [])
-        # `and not d.get("substituted_at")`: same precedence
-        # `_derive_insight_state` resolves (incoherence A) — a doc an
-        # unrepaired race left with both `verified_savings` and
-        # `substituted_at` set must not rank as if it were a genuine win.
-        is_verified = bool(d.get("verified_savings")) and not d.get("substituted_at")
-        return (bool(d.get("pinned")), is_verified, estimate, spend)
+        return (bool(d.get("pinned")), spend)
 
     docs.sort(key=_rank_key, reverse=True)
     kinds = await get_category_kinds(uid)  # ONE DB read per request, see categories.py's contract
@@ -3699,13 +3115,11 @@ async def get_spotlight_insight(user: dict = Depends(current_user)):
     if last and last != top_id:
         prev = next((d for d in docs if d.get("insight_id") == last), None)
         if prev is not None and not prev.get("spotlight_retired"):
-            from app.routers.analytics import _parse_saving_amount
             await savings_insights_col.update_one(
                 {"_id": prev["_id"]},
                 {"$set": {
                     "spotlight_retired": True,
                     "spotlight_dismissed_at": datetime.utcnow(),
-                    "estimate_at_dismissal": _parse_saving_amount(prev.get("savings_estimate")) or None,
                 }, "$unset": {"spotlight_snoozed_until": ""}},
             )
     await preferences_col.update_one(
@@ -3769,20 +3183,18 @@ async def mark_insight_opened(insight_id: str, user: dict = Depends(current_user
 async def dismiss_spotlight_insight(insight_id: str, user: dict = Depends(current_user)):
     """Dismiss an insight from the home spotlight.
 
-    Durable: 30-day cooldown regardless of content regeneration. Snapshots the
-    current estimate so a material change can earn an early return."""
+    Durable: 30-day cooldown regardless of content regeneration. A deal deadline
+    inside 60 days can earn an early return."""
     uid = user["email"]
     doc = await savings_insights_col.find_one({"user_id": uid, "insight_id": insight_id})
     if not doc:
         raise HTTPException(404, "Insight not found")
 
-    from app.routers.analytics import _parse_saving_amount
     await savings_insights_col.update_one(
         {"_id": doc["_id"]},
         {"$set": {
             "spotlight_retired": True,
             "spotlight_dismissed_at": datetime.utcnow(),
-            "estimate_at_dismissal": _parse_saving_amount(doc.get("savings_estimate")) or None,
         }, "$unset": {"spotlight_snoozed_until": ""}},
     )
     return {"status": "retired"}
