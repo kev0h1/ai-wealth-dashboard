@@ -293,7 +293,13 @@ async def ops_health(user: dict = Depends(current_user)):
         mongo = {"ok": True, "ping_ms": round((_time.perf_counter() - started) * 1000, 1)}
     except Exception:
         mongo = {"ok": False, "ping_ms": None}
-    return {**host_metrics.snapshot(), "mongo": mongo}
+    # A167: webhook freshness. Never lets a failure here blank the page.
+    try:
+        from app.services.finexer_webhooks import webhook_health
+        finexer_webhooks = await webhook_health()
+    except Exception:
+        finexer_webhooks = None
+    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks}
 
 
 # E7 slice 2: the metrics collectors (app/services/health). Each collector has

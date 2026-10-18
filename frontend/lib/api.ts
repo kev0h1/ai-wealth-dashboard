@@ -1904,6 +1904,20 @@ export type OpsHealth = {
   uptime_hours: number | null;
   sentry: { configured: boolean; environment: string; links: { label: string; url: string }[] };
   mongo: { ok: boolean; ping_ms: number | null };
+  // A167: Finexer webhook freshness; null when the summary could not be built.
+  finexer_webhooks?: {
+    signing_configured: boolean;
+    last_received_at: string | null;
+    minutes_ago: number | null;
+    authorized_consents: number;
+    consents_without_webhook: number;
+    stale_hours: number;
+    line: string;
+    api_calls_today: number;
+    api_calls_yesterday: number;
+    webhook_syncs_today: number;
+    poll_syncs_today: number;
+  } | null;
 };
 export type OpsCollector = {
   name: string;

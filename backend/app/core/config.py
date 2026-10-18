@@ -500,8 +500,8 @@ else:
 # Signing secret Finexer issues after the webhook is registered in their
 # dashboard (used to verify the "fx-signature" header) — unlike the URL secret
 # above, this is NEVER auto-generated: it must come from Finexer. Empty string
-# means "not configured yet", which the receiver treats as pre-registration
-# deploy state and skips signature verification (logging a warning).
+# means "not configured yet": the URL path secret is then the only gate (startup
+# logs that once). When set, the signature is mandatory and fails closed (A167).
 _finexer_webhook_signing_secret_file = _BACKEND_DIR / ".finexer_webhook_signing_secret"
 if _fwss := os.getenv("FINEXER_WEBHOOK_SIGNING_SECRET"):
     FINEXER_WEBHOOK_SIGNING_SECRET = _fwss
@@ -509,6 +509,42 @@ elif _finexer_webhook_signing_secret_file.exists():
     FINEXER_WEBHOOK_SIGNING_SECRET = _finexer_webhook_signing_secret_file.read_text().strip()
 else:
     FINEXER_WEBHOOK_SIGNING_SECRET = ""
+
+# ── Finexer webhook tunables (A167) ──────────────────────────────────────────
+# Finexer's webhook documentation has NOT been pinned down from an
+# authoritative source (see docs/ops/FINEXER_WEBHOOKS.md for exactly which
+# facts are confirmed and which are assumed). Every provider-shaped fact
+# below is therefore a config key with the current assumption as default, so
+# Kevin can correct it from Finexer's docs page without a code change.
+#
+# Signature: scheme "t_s_hmac_sha256" = header "t=<ISO8601>;s=<hex>", HMAC-SHA256
+# over "<t>.<raw body>" (what A89 implemented); "raw_hmac_sha256" = header is
+# the hex (optionally "sha256=" prefixed) HMAC-SHA256 of the raw body, with the
+# freshness check taken from FINEXER_WEBHOOK_TIMESTAMP_HEADER (epoch seconds or
+# ISO8601) when that is set.
+FINEXER_WEBHOOK_SIGNATURE_HEADER = os.getenv("FINEXER_WEBHOOK_SIGNATURE_HEADER", "fx-signature")
+FINEXER_WEBHOOK_SIGNATURE_SCHEME = os.getenv("FINEXER_WEBHOOK_SIGNATURE_SCHEME", "t_s_hmac_sha256")
+FINEXER_WEBHOOK_TIMESTAMP_HEADER = os.getenv("FINEXER_WEBHOOK_TIMESTAMP_HEADER", "")
+FINEXER_WEBHOOK_TOLERANCE_SECONDS = int(os.getenv("FINEXER_WEBHOOK_TOLERANCE_SECONDS", "300"))
+# Dotted path into the JSON body of the event's unique id, e.g. "id" or
+# "data.id". Used for insert-if-absent idempotency in webhook_events_col.
+FINEXER_WEBHOOK_EVENT_ID_FIELD = os.getenv("FINEXER_WEBHOOK_EVENT_ID_FIELD", "id")
+# Dotted path to the event type string; the first non-empty of these wins.
+FINEXER_WEBHOOK_EVENT_TYPE_FIELDS = os.getenv("FINEXER_WEBHOOK_EVENT_TYPE_FIELDS", "type,event")
+# JSON object {event type string: action}, merged OVER the built-in default
+# table (app.services.finexer_webhooks.DEFAULT_EVENT_ACTIONS). Actions:
+# sync_consent, consent_authorised, consent_expiring, consent_revoked, unknown.
+FINEXER_WEBHOOK_EVENT_ACTIONS = os.getenv("FINEXER_WEBHOOK_EVENT_ACTIONS", "")
+# Seconds a burst of events for one consent is coalesced into one sync.
+FINEXER_WEBHOOK_DEBOUNCE_SECONDS = int(os.getenv("FINEXER_WEBHOOK_DEBOUNCE_SECONDS", "30"))
+# Hard bound on the request body, checked before it is read.
+FINEXER_WEBHOOK_MAX_BODY_BYTES = int(os.getenv("FINEXER_WEBHOOK_MAX_BODY_BYTES", "65536"))
+# Polling safety net: with webhooks healthy a consent is polled once per this
+# many hours; 0 restores the legacy per-tier cadence (4h/daily) for everyone.
+FINEXER_POLL_INTERVAL_HOURS = float(os.getenv("FINEXER_POLL_INTERVAL_HOURS", "24"))
+# A consent with no webhook for this many hours falls back to its tier's own
+# polling cadence, and is counted on /ops/health.
+FINEXER_WEBHOOK_STALE_HOURS = float(os.getenv("FINEXER_WEBHOOK_STALE_HOURS", "24"))
 
 # ── Stripe billing (B5) ──────────────────────────────────────────────────────
 # No Stripe account exists yet (Kevin, 2026-09-09 backlog decision) — this is
