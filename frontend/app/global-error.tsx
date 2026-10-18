@@ -46,6 +46,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             <p className="msg">Sorted couldn’t start properly. Nothing has changed in your accounts. Try again, or head back to Home.</p>
           </div>
           <div className="actions">
+            {/* g284-allow: root layout is gone here, no client router; "/" is index.html in the shell */}
             <a className="primary" href="/">Back to Home</a>
             <button type="button" className="secondary" onClick={reset}>Try again</button>
           </div>

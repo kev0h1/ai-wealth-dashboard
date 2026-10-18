@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Bell, Play } from "lucide-react";
 import {
@@ -253,11 +254,11 @@ export default function MonthPage() {
             <div className="mt-1 mb-2">
               <span className="text-[11px] text-slate-400 dark:text-slate-500">
                 Demo:{" "}
-                <a href="/month/story?persona=comfortable" className="hover:opacity-70 active:opacity-50 transition-opacity">comfortable</a>
+                <Link href="/month/story?persona=comfortable" className="hover:opacity-70 active:opacity-50 transition-opacity">comfortable</Link>
                 {" · "}
-                <a href="/month/story?persona=breakeven" className="hover:opacity-70 active:opacity-50 transition-opacity">breakeven</a>
+                <Link href="/month/story?persona=breakeven" className="hover:opacity-70 active:opacity-50 transition-opacity">breakeven</Link>
                 {" · "}
-                <a href="/month/story?persona=partial" className="hover:opacity-70 active:opacity-50 transition-opacity">partial</a>
+                <Link href="/month/story?persona=partial" className="hover:opacity-70 active:opacity-50 transition-opacity">partial</Link>
               </span>
             </div>
           )}
