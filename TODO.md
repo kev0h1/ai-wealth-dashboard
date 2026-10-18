@@ -778,6 +778,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on e88b16fb: reviewer PASS with fixes 26de1b81 and fda27361; contains B52. Kevin decides: Max subscribers' price, pack repricing, plus-tier-terms-proposal.md, B51 cancellation, Railway DEFAULT_TIER. Expect a PlanPicker conflict with B50.
   - note (2026-10-18, claude): conflict with main; merge origin/main into the branch (do not rebase, it is already pushed) and re-run session.sh finish
   - note (2026-10-18, claude): Merged origin/main at 2efdbe0d. Conflicts: PlanPicker.tsx (took main's redesigned picker, re-applied Lite/Standard/Plus tiers, all-features line, dropped Link2) and PENNY_TOOLS.md (main's get_insights row, Plus wording kept). sync_worker, penny_tools, leak ALLOWLIST auto-merged. Full suite 5019 passed.
+  - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on 2efdbe0d: PlanPicker conflict resolved keeping B50's approved layout with Lite 10/40, Standard 25/150, Plus unlimited/300 and an all-features line; full suite 5019 passed. Kevin's open decisions unchanged (Max subscribers' price, pack repricing, terms proposal, B51 cancellation, Railway DEFAULT_TIER). C21 and C24 should rename max to plus after this lands.
 
 ## C. Store publishing
 
