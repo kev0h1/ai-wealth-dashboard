@@ -887,6 +887,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): Aligned to Plus after B53 and C21, merged main, checks green. Kevin's Play Console setup is docs/pricing/store-billing-c13.md section 9.6 (type product text after B53's descriptions). Clawback decision still open.
   - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on 0e3e6f08: security review PASS with fixes ec7f000a, 14934f86, 47b22ad3 stands; since then main and C21 merged and the Play side aligned to B53 Plus. B52 dependency met. Kevin's Play Console setup is store-billing-c13.md section 9.6; refund clawback decision still open.
 - [ ] **C25. Pin Apple Root CA - G3 in backend/app/certs/apple_roots/ for the C21 notification receiver** [owner: claude] [state: in-progress] [branch: feature-C25-apple-root-g3]
+  - note (2026-10-18, claude): Fingerprint 63:34:3A:BF:...:3E:91:79 confirmed by Kevin (2026-10-18) against the Apple Root CA - G3 entry in macOS System Roots; subject and self-signed issuer checked by openssl; loader loads 1 root.
 
 ## D. Identity and sign-up
 
