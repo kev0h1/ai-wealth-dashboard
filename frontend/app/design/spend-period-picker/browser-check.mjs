@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { get } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -25,7 +26,19 @@ try {
     try { port = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0]; break; } catch { await delay(100); }
   }
   if (!port) throw new Error("Chrome did not expose its local debugging port");
-  const info = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+  // This is Node-only Chrome metadata, not a browser application request.
+  const info = await new Promise((resolve, reject) => {
+    const request = get({ hostname: "127.0.0.1", port, path: "/json/version" }, response => {
+      if (response.statusCode !== 200) { response.resume(); reject(new Error(`Chrome metadata status ${response.statusCode}`)); return; }
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => { body += chunk; });
+      response.on("error", reject);
+      response.on("end", () => { try { resolve(JSON.parse(body)); } catch (error) { reject(error); } });
+    });
+    request.on("error", reject);
+    request.setTimeout(5000, () => request.destroy(new Error("Chrome metadata timed out")));
+  });
   socket = new WebSocket(info.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.addEventListener("open", resolve, { once: true }); socket.addEventListener("error", reject, { once: true }); });
   let sequence = 0;
