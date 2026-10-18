@@ -563,3 +563,38 @@ def test_router_logs_missing_header_and_ok(env, monkeypatch, caplog):
     with caplog.at_level("INFO"):
         _post(_signed({"id": "evt_9", "type": "bank_account.synced", "consent_id": "c1"}))
     assert "Finexer webhook signature ok" in caplog.text
+
+
+# A169: Finexer's unsigned `{}` reachability probe
+def _probe_ok(env):
+    assert env["calls"] == [] and env["events"].docs == [] and env["claimed"] == set()
+
+
+@pytest.mark.parametrize("raw", [b"{}", b"{ }", b" {}\n"])
+def test_unsigned_empty_object_probe_accepted_when_secret_set(env, monkeypatch, caplog, raw):
+    monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SIGNING_SECRET", SIGNING)
+    with caplog.at_level("INFO"):
+        out = _post(_Req(raw=raw, headers={"user-agent": "FXC-UrlReachability/1.0"}))
+    assert out == {"ok": True}
+    _probe_ok(env)
+    assert any("reachability probe accepted" in r.getMessage() for r in caplog.records)
+
+
+def test_unsigned_real_event_still_401_when_secret_set(env, monkeypatch):
+    monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SIGNING_SECRET", SIGNING)
+    with pytest.raises(HTTPException) as exc:
+        _post(_Req({"id": "e", "type": "bank_account.synced", "consent_id": "c1"}))
+    assert exc.value.status_code == 401
+    _probe_ok(env)
+
+
+def test_bad_signature_header_with_empty_object_still_401(env, monkeypatch):
+    monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SIGNING_SECRET", SIGNING)
+    with pytest.raises(HTTPException) as exc:
+        _post(_Req(raw=b"{}", headers={"fx-signature": "garbage"}))
+    assert exc.value.status_code == 401
+    _probe_ok(env)
+
+
+def test_empty_object_with_signing_secret_unset_unchanged(env):
+    assert _post(_Req(raw=b"{}")) == {"ok": True}

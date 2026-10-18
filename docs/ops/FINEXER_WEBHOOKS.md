@@ -57,6 +57,11 @@ Source: Finexer docs, Webhook signatures page, supplied by Kevin 2026-10-18.
   Delivery attempts and status codes are visible under the event's Webhook
   Details on the Dashboard Events page.
 
+The Finexer dashboard validates a webhook URL with an unsigned reachability
+probe: a `{}` body and no `fx-signature` header. The receiver answers that
+exact shape with a 2xx and processes nothing (A169), so a signed webhook can be
+saved; any other unsigned or wrongly signed request is still rejected with 401.
+
 ## Redirect callback signatures (not the webhook)
 
 Consent and payment redirect callbacks carry a separate `fx_signature` query
