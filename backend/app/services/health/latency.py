@@ -124,7 +124,10 @@ class LatencyMiddleware:
         finally:
             try:
                 route = scope.get("route")
-                template = getattr(route, "path", None) or UNMATCHED
+                template = getattr(route, "path", None)
+                if template is None and status["code"] == 401:
+                    return   # unauthenticated short-circuit: not a route, would inflate (unmatched)
+                template = template or UNMATCHED
                 self.ring.record(template, scope.get("method", "GET"), status["code"],
                                  (time.perf_counter() - start) * 1000)
             except Exception:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from typing import Awaitable, Callable, Optional
 
-from app.services.health.base import Collector, level, result, worst
+from app.services.health.base import CRIT, OK, WARN, Collector, level, result, worst
 
 QUEUE_KEY = "arq:queue"
 RESULT_PREFIX = "arq:result:"
@@ -83,6 +83,8 @@ class WorkerQueueCollector(Collector):
             level(depth, DEPTH_WARN, DEPTH_CRIT),
             level(oldest_age, AGE_WARN_S, AGE_CRIT_S),
             level(failed, FAILED_WARN, FAILED_CRIT),
+            # A dead worker with an empty queue must not read ok.
+            (CRIT if depth > 0 else WARN) if not heartbeat else OK,
         )
         return result(
             self.name, status=status,

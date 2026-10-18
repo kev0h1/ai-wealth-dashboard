@@ -238,6 +238,11 @@ const age = (h: unknown): string => {
   return h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} d`;
 };
 
+// Own tone per stat (thresholds mirror backend/app/services/health/latency.py).
+const p95Tone = (v: unknown): string | undefined => (typeof v !== "number" ? undefined : v >= 3000 ? BAD : v >= 1500 ? WARN : undefined);
+const errorTone = (rate: unknown, count: unknown): string | undefined =>
+  typeof rate !== "number" || typeof count !== "number" || count < 20 ? undefined : rate >= 0.1 ? BAD : rate >= 0.02 ? WARN : undefined;
+
 function CollectorBody({ c }: { c: OpsCollector }) {
   const v = c.values;
   const tone = statusTone(c.status);
@@ -248,8 +253,8 @@ function CollectorBody({ c }: { c: OpsCollector }) {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label="Requests (1 h)" value={num(v.count)} />
             <Stat label="p50" value={ms(v.p50_ms)} />
-            <Stat label="p95" value={ms(v.p95_ms)} tone={tone} />
-            <Stat label="Errors (5xx)" value={typeof v.error_rate === "number" ? `${(v.error_rate * 100).toFixed(1)}%` : "n/a"} tone={tone} />
+            <Stat label="p95" value={ms(v.p95_ms)} tone={p95Tone(v.p95_ms)} />
+            <Stat label="Errors (5xx)" value={typeof v.error_rate === "number" ? `${(v.error_rate * 100).toFixed(1)}%` : "n/a"} tone={errorTone(v.error_rate, v.count)} />
           </div>
           {Array.isArray(v.routes) && v.routes.length > 0 && (
             <ul className="mt-4 divide-y divide-slate-200 dark:divide-slate-700">

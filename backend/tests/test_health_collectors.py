@@ -611,3 +611,29 @@ def test_manifest_lists_health_samples_and_no_naive_clock():
 def test_app_registers_latency_middleware_outermost():
     from app.main import app
     assert app.user_middleware[0].cls is LatencyMiddleware
+
+
+def test_worker_missing_heartbeat_is_warn_or_crit_with_queue():
+    now = 2_000_000.0
+    assert run(_worker(FakeRedis(heartbeat=False), now=lambda: now).collect())["status"] == "warn"
+    assert run(_worker(FakeRedis(depth=2, oldest_ms=(now - 5) * 1000, heartbeat=False), now=lambda: now).collect())["status"] == "crit"
+    assert run(_worker(FakeRedis(heartbeat=True), now=lambda: now).collect())["status"] == "ok"
+
+
+def test_middleware_skips_unmatched_401_but_keeps_unmatched_404():
+    from fastapi import FastAPI, Response
+    ring = RingBuffer()
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def deny(request, call_next):
+        if request.url.path.startswith("/private"):
+            return Response(status_code=401)
+        return await call_next(request)
+
+    app.add_middleware(LatencyMiddleware, ring=ring)
+    client = TestClient(app)
+    client.get("/private/x")
+    client.get("/nope")
+    rows = {(s[2], s[3]) for s in ring.samples(0)}
+    assert rows == {("(unmatched)", 404)}
