@@ -22,6 +22,7 @@ from app.db.collections import (
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.yapily_sync import sync_yapily_consent
 from app.services.finexer_sync import finexer_sync_pipeline
+from app.services.finexer_webhooks import bump_daily_counters, finexer_poll_due
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
@@ -323,7 +324,7 @@ async def task_reconcile_truelayer(ctx):
     # their user's tier.
     fx_conns = await finexer_consents_col.find(
         {"status": "authorized"},
-        {"_id": 1, "user_id": 1, "last_synced": 1},
+        {"_id": 1, "user_id": 1, "last_synced": 1, "last_webhook_at": 1},
     ).sort("created_at", 1).to_list(None)
 
     fx_candidates = []
@@ -335,8 +336,8 @@ async def task_reconcile_truelayer(ctx):
         if window is None:
             skipped_on_upload += 1
             continue
-        last_synced = fx.get("last_synced")
-        if last_synced is None or last_synced < now - window:
+        # A167: webhooks are the primary trigger; polling is the safety net.
+        if finexer_poll_due(fx, now, window):
             fx_candidates.append((fx, uid))
         else:
             skipped_fresh += 1
@@ -394,6 +395,8 @@ async def task_reconcile_truelayer(ctx):
             _defer_by=timedelta(seconds=next(offset_iter)),
         )
         reconciled += 1
+
+    await bump_daily_counters(poll_syncs_enqueued=len(fx_ordered))
 
     last_offset_seconds = offsets[-1] if offsets else 0
     if overflow:

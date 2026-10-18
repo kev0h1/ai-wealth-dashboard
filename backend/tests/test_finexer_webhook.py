@@ -1,11 +1,11 @@
 """Tests for the Finexer webhook receiver in app.routers.webhooks
 (POST /webhooks/finexer/{secret}).
 
-Finexer's event catalogue isn't pinned down yet, so the route is
-deliberately event-type-agnostic (see finexer_webhook()'s own docstring):
-any event referencing a known consent triggers a sync, except a substring
-sniff for revoked/declined/expired/cancel/disconnect wording which marks the
-consent revoked instead.
+Finexer's event catalogue isn't pinned down yet (A167): dispatch is the
+config-driven table in app.services.finexer_webhooks, seeded with ASSUMED
+names, and any unmapped type is recorded and ignored. See
+test_finexer_webhook_a167.py for the A167 hardening tests; this file keeps the
+original receiver coverage on the mapped types.
 
 Also covers signature verification (_verify_finexer_signature): Finexer signs
 deliveries with an 'fx-signature' header ("t=<ISO8601>;s=<hex HMAC-SHA256 of
@@ -57,6 +57,12 @@ class _FakeCol:
 
     async def insert_one(self, doc):
         doc = dict(doc)
+        if doc.get("event_id") is not None and any(
+            d.get("provider") == doc.get("provider") and d.get("event_id") == doc["event_id"]
+            for d in self.docs
+        ):
+            from pymongo.errors import DuplicateKeyError
+            raise DuplicateKeyError("duplicate event_id")
         doc.setdefault("_id", f"log{self._next_id}")
         self._next_id += 1
         self.docs.append(doc)
@@ -66,6 +72,8 @@ class _FakeCol:
         for d in self.docs:
             if self._match(d, filt):
                 d.update(update.get("$set") or {})
+                for k in (update.get("$unset") or {}):
+                    d.pop(k, None)
                 return
         if upsert:
             new_doc = dict(filt)
@@ -113,6 +121,13 @@ def _setup(monkeypatch, consents=None, events=None, signing_secret=""):
     monkeypatch.setattr(webhooks_module, "FINEXER_WEBHOOK_SIGNING_SECRET", signing_secret)
     monkeypatch.setattr(webhooks_module, "finexer_consents_col", fake_consents)
     monkeypatch.setattr(webhooks_module, "webhook_events_col", fake_events)
+    # Original tests pin the plain enqueue shape: no debounce, no counters.
+    monkeypatch.setattr(webhooks_module._cfg, "FINEXER_WEBHOOK_DEBOUNCE_SECONDS", 0)
+
+    async def _noop(*a, **k):
+        return None
+
+    monkeypatch.setattr(webhooks_module.fxw, "bump_daily_counters", _noop)
     return fake_consents, fake_events
 
 
@@ -173,7 +188,7 @@ def test_right_path_secret_is_accepted(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "some.event", "consent_id": "c-right"}),
+        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c-right"}),
     ))
 
     assert result == {"ok": True}
@@ -227,11 +242,10 @@ def test_replaying_a_valid_finexer_delivery_twice_only_ever_triggers_the_same_id
     """Mirrors test_truelayer_webhook.py's
     test_replaying_a_valid_delivery_twice_only_ever_triggers_the_same_idempotent_resync,
     which existed for TrueLayer but had no Finexer counterpart before this
-    run (A57, WP9). Finexer's webhook route has no delivery-level dedup by
-    event id either (see finexer_webhook()'s own docstring: it is
-    deliberately event-type-agnostic and relies on task_sync_finexer being
-    idempotent per-consent, per finexer_sync_pipeline's own module
-    docstring). So the expected secure property is the same as TrueLayer's:
+    run (A57, WP9). These payloads carry no event id, so there is
+    no delivery-level dedup here (the A167 event-id dedupe is covered in
+    test_finexer_webhook_a167.py); the route relies on task_sync_finexer
+    being idempotent per-consent. So the expected secure property is the same as TrueLayer's:
     replaying an identical, correctly-secreted delivery causes two log
     entries and two enqueues for the SAME consent/user, never a different
     one and never more than triggering task_sync_finexer (itself
@@ -261,7 +275,7 @@ def test_replaying_a_valid_finexer_delivery_twice_only_ever_triggers_the_same_id
 
 # ── 3. Known consent + arbitrary event type → sync enqueued ─────────────
 
-def test_known_consent_arbitrary_event_type_enqueues_sync(monkeypatch):
+def test_known_consent_unmapped_event_type_is_recorded_and_ignored(monkeypatch):
     fake_consents, fake_events = _setup(
         monkeypatch,
         consents=[{"_id": "c1", "user_id": "kevin@example.com", "status": "authorized"}],
@@ -273,12 +287,28 @@ def test_known_consent_arbitrary_event_type_enqueues_sync(monkeypatch):
     ))
 
     assert result == {"ok": True}
-    assert len(calls) == 1
-    assert calls[0] == {"task": "task_sync_finexer", "consent_id": "c1", "user_id": "kevin@example.com"}
+    assert calls == []
+    assert fake_events.docs[0]["status"] == "ignored"
+    assert fake_events.docs[0]["event_type"] == "some.unknown.event"
+    assert fake_consents.docs[0]["status"] == "authorized"
+
+
+def test_mapped_event_type_enqueues_sync(monkeypatch):
+    fake_consents, fake_events = _setup(
+        monkeypatch,
+        consents=[{"_id": "c1", "user_id": "kevin@example.com", "status": "authorized"}],
+    )
+    calls = _spy_enqueue(monkeypatch)
+
+    result = asyncio.run(webhooks_module.finexer_webhook(
+        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c1"}),
+    ))
+
+    assert result == {"ok": True}
+    assert calls == [{"task": "task_sync_finexer", "consent_id": "c1", "user_id": "kevin@example.com"}]
     assert fake_events.docs[0]["status"] == "queued"
     assert fake_events.docs[0]["user_id"] == "kevin@example.com"
     assert fake_events.docs[0]["resolved_consent_id"] == "c1"
-    # Consent doc itself must be untouched by a non-revoke event.
     assert fake_consents.docs[0]["status"] == "authorized"
 
 
@@ -290,13 +320,13 @@ def test_consent_ref_resolved_from_nested_data_shape(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"event": "account.updated", "data": {"consent": {"id": "c2"}}}),
+        SECRET, _FakeRequest({"event": "transaction.updated", "data": {"consent": {"id": "c2"}}}),
     ))
 
     assert result == {"ok": True}
     assert len(calls) == 1
     assert calls[0]["consent_id"] == "c2"
-    assert fake_events.docs[0]["event_type"] == "account.updated"
+    assert fake_events.docs[0]["event_type"] == "transaction.updated"
 
 
 def test_no_user_id_on_consent_doc_is_skipped_not_enqueued(monkeypatch):
@@ -307,7 +337,7 @@ def test_no_user_id_on_consent_doc_is_skipped_not_enqueued(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "some.event", "consent_id": "c3"}),
+        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c3"}),
     ))
 
     assert result == {"ok": True}
@@ -358,10 +388,9 @@ def test_consent_declined_is_treated_as_revoke_like(monkeypatch):
     assert fake_consents.docs[0]["status"] == "revoked"
 
 
-@pytest.mark.parametrize("event_type", ["consent.created", "consent.authorised"])
+@pytest.mark.parametrize("event_type", ["consent.authorised"])
 def test_consent_lifecycle_non_revoke_events_still_enqueue(monkeypatch, event_type):
-    """consent.created / consent.authorised must NOT be swept up by the
-    revoke-substring sniff — they're ordinary lifecycle events that should
+    """consent.authorised must NOT be treated as a revoke — they're ordinary lifecycle events that should
     still trigger a sync like any other non-revoke event."""
     fake_consents, fake_events = _setup(
         monkeypatch,
@@ -441,7 +470,7 @@ def test_signature_skipped_when_signing_secret_unset(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "some.event", "consent_id": "c5"}),  # no headers at all
+        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c5"}),  # no headers at all
     ))
 
     assert result == {"ok": True}
@@ -456,7 +485,7 @@ def test_valid_signature_accepted(monkeypatch):
     )
     calls = _spy_enqueue(monkeypatch)
 
-    payload = {"type": "some.event", "consent_id": "c6"}
+    payload = {"type": "transaction.created", "consent_id": "c6"}
     raw = json.dumps(payload).encode()
     ts = datetime.now(timezone.utc).isoformat()
     header = _sign(SIGNING_SECRET, ts, raw)
@@ -480,11 +509,11 @@ def test_tampered_body_rejected(monkeypatch):
     )
     _spy_enqueue(monkeypatch)
 
-    original = json.dumps({"type": "some.event", "consent_id": "c7"}).encode()
+    original = json.dumps({"type": "transaction.created", "consent_id": "c7"}).encode()
     ts = datetime.now(timezone.utc).isoformat()
     header = _sign(SIGNING_SECRET, ts, original)
 
-    tampered_payload = {"type": "some.event", "consent_id": "c7-different"}
+    tampered_payload = {"type": "transaction.created", "consent_id": "c7-different"}
     request = _FakeRequest(tampered_payload, headers={"fx-signature": header})
 
     with pytest.raises(HTTPException) as exc:
@@ -500,7 +529,7 @@ def test_stale_timestamp_rejected(monkeypatch):
     )
     _spy_enqueue(monkeypatch)
 
-    payload = {"type": "some.event", "consent_id": "c8"}
+    payload = {"type": "transaction.created", "consent_id": "c8"}
     raw = json.dumps(payload).encode()
     stale_ts = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     header = _sign(SIGNING_SECRET, stale_ts, raw)
@@ -521,7 +550,7 @@ def test_missing_signature_header_rejected_when_signing_secret_configured(monkey
     )
     _spy_enqueue(monkeypatch)
 
-    request = _FakeRequest({"type": "some.event", "consent_id": "c9"})  # no fx-signature header
+    request = _FakeRequest({"type": "transaction.created", "consent_id": "c9"})  # no fx-signature header
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(webhooks_module.finexer_webhook(SECRET, request))

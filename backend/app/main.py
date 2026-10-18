@@ -418,6 +418,15 @@ async def _create_indexes():
     await _ensure_index(webhook_events_col,
         "received_at", expireAfterSeconds=30 * 24 * 3600, name="webhook_ttl"
     )
+    # A167: idempotency on the provider's event id (insert-if-absent). Partial,
+    # so TrueLayer events and Finexer events without an id never collide.
+    await _ensure_index(
+        webhook_events_col, [("provider", 1), ("event_id", 1)], unique=True,
+        name="webhook_event_id_unique",
+        partialFilterExpression={"event_id": {"$type": "string"}},
+    )
+    from app.services.finexer_webhooks import log_signing_status
+    log_signing_status()
     await _ensure_index(checkpoints_col, [("user_id", 1), ("status", 1), ("period_end", 1)])
     await _ensure_index(checkpoints_col, [("user_id", 1), ("ref", 1), ("period_end", 1)])
     await _ensure_index(category_intent_col,

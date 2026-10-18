@@ -12,15 +12,15 @@ its dispatch logic is deliberately event-type-agnostic.
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import APIRouter, HTTPException, Request
+from pymongo.errors import DuplicateKeyError
 
 from app.core.config import (
     FINEXER_WEBHOOK_SECRET,
@@ -28,7 +28,9 @@ from app.core.config import (
     REDIS_URL,
     TRUELAYER_WEBHOOK_SECRET,
 )
+from app.core import config as _cfg
 from app.db.collections import connections_col, finexer_consents_col, webhook_events_col
+from app.services import finexer_webhooks as fxw
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -190,97 +192,118 @@ def _resolve_finexer_consent_id(event: dict) -> str | None:
     return None
 
 
-def _verify_finexer_signature(raw_body: bytes, header_value: str | None) -> bool:
-    """Verify Finexer's 'fx-signature' header: 't=<ISO8601 UTC>;s=<hex>',
-    where the hex is HMAC-SHA256 over "<timestamp>.<raw request body bytes>"
-    keyed with the dashboard-issued signing secret. A 5 minute timestamp
-    tolerance guards against replay of a captured, still-validly-signed
-    request. Always verify against the exact raw body bytes — never
-    re-serialized JSON, since re-serialization can silently change byte
-    content (key order, spacing, unicode escaping) and break the HMAC.
-    """
-    if not header_value:
-        return False
+def _verify_finexer_signature(raw_body: bytes, headers) -> bool:
+    """Thin wrapper over app.services.finexer_webhooks.verify_signature with
+    the configured signing secret (read from this module's global so tests can
+    patch it). Fails closed when no secret is set."""
+    return fxw.verify_signature(raw_body, headers, secret=FINEXER_WEBHOOK_SIGNING_SECRET)
 
-    parts: dict[str, str] = {}
-    for chunk in header_value.split(";"):
-        if "=" not in chunk:
-            continue
-        k, v = chunk.split("=", 1)
-        parts[k.strip()] = v.strip()
 
-    ts, sig = parts.get("t"), parts.get("s")
-    if not ts or not sig:
-        return False
+async def _read_body_bounded(request: Request, limit: int) -> bytes:
+    """Read the request body but refuse anything over `limit` bytes, without
+    buffering an oversized body: Content-Length is checked first, then the
+    stream is consumed chunk by chunk and abandoned the moment it overruns."""
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > limit:
+                raise HTTPException(status_code=413, detail="Payload too large")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Bad request")
+    stream = getattr(request, "stream", None)
+    if stream is None:
+        body = await request.body()
+        if len(body) > limit:
+            raise HTTPException(status_code=413, detail="Payload too large")
+        return body
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in stream():
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(status_code=413, detail="Payload too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
+
+async def _claim_debounce(consent_id: str, window_seconds: int) -> bool:
+    """True when this event is the first for the consent in the window (the
+    caller should enqueue); False when it coalesces into an already-pending
+    sync. Redis SET NX EX. Fails OPEN (True): task_sync_finexer is idempotent
+    per consent, so an extra sync is cheap, a lost one is not."""
     try:
-        ts_iso = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
-        event_time = datetime.fromisoformat(ts_iso)
-        if event_time.tzinfo is None:
-            event_time = event_time.replace(tzinfo=timezone.utc)
-    except ValueError:
-        return False
+        pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+        try:
+            return bool(await pool.set(f"fx_webhook_debounce:{consent_id}", "1", nx=True, ex=max(1, window_seconds)))
+        finally:
+            await pool.aclose()
+    except Exception:
+        logger.exception("Finexer webhook debounce unavailable; enqueueing without coalescing")
+        return True
 
-    if abs((datetime.now(timezone.utc) - event_time).total_seconds()) > 300:
-        return False
 
-    expected = hmac.new(
-        FINEXER_WEBHOOK_SIGNING_SECRET.encode(),
-        f"{ts}.".encode() + raw_body,
-        hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(expected, sig)
+async def _enqueue_sync_debounced(consent_id: str, user_id: str) -> bool:
+    """Coalesce a burst for one consent into a single task_sync_finexer,
+    deferred by the debounce window so the sync runs after the burst (trailing
+    edge) and sees all of it. Returns True when a job was enqueued."""
+    window = _cfg.FINEXER_WEBHOOK_DEBOUNCE_SECONDS
+    if window > 0 and not await _claim_debounce(consent_id, window):
+        await fxw.bump_daily_counters(webhook_events_coalesced=1)
+        return False
+    if window > 0:
+        await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id,
+                       _defer_by=timedelta(seconds=window))
+    else:
+        await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id)
+    await fxw.bump_daily_counters(webhook_syncs_enqueued=1)
+    return True
 
 
 @router.post("/finexer/{secret}", status_code=200)
 async def finexer_webhook(secret: str, request: Request):
-    """Finexer webhook receiver.
+    """Finexer webhook receiver (A167 hardened).
 
-    Finexer's event catalogue isn't pinned down yet (unlike TrueLayer's well
-    documented transaction.created/data_status.updated/connection.disconnected
-    set), and task_sync_finexer is idempotent per-consent, so this receiver is
-    deliberately event-type-agnostic: any event referencing a known consent
-    triggers a sync, rather than switching on specific event-type strings the
-    way the TrueLayer route above does. The only event-type-based branching
-    here is a substring sniff for revoked/declined/expired/cancel/disconnect
-    wording, which marks the consent revoked instead of enqueueing a sync.
+    Gates, in order, all failing with a generic 4xx that says nothing about
+    which check failed: (1) URL path secret, constant time; (2) body size
+    bound, checked before the body is read; (3) when
+    FINEXER_WEBHOOK_SIGNING_SECRET is set the signature is MANDATORY and fails
+    closed (scheme, header and tolerance come from config, see
+    app.services.finexer_webhooks); when it is unset the path secret is the
+    only gate and startup logs that once. Replay protection is the signed
+    timestamp tolerance plus idempotency on the event id (unique index,
+    insert-if-absent).
 
-    Security: two independent checks. (1) The URL path secret
-    (FINEXER_WEBHOOK_SECRET), same scheme as the TrueLayer route above. (2)
-    Once Finexer's dashboard-issued signing secret has been configured
-    (FINEXER_WEBHOOK_SIGNING_SECRET), the 'fx-signature' request header must
-    verify against the raw body (see _verify_finexer_signature). Before that
-    secret is configured — e.g. immediately after this route is deployed but
-    before the webhook is registered in Finexer's dashboard — signature
-    verification is skipped and a warning is logged, so a fresh deploy
-    doesn't 401 every delivery attempt during that window.
+    Dispatch is keyed on the event type through the config-driven action
+    table (finexer_webhooks.DEFAULT_EVENT_ACTIONS plus
+    FINEXER_WEBHOOK_EVENT_ACTIONS). Unknown types are recorded and ignored;
+    only the type string is ever logged, never the payload. Syncs for one
+    consent are debounced into one task_sync_finexer.
 
-    Finexer retries every 3s and pauses the webhook after 10 consecutive
-    non-2xx responses, so this handler stays fast (enqueue-and-return) and
-    never raises for unknown-but-authentic event shapes — those degrade to a
-    logged "skipped"/"ignored" status and a 200, not a 5xx.
+    Finexer is understood to retry quickly and pause the webhook after 10
+    consecutive non-2xx responses (UNVERIFIED, see docs/ops/FINEXER_WEBHOOKS.md),
+    so every authentic delivery gets a 200 except a genuine enqueue failure,
+    which releases its event id (so the retry is processed) and returns 503.
     """
     if not hmac.compare_digest(secret.encode("utf-8"), FINEXER_WEBHOOK_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    body = await request.body()
+    body = await _read_body_bounded(request, _cfg.FINEXER_WEBHOOK_MAX_BODY_BYTES)
 
     if FINEXER_WEBHOOK_SIGNING_SECRET:
-        if not _verify_finexer_signature(body, request.headers.get("fx-signature")):
-            raise HTTPException(status_code=401, detail="Invalid signature")
-    else:
-        logger.warning(
-            "Finexer webhook signing secret not configured; skipping signature verification"
-        )
+        if not _verify_finexer_signature(body, request.headers):
+            raise HTTPException(status_code=401, detail="Invalid token")
 
     try:
         event = json.loads(body)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    if not isinstance(event, dict):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    event_type = event.get("type") or event.get("event") or "unknown"
+    event_type = fxw.extract_event_type(event)
+    event_id = fxw.extract_event_id(event)
     consent_ref = _resolve_finexer_consent_id(event)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)  # naive-ok: stored as UTC, tz-aware on write
 
     log_doc = {
         "received_at": now,
@@ -290,49 +313,84 @@ async def finexer_webhook(secret: str, request: Request):
         "status": "pending",
         "provider": "finexer",
     }
-    result = await webhook_events_col.insert_one(log_doc)
+    if event_id:
+        log_doc["event_id"] = event_id
+    try:
+        result = await webhook_events_col.insert_one(log_doc)
+    except DuplicateKeyError:
+        # Same event id already recorded: a retry or a replay. Acknowledge so
+        # Finexer stops retrying, do nothing else.
+        logger.info("Finexer webhook duplicate event ignored (type %s)", fxw.safe_type_for_log(event_type))
+        return {"ok": True}
+    await fxw.bump_daily_counters(webhook_events=1)
+
+    async def _set(fields: dict):
+        await webhook_events_col.update_one({"_id": result.inserted_id}, {"$set": fields})
 
     if not consent_ref:
-        await webhook_events_col.update_one(
-            {"_id": result.inserted_id},
-            {"$set": {"status": "skipped", "skip_reason": "no consent_id"}},
-        )
+        await _set({"status": "skipped", "skip_reason": "no consent_id"})
         return {"ok": True}
 
     doc = await finexer_consents_col.find_one({"_id": consent_ref})
     if not doc:
-        await webhook_events_col.update_one(
-            {"_id": result.inserted_id},
-            {"$set": {"status": "skipped", "skip_reason": "consent_not_found"}},
-        )
+        await _set({"status": "skipped", "skip_reason": "consent_not_found"})
         return {"ok": True}
 
-    lowered = event_type.lower()
-    if any(w in lowered for w in ("revoked", "declined", "expired", "cancel", "disconnect")):
+    # Freshness signal for /ops/health and the polling fallback: any authentic
+    # event for a known consent counts, whatever its type.
+    await finexer_consents_col.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"last_webhook_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+    )
+
+    action = fxw.resolve_action(event_type)
+    await _set({"action": action})
+
+    if action == fxw.ACTION_UNKNOWN:
+        logger.info("Finexer webhook type not mapped, recorded and ignored: %s",
+                    fxw.safe_type_for_log(event_type))
+        await _set({"status": "ignored"})
+        return {"ok": True}
+
+    if action == fxw.ACTION_CONSENT_REVOKED:
         await finexer_consents_col.update_one(
             {"_id": doc["_id"]},
-            {"$set": {"status": "revoked", "revoked_at": datetime.utcnow()}},
+            {"$set": {"status": "revoked", "revoked_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
         )
-        await webhook_events_col.update_one(
-            {"_id": result.inserted_id}, {"$set": {"status": "noted"}}
-        )
+        await _set({"status": "noted"})
         return {"ok": True}
 
+    if action == fxw.ACTION_CONSENT_EXPIRING:
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"webhook_expiring_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+        )
+        await _set({"status": "noted"})
+        return {"ok": True}
+
+    # ACTION_SYNC_CONSENT / ACTION_CONSENT_AUTHORISED
     user_id = doc.get("user_id")
     if not user_id:
-        await webhook_events_col.update_one(
-            {"_id": result.inserted_id},
-            {"$set": {"status": "skipped", "skip_reason": "no user_id"}},
-        )
+        await _set({"status": "skipped", "skip_reason": "no user_id"})
         return {"ok": True}
 
-    await _enqueue("task_sync_finexer", consent_id=str(doc["_id"]), user_id=user_id)
-    await webhook_events_col.update_one(
-        {"_id": result.inserted_id},
-        {"$set": {"status": "queued", "user_id": user_id, "queued_at": now,
-                  "resolved_consent_id": str(doc["_id"])}},
-    )
-    logger.info("Enqueued sync for consent %s (user %s) via webhook %s",
-                doc["_id"], user_id, event_type)
+    try:
+        enqueued = await _enqueue_sync_debounced(str(doc["_id"]), user_id)
+    except Exception:
+        logger.exception("Finexer webhook: enqueue failed (type %s)", fxw.safe_type_for_log(event_type))
+        # Release the event id so Finexer's retry is processed, not deduped.
+        await webhook_events_col.update_one(
+            {"_id": result.inserted_id},
+            {"$set": {"status": "failed"}, "$unset": {"event_id": ""}},
+        )
+        raise HTTPException(status_code=503, detail="Temporarily unavailable")
+
+    if enqueued:
+        await _set({"status": "queued", "user_id": user_id, "queued_at": now,
+                    "resolved_consent_id": str(doc["_id"])})
+        logger.info("Enqueued Finexer sync via webhook (type %s)", fxw.safe_type_for_log(event_type))
+    else:
+        await _set({"status": "coalesced", "user_id": user_id,
+                    "resolved_consent_id": str(doc["_id"])})
 
     return {"ok": True}

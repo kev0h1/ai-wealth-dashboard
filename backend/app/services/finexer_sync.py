@@ -74,6 +74,9 @@ async def _get(
         if counter is not None:
             counter["requests"] = counter.get("requests", 0) + 1
         resp = await client.get(url, params=params)
+        # A167: per-day API-call counter (before/after measurement).
+        from app.services.finexer_webhooks import bump_daily_counters
+        await bump_daily_counters(requests=1, rate_limited=1 if resp.status_code == 429 else 0)
         if resp.status_code != 429:
             return resp
         if counter is not None:
