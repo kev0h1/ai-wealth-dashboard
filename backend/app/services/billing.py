@@ -70,7 +70,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.config import (
-    BILLING_ENABLED, STRIPE_PRICE_IDS, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+    BILLING_ENABLED, STRIPE_PRICE_IDS, _STRIPE_LEGACY_PAID_TIERS, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
 )
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP_PACKS, SUBSCRIPTION_BILLING_PERIODS,
@@ -490,6 +490,14 @@ def _subscription_for_price_id(price_id: str) -> tuple[str, str] | None:
             key = _subscription_price_key(tier_name, billing_period)
             if STRIPE_PRICE_IDS.get(key) == price_id:
                 return tier_name, billing_period
+    # B53: retired Connect and Max prices resolve to Plus, for existing Stripe
+    # subscriptions only. They are never offered at checkout (_price_id_for
+    # only knows TIER_BY_NAME).
+    for legacy_name in _STRIPE_LEGACY_PAID_TIERS:
+        for billing_period in SUBSCRIPTION_BILLING_PERIODS:
+            key = _subscription_price_key(legacy_name, billing_period)
+            if STRIPE_PRICE_IDS.get(key) == price_id:
+                return "plus", billing_period
     return None
 
 

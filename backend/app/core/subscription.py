@@ -2,10 +2,13 @@
 connection limits). See CLAUDE.md "Codex design round" section for the
 retirement of the old free/pro/premium/family tiers.
 
-Tiers: Statements (free, statement upload only) < Lite < Standard < Connect
-< Max. Nobody should be restricted before launch — the tier a user gets
-when they have no subscription doc (or an expired/unrecognised one) is
-DEFAULT_TIER (app.core.config), which defaults to "max"."""
+Tiers: Statements (free, statement upload only) < Lite < Standard < Plus
+(B53, 2026-10-18: Plus replaced Connect and Max; legacy stored "connect" and
+"max" map to Plus). Every paid tier gets every feature; tiers differ only by
+connected-account cap and Penny messages a month. Nobody should be
+restricted before launch — the tier a user gets when they have no
+subscription doc (or an expired/unrecognised one) is DEFAULT_TIER
+(app.core.config), which defaults to "plus"."""
 import logging
 from datetime import date, datetime, timedelta, timezone
 from enum import IntEnum
@@ -22,16 +25,14 @@ class Tier(IntEnum):
     STATEMENTS = 0   # free: statement upload only, no open banking
     LITE = 1
     STANDARD = 2
-    CONNECT = 3
-    MAX = 4
+    PLUS = 3
 
 
 TIER_NAMES = {
     Tier.STATEMENTS: "statements",
     Tier.LITE:       "lite",
     Tier.STANDARD:   "standard",
-    Tier.CONNECT:    "connect",
-    Tier.MAX:        "max",
+    Tier.PLUS:       "plus",
 }
 TIER_BY_NAME = {v: k for k, v in TIER_NAMES.items()}
 
@@ -39,8 +40,7 @@ TIER_PRICES_GBP = {
     "statements": 0.0,
     "lite":       5.99,
     "standard":   9.99,
-    "connect":    12.99,
-    "max":        16.99,
+    "plus":       12.99,
 }
 
 # B21: the full set of billing periods the schema understands. This stays
@@ -73,8 +73,7 @@ TIER_BILLING_PRICES_GBP = {
     "statements": {"monthly": 0.0,   "three_months": 0.0,   "six_months": 0.0,    "annual": 0.0},
     "lite":       {"monthly": 5.99,  "three_months": 16.99, "six_months": 31.99,  "annual": 59.99},
     "standard":   {"monthly": 9.99,  "three_months": 28.99, "six_months": 53.99,  "annual": 99.99},
-    "connect":    {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99,  "annual": 129.99},
-    "max":        {"monthly": 16.99, "three_months": 48.99, "six_months": 91.99,  "annual": 169.99},
+    "plus":       {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99,  "annual": 129.99},
 }
 
 # Kevin decides: which periods are offered at all. He dropped "three_months"
@@ -187,29 +186,19 @@ TIER_LIMITS = {
     Tier.STANDARD: {
         "open_banking":                True,
         "max_banks":                   None,
-        "max_accounts":                20,
+        "max_accounts":                25,
         "refresh":                     "4h",
         "penny_messages_per_month":    150,
         "mcp_tool_calls_per_month":    0,
         "history_days":                None,
         "statement_uploads_per_month": None,
     },
-    Tier.CONNECT: {
-        "open_banking":                True,
-        "max_banks":                   None,
-        "max_accounts":                20,
-        "refresh":                     "4h",
-        "penny_messages_per_month":    150,
-        "mcp_tool_calls_per_month":    2000,
-        "history_days":                None,
-        "statement_uploads_per_month": None,
-    },
-    Tier.MAX: {
+    Tier.PLUS: {
         "open_banking":                True,
         "max_banks":                   None,
         "max_accounts":                None,
         "refresh":                     "priority",
-        "penny_messages_per_month":    400,
+        "penny_messages_per_month":    300,
         "mcp_tool_calls_per_month":    5000,
         "history_days":                None,
         "statement_uploads_per_month": None,
@@ -221,9 +210,27 @@ TIER_LIMITS = {
 # (looked up lazily in get_subscription to avoid a stale import-time value).
 _LEGACY_TIER_MAP = {
     "pro":     Tier.STANDARD,
-    "premium": Tier.MAX,
-    "family":  Tier.MAX,
+    "premium": Tier.PLUS,
+    "family":  Tier.PLUS,
+    # B53: Max and Connect were replaced by Plus. Stored docs keep the old
+    # name until their next write; they read as Plus here.
+    "max":     Tier.PLUS,
+    "connect": Tier.PLUS,
 }
+
+
+def canonical_tier_name(stored_name: str | None) -> str | None:
+    """B53: the current tier name for a stored one, mapping retired names
+    (max, connect, premium, family, pro) onto their replacement. Unknown
+    names come back as given (lower-cased), so callers can still treat them
+    as unrecognised."""
+    name = (stored_name or "").strip().lower()
+    if not name:
+        return None
+    if name in TIER_BY_NAME:
+        return name
+    legacy = _LEGACY_TIER_MAP.get(name)
+    return TIER_NAMES[legacy] if legacy is not None else name
 
 
 class Subscription:
@@ -256,7 +263,8 @@ class Subscription:
 
 def _default_tier() -> Tier:
     from app.core.config import DEFAULT_TIER
-    return TIER_BY_NAME.get(DEFAULT_TIER.strip().lower(), Tier.MAX)
+    name = DEFAULT_TIER.strip().lower()
+    return TIER_BY_NAME.get(name) or _LEGACY_TIER_MAP.get(name, Tier.PLUS)
 
 
 async def get_subscription(email: str) -> Subscription:
@@ -712,7 +720,7 @@ async def check_connection_limit(email: str) -> None:
     `max_banks` counts completed TrueLayer connections, connected Finexer
     consents, and Yapily consents. `max_accounts` counts `accounts_col`
     docs for the user. Either cap being None means unlimited. With the
-    default tier at max, this is a no-op today."""
+    default tier at plus (unlimited accounts), this is a no-op today."""
     from app.db.collections import (
         accounts_col, connections_col, finexer_consents_col, yapily_consents_col,
     )

@@ -67,14 +67,14 @@ from app.core.subscription import (  # noqa: E402
 # monkeypatch contract for the `stripe` name.
 import stripe  # noqa: E402
 
-_PAID_TIERS = ("lite", "standard", "connect", "max")
+_PAID_TIERS = ("lite", "standard", "plus")
 _TIER_LABELS = {
-    "lite": "Lite", "standard": "Standard", "connect": "Connect", "max": "Max",
+    "lite": "Lite", "standard": "Standard", "plus": "Plus",
 }
 
 # docs/pricing/tiering-unit-economics-mcp-2026-09.md treats every advertised
 # amount as VAT-inclusive throughout (it works e.g. £9.99 back to "ex VAT
-# £8.33"), and the plan picker shows £16.99 as the price a UK consumer
+# £8.33"), and the plan picker shows £12.99 as the price a UK consumer
 # actually pays — so every price this script creates is marked
 # tax_behavior="inclusive" at creation. This has to happen at creation: the
 # Price object itself is immutable (that's the whole reason a changed

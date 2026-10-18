@@ -217,7 +217,7 @@ def test_priority_users_get_earliest_offsets(monkeypatch):
         sync_worker, "get_subscription",
         _make_subscription_lookup({
             "std@example.com": Tier.STANDARD,
-            "max@example.com": Tier.MAX,
+            "max@example.com": Tier.PLUS,
         }),
     )
     arq = FakeArq()
