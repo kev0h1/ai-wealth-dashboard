@@ -312,7 +312,7 @@ def test_stored_fact_tip_is_served(monkeypatch):
 # ── Incoherence D: stored content is never blanked by a failed regen ───────
 
 def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(monkeypatch):
-    """A failed generation attempt (`_generate_savings_insight_content`
+    """A failed generation attempt (`_tip_content_for`
     returning None, e.g. Tavily quota exhausted) must never blank the
     previously-stored title/body/savings_estimate — the doc simply keeps
     serving its last good content until either the next successful regen
