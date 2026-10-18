@@ -629,6 +629,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **A168. Log why a Finexer webhook delivery fails signature verification (header missing, timestamp, mismatch) without leaking secrets** [owner: claude] (done 2026-10-18, 4181a0a91e9fd2e1ac8e379df3dcda35df483f21)
   - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on b62c3aab: explain_signature_failure mirrors verify_signature and returns only a reason code (header_missing, header_malformed, timestamp_unparseable, timestamp_stale with skew, digest_mismatch, unknown_scheme, no_secret); the log carries the code, body size and a 60-char user agent, never the secret, signature or body; constant-time compare kept.
 - [ ] **A169. Accept Finexer's unsigned {} reachability probe on the webhook receiver with 2xx and no processing, so the dashboard can save a signed webhook** [owner: claude]
+  - note (2026-10-18, claude): Finexer dashboard validates webhook URL with unsigned {} probe (UA FXC-UrlReachability/1.0); receiver 401s it so signing cannot be enabled. Fix: 2xx no-op when header absent and body is {}.
 
 ## B. Penny cost, tiers and billing
 
