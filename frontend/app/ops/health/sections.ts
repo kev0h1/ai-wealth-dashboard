@@ -16,6 +16,18 @@ export const SECTIONS = [
 ] as const;
 
 export const TRENDS_TITLE = "Trends";
+export const ALERTS_TITLE = "Alerts";
+
+// E8: alert block wording, shared with scripts/e7-health-page.test.mjs.
+export const ALERTS_WORDING = {
+  off: "Alerts are off. Set ALERTS_ENABLED on the server to turn them on.",
+  none: "No open alerts.",
+  noHistory: "Nothing in the last 24 hours.",
+  testButton: "Send test alert",
+  testSent: "Test alert sent.",
+  testThrottled: "Test alerts are limited to one a minute. Try again shortly.",
+  testFailed: "Couldn't send the test alert.",
+} as const;
 
 export const WORDING = {
   notConfigured: "Not configured",

@@ -3,7 +3,7 @@
 // unconfigured or hanging source is never shown as a blank or a spinner.
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { SECTIONS, TRENDS_TITLE, WORDING } from "../app/ops/health/sections.ts";
+import { ALERTS_TITLE, ALERTS_WORDING, SECTIONS, TRENDS_TITLE, WORDING } from "../app/ops/health/sections.ts";
 
 assert.deepEqual(
   SECTIONS.map((s) => s.key),
@@ -24,5 +24,18 @@ assert.match(page, /WORDING\.notConfigured/);
 assert.match(page, /api\.getOpsCollector\(section\.key\)/, "each section loads its own collector");
 assert.match(page, /api\.getOpsTrends/);
 for (const s of SECTIONS) assert.ok(page.includes(`case "${s.key}"`), `renderer for ${s.key}`);
+// E8: the Alerts block, its test button and the owner-only endpoints it calls.
+assert.equal(ALERTS_TITLE, "Alerts");
+assert.equal(ALERTS_WORDING.testButton, "Send test alert");
+assert.match(page, /api\.getOpsAlerts/, "alerts load on their own");
+assert.match(page, /api\.sendOpsTestAlert\(\)/, "the test button calls the throttled endpoint");
+assert.match(page, /<Block title=\{ALERTS_TITLE\}>/);
+assert.match(page, /ALERTS_WORDING\.testThrottled/);
+assert.match(page, /alerts\.open\.map/);
+assert.match(page, /alerts\.history\.map/);
+const apiSrc = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
+assert.match(apiSrc, /"\/ops\/health\/alerts"/);
+assert.match(apiSrc, /"\/ops\/health\/alerts\/test"/);
+for (const w of Object.values(ALERTS_WORDING)) assert.ok(!/[—!]/.test(w), "alert wording has no em dash or exclamation mark");
 assert.ok(!/—/.test(page + readFileSync(new URL("../app/ops/health/sections.ts", import.meta.url), "utf8")), "no em dashes in copy");
 console.log("e7-health-page: ok");

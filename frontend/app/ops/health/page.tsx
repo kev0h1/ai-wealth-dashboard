@@ -7,7 +7,7 @@
 // API and database reachability, the running release and environment, VPS
 // memory, disk and load, LLM usage per pipeline, sync stats, and links into
 // Sentry for grouped errors. Latency and error-rate metrics (slice 2) and
-// alerts (slice 3) are tracked on the board. E7 (slice 2) adds one section per
+// alerts (slice 3, E8) have their own block. E7 (slice 2) adds one section per
 // metrics collector (./sections.ts), each fetched on its own from
 // GET /ops/health/collectors/{name} so a slow or unconfigured source shows
 // "Timed out" or "Not configured" in its own block and blocks nothing else,
@@ -18,8 +18,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSyncStats, type OpsTrends } from "@/lib/api";
-import { SECTIONS, TRENDS_TITLE, WORDING } from "./sections";
+import { api, type OpsAlert, type OpsAlerts, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSyncStats, type OpsTrends } from "@/lib/api";
+import { ALERTS_TITLE, ALERTS_WORDING, SECTIONS, TRENDS_TITLE, WORDING } from "./sections";
 
 type Load<T> = { state: "loading" } | { state: "error" } | { state: "forbidden" } | { state: "ok"; data: T };
 
@@ -423,11 +423,89 @@ function TrendsBlock({ trends }: { trends: OpsTrends }) {
   );
 }
 
+function AlertRow({ a, history }: { a: OpsAlert; history?: boolean }) {
+  const tone = a.state === "resolved" ? OK : a.severity === "crit" ? BAD : WARN;
+  const word = a.state === "resolved" ? "Resolved" : a.severity === "crit" ? "Critical" : "Warning";
+  return (
+    <li className="py-3">
+      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <span className={tone}>{word}</span>, {a.title ?? a.key}
+      </p>
+      {a.body && <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{a.body}</p>}
+      <p className="money mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        {history && a.state === "resolved" && a.resolved_at
+          ? `Resolved ${formatDate(a.resolved_at)}`
+          : `Since ${formatDate(a.first_seen ?? undefined)}`}
+        {a.last_notified ? `, notified ${formatDate(a.last_notified)}` : ""}
+      </p>
+    </li>
+  );
+}
+
+function AlertsBlock({ alerts }: { alerts: OpsAlerts }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function sendTest() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await api.sendOpsTestAlert();
+      if (res.throttled) setMessage(ALERTS_WORDING.testThrottled);
+      else if (res.sent) setMessage(ALERTS_WORDING.testSent);
+      else setMessage(res.note ?? ALERTS_WORDING.testFailed);
+    } catch {
+      setMessage(ALERTS_WORDING.testFailed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={CARD}>
+      {!alerts.enabled && <p className={`${MUTED} mb-3`}>{ALERTS_WORDING.off}</p>}
+      <p className={LABEL}>Open</p>
+      {alerts.open.length === 0 ? (
+        <p className={`${MUTED} mt-1`}>{ALERTS_WORDING.none}</p>
+      ) : (
+        <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+          {alerts.open.map((a) => <AlertRow key={a.key} a={a} />)}
+        </ul>
+      )}
+      <p className={`${LABEL} mt-4`}>Last 24 hours</p>
+      {alerts.history.length === 0 ? (
+        <p className={`${MUTED} mt-1`}>{ALERTS_WORDING.noHistory}</p>
+      ) : (
+        <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+          {alerts.history.map((a) => <AlertRow key={a.key} a={a} history />)}
+        </ul>
+      )}
+      {alerts.config && (
+        <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+          One alert per issue every {alerts.config.cooldown_hours} h, at most {alerts.config.hourly_cap} an hour.
+        </p>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={sendTest}
+          disabled={busy}
+          className="min-h-11 rounded-2xl border border-slate-300 px-4 text-sm font-semibold text-slate-800 disabled:opacity-60 dark:border-slate-600 dark:text-slate-100"
+        >
+          {ALERTS_WORDING.testButton}
+        </button>
+        {message && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{message}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function OpsHealthPage() {
   const health = useLoad(api.getOpsHealth);
   const llm = useLoad(api.getOpsLlmUsage);
   const sync = useLoad(api.getOpsSyncStats);
   const trends = useLoad(api.getOpsTrends);
+  const alerts = useLoad(api.getOpsAlerts);
 
   if (health.state === "forbidden") {
     return (
@@ -443,7 +521,7 @@ export default function OpsHealthPage() {
         <header className="mb-6">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Platform health</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            What this server can see today. Each section loads on its own. Alerts follow in a later slice.
+            What this server can see today. Each section loads on its own.
           </p>
           <Link href="/ops/go-live" className="mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
             Go-live readiness
@@ -469,6 +547,12 @@ export default function OpsHealthPage() {
         {SECTIONS.map((section) => (
           <CollectorBlock key={section.key} section={section} />
         ))}
+
+        <Block title={ALERTS_TITLE}>
+          {alerts.state === "loading" && <Skeleton />}
+          {(alerts.state === "error" || alerts.state === "forbidden") && <Unavailable what="alerts" />}
+          {alerts.state === "ok" && <AlertsBlock alerts={alerts.data} />}
+        </Block>
 
         <Block title={TRENDS_TITLE}>
           {trends.state === "loading" && <Skeleton />}
