@@ -7,16 +7,19 @@ Mirrors backend/app/routers/planned.py in style:
 """
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import current_user
 from app.services import response_cache
+from app.services.pace import SpendTransactionLoadError
 from app.services.checkpoints import (
     DuplicateCheckpoint,
     cancel_checkpoint,
     create_checkpoint,
     dismiss_aim_nudge,
     get_aim_nudge,
+    checkpoint_evidence,
+    list_history,
     list_active,
     record_intent,
     update_checkpoint,
@@ -55,6 +58,30 @@ async def get_checkpoint_nudge(user: dict = Depends(current_user)):
     marked 'change', only when the server pace reading says the aim is likely
     to be passed, and not once dismissed."""
     return {"nudge": await get_aim_nudge(user["email"])}
+
+
+@router.get("/checkpoints/history")
+async def get_checkpoint_history(
+    limit: int = Query(12, ge=1, le=12),
+    user: dict = Depends(current_user),
+):
+    """Completed, transaction-verified aim outcomes for the signed-in user."""
+    return {"checkpoints": await list_history(user["email"], limit)}
+
+
+@router.get("/checkpoints/{checkpoint_id}/evidence")
+async def get_checkpoint_evidence(checkpoint_id: str, user: dict = Depends(current_user)):
+    try:
+        ObjectId(checkpoint_id)
+    except InvalidId:
+        raise HTTPException(400, "Invalid checkpoint_id")
+    try:
+        evidence = await checkpoint_evidence(user["email"], checkpoint_id)
+    except SpendTransactionLoadError:
+        raise HTTPException(503, "Transaction evidence is temporarily unavailable")
+    if evidence is None:
+        raise HTTPException(404, "Checkpoint not found")
+    return evidence
 
 
 @router.patch("/checkpoints/{checkpoint_id}")

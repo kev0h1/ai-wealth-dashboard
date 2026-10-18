@@ -1,10 +1,9 @@
 // Pure derivations for the savings-tip signifiers shown on Spend's category
-// list and the transactions page's collapsed tips line. Promoted unchanged
-// in behaviour from the /design/spend-tips preview (fixtures.ts/shared.tsx)
-// once the owner picked variant A (2026-09-05) — see DESIGN.md "Tips on
+// list and the transactions page's collapsed tips line. Owner picked
+// variant A (2026-09-05) — see DESIGN.md "Tips on
 // Spend and the transactions page" for the copy rules this encodes: tips
 // never add rows to Spend's category list, and a subline's count/figure
-// signifier must never imply every tip is costed.
+// signifier is a count, never a figure.
 
 import type { SavingsInsight } from "@/lib/api";
 
@@ -22,9 +21,9 @@ export function insightsForDisplay(showTips: boolean, insights: SavingsInsight[]
  *  on the backend's own `app_category` field. For an older payload that
  *  predates the `state` field, falls back to the same missing-state rule
  *  the old Insights hero's own `heroOpen` used (that page, and `heroOpen`
- *  with it, deleted 2026-09-05): `!verified_savings && !substituted`.
+ *  with it, deleted 2026-09-05): `!substituted`.
  *  Deliberately narrower than that historical rule otherwise — it also
- *  counted "quiet" as open, but a quiet card renders no title/body/estimate
+ *  counted "quiet" as open, but a quiet card renders no title/body
  *  (components/InsightCard.tsx has nothing to show for it), so it is
  *  excluded here on purpose rather than opening a tip strip with no
  *  content. Never returns a verified/substituted/quiet tip; those are
@@ -33,7 +32,7 @@ export function openTipsFor(category: string, insights: SavingsInsight[]): Savin
   return insights.filter((t) => {
     if (t.app_category !== category) return false;
     if (t.state != null) return t.state === "fresh" || t.state === "stale";
-    return !t.verified_savings && !t.substituted;
+    return !t.substituted;
   });
 }
 
@@ -57,53 +56,27 @@ export function tipsForMerchants(
   if (!tipId || merchants.length === 0) return [];
   const tip = insights.find((t) => t.id === tipId);
   if (!tip) return [];
-  if (tip.state != null ? tip.state !== "fresh" && tip.state !== "stale" : (tip.verified_savings || tip.substituted)) return [];
+  if (tip.state != null ? tip.state !== "fresh" && tip.state !== "stale" : tip.substituted) return [];
   const merchantName = tip.triggered_by?.[0]?.display_name;
   if (!merchantName || !merchants.includes(merchantName)) return [];
   return [tip];
 }
 
-/** Sum of `savings_estimate_monthly` across exactly the tips passed in,
- *  whole pounds, single rounding, 0 when none of them carry an estimate. */
-export function sumEstimates(tips: SavingsInsight[]): number {
-  return Math.round(tips.reduce((s, t) => s + (t.savings_estimate_monthly ?? 0), 0));
-}
-
-/** The subline SUFFIX only, no leading separator and no payment count —
+/** The subline SUFFIX only, no leading separator and no payment count:
  *  callers prepend their own "{n} payment{s}" (and " · " when non-null)
- *  themselves. The figure must never read as if every tip listed is
- *  costed (a real risk once a category carries a mix of costed and
- *  uncosted tips):
- *    empty:        null                                    — nothing to say
- *    none costed:  "{n} tip{s}"                             — no figure at all
- *    all costed:   "{n} tip{s}, ~£{sum}/mo"                 — one clean figure
- *    some costed:  "{n} tips · ~£{sum}/mo from {k}"         — figure scoped to
- *                  the {k} tips it actually covers, never implied global
+ *  themselves. G283 (Kevin, 2026-10-17): a tip count and nothing else, never
+ *  a figure in pounds, never a claim about money.
+ *    empty:  null            nothing to say
+ *    else:   "{n} tip{s}"
  */
 export function tipSubline(tips: SavingsInsight[]): string | null {
   if (tips.length === 0) return null;
-  const withEstimate = tips.filter((t) => t.savings_estimate_monthly != null);
-  const tipWord = tips.length === 1 ? "tip" : "tips";
-  const sum = sumEstimates(tips);
-  if (withEstimate.length === 0) return `${tips.length} ${tipWord}`;
-  if (withEstimate.length === tips.length) return `${tips.length} ${tipWord}, ~£${sum}/mo`;
-  return `${tips.length} ${tipWord} · ~£${sum}/mo from ${withEstimate.length}`;
+  return `${tips.length} ${tips.length === 1 ? "tip" : "tips"}`;
 }
 
-/** Same three-tier honesty rule as tipSubline above, reworded for the
- *  transactions page's own tips disclosure line, which carries the
- *  category name instead of a payment count (the payment count already
- *  lives in the filter chips above this line, this line's job is just
- *  "here is what's on the table for this category"):
- *    none costed:  "{n} tip{s} for {category}"
- *    all costed:   "{n} tip{s} for {category}, ~£{sum}/mo"
- *    some costed:  "{n} tips for {category} · ~£{sum}/mo from {k}"
- */
+/** The transactions page's own tips disclosure line, which carries the
+ *  category name instead of a payment count: "{n} tip{s} for {category}".
+ *  A count and a name only, no figure. */
 export function tipsLineText(category: string, tips: SavingsInsight[]): string {
-  const tipWord = tips.length === 1 ? "tip" : "tips";
-  const withEstimate = tips.filter((t) => t.savings_estimate_monthly != null);
-  const sum = sumEstimates(tips);
-  if (withEstimate.length === 0) return `${tips.length} ${tipWord} for ${category}`;
-  if (withEstimate.length === tips.length) return `${tips.length} ${tipWord} for ${category}, ~£${sum}/mo`;
-  return `${tips.length} ${tipWord} for ${category} · ~£${sum}/mo from ${withEstimate.length}`;
+  return `${tips.length} ${tips.length === 1 ? "tip" : "tips"} for ${category}`;
 }

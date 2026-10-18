@@ -149,7 +149,7 @@ def test_content_valid_until_in_the_past_is_quiet_and_content_is_withheld(monkey
     assert out["state"] == "quiet"
     assert out["title"] == ""
     assert out["body"] == ""
-    assert out["savings_estimate"] is None
+    assert "savings_estimate" not in out
     assert out["claim_valid_until"] is None
     assert out["content_valid_until"] is None
     assert out["expiry_line"] is None

@@ -579,14 +579,14 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_insights",
             "description": (
-                "The user's savings insights: general-information tips generated "
-                "from their own transactions (a bill that's crept up, a cheaper "
-                "alternative, a pattern worth knowing about), the same ones "
-                "surfaced on Home and, filtered by category, on the transactions "
-                "page, ranked the same way. Use this for "
-                "questions about insights, tips, saving ideas, or 'what's the "
-                "best insight'. Rank 1 IS the top/best insight, never re-rank. "
-                "Quote each tip's own figures verbatim, never recompute them."
+                "The user's tips: facts drawn from their own transactions and "
+                "from a dated market check (what they pay, to whom and how often, "
+                "and what comparable options are listed at, with a source date), "
+                "the same ones surfaced on Home and, filtered by category, on the "
+                "transactions page, in the same order. Use this for questions about "
+                "tips or insights. State only what the tip states: never claim or "
+                "estimate a saving, never recommend a provider, never call one the "
+                "best option. Quote each tip's own figures verbatim, never recompute them."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -4258,24 +4258,15 @@ def _category_months_table(category: str, rows_raw: list[dict], start_d: date, e
 
 # ── get_insights ──────────────────────────────────────────────────────────
 def _insights_rank_key(d: dict) -> tuple:
-    """Byte-for-byte the same tie-break GET /savings-insights uses
-    (savings_insights.py's own nested `_rank_key`, not importable — pinned,
-    then verified, then the largest parsed £ estimate, then the largest
-    triggering monthly spend) so "the best insight" here can never disagree
-    with the order those same insights show in on Home or Spend."""
-    from app.routers.analytics import _parse_saving_amount
-
-    estimate = _parse_saving_amount(d.get("savings_estimate")) or 0.0
+    """Same tie-break GET /savings-insights uses (pinned, then the largest
+    triggering monthly spend), so "the first tip" here can never disagree
+    with the order those same tips show in on Home or Spend. G283: no
+    savings figure takes part in the ranking."""
     spend = sum(float(t.get("monthly_amount") or 0) for t in d.get("triggered_by") or [])
-    # `and not d.get("substituted_at")`: same precedence
-    # `_derive_insight_state` resolves (incoherence A) — kept in lockstep
-    # with GET /savings-insights' own `_rank_key`, see that function.
-    is_verified = bool(d.get("verified_savings")) and not d.get("substituted_at")
-    return (bool(d.get("pinned")), is_verified, estimate, spend)
+    return (bool(d.get("pinned")), spend)
 
 
 _INSIGHT_TRIGGER_CAP = 5
-_VALUE_DELIVERED_CAP = 10
 
 
 def _fmt_insight_deadline(value) -> str | None:
@@ -4314,7 +4305,6 @@ async def _exec_get_insights(uid: str) -> dict:
                 "rank": i + 1,
                 "title": (s := _serialize_insight(d))["title"] or "",
                 "summary": s["body"] or "",
-                "estimated_saving": s["savings_estimate"],
                 # Enrichment pass, 2026-08-27: why-fields the insights
                 # engine already computes (savings_insights.py's own
                 # serializer) that this tool used to drop.
@@ -4326,28 +4316,6 @@ async def _exec_get_insights(uid: str) -> dict:
                     }
                     for t in (d.get("triggered_by") or [])[:_INSIGHT_TRIGGER_CAP]
                 ],
-                # Read off `s` (the serialized doc), not `d` (the raw one):
-                # `_serialize_insight` resolves the verified-vs-substituted
-                # precedence (see `_derive_insight_state` in
-                # savings_insights.py) before these fields are ever set, so
-                # Penny can't narrate a "verified saving" for a category the
-                # engine actually resolved as `substituted` (incoherence A —
-                # owner phone report 2026-09-01, confirmed live for exactly
-                # this document shape: both `verified_savings` and
-                # `substituted_at` set on the same raw doc).
-                "verified_savings": (
-                    _money(s["verified_savings"]) if s["verified_savings"] else None
-                ),
-                "verified_merchant": s["verified_merchant"],
-                # STRUCTURAL FIX — the same single-source state every other
-                # consumer now switches on (see `_derive_insight_state`):
-                # "verified" | "substituted" | "fresh" | "quiet". Lets Penny
-                # distinguish a real win from a substitution ("that spend
-                # just moved elsewhere, not a saving") instead of only ever
-                # seeing a raw £ figure.
-                "state": s["state"],
-                "substituted": s["substituted"],
-                "substituted_merchant": s["substituted_merchant"],
                 "deadline_at": _fmt_insight_deadline(d.get("deadline_at")),
                 "is_new": bool(d.get("is_new", False)),
                 # Stored with a leading underscore (`_return_reason`), served
@@ -4356,24 +4324,6 @@ async def _exec_get_insights(uid: str) -> dict:
             }
             for i, d in enumerate(docs[:5])
         ]
-    try:
-        from app.routers.analytics import get_value_delivered as _route_get_value_delivered
-        vd = await _route_get_value_delivered(user={"email": uid})
-        result["value_delivered"] = {
-            "insights_acted_on": vd.get("insights_acted_on"),
-            "total_monthly_saving": _money(vd.get("total_monthly_saving")),
-            "verified_monthly_saving": _money(vd.get("verified_monthly_saving")),
-            "breakdown": [
-                {
-                    "title": b.get("title"),
-                    "monthly_saving": _money(b.get("monthly_saving")),
-                    "estimate_label": b.get("estimate_label"),
-                }
-                for b in (vd.get("breakdown") or [])[:_VALUE_DELIVERED_CAP]
-            ],
-        }
-    except Exception:
-        logger.exception("penny_tools: get_insights value-delivered lookup failed for %s", uid)
     return result
 
 

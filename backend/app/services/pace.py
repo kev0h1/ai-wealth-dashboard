@@ -18,6 +18,7 @@ Public API
 computes it itself. Pass it from the HTTP handler to avoid a second round-trip.
 """
 import logging
+import math
 import statistics
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -180,11 +181,18 @@ _SPEND_PROJ = {
 }
 
 
+class SpendTransactionLoadError(RuntimeError):
+    """A verification read could not load every canonical transaction source."""
+
+
 async def load_spend_txns(
     uid: str,
     start: date,
     end: date | None = None,
     kind_map: _KindMap | None = None,
+    *,
+    include_evidence: bool = False,
+    require_complete: bool = False,
 ) -> list[dict]:
     """Every spend-category transaction in [start, end], signed.
 
@@ -197,6 +205,8 @@ async def load_spend_txns(
     it once for the whole load (never per transaction).
 
     Returns [{"date": date, "category": str, "amount": float}].
+    Opt-in evidence adds the actual record ID and merchant label only. The
+    signed amount, category and classification remain the canonical ones.
     """
     if kind_map is None:
         kind_map = await get_category_kinds(uid)
@@ -205,9 +215,14 @@ async def load_spend_txns(
     if end is not None:
         date_filter["$lte"] = datetime(end.year, end.month, end.day, 23, 59, 59)
 
-    spend_ctx = await build_spending_context(
-        uid, start_dt, date_filter.get("$lte"), kinds=kind_map,
-    )
+    try:
+        spend_ctx = await build_spending_context(
+            uid, start_dt, date_filter.get("$lte"), kinds=kind_map,
+        )
+    except Exception as exc:
+        if require_complete:
+            raise SpendTransactionLoadError("Transaction evidence is temporarily unavailable") from exc
+        raise
 
     raw_docs: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
@@ -218,11 +233,14 @@ async def load_spend_txns(
                     "transaction_type": {"$in": ["debit", "credit"]},
                     "date": date_filter,
                 },
-                _SPEND_PROJ,
+                {**_SPEND_PROJ, "merchant_name": 1, "description": 1, "name": 1}
+                if include_evidence else _SPEND_PROJ,
             ):
                 raw_docs.append(doc)
-        except Exception:
+        except Exception as exc:
             logger.exception("load_spend_txns: failed fetching from %s for %s", col.name, uid)
+            if require_complete:
+                raise SpendTransactionLoadError("Transaction evidence is temporarily unavailable") from exc
 
     result: list[dict] = []
     for doc in raw_docs:
@@ -242,7 +260,23 @@ async def load_spend_txns(
         if flow.kind not in (SPEND, REFUND):
             continue
 
-        result.append({"date": d_obj, "category": cat, "amount": flow.signed(doc.get("amount") or 0)})
+        if require_complete:
+            try:
+                raw_amount = doc.get("amount")
+                if raw_amount is None or isinstance(raw_amount, bool):
+                    raise ValueError("Missing or boolean transaction amount")
+                amount = float(raw_amount)
+                if not math.isfinite(amount):
+                    raise ValueError("Non-finite transaction amount")
+            except (TypeError, ValueError) as exc:
+                raise SpendTransactionLoadError("Transaction evidence contains an invalid amount") from exc
+        record = {"date": d_obj, "category": cat, "amount": flow.signed(doc.get("amount") or 0)}
+        if include_evidence:
+            record.update({
+                "id": str(doc.get("_id") or ""),
+                "name": str(doc.get("merchant_name") or doc.get("description") or doc.get("name") or cat)[:160],
+            })
+        result.append(record)
 
     return result
 

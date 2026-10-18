@@ -502,65 +502,15 @@ def test_spotlight_features_an_active_insight_normally(monkeypatch):
     assert result["category"] == "broadband"
 
 
-# ── GET /value-delivered and Penny's insights tool exclude retired ───────
-
-def test_value_delivered_excludes_a_retired_insights_estimate(monkeypatch):
-    import app.routers.analytics as analytics
-
-    class _AnalyticsCursor:
-        def __init__(self, docs):
-            self._docs = docs
-
-        async def to_list(self, n):
-            return list(self._docs)
-
-    class _AnalyticsFakeCol:
-        def __init__(self, docs):
-            self.docs = docs
-
-        def find(self, query=None, projection=None):
-            query = query or {}
-            return _AnalyticsCursor([d for d in self.docs if _match(d, query)])
-
-    retired_broadband = {
-        "user_id": UID, "title": "Switch broadband", "category": "broadband",
-        "savings_estimate": "~£5/mo", "user_context": {"contract_end": "March 2027"},
-        "retired_at": NOW - timedelta(days=1),
-    }
-    active_mobile = {
-        "user_id": UID, "title": "Switch mobile", "category": "mobile",
-        "savings_estimate": "~£10/mo", "user_context": {"contract_end": "Dec 2026"},
-    }
-    monkeypatch.setattr(analytics, "savings_insights_col", _AnalyticsFakeCol([retired_broadband, active_mobile]))
-
-    result = _run(analytics.get_value_delivered(user=USER))
-
-    assert result["total_monthly_saving"] == 10.0, "the retired broadband estimate must not count"
-    assert result["insights_acted_on"] == 1
-    assert len(result["breakdown"]) == 1
-    assert result["breakdown"][0]["title"] == "Switch mobile"
-
+# ── Penny's insights tool excludes retired ───────
 
 def test_penny_insights_tool_excludes_a_retired_insight(monkeypatch):
     import app.services.penny_tools as penny_tools
-    import app.routers.analytics as analytics_router_module
-
     retired_broadband = _broadband_doc(
         retired_at=NOW - timedelta(days=1), retire_reason="evidence_gone", triggered_by=[],
     )
     col = FakeInsightsCol([retired_broadband])
     monkeypatch.setattr(penny_tools, "savings_insights_col", col)
-
-    # `_exec_get_insights` also inline-imports and calls
-    # `app.routers.analytics.get_value_delivered` for the value_delivered
-    # section — stub it directly (per test_penny_tools.py's own established
-    # convention for this "fresh import at call time" pattern) so this test
-    # only exercises the insights-list filtering, not a second, unmocked
-    # DB-touching endpoint.
-    async def fake_value_delivered(user):
-        return {"insights_acted_on": 0, "total_monthly_saving": 0.0,
-                "verified_monthly_saving": 0.0, "breakdown": []}
-    monkeypatch.setattr(analytics_router_module, "get_value_delivered", fake_value_delivered)
 
     result = _run(penny_tools._exec_get_insights(UID))
 

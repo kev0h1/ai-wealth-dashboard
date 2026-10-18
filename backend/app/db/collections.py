@@ -154,6 +154,16 @@ locks_col               = db["locks"]
 # history. See app/workers/sync_worker.py's task_reconcile_truelayer.
 worker_runs_col         = db["worker_runs"]
 
+# E7: capped trend store for /ops/health (app/services/health/samples.py): one
+# sample per collector per 5 minutes, no user data. Created by
+# samples.ensure_collection, never auto-created uncapped.
+health_samples_col      = db["health_samples"]
+# E8: alert throttle state (one document per alert key, plus the hourly cap
+# counter) and the exception class names seen by this deployment. Operational
+# only: keys, counts and timestamps, no user id, no payloads.
+alert_state_col         = db["alert_state"]
+error_types_seen_col    = db["error_types_seen"]
+
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
 finexer_customers_col  = db["finexer_customers"]
@@ -582,6 +592,12 @@ ERASURE_MANIFEST = frozenset({
     # interest to complete the revocation, and is deleted after 90 days from
     # failed_at at the latest (retention._ORPHAN_MAX_AGE), with an error log.
     "orphaned_revocations_col",
+    # E7: operational metrics only (collector name, status, numbers), no user id
+    # on any document, so erase_user's sweep deliberately matches nothing.
+    "health_samples_col",
+    # E8: alert keys and exception class names only, no user id on any document.
+    "alert_state_col",
+    "error_types_seen_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98

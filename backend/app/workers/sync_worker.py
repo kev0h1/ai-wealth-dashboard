@@ -745,7 +745,38 @@ async def _on_startup(ctx: dict) -> None:
     task so the queue is served from the first second; the engine-build
     stamp makes a restart without a code change a no-op. The task handle
     is kept on `ctx` so it cannot be garbage-collected mid-flight."""
+    try:   # E8: record exception class names (only) for the new-error-type alert
+        from app.db.collections import error_types_seen_col
+        from app.services.health import error_types
+        error_types.install()
+        await error_types.ensure_indexes(error_types_seen_col)
+    except Exception as exc:
+        logger.warning("error type tracking not started: %s", type(exc).__name__)
     ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
+
+
+async def task_health_samples(ctx) -> dict:
+    """E7: every 5 minutes, one /ops/health trend sample per collector that
+    lives outside the API process (app.services.health.samples). Each
+    collector runs under its own 2 s budget; a failure is logged by class and
+    never raises, so this cron cannot wedge the worker."""
+    try:
+        from app.db.collections import db, health_samples_col
+        from app.services.health import default_collectors, samples
+        await samples.ensure_collection(db)
+        mine = [c for c in default_collectors() if not c.external and c.name != "api_latency"]
+        written = await samples.write_samples(mine, health_samples_col)
+        out = {"written": written}
+        try:   # E8: alerts evaluate the samples just written; never fails the cron
+            from app.services.health import alerts
+            out["alerts"] = await alerts.run_alerts()
+            out["new_errors"] = await alerts.process_new_error_types()
+        except Exception as exc:
+            logger.warning("health alerts: failed (%s)", type(exc).__name__)
+        return out
+    except Exception as exc:
+        logger.warning("health samples: failed (%s)", type(exc).__name__)
+        return {"written": 0}
 
 
 class WorkerSettings:
@@ -756,7 +787,7 @@ class WorkerSettings:
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
-                 task_safe_to_spend_snapshot]
+                 task_safe_to_spend_snapshot, task_health_samples]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -775,6 +806,8 @@ class WorkerSettings:
         # 09:00 UTC daily: B22's trial-conversion disclosure reminder,
         # 3 days out from trial_ends_at.
         cron(task_trial_reminder, hour=9, minute=0, run_at_startup=False),
+        # E7: every 5 minutes, the /ops/health trend samples (capped store).
+        cron(task_health_samples, minute=set(range(0, 60, 5)), run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5

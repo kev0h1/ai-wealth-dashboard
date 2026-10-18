@@ -101,8 +101,6 @@ interface HomeBriefProps {
   hasAccounts?: boolean;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onClearedChange. */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
-  /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onInsightWinVisibleChange. */
-  onInsightWinVisibleChange?: (visible: boolean) => void;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onCoverMoveVisibleChange. */
   onCoverMoveVisibleChange?: (visible: boolean) => void;
   /**
@@ -2147,20 +2145,6 @@ export interface BriefBodyProps {
    */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
   /**
-   * Home-only: reports whether a LIVE insight_win celebration ("£49/mo is
-   * staying in your pocket", type "celebration", id prefixed
-   * `insight_win:`) is currently visible on Home — present in the
-   * dismissed-filtered `items` this component actually renders, i.e. the
-   * SAME set CelebrationCard below reads from. Owner decision A1, Home
-   * dedup review 2026-08-31: while that card is live, ValueDeliveredStat's
-   * "£X/mo saved" chip hides (one voice at a time, story before ledger);
-   * the moment it lapses or is dismissed on Home, this flips false in the
-   * SAME render pass and the chip reappears. Undefined on Penny — the
-   * effect below no-ops entirely when this is omitted, same convention as
-   * onClearedChange above.
-   */
-  onInsightWinVisibleChange?: (visible: boolean) => void;
-  /**
    * Home-only: reports whether a cover-plan move card is currently visible
    * after the same local-dismissal filter MoveCard renders from. Home passes
    * this to SafeToSpendCard so G115 can say a visible move above is already
@@ -2169,19 +2153,12 @@ export interface BriefBodyProps {
   onCoverMoveVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
   const onHomeDismiss = dismissible ? homeDismiss : undefined;
 
-  // Same dismissed-filtered `items` CelebrationCard renders from below —
-  // narrowed to the insight_win kind specifically (type "celebration" is
-  // shared with the payday-plan "Sorted" card and the saving-streak card,
-  // neither of which gates ValueDeliveredStat under owner decision A1).
-  const hasInsightWinCelebration = items.some(
-    i => i.type === "celebration" && i.id.startsWith("insight_win:")
-  );
   const hasVisibleCoverMove = hasFundedCoverMove(items);
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
@@ -2225,23 +2202,6 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dismissible, rawItems.length, items.length, rawItems[0]?.type]);
-
-  // Same ref pattern as onClearedChange above, same reason: no stability
-  // requirement on the callback identity. Reports in the SAME render pass
-  // a dismiss (or a natural 7-day lapse dropping the item from the feed)
-  // flips `hasInsightWinCelebration` — see BriefBodyProps' doc comment.
-  // useLayoutEffect (not useEffect): BriefBody first mounts on the same
-  // render `loading` flips to false, so a plain effect would let
-  // ValueDeliveredStat paint for one frame with the stale `false` default
-  // before this fires. The layout effect flushes HomePage's state update
-  // synchronously before that paint, so the chip and the card never both
-  // show, even for a frame.
-  const onInsightWinVisibleChangeRef = useRef(onInsightWinVisibleChange);
-  onInsightWinVisibleChangeRef.current = onInsightWinVisibleChange;
-
-  useLayoutEffect(() => {
-    onInsightWinVisibleChangeRef.current?.(hasInsightWinCelebration);
-  }, [hasInsightWinCelebration]);
 
   const onCoverMoveVisibleChangeRef = useRef(onCoverMoveVisibleChange);
   onCoverMoveVisibleChangeRef.current = onCoverMoveVisibleChange;
@@ -2526,7 +2486,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const name = firstName || "there";
 
@@ -2598,7 +2558,7 @@ export default function HomeBrief({ items, firstName, displayName, safeToSpend, 
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}
       </div>
 

@@ -151,6 +151,16 @@ A built-in category name is not, by itself, proof a merchant key is safe to shar
 
 ---
 
+## Tips state facts only (G283, Kevin 2026-10-17)
+
+A tip never claims or estimates a saving. It states what the user pays, to whom and how often, from their own transactions, and what comparable options are listed at, with a source and a date: "You pay EE £56 a month." and "SIM-only plans are listed at £5 to £14 a month. Also listed: Asda Mobile £5 a month, Lebara £6 a month. Checked 14 Oct, source uswitch.com." No "could save", "cut", "cheaper for you", no recommendation, and no product is ever named as the user's best option. A deal is a dated fact ("Offer listed until 31 Oct"), never a call to action.
+
+- **The money fields are gone.** `savings_estimate` is not computed, stored or served. The stored `verified_savings` amount is internal lifecycle state (verified, substituted, retired) and is never serialised, narrated by Penny or the MCP connector, or shown as pounds saved. `GET /value-delivered`, the Home "saved" stat and the `insight_win` celebration are removed. A verified tip states only that payments stopped.
+- **The banned-phrase gate** (`app/services/tip_copy.py`) fails closed on every tip output path: the shared findings builder (promo wording is dropped, the model's free-text headline is no longer kept), the personal composition and the optional LLM phrasing step (`_tip_content_for` drops a tip that trips the list with the static code `banned_phrase`), the serializer (a stored tip that trips it is withheld until the next pass rewrites it) and so Penny's `get_insights`. List: save, saves, saved, saving, savings (except the category name "Savings" and the account type), cut, cheaper, could, should, recommend, best, worth switching, switch to. Frontend twin: `npm run check:g283-no-savings-claims`.
+- **Why.** A figure of money saved is a consumer-protection claim we cannot prove, and the £1,931/mo "saved" stat showed how it goes wrong. This feeds A165.
+
+---
+
 ## What Dies / What Survives
 
 Deletion, not relocation. These surfaces contradict the doctrine and go away:

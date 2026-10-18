@@ -16,7 +16,6 @@ import { useRouter } from "next/navigation";
 import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import OfferCard from "@/components/OfferCard";
-import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
 import { useColours } from "@/components/ColourProvider";
 import { isHomeCurrency } from "@/lib/currency";
@@ -273,11 +272,6 @@ export default function HomePage() {
   // the "cleared" row's derived state has to travel up via this callback
   // instead of just being rendered in place.
   const [clearedAdvice, setClearedAdvice] = useState<{ count: number; type: CompanionItem["type"] } | null>(null);
-  // Fed by HomeBrief's onInsightWinVisibleChange (see BriefBodyProps in
-  // HomeBrief.tsx) — owner decision A1, Home dedup review 2026-08-31: while
-  // a live insight_win celebration card is showing on Home, ValueDeliveredStat's
-  // "£X/mo saved" chip below hides (one voice at a time, story then ledger).
-  const [insightWinVisible, setInsightWinVisible] = useState(false);
   // G115: the same dismissed-filtered item set that renders MoveCard reports
   // whether a cover move is actually visible above Safe to Spend. This keeps
   // the reconciliation sentence accurate after "Hide on Home" as well as on
@@ -1007,7 +1001,6 @@ export default function HomePage() {
               dismissible
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
-              onInsightWinVisibleChange={setInsightWinVisible}
               onCoverMoveVisibleChange={setCoverMoveVisible}
               banner={reauthBanner}
             />
@@ -1092,11 +1085,6 @@ export default function HomePage() {
                 <HomeBriefClearedRow cleared={clearedAdvice} router={router} />
               )}
 
-              {/* Potential-savings index — "How your money behaves" (the
-                  Mirror row) relocated to its own rich entry card on the
-                  Penny screen (its permanent home now), reached via the
-                  nav's Penny button. */}
-              {!loading && !insightWinVisible && <ValueDeliveredStat />}
             </div>
           )}
 

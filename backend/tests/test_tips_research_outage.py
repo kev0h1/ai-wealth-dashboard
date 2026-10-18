@@ -88,13 +88,11 @@ def _tavily(monkeypatch, item):
 
 
 def _generate_with_outcome():
-    outcome: dict = {}
-    tok = si._RESEARCH_OUTCOME.set(outcome)
-    try:
-        result = _run(si._generate_savings_insight_content("mobile", UID))
-    finally:
-        si._RESEARCH_OUTCOME.reset(tok)
-    return result, outcome
+    """Run the one shared fetch (B48; the per-user generator was removed by G283)
+    and read back the static failure code it reports."""
+    from app.services import tip_research as tr
+    fo = _run(si._fetch_market_findings(tr.make_key("mobile", None, None)))
+    return fo.findings, {"failure": fo.failure}
 
 
 # 1. classification ---------------------------------------------------------
@@ -134,8 +132,8 @@ def _doc(**over):
     now = datetime.utcnow()
     d = {
         "category": "mobile", "insight_id": "mobile-abc", "user_id": UID,
-        "title": "Switch your SIM", "body": "A cheaper SIM-only plan exists.",
-        "savings_estimate": "~£10/mo", "refreshed_at": now - timedelta(days=9),
+        "title": "You pay EE £57 a month", "body": "SIM-only plans are listed at £10 a month.",
+        "refreshed_at": now - timedelta(days=9),
         "researched_at": now - timedelta(days=9),
         "content_valid_until": now - timedelta(days=2),
         "claim_valid_until": None, "triggered_by": [], "_id": "x",
@@ -152,7 +150,7 @@ def test_expired_tip_with_no_outage_still_blanks():
 def test_expired_tip_stays_visible_as_stale_during_outage():
     s = si._serialize_insight(_doc(research_stale_at=datetime.utcnow()))
     assert s["state"] == "stale"
-    assert s["title"] == "Switch your SIM" and s["body"]
+    assert s["title"] == "You pay EE £57 a month" and s["body"]
     assert s["stale_note"] == "Tips may be out of date"
     assert s["expiry_line"] is None and s["content_valid_until"] is None
 

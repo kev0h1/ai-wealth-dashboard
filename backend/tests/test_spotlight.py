@@ -62,11 +62,11 @@ def test_dismissed_stays_gone_despite_new_content():
     assert _spotlight_candidates([d]) == []
 
 
-def test_material_estimate_change_earns_return_with_reason():
+def test_an_estimate_change_never_earns_an_early_return():
+    # G283: no savings estimate takes part in the return rule any more.
     d = doc(spotlight_retired=True, spotlight_dismissed_at=NOW - timedelta(days=3),
             savings_estimate="£60/mo", estimate_at_dismissal=40.0)
-    cands = _spotlight_candidates([d])
-    assert cands and "£40" in cands[0]["_return_reason"] and "£60" in cands[0]["_return_reason"]
+    assert _spotlight_candidates([d]) == []
 
 
 def test_cooldown_expiry_returns_without_reason():

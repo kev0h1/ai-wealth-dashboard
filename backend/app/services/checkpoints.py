@@ -25,8 +25,9 @@ category_intent_col shape:
      answer: "one_off"|"new_normal", created_at}
 """
 import logging
+import math
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from bson import ObjectId
 
@@ -145,6 +146,17 @@ def _serialise(doc: dict, progress: dict | None = None) -> dict:
     return out
 
 
+def _finite_number(value) -> float | None:
+    """Return a finite numeric value, or None for malformed historic data."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 # ── Period helpers ────────────────────────────────────────────────────────────
 
 async def _pay_cfg(uid: str) -> dict:
@@ -165,6 +177,8 @@ async def category_total_spend(
     period_start: date,
     period_end: date,
     kind_map: dict[str, str] | None = None,
+    *,
+    require_complete: bool = False,
 ) -> float:
     """That category's TOTAL spend in the window — every spend-category
     transaction, refunds netted, commitments included. This is the same basis
@@ -175,7 +189,10 @@ async def category_total_spend(
     several checkpoints in one request) so `load_spend_txns` doesn't fetch
     the kind map again per call — see the efficiency contract in
     `app/services/categories.py`."""
-    txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map)
+    if require_complete:
+        txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map, require_complete=True)
+    else:
+        txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map)
     return round(sum(t["amount"] for t in txns if t["category"] == category), 2)
 
 
@@ -247,7 +264,7 @@ async def create_checkpoint(
             aim_amount = float(aim_amount)
         except (TypeError, ValueError):
             raise ValueError("aim_amount must be a number")
-        if aim_amount <= 0 or aim_amount > 1_000_000:
+        if not math.isfinite(aim_amount) or round(aim_amount, 2) <= 0 or aim_amount > 1_000_000:
             raise ValueError("aim_amount must be between 0 and 1,000,000")
         aim = round(aim_amount, 2)
         basis = "custom"
@@ -318,6 +335,173 @@ async def list_active(uid: str) -> list[dict]:
     return out
 
 
+async def list_history(uid: str, limit: int = 12) -> list[dict]:
+    """Return completed, verified category aims owned by this user.
+
+    Due aims are resolved through the existing canonical path first.  Historic
+    documents are then returned as recorded: this reader never rebuilds a
+    benchmark from today's baseline or changes an already-recorded result.
+    """
+    await resolve_due(uid)
+    take = max(1, min(12, int(limit)))
+    docs = await checkpoints_col.find(
+        {
+            "user_id": uid,
+            "kind": "category",
+            "status": {"$in": ["met", "missed"]},
+        }
+    ).sort([("period_end", -1), ("resolved_at", -1), ("_id", -1)]).limit(take).to_list(take)
+
+    out = []
+    for doc in docs:
+        aim = _finite_number(doc.get("aim_amount"))
+        result = _finite_number(doc.get("result_amount"))
+        if aim is None or aim <= 0 or result is None:
+            continue
+        if not all(doc.get(key) for key in ("ref", "period_start", "period_end", "resolved_at")):
+            continue
+        try:
+            start = date.fromisoformat(doc["period_start"])
+            end = date.fromisoformat(doc["period_end"])
+            datetime.fromisoformat(str(doc["resolved_at"]).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if end < start or end >= timeutil.user_today():
+            continue
+        out.append({
+            "id": str(doc["_id"]),
+            "ref": doc["ref"],
+            "aim_amount": aim,
+            "basis": doc.get("basis"),
+            "period_start": doc["period_start"],
+            "period_end": doc["period_end"],
+            "status": doc["status"],
+            "result_amount": result,
+            "resolved_at": doc["resolved_at"],
+        })
+    return out
+
+
+def _evidence_name(txn: dict, ref: str) -> str:
+    """Use the canonical loader's label when present, with a safe fallback."""
+    return str(
+        txn.get("name")
+        or txn.get("description")
+        or txn.get("merchant_name")
+        or ref
+    )
+
+
+async def checkpoint_evidence(uid: str, checkpoint_id: str) -> dict | None:
+    """Return transaction-grounded evidence for one owned category aim.
+
+    `load_spend_txns` is deliberately the source of truth: it applies the
+    same category kinds, own-move and refund handling as checkpoint outcomes.
+    """
+    doc = await checkpoints_col.find_one({
+        "_id": ObjectId(checkpoint_id),
+        "user_id": uid,
+        "kind": "category",
+        "status": {"$in": ["active", "met", "missed"]},
+    })
+    if doc is None:
+        return None
+
+    try:
+        period_start = date.fromisoformat(doc["period_start"])
+        period_end = date.fromisoformat(doc["period_end"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if period_end < period_start:
+        return None
+
+    # Do not resolve anything until the requested record is known to belong to
+    # the caller. A foreign ID must be a read-only 404, not an opportunity to
+    # advance another person's overdue outcomes.
+    today = timeutil.user_today()
+    if doc["status"] == "active" and period_end < today:
+        await resolve_due(uid)
+        doc = await checkpoints_col.find_one({
+            "_id": ObjectId(checkpoint_id),
+            "user_id": uid,
+            "kind": "category",
+            "status": {"$in": ["active", "met", "missed"]},
+        })
+        if doc is None:
+            return None
+        try:
+            period_start = date.fromisoformat(doc["period_start"])
+            period_end = date.fromisoformat(doc["period_end"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if period_end < period_start:
+            return None
+
+    recorded = _finite_number(doc.get("result_amount"))
+    if doc["status"] in ("met", "missed") and (recorded is None or period_end >= today):
+        return None
+    kind_map = await get_category_kinds(uid)
+    # Weekly counts are a separate, completed-week history. They may predate
+    # the aim itself, while the outcome/reconciliation total never does.
+    anchor = (today - timedelta(days=1)) if doc["status"] == "active" else period_end
+    evidence_start = min(period_start, anchor - timedelta(days=27))
+    txns = await load_spend_txns(
+        uid, evidence_start, period_end, kind_map=kind_map, include_evidence=True, require_complete=True,
+    )
+    category_txns = [t for t in txns if t.get("category") == doc["ref"]]
+    if any(_finite_number(t.get("amount")) is None for t in category_txns):
+        return None
+    period_txns = [t for t in category_txns if period_start <= t.get("date") <= period_end]
+    period_txns.sort(key=lambda t: (t.get("date") or date.min, str(t.get("id") or "")), reverse=True)
+
+    total = round(sum(float(t.get("amount") or 0) for t in period_txns), 2)
+    if not math.isfinite(total):
+        return None
+    rows = period_txns[:5]
+    transactions = [
+        {
+            "id": str(t.get("id") or ""),
+            "name": _evidence_name(t, doc["ref"]),
+            "date": t["date"].isoformat() if isinstance(t.get("date"), date) else str(t.get("date") or ""),
+            "amount": round(float(t.get("amount") or 0), 2),
+        }
+        for t in rows
+    ]
+    row_total = round(sum(t["amount"] for t in transactions), 2)
+
+    # Only complete seven-day windows are shown. They intentionally stand
+    # apart from the aim's own period total and can reach before it began.
+    windows = []
+    for index in range(4):
+        window_end = anchor - timedelta(days=index * 7)
+        window_start = window_end - timedelta(days=6)
+        count = sum(
+            1 for t in category_txns
+            if window_start <= t.get("date") <= window_end and float(t.get("amount") or 0) > 0
+        )
+        windows.append({
+            "period_start": window_start.isoformat(),
+            "period_end": window_end.isoformat(),
+            "count": count,
+        })
+    windows.reverse()
+
+    return {
+        "checkpoint_id": str(doc["_id"]),
+        "ref": doc["ref"],
+        "period_start": doc["period_start"],
+        "period_end": doc["period_end"],
+        "total": total,
+        "recorded_result": recorded,
+        "changed_since_result": recorded is not None and round(total - recorded, 2) != 0,
+        "transactions": transactions,
+        "remainder_amount": round(total - row_total, 2),
+        "remainder_count": max(0, len(period_txns) - len(rows)),
+        "weekly_counts": windows,
+        "checked_at": _utcnow_iso(),
+    }
+
+
 async def cancel_checkpoint(uid: str, checkpoint_id: str) -> bool:
     """Cancel an active checkpoint. No shame, no friction."""
     result = await checkpoints_col.update_one(
@@ -335,13 +519,19 @@ async def update_checkpoint(uid: str, checkpoint_id: str, aim_amount) -> bool:
         amount = float(aim_amount)
     except (TypeError, ValueError):
         raise ValueError("aim_amount must be a number")
-    if amount <= 0 or amount > 1_000_000:
+    if not math.isfinite(amount) or round(amount, 2) <= 0 or amount > 1_000_000:
         raise ValueError("aim_amount must be between 0 and 1,000,000")
+    _, current_end = await current_period(uid)
     result = await checkpoints_col.update_one(
-        {"_id": ObjectId(checkpoint_id), "user_id": uid, "status": "active"},
+        {
+            "_id": ObjectId(checkpoint_id),
+            "user_id": uid,
+            "status": "active",
+            "period_end": current_end.isoformat(),
+        },
         {"$set": {"aim_amount": round(amount, 2), "basis": "custom", "nudge_dismissed": False}},
     )
-    return result.modified_count > 0
+    return result.matched_count > 0
 
 
 async def dismiss_aim_nudge(uid: str, checkpoint_id: str) -> bool:
@@ -505,38 +695,40 @@ async def resolve_due(uid: str, kind_map: dict[str, str] | None = None) -> list[
             # new user-facing one.
             if is_non_spend(kind_map, doc["ref"]):
                 resolved_at = _utcnow_iso()
-                await checkpoints_col.update_one(
-                    {"_id": doc["_id"]},
+                result = await checkpoints_col.update_one(
+                    {"_id": doc["_id"], "user_id": uid, "status": "active", "aim_amount": doc.get("aim_amount")},
                     {"$set": {
                         "status":       "cancelled",
                         "resolved_at":  resolved_at,
                     }},
                 )
-                doc.update({"status": "cancelled", "resolved_at": resolved_at})
-                resolved.append(doc)
+                if result.modified_count:
+                    doc.update({"status": "cancelled", "resolved_at": resolved_at})
+                    resolved.append(doc)
                 continue
 
             period_start = date.fromisoformat(doc["period_start"])
             period_end   = date.fromisoformat(doc["period_end"])
             result_amount = await category_total_spend(
-                uid, doc["ref"], period_start, period_end, kind_map=kind_map
+                uid, doc["ref"], period_start, period_end, kind_map=kind_map, require_complete=True
             )
             status = "met" if result_amount <= doc["aim_amount"] else "missed"
             resolved_at = _utcnow_iso()
-            await checkpoints_col.update_one(
-                {"_id": doc["_id"]},
+            result = await checkpoints_col.update_one(
+                {"_id": doc["_id"], "user_id": uid, "status": "active", "aim_amount": doc.get("aim_amount")},
                 {"$set": {
                     "status":        status,
                     "result_amount": result_amount,
                     "resolved_at":   resolved_at,
                 }},
             )
-            doc.update({
-                "status":        status,
-                "result_amount": result_amount,
-                "resolved_at":   resolved_at,
-            })
-            resolved.append(doc)
+            if result.modified_count:
+                doc.update({
+                    "status":        status,
+                    "result_amount": result_amount,
+                    "resolved_at":   resolved_at,
+                })
+                resolved.append(doc)
         except Exception:
             logger.exception(
                 "checkpoints.resolve_due: failed for %s checkpoint %s", uid, doc["_id"]

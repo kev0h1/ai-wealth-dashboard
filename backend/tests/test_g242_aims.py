@@ -5,6 +5,7 @@ convention as test_pentest_a50_cross_tenant_ownership.py). Nothing touches a
 real database.
 """
 import asyncio
+from datetime import date
 
 import pytest
 from bson import ObjectId
@@ -23,8 +24,9 @@ def _match(doc, query):
 
 
 class _Result:
-    def __init__(self, n):
+    def __init__(self, n, matched=None):
         self.modified_count = n
+        self.matched_count = n if matched is None else matched
 
 
 class _Cursor:
@@ -51,8 +53,10 @@ class FakeCol:
     async def update_one(self, filt, update):
         for d in self.docs:
             if _match(d, filt):
-                d.update(update.get("$set") or {})
-                return _Result(1)
+                patch = update.get("$set") or {}
+                changed = any(d.get(key) != value for key, value in patch.items())
+                d.update(patch)
+                return _Result(int(changed), matched=1)
         return _Result(0)
 
 
@@ -113,10 +117,19 @@ def test_progress_block_carries_pace():
 
 def _aim(uid=ME, ref="Eating Out", amount=100.0):
     return {"_id": ObjectId(), "user_id": uid, "ref": ref, "aim_amount": amount,
-            "basis": "usual", "status": "active"}
+            "basis": "usual", "status": "active", "period_start": "2026-09-28", "period_end": "2026-10-25"}
 
 
-def test_update_changes_only_own_active_aim(monkeypatch):
+@pytest.fixture
+def editing_period(monkeypatch):
+    # The edit contract now checks the user's current pay period. Keep these
+    # in-memory tests independent of Mongo, as promised in the module header.
+    async def current_period(_uid):
+        return date(2026, 9, 28), date(2026, 10, 25)
+    monkeypatch.setattr(svc, "current_period", current_period)
+
+
+def test_update_changes_only_own_active_aim(monkeypatch, editing_period):
     mine, theirs = _aim(ME), _aim(OTHER)
     monkeypatch.setattr(svc, "checkpoints_col", FakeCol([mine, theirs]))
     assert asyncio.run(svc.update_checkpoint(OTHER, str(mine["_id"]), 80)) is False
@@ -135,12 +148,24 @@ def test_update_rejects_bad_amounts(monkeypatch, bad):
     assert mine["aim_amount"] == 100.0
 
 
-def test_update_clears_a_dismissed_nudge(monkeypatch):
+def test_update_clears_a_dismissed_nudge(monkeypatch, editing_period):
     mine = _aim()
     mine["nudge_dismissed"] = True
     monkeypatch.setattr(svc, "checkpoints_col", FakeCol([mine]))
     asyncio.run(svc.update_checkpoint(ME, str(mine["_id"]), 90))
     assert mine["nudge_dismissed"] is False
+
+
+def test_update_accepts_unchanged_amount_but_not_an_expired_aim(monkeypatch, editing_period):
+    mine = _aim()
+    expired = {**_aim(), "period_end": "2026-09-27"}
+    monkeypatch.setattr(svc, "checkpoints_col", FakeCol([mine, expired]))
+    assert asyncio.run(svc.update_checkpoint(ME, str(mine["_id"]), 100)) is True
+    # No stored field changes on this second call: Mongo matched_count is 1
+    # while modified_count is 0. It is still a successful idempotent edit.
+    assert asyncio.run(svc.update_checkpoint(ME, str(mine["_id"]), 100)) is True
+    assert asyncio.run(svc.update_checkpoint(ME, str(expired["_id"]), 80)) is False
+    assert expired["aim_amount"] == 100
 
 
 def test_dismiss_is_user_scoped(monkeypatch):
@@ -251,7 +276,7 @@ def _client(monkeypatch, docs):
     return TestClient(app)
 
 
-def test_http_patch_and_dismiss_on_another_users_aim_are_404(monkeypatch):
+def test_http_patch_and_dismiss_on_another_users_aim_are_404(monkeypatch, editing_period):
     mine = _aim(ME)
     c = _client(monkeypatch, [mine])
     r = c.patch(f"/checkpoints/{mine['_id']}", json={"aim_amount": 50})

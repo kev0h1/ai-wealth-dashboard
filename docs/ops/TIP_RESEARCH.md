@@ -3,7 +3,7 @@
 A savings tip has two layers.
 
 - **Research layer (shared, not personal).** Market knowledge about one provider at one price level: typical monthly prices, a few alternatives, a deal and its deadline, sources, and the date it was checked. It lives once in the `tip_research` collection and is fetched once, then read by every user who matches the key. Code: `backend/app/services/tip_research.py` (store, key, TTL, in-flight guard) and `_fetch_market_findings` in `backend/app/routers/savings_insights.py` (the only Tavily search and OpenRouter call a tip makes).
-- **Personal layer.** The tip a user sees, composed deterministically by `_compose_tip_content` from the shared findings plus that user's own figures ("You pay EE £56 a month. Similar SIM-only plans typically cost £8 to £25 a month. Market check 12 Oct."). No external call. The per-user states verified, substituted and retired are untouched: they are computed from the user's own transactions exactly as before.
+- **Personal layer.** The tip a user sees, composed deterministically by `_compose_tip_content` from the shared findings plus that user's own figures ("You pay EE £56 a month. SIM-only plans are listed at £8 to £25 a month. Checked 12 Oct, source uswitch.com."). G283: facts only, with a source and a date; no saving is claimed or estimated, the model's free-text headline is not kept, and every string passes the banned-phrase list in `app/services/tip_copy.py`. No external call. The per-user states verified, substituted and retired are untouched: they are computed from the user's own transactions exactly as before.
 
 ## The key
 
