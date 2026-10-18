@@ -1871,6 +1871,21 @@ export type OpsHealth = {
   sentry: { configured: boolean; environment: string; links: { label: string; url: string }[] };
   mongo: { ok: boolean; ping_ms: number | null };
 };
+export type OpsCollector = {
+  name: string;
+  title: string;
+  state: "ok" | "timed_out" | "not_configured" | "omitted" | "error";
+  status: "ok" | "warn" | "crit" | "unknown";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  values: Record<string, any>;
+  as_of: string | null;
+  note: string | null;
+};
+export type OpsTrendSummary = { n: number; min: number | null; avg: number | null; max: number | null; points: number[] };
+export type OpsTrends = {
+  metrics: Record<string, { label: string; unit: string; h24: OpsTrendSummary; d7: OpsTrendSummary }>;
+  error?: boolean;
+};
 export type OpsLlmUsage = {
   month: string;
   totals: { cost_usd: number; calls: number; users: number };
@@ -3960,6 +3975,8 @@ export const api = {
   // page re-renders from truth instead of guessing at the new state.
   getGoLive: () => get<GoLiveResponse>("/ops/go-live"),
   getOpsHealth: () => get<OpsHealth>("/ops/health"),
+  getOpsCollector: (name: string) => get<OpsCollector>(`/ops/health/collectors/${encodeURIComponent(name)}`),
+  getOpsTrends: () => get<OpsTrends>("/ops/health/trends"),
   getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
   getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),
   goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>
