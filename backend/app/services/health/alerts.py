@@ -67,6 +67,12 @@ COVERS = {
     "vps": ("vps_disk", "vps_memory"), "llm_tavily": ("quota_tavily", "quota_openrouter"),
 }
 
+class _Silent:
+    """Result value: evaluated, covered by a specific rule, so any open alert
+    for the key closes without a Resolved push."""
+
+
+SILENT = _Silent()
 Send = Callable[[str, str], Awaitable[Optional[dict]]]
 
 
@@ -156,7 +162,7 @@ def _two_in_a_row(rows: list[dict], now, above: Callable[[dict], Optional[bool]]
     return True if b else None
 
 
-def evaluate(rows: dict[str, list[dict]], cfg: Config, now) -> dict[str, Optional[Condition]]:
+def evaluate(rows: dict[str, list[dict]], cfg: Config, now) -> dict[str, "Optional[Condition] | _Silent"]:
     """Condition per key: a Condition when it is active, None when it was
     evaluated and is clear, absent when there is no data to tell. `rows` maps
     collector name to samples, newest first."""
@@ -240,6 +246,7 @@ def evaluate(rows: dict[str, list[dict]], cfg: Config, now) -> dict[str, Optiona
             continue
         key = f"collector:{name}"
         if any(out.get(k) is not None for k in COVERS.get(name, ())):
+            out[key] = SILENT      # one cause, one alert: the specific rule speaks, this key closes quietly
             continue
         title = TITLES.get(name, name)
         status = latest.get("status")
@@ -363,9 +370,12 @@ async def _apply_active(col, cond: Condition, bucket: int, now, cfg: Config, sen
         await col.update_one({"_id": cond.key}, {"$set": {"state": "resolved", "resolved_at": now}})
 
 
-async def _apply_clear(col, key: str, bucket: int, now, cfg: Config, send: Send, stats: dict) -> None:
+async def _apply_clear(col, key: str, bucket: int, now, cfg: Config, send: Send, stats: dict, silent: bool = False) -> None:
     doc = await col.find_one({"_id": key})
     if not doc or doc.get("state") != "open":
+        return
+    if silent:
+        await col.update_one({"_id": key, "state": "open"}, {"$set": {"state": "resolved", "resolved_at": now}})
         return
     claimed = await col.update_one({"_id": key, "state": "open", "last_eval_bucket": {"$ne": bucket}},
                                    {"$inc": {"clear_streak": 1}, "$set": {"last_eval_bucket": bucket}})
@@ -383,23 +393,25 @@ async def _apply_clear(col, key: str, bucket: int, now, cfg: Config, send: Send,
         return
     await _safe_send(send, doc.get("resolved_title") or "Resolved", doc.get("resolved_body") or "Back to normal")
     stats["resolved"] += 1
+    # the story is told: a relapse is a new alert and notifies, not a repeat inside the cooldown
+    await col.update_one({"_id": key}, {"$set": {"last_notified": None, "notified_severity": None}})
 
 
 def _stats() -> dict:
     return {"sent": 0, "resolved": 0, "throttled": 0, "suppressed": 0, "deduped": 0}
 
 
-async def process(col, results: dict[str, Optional[Condition]], now, cfg: Config, send: Send) -> dict:
+async def process(col, results: dict, now, cfg: Config, send: Send) -> dict:
     """Apply one evaluation to the alert state, notifying as the rules allow."""
     stats = _stats()
     bucket = bucket_of(now)
     await _roll_cap(col, now, send)
     for key, cond in results.items():
-        if cond is not None:
+        if isinstance(cond, Condition):
             await _apply_active(col, cond, bucket, now, cfg, send, stats)
     for key, cond in results.items():
-        if cond is None:
-            await _apply_clear(col, key, bucket, now, cfg, send, stats)
+        if cond is None or cond is SILENT:
+            await _apply_clear(col, key, bucket, now, cfg, send, stats, silent=cond is SILENT)
     # an open alert nothing has evaluated for a day (collector gone) closes quietly
     await col.update_many({"state": "open", "event": {"$ne": True}, "last_seen": {"$lt": now - timedelta(hours=STALE_OPEN_HOURS)},
                            "_id": {"$nin": list(results)}}, {"$set": {"state": "resolved", "resolved_at": now}})

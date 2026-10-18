@@ -135,7 +135,7 @@ def test_generic_collector_crit_and_warn_streak():
     assert alerts.evaluate({"mongo": three}, cfg(warn_streak=4), NOW)["collector:mongo"] is None
     # a specific rule already speaking for the collector silences the generic one
     out = alerts.evaluate({"vps": [row(status="crit", disk_used_pct=95.0, memory_used_pct=10.0, memory_available_mb=9000)]}, cfg(), NOW)
-    assert out["vps_disk"] is not None and "collector:vps" not in out
+    assert out["vps_disk"] is not None and out["collector:vps"] is alerts.SILENT
 
 
 # ---- throttling state --------------------------------------------------------
@@ -186,10 +186,12 @@ def test_resolved_notice_after_two_clear_samples_only():
         # nothing more once resolved, and no data holds an open alert open
         await alerts.process(col, {"vps_disk": None}, at(25), cfg(), send)
         assert len(send.calls) == 2
-        await alerts.process(col, {"vps_disk": crit()}, at(30), cfg(), send)       # inside the cooldown: reopened, not re-sent
-        assert len(send.calls) == 2 and (await col.find_one({"_id": "vps_disk"}))["count"] == 2
+        await alerts.process(col, {"vps_disk": crit()}, at(30), cfg(), send)       # N1: a relapse after Resolved notifies again
+        assert len(send.calls) == 3 and send.calls[-1][0] == "Server disk nearly full"
+        assert (await col.find_one({"_id": "vps_disk"}))["count"] == 2
         await alerts.process(col, {}, at(35), cfg(), send)
         await alerts.process(col, {}, at(40), cfg(), send)
+        assert len(send.calls) == 3
         assert (await col.find_one({"_id": "vps_disk"}))["state"] == "open"
     with_state(go)
 
@@ -321,8 +323,9 @@ def test_copy_has_no_em_dash_or_exclamation():
         "vps": series(dict(disk_used_pct=99.0, memory_used_pct=99.0, memory_available_mb=10)),
         "mongo": [row(status="crit")],
     }, cfg(), NOW)
-    assert len([c for c in out.values() if c]) >= 8
-    for c in out.values():
+    conds = [c for c in out.values() if isinstance(c, Condition)]
+    assert len(conds) >= 7
+    for c in conds:
         for text in (c.title, c.body, c.resolved_title, c.resolved_body):
             assert "—" not in text and "–" not in text and "!" not in text
 
@@ -466,3 +469,56 @@ def test_cron_runs_alerts_after_samples_and_never_fails(monkeypatch):
     monkeypatch.setattr(alerts, "run_alerts", fake_alerts)
     out = run(sync_worker.task_health_samples({}))
     assert order == ["samples", "alerts"] and out["written"] == 1
+
+
+def test_covered_generic_key_closes_silently_so_one_cause_gives_one_resolved():
+    async def go(col):
+        send = Sent()
+        generic = Condition("collector:vps", "crit", "Server critical", "Server reports a critical status",
+                            "Resolved: server", "Server is back to normal")
+        await alerts.process(col, {"collector:vps": generic}, at(0), cfg(), send)      # opened before the specific rule fired
+        assert len(send.calls) == 1
+        await alerts.process(col, {"collector:vps": alerts.SILENT, "vps_disk": crit()}, at(5), cfg(), send)
+        assert (await col.find_one({"_id": "collector:vps"}))["state"] == "resolved"
+        assert "Resolved: server" not in send.titles
+        await alerts.process(col, {"collector:vps": None, "vps_disk": None}, at(10), cfg(), send)
+        await alerts.process(col, {"collector:vps": None, "vps_disk": None}, at(15), cfg(), send)
+        assert send.titles.count("Resolved: server disk") == 1 and "Resolved: server" not in send.titles
+    with_state(go)
+
+
+def test_install_keeps_lastresort_output_and_records_error_types(capsys):
+    root = logging.getLogger()
+    saved, saved_handler = list(root.handlers), error_types._HANDLER
+    uv = logging.getLogger("uvicorn.error")
+    uv_saved = list(uv.handlers)
+    root.handlers[:] = []                      # the deployed shape: no root handler, so lastResort is in play
+    error_types._HANDLER = None
+    error_types.clear()
+    try:
+        error_types.install()
+        log = logging.getLogger("app.some.module")
+        log.warning("visible warning")
+        try:
+            raise ZeroDivisionError("boom")
+        except ZeroDivisionError:
+            log.exception("visible error")
+        log.info("quiet info")
+        err = capsys.readouterr().err
+        assert "visible warning" in err and "visible error" in err and "Traceback" in err and "ZeroDivisionError" in err
+        assert "quiet info" not in err and err.count("visible warning") == 1 and err.count("visible error") == 1
+        assert set(error_types.RECENT) == {"ZeroDivisionError"}
+        # a logger with its own handler is not printed a second time
+        own = logging.getLogger("app.own.handler")
+        import io
+        buf = io.StringIO()
+        own.addHandler(logging.StreamHandler(buf))
+        own.error("own line")
+        assert capsys.readouterr().err == "" and "own line" in buf.getvalue()
+    finally:
+        for name in ("", "uvicorn.error"):
+            logging.getLogger(name).removeHandler(error_types._HANDLER)
+        root.handlers[:] = saved
+        uv.handlers[:] = uv_saved
+        error_types._HANDLER = saved_handler
+        error_types.clear()

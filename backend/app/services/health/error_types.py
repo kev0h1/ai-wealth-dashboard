@@ -61,17 +61,40 @@ def distinct_last_hour(now: Optional[float] = None) -> int:
     return sum(1 for t in RECENT.values() if t >= cutoff)
 
 
-class ErrorTypeHandler(logging.Handler):
-    """Error-level records with an exception attached: class name only."""
+def _other_handlers(logger: logging.Logger, mine: logging.Handler) -> bool:
+    """True when a record from `logger` would reach some handler besides ours."""
+    c: Optional[logging.Logger] = logger
+    while c is not None:
+        if any(h is not mine for h in c.handlers):
+            return True
+        if not c.propagate:
+            break
+        c = c.parent
+    return False
 
-    def __init__(self):
-        super().__init__(level=logging.ERROR)
+
+class ErrorTypeHandler(logging.Handler):
+    """Records the class name of error-level records that carry an exception.
+
+    Adding any handler to the root logger switches Python's `lastResort`
+    (the stderr fallback for WARNING and above, which this app relies on
+    because it configures no root handler) off. So this handler has level
+    NOTSET and, when no other handler would see a record, hands it to
+    `logging.lastResort` itself: warnings, errors and tracebacks keep
+    reaching stderr and journalctl exactly as before."""
 
     def emit(self, record_: logging.LogRecord) -> None:
         try:
             exc = record_.exc_info
-            if exc and exc[0] is not None:
+            if record_.levelno >= logging.ERROR and exc and exc[0] is not None:
                 record(exc[0].__name__)
+        except Exception:
+            pass
+        try:
+            last = logging.lastResort
+            if (last is not None and record_.levelno >= last.level
+                    and not _other_handlers(logging.getLogger(record_.name), self)):
+                last.handle(record_)
         except Exception:
             pass
 
