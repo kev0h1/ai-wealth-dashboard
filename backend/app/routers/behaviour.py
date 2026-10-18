@@ -1,12 +1,13 @@
 """The Mirror — behavioural identity router."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core.auth import current_user
 from app.db.collections import behaviour_portrait_col
 from app.services.behaviour import PORTRAIT_VERSION, compute_portrait
+from app.services.mirror_feedback import latest_payment_records
 
 router = APIRouter(tags=["behaviour"])
 
@@ -65,12 +66,19 @@ async def set_mirror_choice(
 ):
     uid = user["email"]
     if body.choice not in ("keep", "change"):
-        from fastapi import HTTPException
         raise HTTPException(400, "choice must be 'keep' or 'change'")
 
     # Update the choice in the cached portrait
-    await behaviour_portrait_col.update_one(
+    result = await behaviour_portrait_col.update_one(
         {"_id": uid, "traits.id": body.trait_id},
         {"$set": {"traits.$.choice": body.choice}},
     )
+    if result.matched_count == 0:
+        raise HTTPException(404, "trait not found in your current Mirror")
     return {"ok": True, "trait_id": body.trait_id, "choice": body.choice}
+
+
+@router.get("/mirror/payment-records")
+async def get_mirror_payment_records(user: dict = Depends(current_user)):
+    """Actual matching records for Mirror feedback, scoped to the signed-in user."""
+    return await latest_payment_records(user["email"])
