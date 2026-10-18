@@ -869,6 +869,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): Kevin 2026-10-18: tiers are now Lite, Standard and Plus (Plus replaces Max at £12.99 monthly, £69.99 six months, £129.99 annual; unlimited accounts). Store subscriptions: Lite 5.99/31.99/59.99, Standard 9.99/53.99/99.99, Plus 12.99/69.99/129.99, each with a 14-day trial, plus 3 Penny packs. This supersedes the earlier Max prices. See the new tier item B53.
   - note (2026-10-18, claude): Dependency met 2026-10-18: B52 (Lite 10 accounts, cdd83d67) and B53 (Lite/Standard/Plus, bb24b8fd) are on main. Branch feature-C24-play-billing: merge origin/main (no rebase), rename max to plus and use B53's product id scheme and prices, drop Connect, then finish again.
   - note (2026-10-18, claude): B53 aligned: Play tiers Lite/Standard/Plus (sorted.plus.<period>, 12.99/69.99/129.99), legacy sorted.max ids resolve to plus, 3 Penny packs kept. Merged main and C21 6eee7d2d (its B53 rename). Play re-applied to the redesigned picker and packs sheet. Docs 9.1/9.6 and test plan updated. Kevin types Play product text after B52/B53. Clawback open.
+  - note (2026-10-18, claude): Aligned to Plus after B53 and C21, merged main, checks green. Kevin's Play Console setup is docs/pricing/store-billing-c13.md section 9.6 (type product text after B53's descriptions). Clawback decision still open.
 
 ## D. Identity and sign-up
 
