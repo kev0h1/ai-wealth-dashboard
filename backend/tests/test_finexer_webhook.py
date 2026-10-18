@@ -112,7 +112,7 @@ SECRET = "test-finexer-secret"
 SIGNING_SECRET = "test-finexer-signing-secret"
 
 
-def _setup(monkeypatch, consents=None, events=None, signing_secret=""):
+def _setup(monkeypatch, consents=None, events=None, signing_secret="", accounts=None):
     fake_consents = _FakeCol(consents or [])
     fake_events = _FakeCol(events or [])
     monkeypatch.setattr(webhooks_module, "FINEXER_WEBHOOK_SECRET", SECRET)
@@ -121,6 +121,13 @@ def _setup(monkeypatch, consents=None, events=None, signing_secret=""):
     monkeypatch.setattr(webhooks_module, "FINEXER_WEBHOOK_SIGNING_SECRET", signing_secret)
     monkeypatch.setattr(webhooks_module, "finexer_consents_col", fake_consents)
     monkeypatch.setattr(webhooks_module, "webhook_events_col", fake_events)
+    monkeypatch.setattr(webhooks_module, "accounts_col", _FakeCol(accounts or []))
+    fake_consents.expired_calls = []
+
+    async def _expired(cid):
+        fake_consents.expired_calls.append(cid)
+
+    monkeypatch.setattr(webhooks_module, "_mark_accounts_expired", _expired)
     # Original tests pin the plain enqueue shape: no debounce, no counters.
     monkeypatch.setattr(webhooks_module._cfg, "FINEXER_WEBHOOK_DEBOUNCE_SECONDS", 0)
 
@@ -188,7 +195,7 @@ def test_right_path_secret_is_accepted(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c-right"}),
+        SECRET, _FakeRequest({"type": "bank_account.synced", "consent_id": "c-right"}),
     ))
 
     assert result == {"ok": True}
@@ -233,7 +240,7 @@ def test_no_resolvable_consent_id_logged_as_skipped(monkeypatch):
     assert result == {"ok": True}
     assert calls == []
     assert fake_events.docs[0]["status"] == "skipped"
-    assert fake_events.docs[0]["skip_reason"] == "no consent_id"
+    assert fake_events.docs[0]["skip_reason"] == "unresolved"
 
 
 # ── 2b. Replay (A57, FIN-02 local-fixture half) ──────────────────────────
@@ -256,7 +263,7 @@ def test_replaying_a_valid_finexer_delivery_twice_only_ever_triggers_the_same_id
     )
     calls = _spy_enqueue(monkeypatch)
 
-    payload = {"type": "transaction.created", "consent_id": "c10"}
+    payload = {"type": "bank_account.synced", "consent_id": "c10"}
     first = asyncio.run(webhooks_module.finexer_webhook(SECRET, _FakeRequest(payload)))
     second = asyncio.run(webhooks_module.finexer_webhook(SECRET, _FakeRequest(payload)))
 
@@ -301,7 +308,7 @@ def test_mapped_event_type_enqueues_sync(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c1"}),
+        SECRET, _FakeRequest({"type": "bank_account.synced", "consent_id": "c1"}),
     ))
 
     assert result == {"ok": True}
@@ -320,13 +327,13 @@ def test_consent_ref_resolved_from_nested_data_shape(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"event": "transaction.updated", "data": {"consent": {"id": "c2"}}}),
+        SECRET, _FakeRequest({"event": "bank_account.updated", "data": {"consent": {"id": "c2"}}}),
     ))
 
     assert result == {"ok": True}
     assert len(calls) == 1
     assert calls[0]["consent_id"] == "c2"
-    assert fake_events.docs[0]["event_type"] == "transaction.updated"
+    assert fake_events.docs[0]["event_type"] == "bank_account.updated"
 
 
 def test_no_user_id_on_consent_doc_is_skipped_not_enqueued(monkeypatch):
@@ -337,7 +344,7 @@ def test_no_user_id_on_consent_doc_is_skipped_not_enqueued(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c3"}),
+        SECRET, _FakeRequest({"type": "bank_account.synced", "consent_id": "c3"}),
     ))
 
     assert result == {"ok": True}
@@ -348,13 +355,7 @@ def test_no_user_id_on_consent_doc_is_skipped_not_enqueued(monkeypatch):
 
 # ── 4. Revoke-ish event type → consent marked revoked, no sync enqueued ─
 
-@pytest.mark.parametrize("event_type", [
-    "consent.revoked",
-    "consent.expired",
-    "consent.cancelled",
-    "account.disconnected",
-])
-def test_revoke_like_event_marks_consent_revoked_without_enqueuing(monkeypatch, event_type):
+def test_consent_canceled_marks_consent_revoked_without_enqueuing(monkeypatch):
     fake_consents, fake_events = _setup(
         monkeypatch,
         consents=[{"_id": "c4", "user_id": "kevin@example.com", "status": "authorized"}],
@@ -362,33 +363,34 @@ def test_revoke_like_event_marks_consent_revoked_without_enqueuing(monkeypatch, 
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": event_type, "consent_id": "c4"}),
+        SECRET, _FakeRequest({"type": "consent.canceled", "consent_id": "c4"}),
     ))
 
     assert result == {"ok": True}
     assert calls == []
     assert fake_consents.docs[0]["status"] == "revoked"
     assert "revoked_at" in fake_consents.docs[0]
+    assert fake_consents.expired_calls == ["c4"]
     assert fake_events.docs[0]["status"] == "noted"
 
 
-def test_consent_declined_is_treated_as_revoke_like(monkeypatch):
+@pytest.mark.parametrize("event_type", ["consent.revoked", "consent.declined", "consent.cancelled", "consent.authorised"])
+def test_names_not_in_finexers_catalogue_are_recorded_and_ignored(monkeypatch, event_type):
+    """Only the names Finexer's docs list are mapped (US spellings)."""
     fake_consents, fake_events = _setup(
         monkeypatch,
         consents=[{"_id": "c4b", "user_id": "kevin@example.com", "status": "authorized"}],
     )
     calls = _spy_enqueue(monkeypatch)
-
-    result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "consent.declined", "consent_id": "c4b"}),
+    asyncio.run(webhooks_module.finexer_webhook(
+        SECRET, _FakeRequest({"type": event_type, "consent_id": "c4b"}),
     ))
-
-    assert result == {"ok": True}
     assert calls == []
-    assert fake_consents.docs[0]["status"] == "revoked"
+    assert fake_consents.docs[0]["status"] == "authorized"
+    assert fake_events.docs[0]["status"] == "ignored"
 
 
-@pytest.mark.parametrize("event_type", ["consent.authorised"])
+@pytest.mark.parametrize("event_type", ["consent.authorized"])
 def test_consent_lifecycle_non_revoke_events_still_enqueue(monkeypatch, event_type):
     """consent.authorised must NOT be treated as a revoke — they're ordinary lifecycle events that should
     still trigger a sync like any other non-revoke event."""
@@ -422,7 +424,7 @@ def test_consent_lifecycle_event_resolves_from_data_object():
 
 def test_transaction_event_resolves_consent_via_data_object_consent_string():
     event = {
-        "type": "transaction.created",
+        "type": "bank_account.synced",
         "data": {"object": {"id": "txn_1", "object": "transaction", "consent": "cst_abc123"}},
     }
     assert webhooks_module._resolve_finexer_consent_id(event) == "cst_abc123"
@@ -446,7 +448,7 @@ def test_real_envelope_shape_end_to_end_enqueues_sync(monkeypatch):
     event = {
         "id": "evt_2",
         "object": "event",
-        "type": "transaction.created",
+        "type": "bank_account.synced",
         "data": {"object": {"id": "txn_2", "object": "transaction", "consent": "cst_abc123"}},
     }
     result = asyncio.run(webhooks_module.finexer_webhook(SECRET, _FakeRequest(event)))
@@ -470,7 +472,7 @@ def test_signature_skipped_when_signing_secret_unset(monkeypatch):
     calls = _spy_enqueue(monkeypatch)
 
     result = asyncio.run(webhooks_module.finexer_webhook(
-        SECRET, _FakeRequest({"type": "transaction.created", "consent_id": "c5"}),  # no headers at all
+        SECRET, _FakeRequest({"type": "bank_account.synced", "consent_id": "c5"}),  # no headers at all
     ))
 
     assert result == {"ok": True}
@@ -485,7 +487,7 @@ def test_valid_signature_accepted(monkeypatch):
     )
     calls = _spy_enqueue(monkeypatch)
 
-    payload = {"type": "transaction.created", "consent_id": "c6"}
+    payload = {"type": "bank_account.synced", "consent_id": "c6"}
     raw = json.dumps(payload).encode()
     ts = datetime.now(timezone.utc).isoformat()
     header = _sign(SIGNING_SECRET, ts, raw)
@@ -509,11 +511,11 @@ def test_tampered_body_rejected(monkeypatch):
     )
     _spy_enqueue(monkeypatch)
 
-    original = json.dumps({"type": "transaction.created", "consent_id": "c7"}).encode()
+    original = json.dumps({"type": "bank_account.synced", "consent_id": "c7"}).encode()
     ts = datetime.now(timezone.utc).isoformat()
     header = _sign(SIGNING_SECRET, ts, original)
 
-    tampered_payload = {"type": "transaction.created", "consent_id": "c7-different"}
+    tampered_payload = {"type": "bank_account.synced", "consent_id": "c7-different"}
     request = _FakeRequest(tampered_payload, headers={"fx-signature": header})
 
     with pytest.raises(HTTPException) as exc:
@@ -529,7 +531,7 @@ def test_stale_timestamp_rejected(monkeypatch):
     )
     _spy_enqueue(monkeypatch)
 
-    payload = {"type": "transaction.created", "consent_id": "c8"}
+    payload = {"type": "bank_account.synced", "consent_id": "c8"}
     raw = json.dumps(payload).encode()
     stale_ts = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     header = _sign(SIGNING_SECRET, stale_ts, raw)
@@ -550,7 +552,7 @@ def test_missing_signature_header_rejected_when_signing_secret_configured(monkey
     )
     _spy_enqueue(monkeypatch)
 
-    request = _FakeRequest({"type": "transaction.created", "consent_id": "c9"})  # no fx-signature header
+    request = _FakeRequest({"type": "bank_account.synced", "consent_id": "c9"})  # no fx-signature header
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(webhooks_module.finexer_webhook(SECRET, request))

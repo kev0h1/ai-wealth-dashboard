@@ -29,7 +29,7 @@ from app.core.config import (
     TRUELAYER_WEBHOOK_SECRET,
 )
 from app.core import config as _cfg
-from app.db.collections import connections_col, finexer_consents_col, webhook_events_col
+from app.db.collections import accounts_col, connections_col, finexer_consents_col, webhook_events_col
 from app.services import finexer_webhooks as fxw
 
 logger = logging.getLogger(__name__)
@@ -131,13 +131,14 @@ async def truelayer_webhook(secret: str, request: Request):
 def _resolve_finexer_consent_id(event: dict) -> str | None:
     """Tolerantly pull a consent id out of a Finexer webhook payload.
 
-    Finexer's real envelope is Stripe-like: {"type": ..., "data": {"object":
-    {...}}}. For consent lifecycle events the object *is* the consent
+    Finexer's envelope (docs, Set up webhooks, read 2026-10-18) is {"id":
+    "evt_...", "type": ..., "data": {"object": {...}}}; the top-level id is the
+    EVENT id and is never a consent id. For consent lifecycle events the object *is* the consent
     (data.object.object == "consent", id in data.object.id). For
     transaction/account events the consent is referenced via
     data.object.consent (a string id, or a dict with an "id"). Older/simpler
     payload shapes we'd guessed at before Finexer's docs landed are kept as
-    fallbacks: top-level consent_id/fx_consent/consent/id, and the same keys
+    fallbacks: top-level consent_id/fx_consent/consent, and the same keys
     nested one level under "data" (including "consent" as a dict there too).
     Non-string / empty candidates are treated as absent rather than raising,
     so an unexpected payload shape degrades to "no consent_id" instead of a
@@ -173,11 +174,9 @@ def _resolve_finexer_consent_id(event: dict) -> str | None:
         _clean(event.get("consent_id")),
         _clean(event.get("fx_consent")),
         _clean(event.get("consent")) if isinstance(event.get("consent"), str) else None,
-        _clean(event.get("id")),
         _clean(data.get("consent_id")),
         _clean(data.get("fx_consent")),
         _clean(data.get("consent")) if isinstance(data.get("consent"), str) else None,
-        _clean(data.get("id")),
     ]
     top_consent = event.get("consent")
     if isinstance(top_consent, dict):
@@ -277,6 +276,29 @@ async def _enqueue_sync_debounced(consent_id: str, user_id: str) -> bool:
     return True
 
 
+async def _mark_accounts_expired(consent_id: str) -> None:
+    from app.services.finexer_sync import _mark_finexer_accounts_expired
+    await _mark_finexer_accounts_expired(consent_id)
+
+
+def _parse_iso_utc(v):
+    from app.services.finexer_sync import _parse_iso_utc as _p
+    return _p(v)
+
+
+async def _mark_account_closed(account_id: str) -> None:
+    """bank_account.deleted: stamp closed_at on the account we track (Finexer
+    accounts only; status is left alone because no UI state exists for
+    closed). Best effort, never raises."""
+    try:
+        await accounts_col.update_one(
+            {"_id": account_id, "source": "finexer"},
+            {"$set": {"closed_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+        )
+    except Exception:
+        logger.exception("Finexer webhook: could not mark account closed")
+
+
 @router.post("/finexer/{secret}", status_code=200)
 async def finexer_webhook(secret: str, request: Request):
     """Finexer webhook receiver (A167 hardened).
@@ -297,8 +319,9 @@ async def finexer_webhook(secret: str, request: Request):
     only the type string is ever logged, never the payload. Syncs for one
     consent are debounced into one task_sync_finexer.
 
-    Finexer is understood to retry quickly and pause the webhook after 10
-    consecutive non-2xx responses (UNVERIFIED, see docs/ops/FINEXER_WEBHOOKS.md),
+    Finexer retries every 3 s and PAUSES the webhook after 10 consecutive
+    non-2xx responses, emailing the owner (Finexer docs, Set up webhooks, read
+    2026-10-18; docs/ops/FINEXER_WEBHOOKS.md),
     so every authentic delivery gets a 200 except a genuine enqueue failure,
     which releases its event id (so the retry is processed) and returns 503.
     """
@@ -320,12 +343,14 @@ async def finexer_webhook(secret: str, request: Request):
 
     event_type = fxw.extract_event_type(event)
     event_id = fxw.extract_event_id(event)
+    action = fxw.resolve_action(event_type)
     consent_ref = _resolve_finexer_consent_id(event)
     now = datetime.now(timezone.utc)  # naive-ok: stored as UTC, tz-aware on write
 
     log_doc = {
         "received_at": now,
         "event_type": event_type,
+        "action": action,
         "consent_id": consent_ref,
         "payload": event,
         "status": "pending",
@@ -345,8 +370,23 @@ async def finexer_webhook(secret: str, request: Request):
     async def _set(fields: dict):
         await webhook_events_col.update_one({"_id": result.inserted_id}, {"$set": fields})
 
+    obj = fxw.dig(event, "data.object")
+    obj = obj if isinstance(obj, dict) else {}
+    account_id = obj.get("id") if obj.get("object") == "bank_account" and isinstance(obj.get("id"), str) else None
+
+    # bank_account.* without a consent reference on the object: use our stored
+    # account-to-consent map (accounts.connection_id, written by the sync).
+    if not consent_ref and account_id:
+        acc = await accounts_col.find_one({"_id": account_id}, {"connection_id": 1, "source": 1})
+        if acc and acc.get("source") == "finexer" and isinstance(acc.get("connection_id"), str):
+            consent_ref = acc["connection_id"]
+            await _set({"consent_id": consent_ref, "consent_resolved_via": "account_map"})
+
+    if action == fxw.ACTION_ACCOUNT_DELETED and account_id:
+        await _mark_account_closed(account_id)
+
     if not consent_ref:
-        await _set({"status": "skipped", "skip_reason": "no consent_id"})
+        await _set({"status": "skipped", "skip_reason": "unresolved"})
         return {"ok": True}
 
     doc = await finexer_consents_col.find_one({"_id": consent_ref})
@@ -364,21 +404,45 @@ async def finexer_webhook(secret: str, request: Request):
             {"$set": {"last_webhook_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
         )
 
-    action = fxw.resolve_action(event_type)
-    await _set({"action": action})
+    if action in (fxw.ACTION_UNKNOWN, fxw.ACTION_RECORD_ONLY):
+        if action == fxw.ACTION_UNKNOWN:
+            logger.info("Finexer webhook type not mapped, recorded and ignored: %s",
+                        fxw.safe_type_for_log(event_type))
+        await _set({"status": "ignored" if action == fxw.ACTION_UNKNOWN else "noted"})
+        await _stamp()
+        return {"ok": True}
 
-    if action == fxw.ACTION_UNKNOWN:
-        logger.info("Finexer webhook type not mapped, recorded and ignored: %s",
-                    fxw.safe_type_for_log(event_type))
-        await _set({"status": "ignored"})
+    if action == fxw.ACTION_ACCOUNT_DELETED:
+        await _set({"status": "noted"})
         await _stamp()
         return {"ok": True}
 
     if action == fxw.ACTION_CONSENT_REVOKED:
+        # consent.canceled. Local status only: the event means the consent is
+        # already revoked remotely, so no revoke call (A106 is not involved).
         await finexer_consents_col.update_one(
             {"_id": doc["_id"]},
-            {"$set": {"status": "revoked", "revoked_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+            {"$set": {"status": "revoked", "revoked_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                      "status_changed_at": datetime.utcnow()}},  # naive-ok: retention grace-period clock
         )
+        await _mark_accounts_expired(str(doc["_id"]))
+        await _set({"status": "noted"})
+        await _stamp()
+        return {"ok": True}
+
+    if action == fxw.ACTION_CONSENT_EXPIRED:
+        # consent.expired is expiry, not cancellation. Mirror what the sync does
+        # for a non-authorized remote status: status expired, accounts flagged
+        # so the "needs reconnecting" banner shows, and the nag throttle cleared
+        # so task_consent_watch (A6.2A reconsent prompt) pushes at its next run.
+        fields = {"status": "expired", "status_changed_at": datetime.utcnow()}  # naive-ok: retention grace-period clock
+        exp = _parse_iso_utc(obj.get("expiry_date")) if obj.get("object") == "consent" else None
+        if exp:
+            fields["expiry_date"] = exp
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]}, {"$set": fields, "$unset": {"last_connection_nag": ""}},
+        )
+        await _mark_accounts_expired(str(doc["_id"]))
         await _set({"status": "noted"})
         await _stamp()
         return {"ok": True}
@@ -391,6 +455,16 @@ async def finexer_webhook(secret: str, request: Request):
         await _set({"status": "noted"})
         await _stamp()
         return {"ok": True}
+
+    if action == fxw.ACTION_CONSENT_AUTHORISED and obj.get("object") == "consent" \
+            and obj.get("status") == "authorized":
+        # Map Finexer's own status value onto the consent we store (the sync
+        # only runs for local status "authorized") and keep the expiry date.
+        fields = {"status": "authorized"}
+        exp = _parse_iso_utc(obj.get("expiry_date"))
+        if exp:
+            fields["expiry_date"] = exp
+        await finexer_consents_col.update_one({"_id": doc["_id"]}, {"$set": fields})
 
     # ACTION_SYNC_CONSENT / ACTION_CONSENT_AUTHORISED
     user_id = doc.get("user_id")

@@ -148,7 +148,7 @@ def _post(req):
 # (h) a signed event triggers exactly one sync
 def test_signed_event_triggers_exactly_one_sync(env, monkeypatch):
     monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SIGNING_SECRET", SIGNING)
-    payload = {"id": "evt_1", "type": "transaction.created", "consent_id": "c1"}
+    payload = {"id": "evt_1", "type": "bank_account.synced", "consent_id": "c1"}
     assert _post(_signed(payload)) == {"ok": True}
     assert len(env["calls"]) == 1
     assert env["calls"][0]["task"] == "task_sync_finexer"
@@ -159,11 +159,11 @@ def test_signed_event_triggers_exactly_one_sync(env, monkeypatch):
 
 # (h) unsigned / bad signature rejected when a secret is set, generic 4xx
 @pytest.mark.parametrize("make", [
-    lambda: _Req({"id": "e", "type": "transaction.created", "consent_id": "c1"}),
-    lambda: _Req({"id": "e", "type": "transaction.created", "consent_id": "c1"},
+    lambda: _Req({"id": "e", "type": "bank_account.synced", "consent_id": "c1"}),
+    lambda: _Req({"id": "e", "type": "bank_account.synced", "consent_id": "c1"},
                  headers={"fx-signature": "garbage"}),
-    lambda: _signed({"id": "e", "type": "transaction.created", "consent_id": "c1"}, secret="wrong"),
-    lambda: _signed({"id": "e", "type": "transaction.created", "consent_id": "c1"},
+    lambda: _signed({"id": "e", "type": "bank_account.synced", "consent_id": "c1"}, secret="wrong"),
+    lambda: _signed({"id": "e", "type": "bank_account.synced", "consent_id": "c1"},
                     ts=(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()),
 ])
 def test_unsigned_or_bad_signature_rejected_when_secret_set(env, monkeypatch, make):
@@ -176,7 +176,7 @@ def test_unsigned_or_bad_signature_rejected_when_secret_set(env, monkeypatch, ma
 
 
 def test_unset_signing_secret_keeps_path_secret_as_only_gate(env):
-    assert _post(_Req({"id": "e1", "type": "transaction.created", "consent_id": "c1"})) == {"ok": True}
+    assert _post(_Req({"id": "e1", "type": "bank_account.synced", "consent_id": "c1"})) == {"ok": True}
     assert len(env["calls"]) == 1
 
 
@@ -207,7 +207,7 @@ def test_raw_hmac_scheme_with_timestamp_header():
 
 # (b) duplicates ignored
 def test_duplicate_event_id_ignored(env):
-    payload = {"id": "evt_dup", "type": "transaction.created", "consent_id": "c1"}
+    payload = {"id": "evt_dup", "type": "bank_account.synced", "consent_id": "c1"}
     assert _post(_Req(payload)) == {"ok": True}
     env["claimed"].clear()  # even with the debounce window gone
     assert _post(_Req(payload)) == {"ok": True}
@@ -216,7 +216,7 @@ def test_duplicate_event_id_ignored(env):
 
 
 def test_enqueue_failure_releases_event_id_so_retry_is_processed(env, monkeypatch):
-    payload = {"id": "evt_r", "type": "transaction.created", "consent_id": "c1"}
+    payload = {"id": "evt_r", "type": "bank_account.synced", "consent_id": "c1"}
 
     async def boom(task, **kw):
         raise RuntimeError("redis down")
@@ -240,7 +240,7 @@ def test_enqueue_failure_releases_event_id_so_retry_is_processed(env, monkeypatc
 # (d) a burst coalesces
 def test_burst_coalesces_into_one_sync(env):
     for i in range(6):
-        _post(_Req({"id": f"evt_b{i}", "type": "transaction.created", "consent_id": "c1"}))
+        _post(_Req({"id": f"evt_b{i}", "type": "bank_account.synced", "consent_id": "c1"}))
     assert len(env["calls"]) == 1
     statuses = sorted(d["status"] for d in env["events"].docs)
     assert statuses == ["coalesced"] * 5 + ["queued"]
@@ -268,26 +268,96 @@ def test_event_action_override_from_config(monkeypatch):
     t = fxw.event_actions()
     assert fxw.resolve_action("sync.done", t) == "sync_consent"
     assert fxw.resolve_action("bad", t) == "unknown"
-    assert fxw.resolve_action("transaction.created", t) == "sync_consent"
+    assert fxw.resolve_action("bank_account.synced", t) == "sync_consent"
     monkeypatch.setattr(fxw.cfg, "FINEXER_WEBHOOK_EVENT_ACTIONS", "{not json")
-    assert fxw.resolve_action("transaction.created", fxw.event_actions()) == "sync_consent"
+    assert fxw.resolve_action("bank_account.synced", fxw.event_actions()) == "sync_consent"
 
 
-def test_consent_expiring_and_revoked_actions(env, monkeypatch):
-    monkeypatch.setattr(fxw.cfg, "FINEXER_WEBHOOK_EVENT_ACTIONS",
-                        json.dumps({"consent.expiring": "consent_expiring"}))
-    _post(_Req({"id": "x1", "type": "consent.expiring", "consent_id": "c1"}))
+def _consent_event(evt_id, typ, status, **extra):
+    obj = {"id": "c1", "object": "consent", "customer": "cus_1", "status": status,
+           "expiry_date": "2027-01-01T00:00:00Z", "metadata": {}, **extra}
+    return {"id": evt_id, "object": "event", "created_at": "2026-10-18T12:00:00Z",
+            "type": typ, "data": {"object": obj}}
+
+
+def test_consent_expired_is_expiry_not_revocation(env, monkeypatch):
+    expired = []
+
+    async def fake_expired(cid):
+        expired.append(cid)
+
+    monkeypatch.setattr(wh, "_mark_accounts_expired", fake_expired)
+    env["consents"].docs[0]["last_connection_nag"] = "yesterday"
+    _post(_Req(_consent_event("evt_x1", "consent.expired", "expired")))
+    c = env["consents"].docs[0]
+    assert c["status"] == "expired" and c["status"] != "revoked"
+    assert "revoked_at" not in c
+    assert "last_connection_nag" not in c  # task_consent_watch will nag at next run
+    assert c["expiry_date"] == datetime(2027, 1, 1)
+    assert "status_changed_at" in c
+    assert expired == ["c1"] and env["calls"] == []
+
+
+def test_consent_authorized_maps_status_and_syncs(env):
+    env["consents"].docs[0]["status"] = "pending"
+    _post(_Req(_consent_event("evt_x2", "consent.authorized", "authorized")))
     assert env["consents"].docs[0]["status"] == "authorized"
-    assert "webhook_expiring_at" in env["consents"].docs[0]
-    _post(_Req({"id": "x2", "type": "consent.revoked", "consent_id": "c1"}))
+    assert len(env["calls"]) == 1
+
+
+def test_consent_canceled_revokes_and_created_is_record_only(env, monkeypatch):
+    async def noop(cid):
+        return None
+
+    monkeypatch.setattr(wh, "_mark_accounts_expired", noop)
+    _post(_Req(_consent_event("evt_x3", "consent.created", "pending")))
+    assert env["consents"].docs[0]["status"] == "authorized"
+    assert env["events"].docs[0]["status"] == "noted" and env["calls"] == []
+    _post(_Req(_consent_event("evt_x4", "consent.canceled", "canceled")))
     assert env["consents"].docs[0]["status"] == "revoked"
+    assert env["calls"] == []
+
+
+def _account_event(evt_id, typ, consent=None):
+    obj = {"id": "acc_1", "object": "bank_account"}
+    if consent:
+        obj["consent"] = consent
+    return {"id": evt_id, "object": "event", "type": typ, "data": {"object": obj}}
+
+
+def test_bank_account_synced_with_consent_reference(env):
+    _post(_Req(_account_event("evt_a1", "bank_account.synced", consent="c1")))
+    assert len(env["calls"]) == 1 and env["calls"][0]["consent_id"] == "c1"
+
+
+def test_bank_account_synced_resolved_via_account_map(env, monkeypatch):
+    monkeypatch.setattr(wh, "accounts_col", _Col([
+        {"_id": "acc_1", "source": "finexer", "connection_id": "c1"}]))
+    _post(_Req(_account_event("evt_a2", "bank_account.updated")))
+    assert len(env["calls"]) == 1 and env["calls"][0]["consent_id"] == "c1"
+    assert env["events"].docs[0]["consent_resolved_via"] == "account_map"
+
+
+def test_bank_account_event_without_resolvable_consent_is_recorded_unresolved(env, monkeypatch):
+    monkeypatch.setattr(wh, "accounts_col", _Col())
+    assert _post(_Req(_account_event("evt_a3", "bank_account.synced"))) == {"ok": True}
+    assert env["calls"] == []
+    assert env["events"].docs[0]["status"] == "skipped"
+    assert env["events"].docs[0]["skip_reason"] == "unresolved"
+
+
+def test_bank_account_deleted_marks_tracked_account_closed(env, monkeypatch):
+    accts = _Col([{"_id": "acc_1", "source": "finexer", "connection_id": "c1", "status": "connected"}])
+    monkeypatch.setattr(wh, "accounts_col", accts)
+    _post(_Req(_account_event("evt_a4", "bank_account.deleted")))
+    assert "closed_at" in accts.docs[0] and accts.docs[0]["status"] == "connected"
     assert env["calls"] == []
 
 
 def test_event_id_field_is_configurable(env, monkeypatch):
     monkeypatch.setattr(wh._cfg, "FINEXER_WEBHOOK_DEBOUNCE_SECONDS", 0)
     monkeypatch.setattr(fxw.cfg, "FINEXER_WEBHOOK_EVENT_ID_FIELD", "data.event_ref")
-    p = {"type": "transaction.created", "consent_id": "c1", "data": {"event_ref": "r1"}}
+    p = {"type": "bank_account.synced", "consent_id": "c1", "data": {"event_ref": "r1"}}
     _post(_Req(p))
     _post(_Req(p))
     assert len(env["calls"]) == 1

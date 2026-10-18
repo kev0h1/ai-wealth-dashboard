@@ -33,29 +33,33 @@ logger = logging.getLogger(__name__)
 ACTION_SYNC_CONSENT = "sync_consent"
 ACTION_CONSENT_AUTHORISED = "consent_authorised"
 ACTION_CONSENT_EXPIRING = "consent_expiring"
+ACTION_CONSENT_EXPIRED = "consent_expired"
 ACTION_CONSENT_REVOKED = "consent_revoked"
+ACTION_ACCOUNT_DELETED = "account_deleted"
+ACTION_RECORD_ONLY = "record_only"
 ACTION_UNKNOWN = "unknown"
 VALID_ACTIONS = frozenset({
     ACTION_SYNC_CONSENT, ACTION_CONSENT_AUTHORISED, ACTION_CONSENT_EXPIRING,
-    ACTION_CONSENT_REVOKED, ACTION_UNKNOWN,
+    ACTION_CONSENT_EXPIRED, ACTION_CONSENT_REVOKED, ACTION_ACCOUNT_DELETED,
+    ACTION_RECORD_ONLY, ACTION_UNKNOWN,
 })
 
-# ASSUMED, not confirmed: these names come from what the pre-A167 receiver and
-# its tests already guessed (consent.* lifecycle, transaction.created, account
-# disconnect wording). They are a seed only; override per type with
-# FINEXER_WEBHOOK_EVENT_ACTIONS once Finexer's real catalogue is known. Any
-# type not listed is "unknown": recorded and ignored, never a sync.
+# Finexer docs, Set up webhooks, read 2026-10-18: the dashboard offers exactly
+# these bank account and bank consent events (US spellings: authorized,
+# canceled). Payment events exist but are not consumed. Any type not listed is
+# "unknown": recorded and ignored, never a sync. Override or extend per type
+# with FINEXER_WEBHOOK_EVENT_ACTIONS.
 DEFAULT_EVENT_ACTIONS: dict[str, str] = {
-    "consent.authorised": ACTION_CONSENT_AUTHORISED,
+    "bank_account.created": ACTION_SYNC_CONSENT,
+    "bank_account.updated": ACTION_SYNC_CONSENT,
+    "bank_account.synced": ACTION_SYNC_CONSENT,
+    "bank_account.deleted": ACTION_ACCOUNT_DELETED,
     "consent.authorized": ACTION_CONSENT_AUTHORISED,
-    "consent.revoked": ACTION_CONSENT_REVOKED,
-    "consent.declined": ACTION_CONSENT_REVOKED,
-    "consent.expired": ACTION_CONSENT_REVOKED,
-    "consent.cancelled": ACTION_CONSENT_REVOKED,
     "consent.canceled": ACTION_CONSENT_REVOKED,
-    "account.disconnected": ACTION_CONSENT_REVOKED,
-    "transaction.created": ACTION_SYNC_CONSENT,
-    "transaction.updated": ACTION_SYNC_CONSENT,
+    # Expiry is distinct from cancellation: it feeds the reconsent prompt
+    # (A6.2A, task_consent_watch), it does not revoke.
+    "consent.expired": ACTION_CONSENT_EXPIRED,
+    "consent.created": ACTION_RECORD_ONLY,
 }
 
 

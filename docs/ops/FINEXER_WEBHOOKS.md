@@ -1,86 +1,85 @@
 # Finexer webhooks (A167)
 
-Status: receiver hardened, provider-shape facts NOT confirmed. Finexer's own
-webhook documentation is not in this repo. Nothing below marked "assumed" may
-be treated as fact until Kevin supplies Finexer's docs page (a screenshot is
-enough) and the config keys are checked against it.
+Status: receiver built and hardened against Finexer's documentation. One fact
+is still pending: the exact signature FORMAT (see "Pending").
 
-## Confirmed from repo evidence
+## Confirmed
 
-Searched: `docs/compliance/*`, `docs/ops/*`, `TODO.md` (A89, A167, A57 notes),
-`backend/app/data`, `backend/app/routers/webhooks.py`, `backend/tests`. No
-Finexer webhook documentation page, screenshot or pasted catalogue exists.
+Source for the next table: "Finexer docs, Set up webhooks, read 2026-10-18"
+(finexer.com/docs/settings/webhooks and dashboard.finexer.com/settings,
+screenshots supplied by Kevin).
 
-| Fact | Evidence |
+| Fact | How the code uses it |
 | --- | --- |
-| UAT/production receiver is `POST /webhooks/finexer/{secret}`, secret is `FINEXER_WEBHOOK_SECRET` (env, else `backend/.finexer_webhook_secret`) | `routers/webhooks.py`, `docs/ops/ENV.md` lines 85 and 409 |
-| Production URL form `https://wealth.auriqltd.co.uk/api/webhooks/finexer/<secret>` is what the Finexer questionnaire states | `docs/compliance/finexer-agent-controls-2026-09.md` Q4 |
-| Consent withdrawal is meant to arrive by webhook and mark the connection revoked | same doc, lines 74 and 158 |
-| `FINEXER_WEBHOOK_SIGNING_SECRET` is "optional until Finexer's dashboard issues one" and is unset on UAT and production | `docs/ops/ENV.md` lines 86 and 410 |
-| A89 (done 2026-09-22) made the path-secret compare constant time | `TODO.md` A89 |
-| A57 live run observed that replays caused no duplicate side effect | `TODO.md` A57 note 2026-09-20 |
+| Dashboard events: `bank_account.created`, `.deleted`, `.synced`, `.updated`; `consent.authorized` (US spelling), `consent.canceled` (US spelling), `consent.created`, `consent.expired`. Payment events may exist and are not consumed | `finexer_webhooks.DEFAULT_EVENT_ACTIONS` |
+| Envelope `{"id": "evt_...", "object": "event", "created_at", "type", "data": {"object": {...}}}` | event id = top-level `id`, type = top-level `type` (config defaults) |
+| For `consent.*`, `data.object` is the consent (`id` cst_..., `customer`, `provider`, `expiry_date`, `failure_code`, `failure_message`, `status`, `metadata`) | consent id = `data.object.id` |
+| For `bank_account.*`, `data.object` is the bank account (shape not shown) | consent from `data.object.consent` if present, else our stored map `accounts.connection_id` (Finexer accounts), else the event is recorded as `skipped / unresolved` |
+| One POST per event; reply 2xx (200 or 204); on timeout or non-2xx Finexer retries every 3 s; after 10 consecutive failures the webhook is PAUSED and the owner is emailed | every authentic delivery gets 200. The only non-2xx after authentication is 503 on a genuine enqueue failure, which releases the event id and debounce key so the retry is processed |
+| Every delivery is HMAC-SHA256 signed in the `fx-signature` header with a per-webhook key shown in the dashboard after creation | that key is `FINEXER_WEBHOOK_SIGNING_SECRET` |
+| A static token in the URL query is allowed as auth | our path secret (`/webhooks/finexer/{secret}`) is the equivalent and stays |
 
-## Assumed, pending Finexer's documentation
+Event actions (`FINEXER_WEBHOOK_EVENT_ACTIONS` can override any type):
 
-These come only from code comments and tests written on 2026-09-02 (commit
-`94f3f715`) that call the format "documented" but cite no page. Treat as
-unverified.
-
-| Assumption | Where it lives | Config key to correct it |
+| Event | Action | Effect |
 | --- | --- | --- |
-| Signature header is `fx-signature` | `FINEXER_WEBHOOK_SIGNATURE_HEADER` default | `FINEXER_WEBHOOK_SIGNATURE_HEADER` |
-| Header value is `t=<ISO8601>;s=<hex>` and the hex is HMAC-SHA256 over `"<t>.<raw body>"` | scheme `t_s_hmac_sha256` | `FINEXER_WEBHOOK_SIGNATURE_SCHEME` (`t_s_hmac_sha256` or `raw_hmac_sha256`), `FINEXER_WEBHOOK_TIMESTAMP_HEADER` for raw scheme with a separate timestamp header |
-| Replay tolerance 5 minutes | default | `FINEXER_WEBHOOK_TOLERANCE_SECONDS` |
-| Envelope is Stripe-like: `{id, object: "event", type, data: {object: {...}}}` | `_resolve_finexer_consent_id`, `finexer_webhooks.extract_event_*` | `FINEXER_WEBHOOK_EVENT_ID_FIELD` (dotted path, default `id`), `FINEXER_WEBHOOK_EVENT_TYPE_FIELDS` (comma list of dotted paths, default `type,event`). The consent id resolver is code, not config; change it in `_resolve_finexer_consent_id` if the shape differs |
-| Event type names: `consent.authorised/authorized`, `consent.revoked/declined/expired/cancelled/canceled`, `account.disconnected`, `transaction.created/updated` | `finexer_webhooks.DEFAULT_EVENT_ACTIONS` | `FINEXER_WEBHOOK_EVENT_ACTIONS` (JSON object, type to action, merged over the defaults) |
-| No expiring-consent event name is known, so none is mapped | n/a | add e.g. `{"consent.expiring": "consent_expiring"}` once known |
-| Retry policy: retries every 3 s, pauses the webhook after 10 consecutive non-2xx | comment in `finexer_webhook()` | none (informational). The handler returns 200 for every authentic delivery except a real enqueue failure (503) |
-| Whether Finexer sends an event id, and where | assumed top-level `id` | `FINEXER_WEBHOOK_EVENT_ID_FIELD`. Events without an id are not deduplicated, only debounced |
+| `bank_account.created/updated/synced` | `sync_consent` | debounced `task_sync_finexer` for that consent |
+| `bank_account.deleted` | `account_deleted` | stamps `closed_at` on the tracked account (status untouched, no UI state exists for closed); no sync |
+| `consent.authorized` | `consent_authorised` | maps `status: authorized` and `expiry_date` onto the stored consent, then debounced sync |
+| `consent.canceled` | `consent_revoked` | local status `revoked` plus accounts flagged expired. Local only: the remote consent is already cancelled, A106's pending-revocation path is not involved |
+| `consent.expired` | `consent_expired` | local status `expired` (NOT revoked), accounts flagged expired, `last_connection_nag` cleared so `task_consent_watch` sends the reconsent prompt (A6.2A) at its next run |
+| `consent.created` | `record_only` | recorded in `webhook_events`, nothing else |
+| anything else | `unknown` | recorded and ignored, type string only logged |
 
-Actions available in the table: `sync_consent`, `consent_authorised`,
-`consent_expiring`, `consent_revoked`, `unknown`. Any type not in the table is
-`unknown`: recorded in `webhook_events` (30 day TTL) and ignored, with only the
-type string logged.
+Other actions exist for config use: `consent_expiring` (stamps
+`webhook_expiring_at`; no Finexer event is known to map to it).
 
-## Caveats for Kevin
+## Pending
 
-- `raw_hmac_sha256` must be paired with `FINEXER_WEBHOOK_TIMESTAMP_HEADER`.
-  Without a timestamp header nothing bounds replay except the event-id dedupe
-  (and only when Finexer sends an id), so a captured request stays valid forever.
-- `consent_revoked` sets the LOCAL consent status only. The event means the
-  consent is already revoked at the remote end, so no revoke call is made and
-  A106's pending-revocation path is not involved.
-- Mapping `consent.expired` to `consent_revoked` is an assumption. Please
-  confirm it against Finexer's docs; if expiry is recoverable by reconsent it
-  should be `consent_expiring` instead (override in `FINEXER_WEBHOOK_EVENT_ACTIONS`).
-- On an enqueue failure the receiver returns 503, releases the event id and the
-  debounce key and does not stamp `last_webhook_at`, so Finexer's retry is
-  processed normally.
+- The signature FORMAT ("Webhook signatures" docs page was not captured). The
+  header name `fx-signature` and HMAC-SHA256 are confirmed. The value layout is
+  an assumption: default scheme `t_s_hmac_sha256` (`t=<ISO8601>;s=<hex>`, HMAC
+  over `"<t>.<raw body>"`, inherited from A89). `raw_hmac_sha256` (hex or
+  `sha256=` prefixed HMAC of the raw body) is available. Set with
+  `FINEXER_WEBHOOK_SIGNATURE_SCHEME`, `FINEXER_WEBHOOK_SIGNATURE_HEADER`,
+  `FINEXER_WEBHOOK_TIMESTAMP_HEADER`, `FINEXER_WEBHOOK_TOLERANCE_SECONDS`.
+  `raw_hmac_sha256` MUST be paired with a timestamp header, otherwise replay is
+  bounded only by the event-id dedupe. Until the page is checked, do not set
+  `FINEXER_WEBHOOK_SIGNING_SECRET` on an environment where real deliveries
+  would be rejected: a wrong scheme fails closed and pauses the webhook after 10
+  failures.
 
-## Other config keys (all env, defaults in `app/core/config.py`)
+## Kevin: dashboard steps
+
+1. Finexer dashboard, Settings, Webhooks, add a webhook per environment:
+   - UAT: `https://uat.wealth.auriqltd.co.uk/api/webhooks/finexer/<path-secret>`
+   - Production: `https://wealth.auriqltd.co.uk/api/webhooks/finexer/<path-secret>`
+   where `<path-secret>` is that environment's `FINEXER_WEBHOOK_SECRET`.
+2. Select the eight events: bank_account.created, bank_account.deleted,
+   bank_account.synced, bank_account.updated, consent.authorized,
+   consent.canceled, consent.created, consent.expired.
+3. Copy the signature key Finexer shows after creation into
+   `FINEXER_WEBHOOK_SIGNING_SECRET` on each environment (never paste it into
+   chat or the repo).
+4. Confirm on `/ops/health` that "webhooks: last received N min ago" moves.
+
+## Config keys (env, defaults in `app/core/config.py`)
 
 - `FINEXER_WEBHOOK_SIGNING_SECRET`: when set, the signature is mandatory and
-  fails closed (generic 401, same text as a bad path secret). When unset the path
+  fails closed (generic 401, same text as a bad path secret). Unset: the path
   secret is the only gate and startup logs that once. Never printed.
-- `FINEXER_WEBHOOK_DEBOUNCE_SECONDS` (30): a burst for one consent coalesces
-  into one `task_sync_finexer`, deferred by the window. 0 disables.
-- `FINEXER_WEBHOOK_MAX_BODY_BYTES` (65536): checked against Content-Length and
-  while streaming, before the body is buffered (413).
+- `FINEXER_WEBHOOK_SIGNATURE_HEADER` (`fx-signature`),
+  `FINEXER_WEBHOOK_SIGNATURE_SCHEME`, `FINEXER_WEBHOOK_TIMESTAMP_HEADER`,
+  `FINEXER_WEBHOOK_TOLERANCE_SECONDS` (300).
+- `FINEXER_WEBHOOK_EVENT_ID_FIELD` (`id`), `FINEXER_WEBHOOK_EVENT_TYPE_FIELDS`
+  (`type,event`), `FINEXER_WEBHOOK_EVENT_ACTIONS` (JSON, merged over defaults).
+- `FINEXER_WEBHOOK_DEBOUNCE_SECONDS` (30): a burst for one consent becomes one
+  sync, deferred by the window. 0 disables.
+- `FINEXER_WEBHOOK_MAX_BODY_BYTES` (65536): checked before the body is read (413).
 - `FINEXER_POLL_INTERVAL_HOURS` (24): with webhooks healthy a consent is polled
   once per this many hours; 0 restores the old per-tier cadence.
-- `FINEXER_WEBHOOK_STALE_HOURS` (24): a consent with no webhook for this long
-  falls back to its tier's own polling cadence and is counted on `/ops/health`.
-
-## What Kevin must supply to finish A167
-
-1. Finexer's webhook documentation: event type names, payload shape including
-   the event id field and where the consent id sits, signature header and
-   algorithm, retry policy.
-2. The webhook URL registered in the Finexer dashboard for UAT and production,
-   and `FINEXER_WEBHOOK_SIGNING_SECRET` set on both.
-3. Then set the keys above (no code change expected unless the consent id path
-   differs), and confirm on `/ops/health` that "webhooks: last received N min
-   ago" moves.
+- `FINEXER_WEBHOOK_STALE_HOURS` (24): a consent with no webhook this long falls
+  back to its tier's polling cadence and is counted on `/ops/health`.
 
 ## Measuring before and after
 
