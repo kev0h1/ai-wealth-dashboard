@@ -332,6 +332,19 @@ async def finexer_webhook(secret: str, request: Request):
 
     if FINEXER_WEBHOOK_SIGNING_SECRET:
         ua = str(request.headers.get("user-agent") or request.headers.get("User-Agent") or "")[:60]
+        # A169: Finexer's dashboard validates a webhook URL with an UNSIGNED
+        # reachability probe (body `{}`, no signature header). Without this it
+        # can never save a signed webhook. Keyed on body shape plus the missing
+        # header, never the user agent (spoofable). Nothing is parsed,
+        # dispatched, deduped or recorded. Any other unsigned request, and any
+        # request carrying a (wrong) signature, still fails below.
+        sig_hdr = _cfg.FINEXER_WEBHOOK_SIGNATURE_HEADER
+        if (
+            not (request.headers.get(sig_hdr) or request.headers.get(sig_hdr.lower()))
+            and b"".join(body.split()) in (b"", b"{}")
+        ):
+            logger.info("Finexer webhook reachability probe accepted ua=%s body_bytes=%d", ua, len(body))
+            return {"ok": True}
         if not _verify_finexer_signature(body, request.headers):
             hdr = _cfg.FINEXER_WEBHOOK_SIGNATURE_HEADER
             reason = fxw.explain_signature_failure(body, request.headers, secret=FINEXER_WEBHOOK_SIGNING_SECRET)
