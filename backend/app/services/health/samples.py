@@ -49,10 +49,10 @@ def bucket_of(now: Optional[float] = None) -> int:
     return int((time.time() if now is None else now) // BUCKET_S) * BUCKET_S
 
 
-async def ensure_collection(database, max_docs: int = MAX_DOCS, size: int = MAX_BYTES) -> None:
+async def ensure_collection(database, max_docs: int = MAX_DOCS, size: int = MAX_BYTES, name: str = COLLECTION) -> None:
     """Create the capped collection once; an existing one is left alone."""
     try:
-        await database.create_collection(COLLECTION, capped=True, size=size, max=max_docs)
+        await database.create_collection(name, capped=True, size=size, max=max_docs)
     except CollectionInvalid:
         pass
     except Exception as exc:

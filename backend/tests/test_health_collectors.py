@@ -548,25 +548,25 @@ def test_thirty_day_cap_configuration():
 
 
 def test_capped_collection_drops_oldest_beyond_cap():
+    import uuid
     from motor.motor_asyncio import AsyncIOMotorClient
     from app.core.config import MONGO_URI
 
     async def go():
         client = AsyncIOMotorClient(MONGO_URI)
-        db = client[os.environ["MONGO_DB"]]
         assert os.environ["MONGO_DB"] != "wealth"
-        await db.drop_collection("health_samples")
+        db = client[os.environ["MONGO_DB"]]
+        name = f"health_samples_t{uuid.uuid4().hex[:8]}"   # lives in the per-run test database
         try:
-            await samples.ensure_collection(db, max_docs=10, size=4096)
-            await samples.ensure_collection(db, max_docs=10, size=4096)   # idempotent
-            col = db["health_samples"]
+            await samples.ensure_collection(db, max_docs=10, size=4096, name=name)
+            await samples.ensure_collection(db, max_docs=10, size=4096, name=name)   # idempotent
+            col = db[name]
             assert (await col.options())["capped"] is True
             for i in range(25):
                 await col.insert_one({"_id": f"c:{i}", "collector": "c", "ts": naive_now(), "metrics": {}})
             assert await col.count_documents({}) <= 10
             assert await col.find_one({"_id": "c:24"}) is not None and await col.find_one({"_id": "c:0"}) is None
         finally:
-            await db.drop_collection("health_samples")
             client.close()
     run(go())
 

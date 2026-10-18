@@ -124,8 +124,9 @@ async def run_collector(collector: Collector, budget_s: Optional[float] = None) 
     except asyncio.TimeoutError:
         return result(collector.name, state="timed_out", note=f"Timed out after {budget:g} s.")
     except Exception as exc:  # class name only: messages can carry upstream text
-        log.warning("health collector %s failed: %s", collector.name, type(exc).__name__)
-        return result(collector.name, state="error", note=f"Failed ({type(exc).__name__}).")
+        kind = type(exc).__name__
+        log.warning("health collector %s failed: %s", collector.name, kind)
+        return result(collector.name, state="error", note=f"Failed ({kind}).")
 
 
 async def run_all(collectors: list[Collector], budget_s: Optional[float] = None) -> dict[str, dict]:
