@@ -161,6 +161,14 @@ const LEGACY_BANK_PROVIDER_ON = process.env.NEXT_PUBLIC_TRUELAYER_PICKER === "on
 // The API base is instead baked in directly via NEXT_PUBLIC_API_URL.
 const MOBILE_EXPORT = !!process.env.MOBILE_EXPORT;
 
+// A97: previews belong on UAT. Replace their route modules BEFORE following
+// imports so neither fixture data nor preview clients enter a production
+// bundle. A layout-only notFound() would still publish their client chunks.
+// Vercel's production marker wins even if the public environment tag is wrong.
+const DESIGN_PREVIEWS = process.env.VERCEL_ENV !== "production" && resolveAppEnv() !== "production";
+const designRoutePattern = /(?:^|[/\\])app[/\\]design[/\\](?:.*[/\\])?(?:page|layout|template|loading|error|not-found|default|route)\.[jt]sx?$/;
+const designRouteLoader = path.join(__dirname, "scripts", "production-design-loader.cjs");
+
 // F21: see rewrites() below; asserted by check:mcp-discovery.
 const MCP_DISCOVERY_REWRITES = [
   {
@@ -307,7 +315,23 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_LEGACY_BANK_ID: LEGACY_BANK_PROVIDER_ON ? "truelayer" : "",
     NEXT_PUBLIC_LEGACY_BANK_NAME: LEGACY_BANK_PROVIDER_ON ? "TrueLayer" : "",
   },
-  ...(turbopackRoot ? { turbopack: { root: turbopackRoot } } : {}),
+  turbopack: {
+    ...(turbopackRoot ? { root: turbopackRoot } : {}),
+    ...(!DESIGN_PREVIEWS ? {
+      rules: {
+        "*": {
+          condition: { path: designRoutePattern },
+          loaders: [designRouteLoader],
+        },
+      },
+    } : {}),
+  },
+  webpack(config) {
+    if (!DESIGN_PREVIEWS) {
+      config.module.rules.push({ test: designRoutePattern, enforce: "pre", use: [designRouteLoader] });
+    }
+    return config;
+  },
   transpilePackages: ["@wealth/shared"],
   async headers() {
     const headers = await securityHeaders();

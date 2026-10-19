@@ -55,10 +55,8 @@
 // exact same `filters.states` FilterBar itself owns, via the shared
 // `toggleValue` helper).
 //
-// Fixture data (fixtures.ts) is a real, dated slice of TODO.md, including
-// several full-paragraph titles (this board's hardest, and most common,
-// case for a long item) — see that file's own header for exactly what is
-// real and what is illustrative.
+// Fixture data is synthetic and includes deliberately long titles to exercise
+// the mobile layout at the same scale as a busy board.
 //
 // No fetch, no api.* call, no cookies/headers access: static fixtures and
 // one pure helper (filterItems) only, so this route stays covered by

@@ -226,6 +226,17 @@ preview`, project `kev0h1s-projects/ai-wealth-dashboard`), every
 `NEXT_PUBLIC_*` flag above is unset there, which is the intended state for
 all of them right now.
 
+A97: `/design` and its preview routes are available anonymously on UAT only.
+With `NEXT_PUBLIC_APP_ENV=production` or `VERCEL_ENV=production`, the build
+replaces preview route modules with 404s before resolving their imports, so
+preview clients and fixture prose are absent from the emitted bundles. This
+applies to Turbopack, webpack and production mobile exports. Vercel's production
+marker takes precedence over a conflicting public environment tag. Local and
+self-hosted builds keep the existing UAT default; set `NEXT_PUBLIC_APP_ENV=production`
+when building a production deployment outside Vercel. Board preview fixtures must
+use synthetic examples: the `check:design-no-live-data` gate rejects live data access and
+recognisable pasted internal board text.
+
 ## Release tooling (`scripts/release.py` only, not tracked by `env_drift.py`)
 
 These two names live only in the shell environment of whatever runs
