@@ -63,10 +63,15 @@ try {
   };
   const waitFor = async expression => {
     for (let n = 0; n < 200; n++) { if (await evaluate(expression)) return; await delay(100); }
-    throw new Error(`Page condition timed out: ${expression}`);
+    const state = await evaluate(`({ url:location.href, theme:document.documentElement.className, ready:document.readyState, text:document.body.innerText.slice(0,500) })`);
+    throw new Error(`Page condition timed out: ${expression}; ${JSON.stringify(state)}`);
   };
   const viewport = width => call("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
   const navigate = async mode => {
+    // Wait for a fresh document so a same-URL reload cannot satisfy readiness
+    // from the outgoing page while its replacement is still loading.
+    await call("Page.navigate", { url: "about:blank" });
+    await waitFor(`location.href === 'about:blank'`);
     await call("Page.navigate", { url: `${origin}/design/spend-live?mode=${mode}&state=normal` });
     await waitFor(`document.querySelector('[data-g285-period-bar]') && document.documentElement.classList.contains('dark') === ${mode === "dark"}`);
     await evaluate("document.fonts.ready.then(() => true)");
