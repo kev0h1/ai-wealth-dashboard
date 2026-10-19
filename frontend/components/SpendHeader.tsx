@@ -35,6 +35,7 @@ import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
 import type { SpendVerdict, Transaction } from "@/lib/api";
 import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
+import { dateToUTCDay } from "@/lib/payPeriod";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
 // minus — same <£1 zero-safe convention as SafeToSpendCard.tsx's
@@ -281,60 +282,61 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
 
   if (!verdict) return <SpendHeroSkeleton />;
 
+  const start = new Date(dateToUTCDay(verdict.period.start));
+  const end = new Date(dateToUTCDay(verdict.period.end));
+  const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const fullRange = `${dateFormat.format(start)} to ${dateFormat.format(end)}`;
+  const yearContext = start.getUTCFullYear() !== end.getUTCFullYear()
+    ? `${start.getUTCFullYear()} to ${end.getUTCFullYear()}`
+    : null;
+
   return (
     <>
-      {/* Deliberately laid out, not wrap-rescued, at the 390px iPhone width
-          (G82): title + pay-period nav + Search all fit one row there and
-          at 375px (measured, see the G82 session notes) — tightening the
-          period pill's max-width and dropping a redundant fourth control
-          (see below) makes room without shrinking anything below its 44px
-          tap target. flex-wrap stays on only as the graceful fallback for
-          widths this app doesn't target (DESIGN.md's 430px mobile shell) —
-          at 320px (an iPhone SE plus one notch of display zoom) the title
-          keeps its natural, fully-legible size and drops to its own line
-          above the nav+Search row, rather than being truncated into
-          unreadable fragments; nothing is ever cropped mid-word.
-          The former fourth control here — a "Spend settings" gear — was
-          dead weight: its onClick only ever called setSheetOpen(true),
-          exactly what tapping the period-label pill already does, so it was
-          a second button for the same action, not a second function. That
-          slot now belongs to Search, and it renders unconditionally (the
-          `hidden … sm:flex` classes that hid it below 640px, the larger of
-          G82's two faults, are gone) — one direct entry point in the row;
-          the PeriodSheet's own "Search transactions" menu item (below,
-          reached via the period pill) is a second, slower path, not a
-          competing one. */}
-      <header className="flex flex-wrap items-center gap-1.5 pb-4">
-        <div className="mr-auto">
-          <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
-          <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-400">
-            Day {verdict.period.days_elapsed}{verdict.period.days_left != null ? ` of ${verdict.period.days_elapsed + verdict.period.days_left}` : ""}
-          </p>
+      {/* G285 approved B: the complete date range sits beneath Spend;
+          only the compact arrow pair and Search occupy the right tracks.
+          No date truncation or shrunken targets are needed at 375/390px.
+          The title's quiet day caption alone may wrap on a zoomed phone. */}
+      <header data-g285-period-bar="b" className="grid grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-1.5 pb-5">
+        <div data-period-title className="min-w-0 whitespace-nowrap">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
+              Day {verdict.period.days_elapsed}{verdict.period.days_left != null ? ` of ${verdict.period.days_elapsed + verdict.period.days_left}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-period-picker
+            aria-label={`Choose pay period, ${fullRange}`}
+            aria-haspopup="dialog"
+            aria-expanded={sheetOpen}
+            onClick={() => setSheetOpen(true)}
+            className="flex min-h-11 min-w-11 touch-manipulation flex-col items-start justify-start rounded-lg px-0 pb-1 pt-1 text-left text-slate-800 hover:bg-slate-100 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:text-slate-100 dark:hover:bg-slate-700 dark:focus-visible:ring-offset-slate-900"
+          >
+            <span className="flex items-center gap-1">
+              <span data-period-label className="whitespace-nowrap text-[13px] font-semibold leading-[18px]">{periodLabel.replace(" → ", " to ")}</span>
+              <ChevronDown size={12} aria-hidden="true" className="shrink-0" />
+            </span>
+            {yearContext && <span className="mt-0.5 whitespace-nowrap text-[11px] leading-4 text-slate-600 dark:text-slate-400">{yearContext}</span>}
+          </button>
         </div>
 
-        <nav aria-label="Pay period" className="flex min-h-11 shrink-0 items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <nav aria-label="Pay period" className="flex items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
           <button
             type="button"
             aria-label="Previous pay period"
             disabled={!canGoPrev}
             onClick={onPrev}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-l-xl text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-300 dark:hover:bg-slate-700 dark:disabled:text-slate-600"
+            className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 active:opacity-70 disabled:cursor-not-allowed disabled:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-700 dark:disabled:text-slate-500 dark:focus-visible:ring-offset-slate-900"
           >
             <ChevronLeft size={17} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSheetOpen(true)}
-            className="min-h-11 max-w-[104px] truncate border-x border-slate-200 px-2 text-[13px] font-semibold text-slate-800 transition-colors hover:bg-slate-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700 sm:max-w-[190px] sm:px-3"
-          >
-            {periodLabel.replace(" → ", " to ")}
           </button>
           <button
             type="button"
             aria-label="Next pay period"
             disabled={isCurrentPeriod}
             onClick={onNext}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-r-xl text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:text-slate-300 dark:hover:bg-slate-700 dark:disabled:text-slate-600"
+            className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 active:opacity-70 disabled:cursor-not-allowed disabled:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-700 dark:disabled:text-slate-500 dark:focus-visible:ring-offset-slate-900"
           >
             <ChevronRight size={17} aria-hidden="true" />
           </button>
@@ -343,7 +345,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
         <Link
           href="/transactions"
           aria-label="Search transactions"
-          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+          className="flex size-11 shrink-0 touch-manipulation items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:focus-visible:ring-offset-slate-900"
         >
           <Search size={17} aria-hidden="true" />
         </Link>
