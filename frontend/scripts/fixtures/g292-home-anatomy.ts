@@ -1,3 +1,4 @@
+// Synthetic component-regression data, retained after the G292 preview retires.
 import type { CompanionItem, SavingsInsight, UnfundedMoveEntry } from "@/lib/api";
 
 const SAVER = { account_id: "g292-saver", name: "Rainy Day Saver", provider: "Nationwide", balance: 2180 };

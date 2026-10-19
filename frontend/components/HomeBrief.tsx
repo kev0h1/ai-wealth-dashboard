@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, CheckCircle2, Clock3, ArrowRight, ArrowRightLeft, Circle, PiggyBank, CalendarClock } from "lucide-react";
+import { RefreshCw, AlertTriangle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, Clock3, ArrowRight, Circle, PiggyBank, CalendarClock } from "lucide-react";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import type { AllocationEditServices } from "@/components/AllocationEditForm";
 import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
@@ -760,8 +760,9 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
       }}
       className={`${BRIEF_CARD} p-4 cursor-pointer active:scale-[0.99] transition-transform motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
     >
-      <div className="flex items-start gap-3 pr-9">
-        <BriefIcon><CheckCircle2 size={16} /></BriefIcon>
+      {/* G292 A: the inline tick is the only success mark; all copy shares
+          the card's reading edge. Keep header space for the dismiss chip. */}
+      <div className="pr-9">
         <div className="min-w-0 flex-1">
           <KindLabel tone="positive">Covered</KindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
@@ -988,8 +989,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
 
     return (
       <div data-unfunded-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
-        <div className="flex items-start gap-3 pr-9">
-          <BriefIcon><AlertCircle size={16} /></BriefIcon>
+        <div className="pr-9">
           <div className="min-w-0 flex-1">
             <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
             <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">Put this move in place</p>
@@ -1061,8 +1061,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div className="flex items-start gap-3 pr-9">
-        <BriefIcon><AlertCircle size={16} /></BriefIcon>
+      <div className="pr-9">
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
@@ -1372,8 +1371,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
 
     return (
       <div data-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
-        <div className="flex items-start gap-3 pr-9">
-          <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
+        <div className="pr-9">
           <div className="min-w-0 flex-1">
             <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
             <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">Put this move in place</p>
@@ -1432,8 +1430,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
       {/* The Penny signifier is suppressed on the Penny screen itself, whose
           header already establishes that voice. The card-kind label stays so
           the family remains scannable in both contexts. */}
-      <div className="flex items-start gap-3 pr-9">
-        <BriefIcon tone="penny"><ArrowRightLeft size={16} /></BriefIcon>
+      <div className="pr-9">
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">

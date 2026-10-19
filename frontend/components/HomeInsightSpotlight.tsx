@@ -95,7 +95,7 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
 
   if (!loaded) {
     return (
-      <div className="px-4 lg:px-0">
+      <div>
         <div className="h-32 rounded-2xl glass-card animate-pulse" />
       </div>
     );
@@ -115,7 +115,7 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
 
   // AI-surface card — identity via icon chip gradient (Penny Gradient Rule), no side rail
   return (
-    <div className="px-4 lg:px-0 fade-in">
+    <div className="fade-in">
       <div
         ref={cardRef}
         className="relative rounded-2xl glass-card overflow-hidden touch-pan-y"
