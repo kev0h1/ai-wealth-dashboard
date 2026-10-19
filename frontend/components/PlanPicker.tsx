@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";
 import { usePurchaseChannel, PURCHASE_UNAVAILABLE_SENTENCE } from "@/lib/nativeAuth";
+import { describeProductLookup, errorKind, reportStoreDiagnostic, storePriceState } from "@/lib/storePriceState";
 import {
   loadPlayConfig, loadPlaySubscriptionProducts, openManagePlaySubscriptions, purchasePlaySubscription,
   restorePlayPurchases, type PlayBillingConfig, type PlayProductView,
@@ -275,11 +276,14 @@ export default function PlanPicker({
   const [playCfg, setPlayCfg] = useState<PlayBillingConfig | null>(null);
   const [playState, setPlayState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [playProducts, setPlayProducts] = useState<Record<string, PlayProductView>>({});
+  // G294: bumping this re-runs the store loaders ("Try again").
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     if (!play) return;
     let live = true;
     setPlayState("loading");
+    setPlayProducts({});
     (async () => {
       try {
         const config = await loadPlayConfig();
@@ -289,41 +293,51 @@ export default function PlanPicker({
         const ids = Object.entries(config.products ?? {}).filter(([key]) => !key.startsWith("penny_")).map(([, id]) => id);
         const views = await loadPlaySubscriptionProducts(ids);
         if (!live) return;
+        reportStoreDiagnostic("playProductsLoaded", describeProductLookup(ids, Object.keys(views)), "android");
         setPlayProducts(views);
         setPlayState("ready");
         // A purchase whose verification was interrupted is still held by Play;
         // restoring re-sends it (idempotent) and refreshes the plan.
         const { restored } = await restorePlayPurchases(config);
         if (restored > 0) { await invalidateOpenBankingAccess(); }
-      } catch {
-        if (live) setPlayState("failed");
+      } catch (e) {
+        if (live) {
+          reportStoreDiagnostic("playProductsFailed", errorKind(e), "android");
+          setPlayState("failed");
+        }
       }
     })();
     return () => { live = false; };
-  }, [play]);
+  }, [play, reloadNonce]);
 
   useEffect(() => {
     if (!storekit) return;
     let live = true;
     setIapState("loading");
+    setStoreProducts({});
     (async () => {
       try {
         const config = await loadIapConfig();
         if (!live) return;
         setIap(config);
         if (!config.enabled) { setIapState("failed"); return; }
-        const views = await loadStoreProducts(Object.entries(config.products).filter(([key]) => !key.startsWith("penny_")).map(([, id]) => id));
+        const ids = Object.entries(config.products).filter(([key]) => !key.startsWith("penny_")).map(([, id]) => id);
+        const views = await loadStoreProducts(ids);
         if (!live) return;
+        reportStoreDiagnostic("iapProductsLoaded", describeProductLookup(ids, Object.keys(views)), "ios");
         setStoreProducts(views);
         setIapState("ready");
         // A purchase whose verification was interrupted is still queued in StoreKit.
         if (await syncUnfinishedTransactions(config)) { await invalidateOpenBankingAccess(); }
-      } catch {
-        if (live) setIapState("failed");
+      } catch (e) {
+        if (live) {
+          reportStoreDiagnostic("iapProductsFailed", errorKind(e), "ios");
+          setIapState("failed");
+        }
       }
     })();
     return () => { live = false; };
-  }, [storekit]);
+  }, [storekit, reloadNonce]);
 
   const selectedStoreKey = selected === "statements" ? null : storeProductKey(selected, effectivePeriod);
   const selectedStoreView = selectedStoreKey && iap ? storeProducts[iap.products[selectedStoreKey]] : undefined;
@@ -332,6 +346,10 @@ export default function PlanPicker({
 
   const selectedPlayKey = selected === "statements" ? null : storeProductKey(selected, effectivePeriod);
   const selectedPlayView = selectedPlayKey && playCfg?.products ? playProducts[playCfg.products[selectedPlayKey]] : undefined;
+  // G294: loading only while the store is still being asked; a finished call
+  // with no entry for the selected product is unavailable, not loading.
+  const playPrice = storePriceState(playState, Boolean(selectedPlayView));
+  const storePrice = storePriceState(iapState, Boolean(selectedStoreView));
   const playBuy = play && !billingChangeInPortal && !playManaged && selected !== "statements";
   const playReady = Boolean(
     playCfg?.enabled && !playCfg.purchase_blocked && !playCfg.subscription_managed_in_play
@@ -365,7 +383,7 @@ export default function PlanPicker({
       // period); nothing is taken from the web price table or written here.
       if (playCfg?.purchase_blocked) return playCfg.purchase_blocked;
       if (playCfg?.subscription_managed_in_play) return "Change or cancel your plan in Google Play.";
-      if (!selectedPlayView) return playState === "failed" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from Google Play.";
+      if (!selectedPlayView) return playPrice === "unavailable" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from Google Play.";
       const trial = selectedPlayView.freeTrial;
       const cancelIn = "Cancel any time in Google Play, under Subscriptions.";
       if (trial) return `${trial.periodText} free, then ${selectedPlayView.priceString} ${renewalWords} unless you cancel before the free period ends. ${cancelIn}`;
@@ -374,7 +392,7 @@ export default function PlanPicker({
     if (storeBuy) {
       // C21: every figure here is the store's own (price string, offer
       // period); nothing is taken from the web price table or written here.
-      if (!selectedStoreView) return iapState === "failed" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from the App Store.";
+      if (!selectedStoreView) return storePrice === "unavailable" ? PURCHASE_UNAVAILABLE_SENTENCE : "Loading the price from the App Store.";
       const trial = selectedStoreView.freeTrial;
       const cancelIn = "Cancel any time in iOS Settings, under Subscriptions.";
       if (trial) return `${trial.periodText} free, then ${selectedStoreView.priceString} ${renewalWords} unless you cancel at least 24 hours before the free days end. ${cancelIn}`;
@@ -537,9 +555,13 @@ export default function PlanPicker({
     if (selected === "statements") {
       return context === "onboarding" ? "Continue with Statements" : current === "statements" ? "Current plan" : "Choose Statements";
     }
-    if (storeBuy && !storeReady && iapState !== "failed") return iap && !iap.purchase_allowed ? "Manage in Your plan" : "Loading plans…";
+    if (storeBuy && !storeReady && iapState !== "failed") {
+      if (iap && !iap.purchase_allowed) return "Manage in Your plan";
+      return storePrice === "unavailable" ? "Price unavailable" : "Loading plans…";
+    }
     if (playBuy && !playReady && playState !== "failed") {
-      return playCfg?.subscription_managed_in_play || playCfg?.purchase_blocked ? "Manage in Your plan" : "Loading plans…";
+      if (playCfg?.subscription_managed_in_play || playCfg?.purchase_blocked) return "Manage in Your plan";
+      return playPrice === "unavailable" ? "Price unavailable" : "Loading plans…";
     }
     if (!inAppBuy && !priceReady) return "Price unavailable";
     if (!canStartPurchaseFlow) return "Paid plans are not available yet";
@@ -690,7 +712,21 @@ export default function PlanPicker({
             {primaryLabel}
           </button>
         )}
-        <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><MoneyCopy text={disclosure} /></p>
+        <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+          <MoneyCopy text={disclosure} />
+          {((storeBuy && storePrice === "unavailable") || (playBuy && playPrice === "unavailable" && !playCfg?.purchase_blocked && !playCfg?.subscription_managed_in_play)) && (
+            <>
+              {" "}
+              <button
+                type="button"
+                onClick={() => setReloadNonce((n) => n + 1)}
+                className="inline-flex min-h-11 touch-manipulation items-center underline underline-offset-4 hover:text-indigo-600 active:opacity-70 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:hover:text-indigo-400"
+              >
+                Try again
+              </button>
+            </>
+          )}
+        </p>
         {purchasingAllowed && selected !== "statements" && !billingLive && (
           <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">You can compare every plan now. Paid checkout will open when billing is live.</p>
         )}
