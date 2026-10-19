@@ -6,7 +6,7 @@ export const STATES: { key: SpacingState; label: string }[] = [
   { key: "year", label: "Cross year" }, { key: "empty", label: "No spending" },
 ];
 
-// Independent synthetic examples. No amounts or transactions from customer data.
+// Independent synthetic regression examples. No amounts or transactions from customer data.
 export function spacingFixture(state: SpacingState): SpendVerdict {
   const closed = state === "completed";
   const empty = state === "empty";
