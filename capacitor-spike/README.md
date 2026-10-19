@@ -85,11 +85,18 @@ fingerprint, and `npm run check:apk-single` (in `frontend/`) fails unless
 exactly one APK exists under `frontend/public` and its versionCode is greater
 than the previous one.
 
-Current build: versionCode 3, versionName 1.0.0 (supersedes v2; the Play
+Current build: versionCode 5, versionName 1.0.0 (supersedes v4; the Play
 AAB is cut from the same export), SHA-256
-`de7674aa1b7eff18414bd1587f702983b3b6a96f25f34ee7893964a01cbbdffd`, signer
+`aaab93ff6bcf5293b8e52b71643d1cacc7413ad36e185af9693c50af72f07ff9`, signer
 certificate SHA-256 `72c3196e4d4d7640162fb64b5423e68544e6e1e1109f52ccd8152b43e2e2d78e`
 (CN=AURIQ LTD, O=AURIQ LTD, L=London, C=GB). Built on Capacitor 8.5.3.
+
+Version 5 is the first uploadable build carrying the Play Billing Library (C24,
+`@capgo/native-purchases`), whose manifest merge declares
+`com.android.vending.BILLING` (versionCode 4 was built with it too, but Play
+consumed that code). Play Console will not open the Subscriptions page, and so
+subscription products cannot be created, until an uploaded build declares that
+permission, so the Play AAB for versionCode 5 is the one to upload.
 
 Play AAB (C23): the Google Play bundle is built from the same web export and the
 same `android/` project as the sideload APK, with `./gradlew bundleSortedRelease`

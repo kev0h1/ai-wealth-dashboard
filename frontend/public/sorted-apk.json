@@ -1,9 +1,9 @@
 {
   "file": "sorted.apk",
-  "versionCode": 3,
-  "previousVersionCode": 2,
+  "versionCode": 5,
+  "previousVersionCode": 4,
   "versionName": "1.0.0",
-  "sha256": "de7674aa1b7eff18414bd1587f702983b3b6a96f25f34ee7893964a01cbbdffd",
+  "sha256": "aaab93ff6bcf5293b8e52b71643d1cacc7413ad36e185af9693c50af72f07ff9",
   "signerSha256": "72c3196e4d4d7640162fb64b5423e68544e6e1e1109f52ccd8152b43e2e2d78e",
   "api_base": "https://wealth.auriqltd.co.uk/api"
 }
