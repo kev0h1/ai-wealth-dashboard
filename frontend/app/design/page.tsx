@@ -152,10 +152,10 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "sts-tone",
-    name: "Calm, useful Safe to Spend · G287",
-    description: "A Quiet instrument, B Next step first. Ink amounts, precise risk signifiers and the same forecast working. One-off and repeated cash gaps, optional plans and a coverable account gap remain distinct. The unchanged production card is the current reference. Synthetic examples, no account changes. ?variant=a|b&state=one-off|habitual|plans|move|small|urgent|loading|stale|error|long&mode=light|dark",
-    states: [{ label: "Repeated shortfall", value: "habitual" }, { label: "One-off", value: "one-off" }, { label: "Plans only", value: "plans" }, { label: "Account move", value: "move" }, { label: "Small gap", value: "small" }, { label: "Payment at risk", value: "urgent" }, { label: "Loading", value: "loading" }, { label: "Stale", value: "stale" }, { label: "Error", value: "error" }, { label: "Long figures", value: "long" }],
-    variants: [{ label: "A · Quiet instrument", value: "a" }, { label: "B · Next step first", value: "b" }],
+    name: "Safe to Spend · complete card · G287",
+    description: "Revised complete production proposal. A uses a compact cash figure, quieter calculation disclosure and calmer corners; B keeps the original layout with only genuine cash-shortfall money in ink. Both render the actual SafeToSpendCard, retaining calculations, caveats, card activity, Your accounts and conditional Cards/payment actions. Current production compares the same fixture without presentation overrides. Synthetic examples only; action destinations are demonstrated locally. ?variant=a|b|current&state=habitual|cards|card-check|plans|comfortable|chronology|loading|stale|error|empty|degraded|long&mode=light|dark",
+    states: [{ label: "Repeated shortfall", value: "habitual" }, { label: "One-off", value: "one-off" }, { label: "Plans only", value: "plans" }, { label: "See your cards", value: "cards" }, { label: "Review card bill", value: "card-check" }, { label: "On track", value: "comfortable" }, { label: "Account gap", value: "move" }, { label: "Income arrives later", value: "chronology" }, { label: "Loading", value: "loading" }, { label: "Update delayed", value: "stale" }, { label: "Unavailable", value: "error" }, { label: "Not enough history", value: "empty" }, { label: "Incomplete calculation", value: "degraded" }, { label: "Long figures", value: "long" }],
+    variants: [{ label: "A · Calmer full card", value: "a" }, { label: "B · Original layout", value: "b" }, { label: "Current production", value: "current" }],
     group: "current",
   },
   {
