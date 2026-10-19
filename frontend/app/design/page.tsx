@@ -41,10 +41,18 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "keep-money-here",
-    name: "Keep money in this account · G274",
-    description: "G274: A Reserve here, B Details then review. Purpose and amount first, reserve in the paying account by default, optional receiving account and transfer rule. One/several/no-context/no-eligible-source fixtures, both themes, local draft confirmation only. No real changes · ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
+    name: "Earlier keep-money-here round · G274 · superseded by G291",
+    description: "Earlier alternatives, not shipping separately: Kevin folded this round into G291. Review plans-simple for the new end-to-end journey. Original A Reserve here and B Details then review remain for context, using synthetic drafts only. ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
     variants: [{ label: "A · Reserve here", value: "a" }, { label: "B · Details then review", value: "b" }],
     states: [{ label: "Ready", value: "ready" }, { label: "Load failure", value: "load-error" }, { label: "Save failure", value: "save-error" }],
+    group: "earlier",
+  },
+  {
+    slug: "plans-simple",
+    name: "Plans made simple · G291",
+    description: "Two working journey proposals: A Small steps, B One clear page. Purpose and target first, explicit paying-account confirmation, keep money here by default, optional transfer matching, direct Edit/Pause/Delete and Back within one production flow frame. Goals and set-asides retain different money rules. Synthetic examples only; goal Pause is a proposed capability, not a live bank action. G274's keep-here intent is folded into this review. No production change before selection.",
+    variants: [{ label: "A · Small steps", value: "a" }, { label: "B · One clear page", value: "b" }],
+    states: [{ label: "Known transfer", value: "matched" }, { label: "No transfer yet", value: "no-history" }, { label: "One account", value: "one-account" }, { label: "Several accounts", value: "many-accounts" }, { label: "Month is short", value: "short" }, { label: "Offline pot", value: "offline" }, { label: "No paying account", value: "no-source" }],
     group: "current",
   },
   {
