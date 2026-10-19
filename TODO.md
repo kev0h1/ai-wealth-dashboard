@@ -2522,6 +2522,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): conflict with main; merge origin/main into the branch (do not rebase, it is already pushed) and re-run session.sh finish
 - [ ] **G289. GroceryBasketCard and baskets.py still show 'Cheaper elsewhere' and 'save £X' per store, and FuelSavingsCard says 'Find cheaper fuel' and 'Cheapest nearby': decide whether these follow G283's facts-only rule (A165 perimeter map rows 17 and 18)** [owner: claude]
 - [ ] **G290. Delete dead code: TransportInsights.tsx (unreachable) and the legacy GET /insights rationale 'Move to 5% AER savings' in analytics.py:342 whose only renderer InsightList.tsx is unused** [owner: claude]
+- [ ] **G291. Radically simplify plans and set-asides for users with short attention spans and low reading confidence (Kevin 2026-10-19, UAT: 'it took me a while to figure all this out ... people with a really short attention span who can barely read may be put off'): even after G267 (plan editor, approved A) the flow spans a view sheet, an edit sheet and a 'Recognise your transfer' step with 'Check it yourself', 'Which payment fills it?', 'Exactly this' or 'Contains this', and 'Type it in myself'; rethink the whole create, view, edit and cancel journey for plans and set-asides, so a first-time user can set one up and understand it in seconds** [owner: codex]
 
 ## H. Repo hygiene
 
