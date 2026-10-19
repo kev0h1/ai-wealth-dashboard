@@ -218,7 +218,7 @@ to `--timeout-minutes` (default 30, H108: Railway builds take ~10 minutes
 each, so 15 was too tight), applied separately to Vercel and to each Railway
 service: Vercel until `vercel ls --prod` shows a Ready production deployment
 and the live production deployment, resolved through the alias lookup
-(`GET /v4/aliases`, then `GET /v13/deployments/{id}`), is READY, carries the
+(`GET /v4/aliases/wealth.auriqltd.co.uk`, then `GET /v13/deployments/{id}`), is READY, carries the
 pushed sha, and was created no earlier than the push time minus a 120 second
 clock-skew allowance; Railway until both services' latest
 deployment is `SUCCESS` at the released sha (if a service still deploys
@@ -288,8 +288,8 @@ then runs the same Vercel/Railway poll (same `--timeout-minutes` window and
 final re-check) and smoke checks as `deploy`. It then verifies Vercel actually
 switched (H108: a rollback push once did not trigger a Vercel redeploy): it
 resolves the live production deployment through the documented Vercel REST
-API (`GET /v4/aliases?projectId=` for the `wealth.auriqltd.co.uk` alias, which is
-the host of `PROD_WEB_URL`, then `GET /v13/deployments/{id}`, reading
+API (`GET /v4/aliases/wealth.auriqltd.co.uk`, the host of `PROD_WEB_URL`, looked up
+directly because the project alias list holds only preview aliases (H122), then `GET /v13/deployments/{id}`, reading
 `meta.githubCommitSha`, falling back to `gitSource.sha`, and failing closed if
 neither exists; authenticated with the token the logged-in Vercel CLI already
 holds, never printed) and, if that deployment is not built from the rollback
