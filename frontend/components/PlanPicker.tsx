@@ -654,7 +654,7 @@ export default function PlanPicker({
         </ul>
         <div className="space-y-1 border-y border-slate-200 py-3 dark:border-slate-600">
           <p aria-live="polite" aria-atomic="true" className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-slate-900 dark:text-slate-100">
-            <strong className={`text-[19px] ${selected !== "statements" && (inAppBuy || priceReady) ? "money tabular-nums" : ""}`}>{selected === "statements" ? "Free" : inAppBuy ? (inAppView?.priceString ?? "…") : priceReady ? money(total) : "Price unavailable"}</strong>
+            <strong className={`text-[19px] ${selected !== "statements" && (inAppBuy || priceReady) ? "money tabular-nums" : ""}`}>{selected === "statements" ? "Free" : inAppBuy ? (inAppView?.priceString ?? ((storeBuy ? storePrice : playPrice) === "unavailable" ? "Price unavailable" : "…")) : priceReady ? money(total) : "Price unavailable"}</strong>
             {selected !== "statements" && (inAppBuy || priceReady) && <span className="text-sm">{renewalWords}</span>}
           </p>
           {selected !== "statements" && !inAppBuy && priceReady && chosenPeriod && chosenPeriod.id !== "monthly" && <>

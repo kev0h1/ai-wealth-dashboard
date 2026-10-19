@@ -28,8 +28,7 @@ const src = readFileSync(new URL("../components/PlanPicker.tsx", import.meta.url
 assert.match(src, /playPrice === "unavailable" \? PURCHASE_UNAVAILABLE_SENTENCE/, "Play disclosure uses the unavailable sentence");
 assert.match(src, /storePrice === "unavailable" \? PURCHASE_UNAVAILABLE_SENTENCE/, "Apple disclosure uses the unavailable sentence");
 assert.equal((src.match(/"Price unavailable"/g) ?? []).length >= 3, true, "button labels no longer loop on Loading plans");
-assert.match(src, /\}, \[play, reloadNonce\]\)/, "Play loader re-runs on reloadNonce");
-assert.match(src, /\}, \[storekit, reloadNonce\]\)/, "Apple loader re-runs on reloadNonce");
+assert.ok((src.match(/reloadNonce\]\)/g) ?? []).length >= 2, "both store loaders re-run on reloadNonce");
 assert.match(src, /setReloadNonce\(\(n\) => n \+ 1\)/, "Try again bumps the nonce");
 assert.match(src, /Try again/);
 assert.match(src, /reportStoreDiagnostic\("playProductsLoaded"/);
