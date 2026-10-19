@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "spend-period-picker",
-    name: "Spend period picker · G285",
-    description: "Preview-only: A full-width range and inline arrows, B dates under Spend with separate arrows, C one chooser with stepping inside. Full date labels, 44px controls and visible Search. September, year-boundary and weekly fixtures plus loading/error/empty. Both themes; no live data or account changes · ?variant=a|b|c&scenario=monthly|year|weekly&state=ready|loading|error|empty&mode=light|dark",
-    variants: [{ label: "A · Full range", value: "a" }, { label: "B · Date under Spend", value: "b" }, { label: "C · One period chooser", value: "c" }],
-    states: [{ label: "Ready", value: "ready" }, { label: "Loading", value: "loading" }, { label: "Load problem", value: "error" }, { label: "No periods", value: "empty" }],
-    group: "current",
-  },
-  {
     slug: "plan-picker-v2",
     name: "Choose what fits · B50",
     description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
