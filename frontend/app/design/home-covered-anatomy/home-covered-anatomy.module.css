@@ -1,0 +1,67 @@
+.preview { min-height: 100dvh; background: #f0f2f7; color: #0f172a; padding: 28px 16px 56px; }
+.preview:global(.dark) { background: #0f172a; color: #f1f5f9; }
+.shell { margin: 0 auto; max-width: 980px; }
+.header { max-width: 640px; }
+.header h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
+.header > p:last-child { margin: 8px 0 0; color: #475569; font-size: 14px; line-height: 1.5; }
+.preview:global(.dark) .header > p:last-child { color: #cbd5e1; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 12px; }
+.controlGroup { display: flex; max-width: 100%; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 12px; background: rgba(255,255,255,.7); }
+.controls a, .controls button { display: inline-flex; min-height: 44px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 9px; padding: 8px 12px; color: #334155; font-size: 12px; font-weight: 650; text-decoration: none; transition: transform 150ms, background-color 150ms, color 150ms; -webkit-tap-highlight-color: transparent; }
+.controls a[aria-current="page"] { background: #4f46e5; color: #fff; }
+.controls button { border: 1px solid #cbd5e1; background: #fff; cursor: pointer; }
+.controls a:active, .controls button:active { transform: scale(.95); }
+.controls a:focus-visible, .controls button:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+@media (hover: hover) { .controls a:not([aria-current="page"]):hover, .controls button:hover { background: #e2e8f0; } .preview:global(.dark) .controls a:not([aria-current="page"]):hover, .preview:global(.dark) .controls button:hover { background: #334155; } }
+.preview:global(.dark) .controlGroup { border-color: #475569; background: rgba(30,41,59,.75); }
+.preview:global(.dark) .controls a { color: #cbd5e1; }
+.preview:global(.dark) .controls a[aria-current="page"] { color: #fff; }
+.preview:global(.dark) .controls button { border-color: #475569; background: #1e293b; color: #e2e8f0; }
+.intro { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 16px; color: #475569; font-size: 13px; line-height: 1.5; }
+.intro strong { color: #0f172a; }
+.preview:global(.dark) .intro { color: #cbd5e1; }.preview:global(.dark) .intro strong { color: #fff; }
+.single { width: min(100%, 430px); }
+.family { display: grid; grid-template-columns: minmax(0, 430px); gap: 12px; align-items: start; }
+.card { min-width: 0; }
+.card[data-g292-card="tip"] > div { padding-left: 0; padding-right: 0; }
+.independent { grid-column: 1 / -1; margin: 0; color: #64748b; font-size: 12px; line-height: 1.45; }
+.preview:global(.dark) .independent { color: #cbd5e1; }
+.skip { position: absolute; left: -9999px; top: auto; }
+.skip:focus { position: fixed; left: 16px; top: 16px; z-index: 30; min-height: 44px; display: inline-flex; align-items: center; border-radius: 12px; background: #0f172a; padding: 8px 12px; color: #fff; font-size: 14px; font-weight: 600; }
+.status { min-height: 20px; margin: 16px 0 0; color: #64748b; font-size: 12px; line-height: 1.45; }
+.preview:global(.dark) .status { color: #94a3b8; }
+
+/* A: one compact semantic confirmation, with the same text edge across the family. */
+.a :global([data-g292-card="covered"] > div > div:first-child > span:first-child),
+.a :global([data-g292-card="cover"] > div > div:first-child > span:first-child),
+.a :global([data-g292-card="move"] > div > div:first-child > span:first-child) { display: none; }
+.a :global([data-g292-card="covered"] > div > div:first-child),
+.a :global([data-g292-card="cover"] > div > div:first-child),
+.a :global([data-g292-card="move"] > div > div:first-child) { display: block; }
+
+/* B: the tile is the sole confirmation. The supporting lead and body align with its text column. */
+.b :global([data-g292-card="covered"] > div > div:first-child > div > span svg) { display: none; }
+.b :global([data-g292-card="covered"] > div > div:not(:first-child)),
+.b :global([data-g292-card="covered"] > div > p),
+.b :global([data-g292-card="cover"] > div > div:not(:first-child)),
+.b :global([data-g292-card="cover"] > div > p),
+.b :global([data-g292-card="cover"] > div > details),
+.b :global([data-g292-card="move"] > div > div:not(:first-child)),
+.b :global([data-g292-card="move"] > div > p),
+.b :global([data-g292-card="move"] > div > details) { margin-left: 48px; max-width: calc(100% - 48px); }
+
+/* C: words carry the resolved state; neither of the prior confirmation marks remains. */
+.c :global([data-g292-card="covered"] > div > div:first-child > span:first-child),
+.c :global([data-g292-card="covered"] > div > div:first-child > div > span svg),
+.c :global([data-g292-card="cover"] > div > div:first-child > span:first-child),
+.c :global([data-g292-card="move"] > div > div:first-child > span:first-child) { display: none; }
+.c :global([data-g292-card="covered"] > div > div:first-child),
+.c :global([data-g292-card="cover"] > div > div:first-child),
+.c :global([data-g292-card="move"] > div > div:first-child) { display: block; }
+.c :global([data-g292-card="covered"] > div > div:first-child > div > span) { color: #64748b; }
+.c :global([data-g292-card="covered"] > div > div:first-child > div > span) { gap: 0; }
+.preview.c:global(.dark) :global([data-g292-card="covered"] > div > div:first-child > div > span) { color: #e2e8f0; }
+
+@media (min-width: 760px) { .family { grid-template-columns: repeat(2, minmax(0, 430px)); } }
+@media (max-width: 359px) { .preview { padding-left: 12px; padding-right: 12px; }.controls a, .controls button { padding-left: 10px; padding-right: 10px; } }
+@media (prefers-reduced-motion: reduce) { .controls a, .controls button { transition: none; } }
