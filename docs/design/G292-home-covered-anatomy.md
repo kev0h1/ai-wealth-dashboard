@@ -1,6 +1,6 @@
 # G292: one signal, one reading column
 
-Design round only, Operate mode. This inherits Home's Calm Cockpit, not a new visual identity. The audience is checking a phone quickly, in daylight or at night; both existing themes are required. Production, copy and money logic remain unchanged until Kevin chooses.
+Historical design round and approved fold-in record, Operate mode. This inherits Home's Calm Cockpit, not a new visual identity. The audience is checking a phone quickly, in daylight or at night; both existing themes are required. Kevin chose A on 19 October 2026. The temporary preview is retired in the fold-in described below; the original design-round evidence remains a record of that preview only.
 
 ## Direction contract
 
@@ -33,3 +33,15 @@ The production-mode confirmation passed 43 layouts across 390px light/dark, 320p
 Evidence remains local under `frontend/.impeccable/review/g292-final/`; `browser.test.mjs` and `fixtures.test.mjs` reproduce the synthetic checks. The manual CDP workflow overrides the phone viewport and waits for hydration and fonts explicitly, rather than relying on Chrome's clamped command-line window size. The first sandboxed Chrome launch was denied; verification ran with approved local-browser access. No generated imagery ships in this round.
 
 Web Interface Guidelines were checked alongside the repository rules: native labelled controls, focus visibility, a skip target, large tap targets, reduced-motion support, responsive wrapping and both colour schemes. Existing project sentence-case and financial-colour rules take precedence over generic style preferences.
+
+## Approved A fold-in, 19 October 2026
+
+Kevin chose A in chat: inline Covered tick, no large decorative tile and one full-width reading column. `CelebrationCard`, both `MoveCard` branches and both `UnfundedMoveCard` branches now implement that anatomy directly, without preview CSS. Their labels, wording, financial logic, meaningful signs, bank identities, evidence, actions and V2 dismiss controls are unchanged. `HomeInsightSpotlight` drops the redundant outer horizontal inset in both its loading and loaded paths; the inner 16px inset remains. The approved rule is recorded in DESIGN.md.
+
+Before retirement, the temporary round rendered these changed production components with all A anatomy overrides removed. Its production-mode browser check passed 15 layouts across 390px light/dark, 320px long text, 1280px family and masked compact-family examples, plus native touch/keyboard opening, both local dismiss paths, Reset, no overflow, no exceptions and no customer API attempts. Root inspected all six captures at `frontend/.impeccable/review/g292-a-foldin/`. These are synthetic component checks, not authenticated Home screenshots or evidence of deployment.
+
+The permanent `check:g292-home-anatomy` gate renders 14 production card cases, including both compact and fallback move paths, dismiss semantics, semantic marks, hedged Covered wording, existing routes, financial fixture reconciliation and supported money masking. Raw props exposed a pre-existing masking gap in the legacy move fallback's headline and no-destination body. That is recorded separately as B54; no pre-masked fixture hides it and this layout change does not claim to fix it.
+
+H113 retirement: the complete `app/design/home-covered-anatomy/` directory and its index entry are deleted. No production, Remotion, script, compliance or approval-pack dependency needs the round. Synthetic regression data moved to `frontend/scripts/fixtures/g292-home-anatomy.ts`; the permanent test imports components directly, not a retained preview. Previous preview URLs and round-only test paths above are historical and no longer served. No new raster assets ship. The coordinator owns merge and publication after normal session finish, not a further design-choice round.
+
+Final independent source and visual audit: PASS, with no required changes. A separate documentation audit also passed. Both confirmed approved-A parity, preview retirement and the explicitly recorded B54 limitation. Web Interface Guidelines review found no new accessibility issue in the changed layout; existing keyboard activation, focus treatment, native dismiss controls and semantic colour marks are preserved.
