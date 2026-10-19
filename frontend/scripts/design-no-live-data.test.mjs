@@ -37,6 +37,27 @@ try {
   ]) {
     fails(name, source);
   }
+  for (const [name, source] of [
+    ["original-leaked-note", `export const note = "Coordinator review: the conclusion rests on TrueLayer's documented formula plus how Sorted stores balance.";`],
+    ["internal-jsx", `export default () => <p>Coordinator review: awaiting evidence.</p>;`],
+    ["internal-template", 'export const text = `Coordinator review: ${decision}`;'],
+    ["pasted-board-metadata", 'export const copied = "| H42 | [owner: codex] [state: review] [branch: feature-H42-live] |";'],
+    ["pasted-board-markdown", 'export const copied = "- [ ] G41. Internal task description";'],
+    ["copied-board-object", 'export const copied = { id: "G41", section: "G", owner: "claude", state: "blocked", title: "Copied task" };'],
+    ["raw-todo-import", 'import board from "../../../TODO.md"; export default board;'],
+    ["raw-todo-dynamic", 'export const board = import("../../../TODO.md?raw");'],
+    ["raw-todo-require", 'export const board = require("../../../TODO.md");'],
+    ["raw-compliance-export", 'export { default } from "../../../docs/compliance/finexer-agent-controls-2026-09.md";'],
+    ["raw-board-read", 'export const path = "../TODO.md";'],
+  ]) fails(name, source);
+
+  const safeBoardDir = writeFixture("synthetic-board", `
+    // Coordinator review: comments describing the guard are not fixture data.
+    export const card = { id: "A9001", section: "A", owner: "codex", state: "todo",
+      title: "Synthetic account summary example", link: "https://example.invalid/design/card" };
+    export default () => <p>Review the account summary example.</p>;
+  `);
+  assert.deepEqual(scanDesignDirectory(safeBoardDir), [], "synthetic board examples and comments must pass");
   const safeDir = writeFixture("fixture-and-types", `
     import type { Account, Transaction } from "@/lib/api";
     import { type SafeToSpend } from "@/lib/api";

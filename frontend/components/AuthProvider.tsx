@@ -531,14 +531,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // /design/* pages are static mockups with zero user data — always public.
+  // /design previews are anonymous on UAT. Production builds replace their
+  // route modules with 404s before bundling (A97, next.config.ts).
   // /terms and /privacy are the published legal documents — anonymous
   // visitors and regulators need to read them without signing in.
   // /oauth/consent (F2) manages its own auth: an MCP client's browser
   // lands there straight off GET /auth/oauth/authorize with no session at
   // all, so the page renders LoginScreen itself when needed rather than
   // this provider's own gate below.
-  if (pathname?.startsWith("/design") || pathname === "/terms" || pathname === "/privacy" || pathname?.startsWith("/oauth/consent")) {
+  if (pathname === "/design" || pathname?.startsWith("/design/") || pathname === "/terms" || pathname === "/privacy" || pathname?.startsWith("/oauth/consent")) {
     return <>{children}</>;
   }
 

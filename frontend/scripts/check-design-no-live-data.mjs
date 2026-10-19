@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// A26: /design/* ships to production auth-exempt (AuthProvider.tsx lets any
-// path starting with "/design" through with no session check at all, "static
-// mockups with zero user data — always public"). That's only safe as long as
+// A26/A97: /design/* is anonymous on UAT; production builds strip its route
+// imports and return 404s. Anonymous previews are only safe as long as
 // no file under app/design actually calls a real API, reads real cookies, or
 // runs on the server with access to anything a signed-in session could see.
 // This is a standing regression guard, not a one-off audit: /design grows a
@@ -58,6 +57,30 @@ function listFiles(dir) {
   return out;
 }
 
+// Static does not mean public-safe: a pasted board note is still internal
+// information even when no API is called. Inspect values, not comments.
+function inspectInternalFixture(node, report) {
+  const text = ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isJsxText(node) ? node.text : null;
+  if (text) {
+    if (/(?:^|[/\\])(?:TODO\.md|finexer-agent-controls-[^/\\]+\.md)(?:[?#].*)?$/i.test(text)) {
+      report("references raw internal board content");
+    }
+    if (/\b(?:coordinator(?:'s)? (?:review|integrate pass)|recorded branch|board's state machine|session\.sh (?:finish|start)|backlog\.py (?:note|block|reject))\b/i.test(text)) {
+      report("contains internal board-process prose");
+    }
+    if (/\[(?:owner|state|priority|branch|reason|commit):\s*[^\]]+\]/i.test(text) || /^\s*[-*]\s+\[[ xX]\]\s+(?:\*\*)?[A-H]\d+[.)\s*]/m.test(text)) {
+      report("contains pasted board metadata");
+    }
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const properties = new Map(node.properties.filter(ts.isPropertyAssignment).map(p => [p.name?.text, p.initializer]));
+    const id = properties.get("id");
+    if (["section", "owner", "state", "title"].every(key => properties.has(key)) && id && ts.isStringLiteralLike(id) && /^[A-H]\d{1,3}$/.test(id.text)) {
+      report("uses a real-shaped board id; use synthetic ids in the 8000/9000 range for board examples");
+    }
+  }
+}
+
 function inspectFile(file) {
   const source = readFileSync(file, "utf8");
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
@@ -65,6 +88,7 @@ function inspectFile(file) {
   const report = (why) => violations.push(why);
 
   function visit(node) {
+    inspectInternalFixture(node, report);
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && isApiModule(node.moduleSpecifier.text, sourceFile) && importHasRuntimeValue(node.importClause)) {
       report("imports the real API module at runtime");
     }
@@ -109,9 +133,9 @@ function main() {
     console.log(`check:design-no-live-data OK (${files.length} files under app/design, static fixtures only)`);
     return 0;
   }
-  console.error("Files under app/design that could reach real user data (this ships auth-exempt, see AuthProvider.tsx):");
+  console.error("Files under app/design with live data access or internal board content (anonymous on UAT):");
   for (const violation of violations) console.error(`  - ${path.relative(frontendRoot, violation.file)}: ${violation.why}`);
-  console.error("\napp/design/* must stay static fixture data only. Move any real data need out of /design.");
+  console.error("\napp/design/* must use public-safe static fixtures. Remove internal board prose and move live data needs out of /design.");
   return 1;
 }
 
