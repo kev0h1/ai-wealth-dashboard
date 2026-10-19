@@ -60,7 +60,7 @@ assert.equal(COVER_MOVE_ITEM.moves.reduce((sum, move) => sum + move.amount, 0), 
 assert.equal(COVER_MOVE_ITEM.plan_dest.balance + COVER_MOVE_ITEM.amount, COVER_MOVE_ITEM.plan_dest.needs_total);
 for (const move of COVER_MOVE_ITEM.moves) assert.notEqual(move.move_map.from.account_id, move.move_map.to.account_id);
 const tip = render(h(HomeInsightSpotlight, { previewInsight: TIP }));
-assert.match(tip, /^<div class="fade-in">/, "tip has no second outer horizontal inset");
+assert.match(tip, /^<div class="px-4 lg:px-0 fade-in">/, "loaded tip supplies the mobile page gutter in HomePage's unpadded group");
 assert.match(tip, /w-full text-left p-4/, "one 16px internal reading inset");
 assert.match(tip, /aria-label="Dismiss insight"/, "tip dismissal retained");
 const source = readFileSync(new URL("../components/HomeBrief.tsx", import.meta.url), "utf8");
@@ -69,6 +69,6 @@ for (const [start, end] of [
   ["export function UnfundedMoveCard", "interface IntentPaceCardProps"],
   ["export function MoveCard", "interface RhythmCardProps"],
 ]) assert.doesNotMatch(source.slice(source.indexOf(start), source.indexOf(end)), /<BriefIcon/, "both move branches and Covered must stay tile-free");
-const tipSource = readFileSync(new URL("../components/HomeInsightSpotlight.tsx", import.meta.url), "utf8");
-assert.doesNotMatch(tipSource, /px-4 lg:px-0/, "skeleton and loaded tip share the card edge");
+const tipSkeleton = render(h(HomeInsightSpotlight));
+assert.match(tipSkeleton, /^<div class="px-4 lg:px-0"><div class="h-32 /, "loading tip supplies the same mobile page gutter as the loaded card");
 console.log(`PASS G292 A: ${renders} production card states, both move branches, supported masking (legacy gap tracked B54), semantic marks, actions, financial fixtures and tip alignment.`);
