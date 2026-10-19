@@ -797,6 +797,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): Coordinator review PASS 2026-10-18 on 2efdbe0d: PlanPicker conflict resolved keeping B50's approved layout with Lite 10/40, Standard 25/150, Plus unlimited/300 and an all-features line; full suite 5019 passed. Kevin's open decisions unchanged (Max subscribers' price, pack repricing, terms proposal, B51 cancellation, Railway DEFAULT_TIER). C21 and C24 should rename max to plus after this lands.
   - note (2026-10-18, claude): Kevin (2026-10-18): Max is dropped in favour of Plus, and Lite is 10 accounts (not banks). Confirmed; no code change needed beyond what B53 shipped.
   - note (2026-10-18, claude): Kevin (2026-10-18): no one is paying yet, so the legacy Max to Plus price question is moot; the G270 migration can map everything to the Plus prices with no grandfathering.
+- [ ] **B54. Legacy HomeBrief move fallback bypasses hide-balances masking for its headline and no-destination body; route both through maskAmounts and add direct regression coverage** [owner: codex]
 
 ## C. Store publishing
 
