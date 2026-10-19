@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "home-brief-anatomy",
+    name: "One reading edge · G295",
+    description: "Carry G292 A through the whole Home brief family. A Quiet spine removes decorative header tiles; B Inline cues keeps only small eyebrow icons. Real production cards through synthetic props, including debt trajectory, card detail, payday, move plans, tips and optional states. No production changes or live actions.",
+    variants: [{ label: "A · Quiet spine", value: "a" }, { label: "B · Inline cues", value: "b" }],
+    states: [{ label: "Reported cards", value: "focus" }, { label: "Whole family", value: "family" }, { label: "Long and optional", value: "edges" }, { label: "Hidden amounts", value: "hidden" }, { label: "Empty brief", value: "empty" }],
+    group: "current",
+  },
+  {
     slug: "plan-picker-v2",
     name: "Choose what fits · B50",
     description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
