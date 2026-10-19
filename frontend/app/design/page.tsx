@@ -495,14 +495,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Projected: left", value: "positive" }, { label: "Projected: short", value: "negative" }],
   },
   {
-    slug: "home-covered-anatomy",
-    name: "Covered: one signal, one column · G292",
-    description: "Three preview-only layouts on the real Home cards: A keeps one inline tick and removes the large tile; B keeps the tile and aligns every line in its text column; C lets Covered speak without icons. The actual dismiss chip, figures, hedges, evidence and actions remain. Independent synthetic sibling examples for move/cover/tip, long names, missing detail and masked figures. Production is unchanged until a choice.",
-    variants: [{ label: "A · Inline mark", value: "a" }, { label: "B · Retained tile", value: "b" }, { label: "C · Words only", value: "c" }],
-    states: [{ label: "Covered", value: "covered" }, { label: "Card family", value: "family" }, { label: "Long account", value: "long" }, { label: "Masked", value: "masked" }, { label: "No detail", value: "missing-body" }],
-    group: "current",
-  },
-  {
     slug: "home-brief-cards",
     name: "home-brief-cards",
     description:
