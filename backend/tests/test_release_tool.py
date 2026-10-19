@@ -857,7 +857,9 @@ def _fake_vercel(state):
         if f"/v4/aliases/{release.PROD_DOMAIN}" in url:
             if state.get("alias_404"):
                 raise release.RemoteError("HTTP 404 not_found")
-            entry = {"alias": release.PROD_DOMAIN, "projectId": state.get("alias_project", "prj_1")}
+            entry = {"alias": release.PROD_DOMAIN}
+            if not state.get("alias_no_project"):
+                entry["projectId"] = state.get("alias_project", "prj_1")
             if not state.get("alias_no_dep"):
                 entry["deploymentId"] = state["live"]
             return entry
@@ -937,6 +939,14 @@ def test_resolve_live_fails_closed_on_project_mismatch():
     with pytest.raises(release.RemoteError) as ei:
         release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
     assert "prj_other" in str(ei.value) and "prj_1" in str(ei.value)
+    assert not any("/v13/" in u for _, u in state["calls"])
+
+
+def test_resolve_live_fails_closed_without_project_id():
+    state = {"live": "d_target", "alias_no_project": True}
+    with pytest.raises(release.RemoteError) as ei:
+        release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert "none" in str(ei.value) and "prj_1" in str(ei.value)
     assert not any("/v13/" in u for _, u in state["calls"])
 
 

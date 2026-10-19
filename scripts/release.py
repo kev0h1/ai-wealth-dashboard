@@ -947,9 +947,9 @@ def resolve_live_vercel_deployment_obj(
     if not dep_id:
         raise RemoteError(f"alias {PROD_DOMAIN} has no deploymentId field")
     alias_project = entry.get("projectId")
-    if alias_project and alias_project != project_id:
+    if alias_project != project_id:
         raise RemoteError(
-            f"alias {PROD_DOMAIN} belongs to project {alias_project}, not the linked project {project_id}"
+            f"alias {PROD_DOMAIN} belongs to project {alias_project or 'none'}, expected the linked project {project_id}"
         )
     dep = http("GET", f"{VERCEL_API}/v13/deployments/{dep_id}{_team_q(org_id)}", token, timeout)
     return dep_id, dep
