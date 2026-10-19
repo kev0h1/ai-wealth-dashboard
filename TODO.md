@@ -798,6 +798,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-18, claude): Kevin (2026-10-18): Max is dropped in favour of Plus, and Lite is 10 accounts (not banks). Confirmed; no code change needed beyond what B53 shipped.
   - note (2026-10-18, claude): Kevin (2026-10-18): no one is paying yet, so the legacy Max to Plus price question is moot; the G270 migration can map everything to the Plus prices with no grandfathering.
 - [ ] **B54. Legacy HomeBrief move fallback bypasses hide-balances masking for its headline and no-destination body; route both through maskAmounts and add direct regression coverage** [owner: codex]
+  - note (2026-10-19, codex): Found while testing G292 A. Direct raw-prop SSR with hideNetWorth=true exposes £70 in MoveCard fallback headline and no-plan_dest body; BriefBody passes raw items and MoneyText only formats, so no upstream masking covers this. Pre-existing source at HomeBrief.tsx headline/fallback body. G292 remains layout-only; its tests explicitly disclose this known exception rather than pre-masking fixture data.
 
 ## C. Store publishing
 
