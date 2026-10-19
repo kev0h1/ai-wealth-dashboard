@@ -1,37 +1,38 @@
-# G287: calm, useful Safe to Spend shortfalls
+# G287: complete Safe to Spend proposal
 
-Design round only. Operate mode, extending the existing Home instrument. The current G218 hero is the reference, not silently replaced. Kevin will choose between coded alternatives before any production or DESIGN.md change.
+Revised design round, 19 October 2026. Kevin requested the whole intended production card after the earlier preview omitted footer actions and showed a sticky purple calculation row. This is not a variant approval or permission to fold into production. G218 remains the production colour doctrine until a choice is approved.
 
-## Direction contract
+## Direction and delivery contract
 
-THESIS: state the cash consequence and a useful next step without a daily wall of red. Familiarity with a shortfall never makes a genuine payment risk disappear.
+- Use the actual unchanged `SafeToSpendCard` in every option, with synthetic fixture props. No copied financial ledger, replacement caveats, invented CTA or extra production prop.
+- **A, Calmer full card:** 30px cash figure, 16px hero corners and a neutral calculation disclosure. Only genuine cash-shortfall hero money changes from red to ink; the existing Short risk chip and signed calculation stay. All other financial-state colours remain as they are.
+- **B, Original layout:** original figure size, geometry and content, with only genuine cash-shortfall hero money changed to ink. The original indigo disclosure text remains, without a filled touch-hover state.
+- **Current production:** the same real component and fixture without proposed presentation overrides. Mount one card at a time to avoid duplicate heading IDs and make comparison like-for-like.
+- All presentation changes live in this temporary preview's CSS module. Production components, financial helpers, API behaviour and `DESIGN.md` are untouched.
+- The real card includes the calculation, date-order caveat, card-activity panel, spend-from scope, footer freshness/estimate caveats, Your accounts and conditional See your cards, Review card bill or See what’s due action. No unavailable history feature appears as shippable UI.
+- On desktop, review notes sit beside the card; they are not proposed production content. On phones they follow the card.
 
-OWN-WORLD: Calm Cockpit slate/white surfaces, Figtree labels, mono ink money and compact semantic signifiers. No new brand language, decorative warning surfaces or Penny gradient.
+## Financial and interaction boundaries
 
-STORY: distinguish money needed for payments from money reserved for optional plans, see the exact working, inspect a relevant next step and understand any recurring pattern without blame.
+- Repeated and one-off cash gaps have the same risk verdict. Familiarity does not make a payment safe. Keep the genuine cash gap, exact pence and meaningful signs in the actual production calculation.
+- Plans-only remains amber. Card-check keeps its existing £0 available headline with the signed safety shortfall in the separate card calculation. Do not claim a negative card safety position is negative cash.
+- The later-income fixture intentionally has a date-ordered low point that differs from cash now plus whole-window income minus bills. The actual component withholds unreconciled rows and explains the dated minimum.
+- A positive pooled forecast is not proof that every paying account is funded. The account-gap fixture does not invent a completed move or a replacement account-risk card.
+- Preview capture prevents the real Accounts/Cards/Upcoming controls from navigating and reports their actual destination in a labelled local status. Disclosures work inline, keyboard activation uses native controls, and Retry changes synthetic state only. No bank action, customer API request, account mutation, automatic Penny turn or external model call.
+- Legacy `masked=1` links gate the entire unmasked card and amount-bearing scenario note. This is a privacy gate, not a demonstration of production's masked layout. Production hide-balances behaviour is unchanged.
+- Relative fixture dates mount after preview hydration, with the actual loading card before them. This prevents a cached server fixture's as-of minute disagreeing with a fresh browser bundle. No production date logic is changed.
+- Scope a content-aside restore to this card only: the design shell's sidebar-hiding rule must not hide Card balance activity. Do not loosen the global navigation rule.
+- British English, no em dashes, established tokens and Figtree/mono typography. Solid indigo actions are not the Penny-only gradient.
 
-FIRST VIEWPORT: A keeps the amount-led instrument but replaces coloured money with ink and a precise consequence signifier. B leads with the next useful review and shows the gap beside its cause. Both preserve the calculation and an inspectable ledger; on desktop the evidence gains its own column rather than stretching the phone.
+## Verification and review record
 
-FORM: two local coded treatments of the existing hero. The unchanged production SafeToSpendCard is available through synthetic fixture props as the current reference, while proposed new layouts remain preview-only. No new production prop or CSS override ships in this round. Same data, different hierarchy, no competing financial calculation.
+`fixtures.test.mjs` passes for all 16 fixtures in A, B and Current production against the direct production component's exact server-rendered content. It also checks forecast/reserve invariants, the real actions, caveats, chronology and privacy guard.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+- The final Chromium confirmation against the production bundle passes 56 layouts, using actual 320px, 375px, 390px and 1280px viewport overrides in light and dark themes. Required card panels are visible, cards fit the shell, long figures do not overflow and rendered controls meet 44px targets.
+- Real touch events leave the A/B disclosure unfilled when open. Native keyboard Enter opens/closes it with a visible focus ring; Tab reaches the payment button and Your accounts. Accounts, both Cards actions and Upcoming are intercepted locally with correct destinations. Retry/Check again recover four synthetic states. Legacy masking mounts no figure and leaks no amount-bearing note. There were zero page exceptions and zero customer API attempts.
+- Root inspected the phone, narrow, desktop and open-ledger captures at original detail. Final evidence is local at `/tmp/g287-production-confirmation-20261019/`, with `results.json` and captures, not shipped as app assets. Persistent CDP uses explicit fresh-document, hydration, fonts and two-frame waits rather than a CLI virtual-time budget that would terminate the target.
+- A fresh Web Interface Guidelines review found and resolved the preview's missing skip link. Final new UI files pass the native-control, label, focus, touch, reduced-motion, theme and overflow checks. This is Chromium touch emulation, not a claim of physical iOS Safari testing.
+- The independent reviewer first found the hidden content-aside and stale documentation/index descriptions. Both were corrected, and the final audit is PASS with no remaining substantive issue. Prior 17 October captures belonged to the removed handmade design and are not evidence for this revision.
+- Production build, scoped ESLint, fixture tests, design-index, strict design-stale, design-no-live-data, no-raw-fetch and diff checks pass. The full disposable-database suite, typecheck and remaining registered checks are the normal `session.sh finish --uat-review` gate; their result is recorded on the board.
 
-## Financial and emotional boundaries
-
-- Required fixtures: one-off cash shortfall, habitual cash shortfall, plans-only shortfall and an account-level gap coverable by an own-account transfer. Also verify a small gap, immediate genuine payment risk, masked values, loading/stale/error and long figures.
-- A recurring pattern never downgrades genuine risk. Red may identify an evidenced payment at risk, not a person's identity. Small does not mean harmless if a payment is due. Optional plans are not bills, so passing a plan reserve is not a red payment warning.
-- A transfer between counted accounts cannot repair a negative pooled cash forecast. The coverable fixture must have sufficient pooled cash, a specifically short paying account, a valid spare source and conditional wording. A proposed transfer is not a completed transfer. Do not fabricate a recovery action for a pooled gap.
-- Use existing `deriveSafeToSpendHeadline` and real SafeToSpend fixture shapes for the headline basis. Show the signed shortfall in the working even when the main figure reads an unsigned amount with a clear 'needed' label. Reconcile every displayed operand, including the time-ordered low point where applicable.
-- The historical '4 of 6 periods' example is synthetic, based on comparable completed periods and labelled as a proposed evidence view. Unknown or stale history is withheld. It is not a prediction, a character judgement or a new claim about stored production history.
-- No financial advice, bank action, account mutation, plan save, automatic Penny turn or external model call. Controls explore local state and review evidence only. The standard estimate disclaimer remains. No em dashes; British English; full grouped mono currency and meaningful signs.
-- Measure current red-on-dark contrast and report it, but do not revise global tokens or DESIGN.md until a winner is chosen. Root inspects 390px both themes, 320px/desktop and material states in bounded passes, then gets an independent review.
-- Register `/design/sts-tone`, run index/stale gates and finish G287 with `--uat-review`, leaving publication to the coordinator. Remove the temporary preview on fold-in under H113.
-
-## Review evidence, 17 October 2026
-
-- Root inspected an initial batched matrix, made one combined refinement batch and confirmed the final captures. Evidence is retained locally in `frontend/.impeccable/review/g287/`, not shipped as app assets: 48 viewport/state captures, 12 review-sheet captures and two current-reference captures. Coverage includes 390px both themes, 320px long figures, 1440px desktop, all financial cases, masking and loading/stale/error. The evidence panel has an explicit browser visibility assertion.
-- Working opens inline, rather than duplicating the ledger in another modal. Local review sheets show the relevant account, reserve or payment calculation. Browser checks passed for opening/closing, Escape and focus return, stale/error recovery and masked sheet values. All customer API requests were intercepted; no customer writes, unexpected external requests or page exceptions occurred.
-- Current production reference contrast was measured from computed browser CSS, converted to sRGB, rather than assumed from an old token. Dark: red RGB(251,44,54) on RGB(28,37,55), ratio 4.028:1. Light: red RGB(231,0,11) on white, ratio 4.770:1. The current figure is 38px/700, so it meets the large-text AA threshold of 3:1; the dark measurement is below the 4.5:1 ordinary-text threshold, but is not a large-figure contrast failure. This round explores emotional tone and hierarchy, not a fabricated accessibility defect.
-- Production build, scoped ESLint, exact financial fixture checks, design-index and strict design-stale checks passed. `session.sh finish --uat-review` additionally requires the disposable-database backend suite, typecheck and all registered frontend checks; its delivery result is recorded on the board.
-- A fresh independent finish reviewer returned `disposition: ship`, with no material fixes, for the design previews. Production and the approved G218 coloured-hero doctrine are unchanged. A fresh documentation audit preserved `DESIGN.md` and its sidecar, explicitly leaving this proposed ink-money alternative uncanonised until Kevin chooses.
-- The Impeccable launcher/detector returned permission denied, so no detector pass is claimed. Manual craft-floor/current Web Interface Guidelines checks and fresh isolated fallback reviewer/documenter agents were used because the specialised roles were unavailable. No raster assets or external model calls were introduced.
+Impeccable polish is the design approach, within the existing Calm Cockpit. Its context launcher returned permission denied, so the existing product/design documentation was read directly and the craft floor checked manually; no launcher or detector success is claimed. The coordinator publishes this design round for Kevin's choice. After an approved fold-in, remove the preview under H113 unless another open dependency requires it.
