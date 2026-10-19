@@ -854,11 +854,15 @@ def _fake_vercel(state):
                 raise release.RemoteError("promote refused")
             state["live"] = "d_target"
             return {}
-        if "/v4/aliases" in url:
-            return {"aliases": [
-                {"alias": "other.example.com", "deploymentId": "d_other"},
-                {"alias": release.PROD_DOMAIN, "deploymentId": state["live"]},
-            ]}
+        if f"/v4/aliases/{release.PROD_DOMAIN}" in url:
+            if state.get("alias_404"):
+                raise release.RemoteError("HTTP 404 not_found")
+            entry = {"alias": release.PROD_DOMAIN}
+            if not state.get("alias_no_project"):
+                entry["projectId"] = state.get("alias_project", "prj_1")
+            if not state.get("alias_no_dep"):
+                entry["deploymentId"] = state["live"]
+            return entry
         if "/v13/deployments/" in url:
             dep_id = url.split("/v13/deployments/")[1].split("?")[0]
             sha = "aaaa1111bbbb" if dep_id == "d_target" else "cccc2222"
@@ -912,6 +916,44 @@ def test_resolve_live_uses_git_source_fallback():
     state = {"live": "d_target", "git_source_only": True}
     dep_id, sha = release.resolve_live_vercel_deployment(_fake_vercel(state), "t", "prj_1", "team_1", 5)
     assert (dep_id, sha) == ("d_target", "aaaa1111bbbb")
+
+
+def test_resolve_live_direct_alias_lookup():
+    state = {"live": "d_target"}
+    dep_id, dep = release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert dep_id == "d_target" and dep["meta"]["githubCommitSha"] == "aaaa1111bbbb"
+    urls = [u for _, u in state["calls"]]
+    assert urls[0].endswith(f"/v4/aliases/{release.PROD_DOMAIN}?teamId=team_1")
+    assert not any("/v4/aliases?projectId" in u for u in urls)
+
+
+def test_resolve_live_fails_closed_without_deployment_id():
+    state = {"live": "d_target", "alias_no_dep": True}
+    with pytest.raises(release.RemoteError, match="no deploymentId"):
+        release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert not any("/v13/" in u for _, u in state["calls"])
+
+
+def test_resolve_live_fails_closed_on_project_mismatch():
+    state = {"live": "d_target", "alias_project": "prj_other"}
+    with pytest.raises(release.RemoteError) as ei:
+        release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert "prj_other" in str(ei.value) and "prj_1" in str(ei.value)
+    assert not any("/v13/" in u for _, u in state["calls"])
+
+
+def test_resolve_live_fails_closed_without_project_id():
+    state = {"live": "d_target", "alias_no_project": True}
+    with pytest.raises(release.RemoteError) as ei:
+        release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
+    assert "none" in str(ei.value) and "prj_1" in str(ei.value)
+    assert not any("/v13/" in u for _, u in state["calls"])
+
+
+def test_resolve_live_lookup_404_propagates_as_remote_error():
+    state = {"live": "d_target", "alias_404": True}
+    with pytest.raises(release.RemoteError, match="no alias in this account"):
+        release.resolve_live_vercel_deployment_obj(_fake_vercel(state), "t", "prj_1", "team_1", 5)
 
 
 def test_vercel_check_mode_is_read_only_and_prints(monkeypatch, tmp_path, capsys):

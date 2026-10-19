@@ -934,16 +934,23 @@ def _team_q(org_id: Optional[str], first: bool = True) -> str:
 def resolve_live_vercel_deployment_obj(
     http: VercelHttp, token: str, project_id: str, org_id: Optional[str], timeout: int,
 ) -> tuple[str, dict]:
-    """(deployment id, git sha) of the deployment the production domain alias
-    points at. Documented calls only: GET /v4/aliases, then GET /v13/deployments/{id}.
+    """(deployment id, deployment object) the production domain alias points at.
+    Documented calls only: GET /v4/aliases/{domain}, then GET /v13/deployments/{id}.
+    The domain is resolved directly because the project alias list (H122) holds
+    only git-branch preview aliases, never the production custom domain.
     Raises RemoteError (fail closed) naming whatever is missing."""
-    aliases = http("GET", f"{VERCEL_API}/v4/aliases?projectId={project_id}{_team_q(org_id, first=False)}", token, timeout)
-    entry = next((a for a in aliases.get("aliases", []) if a.get("alias") == PROD_DOMAIN), None)
-    if not entry:
-        raise RemoteError(f"no alias entry for {PROD_DOMAIN} in GET /v4/aliases for project {project_id}")
-    dep_id = entry.get("deploymentId")
+    try:
+        entry = http("GET", f"{VERCEL_API}/v4/aliases/{PROD_DOMAIN}{_team_q(org_id)}", token, timeout)
+    except RemoteError as exc:
+        raise RemoteError(f"{PROD_DOMAIN} has no alias in this account (GET /v4/aliases/{PROD_DOMAIN}): {exc}") from exc
+    dep_id = entry.get("deploymentId") if isinstance(entry, dict) else None
     if not dep_id:
         raise RemoteError(f"alias {PROD_DOMAIN} has no deploymentId field")
+    alias_project = entry.get("projectId")
+    if alias_project != project_id:
+        raise RemoteError(
+            f"alias {PROD_DOMAIN} belongs to project {alias_project or 'none'}, expected the linked project {project_id}"
+        )
     dep = http("GET", f"{VERCEL_API}/v13/deployments/{dep_id}{_team_q(org_id)}", token, timeout)
     return dep_id, dep
 
