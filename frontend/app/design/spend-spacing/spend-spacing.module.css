@@ -1,0 +1,26 @@
+.preview { min-height: 100dvh; background: #f0f2f7; color: #0f172a; }
+.preview:global(.dark) { background: #0f172a; color: #f1f5f9; }
+.skip { position: absolute; left: -9999px; }
+.skip:focus { position: fixed; top: 8px; left: 8px; z-index: 100; display: flex; min-height: 44px; align-items: center; border-radius: 12px; padding: 8px 12px; background: #4f46e5; color: white; font-size: 14px; }
+.review { max-width: 1152px; margin-inline: auto; padding: 20px 16px 12px; border-bottom: 1px solid #cbd5e1; }
+.review h2 { font-size: 18px; font-weight: 700; }
+.review p { margin-top: 8px; max-width: 65ch; color: #475569; font-size: 13px; line-height: 1.5; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.controls a, .back { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; border: 1px solid #cbd5e1; border-radius: 12px; padding: 8px 12px; font-size: 12px; font-weight: 600; color: #334155; text-decoration: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.controls a[aria-current="page"] { border-color: #4f46e5; background: #4f46e5; color: white; }
+.controls a:focus-visible, .back:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+.controls a:active, .back:active { transform: scale(.95); }
+.status { margin-top: 20px; font-size: 12px; line-height: 1.5; color: #64748b; }
+.back { margin-top: 12px; }
+.preview:global(.dark) .review { border-color: #334155; }
+.preview:global(.dark) .review p { color: #cbd5e1; }
+.preview:global(.dark) .controls a, .preview:global(.dark) .back { border-color: #475569; color: #e2e8f0; }
+.preview:global(.dark) .controls a[aria-current="page"] { border-color: #4f46e5; color: white; }
+.preview:global(.dark) .status { color: #94a3b8; }
+@media (hover: hover) { .controls a:not([aria-current="page"]):hover, .back:hover { background: #e2e8f0; }.preview:global(.dark) .controls a:not([aria-current="page"]):hover, .preview:global(.dark) .back:hover { background: #334155; } }
+
+/* Only the spacing outside the actual production components is proposed. */
+.a, .b { --hero-gap: 20px; }
+.b { --hero-gap: 12px; }
+.a :global([data-g285-period-bar]), .b :global([data-g285-period-bar]) { padding-bottom: 0; }
+.a :global([data-g293-content]), .b :global([data-g293-content]) { margin-top: var(--hero-gap); }
