@@ -1,4 +1,4 @@
-// Manual synthetic browser checks only. Never imported by the preview page.
+// Manual synthetic browser checks only. Never imported by production UI.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { get } from "node:http";

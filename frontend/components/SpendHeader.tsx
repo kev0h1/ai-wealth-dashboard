@@ -296,7 +296,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           only the compact arrow pair and Search occupy the right tracks.
           No date truncation or shrunken targets are needed at 375/390px.
           The title's quiet day caption alone may wrap on a zoomed phone. */}
-      <header data-g285-period-bar="b" className="grid grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-1.5 pb-5">
+      <header data-g285-period-bar="b" className="grid grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-1.5">
         <div data-period-title className="min-w-0 whitespace-nowrap">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
