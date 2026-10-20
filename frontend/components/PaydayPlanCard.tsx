@@ -55,7 +55,8 @@ interface PaydayPlanCardProps {
 // HomeBrief does not thread an onDismiss prop through any companion card).
 export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWorthProp, maskAmounts, onClose, dismissible = false }: PaydayPlanCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 

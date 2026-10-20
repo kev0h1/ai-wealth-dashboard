@@ -915,7 +915,8 @@ interface UnfundedMoveCardProps {
 // this file uses for a resolved/dismissed state).
 export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   // `item.moves` is declared PlanMove[] on CompanionItem (MoveCard's own
   // field) since the two item types can't share a TS-narrowable shape
   // under one flat interface — see the field's doc comment in lib/api.ts.
@@ -1308,7 +1309,8 @@ function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[
 
 export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hideAttribution, dismissible, onHomeDismiss, onRefresh, previewMode = false }: MoveCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   const [hidden, setHidden] = useState(false);
   const [skippingKey, setSkippingKey] = useState<string | null>(null);
   const [skipError, setSkipError] = useState(false);
@@ -1829,7 +1831,8 @@ function planTargetLabel(iso: string) {
 
 export function PlanEasingCard({ item, hideNetWorth: hideNetWorthProp = false, dismissible, onHomeDismiss, onRefresh, services = api, initialSheetOpen = false }: PlanEasingCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   const [hidden, setHidden] = useState(false);
   const [open, setOpen] = useState(initialSheetOpen);
   const data = item.plan_easing;
@@ -1954,7 +1957,8 @@ const SET_ASIDE_ACTION = `${SECONDARY_ACTION} text-center leading-tight`;
 
 export function AllocationShortfallCard({ item, hideNetWorth: hideNetWorthProp = false, dismissible, onHomeDismiss, onRefresh, services = api }: AllocationShortfallCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -2168,7 +2172,8 @@ export interface BriefBodyProps {
 
 export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: hideNetWorthProp = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
@@ -2633,7 +2638,8 @@ export interface PaydayPlanSectionProps {
 // exact same live-card + entry/preview logic — no forked copy to drift.
 export function PaydayPlanSection({ items, safeToSpend, hideNetWorth: hideNetWorthProp = false, onRefresh, gate, hasAccounts }: PaydayPlanSectionProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
-  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
+  const ctxHidden = useBalancesHidden();
+  const hideNetWorth = hideNetWorthProp || ctxHidden;
   const router = useRouter();
 
   // Payday plan preview — fetches /today?payday_preview=1 directly and
