@@ -19,7 +19,7 @@ The temporary settings-followups preview and index entry have been retired. Prev
 
 ## Verification status
 
-Focused backend verification passed 97 tests. G296 production SSR and all 16 reconciliation paths passed, as did the G201, B50 and native billing gates. The production Webpack build, TypeScript, new-component ESLint and design-index/stale gates passed. Existing unrelated lint errors in Settings and onboarding were checked against the base revision and left outside this change.
+Focused backend verification passed 98 tests, including the unchanged exception-leak scanner after updating its existing allowlisted line positions for the two-line consent change. G296 production SSR and all 16 reconciliation paths passed, as did the G201, B50 and native billing gates. The production Webpack build, TypeScript, new-component ESLint and design-index/stale gates passed. Existing unrelated lint errors in Settings and onboarding were checked against the base revision and left outside this change.
 
 The isolated browser host rendered the actual production components with built Next CSS and fonts. All 27 layouts passed across 320, 390, 768 and 1280px, both themes and the subscription edge states. It exercised consent acceptance, cancellation, revocation, retry, unknown state, a response lost after a successful write, Space and focus restoration, the real PlanPicker sheet, and Profile Enter submission. Ten original-detail captures were inspected under `/tmp/g296-a-production`. The host stubs all permission writes and preference reads and blocks customer API traffic. It is a regression harness under `frontend/scripts`, not a retained product or design route.
 
