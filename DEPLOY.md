@@ -886,6 +886,18 @@ not push directly to `release` itself for mobile purposes, that's a side
 effect of the fast-forward `main` -> `release` push the deploy already does,
 which is what the workflow's `triggering:` block reacts to.
 
+**Changeset filter on `ios-capacitor` (C30, 2026-10-20).** The push-to-`main`
+trigger carries a workflow-level `when: changeset:` condition that only builds
+when `frontend/**`, `capacitor-spike/**` or `codemagic.yaml` changed since the
+last successful build (Markdown files and the sideload `sorted.apk` /
+`sorted-apk.json` are excluded). `origin/main` takes about 227 pushes a day,
+about 168 of them board-only `backlog:` commits, so a board-only commit no
+longer starts a build; Codemagic marks it skipped after fetching sources. A
+manual "Start new build" is not documented either way by Codemagic (its docs
+say the condition is evaluated after cloning and only skips when it is false),
+so treat "manual start ignores the filter" as unverified; the first build after
+the filter is added always runs. `ios-capacitor-prod` has no filter.
+
 Both workflows build the app iPhone-only (`TARGETED_DEVICE_FAMILY = 1`), because Capacitor's iOS template targets iPhone and iPad by default and that would require iPad screenshots at App Store review for an app that is not adapted for iPad.
 
 ### Build tag
@@ -962,17 +974,29 @@ preinstalled (platforms and build-tools up to 36.x) and Codemagic exports
 `ANDROID_SDK_ROOT`; the bundle step writes it to `android/local.properties`
 and does not hardcode a path. The scripts still run unchanged on the Linux VPS.
 
-**Manual-start only for now.** Neither workflow has an active `triggering:`
-block, because the three Codemagic inputs below do not exist yet and an
-automatic trigger would fail every push to `main`. Each workflow carries a
-commented-out `triggering:` block (`main` for the UAT one, `release` for
-prod); uncomment them once the inputs exist. (Note `deploy` already starts the
-prod workflow by API, so enabling the `release` push trigger as well would
-build twice per release.) Unlike the iOS workflows, the Android ones import a
-variable group (`environment: groups: [google_play]`); the iOS workflows still
-have no `groups:` key.
+**Triggers (C30, 2026-10-20).** `android-capacitor` is now push-triggered on
+`main`, with the same `triggering:` block as `ios-capacitor` (it reuses the
+`uat_triggering` YAML anchor, with `cancel_previous_builds: true`), and it
+stays manually startable. `android-capacitor-prod` stays manual-start on
+purpose: `scripts/release.py deploy` starts it through the Codemagic API, so a
+push trigger on `release` as well (still present in `codemagic.yaml`, commented
+out) would build twice per release. The evidence for switching on the UAT
+trigger is the first manual run on 2026-10-20 (C11, C28), which built on
+`mac_mini_m2`, signed with `sorted_upload_keystore`, took Play's latest
+versionCode plus one and published versionCode 6 to the internal testing
+track. Minutes budget: both UAT workflows share one changeset filter (the
+`uat_changeset` YAML anchor, a workflow-level `when: changeset:` that includes
+`frontend/**`, `capacitor-spike/**` and `codemagic.yaml` and excludes
+`**/*.md`, `frontend/public/sorted.apk` and `frontend/public/sorted-apk.json`),
+because `origin/main` takes about 227 pushes a day, about 168 of them
+board-only, and each Mac build is about 10 to 15 of the 500 free macOS minutes a
+month. A board-only commit no longer starts either build, and republishing the
+sideload APK does not spend a Play versionCode. Whether a manual "Start new
+build" ignores the filter is unverified (the Codemagic docs do not say). Unlike the iOS workflows, the Android ones import
+a variable group (`environment: groups: [google_play]`); the iOS workflows
+still have no `groups:` key.
 
-**What Kevin must add in Codemagic** (exact names):
+**What Kevin had to add in Codemagic** (exact names; all in place since 2026-10-20):
 
 1. **Keystore reference `sorted_upload_keystore`**: Team settings -> Code
    signing identities -> Android keystores. Upload
