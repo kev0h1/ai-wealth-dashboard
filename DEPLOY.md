@@ -980,6 +980,9 @@ have no `groups:` key.
    the store/key password from `capacitor-spike/android/keystore.properties`
    (one value serves both; PKCS12). This is the Play **upload** key (Play App
    Signing holds the app signing key); see "Android release signing" and C12.
+   If the key password is left blank at upload, `setup-android-signing.sh`
+   uses the store password for it (C29), since PKCS12 requires the two to
+   match; a missing store password or alias still fails the build.
 2. **Variable group `google_play`** (mark both secure):
    - `GCLOUD_SERVICE_ACCOUNT_CREDENTIALS`: the Play service-account JSON,
      pasted as is.

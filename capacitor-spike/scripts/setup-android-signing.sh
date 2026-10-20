@@ -19,7 +19,9 @@
 # Codemagic: when CM_KEYSTORE_PATH is set (the `android_signing` keystore
 # reference exposes CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS and
 # CM_KEY_PASSWORD) and android/keystore.properties does not exist, it is
-# written from those variables, chmod 600. Values are never echoed.
+# written from those variables, chmod 600. Values are never echoed. A blank
+# CM_KEY_PASSWORD falls back to CM_KEYSTORE_PASSWORD (PKCS12 needs them equal);
+# a missing store password, alias or keystore file still fails loud.
 #
 # Env: ANDROID_DIR overrides the android/ directory (used to test against a
 # copy of a project).
@@ -38,12 +40,19 @@ if [[ -n "${CM_KEYSTORE_PATH:-}" ]]; then
   if [[ -f "${PROPS}" ]]; then
     echo "signing: keystore.properties already present, leaving it alone."
   else
-    for v in CM_KEYSTORE_PATH CM_KEYSTORE_PASSWORD CM_KEY_ALIAS CM_KEY_PASSWORD; do
+    for v in CM_KEYSTORE_PATH CM_KEYSTORE_PASSWORD CM_KEY_ALIAS; do
       if [[ -z "${!v:-}" ]]; then
         echo "ERROR: CM_KEYSTORE_PATH is set but ${v} is empty. Check the android_signing keystore reference in Codemagic." >&2
         exit 1
       fi
     done
+    # The upload keystore is PKCS12, where the key password must equal the
+    # store password, so a key password left blank at upload defaults to it.
+    KEY_PASSWORD="${CM_KEY_PASSWORD:-}"
+    if [[ -z "${KEY_PASSWORD}" ]]; then
+      KEY_PASSWORD="${CM_KEYSTORE_PASSWORD}"
+      echo "signing: CM_KEY_PASSWORD is empty, keyPassword defaulted to the store password (PKCS12 requires them to match; value not shown)."
+    fi
     [[ -f "${CM_KEYSTORE_PATH}" ]] || { echo "ERROR: CM_KEYSTORE_PATH does not point at a file." >&2; exit 1; }
     # .properties values treat backslash as an escape character, so double it.
     esc() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
@@ -52,7 +61,7 @@ if [[ -n "${CM_KEYSTORE_PATH:-}" ]]; then
         printf 'storeFile=%s\n' "$(esc "${CM_KEYSTORE_PATH}")"
         printf 'storePassword=%s\n' "$(esc "${CM_KEYSTORE_PASSWORD}")"
         printf 'keyAlias=%s\n' "$(esc "${CM_KEY_ALIAS}")"
-        printf 'keyPassword=%s\n' "$(esc "${CM_KEY_PASSWORD}")"
+        printf 'keyPassword=%s\n' "$(esc "${KEY_PASSWORD}")"
       } > "${PROPS}" )
     chmod 600 "${PROPS}"
     echo "signing: wrote keystore.properties from the Codemagic keystore variables (values not shown)."
