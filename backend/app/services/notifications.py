@@ -14,6 +14,7 @@ both the payday plan and the move recommendation cards live).
 """
 import logging
 import math
+import os
 from datetime import datetime, timedelta
 from datetime import date as _date
 
@@ -35,9 +36,13 @@ log = logging.getLogger(__name__)
 # off (noisiest); the rest are high-signal and default on.
 #
 # "bill_alerts" also gates the merged money-movement push (bill shortfall +
-# move recommendation, see `_maybe_money_movement`) — no separate key, same
+# move recommendation and the G305 per-account plan shortfall, see
+# `_maybe_money_movement`) — no separate key, same
 # reasoning `_maybe_move_recommendation` already documents: the two checks
 # report on the same underlying risk, so they share one Settings toggle.
+# G305: smallest per-account plan gap (pounds) worth a push. Kevin 2026-10-20.
+PLAN_SHORTFALL_MIN_GBP = float(os.environ.get("PLAN_SHORTFALL_MIN_GBP", "5.0"))
+
 NOTIF_DEFAULTS = {
     "transactions":             False,
     "goal_milestones":          True,
@@ -361,6 +366,130 @@ async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | Non
     return new_bills
 
 
+async def _plan_shortfall_label(account_id: str) -> tuple[str | None, str | None]:
+    """(display name, bank name) for an account id across all account
+    collections; (None, None) when it can't be read."""
+    from bson import ObjectId
+    from app.db.collections import accounts_col, yapily_accounts_col, manual_accounts_col
+    from app.services.account_names import display_account_name
+    from app.services.companion import _bank_name_of
+
+    ids: list = [account_id]
+    try:
+        ids.append(ObjectId(account_id))
+    except Exception:
+        pass
+    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+        for _id in ids:
+            doc = await col.find_one({"_id": _id}, {"name": 1, "provider": 1})
+            if doc:
+                name = " ".join(str(doc.get("name") or "").split())
+                return (display_account_name(name) if name else None), _bank_name_of(doc.get("provider"))
+    return None, None
+
+
+def _plan_shortfall_body(name: str | None, bank: str | None, gap: float, period_end: _date) -> str:
+    who = "One of your accounts"
+    if name:
+        who = f"{name} at {bank}" if bank else name
+    through = f"{period_end:%a} {period_end.day} {period_end:%b}"
+    return (
+        f"{who} looks about £{int(round(gap)):,} short of what "
+        f"its plans need after its payments through {through}. "
+        "Review it on Upcoming."
+    )
+
+
+async def _maybe_plan_shortfall(user_id: str, excluded_accts: set[str] | None = None) -> list[dict]:
+    """G305: detect (never send) an account whose plans need more than it will
+    hold after its payments, the "Short for plans" row on Upcoming.
+
+    Reads the same per-account position Upcoming and Home read
+    (`compute_account_positions`, via `compute_today_items`'s
+    `account_eligibility_out`), never a second calculation. Mirrors the label
+    precedence of frontend/lib/upcomingAccountStatus.ts: an account that is
+    already short for payments or transfers (closing or lowest point below
+    zero) is that status, not a plan gap, and is skipped, as is an account
+    whose bill shortfall or move recommendation is speaking for it
+    (`excluded_accts`). Uncertain and estimated positions are skipped
+    (Kevin 2026-10-20), as is a gap under PLAN_SHORTFALL_MIN_GBP.
+
+    Dedup: one push per account per pay period, stored under
+    notification_state.plan_shortfall.<period start> as a list of account ids.
+    Shares the bill_alerts toggle and the first-sync gate with the bill check.
+    """
+    if not await notif_pref(user_id, "bill_alerts"):
+        return []
+
+    try:
+        _fs = await first_sync_state(user_id)
+        if _fs.get("first_sync") and _fs.get("state") in ("syncing", "stalled"):
+            return []
+    except Exception:
+        log.warning("first_sync_state failed in plan shortfall for %s", user_id)
+
+    from app.services.companion import compute_today_items
+
+    positions: dict = {}
+    try:
+        await compute_today_items(user_id, persist=False, account_eligibility_out=positions)
+    except Exception as e:
+        log.warning("plan shortfall position compute failed for %s: %s", user_id, e)
+        return []
+
+    excluded = excluded_accts or set()
+    gaps: dict[str, float] = {}
+    for sid, pos in positions.items():
+        if str(sid) in excluded:
+            continue
+        if pos.get("uncertain") or pos.get("estimated"):
+            continue
+        after_payments = pos.get("after_payments")
+        after_plans = pos.get("after_payments_and_plans")
+        low_point = pos.get("low_point")
+        if after_payments is None or after_plans is None:
+            continue
+        if after_payments < 0 or (low_point is not None and low_point < 0):
+            continue  # short for payments or transfers wins over short for plans
+        if not pos.get("plans_reserved") or after_plans >= 0:
+            continue
+        gap = -float(after_plans)
+        if gap < PLAN_SHORTFALL_MIN_GBP:
+            continue
+        gaps[str(sid)] = gap
+    if not gaps:
+        return []
+
+    prefs = await preferences_col.find_one({"user_id": user_id}, {"pay_period_config": 1})
+    pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
+    start, end = get_pay_period_for_date(timeutil.user_today(), pay_config)
+    period_key = start.isoformat()
+
+    state = await _state(user_id)
+    already: list[str] = (state.get("plan_shortfall") or {}).get(period_key, [])
+
+    out: list[dict] = []
+    newly: list[str] = []
+    for sid, gap in gaps.items():
+        if sid in already:
+            continue
+        try:
+            name, bank = await _plan_shortfall_label(sid)
+        except Exception:
+            log.warning("plan shortfall label failed for %s", sid, exc_info=True)
+            name, bank = None, None
+        out.append({"account_id": sid, "gap": gap, "body": _plan_shortfall_body(name, bank, gap, end)})
+        newly.append(sid)
+    if not newly:
+        return []
+    await notification_state_col.update_one(
+        {"_id": user_id},
+        {"$set": {f"plan_shortfall.{period_key}": already + newly}},
+        upsert=True,
+    )
+    return out
+
+
 async def _maybe_money_movement(user_id: str) -> None:
     """Merged send/landing layer for the two money-movement checks.
 
@@ -401,7 +530,17 @@ async def _maybe_money_movement(user_id: str) -> None:
     except Exception as e:
         log.warning("money_movement bill_shortfall failed for %s: %s", user_id, e)
 
-    if not new_bills and not new_moves:
+    # G305: per-account plan gaps. Accounts already spoken for by a live move
+    # recommendation or a bill shortfall (new this run) are skipped, so one
+    # account never gets two pushes in the same run.
+    new_plans: list[dict] = []
+    try:
+        spoken_for = set(dest_accts) | {str(b.get("account_id") or "") for b in new_bills}
+        new_plans = await _maybe_plan_shortfall(user_id, spoken_for)
+    except Exception as e:
+        log.warning("money_movement plan_shortfall failed for %s: %s", user_id, e)
+
+    if not new_bills and not new_moves and not new_plans:
         return
 
     bills = list(new_bills)
@@ -428,6 +567,11 @@ async def _maybe_money_movement(user_id: str) -> None:
         title = f"Move £{amount:,} to {dest_name}"
         body = "Covers an expected bill before it's due."
         await send_push_to_user(user_id, title, body, "/")
+
+    # Plan gaps keep their own framing and deep link (/upcoming, where the
+    # "Short for plans" row lives); never merged into the bill or move push.
+    for p in new_plans:
+        await send_push_to_user(user_id, "Short for plans", p["body"], "/upcoming")
 
 
 def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> str:
