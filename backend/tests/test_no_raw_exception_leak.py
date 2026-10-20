@@ -112,19 +112,21 @@ ALLOWLIST: set[tuple[str, int]] = {
     # arithmetic on either side's shift comment.
     ("app/services/penny_tools.py", 5124),
     ("app/services/penny_tools.py", 5289),  # ValueError from compute_intent_preview, see above
-    ("app/services/penny_tools.py", 5798),
-    ("app/services/penny_tools.py", 5818),
-    ("app/services/penny_tools.py", 5854),
-    ("app/services/penny_tools.py", 5877),
-    ("app/services/penny_tools.py", 6019),
-    ("app/services/penny_tools.py", 6024),
-    ("app/services/penny_tools.py", 6029),
-    ("app/services/penny_tools.py", 6127),
-    ("app/services/penny_tools.py", 6132),
-    ("app/services/penny_tools.py", 6137),
-    ("app/services/penny_tools.py", 7078),
-    ("app/services/penny_tools.py", 7733),
-    ("app/services/penny_tools.py", 7747),
+    # G296 adds two lines inside revoke_agent_consent above these same
+    # authored HTTPException forwards; no handlers or exceptions changed.
+    ("app/services/penny_tools.py", 5800),
+    ("app/services/penny_tools.py", 5820),
+    ("app/services/penny_tools.py", 5856),
+    ("app/services/penny_tools.py", 5879),
+    ("app/services/penny_tools.py", 6021),
+    ("app/services/penny_tools.py", 6026),
+    ("app/services/penny_tools.py", 6031),
+    ("app/services/penny_tools.py", 6129),
+    ("app/services/penny_tools.py", 6134),
+    ("app/services/penny_tools.py", 6139),
+    ("app/services/penny_tools.py", 7080),
+    ("app/services/penny_tools.py", 7735),
+    ("app/services/penny_tools.py", 7749),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

@@ -18,6 +18,8 @@ import type { CompanionItem, AccountEligibility } from "@/lib/api";
 import ConnectedAssistantsCard, { ConnectionsState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
 import YourPlanCard from "@/components/YourPlanCard";
+import PennyPermissionSettings from "@/components/settings/PennyPermissionSettings";
+import { ProfileSettingsForm } from "@/components/settings/ProfileSettingsForm";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
 import { resolveFullName, initialsOf } from "@/lib/displayName";
@@ -233,12 +235,12 @@ export default function SettingsPage() {
 
   // Profile editing
   const [profileName, setProfileName] = useState("");
-  const [profilePostcode, setProfilePostcode] = useState("");
-  const [profileLoaded, setProfileLoaded] = useState<{ name: string; postcode: string } | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState<{ name: string } | null>(null);
+  const [profileLoadError, setProfileLoadError] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const profileDirty = profileLoaded !== null &&
-    (profileName !== profileLoaded.name || profilePostcode !== profileLoaded.postcode);
+    profileName !== profileLoaded.name;
 
   // Sign-in methods (Phase 1 linked identities: Apple only, native iOS)
   const [identities, setIdentities] = useState<IdentitiesResponse | null>(null);
@@ -248,12 +250,6 @@ export default function SettingsPage() {
   const [appleLinkMsg, setAppleLinkMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [appleUnlinkOpen, setAppleUnlinkOpen] = useState(false);
   const [appleUnlinking, setAppleUnlinking] = useState(false);
-
-  // Penny agent-mode consent, "Turn off" control (B13). Confirm-gated since
-  // revoking also cancels any of the user's still-unconfirmed proposals.
-  const [pennyConsentOffOpen, setPennyConsentOffOpen] = useState(false);
-  const [pennyConsentRevoking, setPennyConsentRevoking] = useState(false);
-  const [pennyConsentMsg, setPennyConsentMsg] = useState<string | null>(null);
 
   // F4: "Connected assistants" card. Connections load on mount.
   // F15: the card's own inline activity list (and its lazily-fetched GET
@@ -348,23 +344,6 @@ export default function SettingsPage() {
       setAppleLinkMsg({ text: "Could not unlink. Try again.", ok: false });
     } finally {
       setAppleUnlinking(false);
-    }
-  }
-
-  // Penny agent-mode consent "Turn off" (B13). refreshPreferences() re-runs
-  // GET /preferences so rawPrefs.penny_agent_consent (read just below, in
-  // the Penny card) reflects the off state without a full page reload.
-  async function handleTurnOffPennyConsent() {
-    setPennyConsentRevoking(true);
-    try {
-      await api.revokePennyAgentConsent();
-      setPennyConsentOffOpen(false);
-      await refreshPreferences();
-      setPennyConsentMsg("Setting things up is off");
-    } catch {
-      setPennyConsentMsg("Could not turn this off. Try again.");
-    } finally {
-      setPennyConsentRevoking(false);
     }
   }
 
@@ -606,25 +585,26 @@ export default function SettingsPage() {
     }
   }, [rawPrefs, applyHasChildBenefit]);
 
-  useEffect(() => {
-    api.getProfile().then(p => {
+  const loadProfile = useCallback(async () => {
+    try {
+      const p = await api.getProfile();
       setProfileName(p.full_name ?? "");
-      setProfilePostcode(p.postcode ?? "");
-      setProfileLoaded({ name: p.full_name ?? "", postcode: p.postcode ?? "" });
-    }).catch(() => {});
+      setProfileLoaded({ name: p.full_name ?? "" });
+    } catch { setProfileLoadError(true); }
   }, []);
+  useEffect(() => { void loadProfile(); }, [loadProfile]);
 
   async function saveProfile() {
+    if (!profileDirty || profileSaving || profileLoadError) return;
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      const p = await api.updateProfile(profileName.trim(), profilePostcode.trim());
+      const p = await api.updateProfile(profileName.trim());
       setProfileName(p.full_name ?? "");
-      setProfilePostcode(p.postcode ?? "");
-      setProfileLoaded({ name: p.full_name ?? "", postcode: p.postcode ?? "" });
+      setProfileLoaded({ name: p.full_name ?? "" });
       setProfileMsg({ text: "Profile saved", ok: true });
     } catch (e) {
-      setProfileMsg({ text: e instanceof Error ? e.message : "Could not save profile", ok: false });
+      setProfileMsg({ text: e instanceof Error ? `${e.message}. Try again.` : "Could not save profile. Try again.", ok: false });
     } finally {
       setProfileSaving(false);
     }
@@ -1127,21 +1107,8 @@ export default function SettingsPage() {
       {activeSection && <><Link href="/settings" className="-ml-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10"><ChevronRight size={18} aria-hidden="true" className="rotate-180" />Account</Link><h1 ref={detailHeadingRef} tabIndex={-1} className="mt-2 text-xl font-bold text-slate-900 outline-none dark:text-slate-100">{detailCopy[activeSection].title}</h1><p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">{detailCopy[activeSection].intro}</p></>}
       <div>
 
-        <SettingsGroup visible={activeSection === "account"} title="Profile" intro="Used to recognise transfers and local fuel prices.">
-          <div className="space-y-3 p-4">
-            <div>
-              <label htmlFor="settings-name" className="mb-1 block text-xs text-slate-600 dark:text-slate-400">Full name</label>
-              <input id="settings-name" name="full-name" autoComplete="name" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="First Last" />
-              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Used to recognise transfers between your own accounts.</p>
-            </div>
-            <div>
-              <label htmlFor="settings-postcode" className="mb-1 block text-xs text-slate-600 dark:text-slate-400">Home postcode</label>
-              <input id="settings-postcode" name="postcode" autoComplete="postal-code" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-base text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100" value={profilePostcode} onChange={e => setProfilePostcode(e.target.value)} placeholder="e.g. B91 2AB" />
-              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Used for local fuel prices.</p>
-            </div>
-            <button type="button" onClick={saveProfile} disabled={!profileDirty || profileSaving} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition-transform hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:focus-visible:ring-offset-slate-800">{profileSaving ? "Saving…" : "Save profile"}</button>
-            {profileMsg && <p role="status" className="text-xs font-medium text-slate-700 dark:text-slate-200">{profileMsg.text}</p>}
-          </div>
+        <SettingsGroup visible={activeSection === "account"} title="Profile" intro="Your name in Sorted.">
+          <ProfileSettingsForm name={profileName} loading={!profileLoaded && !profileLoadError} loadError={profileLoadError} saving={profileSaving} dirty={profileDirty} status={profileMsg?.text ?? ""} onChange={name => { setProfileName(name); setProfileMsg(null); }} onSave={() => void saveProfile()} onRetry={() => { setProfileLoadError(false); void loadProfile(); }} />
         </SettingsGroup>
 
         {/* ── Sign-in methods ── */}
@@ -1320,63 +1287,8 @@ export default function SettingsPage() {
           {activeSection === "penny-plan" && <YourPlanCard key={searchParams.get("plans") === "1" ? "resubscribe" : "plan"} info={pennyUsage.info} error={pennyUsageError} />}
         </SettingsGroup>
 
-        {/* ── Penny (agent mode v1) ── */}
-        {/* Consent-state row for Penny's agent mode (setting up envelopes/
-            goals/one-offs on the user's behalf, always with a confirm card
-            first — see PennyConversation.tsx's ConsentCard/ProposalConfirmCard).
-            Reads `rawPrefs.penny_agent_consent` (an ISO timestamp when
-            granted, absent/null otherwise) straight from the same
-            preferences fetch every other row on this page already uses —
-            no separate request.
-
-            B13 (2026-09-08): consent is no longer one-way. DELETE
-            /penny/agent-consent (api.revokePennyAgentConsent) now exists —
-            same call Penny's own "stop setting things up" chat phrase
-            triggers server-side — so the "on" state gets a real "Turn off"
-            control instead of the old read-only "ask Penny to stop in
-            chat" line, which called nothing. Confirm-gated (ConfirmDialog,
-            same component the Apple-unlink row above uses) since revoking
-            also cancels any of the user's still-unconfirmed proposals, not
-            just the on/off flag. refreshPreferences() re-fetches
-            GET /preferences after a successful revoke so `rawPrefs` (and
-            this row) flips to the off branch without a page reload.
-
-            G201 D keeps this permission separate from plan billing and
-            cover-source permissions. Penny usage remains in Your plan. */}
-        <SettingsGroup visible={activeSection === "penny-plan"} title="Penny" intro="Penny can answer questions. Setting things up can only be switched off here when already on.">
-
-          <div className="px-4 py-3.5">
-            {rawPrefs?.penny_agent_consent ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is on</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Penny can create envelopes, goals and one-off payments when you ask her to. You&apos;ll always see exactly what would change and confirm before anything happens.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setPennyConsentOffOpen(true)}
-                    className="flex-shrink-0 min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
-                  >
-                    Turn off
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is off</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Penny can only answer questions right now. Ask her to set something up, like an envelope or a goal, and she&apos;ll offer to turn this on.
-                </p>
-              </>
-            )}
-            {pennyConsentMsg && (
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">{pennyConsentMsg}</p>
-            )}
-          </div>
-        </SettingsGroup>
+        {/* G296 A keeps consent inline and separate from billing. */}
+        {activeSection === "penny-plan" && <PennyPermissionSettings ready={preferencesReady} snapshot={rawPrefs} refresh={refreshPreferences} />}
 
         {/* ── Connected assistants (F4) ── A17: hidden entirely (no render,
             no fetch) unless the MCP connector is turned on. */}
@@ -1794,18 +1706,6 @@ export default function SettingsPage() {
         onCancel={() => setAppleUnlinkOpen(false)}
       />
 
-      {/* Turn off Penny setting things up (B13). Not `destructive` — this
-          isn't a genuine-risk action (DESIGN.md: red means genuine risk
-          only), just an ordinary reversible preference. */}
-      <ConfirmDialog
-        open={pennyConsentOffOpen}
-        title="Turn off setting things up?"
-        message="Penny will stop proposing changes and any proposals you have not confirmed will be cancelled. You can turn it back on from chat at any time."
-        confirmLabel="Turn off"
-        confirmDisabled={pennyConsentRevoking}
-        onConfirm={handleTurnOffPennyConsent}
-        onCancel={() => setPennyConsentOffOpen(false)}
-      />
     </div>
   );
 }

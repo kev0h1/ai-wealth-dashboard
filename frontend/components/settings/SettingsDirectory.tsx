@@ -56,7 +56,7 @@ export function buildSettingsGroups(status: SettingsDirectoryStatus): Group[] {
       { section: "notifications", label: "Notifications", keywords: "notifications push alerts test delivery bills transactions digest insights registration topics", value: status.notificationSummary },
     ] },
     { title: "Your account", intro: "Your details, access and history.", tasks: [
-      { section: "account", label: "Profile, sign-in and data", keywords: "profile name postcode account sign in google apple identity security biometrics face id data history sync set aside", value: status.accountSummary },
+      { section: "account", label: "Profile, sign-in and data", keywords: "profile name account sign in google apple identity security biometrics face id data history sync set aside", value: status.accountSummary },
     ] },
     { title: "Penny and your plan", intro: "What Penny can help with and your allowance.", tasks: [
       { section: "penny-plan", label: "Penny and your plan", keywords: "plan subscription usage penny setting things up consent allowance", value: status.planSummary },

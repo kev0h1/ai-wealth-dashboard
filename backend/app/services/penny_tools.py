@@ -5383,7 +5383,9 @@ async def revoke_agent_consent(uid: str) -> dict:
     pending, just confirms the off state: `proposals_cancelled` is 0."""
     now = datetime.now()
     await preferences_col.update_one(
-        {"user_id": uid}, {"$set": {"penny_agent_consent": None, "user_id": uid}}, upsert=True,
+        {"user_id": uid},
+        {"$set": {"penny_agent_consent": None, "user_id": uid}, "$inc": {"version": 1}},
+        upsert=True,
     )
     result = await penny_proposals_col.update_many(
         {"user_id": uid, "executed_at": None, "cancelled_at": None},

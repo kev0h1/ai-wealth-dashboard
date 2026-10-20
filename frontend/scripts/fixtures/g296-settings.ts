@@ -24,7 +24,7 @@ export function billingProviderFor(platform: Platform): "stripe" | "apple" | "go
   return platform === "ios" ? "apple" : platform === "android" ? "google" : "stripe";
 }
 
-/** Local-only subscription states for the Settings follow-up design round. */
+/** Synthetic subscription states for the production Settings regression. */
 export function planFixture(state: PlanState, platform: Platform): SubscriptionInfo | null {
   if (state === "loading" || state === "error") return null;
 
@@ -42,6 +42,12 @@ export function planFixture(state: PlanState, platform: Platform): SubscriptionI
     tier,
     status: state === "trial" ? "trialing" : pastDue ? "past_due" : "active",
     prices_gbp: MONTHLY_PRICES,
+    billing_prices_gbp: {
+      statements: { monthly: 0, three_months: 0, six_months: 0, annual: 0 },
+      lite: { monthly: 5.99, three_months: 16.99, six_months: 31.99, annual: 59.99 },
+      standard: { monthly: 9.99, three_months: 28.99, six_months: 53.99, annual: 99.99 },
+      plus: { monthly: 12.99, three_months: 36.99, six_months: 69.99, annual: 129.99 },
+    },
     billing_period: "monthly",
     trial_periods: ["monthly"],
     trial_days: 14,

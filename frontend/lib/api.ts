@@ -2290,9 +2290,6 @@ export type UserProfile = {
   full_name: string;
   name_tokens: string[];
   onboarding_complete: boolean;
-  postcode: string | null;
-  lat: number | null;
-  lng: number | null;
 };
 
 export type FuelStation = {
@@ -2754,9 +2751,8 @@ function linkQuery(provider?: string, native?: boolean): string {
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
-  updateProfile: async (full_name: string, postcode?: string, complete = true): Promise<UserProfile> => {
+  updateProfile: async (full_name: string, complete = true): Promise<UserProfile> => {
     const body: Record<string, unknown> = { full_name, complete };
-    if (postcode !== undefined) body.postcode = postcode;
     const res = await fetch(`${API_BASE}/profile`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -3137,7 +3133,7 @@ export const api = {
   // Agent mode v1's one-time consent moment (ConsentCard). Records consent;
   // preferences then carry a `penny_agent_consent` timestamp (see
   // getPreferences below).
-  grantPennyAgentConsent: () => post<{ ok: boolean }>("/penny/agent-consent", {}),
+  grantPennyAgentConsent: () => post<{ penny_agent_consent: string }>("/penny/agent-consent", {}),
   // B13: Settings' "Turn off" control (and Penny's own "stop setting things
   // up" chat phrase, handled server-side) both land here. Clears
   // `penny_agent_consent` back to falsy AND cancels every one of the user's
