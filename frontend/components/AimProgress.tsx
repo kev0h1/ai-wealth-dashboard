@@ -9,6 +9,7 @@
 import type { Checkpoint } from "@/lib/api";
 import { aimPace } from "@/lib/aimPace";
 import { fmtWhole } from "@/lib/aimFormat";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 
 /** "£82 of a £100 aim, on pace". The pace phrase comes from the server reading. */
 export function aimSentence(aim: Checkpoint, periodDays: number, sym = "£"): string {
@@ -23,12 +24,13 @@ export function aimHint(aim: Checkpoint, sym = "£"): string {
 
 /** Compact ring beside the amount. Fill is spent against the aim; the dot sits at even pace. */
 export function AimRing({ aim, periodDays, sym = "£" }: { aim: Checkpoint; periodDays: number; sym?: string }) {
+  const hidden = useBalancesHidden();
   const p = aimPace(aim, periodDays);
   const r = 8;
   const c = 2 * Math.PI * r;
   const paceAngle = 2 * Math.PI * Math.min(1, p.paceToday / Math.max(1, aim.aim_amount)) - Math.PI / 2;
   return (
-    <svg width="22" height="22" viewBox="0 0 22 22" role="img" aria-label={aimSentence(aim, periodDays, sym)} className="flex-shrink-0">
+    <svg width="22" height="22" viewBox="0 0 22 22" role="img" aria-label={maskMoneyText(aimSentence(aim, periodDays, sym), hidden)} className="flex-shrink-0">
       <circle cx="11" cy="11" r={r} fill="none" strokeWidth="2.5" className="stroke-slate-200 dark:stroke-slate-700" />
       <circle
         cx="11" cy="11" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round"

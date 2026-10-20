@@ -26,6 +26,7 @@ import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
+import { maskMoneyText } from "@/lib/balancesHidden";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
@@ -587,7 +588,7 @@ export function AskPaydayCard({ item, router, maskAmounts, onRefresh, previewMod
           <PennyKindLabel hideAttribution={hideAttribution}>Payday check</PennyKindLabel>
         </div>
         <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
-          {item.headline}
+          {maskAmounts(item.headline)}
         </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
@@ -676,7 +677,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
           <PennyKindLabel hideAttribution={hideAttribution}>{item.kind_label ?? "Card detail"}</PennyKindLabel>
         </div>
         <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
-          {item.headline}
+          {maskAmounts(item.headline)}
         </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
@@ -772,7 +773,7 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
         <div className="min-w-0 flex-1">
           <KindLabel tone="positive">Covered</KindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
-            <MoneyText text={item.headline} />
+            <MoneyText text={maskAmounts(item.headline)} />
           </p>
         </div>
       </div>
@@ -1698,7 +1699,7 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
           <KindLabel>Spending pattern</KindLabel>
         </div>
         <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
-          <MoneyText text={headline} />
+          <MoneyText text={maskAmounts(headline)} />
         </p>
 
         {/* Dismiss button — Home-only, see the dismissible docstring above */}
@@ -1996,7 +1997,7 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
         <div className="flex min-w-0 items-center">
           <KindLabel>Set-aside</KindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{item.headline}</p>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{maskMoneyText(item.headline, hideNetWorth)}</p>
       </div>
       <div className="mt-3">
         <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white">{money(data.shortfall)}</p>
@@ -2363,7 +2364,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {needleItem && (
           <div className="glass-card rounded-2xl p-4">
             <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300 leading-snug mb-2">
-              {needleItem.headline}
+              {maskAmounts(needleItem.headline)}
             </p>
             {needleItem.action && (
               <button
@@ -2380,7 +2381,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
           <div key={item.id}>
             {/* Headline */}
             <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
-              <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={item.headline} /></strong>
+              <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={maskAmounts(item.headline)} /></strong>
             </p>
             {/* Body */}
             <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">

@@ -11,6 +11,7 @@ import { heroSyncingInfo, pollDelayMs, shouldPollTick } from "@/lib/syncStatusVi
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import { usePreferences } from "@/components/PreferencesContext";
+import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { getPayPeriodWithConfig } from "@/lib/payPeriod";
@@ -958,6 +959,7 @@ export default function HomePage() {
   );
 
   return (
+    <BalancesHiddenContext.Provider value={hideNetWorth || !preferencesReady}>
     <div className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-busy={!pageReady}>
       {/* Sticky desktop header — appears when greeting scrolls out of view */}
       {stickyHeaderVisible && (
@@ -1229,5 +1231,6 @@ export default function HomePage() {
         <BankPickerSheet provider="finexer" onClose={() => setShowBankPicker(false)} />
       )}
     </div>
+    </BalancesHiddenContext.Provider>
   );
 }

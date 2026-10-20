@@ -59,7 +59,7 @@ function MiniSparkline({ series }: { series: number[] }) {
 // deepens toward rose at high utilisation, no alarm theatre (Red Is Risk
 // still holds). Off by default — no live limit data exists yet. ──────────
 
-function UtilisationBar({ pct, limit }: { pct: number; limit: number }) {
+function UtilisationBar({ pct, limit, hideAmount }: { pct: number; limit: number; hideAmount?: boolean }) {
   const clamped = Math.min(100, Math.max(0, Math.round(pct)));
   const heavy = clamped >= 80;
   return (
@@ -73,7 +73,7 @@ function UtilisationBar({ pct, limit }: { pct: number; limit: number }) {
         />
       </div>
       <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400 num">
-        {clamped}% of <span className="font-mono tabular-nums">£{limit.toLocaleString("en-GB")}</span>
+        {clamped}% of <span className="font-mono tabular-nums">{hideAmount ? "£••••" : `£${limit.toLocaleString("en-GB")}`}</span>
       </span>
     </div>
   );
@@ -232,7 +232,7 @@ export default function AccountLedgerRow({
           )}
         </div>
 
-        {showUtilisation && utilisation && <UtilisationBar pct={utilisation.pct} limit={utilisation.limit} />}
+        {showUtilisation && utilisation && <UtilisationBar pct={utilisation.pct} limit={utilisation.limit} hideAmount={hideAmount} />}
       </div>
 
       <div className="shrink-0 flex flex-col items-end gap-1">

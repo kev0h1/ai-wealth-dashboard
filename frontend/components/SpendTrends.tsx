@@ -32,6 +32,7 @@ import {
 } from "@/lib/spendCharts";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { SheetFrame } from "@/components/SheetFrame";
+import { useMaskedFormatter } from "@/lib/balancesHidden";
 import { getCategoryColour } from "@/lib/categories";
 import {
   PayPeriodConfig, prevPeriodWithConfig, filterPeriod,
@@ -131,7 +132,7 @@ export interface WidgetData {
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const fmtGBP = (n: number) =>
+const fmtGBPRaw = (n: number) =>
   `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 
 // Recharts' YAxis `width` is a fixed pixel box, not an auto-sizing one — a
@@ -164,7 +165,7 @@ function niceAxisCeiling(maxValue: number): number {
 // already used before this fix, kept so a small-value chart (e.g. "£0")
 // doesn't shrink below what was already comfortable.
 function currencyAxisWidth(niceMax: number): number {
-  const widest = fmtGBP(niceMax).length;
+  const widest = fmtGBPRaw(niceMax).length;
   return Math.max(34, Math.ceil(widest * 5.6) + 10);
 }
 
@@ -180,6 +181,7 @@ const TOOLTIP_STYLE = {
 /* ── Widget renderers ─────────────────────────────────────────────── */
 
 function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   // G268: net spending per category under the one definition (refunds net off,
   // movements and own-account moves excluded), at most six segments plus Other.
   const slices = useMemo(() => donutSlices(data.periodTxns), [data.periodTxns]);
@@ -225,6 +227,7 @@ function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: bool
 }
 
 function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const days = useMemo(() => {
@@ -315,6 +318,7 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
 }
 
 function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const periods = useMemo(() => {
@@ -410,6 +414,7 @@ const SIZE_BANDS: { label: string; min: number; max: number }[] = [
 ];
 
 function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   // "spend" is the decision-relevant default; "count" is the alternative
@@ -549,6 +554,7 @@ function EmptyWidget({ compact, message }: { compact?: boolean; message?: string
 // the real widget renderer, not a redrawn mockup, so the design route and
 // production can never draw different pixels for the same data.
 export function PaceCurveWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const series = data.paceSeries;
@@ -698,6 +704,7 @@ export function DebtBurndownWidget({
   compact?: boolean;
   previewState?: { status: "loading" | "error" | "ok"; projection?: DebtPlanSummary["projection"] };
 }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const [status, setStatus] = useState<"loading" | "error" | "ok">(previewState?.status ?? "loading");
@@ -804,6 +811,7 @@ const TRANSPORT_MODE_ICON: Record<string, import("react").ReactNode> = {
 };
 
 function TransportModesWidget({ compact }: { compact?: boolean }) {
+  const fmtGBP = useMaskedFormatter(fmtGBPRaw);
   const [data, setData] = useState<TransportSummary | null>(null);
   const [loading, setLoading] = useState(true);
 

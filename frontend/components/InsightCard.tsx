@@ -24,6 +24,7 @@ import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { actionHref } from "@/lib/actionRoutes";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
@@ -134,6 +135,7 @@ export function CompactInsightRow({
   insight: SavingsInsight;
   onExpand: () => void;
 }) {
+  const hidden = useBalancesHidden();
   const Icon = insightCategoryIcon(insight.category);
   const total = insight.triggered_by.reduce((sum, t) => sum + (t.monthly_amount || 0), 0);
   const placeCount = insight.triggered_by.length;
@@ -164,7 +166,7 @@ export function CompactInsightRow({
       )}
       {placeCount > 0 && (
         <span className="text-[12px] font-mono tabular-nums text-slate-500 dark:text-slate-400 flex-shrink-0">
-          ~£{Math.round(total).toLocaleString("en-GB")}/mo · {placeCount} place{placeCount !== 1 ? "s" : ""}
+          {maskMoneyText(`~£${Math.round(total).toLocaleString("en-GB")}/mo`, hidden)} · {placeCount} place{placeCount !== 1 ? "s" : ""}
         </span>
       )}
       <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
@@ -249,6 +251,7 @@ function WorkflowDrawer({
   onSaved: () => void;
 }) {
   const stepLabelId = useId();
+  const hidden = useBalancesHidden();
   const initial: Record<string, string> = {};
   for (const s of workflow.steps) initial[s.id] = insight.user_context?.[s.id] ?? "";
   // Don't ask what the app already knows: the triggering merchant answers
@@ -354,7 +357,7 @@ function WorkflowDrawer({
               {/* What we already see — grounds the questions in their own data */}
               {topTrigger && (
                 <div className="mb-4 px-3 py-2.5 rounded-xl border border-indigo-100/80 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 text-[11px] text-indigo-700 dark:text-indigo-300">
-                  We can already see <span className="font-semibold font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
+                  We can already see <span className="font-semibold font-mono tabular-nums">{maskMoneyText(`~£${topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`, hidden)}</span> at{" "}
                   <span className="font-semibold">{topTrigger.display_name}</span>, {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
                 </div>
               )}
@@ -447,6 +450,7 @@ export function InsightCard({
   inSheet?: boolean;
 }) {
   const router = useRouter();
+  const hidden = useBalancesHidden();
   const [showTriggers, setShowTriggers] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   // Compact-row state (see isCompactPullInsight): starts collapsed for an
@@ -575,12 +579,12 @@ export function InsightCard({
             <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
               {extraTriggers > 0 ? (
                 <>
-                  <span className="font-mono tabular-nums">~£{triggerTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
+                  <span className="font-mono tabular-nums">{maskMoneyText(`~£${triggerTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`, hidden)}</span>{" "}
                   <span className="font-medium">across {insight.triggered_by.length} places</span>{" "}
                 </>
               ) : (
                 <>
-                  <span className="font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
+                  <span className="font-mono tabular-nums">{maskMoneyText(`~£${topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`, hidden)}</span>{" "}
                   <span className="font-medium">at {fixShortAllCaps(topTrigger.display_name)}</span>{" "}
                 </>
               )}
@@ -756,7 +760,7 @@ export function InsightCard({
                         own title/body — no hedge. Missing/false: a plain
                         window average over ad-hoc spend — hedge it like
                         every other estimate in this product. */}
-                    <span className="text-slate-500 dark:text-slate-400"><span className="font-mono tabular-nums">{t.is_recurring ? "" : "~"}£{t.monthly_amount.toFixed(2)}/mo</span> · {t.occurrences}×</span>
+                    <span className="text-slate-500 dark:text-slate-400"><span className="font-mono tabular-nums">{maskMoneyText(`${t.is_recurring ? "" : "~"}£${t.monthly_amount.toFixed(2)}/mo`, hidden)}</span> · {t.occurrences}×</span>
                   </div>
                 ))}
               </div>

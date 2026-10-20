@@ -1,5 +1,6 @@
 import type { SpendVerdictNotable, SpendVerdictPaceEntry, SpendVerdictState } from "@/lib/api";
-import { derivePaceCopy, formatSignedMoney } from "@/lib/spendPaceCopy";
+import { derivePaceCopy, formatSignedMoney as formatSignedMoneyRaw } from "@/lib/spendPaceCopy";
+import { useMaskedFormatter } from "@/lib/balancesHidden";
 import MoneyText from "@/components/MoneyText";
 
 type SpendPaceEvidenceProps = {
@@ -14,6 +15,7 @@ type SpendPaceEvidenceProps = {
 /** Evidence below the single G186 pace headline. It deliberately adds no
  * verdict of its own: it reconciles the supplied server figures only. */
 export default function SpendPaceEvidence({ daysElapsed, spent, paceSeries, notables, unresolvedTotal, state }: SpendPaceEvidenceProps) {
+  const formatSignedMoney = useMaskedFormatter(formatSignedMoneyRaw);
   const latestPace = [...(paceSeries ?? [])].reverse().find((point) => point.usual != null);
   const copy = derivePaceCopy({
     daysElapsed,

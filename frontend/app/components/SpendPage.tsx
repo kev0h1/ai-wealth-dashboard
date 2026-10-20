@@ -21,6 +21,7 @@ import {
   DEFAULT_PAY_PERIOD_CONFIG,
 } from "@/lib/payPeriod";
 import { usePreferences } from "@/components/PreferencesContext";
+import { BalancesHiddenContext, maskMoneyText } from "@/lib/balancesHidden";
 import { insightsForDisplay } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
@@ -231,7 +232,9 @@ function SpendSkeleton() {
 }
 
 export default function SpendPage() {
-  const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, spendWidgets, showTips } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, preferencesReady, spendWidgets, showTips } = usePreferences();
+  // G306: one flag for every £ figure on this page and the sheets it opens (hidden until preferences resolve, as Home does).
+  const balancesHidden = hideNetWorth || !preferencesReady;
   // Keep the journey's mobile strip attached to the viewport. This is
   // scoped to Spend's mounted lifetime, not an app-wide overflow change.
   useEffect(() => {
@@ -1084,7 +1087,7 @@ export default function SpendPage() {
   }
 
   const sym = "£";
-  const wholeMoney = (value: number) => `${value < 0 ? "−" : ""}${sym}${Math.abs(Math.round(value)).toLocaleString("en-GB")}`;
+  const wholeMoney = (value: number) => maskMoneyText(`${value < 0 ? "−" : ""}${sym}${Math.abs(Math.round(value)).toLocaleString("en-GB")}`, balancesHidden);
   const latestPace = verdict ? [...(verdict.pace_series ?? [])].reverse().find((point) => point.usual != null) : undefined;
   const paceDifference = verdict && latestPace?.usual != null ? verdict.pills.spent - latestPace.usual : null;
   const journeyDestinations: SpendJourneyDestination[] = verdict ? [
@@ -1130,6 +1133,7 @@ export default function SpendPage() {
   }
 
   return (
+    <BalancesHiddenContext.Provider value={balancesHidden}>
     <div className="mx-auto min-h-dvh max-w-6xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] pt-5 sm:px-6 lg:px-8 lg:pb-8" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top, 0px))" }}>
       <SpendPeriodBar
         verdict={verdict}
@@ -1431,5 +1435,6 @@ export default function SpendPage() {
         </div>
       )}
     </div>
+    </BalancesHiddenContext.Provider>
   );
 }

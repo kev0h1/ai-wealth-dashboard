@@ -12,6 +12,7 @@
 // port was meant to close off).
 
 import { Fragment, type ReactNode } from "react";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 
 export type ComingUpBill = {
   name: string;
@@ -509,7 +510,9 @@ function paymentCount(n: number): string {
 // replaces "heaviest day", dates read "Mon 5 Oct" (no ordinal) and a figure
 // is never said twice. Amounts stay in mono.
 function Amt({ value, sym }: { value: number; sym: string }): ReactNode {
-  return <span className="font-mono tabular-nums">{fmtSum(value, sym)}</span>;
+  // G306: fortnight sums are derived totals, masked under Hide balances.
+  const hidden = useBalancesHidden();
+  return <span className="font-mono tabular-nums">{maskMoneyText(fmtSum(value, sym), hidden)}</span>;
 }
 
 export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym?: string }): ReactNode {

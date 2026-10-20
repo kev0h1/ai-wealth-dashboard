@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 
 /**
  * Money is mono: anything carrying a £ renders in JetBrains Mono with
@@ -24,6 +27,9 @@ export default function MoneyText({
   text: string;
   className?: string;
 }): ReactNode {
+  // G306: under a BalancesHiddenContext provider every £ figure in the text is masked.
+  const hidden = useBalancesHidden();
+  if (hidden) text = maskMoneyText(text, true);
   // .match() with a /g regex always scans from index 0 and leaves no
   // lastIndex state behind, unlike .test(), which would otherwise corrupt
   // the shared module-level CURRENCY_TOKEN across renders.

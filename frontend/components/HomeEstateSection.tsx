@@ -12,6 +12,7 @@ import type { Account, InvestmentAccount } from "@/lib/api";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import { tidyAccountName } from "@/lib/accountName";
+import { useBalancesHidden } from "@/lib/balancesHidden";
 
 export interface HomeEstateSectionProps {
   /** Wrapper classes and style, supplied by the page (rhythm and rise-in). */
@@ -49,6 +50,8 @@ export default function HomeEstateSection({
   onViewAll,
   emptyState,
 }: HomeEstateSectionProps) {
+  // G306: account balances honour Hide balances (context from HomePage, hidden until preferences resolve).
+  const hideAmount = useBalancesHidden();
   return (
     <div className={className} style={style}>
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
@@ -74,6 +77,7 @@ export default function HomeEstateSection({
               <AccountLedgerRow
                 row={tidyRow(bankToRow(acc, pinnedIds))}
                 onClick={() => onOpenAccount(acc.id)}
+                hideAmount={hideAmount}
               />
             </div>
           ))}
@@ -82,6 +86,7 @@ export default function HomeEstateSection({
               <AccountLedgerRow
                 row={tidyRow(investmentToRow(topPickInvestment, pinnedIds))}
                 onClick={onOpenInvestments}
+                hideAmount={hideAmount}
               />
             </div>
           )}
