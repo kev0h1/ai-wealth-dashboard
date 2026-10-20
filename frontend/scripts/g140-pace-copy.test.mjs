@@ -21,7 +21,7 @@ for (const [state, fixture] of Object.entries(PACE_COPY_FIXTURES)) {
   }
   const expected = fixture.actualOut - fixture.usualByNow;
   check(`${state}: total preserves existing Out less usual arithmetic`, copy.total === expected);
-  check(`${state}: baseline names its amount and derivation`, copy.baselineLine === `Your usual pace by day ${fixture.daysElapsed} is £${Math.round(fixture.usualByNow).toLocaleString("en-GB")}. Usual pace is based on the median of up to three 30-day spending totals for each category before this pay period, adjusted for how far through the period you are.`);
+  check(`${state}: baseline names its amount and derivation`, copy.baselineLine === `Your usual pace by day ${fixture.daysElapsed} is £${(Math.round(fixture.usualByNow * 100) / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Usual pace is based on the median of up to three 30-day spending totals for each category before this pay period, adjusted for how far through the period you are.`);
   if (fixture.namedCategories.length) {
     check(`${state}: residual reconciles named excess to total`, copy.residual === expected - fixture.namedExcess);
     check(`${state}: names the categories instead of a count`, copy.namedLabel?.includes(fixture.namedCategories[0]));
@@ -31,14 +31,14 @@ for (const [state, fixture] of Object.entries(PACE_COPY_FIXTURES)) {
   }
 }
 
-check("positive amounts receive an explicit plus sign", formatSignedMoney(42, { plus: true }) === "+£42");
-check("negative values retain the currency minus", formatSignedMoney(-42, { plus: true }) === "−£42");
+check("positive amounts receive an explicit plus sign", formatSignedMoney(42, { plus: true }) === "+£42.00");
+check("negative values retain the currency minus", formatSignedMoney(-42, { plus: true }) === "−£42.00");
 check("over and under retain their signed verdict state", derivePaceCopy(PACE_COPY_FIXTURES.over).verdict === "above" && derivePaceCopy(PACE_COPY_FIXTURES.under).verdict === "below");
 check("level pace gets its own neutral verdict", derivePaceCopy(PACE_COPY_FIXTURES.level).verdict === "level");
 check("zero residual states say the named excess fully reconciles the total", derivePaceCopy(PACE_COPY_FIXTURES.balanced).residual === 0 && derivePaceCopy(PACE_COPY_FIXTURES.balanced).total === derivePaceCopy(PACE_COPY_FIXTURES.balanced).namedExcess);
 check("no-named state retains its total without inventing a residual", derivePaceCopy(PACE_COPY_FIXTURES.none).total === -30 && derivePaceCopy(PACE_COPY_FIXTURES.none).namedLabel === null && derivePaceCopy(PACE_COPY_FIXTURES.none).residual === null);
-check("long amounts preserve grouped currency and pence", formatSignedMoney(1234567.5, { plus: true }) === "+£1,234,567.5");
-check("tiny negative rounding never exposes negative zero", formatSignedMoney(-0.004, { plus: true }) === "£0" && formatSignedMoney(-0.001, { plus: true }) === "£0");
+check("long amounts preserve grouped currency and pence", formatSignedMoney(1234567.5, { plus: true }) === "+£1,234,567.50");
+check("tiny negative rounding never exposes negative zero", formatSignedMoney(-0.004, { plus: true }) === "£0.00" && formatSignedMoney(-0.001, { plus: true }) === "£0.00");
 check("fractional amounts retain up to two decimals with a proper minus", formatSignedMoney(1234.567, { plus: true }) === "+£1,234.57" && formatSignedMoney(-0.006, { plus: true }) === "−£0.01");
 check("negative half-pennies round with the same magnitude as the hero", formatSignedMoney(-0.005, { plus: true }) === "−£0.01" && formatSignedMoney(-10.125) === "−£10.13");
 check("zero spend with a real baseline remains a valid comparison", derivePaceCopy({ daysElapsed: 12, actualOut: 0, usualByNow: 40, namedCategories: [], namedExcess: 0, unresolvedTotal: 0 }).total === -40);

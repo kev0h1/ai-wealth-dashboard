@@ -15,6 +15,7 @@ const text = html => html.replace(/<[^>]*>/g, "").replace(/&#x27;/g, "'").replac
 
 assert.equal(mirrorMoney(123358.75), "£123,358.75");
 assert.equal(mirrorMoney(-7.62), "−£7.62");
+assert.equal(mirrorMoney(4629.3), "£4,629.30");
 assert.equal(mirrorMoney(8), "£8");
 assert.equal(mirrorMoney(82.12, true), "£••••");
 assert.equal(mirrorText("£14872 and -£7.62 with +£10.50", false), "£14,872 and −£7.62 with +£10.50");

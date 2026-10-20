@@ -9,7 +9,7 @@ export type UpcomingStatus = {
 
 export function upcomingMoney(amount: number, decimals = false) {
   return `${amount < 0 ? "−" : ""}£${Math.abs(amount).toLocaleString("en-GB", {
-    minimumFractionDigits: decimals ? 2 : 0,
+    minimumFractionDigits: decimals || !Number.isInteger(amount) ? 2 : 0,
     maximumFractionDigits: 2,
   })}`;
 }
