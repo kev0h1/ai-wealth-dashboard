@@ -28,82 +28,18 @@ import app.routers.can_i as can_i_module
 import app.services.penny_tools as penny_tools_module
 from app.core.models import Account
 from app.services.penny_tools import execute_tool
+from tests.penny_proposal_fakes import FakeCollection as _FakeCol
 
 UID = "kevin"
 
 
-class _FakeCursor:
-    def __init__(self, docs):
-        self._docs = list(docs)
-
-    async def to_list(self, n=None):
-        return list(self._docs)
-
-
-class _FakeCol:
-    """Twin of test_penny_proposals_accounts.py's own _FakeCol, extended
-    with `$exists` support in `_match` — `_resolve_insight_for_propose`
-    queries `{"retired_at": {"$exists": False}}`, the same filter GET
-    /savings-insights itself uses, so the fake needs to understand it too."""
-
-    def __init__(self, docs=None):
-        self.docs = list(docs or [])
-
-    @staticmethod
-    def _match(d, q):
-        for k, v in (q or {}).items():
-            if isinstance(v, dict) and "$exists" in v:
-                if (k in d) != v["$exists"]:
-                    return False
-                continue
-            if d.get(k) != v:
-                return False
-        return True
-
-    async def find_one(self, query=None, projection=None):
-        query = query or {}
-        for d in self.docs:
-            if self._match(d, query):
-                return d
-        return None
-
-    def find(self, query=None, projection=None):
-        query = query or {}
-        return _FakeCursor([d for d in self.docs if self._match(d, query)])
-
-    async def count_documents(self, query=None):
-        query = query or {}
-        return sum(1 for d in self.docs if self._match(d, query))
-
-    async def insert_one(self, doc):
-        self.docs.append(doc)
-
-    async def update_one(self, filt, update, upsert=False):
-        for d in self.docs:
-            if self._match(d, filt):
-                d.update(update.get("$set") or {})
-                return
-        if upsert:
-            new_doc = dict(filt)
-            new_doc.update(update.get("$set") or {})
-            self.docs.append(new_doc)
-
-    async def replace_one(self, filt, doc, upsert=False):
-        for i, d in enumerate(self.docs):
-            if self._match(d, filt):
-                self.docs[i] = dict(doc)
-                return
-        if upsert:
-            self.docs.append(dict(doc))
-
-    async def delete_one(self, filt):
-        before = len(self.docs)
-        self.docs = [d for d in self.docs if not self._match(d, filt)]
-
-        class _Result:
-            deleted_count = before - len(self.docs)
-
-        return _Result()
+@pytest.fixture(autouse=True)
+def _default_tool_preferences(monkeypatch):
+    monkeypatch.setattr(
+        penny_tools_module,
+        "preferences_col",
+        _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}]),
+    )
 
 
 def _live_doc(kind, params, **overrides):

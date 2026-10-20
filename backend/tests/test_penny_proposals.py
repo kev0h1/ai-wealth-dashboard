@@ -33,86 +33,23 @@ import app.services.penny_tools as penny_tools_module
 from app.core.models import Account
 from app.services.penny_agent import run_penny_agent
 from app.services.penny_tools import execute_tool
+from tests.penny_proposal_fakes import FakeCollection as _FakeCol
 
 UID = "kevin"
 
 
+@pytest.fixture(autouse=True)
+def _default_tool_preferences(monkeypatch):
+    """Proposal creation stamps the current consent generation."""
+    monkeypatch.setattr(
+        penny_tools_module,
+        "preferences_col",
+        _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}]),
+    )
+
+
 def _acc(id_, name, balance=100.0, provider="Test Bank", type_="transaction"):
     return Account(id=id_, name=name, type=type_, balance=balance, provider=provider)
-
-
-class _FakeCol:
-    """Stand-in for a Motor collection — enough of find_one()/insert_one()/
-    update_one() (exact-key-equality query matching only, sufficient for
-    every use in this file) to drive the real proposal/execute/cancel code
-    without touching real Mongo. Same minimal-fake convention
-    test_allocations.py already established for this suite."""
-
-    def __init__(self, docs=None):
-        self.docs = list(docs or [])
-
-    @staticmethod
-    def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
-
-    async def find_one(self, query=None, projection=None):
-        query = query or {}
-        for d in self.docs:
-            if self._match(d, query):
-                return d
-        return None
-
-    async def insert_one(self, doc):
-        self.docs.append(doc)
-
-    async def update_one(self, filt, update, upsert=False):
-        for d in self.docs:
-            if self._match(d, filt):
-                d.update(update.get("$set") or {})
-                for key, amount in (update.get("$inc") or {}).items():
-                    d[key] = d.get(key, 0) + amount
-                return
-        if upsert:
-            new_doc = dict(filt)
-            new_doc.update(update.get("$set") or {})
-            for key, amount in (update.get("$inc") or {}).items():
-                new_doc[key] = new_doc.get(key, 0) + amount
-            self.docs.append(new_doc)
-
-    async def replace_one(self, filt, doc, upsert=False):
-        """card_terms.py's own save_card_terms replace_one()s the whole
-        terms document on every save (deliberately — see that function's
-        own docstring) — only propose_set_card_apr's execute-side test
-        needs this, added here rather than a new fake class since it's a
-        pure addition, every other test in this file keeps using
-        find_one/insert_one/update_one exactly as before."""
-        for i, d in enumerate(self.docs):
-            if self._match(d, filt):
-                self.docs[i] = dict(doc)
-                return
-        if upsert:
-            self.docs.append(dict(doc))
-
-    async def update_many(self, filt, update):
-        """B13 addition: revoke_agent_consent cancels every PENDING proposal
-        (executed_at/cancelled_at both still None) for the revoking user in
-        one bulk update, mirroring Motor's own update_many(filter, update)
-        shape — no upsert, exact-key-equality matching only, same as every
-        other method on this fake."""
-        n = 0
-        for d in self.docs:
-            if self._match(d, filt):
-                d.update(update.get("$set") or {})
-                n += 1
-        return _ModifiedResult(n)
-
-
-class _ModifiedResult:
-    """Just enough of pymongo's UpdateResult for revoke_agent_consent's
-    `result.modified_count` read."""
-
-    def __init__(self, n):
-        self.modified_count = n
 
 
 # ═════════════════════════════════════════════════════════════════════════

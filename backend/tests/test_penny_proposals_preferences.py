@@ -23,46 +23,22 @@ import app.routers.can_i as can_i_module
 import app.services.penny_tools as penny_tools_module
 from app.core.models import Account
 from app.services.penny_tools import execute_tool
+from tests.penny_proposal_fakes import FakeCollection as _FakeCol
 
 UID = "kevin"
 
 
+@pytest.fixture(autouse=True)
+def _default_tool_preferences(monkeypatch):
+    monkeypatch.setattr(
+        penny_tools_module,
+        "preferences_col",
+        _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}]),
+    )
+
+
 def _acc(id_, name, balance=100.0, provider="Test Bank", type_="transaction"):
     return Account(id=id_, name=name, type=type_, balance=balance, provider=provider)
-
-
-class _FakeCol:
-    """Twin of test_penny_proposals.py's own _FakeCol — enough of
-    find_one()/insert_one()/update_one() (exact-key-equality query
-    matching, sufficient for every use here) to drive the real
-    proposal/execute code without touching real Mongo."""
-
-    def __init__(self, docs=None):
-        self.docs = list(docs or [])
-
-    @staticmethod
-    def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
-
-    async def find_one(self, query=None, projection=None):
-        query = query or {}
-        for d in self.docs:
-            if self._match(d, query):
-                return d
-        return None
-
-    async def insert_one(self, doc):
-        self.docs.append(doc)
-
-    async def update_one(self, filt, update, upsert=False):
-        for d in self.docs:
-            if self._match(d, filt):
-                d.update(update.get("$set") or {})
-                return
-        if upsert:
-            new_doc = dict(filt)
-            new_doc.update(update.get("$set") or {})
-            self.docs.append(new_doc)
 
 
 def _live_doc(kind, params, **overrides):

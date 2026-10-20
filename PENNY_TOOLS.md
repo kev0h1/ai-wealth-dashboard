@@ -98,6 +98,26 @@ artefact carries `created_via: "penny"` (allocations/planned/commitments
 docs, exposed on their own GET payloads); (4) a single 15-minute proposal
 TTL (`penny_proposals_col`, Mongo TTL index on `expires_at`).
 
+A170 (2026-10-20): proposal execution now has two durable ordering points.
+An atomic proposal claim reserves the action against duplicate confirms and
+Cancel. A conditional write on the user's preferences document then orders
+authorisation against revocation's consent clear and monotonic generation
+increment. If revocation wins, no executor is called. If authorisation wins,
+the reserved action may finish after revocation returns and is not reported
+as cancelled. Proposal creation stamps that generation, so delayed inserts
+missed by cancellation cannot revive after a later consent grant. Legacy
+proposals/preferences use generation zero; grant never resets the counter.
+Revocation cancels only unclaimed proposals from earlier generations, so an
+old cleanup cannot cancel a newly granted generation's proposals.
+
+Completed executions replay their stored result. An in-flight or uncertain
+attempt returns 409 on subsequent confirmation, with no automatic takeover,
+lease expiry or retry. Executors can partially write before an HTTP error,
+process cancellation or failed result save, so retaining the claim prevents
+duplicate dispatch; it does not guarantee that every claimed action completes.
+The existing 15-minute proposal TTL and account-erasure retention still apply.
+No bank payments or money movement are added by this change.
+
 Follow-up, same day: the original contract only shipped the grant side, with
 no way for a Settings toggle to turn Penny's write access back off. Added:
 `DELETE /penny/agent-consent` clears `penny_agent_consent` back to falsy,
