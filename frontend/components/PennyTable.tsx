@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import MoneyText from "@/components/MoneyText";
+import MoneyText, { AmountText } from "@/components/MoneyText";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { formatTableCell, normalisePennyTable, type PennyTableBlock, type PennyTableColumn } from "@/lib/pennyTable";
 
 /**
@@ -32,7 +33,7 @@ function Cell({ col, value }: { col: PennyTableColumn; value: ReturnType<typeof 
   if (value === null) {
     return <span className="text-slate-400 dark:text-slate-500" role="img" aria-label="No value">-</span>;
   }
-  if (col.kind === "money") return <span className="money">{value}</span>;
+  if (col.kind === "money") return <span className="money"><AmountText text={value} /></span>;
   if (col.kind === "number" || col.kind === "rate") return <span className="num">{value}</span>;
   if (col.kind === "date") return <span className="num">{value}</span>;
   return <MoneyText text={value} />;
@@ -41,6 +42,7 @@ function Cell({ col, value }: { col: PennyTableColumn; value: ReturnType<typeof 
 export default function PennyTable({ table, now }: { table: PennyTableBlock; now?: Date }) {
   const titleId = useId();
   const [scrolled, setScrolled] = useState(false);
+  const hidden = useBalancesHidden();
   const block = normalisePennyTable(table);
   if (!block) return null;
   // The held column is the one that names the row: Description, else the first
@@ -52,7 +54,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
     <figure className="mt-2.5 mb-0 min-w-0" data-penny-table>
       {block.title && (
         <p id={titleId} aria-hidden="true" className="mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 break-words">
-          {block.title}
+          <AmountText text={block.title} />
         </p>
       )}
       <div
@@ -68,7 +70,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
         className={`overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200 dark:border-slate-600 ${SURFACE} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
       >
         <table className="min-w-full border-separate border-spacing-0 text-[13px] text-slate-800 dark:text-slate-100">
-          <caption className="sr-only">{block.title || "Table"}</caption>
+          <caption className="sr-only">{block.title ? maskMoneyText(block.title, hidden) : "Table"}</caption>
           <thead>
             <tr>
               {block.columns.map((col, ci) => (
@@ -77,7 +79,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
                   scope="col"
                   className={`whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-600 ${SURFACE} ${col.align === "right" ? "text-right" : "text-left"} ${ci === stickyIdx ? `sticky left-0 z-10 ${stickyShadowClass(scrolled)}` : ""}`}
                 >
-                  {col.label}
+                  <AmountText text={col.label} />
                 </th>
               ))}
             </tr>
@@ -107,7 +109,7 @@ export default function PennyTable({ table, now }: { table: PennyTableBlock; now
         </table>
       </div>
       {block.note && (
-        <figcaption className="mt-1.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400 break-words">{block.note}</figcaption>
+        <figcaption className="mt-1.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400 break-words"><AmountText text={block.note} /></figcaption>
       )}
     </figure>
   );

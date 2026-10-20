@@ -46,7 +46,8 @@ for (const result of [82, 98, 100, 118]) {
 }
 const masked = render({ masked: true, completed });
 assert.ok(!/14,?872|2,?270|82\.12|100\.25/.test(masked), "money hidden in text and accessible attributes");
-assert.ok(!masked.includes('role="img"'), "masked ring cannot leak an accessible money sentence");
+// B56: a masked figure may carry role="img", but only with the accessible name "Amount hidden", never a money sentence.
+assert.ok((masked.match(/role="img"[^>]*>/g) ?? []).every((tag) => tag.includes('aria-label="Amount hidden"')), "masked ring cannot leak an accessible money sentence");
 const failed = text(render({ error: "offline" }));
 assert.ok(failed.includes("Try again") && !failed.includes("£82.12"));
 const source = readFileSync(new URL("../app/mirror/MirrorPage.tsx", import.meta.url), "utf8");

@@ -20,6 +20,7 @@
     "check:g292-home-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g292-home-anatomy.test.mjs",
     "check:g291-plans-preview": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs app/design/plans-simple/model.test.mjs && node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs app/design/plans-simple/render.test.mjs",
     "check:g306-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g306-masking.test.mjs",
+    "check:b56-penny-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b56-penny-masking.test.mjs",
     "check:b55-upcoming-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b55-upcoming-masking.test.mjs",
     "check:b54-home-move-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b54-home-move-masking.test.mjs",
     "check:g293-spend-spacing": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g293-spend-spacing.test.mjs",

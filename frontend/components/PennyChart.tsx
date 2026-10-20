@@ -6,8 +6,10 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { useColours } from "@/components/ColourProvider";
+import { AmountText } from "@/components/MoneyText";
 import PennyTable from "@/components/PennyTable";
 import { useIsDark } from "@/lib/useIsDark";
+import { useBalancesHidden, maskMoneyText, MaskedAmount } from "@/lib/balancesHidden";
 import {
   chartColour, chartRows, chartToTable, formatChartValue, normalisePennyChart,
   type PennyChartSpec,
@@ -30,6 +32,7 @@ const TIP = {
 const MONO = "var(--font-jbmono), monospace";
 
 function Tip({ spec, active, payload, label }: { spec: PennyChartSpec; active?: boolean; payload?: ReadonlyArray<{ value?: unknown; name?: unknown; color?: string; dataKey?: unknown; payload?: { label?: string } }>; label?: unknown }) {
+  const hidden = useBalancesHidden() && spec.y.unit === "money";
   if (!active || !payload || payload.length === 0) return null;
   const head = spec.type === "donut" ? null : String(payload[0]?.payload?.label ?? label ?? "");
   return (
@@ -44,7 +47,7 @@ function Tip({ spec, active, payload, label }: { spec: PennyChartSpec; active?: 
             <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 4, background: p.color, display: "inline-block" }} />
             {name && <span>{name}</span>}
             <span className={spec.y.unit === "money" ? "money" : "num"} style={{ fontFamily: MONO, fontVariantNumeric: "tabular-nums" }}>
-              {formatChartValue(spec, p.value)}
+              {hidden ? <MaskedAmount className="" /> : formatChartValue(spec, p.value)}
             </span>
           </div>
         );
@@ -79,6 +82,7 @@ function axisWidth(spec: PennyChartSpec, max: number, min: number): number {
 /** The chart itself. `size` is only for the node check, which renders it
  * without a browser to measure; in the app the ResponsiveContainer sizes it. */
 export function PennyChartPlot({ spec, dark, overrides, size }: { spec: PennyChartSpec; dark: boolean; overrides: Record<string, string>; size?: { width: number; height: number } }) {
+  const hideY = useBalancesHidden() && spec.y.unit === "money";
   const tick = dark ? "#94a3b8" : "#64748b";
   const grid = dark ? "#334155" : "#e2e8f0";
   const surface = dark ? "#1e293b" : "#ffffff";
@@ -107,7 +111,7 @@ export function PennyChartPlot({ spec, dark, overrides, size }: { spec: PennyCha
       <CartesianGrid vertical={false} stroke={grid} strokeWidth={1} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} interval={rows.length > 6 ? "preserveStartEnd" : 0}
         tick={{ fontSize: 10, fill: tick }} minTickGap={14} tickFormatter={(l: string) => ticks[l] ?? l} />
-      <YAxis tickLine={false} axisLine={false} width={axisWidth(spec, max, min)} domain={[min < 0 ? "auto" : 0, "auto"]}
+      <YAxis hide={hideY} tickLine={false} axisLine={false} width={hideY ? 0 : axisWidth(spec, max, min)} domain={[min < 0 ? "auto" : 0, "auto"]}
         tick={{ fontSize: 9, fill: tick, fontFamily: spec.y.unit === "money" ? MONO : undefined }}
         tickFormatter={(v: number) => formatChartValue(spec, v, true)} />
       {min < 0 && <ReferenceLine y={0} stroke={tick} strokeOpacity={0.5} />}
@@ -141,6 +145,7 @@ export function PennyChartPlot({ spec, dark, overrides, size }: { spec: PennyCha
 
 function Legend({ spec, dark, overrides }: { spec: PennyChartSpec; dark: boolean; overrides: Record<string, string> }) {
   const donut = spec.type === "donut";
+  const hidden = useBalancesHidden() && spec.y.unit === "money";
   const items = donut
     ? spec.series[0].points.map((p, i) => ({ key: p.x, name: p.x, value: p.y, colour: chartColour(spec, p.x, i, dark, overrides) }))
     : spec.series.map((s, i) => ({ key: s.name, name: s.name, value: null as number | null, colour: chartColour(spec, s.name, i, dark, overrides) }));
@@ -154,7 +159,7 @@ function Legend({ spec, dark, overrides }: { spec: PennyChartSpec; dark: boolean
           <span className="min-w-0 flex-1 truncate">{it.name}</span>
           {it.value !== null && (
             <span className="shrink-0 text-slate-800 dark:text-slate-100">
-              <span className={spec.y.unit === "money" ? "money" : "num"}>{formatChartValue(spec, it.value)}</span>
+              <span className={spec.y.unit === "money" ? "money" : "num"}>{hidden ? <MaskedAmount className="" /> : formatChartValue(spec, it.value)}</span>
               <span className="num ml-1.5 text-slate-500 dark:text-slate-400">{total ? Math.round((100 * it.value) / total) : 0}%</span>
             </span>
           )}
@@ -166,6 +171,7 @@ function Legend({ spec, dark, overrides }: { spec: PennyChartSpec; dark: boolean
 
 export default function PennyChart({ chart }: { chart: PennyChartSpec }) {
   const [asTable, setAsTable] = useState(false);
+  const hidden = useBalancesHidden();
   const dark = useIsDark();
   const { colours } = useColours();
   const spec = useMemo(() => normalisePennyChart(chart), [chart]);
@@ -183,15 +189,15 @@ export default function PennyChart({ chart }: { chart: PennyChartSpec }) {
       {/* The table view carries the title as its own label, so show it once. */}
       {!asTable && (
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400 break-words">
-          {spec.title}
+          <AmountText text={spec.title} />
         </p>
       )}
-      <p className="mb-1.5 text-[13px] leading-snug text-slate-700 dark:text-slate-200 break-words" data-penny-chart-summary>{shown}</p>
+      <p className="mb-1.5 text-[13px] leading-snug text-slate-700 dark:text-slate-200 break-words" data-penny-chart-summary><AmountText text={shown} /></p>
       {asTable && table ? (
         <PennyTable table={table} />
       ) : (
         <div className={`rounded-xl border border-slate-200 p-2 dark:border-slate-600 ${SURFACE}`}>
-          <div role="img" aria-label={spec.summary} className={donut ? "flex items-center gap-3" : ""}>
+          <div role="img" aria-label={maskMoneyText(spec.summary, hidden).replace(/£••••/g, "amount hidden")} className={donut ? "flex items-center gap-3" : ""}>
             <div className={donut ? "h-[112px] w-[112px] shrink-0" : "h-[200px] w-full"}>
               <ResponsiveContainer width="100%" height="100%" initialDimension={donut ? { width: 112, height: 112 } : { width: 300, height: 200 }}>
                 <PennyChartPlot spec={spec} dark={dark} overrides={colours} />
@@ -213,7 +219,7 @@ export default function PennyChart({ chart }: { chart: PennyChartSpec }) {
         </button>
       )}
       {spec.note && !asTable && (
-        <figcaption className="mt-1 text-[12px] leading-snug text-slate-500 dark:text-slate-400 break-words">{spec.note}</figcaption>
+        <figcaption className="mt-1 text-[12px] leading-snug text-slate-500 dark:text-slate-400 break-words"><AmountText text={spec.note} /></figcaption>
       )}
     </figure>
   );

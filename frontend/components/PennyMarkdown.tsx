@@ -22,33 +22,41 @@ export const PENNY_MARKDOWN_ALLOWED = [
   "table", "thead", "tbody", "tr", "th", "td", "p", "ul", "ol", "li", "strong", "em", "code", "br", "a",
 ] as const;
 
-function money(children: ReactNode): ReactNode {
-  return Children.map(children, (c) => (typeof c === "string" ? <MoneyText text={c} /> : c));
+function money(children: ReactNode, unmasked = false): ReactNode {
+  return Children.map(children, (c) => (typeof c === "string" ? <MoneyText text={c} unmasked={unmasked} /> : c));
 }
 
-const components: Components = {
-  p: ({ children }) => <p className="mb-2 last:mb-0">{money(children)}</p>,
+// B56: figures mask under Hide balances (MoneyText reads BalancesHiddenContext);
+// `unmasked` is the opt-out for text that is only fixed prices or thresholds.
+function makeComponents(unmasked: boolean): Components {
+  const money_ = (children: ReactNode) => money(children, unmasked);
+  return {
+  p: ({ children }) => <p className="mb-2 last:mb-0">{money_(children)}</p>,
   ul: ({ children }) => <ul className="list-disc pl-4 mb-2 last:mb-0 space-y-0.5">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-0.5">{children}</ol>,
-  li: ({ children }) => <li className="leading-relaxed">{money(children)}</li>,
-  strong: ({ children }) => <strong className="font-semibold">{money(children)}</strong>,
-  em: ({ children }) => <em className="italic">{money(children)}</em>,
-  code: ({ children }) => <code className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 text-[12px]">{children}</code>,
+  li: ({ children }) => <li className="leading-relaxed">{money_(children)}</li>,
+  strong: ({ children }) => <strong className="font-semibold">{money_(children)}</strong>,
+  em: ({ children }) => <em className="italic">{money_(children)}</em>,
+  code: ({ children }) => <code className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 text-[12px]">{money_(children)}</code>,
   a: ({ href, children }) =>
     isSafeAppHref(href) ? (
-      <Link href={href as string} className="underline">{children}</Link>
+      <Link href={href as string} className="underline">{money_(children)}</Link>
     ) : (
-      <span>{children}</span>
+      <span>{money_(children)}</span>
     ),
-};
+  };
+}
 
-export function PennyMarkdownBlock({ text }: { text: string }) {
+const MASKING = makeComponents(false);
+const UNMASKED = makeComponents(true);
+
+export function PennyMarkdownBlock({ text, unmasked = false }: { text: string; unmasked?: boolean }) {
   return (
     <Markdown
       skipHtml
       allowedElements={[...PENNY_MARKDOWN_ALLOWED]}
       unwrapDisallowed
-      components={components}
+      components={unmasked ? UNMASKED : MASKING}
     >
       {text}
     </Markdown>
@@ -57,15 +65,15 @@ export function PennyMarkdownBlock({ text }: { text: string }) {
 
 /** A reply as Penny's bubble shows it: plain text through MoneyText unless it
  * carries block markdown, in which case prose and tables are drawn separately. */
-export default function PennyReplyText({ text }: { text: string }) {
-  if (!looksLikeMarkdown(text)) return <MoneyText text={text} />;
+export default function PennyReplyText({ text, unmasked = false }: { text: string; unmasked?: boolean }) {
+  if (!looksLikeMarkdown(text)) return <MoneyText text={text} unmasked={unmasked} />;
   return (
     <>
       {splitReplySegments(text).map((seg, i) =>
         seg.type === "table" ? (
           <PennyTable key={i} table={seg.table} />
         ) : (
-          <PennyMarkdownBlock key={i} text={seg.text} />
+          <PennyMarkdownBlock key={i} text={seg.text} unmasked={unmasked} />
         ),
       )}
     </>
