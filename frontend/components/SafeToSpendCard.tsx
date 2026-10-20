@@ -9,6 +9,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
 import {
+  spendFromCombinedLine,
   spendFromTreatmentPlan,
   type SpendFromAccount,
   type SpendFromResult,
@@ -122,18 +123,22 @@ function localBank(account: SpendFromAccount["account"]) {
   };
 }
 
-function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
+// G300: when the per-account figures would add up to more than Safe to Spend
+// (`plan.combined`), the footnote slot carries ONE combined sentence instead
+// and the per-account figure footnote is dropped.
+function SpendFromScope({ coverMoveVisible, combinedLine }: { coverMoveVisible: boolean; combinedLine?: string | null }) {
   return (
     <p className="mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty">
-      Each figure is what that account can cover, never more than your Safe to Spend.
+      {combinedLine ?? "Each figure is what that account can cover, never more than your Safe to Spend."}
       {coverMoveVisible ? " The move above is already held back." : ""}
     </p>
   );
 }
 
-function SpendFromBankRail({ entries, amount, onLogoError }: {
+function SpendFromBankRail({ entries, amount, combined = false, onLogoError }: {
   entries: SpendFromAccount[];
   amount: (value: number) => string;
+  combined?: boolean;
   onLogoError: (logoSrc: string) => void;
 }) {
   return (
@@ -163,7 +168,9 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
           const spare = amount(entry.headroom);
           return (
             <li key={entry.accountId} className="col-span-2 grid grid-cols-subgrid items-center">
-              <span className="sr-only">{entry.name} at {bank.label}, {spare} spare</span>
+              <span className="sr-only">
+                {combined ? `${entry.name} at ${bank.label}, has room to spend from` : `${entry.name} at ${bank.label}, ${spare} spare`}
+              </span>
               <BankBadge
                 logoSrc={bank.logoSrc}
                 initials={bank.initials}
@@ -173,7 +180,9 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
                 size={22}
                 onLogoError={() => onLogoError(bank.logoSrc)}
               />
-              <span aria-hidden="true" className="money text-right text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
+              {combined ? null : (
+                <span aria-hidden="true" className="money text-right text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
+              )}
             </li>
           );
         })}
@@ -182,11 +191,21 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
   );
 }
 
-function SpendFromNameRows({ entries, amount, coverMoveVisible }: {
+function SpendFromNameRows({ entries, amount, coverMoveVisible, combinedLine }: {
   entries: SpendFromAccount[];
   amount: (value: number) => string;
   coverMoveVisible: boolean;
+  combinedLine?: string | null;
 }) {
+  if (combinedLine) {
+    return (
+      <div data-g115-treatment="name-fallback" data-g300-combined="true" className="mt-2">
+        <p className="sr-only">Accounts with room to spend from</p>
+        <p className="text-[12px] font-semibold leading-snug text-slate-700 dark:text-slate-200 text-pretty">{combinedLine}</p>
+        {coverMoveVisible ? <SpendFromScope coverMoveVisible combinedLine="" /> : null}
+      </div>
+    );
+  }
   return (
     <div data-g115-treatment="name-fallback" className="mt-2">
       <p className="sr-only">Accounts with room to spend from</p>
@@ -273,6 +292,9 @@ export function approvedSpendFromTreatment(
   onLogoError: (logoSrc: string) => void,
   onRetry?: () => void,
 ): SpendFromTreatment | null {
+  const combinedLine = plan.combined && plan.pool != null
+    ? spendFromCombinedLine(plan.entries, plan.pool, amount)
+    : null;
   switch (plan.kind) {
     // The one branch that still renders nothing. `pending` means the
     // request carrying this data has not settled, so there is nothing true
@@ -310,13 +332,13 @@ export function approvedSpendFromTreatment(
       };
 
     case "name-fallback":
-      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} /> };
+      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} combinedLine={combinedLine} /> };
 
     case "bank-rail":
     default:
       return {
-        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} onLogoError={onLogoError} />,
-        body: <SpendFromScope coverMoveVisible={coverMoveVisible} />,
+        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} combined={combinedLine != null} onLogoError={onLogoError} />,
+        body: <SpendFromScope coverMoveVisible={coverMoveVisible} combinedLine={combinedLine} />,
       };
   }
 }
@@ -492,9 +514,12 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     const bank = localBank(account);
     return bank != null && !failedSpendFromLogos.has(bank.logoSrc);
   }, [failedSpendFromLogos]);
+  const pooledSafeToSpend = data && "safe_to_spend" in data && typeof data.safe_to_spend === "number" ? data.safe_to_spend : null;
   const spendFromPlan = useMemo(
-    () => spendFromTreatmentPlan(spendFrom, hasBankMark),
-    [spendFrom, hasBankMark],
+    // G300: the pooled Safe to Spend travels in so the plan can tell when the
+    // per-account figures would add up to more than it.
+    () => spendFromTreatmentPlan(spendFrom, hasBankMark, pooledSafeToSpend),
+    [spendFrom, hasBankMark, pooledSafeToSpend],
   );
   // The rail being absent must leave a trace even for the branch whose copy
   // is deliberately gentle: the user-facing line says the figure is not

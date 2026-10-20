@@ -245,6 +245,51 @@ export function bestSpendAccount(
   return { kind: "none" };
 }
 
+// G300 (Kevin 2026-10-20): every shown figure is capped at the pooled Safe to
+// Spend independently (G234), so when the pool binds for two accounts both
+// read the same figure and the list implies the figures can be added. The
+// rule lives here as pure functions so the card, the sentences and the tests
+// share it. Never split the pool proportionally: that implies a precision
+// that is not there.
+const POOL_EPSILON = 0.005;
+
+function usablePool(pool: number | null | undefined): number | null {
+  return typeof pool === "number" && Number.isFinite(pool) ? Math.max(0, pool) : null;
+}
+
+/** True when the shown per-account figures would add up to more than the
+ *  pooled Safe to Spend, so one combined line must replace them. False for a
+ *  single entry, an unknown pool, or figures that fit inside the pool. */
+export function spendFromIsCombined(
+  entries: SpendFromAccount[],
+  pool: number | null | undefined,
+): boolean {
+  const limit = usablePool(pool);
+  if (limit == null || entries.length < 2) return false;
+  const total = entries.reduce((sum, entry) => sum + entry.headroom, 0);
+  return total > limit + POOL_EPSILON;
+}
+
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+}
+
+/** The one combined sentence, plus one short clause per account that can
+ *  cover less than the pool. Call only when `spendFromIsCombined` is true. */
+export function spendFromCombinedLine(
+  entries: SpendFromAccount[],
+  pool: number,
+  amount: (value: number) => string,
+): string {
+  const limit = Math.max(0, pool);
+  const names = joinNames(entries.map((entry) => entry.name));
+  const below = entries.filter((entry) => entry.headroom < limit - POOL_EPSILON);
+  if (below.length === 0) return `Spend up to ${amount(limit)} from ${names}.`;
+  const clauses = below.map((entry) => `${entry.name} can cover up to ${amount(entry.headroom)}.`);
+  return [`Spend up to ${amount(limit)} in total from ${names}.`, ...clauses].join(" ");
+}
+
 /** One quiet line under the Safe-to-Spend hero. Never implies the figure is
  * part of the pooled headline above it: it names the account AND states the
  * difference in scope outright.
@@ -273,6 +318,7 @@ export function spendFromHeroLine(
   result: SpendFromResult,
   amount: (value: number) => string,
   bankLabel?: string | null,
+  pool?: number | null,
 ): string | null {
   switch (result.kind) {
     case "unavailable":
@@ -285,6 +331,8 @@ export function spendFromHeroLine(
       // sits in a savings pot: deliberate, see this file's header comment.
       return "No single account has spare to spend from right now.";
     case "account": {
+      const entries = [result.best, result.alternative].filter((e): e is SpendFromAccount => e != null);
+      if (spendFromIsCombined(entries, pool)) return spendFromCombinedLine(entries, pool as number, amount);
       const bank = bankLabel ? ` (${bankLabel})` : "";
       // G234: the figure is capped at the pooled Safe to Spend by the
       // backend, so it can never read higher than the headline. When the
@@ -302,9 +350,12 @@ export function spendFromHeroLine(
 export function spendFromAlternativeLine(
   result: SpendFromResult,
   amount: (value: number) => string,
+  pool?: number | null,
 ): string | null {
   if (result.kind !== "account") return null;
   if (!result.alternative) return null;
+  // G300: the hero line already carries the combined sentence.
+  if (spendFromIsCombined([result.best, result.alternative], pool)) return null;
   // Same scope qualifier as the hero line, in its shortest honest form:
   // this line sits inside the "How we got £X" ledger, which itemises the
   // POOLED calculation, so an unqualified "£38 spare" reads as one of that
@@ -347,6 +398,12 @@ export type SpendFromTreatmentPlan = {
   kind: SpendFromTreatmentKind;
   /** Ranked accounts to render; empty for every non-account kind. */
   entries: SpendFromAccount[];
+  /** G300: the pooled Safe to Spend the combined rule used (null when unknown). */
+  pool: number | null;
+  /** G300: true when the per-account figures would add up to more than the
+   *  pool, so the card shows badges/names only plus one combined line
+   *  (`spendFromCombinedLine`) instead of per-account amounts. */
+  combined: boolean;
   /** The user-facing sentence for the kinds that have no rows of their own. */
   message: string | null;
   /** Whether to offer the card's existing retry control alongside `message`. */
@@ -371,6 +428,7 @@ export type SpendFromTreatmentPlan = {
 export function spendFromTreatmentPlan(
   result: SpendFromResult | null | undefined,
   hasBankMark: (account: Account) => boolean,
+  pool?: number | null,
 ): SpendFromTreatmentPlan {
   // A caller that passes nothing at all knows as little as one whose
   // request failed, and must not be quieter about it.
@@ -379,11 +437,13 @@ export function spendFromTreatmentPlan(
   if (resolved.kind === "unavailable") {
     switch (resolved.reason) {
       case "loading":
-        return { kind: "pending", entries: [], message: null, retryable: false, diagnostic: null };
+        return { kind: "pending", entries: [], pool: null, combined: false, message: null, retryable: false, diagnostic: null };
       case "error":
         return {
           kind: "check-failed",
           entries: [],
+          pool: null,
+          combined: false,
           message: "Spend from: we could not check your accounts just now.",
           retryable: true,
           diagnostic:
@@ -394,6 +454,8 @@ export function spendFromTreatmentPlan(
         return {
           kind: "not-available",
           entries: [],
+          pool: null,
+          combined: false,
           // Deliberately does not explain itself further. The honest
           // statement is that the account by account answer is not here;
           // anything more specific would be a claim about the user's banks
@@ -408,7 +470,7 @@ export function spendFromTreatmentPlan(
   }
 
   if (resolved.kind === "none") {
-    return { kind: "no-current", entries: [], message: null, retryable: false, diagnostic: null };
+    return { kind: "no-current", entries: [], pool: null, combined: false, message: null, retryable: false, diagnostic: null };
   }
 
   const entries = [resolved.best, resolved.alternative].filter(
@@ -417,5 +479,13 @@ export function spendFromTreatmentPlan(
   const kind: SpendFromTreatmentKind = entries.every((entry) => hasBankMark(entry.account))
     ? "bank-rail"
     : "name-fallback";
-  return { kind, entries, message: null, retryable: false, diagnostic: null };
+  return {
+    kind,
+    entries,
+    pool: usablePool(pool),
+    combined: spendFromIsCombined(entries, pool),
+    message: null,
+    retryable: false,
+    diagnostic: null,
+  };
 }
