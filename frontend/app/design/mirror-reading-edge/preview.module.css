@@ -1,0 +1,32 @@
+/* Design-round adapter only. The shipped G286 card/default CSS is unchanged. */
+.proposed { overflow:hidden; border:1px solid #e2e8f0; border-radius:16px; background:#fff; box-shadow:0 1px 2px rgb(15 23 42 / .05); }
+.proposed > section[aria-labelledby] { border:0; border-radius:0; background:transparent; box-shadow:none; }
+.proposed > section > header { border-bottom:0; padding:16px 16px 0; }
+.proposed > section > header > div:first-child { flex-direction:row-reverse; align-items:flex-start; gap:8px; }
+.proposed > section > header > div:first-child > div { flex:1; }
+.proposed > section > header > div:first-child > span[aria-hidden="true"] { flex:0 0 16px; width:16px; height:20px; border-radius:0; background:transparent !important; }
+.proposed > section > header > div:first-child > span svg { width:16px; height:16px; }
+.proposed > section > header > div:not(:first-child):not([aria-label]) { margin:12px 0 0; gap:4px; }
+.proposed > section > header > div:not(:first-child):not([aria-label]) p { color:#475569; }
+.proposed > section > header > div[aria-label] { margin-top:16px; }
+.proposed > section > div:last-child { padding:16px; }
+.proposed > section > div:last-child > div[class~="px-4"] { padding-left:0; padding-right:0; }
+.proposed[data-choice="unchosen"] > section > div:last-child { padding:0 16px; }
+.proposed[data-choice="unchosen"] > section > div:last-child > p:not([role]) { display:none; }
+.proposed[data-choice="unchosen"] > section > div:last-child > p[role="status"] { margin-top:16px; padding:12px 0 0; }
+.quietFooter { padding:4px 16px 8px; }
+.rowFooter { margin-top:12px; border-top:1px solid #e2e8f0; }
+.evidenceAction { display:inline-flex; min-height:44px; touch-action:manipulation; align-items:center; gap:8px; border:0; border-radius:8px; padding:8px 0; background:transparent; color:#4338ca; font-size:13px; font-weight:600; text-align:left; transition:color 150ms,opacity 150ms; }
+.rowFooter .evidenceAction { display:flex; justify-content:space-between; width:100%; border-radius:0; padding:12px 16px; color:#475569; }
+.evidenceAction:active { opacity:.7; }
+.evidenceAction:focus-visible { outline:2px solid #6366f1; outline-offset:-3px; }
+.reference { pointer-events:none; }
+.reference :is(button,a,input) { pointer-events:none; }
+:global(.dark) .proposed { border-color:#334155; background:#1e293b; box-shadow:none; }
+:global(.dark) .proposed > section[aria-labelledby] { background:transparent; }
+:global(.dark) .proposed > section > header > div:not(:first-child):not([aria-label]) p { color:#cbd5e1; }
+:global(.dark) .rowFooter { border-color:#334155; }
+:global(.dark) .evidenceAction { color:#a5b4fc; }
+:global(.dark) .rowFooter .evidenceAction { color:#cbd5e1; }
+@media (hover:hover) { .evidenceAction:hover { color:#3730a3; text-decoration:underline; text-underline-offset:3px; } .rowFooter .evidenceAction:hover { background:#f8fafc; color:#0f172a; } :global(.dark) .evidenceAction:hover { color:#e0e7ff; } :global(.dark) .rowFooter .evidenceAction:hover { background:#334155; color:#f1f5f9; } }
+@media (prefers-reduced-motion:reduce) { .evidenceAction { transition:none; } }

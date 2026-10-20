@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "mirror-reading-edge",
+    name: "Mirror card reading edge · G302",
+    description: "Two focused proposals using the real G286 cards: A quiet in-card evidence link, B a full-width evidence row. One reading edge, a small category glyph, one coaching explanation and plain-English observations. Local synthetic callbacks only; production layout, saved choices and APIs are unchanged.",
+    variants: [{ label: "A · Quiet link", value: "a" }, { label: "B · Evidence row", value: "b" }],
+    states: [{ label: "All patterns", value: "all" }, { label: "Current aim", value: "active" }, { label: "Completed aim", value: "completed" }, { label: "Kept", value: "kept" }, { label: "Hidden figures", value: "hidden" }, { label: "Load failure", value: "error" }, { label: "Save failure", value: "save-error" }, { label: "Long copy", value: "long" }],
+    group: "current",
+  },
+  {
     slug: "plan-picker-v2",
     name: "Choose what fits · B50",
     description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
