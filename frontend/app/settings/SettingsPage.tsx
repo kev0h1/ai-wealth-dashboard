@@ -1436,7 +1436,7 @@ export default function SettingsPage() {
                 { key: "insights", title: "Tips and insights notifications", desc: "Alerts about ways to save money we spot for you" },
                 { key: "category_pace", title: "Category running hot", desc: "When a category is well above your usual pace" },
                 { key: "classification_attention", title: "Payments needing a look", desc: "Unplaced or possibly miscategorised payments" },
-                { key: "bill_alerts", title: "Bill alerts", desc: "When an upcoming bill may not clear" },
+                { key: "bill_alerts", title: "Bill alerts", desc: "When an upcoming bill may not clear, or an account looks short for its plans" },
                 { key: "goal_milestones", title: "Goal milestones", desc: "When you reach a savings goal" },
                 { key: "period_digest", title: "Pay-period digest", desc: "A fresh-start goals summary each new pay period" },
                 { key: "transactions", title: "New transactions", desc: "Each time new transactions arrive" },
