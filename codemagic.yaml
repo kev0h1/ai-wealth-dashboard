@@ -599,11 +599,16 @@ workflows:
   #                             Play Console. scripts/release.py deploy starts
   #                             this workflow after the iOS one.
   #
-  # Both are manual-start only for now: there is deliberately NO active
-  # `triggering:` block yet (see the commented-out ones below). Kevin has not
-  # yet added the three Codemagic inputs they need, so an automatic trigger
-  # would fail every push to main. The three inputs (exact names), all in the
-  # Codemagic UI:
+  # Triggers (C30, 2026-10-20): android-capacitor fires on every push to
+  # main (it reuses the *uat_triggering anchor from ios-capacitor), because
+  # the first manual run proved the pipeline end to end (C11, C28): it
+  # published versionCode 6 to the Play internal track. android-capacitor-prod
+  # stays manual-start on purpose, see its own comment. Free-plan budget:
+  # each push to main now costs roughly one iOS plus one Android Mac build,
+  # about 25 minutes of the 500 free macOS minutes a month.
+  #
+  # The three Codemagic inputs these workflows need (exact names), all in the
+  # Codemagic UI, all now in place:
   #   1. Team settings -> Code signing identities -> Android keystores: upload
   #      capacitor-spike/android/keys/upload-keystore.jks with reference name
   #      `sorted_upload_keystore`, alias `upload`, and the store/key password
@@ -618,7 +623,6 @@ workflows:
   #      so the build cannot read it from the repo).
   #   3. The Play service account itself, with release permissions on the app
   #      (DEPLOY.md "Android: Codemagic Play builds").
-  # Once all three exist, uncomment the `triggering:` block on each workflow.
   #
   # Machine (C28): both Android workflows run on mac_mini_m2, the same
   # instance type as the iOS pair. Codemagic's free personal plan has no Linux
@@ -650,16 +654,9 @@ workflows:
     name: Android Capacitor (Play internal testing)
     instance_type: mac_mini_m2
     max_build_duration: 60
-    # Manual-start only until the three Codemagic inputs above exist. Then
-    # uncomment: fires on every push to main, like ios-capacitor.
-    # triggering:
-    #   events:
-    #     - push
-    #   branch_patterns:
-    #     - pattern: main
-    #       include: true
-    #       source: true
-    #   cancel_previous_builds: true
+    # Fires on every push to main, identical to ios-capacitor (C30); still
+    # manually startable from the Codemagic UI/API/CLI.
+    triggering: *uat_triggering
     environment:
       node: 22
       java: 21
@@ -804,11 +801,10 @@ workflows:
     name: Android Capacitor (Play production draft, production API)
     instance_type: mac_mini_m2
     max_build_duration: 60
-    # Manual-start only until the three Codemagic inputs above exist (and
-    # scripts/release.py deploy also starts it by API). Then uncomment: fires
-    # on every push to release, like ios-capacitor-prod. Note that deploy
-    # already starts this workflow explicitly, so enabling both would build
-    # twice per release; enable this only if deploy's trigger is not relied on.
+    # Manual-start on purpose (C30): scripts/release.py deploy starts this
+    # workflow through the Codemagic API after the iOS one, so uncommenting
+    # the push trigger below would double-build each release. Only enable it
+    # if deploy's trigger is no longer relied on.
     # triggering:
     #   events:
     #     - push

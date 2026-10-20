@@ -962,17 +962,23 @@ preinstalled (platforms and build-tools up to 36.x) and Codemagic exports
 `ANDROID_SDK_ROOT`; the bundle step writes it to `android/local.properties`
 and does not hardcode a path. The scripts still run unchanged on the Linux VPS.
 
-**Manual-start only for now.** Neither workflow has an active `triggering:`
-block, because the three Codemagic inputs below do not exist yet and an
-automatic trigger would fail every push to `main`. Each workflow carries a
-commented-out `triggering:` block (`main` for the UAT one, `release` for
-prod); uncomment them once the inputs exist. (Note `deploy` already starts the
-prod workflow by API, so enabling the `release` push trigger as well would
-build twice per release.) Unlike the iOS workflows, the Android ones import a
-variable group (`environment: groups: [google_play]`); the iOS workflows still
-have no `groups:` key.
+**Triggers (C30, 2026-10-20).** `android-capacitor` is now push-triggered on
+`main`, with the same `triggering:` block as `ios-capacitor` (it reuses the
+`uat_triggering` YAML anchor, with `cancel_previous_builds: true`), and it
+stays manually startable. `android-capacitor-prod` stays manual-start on
+purpose: `scripts/release.py deploy` starts it through the Codemagic API, so a
+push trigger on `release` as well (still present in `codemagic.yaml`, commented
+out) would build twice per release. The evidence for switching on the UAT
+trigger is the first manual run on 2026-10-20 (C11, C28), which built on
+`mac_mini_m2`, signed with `sorted_upload_keystore`, took Play's latest
+versionCode plus one and published versionCode 6 to the internal testing
+track. Minutes budget: each push to `main` now costs roughly one iOS plus one
+Android Mac build, about 25 minutes of the 500 free macOS minutes a month, so
+batch merges where you can. Unlike the iOS workflows, the Android ones import
+a variable group (`environment: groups: [google_play]`); the iOS workflows
+still have no `groups:` key.
 
-**What Kevin must add in Codemagic** (exact names):
+**What Kevin had to add in Codemagic** (exact names; all in place since 2026-10-20):
 
 1. **Keystore reference `sorted_upload_keystore`**: Team settings -> Code
    signing identities -> Android keystores. Upload
