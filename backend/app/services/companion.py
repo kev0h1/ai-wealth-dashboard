@@ -1986,7 +1986,19 @@ def trajectory_copy(plan: dict, today: date) -> dict:
         else:
             lead_clause = f"You owe about the same on {what}{when.replace(' than ', ' as ')}."
 
-        if interest_state == "charging":
+        if scoped:
+            # "it" could read as the one scoped card, so name your cards.
+            if interest_state == "charging":
+                tail = (
+                    " Some of your cards have interest right now."
+                    if trend == "rising"
+                    else " Some of your cards still have interest."
+                )
+            elif interest_state == "unsure":
+                tail = " We can't tell if any of your cards have interest."
+            else:
+                tail = " None of your cards has interest right now."
+        elif interest_state == "charging":
             tail = (
                 " Some of it has interest right now."
                 if trend == "rising"
@@ -2033,8 +2045,8 @@ def trajectory_copy(plan: dict, today: date) -> dict:
         # headline already says no interest is showing; the body states
         # only the 0% figure.
         body_parts.append(f"{_gbp(carried_zero)} of it is on 0% deals.")
-    else:
-        body_parts.append("We can't see any interest on it.")
+    # else: nothing is on 0% and no interest is seen. The headline already says
+    # "None of it has interest right now", so the body adds no second claim.
 
     no_rate_count = sum(1 for c in material if (c.get("flags") or {}).get("terms_missing"))
     if no_rate_count > 0:

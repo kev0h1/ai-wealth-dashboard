@@ -1391,6 +1391,7 @@ def _readability_plans():
             _card(account_id="amex", name="American Express", debt=INTEREST_BALANCE,
                   classification="carried_interest", terms_missing=True),
         ],
+        "no_zero": lambda: [_card(account_id="n", name="Nationwide", debt=1500.0, classification=None)],
         "scrap": lambda: [
             _card(account_id="bc", name="Barclaycard", debt=4000.0, classification="carried_zero"),
             _card(account_id="san", name="Santander", debt=40.0, classification="unclear"),
@@ -1468,3 +1469,27 @@ def test_the_approved_going_up_wording_is_exact():
     assert copy["body"] == (
         "You owe £23,593 on 5 cards. £23,580 of it is on 0% deals."
     )
+
+
+def test_clear_with_nothing_on_zero_percent_has_no_contradicting_body_sentence():
+    cards = [_card(account_id="n", name="Nationwide", debt=1500.0, classification=None)]
+    copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
+    assert copy["headline"].endswith("None of it has interest right now.")
+    assert copy["body"] == "You owe £1,500 on Nationwide."
+    assert "can't see any interest" not in copy["body"]
+
+
+def test_scoped_tails_name_your_cards_not_it():
+    clear = companion.trajectory_copy(
+        _plan(trend_3m=412.0, cards=_zero_only_cards(), uncovered_cards=1), TODAY)
+    assert clear["headline"] == (
+        "You owe more on the card we have history for. None of your cards has interest right now."
+    )
+    some = companion.trajectory_copy(
+        _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0, uncovered_cards=1), TODAY)
+    assert some["headline"] == (
+        "You owe more on the card we have history for. Some of your cards have interest right now."
+    )
+    unsure = companion.trajectory_copy(
+        _plan(trend_3m=-612.0, cards=_unclear_cards(), uncovered_cards=1), TODAY)
+    assert unsure["headline"].endswith("We can't tell if any of your cards have interest.")

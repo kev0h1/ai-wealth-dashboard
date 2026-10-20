@@ -144,7 +144,7 @@ export const TRAJECTORY_FIXTURES: readonly TrajectoryFixture[] = [
     item: {
       id: "trajectory:bad:2026-09:unsynced",
       type: "trajectory",
-      headline: "You owe more on the cards we have history for. Some of it has interest right now.",
+      headline: "You owe more on the cards we have history for. Some of your cards have interest right now.",
       body: "You owe £24,926 on 6 cards. £3,180 of it has interest, about £38 a month. £21,746 of it is on 0% deals. 1 card has no history yet, so we left it out.",
       action: ACTION,
       estimated: false,
