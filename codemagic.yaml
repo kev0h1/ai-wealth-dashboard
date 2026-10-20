@@ -612,17 +612,34 @@ workflows:
   #      the app signing key), see DEPLOY.md "Android release signing".
   #   2. A variable group named `google_play` (secure variables) holding
   #      GCLOUD_SERVICE_ACCOUNT_CREDENTIALS (the Play service-account JSON,
-  #      pasted as is) and GOOGLE_SERVICES_JSON_BASE64 (base64 -w0 of
-  #      capacitor-spike/google-services.json, which is gitignored so the
-  #      build cannot read it from the repo).
+  #      pasted as is) and GOOGLE_SERVICES_JSON_BASE64 (the single-line
+  #      output of `base64 < capacitor-spike/google-services.json | tr -d
+  #      '\n'`, which works on macOS and Linux alike; the file is gitignored
+  #      so the build cannot read it from the repo).
   #   3. The Play service account itself, with release permissions on the app
   #      (DEPLOY.md "Android: Codemagic Play builds").
   # Once all three exist, uncomment the `triggering:` block on each workflow.
   #
-  # Differences from the iOS pair: Linux machine, Java 21 (Capacitor 8's
-  # Android library compiles at Java 21), no flavours (`cap add android`
-  # generates a plain project, so the Gradle task is bundleRelease, not
-  # bundleSortedRelease; Board is not built here), and the versionCode is
+  # Machine (C28): both Android workflows run on mac_mini_m2, the same
+  # instance type as the iOS pair. Codemagic's free personal plan has no Linux
+  # builders (linux_x2 and linux_x4 need billing enabled), so the first manual
+  # start on linux_x2 was refused with "The selected instance type is not
+  # available with the current billing plan". Every step below therefore has
+  # to run on macOS: BSD userland (no `sed -i` without a suffix, no GNU
+  # `base64 -w`), /bin/bash 3.2 (no associative arrays, no `${var^^}`), no
+  # apt-get (Homebrew instead), and ImageMagick is not in the image's
+  # preinstalled list. The capacitor-spike scripts these steps call are kept
+  # portable to both macOS and the Linux VPS, see the header of
+  # capacitor-spike/scripts/apply-icons.sh and set-android-version.sh. The
+  # Android SDK is preinstalled (platforms and build-tools up to 36.x, with
+  # sdkmanager under cmdline-tools/latest) and Codemagic exports
+  # ANDROID_SDK_ROOT, so no SDK path is hardcoded here.
+  #
+  # Differences from the iOS pair: Java 21 (the macOS image defaults to 17;
+  # Capacitor 8's Android library compiles at Java 21), no flavours
+  # (`cap add android` generates a plain project, so the Gradle task is
+  # bundleRelease, not bundleSortedRelease; Board is not built here), and the
+  # versionCode is
   # Google Play's latest + 1 (google-play get-latest-build-number), the same
   # refuse-to-guess pattern as the iOS "Set unique build number" step and for
   # the same reason: Play rejects any reused versionCode across all tracks and
@@ -631,7 +648,7 @@ workflows:
   # ---------------------------------------------------------------------
   android-capacitor:
     name: Android Capacitor (Play internal testing)
-    instance_type: linux_x2
+    instance_type: mac_mini_m2
     max_build_duration: 60
     # Manual-start only until the three Codemagic inputs above exist. Then
     # uncomment: fires on every push to main, like ios-capacitor.
@@ -667,9 +684,10 @@ workflows:
           # secret, but it is deliberately untracked), so CI restores it from
           # the google_play variable group. setup-android-push.sh requires it.
           if [ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
-            echo "ERROR: GOOGLE_SERVICES_JSON_BASE64 is not set. Add it to the Codemagic variable group google_play (base64 -w0 of capacitor-spike/google-services.json)."
+            echo "ERROR: GOOGLE_SERVICES_JSON_BASE64 is not set. Add it to the Codemagic variable group google_play (single-line base64 of capacitor-spike/google-services.json, for example: base64 < capacitor-spike/google-services.json | tr -d '\\n')."
             exit 1
           fi
+          # --decode, not -d or -D: --decode is the one spelling GNU (Linux) and BSD (macOS) base64 share.
           echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > "$CM_BUILD_DIR/capacitor-spike/google-services.json"
           python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(c['client_info']['android_client_info']['package_name']=='co.uk.auriqltd.sorted' for c in d['client']), 'no client for co.uk.auriqltd.sorted'" "$CM_BUILD_DIR/capacitor-spike/google-services.json" || { echo "ERROR: decoded google-services.json is not valid or has no co.uk.auriqltd.sorted client"; exit 1; }
           echo "google-services.json restored (co.uk.auriqltd.sorted client present)."
@@ -680,10 +698,20 @@ workflows:
           cd "$CM_BUILD_DIR/capacitor-spike"
           npm ci
           if [ ! -d android ]; then npx cap add android; fi
-          # apply-icons.sh needs ImageMagick's `convert` for the Android icons.
-          if ! command -v convert >/dev/null 2>&1; then
-            echo "ImageMagick not found on this image, installing it."
-            (sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick) || { echo "ERROR: could not install ImageMagick for apply-icons.sh"; exit 1; }
+          # apply-icons.sh needs ImageMagick (`convert`, or `magick` on
+          # ImageMagick 7) for the Android icons. The macOS image does not list
+          # it as preinstalled, so install it with Homebrew (C28; this step
+          # used apt-get on the old Linux machine).
+          if ! command -v convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1; then
+            echo "ImageMagick not found on this image, installing it with Homebrew."
+            export HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
+            # Skip the slow auto-update first; if the install fails (stale
+            # formulae), run `brew update` once and retry, then fail loudly.
+            if ! HOMEBREW_NO_AUTO_UPDATE=1 brew install imagemagick; then
+              echo "brew install imagemagick failed, running brew update once and retrying."
+              brew update || echo "WARNING: brew update failed, retrying the install anyway."
+              brew install imagemagick || { echo "ERROR: could not install ImageMagick for apply-icons.sh"; exit 1; }
+            fi
           fi
           bash scripts/apply-icons.sh
           # FCM, privacy plugin, backup rules, and (C11) release signing. With
@@ -731,13 +759,39 @@ workflows:
           set -e
           cd "$CM_BUILD_DIR/capacitor-spike/android"
           chmod +x gradlew
+          # Android SDK (C28, macOS image): preinstalled, with ANDROID_SDK_ROOT
+          # exported by Codemagic. Point Gradle at it explicitly through
+          # local.properties (what Codemagic's own native Android example does)
+          # so the build does not depend on which variable AGP reads. Fail loud
+          # if the variable is missing rather than guess a path.
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK_DIR" ] || [ ! -d "$SDK_DIR" ]; then
+            echo "ERROR: ANDROID_SDK_ROOT is not set or not a directory ('$SDK_DIR'). The Codemagic macOS image should export it."
+            exit 1
+          fi
+          echo "sdk.dir=$SDK_DIR" > local.properties
+          # Accept SDK licences (best effort, never fatal): AGP downloads
+          # nothing when the platform and build-tools it needs are installed,
+          # but a missing licence for an auto-installed package fails the
+          # build. sdkmanager lives under cmdline-tools/latest/bin in the SDK.
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ] && [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          if [ -n "$SDKMANAGER" ]; then
+            yes | head -n 200 | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          fi
           # No product flavours in CI (see the Android section header), so the
           # plain bundleRelease. The release signingConfig comes from
           # keystore.properties, written by setup-android-signing.sh.
           ./gradlew bundleRelease
-          # Fail loud if the bundle came out unsigned.
+          # Fail loud if the bundle came out unsigned. Prefer the JDK that
+          # `java: 21` selects: on macOS /usr/bin/jarsigner is only a stub that
+          # errors out when no system JDK is installed.
           AAB=$(ls app/build/outputs/bundle/release/*.aab | head -n 1)
-          jarsigner -verify "$AAB" | grep -q "jar verified" || { echo "ERROR: $AAB is not signed"; exit 1; }
+          JARSIGNER=jarsigner
+          if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/jarsigner" ]; then JARSIGNER="$JAVA_HOME/bin/jarsigner"; fi
+          "$JARSIGNER" -verify "$AAB" | grep -q "jar verified" || { echo "ERROR: $AAB is not signed"; exit 1; }
     artifacts: &android_artifacts
       - capacitor-spike/android/app/build/outputs/bundle/release/*.aab
       - capacitor-spike/android/app/build/outputs/**/native-debug-symbols.zip
@@ -748,7 +802,7 @@ workflows:
 
   android-capacitor-prod:
     name: Android Capacitor (Play production draft, production API)
-    instance_type: linux_x2
+    instance_type: mac_mini_m2
     max_build_duration: 60
     # Manual-start only until the three Codemagic inputs above exist (and
     # scripts/release.py deploy also starts it by API). Then uncomment: fires

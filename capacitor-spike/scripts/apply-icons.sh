@@ -9,6 +9,10 @@
 #
 # Run from capacitor-spike/:
 #   bash scripts/apply-icons.sh
+#
+# Portable to macOS (C28): Codemagic runs the Android workflows on mac_mini_m2,
+# where /bin/bash is 3.2 (no associative arrays, no ${var^^}) and ImageMagick
+# may be installed as `magick` only. Keep this file bash-3.2 clean.
 
 set -euo pipefail
 
@@ -79,8 +83,13 @@ done
 echo
 if [[ -d "$RES_DIR" ]]; then
   if ! command -v convert >/dev/null 2>&1; then
-    echo "ERROR: ImageMagick 'convert' not found on PATH" >&2
-    exit 1
+    if command -v magick >/dev/null 2>&1; then
+      # ImageMagick 7 without the legacy `convert` link: same arguments.
+      convert() { magick "$@"; }
+    else
+      echo "ERROR: ImageMagick 'convert' (or 'magick') not found on PATH" >&2
+      exit 1
+    fi
   fi
 
   echo "Source icon:       $SRC_ICON"
@@ -89,30 +98,43 @@ if [[ -d "$RES_DIR" ]]; then
   echo "Target res dir:     $RES_DIR"
   echo
 
+  # density list, and density -> size lookups. Plain functions rather than
+  # `declare -A` associative arrays, which need bash 4 (macOS ships 3.2).
+  DENSITIES="mdpi hdpi xhdpi xxhdpi xxxhdpi"
+
   # density -> legacy launcher icon size (ic_launcher / ic_launcher_round)
-  declare -A LAUNCHER_SIZES=(
-    [mdpi]=48
-    [hdpi]=72
-    [xhdpi]=96
-    [xxhdpi]=144
-    [xxxhdpi]=192
-  )
+  launcher_size() {
+    case "$1" in
+      mdpi) echo 48 ;;
+      hdpi) echo 72 ;;
+      xhdpi) echo 96 ;;
+      xxhdpi) echo 144 ;;
+      xxxhdpi) echo 192 ;;
+      *) echo "ERROR: unknown density $1" >&2; return 1 ;;
+    esac
+  }
 
   # density -> adaptive-icon foreground layer size (108dp canvas @ each density)
-  declare -A FOREGROUND_SIZES=(
-    [mdpi]=108
-    [hdpi]=162
-    [xhdpi]=216
-    [xxhdpi]=324
-    [xxxhdpi]=432
-  )
+  foreground_size() {
+    case "$1" in
+      mdpi) echo 108 ;;
+      hdpi) echo 162 ;;
+      xhdpi) echo 216 ;;
+      xxhdpi) echo 324 ;;
+      xxxhdpi) echo 432 ;;
+      *) echo "ERROR: unknown density $1" >&2; return 1 ;;
+    esac
+  }
+
+  # Upper-case a hex string without ${var^^} (bash 4 only).
+  upper() { printf '%s' "$1" | tr 'a-f' 'A-F'; }
 
   TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$TMP_DIR"' EXIT
 
   echo "== Legacy launcher icons (ic_launcher.png, ic_launcher_round.png) =="
-  for density in "${!LAUNCHER_SIZES[@]}"; do
-    size="${LAUNCHER_SIZES[$density]}"
+  for density in $DENSITIES; do
+    size="$(launcher_size "$density")"
     out_dir="$RES_DIR/mipmap-$density"
     mkdir -p "$out_dir"
 
@@ -134,8 +156,8 @@ if [[ -d "$RES_DIR" ]]; then
   echo
 
   echo "== Adaptive icon foreground layer (ic_launcher_foreground.png) =="
-  for density in "${!FOREGROUND_SIZES[@]}"; do
-    size="${FOREGROUND_SIZES[$density]}"
+  for density in $DENSITIES; do
+    size="$(foreground_size "$density")"
     out_dir="$RES_DIR/mipmap-$density"
     mkdir -p "$out_dir"
     fg_out="$out_dir/ic_launcher_foreground.png"
@@ -176,20 +198,20 @@ if [[ -d "$RES_DIR" ]]; then
   ROUND_XML="$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
   if [[ "$IS_FLAT" -eq 1 ]]; then
-    echo "Background is FLAT: #${FLAT_HEX^^} ($UNIQUE_COLORS unique colour(s))"
+    echo "Background is FLAT: #$(upper "$FLAT_HEX") ($UNIQUE_COLORS unique colour(s))"
 
     mkdir -p "$RES_DIR/values"
     cat > "$VALUES_XML" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#${FLAT_HEX^^}</color>
+    <color name="ic_launcher_background">#$(upper "$FLAT_HEX")</color>
 </resources>
 EOF
-    echo "wrote $VALUES_XML (#${FLAT_HEX^^})"
+    echo "wrote $VALUES_XML (#$(upper "$FLAT_HEX"))"
 
     # Clean up any previously-generated background PNGs from a prior
     # non-flat run, and point the adaptive XMLs back at the colour resource.
-    for density in "${!FOREGROUND_SIZES[@]}"; do
+    for density in $DENSITIES; do
       bg_png="$RES_DIR/mipmap-$density/ic_launcher_background.png"
       [[ -f "$bg_png" ]] && rm -f "$bg_png" && echo "removed stale $bg_png"
     done
@@ -208,8 +230,8 @@ EOF
     echo "Background is NOT flat ($UNIQUE_COLORS unique colours) — treating as a gradient/image."
     echo "Generating per-density ic_launcher_background.png instead of a flat colour."
 
-    for density in "${!FOREGROUND_SIZES[@]}"; do
-      size="${FOREGROUND_SIZES[$density]}"
+    for density in $DENSITIES; do
+      size="$(foreground_size "$density")"
       out_dir="$RES_DIR/mipmap-$density"
       mkdir -p "$out_dir"
       bg_out="$out_dir/ic_launcher_background.png"
@@ -236,10 +258,10 @@ EOF
     cat > "$VALUES_XML" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#${TOPLEFT_HEX^^}</color>
+    <color name="ic_launcher_background">#$(upper "$TOPLEFT_HEX")</color>
 </resources>
 EOF
-    echo "wrote $VALUES_XML (#${TOPLEFT_HEX^^}, fallback only — unused by adaptive XML in gradient mode)"
+    echo "wrote $VALUES_XML (#$(upper "$TOPLEFT_HEX"), fallback only, unused by adaptive XML in gradient mode)"
   fi
 
   echo

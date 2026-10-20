@@ -200,7 +200,8 @@ fi
 if grep -q "com.google.gms.google-services" "${APP_GRADLE}"; then
   echo "[4/9] app/build.gradle: google-services plugin already applied — skipping."
 else
-  if grep -qE '^\s*plugins\s*\{' "${APP_GRADLE}"; then
+  # [[:space:]], not \s: \s in grep -E is a GNU extension (C28, macOS-portable).
+  if grep -qE '^[[:space:]]*plugins[[:space:]]*\{' "${APP_GRADLE}"; then
     # File uses a plugins {} block — add the plugin id there. Safe to apply
     # unconditionally here since step 3 already guaranteed the JSON exists.
     python3 - "${APP_GRADLE}" <<'PYEOF'

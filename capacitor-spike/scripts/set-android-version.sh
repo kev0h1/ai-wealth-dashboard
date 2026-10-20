@@ -46,10 +46,14 @@ else
 fi
 [[ "${NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR: versionName '${NAME}' has unsupported characters" >&2; exit 1; }
 
-sed -i -E "s/^([[:space:]]*versionCode )[0-9]+/\1${CODE}/" "${GRADLE}"
+# perl -pi, not `sed -i -E`: GNU sed takes -i with no suffix, BSD sed (macOS,
+# where Codemagic runs the Android workflows, C28) would read -E as the backup
+# suffix. perl behaves identically on both. Values go through the environment
+# so nothing in them is ever interpreted as regex or replacement syntax.
+CODE="${CODE}" perl -pi -e 's/^(\s*versionCode )\d+/$1$ENV{CODE}/' "${GRADLE}"
 grep -q "versionCode ${CODE}\$" "${GRADLE}" || { echo "ERROR: failed to set versionCode ${CODE}" >&2; exit 1; }
 echo "versionCode set to ${CODE} in ${GRADLE}"
 
-sed -i -E "s/^([[:space:]]*versionName )\"[^\"]*\"/\1\"${NAME}\"/" "${GRADLE}"
+NAME="${NAME}" perl -pi -e 's/^(\s*versionName )"[^"]*"/$1"$ENV{NAME}"/' "${GRADLE}"
 grep -q "versionName \"${NAME}\"\$" "${GRADLE}" || { echo "ERROR: failed to set versionName ${NAME}" >&2; exit 1; }
 echo "versionName set to ${NAME} in ${GRADLE}"
