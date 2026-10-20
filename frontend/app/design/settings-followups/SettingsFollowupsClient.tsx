@@ -73,7 +73,7 @@ function Scenario({ variant, example, initialPlan, platform, view }: { variant: 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
   const closeIntent = () => { if (busy) return; setIntent(null); setError(""); requestAnimationFrame(() => switchRef.current?.focus({ preventScroll: true })); };
-  const confirm = async () => {
+  const confirmPermission = async () => {
     if (!intent || busy) return;
     setBusy(true);setError("");await locally();
     if (failNext) {setFailNext(false);setError(`Could not turn this ${intent}. Try again.`);setBusy(false);return;}
@@ -91,13 +91,13 @@ function Scenario({ variant, example, initialPlan, platform, view }: { variant: 
       <div data-proposed-plan><PlanPreview info={info} phase={planState === "loading" ? "loading" : planState === "error" ? "error" : "ready"} onOpenPlans={() => {setIntent(null);setError("");setPickerOpen(true);}} onRetry={() => {setPlanState("paid");setNotice("The synthetic plan has loaded.");}} /></div>
       <PermissionRow checked={checked} phase={phase} pending={busy || intent !== null} switchRef={switchRef} onChange={() => {setError("");setIntent(checked ? "off" : "on");}} onRetry={() => {setPhase("ready");setNotice("The example permission has loaded. Nothing was enabled.");}} />
       {intent && variant === "a" && <div ref={inlineRef} tabIndex={-1} data-inline-consent aria-busy={busy} className="mt-3 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-        <fieldset disabled={busy} className="min-w-0 border-0 p-0">{intent === "on" ? <ConsentExplanation inSheet={false} onAccept={() => void confirm()} onDecline={closeIntent} /> : <div className="glass-card rounded-2xl p-4"><RevokeExplanation /><div className="mt-3"><DecisionActions revoke busy={busy} onConfirm={() => void confirm()} onCancel={closeIntent} /></div></div>}</fieldset>{busy && <p role="status" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{intent === "on" ? "Turning on…" : "Turning off…"}</p>}{errorLine}
+        <fieldset disabled={busy} className="min-w-0 border-0 p-0">{intent === "on" ? <ConsentExplanation inSheet={false} onAccept={() => void confirmPermission()} onDecline={closeIntent} /> : <div className="glass-card rounded-2xl p-4"><RevokeExplanation /><div className="mt-3"><DecisionActions revoke busy={busy} onConfirm={() => void confirmPermission()} onCancel={closeIntent} /></div></div>}</fieldset>{busy && <p role="status" className="mt-2 text-xs text-slate-600 dark:text-slate-300">{intent === "on" ? "Turning on…" : "Turning off…"}</p>}{errorLine}
       </div>}
       <details className="mt-5 border-y border-slate-300 py-1 dark:border-slate-700"><summary className="flex min-h-11 cursor-pointer items-center text-[13px] font-semibold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">Current plan card for comparison</summary><div className="mb-3 mt-2" onClickCapture={blockReference} onAuxClickCapture={blockReference}><YourPlanCard info={info} error={planState === "error"} /></div></details>
     </>}
     <p aria-live="polite" aria-atomic="true" data-preview-notice className={`${notice ? "mt-3" : ""} text-xs leading-5 text-slate-600 dark:text-slate-300`}>{notice}</p>
-    {intent && variant === "b" && <SheetFrame variant="compact" title="Penny permission" onClose={closeIntent} dismissDisabled={busy} footer={({ close }) => <DecisionActions revoke={intent === "off"} busy={busy} onConfirm={() => void confirm()} onCancel={close} />}>
-      <div data-sheet-consent aria-busy={busy}>{intent === "on" ? <ConsentExplanation inSheet onAccept={() => void confirm()} onDecline={closeIntent} /> : <RevokeExplanation />}<p className="mt-4 text-xs leading-5 text-slate-600 dark:text-slate-400">Only changes inside Sorted. Penny cannot move money or make bank payments.</p>{errorLine}</div>
+    {intent && variant === "b" && <SheetFrame variant="compact" title="Penny permission" onClose={closeIntent} dismissDisabled={busy} footer={({ close }) => <DecisionActions revoke={intent === "off"} busy={busy} onConfirm={() => void confirmPermission()} onCancel={close} />}>
+      <div data-sheet-consent aria-busy={busy}>{intent === "on" ? <ConsentExplanation inSheet onAccept={() => void confirmPermission()} onDecline={closeIntent} /> : <RevokeExplanation />}<p className="mt-4 text-xs leading-5 text-slate-600 dark:text-slate-400">Only changes inside Sorted. Penny cannot move money or make bank payments.</p>{errorLine}</div>
     </SheetFrame>}
     {pickerOpen && info && <SheetFrame title="Choose what fits" description="Preview only. No plan or payment will change." onClose={() => setPickerOpen(false)}>
       <div data-plan-picker-preview onClickCapture={blockPickerLink} onAuxClickCapture={blockPickerLink}><PlanPicker info={info} context="settings" previewOnly nativeOverride={platform !== "web"} onContinue={() => setPickerOpen(false)} /><p aria-live="polite" className="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">{notice}</p></div>

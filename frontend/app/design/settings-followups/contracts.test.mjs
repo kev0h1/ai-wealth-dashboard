@@ -59,6 +59,7 @@ assert.equal(planFixture("checkout-closed", "web").billing_live, false);
 assert.ok(text(plan("loading")).includes("Checking your plan"));
 assert.ok(text(plan("error")).includes("Tap to try again."));
 const client = source("SettingsFollowupsClient.tsx");
+assert.ok(!/\b(?:alert|confirm|prompt)\s*\(/.test(client), "local handlers cannot be mistaken for native browser dialogs");
 assert.match(client, /previewOnly nativeOverride=\{platform !== "web"\}/);
 assert.match(client, /onClickCapture=\{blockPickerLink\} onAuxClickCapture=\{blockPickerLink\}/);
 assert.match(client, /onClickCapture=\{blockReference\} onAuxClickCapture=\{blockReference\}/);
