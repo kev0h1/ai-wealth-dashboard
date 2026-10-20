@@ -636,6 +636,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **A169. Accept Finexer's unsigned {} reachability probe on the webhook receiver with 2xx and no processing, so the dashboard can save a signed webhook** [owner: claude] (done 2026-10-18, 31ff5fe56c221b22c34407478905033a6f38c6ad)
   - note (2026-10-18, claude): Finexer dashboard validates webhook URL with unsigned {} probe (UA FXC-UrlReachability/1.0); receiver 401s it so signing cannot be enabled. Fix: 2xx no-op when header absent and body is {}.
 - [ ] **A170. Audit and close the pre-existing Penny proposal execute versus consent-revocation race with atomic execution/revocation ordering and deterministic interleaving tests** [owner: codex]
+  - note (2026-10-20, codex): Independent G296 fold-in source review found a pre-existing interleaving: execute_proposal reads pending doc and consent once, then awaits executor; revoke_agent_consent can clear consent/cancel pending proposals between that read and dispatch. G296 adds version increments only for PreferencesContext stale GET ordering, not an execution lock. Investigate a durable claim/revocation-generation strategy with deterministic interleaving and duplicate-execution tests. No bank payments or money movement are introduced by G296. Static finding, not reproduced against a real user or production data.
 
 ## B. Penny cost, tiers and billing
 
