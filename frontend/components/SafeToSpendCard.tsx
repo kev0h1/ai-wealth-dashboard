@@ -152,7 +152,7 @@ function SpendFromCombined({ entries, pool, amount, coverMoveVisible, onLogoErro
       data-g300-combined="true"
       className="mt-2 text-[12px] font-semibold leading-[1.45] text-slate-700 dark:text-slate-200 text-pretty"
     >
-      {parts.lead}{" "}
+      <MoneyText text={parts.lead} />{" "}
       {parts.groups.map((group, index) => {
         const bank = localBank(group.entry.account);
         const showMark = bank != null;
@@ -179,7 +179,7 @@ function SpendFromCombined({ entries, pool, amount, coverMoveVisible, onLogoErro
           </Fragment>
         );
       })}
-      {parts.clauses.length > 0 ? ` ${parts.clauses.join(" ")}` : ""}
+      {parts.clauses.length > 0 ? <MoneyText text={` ${parts.clauses.join(" ")}`} /> : null}
       {coverMoveVisible ? " The move above is already held back." : ""}
     </p>
   );
