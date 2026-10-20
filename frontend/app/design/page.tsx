@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "settings-followups",
+    name: "Profile, plan and Penny permission · G296",
+    description: "Two local Settings follow-ups: A confirms permission in place, B uses the app sheet. Both remove Profile postcode, make the plan one tappable row and keep consent separate from billing. Real consent, usage, picker and sheet components; proposed rows are prototypes. Synthetic web/iOS/Android examples, no account or stored-location changes.",
+    variants: [{ label: "A · In place", value: "a" }, { label: "B · Focused consent", value: "b" }],
+    states: [{ label: "Permission off", value: "off" }, { label: "Permission on", value: "on" }, { label: "Checking", value: "loading" }, { label: "Save failure", value: "save-error" }, { label: "Unavailable example", value: "unavailable" }, { label: "Long name", value: "long" }],
+    group: "current",
+  },
+  {
     slug: "plan-picker-v2",
     name: "Choose what fits · B50",
     description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",

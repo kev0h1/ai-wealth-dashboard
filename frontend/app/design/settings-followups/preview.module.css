@@ -1,0 +1,5 @@
+/* Only the containing sheet changes. Consent wording comes from the real
+   ConsentCard; its buttons are replaced by the persistent sheet footer. */
+.sheetConsent > :global(div),
+:global(.dark) .sheetConsent > :global(div) { border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; }
+.sheetConsent > :global(div) > :global(div:last-child) { display: none; }
