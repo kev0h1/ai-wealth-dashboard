@@ -32,7 +32,7 @@ import {
 } from "@/lib/spendCharts";
 import { createSerialQueue } from "@/lib/serialQueue";
 import { SheetFrame } from "@/components/SheetFrame";
-import { useMaskedFormatter } from "@/lib/balancesHidden";
+import { useBalancesHidden, useMaskedFormatter } from "@/lib/balancesHidden";
 import { getCategoryColour } from "@/lib/categories";
 import {
   PayPeriodConfig, prevPeriodWithConfig, filterPeriod,
@@ -319,6 +319,7 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
 
 function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
   const fmtGBP = useMaskedFormatter(fmtGBPRaw);
+  const hidden = useBalancesHidden();
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const periods = useMemo(() => {
@@ -387,7 +388,7 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
             <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: tickFill }} />
           )}
           {!compact && (
-            <YAxis width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
+            <YAxis hide={hidden} width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
               tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
           )}
           <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE} itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }} formatter={(v) => fmtGBP(Number(v ?? 0))} cursor={{ fill: "rgba(100,116,139,0.08)" }} />
@@ -415,6 +416,7 @@ const SIZE_BANDS: { label: string; min: number; max: number }[] = [
 
 function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
   const fmtGBP = useMaskedFormatter(fmtGBPRaw);
+  const hidden = useBalancesHidden();
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   // "spend" is the decision-relevant default; "count" is the alternative
@@ -515,7 +517,7 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 8.5, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} interval={0} />
             )}
             {!compact && (
-              <YAxis width={mode === "spend" ? currencyAxisWidth(spendYMax) : 24}
+              <YAxis hide={hidden && mode === "spend"} width={mode === "spend" ? currencyAxisWidth(spendYMax) : 24}
                 domain={mode === "spend" ? [0, spendYMax > 0 ? spendYMax : "auto"] : undefined}
                 tickLine={false} axisLine={false}
                 allowDecimals={false} tick={{ fontSize: 9, fill: tickFill, fontFamily: mode === "spend" ? "var(--font-jbmono), monospace" : undefined }}
@@ -555,6 +557,7 @@ function EmptyWidget({ compact, message }: { compact?: boolean; message?: string
 // production can never draw different pixels for the same data.
 export function PaceCurveWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
   const fmtGBP = useMaskedFormatter(fmtGBPRaw);
+  const hidden = useBalancesHidden();
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const series = data.paceSeries;
@@ -609,7 +612,7 @@ export function PaceCurveWidget({ data, compact }: { data: WidgetData; compact?:
                 tick={{ fontSize: 9, fill: tickFill }} tickFormatter={(d: number) => `Day ${d}`} interval="preserveStartEnd" />
             )}
             {!compact && (
-              <YAxis width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
+              <YAxis hide={hidden} width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
                 tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
             )}
             <Tooltip
@@ -705,6 +708,7 @@ export function DebtBurndownWidget({
   previewState?: { status: "loading" | "error" | "ok"; projection?: DebtPlanSummary["projection"] };
 }) {
   const fmtGBP = useMaskedFormatter(fmtGBPRaw);
+  const hidden = useBalancesHidden();
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
   const [status, setStatus] = useState<"loading" | "error" | "ok">(previewState?.status ?? "loading");
@@ -755,7 +759,7 @@ export function DebtBurndownWidget({
                 tick={{ fontSize: 9, fill: tickFill }} interval="preserveStartEnd" />
             )}
             {!compact && (
-              <YAxis width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
+              <YAxis hide={hidden} width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
                 tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
             )}
             <Tooltip

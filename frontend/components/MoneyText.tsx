@@ -23,13 +23,16 @@ function isCurrencyToken(part: string): boolean {
 export default function MoneyText({
   text,
   className,
+  unmasked = false,
 }: {
   text: string;
   className?: string;
+  /** Keep figures visible under Hide balances (fixed thresholds, prices). */
+  unmasked?: boolean;
 }): ReactNode {
   // G306: under a BalancesHiddenContext provider every £ figure in the text is masked.
   const hidden = useBalancesHidden();
-  if (hidden) text = maskMoneyText(text, true);
+  if (hidden && !unmasked) text = maskMoneyText(text, true);
   // .match() with a /g regex always scans from index 0 and leaves no
   // lastIndex state behind, unlike .test(), which would otherwise corrupt
   // the shared module-level CURRENCY_TOKEN across renders.

@@ -163,7 +163,7 @@ export default function GroceryBasketCard() {
           {insights?.headline ? (
             <>
               <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <MoneyText text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate" />
+              <MoneyText unmasked text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate" />
             </>
           ) : (
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex-1">Snap a receipt to track grocery prices</span>
@@ -178,7 +178,7 @@ export default function GroceryBasketCard() {
           className="w-full flex items-center gap-2 mt-3 mb-4 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-left"
         >
           <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-          <MoneyText text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0" />
+          <MoneyText unmasked text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0" />
           {hasTrends && (
             <ChevronDown
               size={14}

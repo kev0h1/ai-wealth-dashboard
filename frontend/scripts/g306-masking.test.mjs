@@ -128,3 +128,16 @@ assert.match(read("../app/components/SpendPage.tsx"), /maskMoneyText\(`\$\{value
 assert.match(read("../components/HomeEstateSection.tsx"), /hideAmount=\{hideAmount\}/g, "estate rows pass hideAmount");
 
 console.log(`g306-masking: ${renders} renders, ${Object.keys(FIXED).length} source checks ok`);
+
+// Review fixes: unmasked MoneyText keeps thresholds and prices visible; Y axes hide while masked.
+{
+  const hid = wrap(true, h(MoneyText, { unmasked: true, text: "Payments over £250" }));
+  assert.match(hid, /£250/, "unmasked MoneyText stays visible under the provider");
+  assert.match(read("../components/CategorySheet.tsx"), /<MoneyText unmasked text=\{title \?\? name\}/, "CategorySheet title stays visible");
+  assert.equal((read("../components/GroceryBasketCard.tsx").match(/<MoneyText unmasked text=\{insights\.headline\}/g) ?? []).length, 2, "grocery headlines stay visible");
+  const trends = read("../components/SpendTrends.tsx");
+  assert.equal((trends.match(/<YAxis hide=\{hidden\}/g) ?? []).length, 3, "three y axes hide when masked");
+  assert.match(trends, /<YAxis hide=\{hidden && mode === "spend"\}/, "size distribution y axis hides in spend mode");
+  const hero = (state) => wrap(true, h(SpendPaceHero, { verdict: fixture(state), incomeTxns: [], onTransactionClick: noop, onOutTap: noop, onMovedTap: noop }));
+  assert.equal(/text-\[30px\]/.test(hero("normal")) && /text-\[30px\]/.test(hero("long")), true, "hidden hero font size is stable");
+}
