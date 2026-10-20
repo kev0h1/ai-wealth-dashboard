@@ -168,7 +168,7 @@ def test_new_move_recommendation_detected_not_sent(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={})
     item = _move_item("plan:2026-09-01:fp1")
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [item]
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
@@ -186,7 +186,7 @@ def test_unchanged_recommendation_not_renotified_on_second_sync(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={"kevin": {"move_recommended": [item_id]}})
     item = _move_item(item_id)
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [item]
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
@@ -205,7 +205,7 @@ def test_materially_changed_recommendation_is_new_again(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={"kevin": {"move_recommended": [old_id]}})
     item = _move_item(new_id, amount=150)
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [item]
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
@@ -222,7 +222,7 @@ def test_preference_off_suppresses_detection(monkeypatch):
     state, sent = _patch_common(monkeypatch, pref_on=False, state_docs={})
     called = {"n": 0}
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         called["n"] += 1
         return [_move_item("plan:2026-09-01:fp1")]
 
@@ -291,7 +291,7 @@ def test_money_movement_merges_when_both_fire(monkeypatch):
 
     bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
 
     async def fake_resp(cached):
@@ -315,7 +315,7 @@ def test_money_movement_sends_bill_alone_when_only_bill_fires(monkeypatch):
 
     bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return []  # no move recommendation this sync
 
     async def fake_resp(cached):
@@ -335,7 +335,7 @@ def test_money_movement_sends_move_alone_when_only_move_fires(monkeypatch):
     _state_col, sent = _patch_common(monkeypatch, state_docs={})
     monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
 
     async def fake_resp(cached):
@@ -355,7 +355,7 @@ def test_money_movement_sends_nothing_when_neither_fires(monkeypatch):
     _state_col, sent = _patch_common(monkeypatch, state_docs={})
     monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return []
 
     async def fake_resp(cached):
@@ -382,7 +382,7 @@ def test_money_movement_two_bills_one_move_sends_every_event(monkeypatch):
         _bill("Broadband", 4, 30.0, 5.0, "acc-third"),
     ]
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
 
     async def fake_resp(cached):
@@ -415,7 +415,7 @@ def test_money_movement_one_bill_two_moves_sends_every_event(monkeypatch):
         _move_item("plan:2026-09-01:fp2", amount=60, account_id="acc-isa", name="ISA"),
     ]
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return moves
 
     async def fake_resp(cached):
@@ -782,3 +782,194 @@ def test_period_digest_has_no_budget_clause_and_reuses_goals(monkeypatch):
     assert len(sent) == 1
     assert "budgeted" not in sent[0]["body"]
     assert "Debt-free" in sent[0]["body"]
+
+
+# ── G305: per-account plan shortfall ("Short for plans") ───────────────────
+def _pos(after_plans=-87.0, *, after_payments=40.0, reserved=127.0, low=40.0,
+         uncertain=False, estimated=False):
+    return {
+        "after_payments": after_payments, "plans_reserved": reserved,
+        "after_payments_and_plans": after_plans, "low_point": low,
+        "uncertain": uncertain, "estimated": estimated,
+    }
+
+
+def _patch_plan(monkeypatch, positions, *, items=None, bills=None, pref_on=True, state_docs=None):
+    state, sent = _patch_common(monkeypatch, pref_on=pref_on, state_docs=state_docs)
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    async def fake_items(uid, persist=True, account_eligibility_out=None, **kw):
+        if account_eligibility_out is not None:
+            account_eligibility_out.update(positions)
+        return list(items or [])
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": list(bills or [])}
+
+    async def fake_label(account_id):
+        return "The Number One", "NatWest"
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+    async def fake_tokens(uid):
+        return ["kevin", "mbithi", "maingi"]
+
+    monkeypatch.setattr(notifications, "_plan_shortfall_label", fake_label)
+    monkeypatch.setattr(notifications, "_user_name_tokens", fake_tokens)
+    monkeypatch.setattr(notifications.timeutil, "user_today", lambda: _date(2026, 10, 20))
+    return state, sent
+
+
+from datetime import date as _date  # noqa: E402
+
+
+def test_plan_shortfall_pushes_once_with_copy_and_link(monkeypatch):
+    state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-86.63)})
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert len(sent) == 1
+    assert sent[0]["title"] == "Short for plans"
+    assert sent[0]["body"] == (
+        "The Number One at NatWest looks about £87 short of what its plans need "
+        "after its payments through Sat 31 Oct. Review it on Upcoming."
+    )
+    assert sent[0]["url"] == "/upcoming"
+    assert state.docs["kevin"]["plan_shortfall"]["2026-10-01"] == ["acc-natwest"]
+
+
+def test_plan_shortfall_below_minimum_is_silent(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-4.99)})
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert sent == []
+
+
+def test_plan_shortfall_at_minimum_notifies(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-5.0)})
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert len(sent) == 1
+
+
+def test_plan_shortfall_estimated_or_uncertain_is_silent(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {
+        "acc-a": _pos(-90.0, estimated=True),
+        "acc-b": _pos(None, uncertain=True),
+    })
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert sent == []
+
+
+def test_plan_shortfall_account_short_for_payments_is_silent(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {
+        "acc-a": _pos(-150.0, after_payments=-20.0, low=-20.0),
+        "acc-b": _pos(-90.0, low=-3.0),
+    })
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert sent == []
+
+
+def test_plan_shortfall_account_with_new_bill_push_only_gets_bill_push(monkeypatch):
+    _state, sent = _patch_plan(
+        monkeypatch, {"acc-other": _pos(-90.0)},
+        bills=[_bill("Council Tax", 2, 50.0, 10.0, "acc-other")],
+    )
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert [s["title"] for s in sent] == ["Bill may not clear"]
+
+
+def test_plan_shortfall_other_account_still_pushes_beside_bill(monkeypatch):
+    _state, sent = _patch_plan(
+        monkeypatch, {"acc-natwest": _pos(-90.0)},
+        bills=[_bill("Council Tax", 2, 50.0, 10.0, "acc-other")],
+    )
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert sorted(s["title"] for s in sent) == ["Bill may not clear", "Short for plans"]
+
+
+def test_plan_shortfall_second_run_same_period_is_deduped(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-90.0)})
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert len(sent) == 1
+
+
+def test_plan_shortfall_new_period_notifies_again(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-90.0)})
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    monkeypatch.setattr(notifications.timeutil, "user_today", lambda: _date(2026, 11, 3))
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert len(sent) == 2
+
+
+def test_plan_shortfall_preference_off_is_silent(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-90.0)}, pref_on=False)
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert sent == []
+
+
+def test_plan_shortfall_silent_during_first_sync(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-90.0)})
+
+    async def syncing(uid):
+        return {"first_sync": True, "state": "syncing"}
+
+    monkeypatch.setattr(notifications, "first_sync_state", syncing)
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert sent == []
+
+
+def test_plan_shortfall_skips_account_with_live_move_and_sends_move_separately(monkeypatch):
+    _state, sent = _patch_plan(
+        monkeypatch,
+        {"acc-natwest": _pos(-90.0), "acc-monzo": _pos(-60.0)},
+        items=[_move_item("plan:2026-10-01:fp1", amount=110, account_id="acc-natwest")],
+    )
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    titles = sorted(s["title"] for s in sent)
+    assert titles == ["Move £110 to THE NUMBER ONE", "Short for plans"]
+    assert sum(1 for s in sent if s["title"] == "Short for plans") == 1
+
+
+def test_money_movement_computes_today_items_once(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-90.0)})
+    calls = []
+    inner = companion.compute_today_items
+
+    async def counting(uid, **kw):
+        calls.append(uid)
+        return await inner(uid, **kw)
+
+    monkeypatch.setattr(companion, "compute_today_items", counting)
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert len(calls) == 1
+    assert [s["title"] for s in sent] == ["Short for plans"]
+
+
+_TOK = ["kevin", "mbithi", "maingi"]
+
+
+def test_plan_shortfall_body_holder_named_with_bank():
+    body = notifications._plan_shortfall_body("Kevin Mbithi Maingi", "HSBC", 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("Your HSBC account looks about £86 short")
+
+
+def test_plan_shortfall_body_holder_named_unknown_bank():
+    body = notifications._plan_shortfall_body("Mr K Maingi", None, 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("One of your accounts looks about £86 short")
+
+
+def test_plan_shortfall_body_name_containing_bank_is_not_doubled():
+    body = notifications._plan_shortfall_body("NatWest Reward", "NatWest", 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("NatWest Reward looks about £86 short")
+    assert "at NatWest" not in body
+
+
+def test_plan_shortfall_body_normal_name_unchanged():
+    body = notifications._plan_shortfall_body("The Number One", "NatWest", 86.0, _date(2026, 10, 31), _TOK)
+    assert body == (
+        "The Number One at NatWest looks about £86 short of what its plans need "
+        "after its payments through Sat 31 Oct. Review it on Upcoming."
+    )
+
+
+def test_plan_shortfall_body_surname_and_initials_is_holder_named():
+    body = notifications._plan_shortfall_body("Maingi K M", "HSBC", 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("Your HSBC account looks about £86 short")

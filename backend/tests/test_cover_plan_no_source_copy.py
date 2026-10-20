@@ -114,3 +114,11 @@ def test_helpers():
     assert _is_holder_named("Bills Pot", ["kevin", "maingi"]) is False
     assert _is_holder_named("Kevin Maingi", ["kevin", "maingi"]) is True
     assert _is_holder_named("Kevin Savings", ["kevin", "maingi"]) is False
+    assert _is_holder_named("Maingi K M", ["kevin", "mbithi", "maingi"]) is True
+    assert _is_holder_named("Maingi K", ["kevin", "mbithi", "maingi"]) is True
+    assert _is_holder_named("K M Maingi", ["kevin", "mbithi", "maingi"]) is True
+    assert _is_holder_named("Maingi K. M.", ["kevin", "mbithi", "maingi"]) is True
+    assert _is_holder_named("Maingi X Y", ["kevin", "mbithi", "maingi"]) is False
+    assert _is_holder_named("Maingi Savings", ["kevin", "mbithi", "maingi"]) is False
+    assert _is_holder_named("Smith K M", ["kevin", "mbithi", "maingi"]) is False
+    assert _is_holder_named("K M", ["kevin", "mbithi", "maingi"]) is False

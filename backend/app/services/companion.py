@@ -320,7 +320,17 @@ def _is_holder_named(display_name: str, user_tokens: list[str] | None) -> bool:
     if words[0] in _PERSON_TITLES:
         return True
     toks = {str(t).lower() for t in (user_tokens or []) if t}
-    return bool(toks) and len(set(words) & toks) >= min(2, len(toks))
+    if toks and len(set(words) & toks) >= min(2, len(toks)):
+        return True
+    # Surname plus initials ("Maingi K M", "K M Maingi"): exactly one full word,
+    # the user's surname-style token (3+ letters), and one or more single
+    # letters that each start one of the user's OTHER name tokens.
+    full = [w for w in words if len(w) > 1]
+    initials = [w for w in words if len(w) == 1]
+    if len(full) == 1 and initials and len(full[0]) >= 3 and full[0] in toks:
+        others = {t[0] for t in toks if t != full[0]}
+        return all(i in others for i in initials)
+    return False
 
 
 def _short_day(d: date) -> str:
