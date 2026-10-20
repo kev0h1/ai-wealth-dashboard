@@ -270,9 +270,10 @@ const CSP = [
 // components/GroceryBasketCard.tsx) uses `<input type="file"
 // capture="environment">`, which hands off to the OS camera app — it does
 // NOT use getUserMedia/the in-page Permissions API camera feature, so
-// `camera=()` here does not break it.
+// `camera=()` here does not break it. Fuel uses device location at the
+// point of use, so same-origin geolocation still needs the user's permission.
 const PERMISSIONS_POLICY = [
-  "camera=()", "microphone=()", "geolocation=()", "payment=()",
+  "camera=()", "microphone=()", "geolocation=(self)", "payment=()",
   "usb=()", "magnetometer=()", "gyroscope=()", "accelerometer=()",
   "interest-cohort=()",
 ].join(", ");

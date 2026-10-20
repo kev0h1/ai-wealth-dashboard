@@ -28,12 +28,13 @@ for (const section of SETTINGS_SECTIONS.filter(s => !["assistants", "delete"].in
 assert.ok(!html.includes("Connected assistants"), "feature-off directory cannot expose assistants");
 assert.ok(render("", { assistantsVisible: true }).includes('href="/settings?section=assistants"'));
 assert.match(render("", {}, "display"), /<a(?=[^>]*href="\/settings\?section=display")(?=[^>]*aria-current="page")/);
-for (const [search, section] of [["income", "financial"], ["PENSION", "financial"], ["Child Benefit", "financial"], ["postcode", "account"], ["history", "account"], ["Apple", "account"], [" privacy ", "display"]]) {
+for (const [search, section] of [["income", "financial"], ["PENSION", "financial"], ["Child Benefit", "financial"], ["history", "account"], ["Apple", "account"], [" privacy ", "display"]]) {
   const result = render(search);
   assert.ok(result.includes(`href="/settings?section=${section}"`), `${search} is discoverable`);
   assert.ok(!result.includes("No settings match"));
 }
 assert.match(render("not-a-setting"), /role="status"[^>]*>No settings match/);
+assert.match(render("postcode"), /No settings match/, "removed postcode field is no longer discoverable");
 assert.ok(!render("not-a-setting").includes('href="/settings?section='), "no empty sections or stray task links");
 assert.ok(!html.includes("undefined"), "no missing values leak into content");
 assert.match(html, /Standard · 113 messages left/);
@@ -79,9 +80,10 @@ assert.match(page, /await api\.deleteUserAccount\(\)/);
 assert.match(page, /Could not confirm deletion\. Try again\./, "a failed response must not assert the account was not deleted");
 assert.match(page, /clearOnboarded\(localStorage, user\?\.email\)/);
 assert.match(page, /<PayPeriodSettingsSheet[\s\S]*?current=\{payPeriodConfig\}[\s\S]*?setPayPeriodConfig/, "pay period uses the real shared preference saver");
-for (const handler of ["saveProfile", "handleLinkApple", "handleUnlinkApple", "handleTurnOffPennyConsent", "toggleBiometrics", "handleSyncHistory", "toggleCoverAccount", "toggleNotifPref", "handleRegisterDevice", "handleTestPush", "handleIncomeBlur", "handlePensionBlur", "handleChildBenefitToggle"]) {
+for (const handler of ["saveProfile", "handleLinkApple", "handleUnlinkApple", "toggleBiometrics", "handleSyncHistory", "toggleCoverAccount", "toggleNotifPref", "handleRegisterDevice", "handleTestPush", "handleIncomeBlur", "handlePensionBlur", "handleChildBenefitToggle"]) {
   assert.ok(page.includes(handler), `${handler} retained`);
 }
+assert.match(page, /<PennyPermissionSettings ready=\{preferencesReady\} snapshot=\{rawPrefs\} refresh=\{refreshPreferences\}/, "inline consent uses the shared authoritative preference state");
 assert.ok(!page.includes("app/design"), "production has no preview dependency");
 assert.ok(!existsSync(new URL("../app/design/settings-overhaul", import.meta.url)), "approved preview removed under H113");
 console.log("g201-settings-directory OK: approved D groups, real links, search, feature gates and production handler wiring.");

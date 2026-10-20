@@ -1368,7 +1368,9 @@ async def grant_agent_consent(user: dict = Depends(current_user)):
     uid = user["email"]
     now = datetime.now().isoformat()
     await preferences_col.update_one(
-        {"user_id": uid}, {"$set": {"penny_agent_consent": now, "user_id": uid}}, upsert=True,
+        {"user_id": uid},
+        {"$set": {"penny_agent_consent": now, "user_id": uid}, "$inc": {"version": 1}},
+        upsert=True,
     )
     return {"penny_agent_consent": now}
 

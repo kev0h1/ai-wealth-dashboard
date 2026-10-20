@@ -69,10 +69,14 @@ class _FakeCol:
         for d in self.docs:
             if self._match(d, filt):
                 d.update(update.get("$set") or {})
+                for key, amount in (update.get("$inc") or {}).items():
+                    d[key] = d.get(key, 0) + amount
                 return
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
+            for key, amount in (update.get("$inc") or {}).items():
+                new_doc[key] = new_doc.get(key, 0) + amount
             self.docs.append(new_doc)
 
     async def replace_one(self, filt, doc, upsert=False):
@@ -1018,6 +1022,9 @@ def test_grant_agent_consent_sets_preference(monkeypatch):
     assert result["penny_agent_consent"]
     assert fake_prefs.docs[0]["penny_agent_consent"] == result["penny_agent_consent"]
     assert fake_prefs.docs[0]["user_id"] == UID
+    assert fake_prefs.docs[0]["version"] == 1
+    asyncio.run(can_i_module.grant_agent_consent(user={"email": UID}))
+    assert fake_prefs.docs[0]["version"] == 2
 
 
 def test_revoke_agent_consent_clears_preference(monkeypatch):
@@ -1036,6 +1043,7 @@ def test_revoke_agent_consent_clears_preference(monkeypatch):
     result = asyncio.run(can_i_module.revoke_agent_consent_route(user={"email": UID}))
     assert result == {"penny_agent_consent": None, "proposals_cancelled": 0}
     assert fake_prefs.docs[0]["penny_agent_consent"] is None
+    assert fake_prefs.docs[0]["version"] == 1
 
 
 def test_revoke_agent_consent_idempotent_when_never_consented(monkeypatch):

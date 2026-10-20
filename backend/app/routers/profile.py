@@ -1,8 +1,5 @@
-"""User profile endpoints: full name, home location, onboarding state."""
+"""User profile endpoints: full name and onboarding state."""
 import re
-import urllib.parse
-import urllib.request
-import json as _json
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -13,30 +10,11 @@ from app.services.retention import erase_user
 
 router = APIRouter(tags=["profile"])
 
-_POSTCODE_RE = re.compile(r"^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$", re.I)
-
 
 def tokenise_name(full_name: str) -> list[str]:
     """Split a full name into lowercase tokens of length >= 2."""
     parts = re.split(r"[^a-zA-Z]+", (full_name or "").lower())
     return [p for p in parts if len(p) >= 2]
-
-
-def geocode_postcode(postcode: str) -> dict | None:
-    """Resolve a UK postcode to {postcode, lat, lng} via postcodes.io. None if invalid/unreachable."""
-    pc = (postcode or "").strip()
-    if not pc or not _POSTCODE_RE.match(pc):
-        return None
-    url = f"https://api.postcodes.io/postcodes/{urllib.parse.quote(pc)}"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            result = _json.loads(resp.read()).get("result") or {}
-        lat, lng = result.get("latitude"), result.get("longitude")
-        if lat is None or lng is None:
-            return None
-        return {"postcode": result.get("postcode", pc.upper()), "lat": lat, "lng": lng}
-    except Exception:
-        return None
 
 
 def _onboarding_complete(doc: dict) -> bool:
@@ -57,15 +35,11 @@ def _onboarding_complete(doc: dict) -> bool:
 
 def _serialize(doc: dict | None) -> dict:
     if not doc:
-        return {"full_name": "", "name_tokens": [], "onboarding_complete": False,
-                "postcode": None, "lat": None, "lng": None}
+        return {"full_name": "", "name_tokens": [], "onboarding_complete": False}
     return {
         "full_name": doc.get("full_name", ""),
         "name_tokens": doc.get("name_tokens", []),
         "onboarding_complete": _onboarding_complete(doc),
-        "postcode": doc.get("postcode"),
-        "lat": doc.get("lat"),
-        "lng": doc.get("lng"),
     }
 
 
@@ -113,18 +87,6 @@ async def update_profile(body: dict, user: dict = Depends(current_user)):
     # (pass complete=false from mid-flow saves so steps 3/4 still show on refresh).
     if body.get("complete", True):
         updates["onboarding_complete"] = True
-
-    # Postcode is optional. If present, validate + geocode; reject only an
-    # explicitly-bad postcode (so a blank field never blocks onboarding).
-    if "postcode" in body:
-        raw = (body.get("postcode") or "").strip()
-        if raw:
-            geo = geocode_postcode(raw)
-            if not geo:
-                raise HTTPException(400, "That doesn't look like a valid UK postcode")
-            updates.update(geo)
-        else:
-            updates.update({"postcode": None, "lat": None, "lng": None})
 
     update: dict = {"$set": updates}
     if "onboarding_complete" not in updates:

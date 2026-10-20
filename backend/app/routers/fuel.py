@@ -12,7 +12,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import current_user
-from app.db.collections import user_profiles_col
 
 router = APIRouter(tags=["fuel"])
 
@@ -68,15 +67,11 @@ async def fuel_nearby(
     if grade not in GRADES:
         raise HTTPException(400, f"Unknown grade '{grade}'")
 
-    # Anchor: explicit coords win, else the user's saved home location.
+    # Fuel searches use the point of use, never a saved home location.
     if lat is None or lng is None:
-        doc = await user_profiles_col.find_one({"_id": user["email"]})
-        lat = (doc or {}).get("lat")
-        lng = (doc or {}).get("lng")
-        if lat is None or lng is None:
-            raise HTTPException(
-                422, "No location set, add your postcode in your profile or share your location.",
-            )
+        raise HTTPException(
+            422, "Share your current location to see nearby fuel prices.",
+        )
 
     snap = load_snapshot()
     if not snap:

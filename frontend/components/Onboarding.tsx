@@ -58,7 +58,6 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [step, setStep]           = useState<Step>("welcome");
   const [firstName, setFirstName] = useState(() => defaultName.split(" ")[0] ?? "");
   const [lastName, setLastName]   = useState(() => defaultName.split(" ").slice(1).join(" ") ?? "");
-  const [postcode, setPostcode]   = useState("");
   // D8: onboarding defaults to monthly on a date the user picks.
   const [payDraft, setPayDraft]     = useState<PayPeriodDraft>(DEFAULT_DRAFT);
   const [paydaySaving, setPaydaySaving] = useState(false);
@@ -192,7 +191,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     // no session re-issue needed. A name refresh must never double as a
     // session-lifetime refresh.
     try {
-      await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim());
+      await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`);
     } catch {}
     localStorage.removeItem("wealth_onboarding_resume");
     localStorage.setItem("wealth_tutorial_pending", "1");
@@ -208,7 +207,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     setError(null);
     try {
       // Save name WITHOUT completing onboarding so refresh still shows steps 3 & 4.
-      await api.updateProfile(`${first} ${last}`, postcode.trim(), false);
+      await api.updateProfile(`${first} ${last}`, false);
       setStep("payday");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save. Please try again.");
@@ -405,22 +404,6 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
-              Postcode <span className="font-normal text-slate-400">(optional)</span>
-            </label>
-            <input
-              value={postcode}
-              onChange={e => setPostcode(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") saveProfile(); }}
-              maxLength={10}
-              autoCapitalize="characters"
-              placeholder="e.g. SW1A 1AA"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 uppercase placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">Used to find cheaper fuel near you.</p>
           </div>
 
           {error && <p className="text-xs text-rose-500">{error}</p>}
