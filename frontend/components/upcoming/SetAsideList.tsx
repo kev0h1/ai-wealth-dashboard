@@ -2,6 +2,7 @@
 
 import { Wallet, ChevronRight } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { titleFor, statusFor, humanizeRaw, fmtC, type SetAsideDisplayInput } from "@/lib/setAsideDisplay";
 
 // The "Set aside this period" list (PlanningPage.tsx's PlansSection), G131
@@ -44,6 +45,7 @@ function WalletChip() {
 }
 
 export default function SetAsideList({ items, onEdit }: { items: SetAsideItem[]; onEdit: (id: string) => void }) {
+  const hidden = useBalancesHidden();
   if (items.length === 0) return null;
   return (
     <div
@@ -52,14 +54,16 @@ export default function SetAsideList({ items, onEdit }: { items: SetAsideItem[];
     >
       {items.map((a) => {
         const { primary, tag } = titleFor(a);
-        const { detail, amount } = statusFor(a);
+        const { detail: rawDetail, amount: rawAmount } = statusFor(a);
+        const detail = maskMoneyText(rawDetail, hidden);
+        const amount = rawAmount ? maskMoneyText(rawAmount, hidden) : rawAmount;
         const remaining = Math.max(0, a.remaining);
         const complete = a.completed || remaining < 0.5;
         const editLabel = a.pending
           ? (a.pendingStartsLabel ? `starts ${a.pendingStartsLabel}` : "nothing reserved yet")
           : complete
             ? "fully set aside"
-            : `${fmtC(remaining)} still to reserve`;
+            : `${maskMoneyText(fmtC(remaining), hidden)} still to reserve`;
         return (
           <button
             key={a.id}

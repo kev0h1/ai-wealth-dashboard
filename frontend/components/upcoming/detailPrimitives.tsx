@@ -3,7 +3,14 @@
 import { Target, Wallet, type LucideIcon } from "lucide-react";
 import type { Plan } from "@/lib/upcomingPlans";
 import { money, dateLabel } from "@/lib/upcomingPlans";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 export { money, dateLabel };
+
+/** B55: money() that honours Hide balances. Use for balance and reservation figures; payment amounts stay on plain money(). */
+export function useMaskedMoney() {
+  const hidden = useBalancesHidden();
+  return (pence: number, positive = false) => maskMoneyText(money(pence, positive), hidden);
+}
 
 export const detailFocus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900";
 export const detailInk = "font-mono tabular-nums text-slate-950 dark:text-slate-50";
@@ -19,8 +26,9 @@ export function CategoryIcon({ Icon, colour }: { Icon: LucideIcon; colour: strin
 }
 
 export function DetailLedgerLine({ label, pence, total = false, positive = false }: { label: string; pence: number | null; total?: boolean; positive?: boolean }) {
+  const m = useMaskedMoney();
   return <div className={`flex items-baseline justify-between gap-4 py-2 ${total ? "border-t border-slate-200 font-semibold dark:border-slate-700" : ""}`}>
     <dt className={total ? "text-slate-900 dark:text-slate-100" : detailMuted}>{label}</dt>
-    <dd className={`shrink-0 text-right ${detailInk}`}>{pence === null ? "Unavailable" : money(pence, positive)}</dd>
+    <dd className={`shrink-0 text-right ${detailInk}`}>{pence === null ? "Unavailable" : m(pence, positive)}</dd>
   </div>;
 }

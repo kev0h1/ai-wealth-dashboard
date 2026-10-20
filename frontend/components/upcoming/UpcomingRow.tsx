@@ -3,6 +3,7 @@
 import type { LucideIcon } from "lucide-react";
 import { AlertCircle, AlertTriangle, Check, ChevronDown, Clock } from "lucide-react";
 import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { getUpcomingStatus, upcomingMoney, upcomingStatusText } from "@/lib/upcomingAttention";
 
 /**
@@ -150,6 +151,7 @@ function CurrentSupportingCopy({
   onToggleWhy?: () => void;
   onSkipOccurrence?: () => void;
 }) {
+  const hidden = useBalancesHidden();
   const hasAccount = Boolean(model.accountLabel);
   const culprit = model.why?.culprit;
 
@@ -162,7 +164,7 @@ function CurrentSupportingCopy({
       {model.accountShort && hasAccount && (
         <p className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
           <span className="min-w-0 truncate">
-            {model.accountLabel} · only <span className="font-mono tabular-nums">{sym}{(model.accountBalance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> available
+            {model.accountLabel} · only <span className="font-mono tabular-nums">{maskMoneyText(`${sym}${(model.accountBalance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`, hidden)}</span> available
           </span>
           {culprit && onToggleWhy && (
             <button
@@ -180,7 +182,7 @@ function CurrentSupportingCopy({
       )}
       {model.accountShort && model.why?.open && culprit && (
         <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-          Includes a <span className="font-mono tabular-nums">{sym}{culprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatDate(culprit.expectedDate)}
+          Includes a <span className="font-mono tabular-nums">{maskMoneyText(`${sym}${culprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hidden)}</span> move {formatDate(culprit.expectedDate)}
         </p>
       )}
 
@@ -205,7 +207,7 @@ function CurrentSupportingCopy({
       {model.accountTiming && model.why?.open && culprit && (
         <p className="flex min-w-0 items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
-          <span className="truncate">Includes a <span className="font-mono tabular-nums">{sym}{culprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatDate(culprit.expectedDate)}</span>
+          <span className="truncate">Includes a <span className="font-mono tabular-nums">{maskMoneyText(`${sym}${culprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hidden)}</span> move {formatDate(culprit.expectedDate)}</span>
         </p>
       )}
 
@@ -297,6 +299,7 @@ function CurrentSupportingCopy({
 }
 
 function AfterCopy({ model, compact = false }: { model: UpcomingRowModel; compact?: boolean }) {
+  const hidden = useBalancesHidden();
   if (compact) return null;
   switch (model.after.kind) {
     case "settling":
@@ -308,13 +311,14 @@ function AfterCopy({ model, compact = false }: { model: UpcomingRowModel; compac
     case "balance":
       return (
         <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          After: <span className="font-mono tabular-nums">{model.after.value >= 0 ? "" : "−"}{sym}{Math.abs(model.after.value).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> {model.after.value < 0 ? "short" : "left"}
+          After: <span className="font-mono tabular-nums">{model.after.value >= 0 ? "" : "−"}{maskMoneyText(`${sym}${Math.abs(model.after.value).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`, hidden)}</span> {model.after.value < 0 ? "short" : "left"}
         </p>
       );
   }
 }
 
 function CoverageCopy({ coverage }: { coverage: NonNullable<UpcomingRowModel["coverage"]> }) {
+  const hidden = useBalancesHidden();
   if (coverage.shortfall <= 0) {
     return (
       <p className="flex items-center justify-end gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -332,16 +336,17 @@ function CoverageCopy({ coverage }: { coverage: NonNullable<UpcomingRowModel["co
   return (
     <p className="flex items-center justify-end gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${signifier}`} aria-hidden="true" />
-      <span className="font-mono tabular-nums">{sym}{coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> {status}
+      <span className="font-mono tabular-nums">{maskMoneyText(`${sym}${coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`, hidden)}</span> {status}
     </p>
   );
 }
 
 function AttentionCopy({ model }: { model: UpcomingRowModel }) {
+  const hidden = useBalancesHidden();
   const status = getUpcomingStatus(model);
   return <p className="flex items-center justify-end gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
     {status.tone !== "neutral" ? <span className={`size-1.5 shrink-0 rounded-full ${status.tone === "risk" ? "bg-red-600 dark:bg-red-400" : "bg-amber-600 dark:bg-amber-400"}`} aria-hidden="true" /> : status.kind === "covered" ? <Check size={13} aria-hidden="true" /> : null}
-    <span>{status.shortfall !== undefined && <><span className="font-mono tabular-nums">{upcomingMoney(status.shortfall)}</span> </>}{status.label}</span>
+    <span>{status.shortfall !== undefined && <><span className="font-mono tabular-nums">{maskMoneyText(upcomingMoney(status.shortfall), hidden)}</span> </>}{status.label}</span>
   </p>;
 }
 
@@ -356,15 +361,16 @@ export default function UpcomingRow({
   onToggleWhy,
   onSkipOccurrence,
 }: UpcomingRowProps) {
+  const hidden = useBalancesHidden();
   const isCurrent = treatment === "current";
   const isAttention = treatment === "needs-attention";
   const isAccountCoverage = treatment === "account-coverage" || isAttention;
   const compact = treatment === "exception-cluster";
   const amountSign = model.type === "income" ? "+" : "−";
-  const coverageStatus = isAttention ? upcomingStatusText(getUpcomingStatus(model)) : model.coverage
+  const coverageStatus = isAttention ? maskMoneyText(upcomingStatusText(getUpcomingStatus(model)), hidden) : model.coverage
     ? model.coverage.shortfall <= 0
       ? "covered"
-      : `${sym}${model.coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })} ${model.coverage.optionalMove ? "unfunded" : "short"}`
+      : maskMoneyText(`${sym}${model.coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })} ${model.coverage.optionalMove ? "unfunded" : "short"}`, hidden)
     : null;
   const accountCoverageLabel = `Open details for ${model.name}${model.accountLabel ? ` ${model.type === "income" ? "into" : "from"} ${model.accountLabel}` : ""}, ${amountSign}${sym}${model.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${coverageStatus ? `, ${coverageStatus}` : ""}`;
 
