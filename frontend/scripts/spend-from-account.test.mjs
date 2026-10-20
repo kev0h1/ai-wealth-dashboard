@@ -35,7 +35,7 @@
 // all, this proves the frontend does not quietly re-admit one via a
 // stale/malformed payload either).
 
-import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
+import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, spendFromCombinedLine, spendFromCombinedParts, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
 import { hasFundedCoverMove } from "../lib/companionItems";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -684,6 +684,27 @@ const NEVER_BRANDED = () => false;
   check("G300: unknown pool is not combined", plan(both, null).combined, false);
   check("G300: undefined pool keeps today's capped hero line", hero(both, undefined), "In Barclays: up to £9 right now, the most your Safe to Spend allows.");
   check("G300: unknown pool keeps today's alternative line", alt(both, null), "Next best: HSBC, up to £9, the most your Safe to Spend allows.");
+}
+
+// G303: the combined line names banks (injected labelFor), never accounts.
+{
+  const accounts = [
+    account({ id: "p", name: "Premier Current Account", subtype: "CURRENT", cover_source_eligible: true, provider: "Barclays" }),
+    account({ id: "h", name: "MAINGI K M", subtype: "CURRENT", cover_source_eligible: true, provider: "HSBC" }),
+  ];
+  const E = (v) => ({ short: false, headroom: v, spend_from_headroom: v, spend_from_capped: true });
+  const entries = (elig) => { const r = bestSpendAccount(elig, accounts); return [r.best, r.alternative]; };
+  const bank = (entry) => entry.account.provider;
+  const both = entries({ p: E(9), h: E(9) });
+  check("G303: bank labels in the combined line", spendFromCombinedLine(both, 9, amount, bank), "Spend up to £9 from Barclays or HSBC.");
+  check("G303: default labels stay the display names", spendFromCombinedLine(both, 9, amount).includes("Premier Current Account"), true);
+  const mixed = entries({ p: E(9), h: E(6) });
+  check("G303: below-pool clause uses the bank label", spendFromCombinedLine(mixed, 9, amount, bank),
+    "Spend up to £9 in total from Barclays or HSBC. HSBC can cover up to £6.");
+  const same = spendFromCombinedParts(both, 9, amount, () => "Barclays");
+  check("G303: same bank collapses to one group", same.groups.length, 1);
+  check("G303: same bank drops ambiguous clauses", spendFromCombinedParts(mixed, 9, amount, () => "Barclays").clauses.length, 0);
+  check("G303: same bank reads once", spendFromCombinedLine(both, 9, amount, () => "Barclays"), "Spend up to £9 from Barclays.");
 }
 
 if (failures > 0) {
