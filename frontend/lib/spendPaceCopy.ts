@@ -24,7 +24,7 @@ export function formatSignedMoney(value: number, { plus = false }: { plus?: bool
   // values into a true zero, so a negative sign can never precede £0.
   const pennies = Math.round(Math.abs(value) * 100);
   const prefix = value < 0 && pennies > 0 ? "−" : plus && pennies > 0 ? "+" : "";
-  return `${prefix}£${(pennies / 100).toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
+  return `${prefix}£${(pennies / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**

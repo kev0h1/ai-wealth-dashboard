@@ -94,7 +94,12 @@ assert.doesNotMatch(render(fixture("nomoved")), /Show money moved separately/, "
 assert.match(render(fixture("closed")), /Completed pay period/);
 assert.doesNotMatch(render(fixture("early")), /above usual pace|below usual pace/);
 assert.equal(render(null), "", "No invented figures while loading");
-assert.equal(spendHeroMoney(-0.001), "£0");
+assert.equal(spendHeroMoney(-0.001), "£0.00");
+assert.equal(spendHeroMoney(4629.3), "£4,629.30");
+assert.equal(spendHeroMoney(17250.7), "£17,250.70");
+assert.equal(spendHeroMoney(5), "£5.00");
+assert.equal(spendHeroMoney(0), "£0.00");
+assert.equal(spendHeroMoney(-4629.3), "−£4,629.30");
 assert.equal(spendHeroMoney(-12.34), "−£12.34");
 assert.equal(spendHeroMoney(1234567.89), "£1,234,567.89");
 assert.equal(spendHeroModel({ ...normal, pills: { ...normal.pills, spent: 4010 + 1e-10 } }).direction, "level");
