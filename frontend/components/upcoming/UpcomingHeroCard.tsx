@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import { BALANCE_MASK, useBalancesHidden } from "@/lib/balancesHidden";
 import PooledLedgerExplainer, { POOLED_PROJECTION_SENTENCE } from "@/components/PooledLedgerExplainer";
 
 // Shared production/preview runway. G176 keeps the existing headline,
@@ -25,6 +26,8 @@ export interface UpcomingHeroCardProps {
   runway: number;
   /** "even" is a genuine third state (runway === 0 exactly), distinct from "left". */
   runwayStatus: "short" | "left" | "even";
+  /** B55: Hide balances. Falls back to the page-level context (visible when absent). */
+  balancesHidden?: boolean;
 }
 
 const sym = "£";
@@ -44,7 +47,12 @@ export default function UpcomingHeroCard({
   savingsNow,
   runway,
   runwayStatus,
+  balancesHidden,
 }: UpcomingHeroCardProps) {
+  const contextHidden = useBalancesHidden();
+  const hidden = balancesHidden ?? contextHidden;
+  // Whole-pound amount, masked when balances are hidden. Sign is kept by callers.
+  const pounds = (v: number) => (hidden ? BALANCE_MASK : `${sym}${v.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`);
   const runwayNegative = runwayStatus === "short";
 
   return (
@@ -60,15 +68,14 @@ export default function UpcomingHeroCard({
           </h2>
           <div className="flex items-baseline gap-2">
             <p
-              aria-label={`${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${runwayStatus}`}
+              aria-label={hidden ? `Amount hidden, ${runwayStatus}` : `${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${runwayStatus}`}
               className={`font-mono text-[40px] font-bold leading-none tracking-[-0.04em] tabular-nums ${
                 runwayNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"
               }`}
             >
               <span aria-hidden="true">
                 {runwayNegative ? "−" : ""}
-                {sym}
-                {Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                {pounds(Math.abs(runway))}
               </span>
             </p>
             <span
@@ -99,32 +106,28 @@ export default function UpcomingHeroCard({
           <div className="flex items-center justify-between gap-4 py-1.5">
             <dt>Available now</dt>
             <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-              {sym}
-              {spendableNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+              {pounds(spendableNow)}
             </dd>
           </div>
           {runwayIncomeTotal > 0 && (
             <div className="flex items-center justify-between gap-4 py-1.5">
               <dt>{isCalendarMonth ? "Income before month end" : "Income before payday"}</dt>
               <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                +{sym}
-                {runwayIncomeTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                +{pounds(runwayIncomeTotal)}
               </dd>
             </div>
           )}
           <div className="flex items-center justify-between gap-4 py-1.5">
             <dt>{isCalendarMonth ? "Bills before month end" : "Bills before payday"}</dt>
             <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-              −{sym}
-              {runwayBillsTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+              −{pounds(runwayBillsTotal)}
             </dd>
           </div>
           {allocationsRemainingTotal > 0 && (
             <div className="flex items-center justify-between gap-4 py-1.5">
               <dt>Still to set aside</dt>
               <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                −{sym}
-                {allocationsRemainingTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                −{pounds(allocationsRemainingTotal)}
               </dd>
             </div>
           )}
@@ -141,8 +144,7 @@ export default function UpcomingHeroCard({
               <dd className="shrink-0 whitespace-nowrap font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 {plansUnavailable ? "Unavailable" : (
                   <>
-                    −{sym}
-                    {plansReservedTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                    −{pounds(plansReservedTotal)}
                   </>
                 )}
               </dd>
@@ -152,8 +154,7 @@ export default function UpcomingHeroCard({
             <dt>Projected balance</dt>
             <dd className={`font-mono tabular-nums ${runwayNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
               {runwayNegative ? "−" : ""}
-              {sym}
-              {Math.abs(runway).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+              {pounds(Math.abs(runway))}
             </dd>
           </div>
         </dl>
@@ -163,7 +164,7 @@ export default function UpcomingHeroCard({
             poolingSentence={POOLED_PROJECTION_SENTENCE}
             envelope={{ amount: allocationsRemainingTotal, count: allocationsCount }}
             plan={plansUnavailable ? null : { amount: plansReservedTotal, count: plansCount }}
-            format={(v) => `${sym}${v.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+            format={pounds}
           />
         </div>
       </details>
@@ -173,8 +174,7 @@ export default function UpcomingHeroCard({
           <span>Savings backup</span>
           <span>
             <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
-              {sym}
-              {savingsNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+              {pounds(savingsNow)}
             </span>{" "}
             · not included
           </span>

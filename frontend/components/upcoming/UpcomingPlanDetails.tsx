@@ -2,18 +2,19 @@
 
 import { useId } from "react";
 import { remaining, type Plan } from "@/lib/upcomingPlans";
-import { DetailLedgerLine, detailInk, detailMuted, money } from "./detailPrimitives";
+import { DetailLedgerLine, detailInk, detailMuted, useMaskedMoney } from "./detailPrimitives";
 
 export interface UpcomingPlanDetailsProps { plan: Plan; accountName?: string | null; }
 
 export default function UpcomingPlanDetails({ plan, accountName = null }: UpcomingPlanDetailsProps) {
+  const m = useMaskedMoney();
   const id = useId();
   const remainingPence = remaining(plan);
   const progress = Math.min(100, plan.filledPence / Math.max(1, plan.periodPence) * 100);
   return <div className="space-y-6 text-slate-950 dark:text-slate-50">
     <div>
       <p className={"text-xs " + detailMuted}>{!plan.active ? "Reserved this period" : plan.kind === "goal" ? "This period’s contribution" : "Still to set aside"}</p>
-      <p className={"mt-1 text-4xl font-bold tracking-tight " + detailInk}>{plan.amountUnavailable ? "Unavailable" : money(remainingPence)}</p>
+      <p className={"mt-1 text-4xl font-bold tracking-tight " + detailInk}>{plan.amountUnavailable ? "Unavailable" : m(remainingPence)}</p>
     </div>
     <section aria-labelledby={id + "-working"}>
       <h3 id={id + "-working"} className="mb-2 text-sm font-semibold">{plan.kind === "goal" ? "This period only" : "Allocation calculation"}</h3>
@@ -25,7 +26,7 @@ export default function UpcomingPlanDetails({ plan, accountName = null }: Upcomi
         </>}
       </dl>
       {!plan.active && <p className={"mt-3 text-xs leading-5 " + detailMuted}>Not reserved in this period. Paused, future or finished allocations do not reduce the account result.</p>}
-      {plan.filledPence > plan.periodPence && <p className={"mt-3 text-xs leading-5 " + detailMuted}>{money(plan.filledPence - plan.periodPence)} above the target is already set aside. Nothing more is reserved.</p>}
+      {plan.filledPence > plan.periodPence && <p className={"mt-3 text-xs leading-5 " + detailMuted}>{m(plan.filledPence - plan.periodPence)} above the target is already set aside. Nothing more is reserved.</p>}
       {plan.kind === "allocation" && !plan.amountUnavailable && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label="Allocation set aside" aria-valuemin={0} aria-valuemax={plan.periodPence / 100} aria-valuenow={Math.min(plan.filledPence, plan.periodPence) / 100}>
         <div className="h-full rounded-full bg-indigo-500" style={{ width: progress + "%" }} />
       </div>}

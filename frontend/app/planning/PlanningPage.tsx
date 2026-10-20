@@ -18,6 +18,7 @@ import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
+import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingAttentionDay from "@/components/upcoming/UpcomingAttentionDay";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
@@ -188,7 +189,9 @@ function PlansSection({
 }
 
 export default function PlanningPage() {
-  const { payPeriodConfig, setPayPeriodConfig } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, hideNetWorth, preferencesReady } = usePreferences();
+  // B55: same rule as Home's SafeToSpendCard, hidden until preferences resolve.
+  const balancesHidden = hideNetWorth || !preferencesReady;
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
@@ -1018,6 +1021,7 @@ export default function PlanningPage() {
                 savingsNow={savingsNow}
                 runway={runway}
                 runwayStatus={runwayStatus}
+                balancesHidden={balancesHidden}
               />
             )}
 
@@ -1054,6 +1058,7 @@ export default function PlanningPage() {
   /* eslint-enable react-hooks/refs */
 
   return (
+    <BalancesHiddenContext.Provider value={balancesHidden}>
     <div inert={flowView !== null} aria-hidden={flowView ? true : undefined} className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         {/* G127 ask #2 — header typography matches the codex reference
@@ -1172,6 +1177,7 @@ export default function PlanningPage() {
         />
       )}
     </div>
+    </BalancesHiddenContext.Provider>
   );
 }
 

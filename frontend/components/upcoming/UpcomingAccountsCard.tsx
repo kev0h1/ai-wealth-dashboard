@@ -6,7 +6,8 @@ import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import type { Plan } from "@/lib/upcomingPlans";
-import { FINE_FOLD_KEY, money, statusFor, type AccountStatus } from "@/lib/upcomingAccountStatus";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
+import { FINE_FOLD_KEY, money as moneyRaw, statusFor, type AccountStatus } from "@/lib/upcomingAccountStatus";
 
 export interface UpcomingAccountsCardProps {
   accounts: UpcomingAccountSummary[];
@@ -28,6 +29,8 @@ function Signal({ signal }: { signal: AccountStatus["signal"] }) {
 }
 
 function AccountRow({ account, result, onOpen }: { account: UpcomingAccountSummary; result: AccountStatus; onOpen: (account: UpcomingAccountSummary) => void }) {
+  const hidden = useBalancesHidden();
+  const money = (value: number) => maskMoneyText(moneyRaw(value), hidden);
   const meta = BANK_META[bankKey({ provider: account.bank })];
   return <button
     type="button"
