@@ -166,7 +166,7 @@ def test_rising_on_interest_leads_with_the_movement_not_the_carried_total():
     )
     assert copy["trend"] == "rising"
     assert copy["tone"] == "watch"
-    assert copy["brief_lead"] == {"value": "£412", "companion": "more owed than three months ago"}
+    assert copy["brief_lead"] == {"value": "£412", "companion": "more than 3 months ago"}
     assert CARRIED_TOTAL_STR not in copy["headline"]
     assert CARRIED_TOTAL_STR in copy["body"]
     assert copy["brief_lead"]["value"] != CARRIED_TOTAL_STR
@@ -177,8 +177,9 @@ def test_rising_on_interest_carries_the_direction_in_the_words():
         _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0),
         TODAY,
     )
-    assert "going up, not down" in copy["headline"]
-    assert "interest is being charged" in copy["headline"]
+    assert copy["headline"] == (
+        "You owe more on your cards than 3 months ago. Some of it has interest right now."
+    )
     assert "£412" not in copy["headline"]
 
 
@@ -187,9 +188,11 @@ def test_rising_on_interest_body_splits_the_interest_bearing_balance_from_the_pr
         _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0),
         TODAY,
     )
-    assert "£3,180 of the balance is charging interest" in copy["body"]
-    assert "£38 a month" in copy["body"]
-    assert "£21,746 is on 0% deals" in copy["body"]
+    assert copy["body"] == (
+        "You owe £24,926 on 2 cards."
+        " £3,180 of it has interest, about £38 a month."
+        " £21,746 of it is on 0% deals."
+    )
 
 
 # ── State 2: rising, everything on 0% ────────────────────────────────────────
@@ -200,10 +203,10 @@ def test_rising_on_zero_percent_never_words_it_as_interest():
         TODAY,
     )
     assert copy["trend"] == "rising"
-    assert "going up, not down" in copy["headline"]
-    assert "interest is being charged" not in copy["headline"]
-    assert "nothing on them is charging interest at the moment" in copy["headline"]
-    assert "no interest is being charged right now" in copy["body"]
+    assert copy["headline"] == (
+        "You owe more on your cards than 3 months ago. None of it has interest right now."
+    )
+    assert copy["body"] == "You owe £24,926 on 2 cards. All of it is on 0% deals."
     assert copy["tone"] == "neutral"
 
 
@@ -228,9 +231,11 @@ def test_falling_with_nothing_charging_interest_reads_as_progress():
     )
     assert copy["trend"] == "falling"
     assert copy["tone"] == "positive"
-    assert copy["headline"] == "Your cards are coming down."
-    assert copy["brief_lead"] == {"value": "£612", "companion": "less owed than three months ago"}
-    assert "At your current pace they clear in Mar 2029." in copy["body"]
+    assert copy["headline"] == (
+        "You owe less on your cards than 3 months ago. None of it has interest right now."
+    )
+    assert copy["brief_lead"] == {"value": "£612", "companion": "less than 3 months ago"}
+    assert "At this pace, they would be paid off around Mar 2029." in copy["body"]
 
 
 def test_falling_while_charging_interest_says_so_and_never_wears_the_positive_mark():
@@ -243,8 +248,10 @@ def test_falling_while_charging_interest_says_so_and_never_wears_the_positive_ma
     )
     assert copy["trend"] == "falling"
     assert copy["tone"] == "watch"
-    assert copy["headline"] == "Your cards are coming down, though interest is still being charged."
-    assert "£38 a month" in copy["body"]
+    assert copy["headline"] == (
+        "You owe less on your cards than 3 months ago. Some of it still has interest."
+    )
+    assert "about £38 a month" in copy["body"]
 
 
 # ── State 4: flat ────────────────────────────────────────────────────────────
@@ -255,8 +262,10 @@ def test_flat_says_holding_steady_and_leads_with_no_movement():
         TODAY,
     )
     assert copy["trend"] == "flat"
-    assert copy["headline"] == "Your cards are holding steady, not coming down."
-    assert copy["brief_lead"] == {"value": "£0", "companion": "change over the last three months"}
+    assert copy["headline"] == (
+        "You owe about the same on your cards as 3 months ago. None of it has interest right now."
+    )
+    assert copy["brief_lead"] == {"value": "£0", "companion": "change over the last 3 months"}
     assert copy["tone"] == "neutral"
 
 
@@ -267,8 +276,9 @@ def test_flat_while_paying_interest_earns_the_watch_signifier():
     )
     assert copy["trend"] == "flat"
     assert copy["tone"] == "watch"
-    assert "holding steady, not coming down" in copy["headline"]
-    assert "interest is being charged" in copy["headline"]
+    assert copy["headline"] == (
+        "You owe about the same on your cards as 3 months ago. Some of it still has interest."
+    )
 
 
 # ── The direction the card states can never contradict the engine's own ──────
@@ -296,7 +306,7 @@ def test_a_short_but_real_window_still_states_the_direction(months):
     assert plan["history"]["rising"] is True
     copy = companion.trajectory_copy(plan, TODAY)
     assert copy["trend"] == "rising"
-    assert "isn't enough card history" not in copy["headline"]
+    assert "We need more card history" not in copy["headline"]
 
 
 @pytest.mark.parametrize(
@@ -341,9 +351,9 @@ def test_the_window_named_in_the_lead_is_the_window_actually_covered():
     three = companion.trajectory_copy(_plan(trend_3m=412.0, cards=_zero_only_cards(), history_months=12), TODAY)
     two = companion.trajectory_copy(_plan(trend_3m=412.0, cards=_zero_only_cards(), history_months=3), TODAY)
     one = companion.trajectory_copy(_plan(trend_3m=412.0, cards=_zero_only_cards(), history_months=2), TODAY)
-    assert three["brief_lead"]["companion"] == "more owed than three months ago"
-    assert two["brief_lead"]["companion"] == "more owed than two months ago"
-    assert one["brief_lead"]["companion"] == "more owed than a month ago"
+    assert three["brief_lead"]["companion"] == "more than 3 months ago"
+    assert two["brief_lead"]["companion"] == "more than 2 months ago"
+    assert one["brief_lead"]["companion"] == "more than a month ago"
 
 
 def test_the_real_engine_on_three_months_of_history_produces_a_stated_direction():
@@ -371,10 +381,10 @@ def test_the_real_engine_on_three_months_of_history_produces_a_stated_direction(
     plan["history"] = history
     copy = companion.trajectory_copy(plan, TODAY)
     assert copy["trend"] == "rising"
-    assert "isn't enough card history" not in copy["headline"]
-    assert copy["brief_lead"] == {"value": "£2,000", "companion": "more owed over the last two months"}
+    assert "We need more card history" not in copy["headline"]
+    assert copy["brief_lead"] == {"value": "£2,000", "companion": "more over the last 2 months"}
     assert copy["brief_lead"]["value"] != "£5,000"
-    assert "clear in" not in copy["body"]
+    assert "paid off around" not in copy["body"]
 
 
 # ── The "not readable" state never reinstates the stock hero ─────────────────
@@ -385,7 +395,7 @@ def test_an_unreadable_direction_leads_on_the_interest_rate_not_the_stock():
         TODAY,
     )
     assert copy["trend"] == "unknown"
-    assert "isn't enough card history yet" in copy["headline"]
+    assert copy["headline"] == "We need more card history to tell if you owe more or less."
     assert copy["brief_lead"] == {"value": "£38/mo", "companion": "interest right now"}
 
 
@@ -408,7 +418,7 @@ def test_an_unreadable_direction_never_prints_a_clear_by_month():
         TODAY,
     )
     assert copy["trend"] == "unknown"
-    assert "clear in" not in copy["body"]
+    assert "paid off around" not in copy["body"]
 
 
 # ── A carried card with no readings at all ───────────────────────────────────
@@ -422,8 +432,8 @@ def test_a_carried_card_with_no_history_suppresses_the_direction():
         TODAY,
     )
     assert copy["trend"] == "unknown"
-    assert "holding steady" not in copy["headline"]
-    assert "1 card has no transaction history yet, so it is not counted." in copy["body"]
+    assert "about the same" not in copy["headline"]
+    assert "1 card has no history yet, so we left it out." in copy["body"]
     assert copy["brief_lead"] == {"value": "£38/mo", "companion": "interest right now"}
 
 
@@ -436,9 +446,9 @@ def test_an_uncovered_card_scopes_a_rising_reading_rather_than_muting_it():
         TODAY,
     )
     assert copy["trend"] == "rising"
-    assert copy["headline"].startswith("The card with history is going up, not down")
-    assert copy["brief_lead"] == {"value": "£412", "companion": "more owed on the cards with history"}
-    assert "1 card has no transaction history yet, so it is not counted." in copy["body"]
+    assert copy["headline"].startswith("You owe more on the card we have history for.")
+    assert copy["brief_lead"] == {"value": "£412", "companion": "more on the cards we have history for"}
+    assert "1 card has no history yet, so we left it out." in copy["body"]
 
 
 def test_an_uncovered_card_still_suppresses_a_flat_reading():
@@ -449,8 +459,8 @@ def test_an_uncovered_card_still_suppresses_a_flat_reading():
         TODAY,
     )
     assert copy["trend"] == "unknown"
-    assert "holding steady" not in copy["headline"]
-    assert "2 cards have no transaction history yet, so they are not counted." in copy["body"]
+    assert "about the same" not in copy["headline"]
+    assert "2 cards have no history yet, so we left them out." in copy["body"]
 
 
 def test_compute_history_reports_carried_cards_it_could_not_read():
@@ -490,8 +500,8 @@ def test_a_full_three_month_window_keeps_the_point_in_time_wording():
         _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0),
         TODAY,
     )
-    assert copy["brief_lead"]["companion"] == "more owed than three months ago"
-    assert "start of its own history" not in copy["body"]
+    assert copy["brief_lead"]["companion"] == "more than 3 months ago"
+    assert "first month" not in copy["body"]
 
 
 def test_a_clamped_anchor_drops_the_point_in_time_claim_and_says_why():
@@ -502,8 +512,8 @@ def test_a_clamped_anchor_drops_the_point_in_time_claim_and_says_why():
         _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0, partial_cards=1),
         TODAY,
     )
-    assert copy["brief_lead"]["companion"] == "more owed over the last three months"
-    assert "1 card is counted from the start of its own history, not the full window." in copy["body"]
+    assert copy["brief_lead"]["companion"] == "more over the last 3 months"
+    assert "1 card has a shorter history, so we counted it from its first month." in copy["body"]
 
 
 def test_a_clamped_anchor_narrows_the_falling_wording_too_and_pluralises():
@@ -511,8 +521,8 @@ def test_a_clamped_anchor_narrows_the_falling_wording_too_and_pluralises():
         _plan(trend_3m=-612.0, cards=_mixed_cards(), monthly_interest=38.0, partial_cards=2),
         TODAY,
     )
-    assert copy["brief_lead"]["companion"] == "less owed over the last three months"
-    assert "2 cards are counted from the start of their own history, not the full window." in copy["body"]
+    assert copy["brief_lead"]["companion"] == "less over the last 3 months"
+    assert "2 cards have shorter histories, so we counted them from their first month." in copy["body"]
 
 
 def test_a_zero_delta_over_a_partly_observed_window_is_not_called_steady():
@@ -524,7 +534,7 @@ def test_a_zero_delta_over_a_partly_observed_window_is_not_called_steady():
         TODAY,
     )
     assert copy["trend"] == "unknown"
-    assert "holding steady" not in copy["headline"]
+    assert "about the same" not in copy["headline"]
     assert copy["brief_lead"] == {"value": "£38/mo", "companion": "interest right now"}
 
 
@@ -557,10 +567,9 @@ def test_an_unclassified_balance_is_never_declared_interest_free():
         _plan(trend_3m=412.0, cards=_unclear_cards()),
         TODAY,
     )
-    assert "nothing on them is charging interest" not in copy["headline"]
-    assert "none of the balance is costing you interest" not in copy["body"]
-    assert "it isn't clear whether part of the balance is charging interest" in copy["headline"]
-    assert "could mean it's cleared each statement, or on a deal that isn't on file" in copy["body"]
+    assert "None of it has interest" not in copy["headline"]
+    assert "We can't tell if any of it has interest." in copy["headline"]
+    assert "You may pay it off each month. Or it may be on a deal we don't know about." in copy["body"]
     # Unknown cost on a rising balance is worth a look.
     assert copy["tone"] == "watch"
 
@@ -570,8 +579,8 @@ def test_an_unclassified_balance_does_not_contradict_the_no_rate_note():
         _plan(trend_3m=412.0, cards=_unclear_cards()),
         TODAY,
     )
-    assert "2 cards have no rate on file, so interest there isn't counted." in copy["body"]
-    assert "no interest is being charged right now" not in copy["body"]
+    assert "We don't know the rate on 2 cards, so their interest isn't included." in copy["body"]
+    assert "All of it is on 0% deals" not in copy["body"]
 
 
 def test_a_partly_unclassified_balance_still_names_the_zero_percent_part():
@@ -580,9 +589,9 @@ def test_a_partly_unclassified_balance_still_names_the_zero_percent_part():
         _card(account_id="b", name="Barclaycard", debt=ZERO_BALANCE, classification="carried_zero"),
     ]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
-    assert "£21,746 of the balance is on 0% deals." in copy["body"]
-    assert "No interest has shown up on the other £3,180" in copy["body"]
-    assert "or on a deal that isn't on file" in copy["body"]
+    assert "£21,746 of it is on 0% deals." in copy["body"]
+    assert "We can't see any interest on the other £3,180." in copy["body"]
+    assert "Or it may be on a deal we don't know about" in copy["body"]
 
 
 def test_a_falling_unclassified_balance_does_not_earn_the_positive_mark():
@@ -593,7 +602,7 @@ def test_a_falling_unclassified_balance_does_not_earn_the_positive_mark():
     assert copy["trend"] == "falling"
     assert copy["tone"] == "watch"
     assert copy["headline"] == (
-        "Your cards are coming down, though it isn't clear whether part of the balance is charging interest."
+        "You owe less on your cards than 3 months ago. We can't tell if any of it has interest."
     )
 
 
@@ -606,8 +615,8 @@ def test_a_single_carried_card_with_a_clear_by_month_is_grammatical():
         _plan(trend_3m=0.0, cards=cards, debt_free_month="2029-03"),
         TODAY,
     )
-    assert "At your current pace it clears in Mar 2029." in copy["body"]
-    assert "it clear in" not in copy["body"]
+    assert "At this pace, it would be paid off around Mar 2029." in copy["body"]
+    assert "they would be paid" not in copy["body"]
 
 
 def test_a_single_falling_card_with_a_clear_by_month_is_grammatical():
@@ -616,7 +625,7 @@ def test_a_single_falling_card_with_a_clear_by_month_is_grammatical():
         _plan(trend_3m=-612.0, cards=cards, debt_free_month="2029-03"),
         TODAY,
     )
-    assert "At your current pace it clears in Mar 2029." in copy["body"]
+    assert "At this pace, it would be paid off around Mar 2029." in copy["body"]
 
 
 def test_multiple_cards_keep_the_plural_verb():
@@ -624,15 +633,15 @@ def test_multiple_cards_keep_the_plural_verb():
         _plan(trend_3m=0.0, cards=_zero_only_cards(), debt_free_month="2029-03"),
         TODAY,
     )
-    assert "At your current pace they clear in Mar 2029." in copy["body"]
+    assert "At this pace, they would be paid off around Mar 2029." in copy["body"]
 
 
 def test_a_single_carried_card_uses_singular_wording():
     cards = [_card(account_id="amex", name="American Express", debt=CARRIED_TOTAL, classification="carried_zero")]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
-    assert copy["headline"].startswith("Your card is going up, not down")
-    assert "nothing on it is charging interest at the moment" in copy["headline"]
-    assert f"{CARRIED_TOTAL_STR} is carried on American Express." in copy["body"]
+    assert copy["headline"].startswith("You owe more on your card than 3 months ago.")
+    assert "None of it has interest right now." in copy["headline"]
+    assert f"You owe {CARRIED_TOTAL_STR} on American Express." in copy["body"]
 
 
 def test_the_card_count_and_the_carried_total_describe_the_same_population():
@@ -644,15 +653,15 @@ def test_the_card_count_and_the_carried_total_describe_the_same_population():
         _card(account_id="small", name="Santander", debt=20.0, classification="carried_zero"),
     ]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
-    assert copy["headline"].startswith("Your cards are")
-    assert "£5,020 is carried across 2 cards in total." in copy["body"]
+    assert copy["headline"].startswith("You owe more on your cards")
+    assert "You owe £5,020 on 2 cards." in copy["body"]
 
 
 def test_a_lone_sub_material_card_is_never_described_as_one_cards():
     cards = [_card(account_id="small", name="Santander", debt=20.0, classification="carried_zero")]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
     assert "1 cards" not in copy["body"]
-    assert "£20 is carried on Santander." in copy["body"]
+    assert "You owe £20 on Santander." in copy["body"]
 
 
 # ── Rising never also claims a clear-by month ────────────────────────────────
@@ -663,7 +672,7 @@ def test_a_rising_balance_never_also_claims_a_clear_by_month():
         TODAY,
     )
     assert copy["trend"] == "rising"
-    assert "clear in" not in copy["body"]
+    assert "paid off around" not in copy["body"]
 
 
 def test_a_flat_balance_still_states_its_clear_by_month():
@@ -672,7 +681,7 @@ def test_a_flat_balance_still_states_its_clear_by_month():
         TODAY,
     )
     assert copy["trend"] == "flat"
-    assert "At your current pace they clear in Mar 2029." in copy["body"]
+    assert "At this pace, they would be paid off around Mar 2029." in copy["body"]
 
 
 # ── The promo cliff sentence survives the rewrite ────────────────────────────
@@ -691,9 +700,9 @@ def test_promo_cliff_sentence_is_preserved_in_the_body():
         ),
     ]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
-    assert "£1,200 will still be on the Barclaycard Platinum" in copy["body"]
-    assert "when its 0% ends in Mar 2027" in copy["body"]
-    assert "about £25 a month unless it's cleared or moved" in copy["body"]
+    assert "About £1,200 is expected to be left on the Barclaycard Platinum." in copy["body"]
+    assert "Its 0% deal ends in Mar 2027." in copy["body"]
+    assert "interest would be about £25 a month, unless it's paid off or moved." in copy["body"]
     assert copy["tone"] == "watch"
 
 
@@ -703,7 +712,7 @@ def test_missing_rate_note_is_preserved():
         _card(account_id="b", name="Barclaycard", debt=ZERO_BALANCE, classification="carried_zero"),
     ]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards, monthly_interest=38.0), TODAY)
-    assert "1 card has no rate on file, so interest there isn't counted." in copy["body"]
+    assert "We don't know the rate on 1 card, so its interest isn't included." in copy["body"]
 
 
 # ── Float cards are outside the carried trend, and outside its gates ─────────
@@ -757,8 +766,10 @@ def test_a_float_card_never_destroys_a_complete_flat_reading():
     plan["history"] = history
     copy = companion.trajectory_copy(plan, TODAY)
     assert copy["trend"] == "flat"
-    assert copy["headline"] == "Your cards are holding steady, not coming down."
-    assert "start of its own history" not in copy["body"]
+    assert copy["headline"] == (
+        "You owe about the same on your cards as 3 months ago. None of it has interest right now."
+    )
+    assert "first month" not in copy["body"]
 
 
 def _one_young_carried_card():
@@ -814,7 +825,7 @@ def test_the_named_window_is_the_same_with_and_without_a_float_card():
         plan["history"] = history
         leads.append(companion.trajectory_copy(plan, TODAY)["brief_lead"])
     assert leads[0] == leads[1]
-    assert leads[0] == {"value": "£900", "companion": "more owed over the last month"}
+    assert leads[0] == {"value": "£900", "companion": "more over the last month"}
 
 
 def test_the_window_field_is_required_and_its_absence_states_no_direction():
@@ -854,9 +865,9 @@ def test_the_reviewers_unsynced_card_case_states_the_direction_it_can_see():
     plan["history"] = history
     copy = companion.trajectory_copy(plan, TODAY)
     assert copy["trend"] == "rising"
-    assert "isn't enough card history" not in copy["headline"]
+    assert "We need more card history" not in copy["headline"]
     assert copy["brief_lead"]["value"] == "£3,000"
-    assert "1 card has no transaction history yet" in copy["body"]
+    assert "1 card has no history yet" in copy["body"]
 
 
 # ── A card with no balance is not one of "your cards" either ─────────────────
@@ -914,7 +925,7 @@ def test_a_long_paid_off_card_does_not_change_the_lead_either():
         ])
         plan["history"] = history
         leads.append(companion.trajectory_copy(plan, TODAY)["brief_lead"])
-    assert leads[0] == leads[1] == {"value": "£900", "companion": "more owed over the last month"}
+    assert leads[0] == leads[1] == {"value": "£900", "companion": "more over the last month"}
 
 
 def test_a_card_paid_off_DURING_the_window_still_counts_towards_it():
@@ -984,7 +995,7 @@ def test_a_reading_owned_entirely_by_cards_with_no_balance_is_not_attributed():
     assert "The card with history" not in copy["headline"]
     assert "coming down" not in copy["headline"]
     assert copy["brief_lead"] is None
-    assert "1 card has no transaction history yet" in copy["body"]
+    assert "1 card has no history yet" in copy["body"]
 
 
 def test_the_scoped_subject_is_never_an_empty_set_rendered_as_singular():
@@ -1024,7 +1035,7 @@ def test_a_scoped_reading_with_a_real_read_card_still_states_the_direction():
         TODAY,
     )
     assert copy["trend"] == "rising"
-    assert copy["headline"].startswith("The card with history is going up, not down")
+    assert copy["headline"].startswith("You owe more on the card we have history for.")
 
 
 def test_the_scoped_plural_counts_only_the_cards_that_were_read():
@@ -1040,8 +1051,8 @@ def test_the_scoped_plural_counts_only_the_cards_that_were_read():
         _plan(trend_3m=412.0, cards=cards, uncovered_cards=1, read_carried_cards=1),
         TODAY,
     )
-    assert copy["headline"].startswith("The card with history is going up, not down")
-    assert "2 cards have no transaction history yet, so they are not counted." in copy["body"]
+    assert copy["headline"].startswith("You owe more on the card we have history for.")
+    assert "2 cards have no history yet, so we left them out." in copy["body"]
 
 
 def test_the_read_count_is_required_and_its_absence_states_no_direction():
@@ -1052,16 +1063,16 @@ def test_the_read_count_is_required_and_its_absence_states_no_direction():
 
 # ── The caveat must not name a window the card never claimed ─────────────────
 
-@pytest.mark.parametrize("months, window", [(2, "the last month"), (3, "the last two months")])
+@pytest.mark.parametrize("months, window", [(2, "the last month"), (3, "the last 2 months")])
 def test_the_short_history_caveat_names_no_window_of_its_own(months, window):
     copy = companion.trajectory_copy(
         _plan(trend_3m=412.0, cards=_mixed_cards(), monthly_interest=38.0,
               history_months=months, partial_cards=1),
         TODAY,
     )
-    assert copy["brief_lead"]["companion"] == f"more owed over {window}"
+    assert copy["brief_lead"]["companion"] == f"more over {window}"
     assert "three months of history" not in copy["body"]
-    assert "1 card is counted from the start of its own history, not the full window." in copy["body"]
+    assert "1 card has a shorter history, so we counted it from its first month." in copy["body"]
 
 
 # ── The interest figure describes the same cards as the balance figure ───────
@@ -1097,11 +1108,11 @@ def test_a_sub_material_unclear_scrap_does_not_hedge_the_whole_card():
         _card(account_id="san", name="Santander", debt=40.0, classification="unclear"),
     ]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
-    assert "isn't clear whether" not in copy["headline"]
+    assert "We can't tell if" not in copy["headline"]
     assert copy["tone"] == "neutral"
     # ... and it still must not claim the whole balance is on 0%.
-    assert "The whole balance is on 0% deals" not in copy["body"]
-    assert "£4,000 of the balance is on 0% deals" in copy["body"]
+    assert "All of it is on 0% deals" not in copy["body"]
+    assert "£4,000 of it is on 0% deals" in copy["body"]
 
 
 def test_a_material_unclear_balance_still_hedges():
@@ -1110,7 +1121,7 @@ def test_a_material_unclear_balance_still_hedges():
         _card(account_id="san", name="Santander", debt=50.0, classification="unclear"),
     ]
     copy = companion.trajectory_copy(_plan(trend_3m=412.0, cards=cards), TODAY)
-    assert "isn't clear whether part of the balance is charging interest" in copy["headline"]
+    assert "We can't tell if any of it has interest." in copy["headline"]
     assert copy["tone"] == "watch"
 
 
@@ -1228,13 +1239,14 @@ def test_only_a_definitively_interest_free_fall_wears_the_positive_mark(state):
     copy = _state_copy(state)
     if copy["tone"] == "positive":
         assert copy["trend"] == "falling"
-        assert "interest" not in copy["headline"]
+        assert "Some of it" not in copy["headline"]
+        assert "We can't tell" not in copy["headline"]
 
 
 @pytest.mark.parametrize("state", ["rising_interest", "rising_promo", "falling", "flat"])
 def test_a_readable_direction_always_names_its_window(state):
     copy = _state_copy(state)
-    assert "three months" in copy["brief_lead"]["companion"]
+    assert "3 months" in copy["brief_lead"]["companion"]
 
 
 # ── Every trend gets its own icon ────────────────────────────────────────────
@@ -1346,3 +1358,113 @@ def test_the_preview_shows_every_state_the_gate_knows_about_and_no_others():
 
     source = PREVIEW_FIXTURES.read_text(encoding="utf-8")
     assert set(re.findall(r'key: "([^"]+)"', source)) == set(_preview_scenarios())
+
+
+# ── G297: plain-English readability gate ─────────────────────────────────────
+#
+# Every string the card can emit, driven through the builder over the cross
+# product of trend, interest state, card count, 0% cliff, clear-by month,
+# missing rates, unread cards and shortened windows.
+
+BANNED_WORDS = ("carried", "on file", "showing up", "trajectory", "direction")
+MAX_SENTENCE_WORDS = 16
+
+
+def _readability_plans():
+    import itertools
+
+    cliff = dict(
+        first_interest_month="2027-03",
+        monthly_interest_at_first=128.0,
+        balance_at_first_interest=6100.0,
+        rate_schedule=[{"source": "promo", "until": "2027-02-28", "apr_pct": 0.0}],
+    )
+    book = {
+        "mixed": _mixed_cards,
+        "zero": _zero_only_cards,
+        "unclear": _unclear_cards,
+        "solo": lambda: [_card(account_id="amex", name="American Express", debt=CARRIED_TOTAL, classification="carried_zero")],
+        "solo_interest": lambda: [_card(account_id="amex", name="Amex", debt=3000.0, classification="carried_interest")],
+        "cliff": lambda: [
+            _card(account_id="bc", name="Barclaycard Platinum", debt=ZERO_BALANCE,
+                  classification="carried_zero", **cliff),
+            _card(account_id="amex", name="American Express", debt=INTEREST_BALANCE,
+                  classification="carried_interest", terms_missing=True),
+        ],
+        "scrap": lambda: [
+            _card(account_id="bc", name="Barclaycard", debt=4000.0, classification="carried_zero"),
+            _card(account_id="san", name="Santander", debt=40.0, classification="unclear"),
+        ],
+    }
+    for (kind, make), trend, months, dfm, partial, uncovered in itertools.product(
+        book.items(),
+        (412.0, -612.0, 0.0),
+        (12, 3, 2, 1),
+        (None, "2029-03"),
+        (0, 1, 2),
+        (0, 1, 2),
+    ):
+        interest = 38.0 if kind in ("mixed", "cliff", "solo_interest") else 0.0
+        yield _plan(
+            trend_3m=trend, cards=make(), history_months=months, monthly_interest=interest,
+            debt_free_month=dfm, partial_cards=partial, uncovered_cards=uncovered,
+        )
+
+
+def _sentences(text):
+    import re
+
+    return [x for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x]
+
+
+def test_every_string_the_card_can_emit_is_plain_english():
+    seen = set()
+    count = 0
+    for plan in _readability_plans():
+        copy = companion.trajectory_copy(plan, TODAY)
+        lead = copy["brief_lead"] or {}
+        for field, text in (
+            ("headline", copy["headline"]),
+            ("body", copy["body"]),
+            ("companion", lead.get("companion", "")),
+        ):
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            count += 1
+            low = text.lower()
+            for word in BANNED_WORDS:
+                assert word not in low, f"{field}: banned {word!r} in {text!r}"
+            assert "—" not in text and "–" not in text, f"{field}: dash in {text!r}"
+            assert "!" not in text, f"{field}: exclamation mark in {text!r}"
+            for sentence in _sentences(text):
+                assert len(sentence.split()) <= MAX_SENTENCE_WORDS, (
+                    f"{field}: sentence too long ({len(sentence.split())} words): {sentence!r}"
+                )
+    assert count > 30, "the gate should be exercising many distinct strings"
+
+
+def test_the_eyebrow_is_plain_and_single_sourced():
+    assert companion.TRAJECTORY_EYEBROW == "Your cards"
+    source = HOME_BRIEF.read_text(encoding="utf-8")
+    assert 'const TRAJECTORY_EYEBROW = "Your cards";' in source
+    assert "Debt trajectory" not in source
+
+
+def test_the_approved_going_up_wording_is_exact():
+    """Kevin 2026-10-20, G297."""
+    cards = [
+        _card(account_id=f"z{i}", name=f"Card {i}", debt=d, classification="carried_zero")
+        for i, d in enumerate((10000.0, 8000.0, 5580.0))
+    ] + [
+        _card(account_id="u1", name="Small A", debt=7.0, classification="unclear", terms_missing=True),
+        _card(account_id="u2", name="Small B", debt=6.0, classification="unclear", terms_missing=True),
+    ]
+    copy = companion.trajectory_copy(_plan(trend_3m=3992.0, cards=cards), TODAY)
+    assert copy["headline"] == (
+        "You owe more on your cards than 3 months ago. None of it has interest right now."
+    )
+    assert copy["brief_lead"] == {"value": "£3,992", "companion": "more than 3 months ago"}
+    assert copy["body"] == (
+        "You owe £23,593 on 5 cards. £23,580 of it is on 0% deals."
+    )

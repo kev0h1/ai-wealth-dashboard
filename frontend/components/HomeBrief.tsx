@@ -822,6 +822,10 @@ interface CliffCardProps {
 // explicitly refuses to make that claim; CircleDashed reads as unresolved
 // instead. The direction is always spoken in the headline too, so the icon
 // never carries meaning on its own (DESIGN.md).
+// G297: plain-English eyebrow for the debt card. Kept in step with
+// TRAJECTORY_EYEBROW in backend/app/services/companion.py.
+const TRAJECTORY_EYEBROW = "Your cards";
+
 const TRAJECTORY_ICON = {
   rising: TrendingUp,
   falling: TrendingDown,
@@ -834,7 +838,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
   const isRhythm = item.type === "rhythm";
   const trajectoryIcon = (item.trend && TRAJECTORY_ICON[item.trend]) || TrendingDown;
   const Icon = isTrajectory ? trajectoryIcon : isRhythm ? Clock3 : AlertTriangle;
-  const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
+  const label = isTrajectory ? TRAJECTORY_EYEBROW : isRhythm ? "Spending pattern" : "Rate change";
   const tone = item.type === "cliff" ? "watch" : isTrajectory ? (item.tone ?? "watch") : "neutral";
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;

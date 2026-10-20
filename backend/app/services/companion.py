@@ -1797,13 +1797,17 @@ def _home_item_suppressed(kind: str) -> bool:
 # belongs on `ask` items, which render through `PennyKindLabel` with the
 # badge attached.
 
+# G297: the card's eyebrow. The frontend (`CliffCard` in HomeBrief.tsx) keeps
+# its own matching constant, TRAJECTORY_EYEBROW; keep the two in step.
+TRAJECTORY_EYEBROW = "Your cards"
+
 # The window named in the copy, keyed by how many completed months the trend
 # actually spans. "than N ago" is a point-in-time comparison and needs a
 # reading at that point for every card; "over the last N" is a within-window
 # claim that survives a card whose anchor was clamped forward to its own
 # first covered month.
-_TRAJ_AGO_WORDS = {1: "a month ago", 2: "two months ago", 3: "three months ago"}
-_TRAJ_WINDOW_WORDS = {1: "the last month", 2: "the last two months", 3: "the last three months"}
+_TRAJ_AGO_WORDS = {1: "a month ago", 2: "2 months ago", 3: "3 months ago"}
+_TRAJ_WINDOW_WORDS = {1: "the last month", 2: "the last 2 months", 3: "the last 3 months"}
 
 
 def _traj_month(ym_str: str, today: date) -> str:
@@ -1958,156 +1962,135 @@ def trajectory_copy(plan: dict, today: date) -> dict:
 
     cliff = _traj_promo_cliff(material)
 
+    # G297: plain-English wording. Short sentences, everyday words, the
+    # number before the explanation. Facts, thresholds and branch selection
+    # above are untouched; only the strings below changed.
+    window = _TRAJ_WINDOW_WORDS.get(window_months, _TRAJ_WINDOW_WORDS[3])
+    ago = _TRAJ_AGO_WORDS.get(window_months, _TRAJ_AGO_WORDS[3])
     if scoped:
-        subject = "The card with history is" if read_cards == 1 else "The cards with history are"  # read_cards >= 1 here
+        what = "the card we have history for" if read_cards == 1 else "the cards we have history for"
+        when = ""
     else:
-        subject = "Your card is" if n_cards == 1 else "Your cards are"
-    them = "it" if n_cards == 1 else "them"
-    clears = "it clears" if n_cards == 1 else "they clear"
+        what = "your card" if n_cards == 1 else "your cards"
+        when = f" over {window}" if partial else f" than {ago}"
+    be_paid = "it would be" if n_cards == 1 else "they would be"
 
     # ── headline: the verdict, in words, with no money figure in it ───────
     if trend == "unknown":
-        headline = (
-            f"There isn't enough card history yet to say which way"
-            f" {'the card is' if n_cards == 1 else 'the cards are'} going."
-        )
+        headline = "We need more card history to tell if you owe more or less."
     else:
         if trend == "rising":
-            lead_clause = f"{subject} going up, not down"
+            lead_clause = f"You owe more on {what}{when}."
         elif trend == "falling":
-            lead_clause = f"{subject} coming down"
+            lead_clause = f"You owe less on {what}{when}."
         else:
-            lead_clause = f"{subject} holding steady, not coming down"
+            lead_clause = f"You owe about the same on {what}{when.replace(' than ', ' as ')}."
 
         if interest_state == "charging":
             tail = (
-                ", though interest is still being charged."
-                if trend == "falling"
-                else ", and interest is being charged."
+                " Some of it has interest right now."
+                if trend == "rising"
+                else " Some of it still has interest."
             )
         elif interest_state == "unsure":
-            # "part of the balance", never "part of it" — the subject may be
-            # plural, and "it" would have no antecedent.
-            tail = (
-                ", though it isn't clear whether part of the balance is charging interest."
-                if trend == "falling"
-                else ", and it isn't clear whether part of the balance is charging interest."
-            )
-        elif trend == "rising":
-            tail = f", though nothing on {them} is charging interest at the moment."
+            tail = " We can't tell if any of it has interest."
         else:
-            tail = "."
+            tail = " None of it has interest right now."
         headline = lead_clause + tail
 
-    # ── body: what it costs, then context, then the stock, then caveats ───
+    # ── body: what you owe, what it costs, then context, then caveats ─────
     body_parts: list[str] = []
+    if n_cards == 1 and solo_name:
+        body_parts.append(f"You owe {_gbp(carried_total)} on {solo_name}.")
+    else:
+        body_parts.append(
+            f"You owe {_gbp(carried_total)} on {n_cards} card{'s' if n_cards != 1 else ''}."
+        )
+
     if interest_state == "charging":
         if monthly_interest >= 1.0 and carried_interest > 0.0 and carried_zero > 0.0:
             body_parts.append(
-                f"{_gbp(carried_interest)} of the balance is charging interest,"
-                f" about {_gbp(monthly_interest)} a month,"
-                f" and {_gbp(carried_zero)} is on 0% deals."
+                f"{_gbp(carried_interest)} of it has interest, about {_gbp(monthly_interest)} a month."
             )
+            body_parts.append(f"{_gbp(carried_zero)} of it is on 0% deals.")
         elif monthly_interest >= 1.0:
-            body_parts.append(f"Interest is being charged, about {_gbp(monthly_interest)} a month.")
+            body_parts.append(f"The interest is about {_gbp(monthly_interest)} a month.")
         else:
-            body_parts.append(f"Interest is being charged on {_gbp(carried_interest)} of the balance.")
+            body_parts.append(f"{_gbp(carried_interest)} of it has interest.")
     elif interest_state == "unsure":
-        _hedge = (
-            "though that could mean it's cleared each statement,"
-            " or on a deal that isn't on file."
-        )
         if carried_zero > 0.0:
-            body_parts.append(
-                f"{_gbp(carried_zero)} of the balance is on 0% deals."
-                f" No interest has shown up on the other {_gbp(carried_unclear)}, {_hedge}"
-            )
+            body_parts.append(f"{_gbp(carried_zero)} of it is on 0% deals.")
+            body_parts.append(f"We can't see any interest on the other {_gbp(carried_unclear)}.")
         else:
-            body_parts.append(
-                f"No interest has shown up on {_gbp(carried_unclear)} of the balance, {_hedge}"
-            )
-    elif carried_zero >= carried_total - 0.5 and carried_zero > 0.0:
-        body_parts.append("The whole balance is on 0% deals, so no interest is being charged right now.")
-    elif carried_zero > 0.0:
-        # A sub-material remainder the engine could not classify. Stated as
-        # what was observed, never as a conclusion that it is interest-free.
+            body_parts.append(f"We can't see any interest on {_gbp(carried_unclear)} of it.")
         body_parts.append(
-            f"{_gbp(carried_zero)} of the balance is on 0% deals,"
-            f" and no interest charges have shown up on the rest."
+            "You may pay it off each month. Or it may be on a deal we don't know about."
         )
+    elif carried_zero >= carried_total - 0.5 and carried_zero > 0.0:
+        body_parts.append("All of it is on 0% deals.")
+    elif carried_zero > 0.0:
+        # A sub-material remainder the engine could not classify. The
+        # headline already says no interest is showing; the body states
+        # only the 0% figure.
+        body_parts.append(f"{_gbp(carried_zero)} of it is on 0% deals.")
     else:
-        body_parts.append("No interest charges have shown up on it.")
+        body_parts.append("We can't see any interest on it.")
+
+    no_rate_count = sum(1 for c in material if (c.get("flags") or {}).get("terms_missing"))
+    if no_rate_count > 0:
+        body_parts.append(
+            f"We don't know the rate on {no_rate_count} card{'s' if no_rate_count > 1 else ''},"
+            f" so {'their' if no_rate_count > 1 else 'its'} interest isn't included."
+        )
 
     if cliff is not None:
         body_parts.append(
-            f"{_gbp(cliff['balance_at_first_interest'])} will still be on the"
-            f" {humanise_account_name(cliff['name'])} when its 0% ends in"
-            f" {_traj_month(cliff['first_interest_month'], today)}."
-            f" From then it'd cost about {_gbp(cliff['monthly_interest_at_first'])} a month"
-            f" unless it's cleared or moved."
+            f"About {_gbp(cliff['balance_at_first_interest'])} is expected to be left on the"
+            f" {humanise_account_name(cliff['name'])}."
+            f" Its 0% deal ends in {_traj_month(cliff['first_interest_month'], today)}."
+            f" From then, interest would be about {_gbp(cliff['monthly_interest_at_first'])} a month,"
+            f" unless it's paid off or moved."
         )
     elif debt_free_month and trend in ("falling", "flat"):
         # Only where it reinforces the reading. The plan's forward projection
         # runs off demonstrated per-period movement, which can still name a
         # clear-by month while the observed history rises or cannot be read
-        # at all; printing it there would put "they clear in Mar 2029"
-        # directly under "going up, not down".
+        # at all; printing it there would put a pay-off date directly under
+        # "You owe more".
         body_parts.append(
-            f"At your current pace {clears} in {_traj_month(debt_free_month, today)}."
+            f"At this pace, {be_paid} paid off around {_traj_month(debt_free_month, today)}."
         )
-
-    if n_cards == 1 and solo_name:
-        body_parts.append(f"{_gbp(carried_total)} is carried on {solo_name}.")
-    else:
-        body_parts.append(f"{_gbp(carried_total)} is carried across {n_cards} cards in total.")
 
     # ── why a reading is missing or narrowed ──────────────────────────────
     if uncovered > 0:
         # `uncovered` decides WHETHER to caveat (material cards only, so a
         # £20 scrap cannot blank a reading); the count itself spans every
-        # carried card, the same population as `n_cards` and the subject, so
-        # the sentence cannot under-report what is missing.
+        # carried card, the same population as `n_cards`.
         unread = max(uncovered, n_cards - max(0, read_cards))
         body_parts.append(
-            f"{unread} card{'s have' if unread > 1 else ' has'} no transaction history yet,"
-            f" so {'they are' if unread > 1 else 'it is'} not counted."
+            f"{unread} card{'s have' if unread > 1 else ' has'} no history yet,"
+            f" so we left {'them' if unread > 1 else 'it'} out."
         )
     if trend == "unknown" and window_months < 1:
-        body_parts.append(
-            "The direction needs at least one completed month of card history behind it."
-        )
+        body_parts.append("We need at least 1 full month of card history to tell.")
     elif partial > 0:
-        # Deliberately names no window of its own. The lead may say "over the
-        # last month", and "less than three months of history" would leave
-        # the reader with a three-month frame the card never claimed — and
-        # would be false besides, since a card clamped to a one-month window
-        # does have a month of history.
+        # Deliberately names no window of its own (see the lead below).
         body_parts.append(
-            f"{partial} card{'s are' if partial > 1 else ' is'} counted from the start of"
-            f" {'their' if partial > 1 else 'its'} own history, not the full window."
-        )
-
-    no_rate_count = sum(1 for c in material if (c.get("flags") or {}).get("terms_missing"))
-    if no_rate_count > 0:
-        body_parts.append(
-            f"{no_rate_count} card{'s have' if no_rate_count > 1 else ' has'}"
-            f" no rate on file, so interest there isn't counted."
+            f"{partial} card{'s have shorter histories' if partial > 1 else ' has a shorter history'},"
+            f" so we counted {'them' if partial > 1 else 'it'} from"
+            f" {'their' if partial > 1 else 'its'} first month."
         )
 
     # ── lead: the movement itself, with its window named in the companion ──
-    window = _TRAJ_WINDOW_WORDS.get(window_months, _TRAJ_WINDOW_WORDS[3])
-    ago = _TRAJ_AGO_WORDS.get(window_months, _TRAJ_AGO_WORDS[3])
     brief_lead: dict | None
     if trend in ("rising", "falling"):
         _more_less = "more" if trend == "rising" else "less"
         if scoped:
-            # The window is no longer the narrowest thing about this figure;
-            # which cards it covers is.
-            companion = f"{_more_less} owed on the cards with history"
+            companion = f"{_more_less} on the cards we have history for"
         elif partial:
-            companion = f"{_more_less} owed over {window}"
+            companion = f"{_more_less} over {window}"
         else:
-            companion = f"{_more_less} owed than {ago}"
+            companion = f"{_more_less} than {ago}"
         brief_lead = {"value": _gbp(abs(trend_value)), "companion": companion}
     elif trend == "flat":
         brief_lead = {"value": _gbp(abs(trend_value)), "companion": f"change over {window}"}
