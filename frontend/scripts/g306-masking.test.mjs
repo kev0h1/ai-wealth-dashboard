@@ -119,11 +119,11 @@ for (const [file, re] of Object.entries(FIXED)) {
   assert.match(src, re, `${file}: uses ${re}`);
 }
 assert.doesNotMatch(read("../components/SpendVerdictView.tsx"), /\bconst fmt = \(n: number\)/, "SpendVerdictView: module-level fmt is the raw one only");
-for (const page of ["app/components/SpendPage.tsx", "app/components/HomePage.tsx"]) {
-  const src = read(`../${page}`);
-  assert.match(src, /BalancesHiddenContext\.Provider value=\{[^}]*(hideNetWorth \|\| !preferencesReady|balancesHidden)/, `${page}: provides the context`);
-  assert.match(src, /hideNetWorth \|\| !preferencesReady/, `${page}: hidden until preferences resolve`);
-}
+// B56: the context is provided once at app level (components/AppBalancesHidden.tsx,
+// mounted in app/Providers.tsx), no longer per page.
+assert.match(read("../components/AppBalancesHidden.tsx"), /BalancesHiddenContext\.Provider value=\{hidden\}/, "app level: provides the context");
+assert.match(read("../components/AppBalancesHidden.tsx"), /hideNetWorth \|\| !preferencesReady/, "app level: hidden until preferences resolve");
+assert.match(read("../app/Providers.tsx"), /<AppBalancesHidden>/, "app level: mounted in Providers");
 assert.match(read("../app/components/SpendPage.tsx"), /maskMoneyText\(`\$\{value < 0/, "SpendPage: chips and Pay arrived use the masked formatter");
 assert.match(read("../components/HomeEstateSection.tsx"), /hideAmount=\{hideAmount\}/g, "estate rows pass hideAmount");
 

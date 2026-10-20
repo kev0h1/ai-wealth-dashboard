@@ -25,8 +25,8 @@ import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { hasFundedCoverMove, isActionableCompanionItem } from "@/lib/companionItems";
-import MoneyText from "@/components/MoneyText";
-import { maskMoneyText } from "@/lib/balancesHidden";
+import MoneyText, { AmountText } from "@/components/MoneyText";
+import { maskMoneyText, useBalancesHidden } from "@/lib/balancesHidden";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
@@ -187,7 +187,7 @@ function MoveSourcesLedger({
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">{leg.name}</span>
             </span>
             <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
-              {hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`}
+              <AmountText text={hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`} />
             </span>
           </div>
         );
@@ -195,7 +195,7 @@ function MoveSourcesLedger({
       {/* Total row */}
       <div className="flex items-center justify-between gap-2.5 px-3 min-h-[44px]">
         <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Moving <span className="money">{hideNetWorth ? "£••••" : `£${Math.round(total).toLocaleString("en-GB")}`}</span>
+          Moving <span className="money"><AmountText text={hideNetWorth ? "£••••" : `£${Math.round(total).toLocaleString("en-GB")}`} /></span>
         </span>
       </div>
     </div>
@@ -310,7 +310,7 @@ function MoveSourcesDisclosure({
   return (
     <details data-source-disclosure className="group mt-2 rounded-xl border border-slate-100 dark:border-slate-700">
       <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 text-[12px] font-semibold text-slate-700 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden dark:text-slate-200">
-        <span>How <span className="money">{moveMoney(totalAmount, hideNetWorth)}</span> is made up</span>
+        <span>How <span className="money"><AmountText text={moveMoney(totalAmount, hideNetWorth)} /></span> is made up</span>
         <ChevronDown size={15} aria-hidden="true" className="shrink-0 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="divide-y divide-slate-100 border-t border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
@@ -318,7 +318,7 @@ function MoveSourcesDisclosure({
           <div key={`${leg.provider}-${leg.name}-${index}`} className="flex min-h-11 items-center gap-2.5 py-1.5">
             <MoveAccountIcon account={leg} size={32} />
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{leg.name}</span>
-            <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(leg.amount, hideNetWorth)}</span>
+            <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(leg.amount, hideNetWorth)} /></span>
           </div>
         ))}
       </div>
@@ -356,7 +356,7 @@ function MovePaymentEvidence({
           <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{bill.label}</p>
           <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">Payment {billOverdue ? "was due" : "due"} {bill.due ?? due}</p>
         </div>
-        <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(bill.amount, hideNetWorth)}</span>
+        <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(bill.amount, hideNetWorth)} /></span>
         {canSkip(bill) && (
           <button
             type="button"
@@ -382,7 +382,7 @@ function MovePaymentEvidence({
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
-          <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(total, hideNetWorth)}</span>
+          <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(total, hideNetWorth)} /></span>
           <ChevronDown size={15} aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
         </span>
       </summary>
@@ -400,7 +400,7 @@ function MovePaymentEvidence({
                   </span>
                 )}
               </span>
-              <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100">{moveMoney(bill.amount, hideNetWorth)}</span>
+              <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(bill.amount, hideNetWorth)} /></span>
               {canSkip(bill) && (
                 <button
                   type="button"
@@ -913,7 +913,9 @@ interface UnfundedMoveCardProps {
 // when the last move is skipped the whole card quietly resolves
 // (setHidden(true), the same no-animation pattern every sibling card in
 // this file uses for a resolved/dismissed state).
-export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
+export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   // `item.moves` is declared PlanMove[] on CompanionItem (MoveCard's own
   // field) since the two item types can't share a TS-narrowable shape
   // under one flat interface — see the field's doc comment in lib/api.ts.
@@ -1010,7 +1012,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
 
         <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
           <div>
-            <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white">{moveMoney(totalSuggested, hideNetWorth)}</p>
+            <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white"><AmountText text={moveMoney(totalSuggested, hideNetWorth)} /></p>
             <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
           </div>
           <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">{dueCopy}</p>
@@ -1124,7 +1126,7 @@ export function UnfundedMoveCard({ item, hideNetWorth, maskAmounts, previewMode 
                     <p className="text-[12px] text-slate-400 dark:text-slate-500 truncate">{displayAccountName(m.source_name)} · {dateStr}</p>
                   </div>
                   <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
-                    {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
+                    <AmountText text={hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`} />
                   </span>
                   <button
                     type="button"
@@ -1304,7 +1306,9 @@ function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[
   return { clearClause, dueCopy, hasOverdueBills, tilePaymentCopy };
 }
 
-export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss, onRefresh, previewMode = false }: MoveCardProps) {
+export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hideAttribution, dismissible, onHomeDismiss, onRefresh, previewMode = false }: MoveCardProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   const [hidden, setHidden] = useState(false);
   const [skippingKey, setSkippingKey] = useState<string | null>(null);
   const [skipError, setSkipError] = useState(false);
@@ -1392,7 +1396,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
 
         <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
           <div>
-            <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white">{moveMoney(totalAmount, hideNetWorth)}</p>
+            <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white"><AmountText text={moveMoney(totalAmount, hideNetWorth)} /></p>
             <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
           </div>
           <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">{dueCopy}</p>
@@ -1416,7 +1420,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
 
         {destination.is_overdraft && (
           <p className="mt-3 text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-            <span className="money">{moveMoney(Math.abs(destination.balance), hideNetWorth)}</span> overdrawn right now.
+            <span className="money"><AmountText text={moveMoney(Math.abs(destination.balance), hideNetWorth)} /></span> overdrawn right now.
           </p>
         )}
         {(assurance || item.residual || item.income_note || item.overflow_note) && (
@@ -1823,7 +1827,9 @@ function planTargetLabel(iso: string) {
   return new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${iso.slice(0, 10)}T00:00:00Z`));
 }
 
-export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHomeDismiss, onRefresh, services = api, initialSheetOpen = false }: PlanEasingCardProps) {
+export function PlanEasingCard({ item, hideNetWorth: hideNetWorthProp = false, dismissible, onHomeDismiss, onRefresh, services = api, initialSheetOpen = false }: PlanEasingCardProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   const [hidden, setHidden] = useState(false);
   const [open, setOpen] = useState(initialSheetOpen);
   const data = item.plan_easing;
@@ -1854,8 +1860,8 @@ export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHome
     return (
       <div data-plan-easing="deferred" className="relative px-1 pr-12">
         <div className="min-w-0 py-1">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money">{money(eased)}</span> this period.</p>
-          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{detail}</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money"><AmountText text={money(eased)} /></span> this period.</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400"><AmountText text={detail} /></p>
         </div>
         <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
         <DismissChip label={`Dismiss ${name} note`} onClick={handleDismiss} className="absolute top-1 right-0 z-10" />
@@ -1884,7 +1890,7 @@ export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHome
         ) : (
           <>
             <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
-              Easing {name} by up to <span className="money">{money(data.max_easing)}</span> for this pay period could help, and the plan catches up later. You choose whether to keep the date or the usual amount.
+              Easing {name} by up to <span className="money"><AmountText text={money(data.max_easing)} /></span> for this pay period could help, and the plan catches up later. You choose whether to keep the date or the usual amount.
             </p>
             <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
               No other account looks able to spare it. This changes the plan. No money is moved.
@@ -1946,7 +1952,9 @@ export interface AllocationShortfallCardProps {
 
 const SET_ASIDE_ACTION = `${SECONDARY_ACTION} text-center leading-tight`;
 
-export function AllocationShortfallCard({ item, hideNetWorth = false, dismissible, onHomeDismiss, onRefresh, services = api }: AllocationShortfallCardProps) {
+export function AllocationShortfallCard({ item, hideNetWorth: hideNetWorthProp = false, dismissible, onHomeDismiss, onRefresh, services = api }: AllocationShortfallCardProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -2000,19 +2008,19 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
         <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{maskMoneyText(item.headline, hideNetWorth)}</p>
       </div>
       <div className="mt-3">
-        <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white">{money(data.shortfall)}</p>
+        <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white"><AmountText text={money(data.shortfall)} /></p>
         <p className="text-[12px] text-slate-500 dark:text-slate-400">short this period</p>
       </div>
       <div className="mt-2">
         <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-400">
-          {data.other_allocation_count === 0 && <><span className="money">{money(allocation.period_amount)}</span> set aside this period. </>}
+          {data.other_allocation_count === 0 && <><span className="money"><AmountText text={money(allocation.period_amount)} /></span> set aside this period. </>}
           {payer}
         </p>
         <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
           {hasSource ? (
-            <>You could move <span className="money">{money(moveTotal)}</span> from {moveWho}, which {moveNames.length > 1 ? "look" : "looks"} able to spare it.</>
+            <>You could move <span className="money"><AmountText text={money(moveTotal)} /></span> from {moveWho}, which {moveNames.length > 1 ? "look" : "looks"} able to spare it.</>
           ) : (
-            <>No other account can safely spare <span className="money">{money(data.shortfall)}</span> right now.</>
+            <>No other account can safely spare <span className="money"><AmountText text={money(data.shortfall)} /></span> right now.</>
           )}
         </p>
       </div>
@@ -2158,7 +2166,9 @@ export interface BriefBodyProps {
   onCoverMoveVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: hideNetWorthProp = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
@@ -2621,7 +2631,9 @@ export interface PaydayPlanSectionProps {
 // Extracted out of HomeBrief/BriefBody so both Home (gated to a timely
 // window) and the Penny screen (its permanent, ungated home) render the
 // exact same live-card + entry/preview logic — no forked copy to drift.
-export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, onRefresh, gate, hasAccounts }: PaydayPlanSectionProps) {
+export function PaydayPlanSection({ items, safeToSpend, hideNetWorth: hideNetWorthProp = false, onRefresh, gate, hasAccounts }: PaydayPlanSectionProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   const router = useRouter();
 
   // Payday plan preview — fetches /today?payday_preview=1 directly and

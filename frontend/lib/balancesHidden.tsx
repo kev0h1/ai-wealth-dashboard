@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
 // B55: one place for the Hide balances mask on Upcoming. The mask string is
 // the same one Home uses ("£••••"). The context defaults to visible so design
@@ -24,4 +24,13 @@ export function maskMoneyText(text: string, hidden: boolean): string {
 export function useMaskedFormatter<A extends unknown[]>(format: (...args: A) => string): (...args: A) => string {
   const hidden = useBalancesHidden();
   return (...args: A) => maskMoneyText(format(...args), hidden);
+}
+
+/** B56: the masked figure for sighted users; screen readers hear "Amount hidden", never the glyphs. */
+export function MaskedAmount({ text = BALANCE_MASK, className = "money" }: { text?: string; className?: string }): ReactNode {
+  return (
+    <span role="img" aria-label="Amount hidden" className={className}>
+      {text}
+    </span>
+  );
 }

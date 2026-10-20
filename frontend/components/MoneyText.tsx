@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
+import { useBalancesHidden, maskMoneyText, MaskedAmount } from "@/lib/balancesHidden";
 
 /**
  * Money is mono: anything carrying a £ renders in JetBrains Mono with
@@ -14,6 +14,7 @@ import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
  * figure is masked or abbreviated.
  */
 const CURRENCY_TOKEN = /([~−+-]?£(?:[\d,]+(?:\.\d+)?[km]?|•+))/gi;
+const MASK_TOKEN_EXACT = /^[~−+-]?£•+$/;
 const CURRENCY_TOKEN_EXACT = /^[~−+-]?£(?:[\d,]+(?:\.\d+)?[km]?|•+)$/i;
 
 function isCurrencyToken(part: string): boolean {
@@ -42,7 +43,10 @@ export default function MoneyText({
 
   const parts = text.split(CURRENCY_TOKEN);
   const content = parts.map((part, i) =>
-    isCurrencyToken(part) ? (
+    MASK_TOKEN_EXACT.test(part) ? (
+      // B56: a masked figure is announced as "Amount hidden", never the glyphs.
+      <MaskedAmount key={i} text={part} />
+    ) : isCurrencyToken(part) ? (
       <span key={i} className="money">
         {part}
       </span>
@@ -63,4 +67,16 @@ export default function MoneyText({
   // just makes it unconditional so no call site can regress into the flex
   // hazard by omitting className.
   return <span className={className}>{content}</span>;
+}
+
+/**
+ * B56: for text that was plain before (card figures, chart and table captions).
+ * Visible text renders exactly as it did, with no extra markup; under Hide
+ * balances (the context, or an already-masked "£••••" string) the figures
+ * become masked spans that screen readers announce as "Amount hidden".
+ */
+export function AmountText({ text }: { text: string }): ReactNode {
+  const hidden = useBalancesHidden();
+  const shown = maskMoneyText(text, hidden);
+  return /£•/.test(shown) ? <MoneyText text={shown} /> : <>{shown}</>;
 }

@@ -21,7 +21,7 @@ import {
   DEFAULT_PAY_PERIOD_CONFIG,
 } from "@/lib/payPeriod";
 import { usePreferences } from "@/components/PreferencesContext";
-import { BalancesHiddenContext, maskMoneyText } from "@/lib/balancesHidden";
+import { maskMoneyText } from "@/lib/balancesHidden";
 import { insightsForDisplay } from "@/lib/spendTips";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
@@ -1133,7 +1133,6 @@ export default function SpendPage() {
   }
 
   return (
-    <BalancesHiddenContext.Provider value={balancesHidden}>
     <div className="mx-auto min-h-dvh max-w-6xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] pt-5 sm:px-6 lg:px-8 lg:pb-8" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top, 0px))" }}>
       <SpendPeriodBar
         verdict={verdict}
@@ -1435,6 +1434,5 @@ export default function SpendPage() {
         </div>
       )}
     </div>
-    </BalancesHiddenContext.Provider>
   );
 }

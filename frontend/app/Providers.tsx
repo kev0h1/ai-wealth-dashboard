@@ -4,6 +4,7 @@ import { ColourProvider } from "@/components/ColourProvider";
 import { IconProvider } from "@/components/IconProvider";
 import DeepLinkHandler from "@/components/DeepLinkHandler";
 import { AuthProvider } from "@/components/AuthProvider";
+import AppBalancesHidden from "@/components/AppBalancesHidden";
 import { PreferencesProvider } from "@/components/PreferencesContext";
 import { CategoriesProvider } from "@/components/CategoriesContext";
 import { ConfirmSheetHost } from "@/components/ConfirmSheet";
@@ -19,11 +20,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ConfirmSheetHost />
       <AuthProvider>
       <PreferencesProvider>
-        <CategoriesProvider>
-          <ColourProvider>
-            <IconProvider>{children}</IconProvider>
-          </ColourProvider>
-        </CategoriesProvider>
+        <AppBalancesHidden>
+          <CategoriesProvider>
+            <ColourProvider>
+              <IconProvider>{children}</IconProvider>
+            </ColourProvider>
+          </CategoriesProvider>
+        </AppBalancesHidden>
       </PreferencesProvider>
       </AuthProvider>
     </>

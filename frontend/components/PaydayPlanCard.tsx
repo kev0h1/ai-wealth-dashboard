@@ -7,7 +7,8 @@ import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import PennyMark from "@/components/PennyMark";
-import MoneyText from "@/components/MoneyText";
+import MoneyText, { AmountText } from "@/components/MoneyText";
+import { useBalancesHidden } from "@/lib/balancesHidden";
 import ActionLabel from "@/components/ActionLabel";
 import { actionHref } from "@/lib/actionRoutes";
 
@@ -52,7 +53,9 @@ interface PaydayPlanCardProps {
 // same indigo action-button styling. Dismiss mirrors CelebrationCard/CliffCard
 // (self-contained: local `hidden` state + a direct api.dismissTodayItem call —
 // HomeBrief does not thread an onDismiss prop through any companion card).
-export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts, onClose, dismissible = false }: PaydayPlanCardProps) {
+export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWorthProp, maskAmounts, onClose, dismissible = false }: PaydayPlanCardProps) {
+  // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
+  const hideNetWorth = hideNetWorthProp || useBalancesHidden();
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -170,7 +173,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
         <div className="mb-3 flex items-end justify-between gap-3">
           <div data-total-moving={item.total ?? 0}>
             <p className="money text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              {hideNetWorth ? "£••••" : `£${Math.round(item.total ?? 0).toLocaleString("en-GB")}`}
+              <AmountText text={hideNetWorth ? "£••••" : `£${Math.round(item.total ?? 0).toLocaleString("en-GB")}`} />
             </p>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-0.5">
               Total moving to {moveCount} {moveCount === 1 ? "account" : "accounts"}
@@ -178,7 +181,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           </div>
           {item.salary && (
             <p className="pb-1 text-right text-[12px] leading-4 text-slate-500 dark:text-slate-400">
-              <span className="money">{hideNetWorth ? "~£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}</span><br />
+              <span className="money"><AmountText text={hideNetWorth ? "~£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`} /></span><br />
               expected pay
             </p>
           )}
@@ -266,7 +269,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
               </span>
             </span>
             <span className="money flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">
-              {hideNetWorth ? "£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}
+              <AmountText text={hideNetWorth ? "£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`} />
             </span>
           </div>
           <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
@@ -291,7 +294,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
                   return <div key={dest.account_id ?? di} data-destination-row data-destination-move={dest.move} className="flex min-h-12 items-center gap-2.5 py-2">
                     <span className="flex-shrink-0"><BankBadge logoSrc={destChip.logoSrc} initials={destChip.initials} initialsSize={destChip.initialsSize} altText={destChip.label} brandBg={destChip.bg} /></span>
                     <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">{dest.name}</span>{breakdownParts.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400"><MoneyText text={maskAmounts(breakdownParts.join(" · "))} /></span>}{showUsual && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)} /></span>}{dest.commitment_names && dest.commitment_names.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500">{`funds ${dest.commitment_names[0]}${dest.commitment_names.length > 1 ? ` +${dest.commitment_names.length - 1} more` : ""}`}</span>}</span>
-                    <span className="money shrink-0 text-sm font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`}</span>
+                    <span className="money shrink-0 text-sm font-semibold text-slate-900 dark:text-slate-100"><AmountText text={hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`} /></span>
                   </div>;
                 })}
               </div>
@@ -343,7 +346,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
                     </span>
                   </span>
                   <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
-                    {hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`}
+                    <AmountText text={hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`} />
                   </span>
                 </div>
                 {breakdownParts.length > 0 && (

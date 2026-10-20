@@ -128,6 +128,7 @@ import CommitmentSheet from "@/components/CommitmentSheet";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
+import { maskMoneyText, useBalancesHidden } from "@/lib/balancesHidden";
 import PennyReplyText from "@/components/PennyMarkdown";
 import PennyTable from "@/components/PennyTable";
 import PennyChart from "@/components/PennyChart";
@@ -534,7 +535,7 @@ export function ProposalConfirmCard({
               a generic failure message — an expired (15-min TTL) or
               already-actioned proposal has a real, specific reason. */}
           <p className="text-[14px] leading-relaxed text-slate-500 dark:text-slate-400">
-            {msg.errorDetail || "Couldn't do that just now."}
+            {msg.errorDetail ? <MoneyText text={msg.errorDetail} /> : "Couldn't do that just now."}
           </p>
           <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500">Ask me again if you&apos;d still like this done.</p>
         </div>
@@ -859,6 +860,8 @@ export default function PennyConversation({
   chat?: PennyChatSession;
 }) {
   const router = useRouter();
+  // B56: the personalised placeholder (seeded from a £ chip) follows Hide balances; the fixed example stays.
+  const balancesHidden = useBalancesHidden();
   // Only used by config `link` chips below (navigate + close, see
   // lib/pennyScreenConfig.tsx's header comment) — safe to call
   // unconditionally: PennySheetProvider wraps the whole app (app/layout.tsx),
@@ -1804,7 +1807,7 @@ export default function PennyConversation({
   const restingPlaceholder = `Penny is resting until ${formatPennyResetDate(usage.resetsOn)}`;
   const composerContent = <PennyComposer
     inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
-    placeholder={atCap ? restingPlaceholder : placeholder} loading={loading} atCap={atCap}
+    placeholder={atCap ? restingPlaceholder : placeholder === DEFAULT_PLACEHOLDER ? placeholder : maskMoneyText(placeholder, balancesHidden)} loading={loading} atCap={atCap}
     onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
     chatFull={chat?.full ? { notice: PENNY_FULL_NOTICE, actionLabel: PENNY_FULL_ACTION, onAction: chat.newChat } : undefined}
   />;
