@@ -4,7 +4,8 @@ import { useId, useState } from "react";
 import { ChevronDown, CircleAlert, Info } from "lucide-react";
 import TransactionRow from "@/components/TransactionRow";
 import type { SpendVerdict, Transaction } from "@/lib/api";
-import { spendHeroModel, spendHeroMoney } from "@/lib/spendHero";
+import { spendHeroModel, spendHeroMoney as spendHeroMoneyRaw } from "@/lib/spendHero";
+import { useMaskedFormatter } from "@/lib/balancesHidden";
 
 export interface SpendPaceHeroProps {
   verdict: SpendVerdict | null;
@@ -20,10 +21,12 @@ export interface SpendPaceHeroProps {
 export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = false, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap }: SpendPaceHeroProps) {
   const [incomeOpen, setIncomeOpen] = useState(false);
   const incomeId = useId();
+  const spendHeroMoney = useMaskedFormatter(spendHeroMoneyRaw);
   if (!verdict) return null;
   const model = spendHeroModel(verdict);
   const out = spendHeroMoney(verdict.pills.spent);
-  const amountSize = out.length > 15 ? "text-xl" : out.length > 13 ? "text-2xl" : "text-[30px]";
+  const outLength = out.length;
+  const amountSize = outLength > 15 ? "text-xl" : outLength > 13 ? "text-2xl" : "text-[30px]";
   const label = "text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400";
   const action = "min-h-11 max-w-full rounded-md active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
   const flow = `${action} inline-flex items-center gap-1 text-left font-mono text-base font-semibold tabular-nums text-slate-900 hover:text-indigo-700 dark:text-slate-100 dark:hover:text-indigo-300`;

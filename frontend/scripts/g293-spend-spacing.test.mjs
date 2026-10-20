@@ -14,9 +14,11 @@ import { spacingFixture, spacingIncome, STATES } from "./fixtures/g293-spend-spa
 const source = readFileSync(new URL("../app/components/SpendPage.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("SpendPage.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const page = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "SpendPage");
-const root = page.body.statements.filter(ts.isReturnStatement).at(-1).expression.expression;
-assert.ok(ts.isJsxElement(root), "SpendPage returns its real JSX shell");
+const returned = page.body.statements.filter(ts.isReturnStatement).at(-1).expression.expression;
+assert.ok(ts.isJsxElement(returned), "SpendPage returns its real JSX shell");
 const children = node => node.children.filter(n => ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n));
+// G306: the shell is wrapped in BalancesHiddenContext.Provider; the layout under test is its one child.
+const root = returned.openingElement.tagName.getText(ast) === "BalancesHiddenContext.Provider" ? children(returned)[0] : returned;
 const open = node => ts.isJsxElement(node) ? node.openingElement : node;
 const tag = node => open(node).tagName.getText(ast);
 const attr = (node, name) => open(node).attributes.properties.find(n => ts.isJsxAttribute(n) && n.name.text === name)?.initializer;

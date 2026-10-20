@@ -33,6 +33,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info } from 
 import { SheetFrame } from "@/components/SheetFrame";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
+import { useMaskedFormatter } from "@/lib/balancesHidden";
 import type { SpendVerdict, Transaction } from "@/lib/api";
 import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { dateToUTCDay } from "@/lib/payPeriod";
@@ -48,7 +49,7 @@ const zeroSafe = (v: number) => (Math.abs(v) < 1 ? 0 : v);
 // double-sign bug: a negative Out/In/Moved figure must read "−£150", the
 // house currency-minus style used throughout the app, e.g. CanISection.tsx's
 // fmtWhole, AccountsPage.tsx's card-total row).
-const fmt = (n: number) => {
+const fmtRaw = (n: number) => {
   const v = zeroSafe(n);
   const sign = v < 0 ? "−" : "";
   return `${sign}£${Math.abs(Math.round(v)).toLocaleString("en-GB")}`;
@@ -381,6 +382,7 @@ export function SpendJourneySummary(props: SpendHeaderProps) {
     verdict, incomeTxns, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap,
   } = props;
   const [incomeExpanded, setIncomeExpanded] = useState(false);
+  const fmt = useMaskedFormatter(fmtRaw);
 
   if (!verdict) return null;
 

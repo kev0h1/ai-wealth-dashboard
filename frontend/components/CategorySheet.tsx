@@ -14,6 +14,7 @@ import TransactionRow from "@/components/TransactionRow";
 import { SheetFrame } from "@/components/SheetFrame";
 import { fmtWhole, daysLabel } from "@/lib/aimFormat";
 import MoneyText from "@/components/MoneyText";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 
 interface DoorProps {
   category: string;
@@ -235,6 +236,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
 export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door, highlightMerchants }: Props) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
+  const hidden = useBalancesHidden();
   const colour = getCategoryColour(name, colours);
   const [toolOpen, setToolOpen] = useState(false);
 
@@ -291,7 +293,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
             );
           })()}
           <div className="flex-1 min-w-0">
-            <p className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText text={title ?? name} /></p>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText unmasked text={title ?? name} /></p>
             {/* Scope/comparison basis stated up front (Show Your Working) —
                 this sheet is always scoped to the period it was opened from. */}
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -299,7 +301,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
             </p>
           </div>
           <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
-            {sym}{total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {maskMoneyText(`${sym}${total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hidden)}
           </p>
         </div>
 

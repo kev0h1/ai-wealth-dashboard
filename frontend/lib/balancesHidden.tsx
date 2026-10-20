@@ -19,3 +19,9 @@ export function useBalancesHidden(): boolean {
 export function maskMoneyText(text: string, hidden: boolean): string {
   return hidden ? text.replace(/£\d[\d,]*(?:\.\d+)?[km]?/gi, BALANCE_MASK) : text;
 }
+
+/** G306: wrap a module-level money formatter so it honours Hide balances. Call inside a component. */
+export function useMaskedFormatter<A extends unknown[]>(format: (...args: A) => string): (...args: A) => string {
+  const hidden = useBalancesHidden();
+  return (...args: A) => maskMoneyText(format(...args), hidden);
+}

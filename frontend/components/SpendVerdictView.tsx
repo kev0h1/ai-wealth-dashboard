@@ -38,7 +38,8 @@ import type {
   SpendVerdictUnresolved,
   SavingsInsight,
 } from "@/lib/api";
-import { fmtWhole as fmtAimWhole, daysLabel } from "@/lib/aimFormat";
+import { fmtWhole as fmtAimWholeRaw, daysLabel } from "@/lib/aimFormat";
+import { useBalancesHidden, useMaskedFormatter, maskMoneyText } from "@/lib/balancesHidden";
 import { formatDate } from "@/lib/payPeriod";
 import MoneyText from "@/components/MoneyText";
 import { openTipsFor, tipSubline } from "@/lib/spendTips";
@@ -47,7 +48,7 @@ import { AimRing, aimSentence, aimHint } from "@/components/AimProgress";
 import type { AimChange } from "@/lib/signalsCache";
 import MirrorRouteLink from "@/components/MirrorRouteLink";
 
-const fmt = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
+const fmtRaw = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
 const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
   pots: PiggyBank,
@@ -76,12 +77,12 @@ export function paceLine(multiple: number, excess: number, daysElapsed: number):
   const rounded = Math.round(multiple * 10) / 10;
   if (rounded >= 1.9 && rounded <= 2.1) return `about twice your usual pace for ${dayLabel}.`;
   if (rounded > 2.1) return `about ${rounded.toFixed(1)}× your usual pace for ${dayLabel}.`;
-  return `${fmt(excess)} more than usual by ${dayLabel}.`;
+  return `${fmtRaw(excess)} more than usual by ${dayLabel}.`;
 }
 
 function causeLine(cause: SpendVerdictCause[]): string | null {
   if (!cause.length) return null;
-  return `Biggest: ${cause.map((c) => `${c.name} ${fmt(c.amount)}`).join(" · ")}.`;
+  return `Biggest: ${cause.map((c) => `${c.name} ${fmtRaw(c.amount)}`).join(" · ")}.`;
 }
 
 function IconChip({
@@ -140,6 +141,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
   const [saveError, setSaveError] = useState(false);
 
   useEffect(() => { setLocalCheckpoint(checkpoint); }, [checkpoint]);
+  const fmtAimWhole = useMaskedFormatter(fmtAimWholeRaw);
 
   // State A — live checkpoint: progress + cancel (api.cancelCheckpoint).
   if (localCheckpoint) {
@@ -380,6 +382,7 @@ function NotableFigureBadge({
   localResolved: "one_off" | "new_normal" | null;
   lead: boolean;
 }) {
+  const fmt = useMaskedFormatter(fmtRaw);
   const figureSize = lead ? "text-base" : "text-sm";
   return (
     <span className="flex shrink-0 flex-col items-end gap-1">
@@ -703,6 +706,7 @@ function UnresolvedAskCard({
   // paymentsCount === 1, `largest` IS the whole unplaced total, so today's
   // simpler singular copy stays untouched (no "biggest of 1", no redundant
   // "all 1 together" line).
+  const fmt = useMaskedFormatter(fmtRaw);
   const isGroup = paymentsCount > 1;
 
   return (
@@ -789,6 +793,8 @@ export function MajorityRowView({
   onOpen: () => void;
   tips: SavingsInsight[];
 } & MajorityRowAimProps) {
+  const fmt = useMaskedFormatter(fmtRaw);
+  const hidden = useBalancesHidden();
   const s = row.payments_count === 1 ? "" : "s";
   const suffix = tipSubline(tips);
   return (
@@ -805,9 +811,9 @@ export function MajorityRowView({
           {quietTag && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · above usual</span>}
           {suffix && <MoneyText text={` · ${suffix}`} />}
         </p>
-        {aim && <p className="sr-only">{aimSentence(aim, periodDays, sym)}</p>}
+        {aim && <p className="sr-only">{maskMoneyText(aimSentence(aim, periodDays, sym), hidden)}</p>}
         {/* G275 (Kevin 2026-10-15): the visible hint, so the ring never has to be decoded. */}
-        {aim && <p aria-hidden="true" className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">{aimHint(aim, sym)}</p>}
+        {aim && <p aria-hidden="true" className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">{maskMoneyText(aimHint(aim, sym), hidden)}</p>}
       </div>
       {aim && <AimRing aim={aim} periodDays={periodDays} sym={sym} />}
       <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(row.spent)}</span>
@@ -830,6 +836,7 @@ function OtherRowView({ total, paymentsCount, colours, onOpen }: {
   colours: Record<string, string>;
   onOpen: () => void;
 }) {
+  const fmt = useMaskedFormatter(fmtRaw);
   const s = paymentsCount === 1 ? "" : "s";
   return (
     <button
@@ -866,6 +873,7 @@ function MoneyYouMoved({
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(initialOpen ?? false);
+  const fmt = useMaskedFormatter(fmtRaw);
   if (moved.length === 0) return null;
   const total = moved.reduce((sum, m) => sum + m.amount, 0);
   return (
@@ -1137,6 +1145,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
   // flag only covers the gap before a remount would otherwise re-read a
   // stale cached payload — it is never the source of truth.
   const [askDismissed, setAskDismissed] = useState(false);
+  const fmt = useMaskedFormatter(fmtRaw);
   // Seeded from initialMajorityExpanded (restored state) so a returning
   // visit renders already-expanded on the very first paint — never a
   // collapsed flash that then re-opens.

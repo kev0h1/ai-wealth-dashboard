@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import {
   AmberSignifier,
   DropSentence,
@@ -29,6 +30,7 @@ interface UpcomingBillsStripProps {
 
 export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps = {}) {
   const sym = "£";
+  const hidden = useBalancesHidden();
   const router = useRouter();
   const [data, setData] = useState<CashflowData | null>(null);
   const [status, setStatus] = useState<Status>("loading");
@@ -187,10 +189,10 @@ export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps 
             <AmberSignifier show={today.length > 0} />
             <span>
               {bills.length} bill{bills.length === 1 ? "" : "s"} &middot;{" "}
-              <span className="font-mono tabular-nums">{fmtSum(total, sym)}</span> total
+              <span className="font-mono tabular-nums">{maskMoneyText(fmtSum(total, sym), hidden)}</span> total
               {movementTotal > 0 && (
                 <>
-                  {" "}&middot; <span className="font-mono tabular-nums">{fmtSum(movementTotal, sym)}</span> moving between your accounts
+                  {" "}&middot; <span className="font-mono tabular-nums">{maskMoneyText(fmtSum(movementTotal, sym), hidden)}</span> moving between your accounts
                 </>
               )}
             </span>

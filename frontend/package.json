@@ -18,6 +18,7 @@
     "check:g228-plan-deferral": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g228-plan-deferral.test.mjs",
     "check:g217-allocation-card": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g217-allocation-card.test.mjs",
     "check:g292-home-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g292-home-anatomy.test.mjs",
+    "check:g306-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g306-masking.test.mjs",
     "check:b55-upcoming-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b55-upcoming-masking.test.mjs",
     "check:b54-home-move-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b54-home-move-masking.test.mjs",
     "check:g293-spend-spacing": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g293-spend-spacing.test.mjs",
