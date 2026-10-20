@@ -19,9 +19,9 @@ const layout = async label => {
     return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,cards:[...document.querySelectorAll('[data-preview-trait]')].filter(visible).map(root=>{
       const header=root.querySelector(':scope>section>header'),title=header.querySelector('h2');
       const narrative=header.querySelector('h2+p'),facts=header.querySelector(':scope>div:not(:first-child):not([aria-label])');
-      const grid=header.querySelector('[aria-label]'),icon=header.querySelector('span[aria-hidden=true]'),footer=root.querySelector('footer');
+      const grid=header.querySelector('[aria-label]'),icon=root.querySelector('[data-pattern-icon]'),footer=root.querySelector('footer');
       const background=getComputedStyle(root).backgroundColor;
-      return{id:root.dataset.previewTrait,root:box(root),title:box(title),narrative:box(narrative),facts:facts?[...facts.children].map(box):[],grid:box(grid),footer:box(footer),icon:icon?{...box(icon),background:getComputedStyle(icon).backgroundColor,svg:box(icon.querySelector('svg'))}:null,
+      return{id:root.dataset.previewTrait,root:box(root),title:box(title),narrative:box(narrative),facts:facts?[...facts.children].map(box):[],grid:box(grid),footer:box(footer),visibleHeaderIcons:[...header.querySelectorAll('span[aria-hidden=true]')].filter(visible).length,icon:icon?{...box(icon),background:getComputedStyle(icon).backgroundColor,hidden:icon.getAttribute('aria-hidden'),svg:box(icon.querySelector('svg'))}:null,
         contrast:[...root.querySelectorAll('h2,p,button')].filter(visible).filter(e=>!e.disabled).map(e=>{const color=getComputedStyle(e).color;const l1=lum(color),l2=lum(getComputedStyle(e).backgroundColor==='rgba(0, 0, 0, 0)'?background:getComputedStyle(e).backgroundColor);return{text:e.textContent.slice(0,40),ratio:(Math.max(l1,l2)+.05)/(Math.min(l1,l2)+.05)}})};
     }),small:[...document.querySelectorAll('button,input,a')].filter(visible).filter(e=>e.getBoundingClientRect().height<43.5).map(e=>({text:e.textContent,height:e.getBoundingClientRect().height})),explanations:document.querySelectorAll('[data-coaching-explanation]').length,body:document.body.innerText};
   })()`);
@@ -31,7 +31,9 @@ const layout = async label => {
   for(const item of m.cards){
     const edge=item.root.x+17;
     for(const [part,x] of [["title",item.title.x],["narrative",item.narrative.x],["choices",item.grid.x],...item.facts.map((f,i)=>["fact"+i,f.x])])if(Math.abs(x-edge)>1.1)errors.push(item.id+": "+part+" lost the reading edge");
-    if(item.icon&&(item.icon.width!==16||item.icon.background!=="rgba(0, 0, 0, 0)"))errors.push(item.id+": category tile retained");
+    if(!item.icon||item.icon.width!==16||item.icon.svg.width!==16||item.icon.svg.height!==16||item.icon.background!=="rgba(0, 0, 0, 0)"||item.icon.hidden!=="true")errors.push(item.id+": missing or inconsistent pattern icon");
+    if(item.visibleHeaderIcons)errors.push(item.id+": duplicated category icon");
+    if(item.icon&&(Math.abs(item.icon.right-(item.root.right-17))>1.1||Math.abs(item.icon.y-(item.root.y+17))>1.1))errors.push(item.id+": pattern icon lost its shared position");
     if(item.contrast.some(c=>c.ratio<4.5))errors.push(item.id+": text contrast");
   }
   if(m.body.includes("Choose what feels right for this trait."))errors.push("repeated idle help is visible");
