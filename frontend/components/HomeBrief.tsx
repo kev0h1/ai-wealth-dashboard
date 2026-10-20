@@ -1445,7 +1445,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
-            <MoneyText text={item.headline} />
+            <MoneyText text={maskAmounts(item.headline)} />
           </p>
         </div>
       </div>
@@ -1552,7 +1552,7 @@ export function MoveCard({ item, hideNetWorth, maskAmounts, hideAttribution, dis
         <>
           {/* Body */}
           <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
-            <MoneyText text={item.body ?? ""} />
+            <MoneyText text={maskAmounts(item.body ?? "")} />
           </p>
         </>
       )}
