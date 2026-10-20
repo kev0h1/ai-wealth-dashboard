@@ -811,7 +811,11 @@ def _patch_plan(monkeypatch, positions, *, items=None, bills=None, pref_on=True,
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+    async def fake_tokens(uid):
+        return ["kevin", "mbithi", "maingi"]
+
     monkeypatch.setattr(notifications, "_plan_shortfall_label", fake_label)
+    monkeypatch.setattr(notifications, "_user_name_tokens", fake_tokens)
     monkeypatch.setattr(notifications.timeutil, "user_today", lambda: _date(2026, 10, 20))
     return state, sent
 
@@ -937,3 +941,30 @@ def test_money_movement_computes_today_items_once(monkeypatch):
     asyncio.run(notifications._maybe_money_movement("kevin"))
     assert len(calls) == 1
     assert [s["title"] for s in sent] == ["Short for plans"]
+
+
+_TOK = ["kevin", "mbithi", "maingi"]
+
+
+def test_plan_shortfall_body_holder_named_with_bank():
+    body = notifications._plan_shortfall_body("Kevin Mbithi Maingi", "HSBC", 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("Your HSBC account looks about £86 short")
+
+
+def test_plan_shortfall_body_holder_named_unknown_bank():
+    body = notifications._plan_shortfall_body("Mr K Maingi", None, 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("One of your accounts looks about £86 short")
+
+
+def test_plan_shortfall_body_name_containing_bank_is_not_doubled():
+    body = notifications._plan_shortfall_body("NatWest Reward", "NatWest", 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("NatWest Reward looks about £86 short")
+    assert "at NatWest" not in body
+
+
+def test_plan_shortfall_body_normal_name_unchanged():
+    body = notifications._plan_shortfall_body("The Number One", "NatWest", 86.0, _date(2026, 10, 31), _TOK)
+    assert body == (
+        "The Number One at NatWest looks about £86 short of what its plans need "
+        "after its payments through Sat 31 Oct. Review it on Upcoming."
+    )

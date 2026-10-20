@@ -390,10 +390,33 @@ async def _plan_shortfall_label(account_id: str) -> tuple[str | None, str | None
     return None, None
 
 
-def _plan_shortfall_body(name: str | None, bank: str | None, gap: float, period_end: _date) -> str:
+async def _user_name_tokens(user_id: str) -> list[str]:
+    """The user's own saved name words (G212 holder-name rule); [] when unreadable."""
+    try:
+        from app.db.collections import user_profiles_col
+
+        prof = await user_profiles_col.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
+        return list(prof.get("name_tokens") or [])
+    except Exception:
+        log.warning("plan shortfall name tokens lookup failed for %s", user_id)
+        return []
+
+
+def _plan_shortfall_body(
+    name: str | None, bank: str | None, gap: float, period_end: _date,
+    user_tokens: list[str] | None = None,
+) -> str:
+    from app.services.companion import _is_holder_named
+
     who = "One of your accounts"
-    if name:
-        who = f"{name} at {bank}" if bank else name
+    if name and _is_holder_named(name, user_tokens):
+        # G212: an account named after its holder is never spoken as a person.
+        who = f"Your {bank} account" if bank else "One of your accounts"
+    elif name:
+        if not bank or bank.lower() in name.lower():
+            who = name
+        else:
+            who = f"{name} at {bank}"
     through = f"{period_end:%a} {period_end.day} {period_end:%b}"
     return (
         f"{who} looks about £{int(round(gap)):,} short of what "
@@ -478,6 +501,7 @@ async def _maybe_plan_shortfall(
 
     out: list[dict] = []
     newly: list[str] = []
+    user_tokens = await _user_name_tokens(user_id)
     for sid, gap in gaps.items():
         if sid in already:
             continue
@@ -486,7 +510,7 @@ async def _maybe_plan_shortfall(
         except Exception:
             log.warning("plan shortfall label failed for %s", sid, exc_info=True)
             name, bank = None, None
-        out.append({"account_id": sid, "gap": gap, "body": _plan_shortfall_body(name, bank, gap, end)})
+        out.append({"account_id": sid, "gap": gap, "body": _plan_shortfall_body(name, bank, gap, end, user_tokens)})
         newly.append(sid)
     if not newly:
         return []
