@@ -50,9 +50,7 @@ for (const [Component, item] of cases) {
       if (item.plan_dest || Component === UnfundedMoveCard) assert.match(html, /Barclays/, "existing bank identity retained");
       if (Component === UnfundedMoveCard) assert.match(html, /text-amber-500 dark:text-amber-400/, "watch cue survives removal of tile");
     }
-    // B54 tracks the pre-existing legacy fallback headline/body masking gap.
-    // Pass real raw props here rather than disguising it with pre-masked data.
-    if (hidden && item !== fallbackMove) assert.doesNotMatch(html, /£[\d,]+/, "no visible or accessible unmasked money in the supported branches");
+    if (hidden) assert.doesNotMatch(html, /£[\d,]+/, "no visible or accessible unmasked money in any branch");
     renders++;
   }
 }
@@ -71,4 +69,4 @@ for (const [start, end] of [
 ]) assert.doesNotMatch(source.slice(source.indexOf(start), source.indexOf(end)), /<BriefIcon/, "both move branches and Covered must stay tile-free");
 const tipSkeleton = render(h(HomeInsightSpotlight));
 assert.match(tipSkeleton, /^<div class="px-4 lg:px-0"><div class="h-32 /, "loading tip supplies the same mobile page gutter as the loaded card");
-console.log(`PASS G292 A: ${renders} production card states, both move branches, supported masking (legacy gap tracked B54), semantic marks, actions, financial fixtures and tip alignment.`);
+console.log(`PASS G292 A: ${renders} production card states, both move branches, masking, semantic marks, actions, financial fixtures and tip alignment.`);
