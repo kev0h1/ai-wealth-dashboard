@@ -214,7 +214,9 @@ async def _maybe_new_insights(user_id: str) -> None:
     )
 
 
-async def _maybe_move_recommendation(user_id: str) -> tuple[set[str], list[dict]]:
+async def _maybe_move_recommendation(
+    user_id: str, positions_out: dict | None = None,
+) -> tuple[set[str], list[dict]]:
     """Detect (never send) Penny's "Move £X to <account>" cover-plan card.
 
     Hooked into `_maybe_money_movement` alongside `_maybe_bill_shortfall` —
@@ -254,7 +256,7 @@ async def _maybe_move_recommendation(user_id: str) -> tuple[set[str], list[dict]
     from app.services.companion import compute_today_items
 
     try:
-        items = await compute_today_items(user_id)
+        items = await compute_today_items(user_id, account_eligibility_out=positions_out)
     except Exception as e:
         log.warning("move recommendation compute failed for %s: %s", user_id, e)
         return set(), []
@@ -400,7 +402,9 @@ def _plan_shortfall_body(name: str | None, bank: str | None, gap: float, period_
     )
 
 
-async def _maybe_plan_shortfall(user_id: str, excluded_accts: set[str] | None = None) -> list[dict]:
+async def _maybe_plan_shortfall(
+    user_id: str, excluded_accts: set[str] | None = None, positions: dict | None = None,
+) -> list[dict]:
     """G305: detect (never send) an account whose plans need more than it will
     hold after its payments, the "Short for plans" row on Upcoming.
 
@@ -428,14 +432,18 @@ async def _maybe_plan_shortfall(user_id: str, excluded_accts: set[str] | None = 
     except Exception:
         log.warning("first_sync_state failed in plan shortfall for %s", user_id)
 
-    from app.services.companion import compute_today_items
+    # `positions` is filled by the move check's compute_today_items call in the
+    # same run; only compute again when it is empty (the move check returned
+    # early or failed).
+    if not positions:
+        from app.services.companion import compute_today_items
 
-    positions: dict = {}
-    try:
-        await compute_today_items(user_id, persist=False, account_eligibility_out=positions)
-    except Exception as e:
-        log.warning("plan shortfall position compute failed for %s: %s", user_id, e)
-        return []
+        positions = {}
+        try:
+            await compute_today_items(user_id, persist=False, account_eligibility_out=positions)
+        except Exception as e:
+            log.warning("plan shortfall position compute failed for %s: %s", user_id, e, exc_info=True)
+            return []
 
     excluded = excluded_accts or set()
     gaps: dict[str, float] = {}
@@ -517,10 +525,11 @@ async def _maybe_money_movement(user_id: str) -> None:
     All pushes land on "/" (home), where both the payday plan and the move
     recommendation cards live.
     """
+    positions: dict = {}
     dest_accts: set[str] = set()
     new_moves: list[dict] = []
     try:
-        dest_accts, new_moves = await _maybe_move_recommendation(user_id)
+        dest_accts, new_moves = await _maybe_move_recommendation(user_id, positions)
     except Exception as e:
         log.warning("money_movement move_recommendation failed for %s: %s", user_id, e)
 
@@ -536,7 +545,7 @@ async def _maybe_money_movement(user_id: str) -> None:
     new_plans: list[dict] = []
     try:
         spoken_for = set(dest_accts) | {str(b.get("account_id") or "") for b in new_bills}
-        new_plans = await _maybe_plan_shortfall(user_id, spoken_for)
+        new_plans = await _maybe_plan_shortfall(user_id, spoken_for, positions)
     except Exception as e:
         log.warning("money_movement plan_shortfall failed for %s: %s", user_id, e)
 
