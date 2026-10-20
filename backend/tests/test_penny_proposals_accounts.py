@@ -32,8 +32,18 @@ import app.routers.can_i as can_i_module
 import app.services.penny_tools as penny_tools_module
 from app.core.models import Account
 from app.services.penny_tools import execute_tool
+from tests.penny_proposal_fakes import FakeCollection as _FakeCol
 
 UID = "kevin"
+
+
+@pytest.fixture(autouse=True)
+def _default_tool_preferences(monkeypatch):
+    monkeypatch.setattr(
+        penny_tools_module,
+        "preferences_col",
+        _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}]),
+    )
 
 
 def _acc(id_, name, balance=100.0, provider="Test Bank", type_="transaction", manual=False, connection_id=None):
@@ -41,58 +51,6 @@ def _acc(id_, name, balance=100.0, provider="Test Bank", type_="transaction", ma
         id=id_, name=name, type=type_, balance=balance, provider=provider,
         manual=manual, connection_id=connection_id,
     )
-
-
-class _FakeCursor:
-    def __init__(self, docs):
-        self._docs = list(docs)
-
-    async def to_list(self, n=None):
-        return list(self._docs)
-
-
-class _FakeCol:
-    """Twin of test_penny_proposals_twins.py's own _FakeCol, extended with
-    `.find()` (returning a `_FakeCursor`) and `.count_documents()` — this
-    file's resolvers (`_resolve_offline_account_for_propose`,
-    `_resolve_account_rule_for_propose`, `_resolve_bank_connection_for_
-    propose`) read Mongo collections directly rather than through a router
-    list function, unlike every resolver a prior B14/B15 test file needed."""
-
-    def __init__(self, docs=None):
-        self.docs = list(docs or [])
-
-    @staticmethod
-    def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
-
-    async def find_one(self, query=None, projection=None):
-        query = query or {}
-        for d in self.docs:
-            if self._match(d, query):
-                return d
-        return None
-
-    def find(self, query=None, projection=None):
-        query = query or {}
-        return _FakeCursor([d for d in self.docs if self._match(d, query)])
-
-    async def count_documents(self, query=None):
-        query = query or {}
-        return sum(1 for d in self.docs if self._match(d, query))
-
-    async def insert_one(self, doc):
-        self.docs.append(doc)
-
-    async def update_one(self, filt, update, upsert=False):
-        for d in self.docs:
-            if self._match(d, filt):
-                d.update(update.get("$set") or {})
-                return
-        if upsert:
-            new_doc = dict(filt)
-            new_doc.update(update.get("$set") or {})
-            self.docs.append(new_doc)
 
 
 def _live_doc(kind, params, **overrides):

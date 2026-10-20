@@ -26,9 +26,11 @@ FCA doctrine, unchanged throughout: facts only, never "you should".
 import logging
 import re
 import statistics
+import uuid
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo import ReturnDocument
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
@@ -41,6 +43,7 @@ from app.services.affordability import _nothing_spare_line
 from app.services.categories import get_category_kinds, is_discretionary
 from app.services.penny_agent import run_penny_agent
 from app.services.penny_tools import revoke_agent_consent
+from app.services.penny_execution import consent_generation_query
 
 # Same convention as app.routers.analytics (this module's own neighbour,
 # already imported above): module-level stdlib logger, `.exception()` inside
@@ -1388,76 +1391,116 @@ async def revoke_agent_consent_route(user: dict = Depends(current_user)):
     is the ONE place the actual revoke happens (also called from
     app.services.penny_agent's deterministic "stop setting things up"
     phrase match in chat), so this route and that phrase always do
-    identically the same thing — clear the flag AND cancel every pending
-    proposal, see that function's own docstring for why the cancel is part
-    of the same operation, not an optional extra.
+    identically the same thing: clear the flag and advance its generation,
+    then cancel unclaimed proposals from earlier generations.
 
-    Takes effect immediately and in two places: `app.services.penny_agent`
-    reads the flag live on every call (no caching), so the very next
-    question excludes the propose-tool schemas again exactly as a
-    never-consented user's would; and `execute_proposal` below re-checks
-    consent at EXECUTE time, not just at proposal-creation time, so a
-    proposal built while consented but still sitting unactioned in the
-    15-minute window cannot be executed after this fires (belt-and-braces
-    with the explicit cancel above, which already stops it being confirmed
-    at all)."""
+    The agent reads the flag live on every call, so the next question
+    excludes propose-tool schemas. Execution's authorisation CAS uses this
+    same preferences document: revoke-first prevents dispatch, while an
+    action already authorised before revocation may finish. Claimed attempts
+    are never reported as cancelled by the bulk cleanup."""
     uid = user["email"]
     return await revoke_agent_consent(uid)
 
 
-@router.post("/penny/proposals/{proposal_id}/execute")
-async def execute_proposal(proposal_id: str, user: dict = Depends(current_user)):
-    """Replays a stored proposal through the same router function the app's
-    own confirm sheet calls for that action. IDEMPOTENT: a proposal already
-    executed replays its stored `result` rather than dispatching a second
-    time (`doc.get("executed_at")` below) — safe to retry on a flaky
-    connection, never double-creates. 410 (not 404) on an expired or
-    cancelled proposal — the id was real, it just isn't actionable any
-    more."""
-    uid = user["email"]
-    doc = await penny_proposals_col.find_one({"_id": proposal_id, "user_id": uid})
+def _proposal_execution_outcome(doc: dict | None) -> dict | None:
+    """Check both the initial snapshot and the fresh snapshot after a lost CAS."""
     if not doc:
         raise HTTPException(404, "proposal not found")
     if doc.get("cancelled_at"):
         raise HTTPException(410, "proposal was cancelled")
     if doc.get("executed_at"):
         return {"executed": True, "kind": doc["kind"], "result": doc.get("result"), "replayed": True}
-    expires_at = doc.get("expires_at")
-    if expires_at and datetime.now() > expires_at:
+    if doc.get("execution_claim"):
+        # No automatic takeover: an executor may have written before an error,
+        # cancellation, process death or a failed result-persistence operation.
+        raise HTTPException(409, "This proposal has already been submitted. Check the app for its result.")
+    if doc.get("expires_at") and datetime.now() > doc["expires_at"]:  # naive-ok: existing naive proposal TTL
         raise HTTPException(410, "proposal expired")
+    return None
 
-    # Consent re-check AT EXECUTE TIME, not just at proposal-creation time
-    # (owner follow-up, 2026-08-30): the loop already refuses to BUILD a
-    # proposal without consent, but a proposal built while consented can
-    # still be sitting unexecuted in its 15-minute window when the user
-    # revokes consent (DELETE /penny/agent-consent) — this must never let a
-    # stale proposal execute after that. Only gates a genuinely FIRST
-    # execution; the idempotent-replay branch above (already executed)
-    # intentionally returns before reaching here, since replaying history is
-    # never itself a new write.
-    prefs = await preferences_col.find_one({"user_id": uid}, {"penny_agent_consent": 1})
+
+@router.post("/penny/proposals/{proposal_id}/execute")
+async def execute_proposal(proposal_id: str, user: dict = Depends(current_user)):
+    """Reserve once, then atomically order dispatch against consent revocation.
+
+    The proposal CAS reserves execution against duplicate confirms and Cancel.
+    The preferences CAS below is the execution/revocation ordering point: if
+    revocation wins, there is no dispatch; if authorisation wins, the reserved
+    action may finish after revocation. Completed requests replay their result.
+    An uncertain attempt stays claimed, never automatically dispatched again.
+    """
+    uid = user["email"]
+    identity = {"_id": proposal_id, "user_id": uid}
+    doc = await penny_proposals_col.find_one(identity)
+    replay = _proposal_execution_outcome(doc)
+    if replay is not None:
+        return replay
+
+    prefs = await preferences_col.find_one(
+        {"user_id": uid}, {"penny_agent_consent": 1, "penny_consent_generation": 1},
+    )
     if not (prefs and prefs.get("penny_agent_consent")):
         raise HTTPException(
             403, "Penny's permission to act on your behalf was revoked, this proposal can no longer be executed",
         )
-
+    generation = doc.get("penny_consent_generation", 0)
+    if generation != prefs.get("penny_consent_generation", 0):
+        raise HTTPException(410, "Penny's permission changed. Ask for a new proposal.")
     executor = _PROPOSAL_EXECUTORS.get(doc["kind"])
     if executor is None:
         raise HTTPException(500, f"no executor for proposal kind '{doc['kind']}'")
+
+    claim = str(uuid.uuid4())
+    pending = {**identity, "executed_at": None, "cancelled_at": None, "execution_claim": None}
+    if doc.get("expires_at"):
+        pending["expires_at"] = {"$gte": datetime.now()}  # naive-ok: existing naive proposal TTL
+    doc = await penny_proposals_col.find_one_and_update(
+        pending, {"$set": {"execution_claim": claim, "execution_claimed_at": datetime.now()}},  # naive-ok: claim audit timestamp
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        replay = _proposal_execution_outcome(await penny_proposals_col.find_one(identity))
+        if replay is not None:
+            return replay
+        raise HTTPException(409, "This proposal changed. Check the app before confirming again.")
+
+    # A write, not a read: this CAS and revoke's generation increment operate
+    # on the SAME uniquely user_id-indexed preferences document. Regrant never
+    # resets the generation, so an old proposal cannot revive after revoke.
+    authorised = await preferences_col.find_one_and_update(
+        {"user_id": uid, "penny_agent_consent": prefs["penny_agent_consent"],
+         **consent_generation_query(generation)},
+        {"$inc": {"penny_execution_sequence": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if authorised is None:
+        await penny_proposals_col.update_one(
+            {**identity, "execution_claim": claim, "executed_at": None},
+            {"$set": {"cancelled_at": datetime.now()}},  # naive-ok: proposal cancellation audit timestamp
+        )
+        raise HTTPException(403, "Penny's permission changed. Ask for a new proposal.")
+
     try:
         result = await executor(uid, doc.get("params") or {})
     except HTTPException:
+        # Even an HTTP error can follow a partial write. Keep the claim.
         raise
     except Exception:
         logger.exception(
-            "can_i: proposal execute failed for %s kind=%s id=%s", uid, doc["kind"], proposal_id,
+            "can_i: proposal execute outcome uncertain for %s kind=%s id=%s", uid, doc["kind"], proposal_id,
         )
-        raise HTTPException(500, "That did not go through, you can try again")
+        raise HTTPException(500, "The result could not be confirmed. Check the app before making another change.")
 
     now = datetime.now()
-    await penny_proposals_col.update_one(
-        {"_id": proposal_id}, {"$set": {"executed_at": now, "result": result}},
+    completed = await penny_proposals_col.find_one_and_update(
+        {**identity, "execution_claim": claim, "executed_at": None, "cancelled_at": None},
+        {"$set": {"executed_at": now, "result": result}},
+        return_document=ReturnDocument.AFTER,
     )
+    if completed is None:
+        # TTL expiry/account deletion must never recreate a removed proposal.
+        raise HTTPException(409, "The result could not be confirmed. Check the app for its result.")
     # Audit trail (owner requirement): {uid, proposal_id, kind, executed_at,
     # source: "penny"} as one greppable log line — same convention every
     # other module-level logger in this codebase already uses for
@@ -1492,16 +1535,21 @@ async def cancel_proposal(proposal_id: str, user: dict = Depends(current_user)):
     """Marks a proposal cancelled (the confirm card's Cancel tap). Blocks a
     later execute (410 — see execute_proposal above); cancelling an
     already-executed proposal is itself a 410, there is nothing left to
-    cancel. Cancelling an already-cancelled proposal is a no-op success."""
+    cancel. Cancelling an already-cancelled proposal is a no-op success.
+    A reserved execution returns 409, since it is already too late to cancel."""
     uid = user["email"]
-    doc = await penny_proposals_col.find_one({"_id": proposal_id, "user_id": uid})
-    if not doc:
-        raise HTTPException(404, "proposal not found")
-    if doc.get("executed_at"):
-        raise HTTPException(410, "proposal already executed")
-    if doc.get("cancelled_at"):
-        return {"cancelled": True, "proposal_id": proposal_id}
-    await penny_proposals_col.update_one(
-        {"_id": proposal_id}, {"$set": {"cancelled_at": datetime.now()}},
+    identity = {"_id": proposal_id, "user_id": uid}
+    cancelled = await penny_proposals_col.find_one_and_update(
+        {**identity, "executed_at": None, "cancelled_at": None, "execution_claim": None},
+        {"$set": {"cancelled_at": datetime.now()}},  # naive-ok: proposal cancellation audit timestamp
+        return_document=ReturnDocument.AFTER,
     )
+    if cancelled is None:
+        doc = await penny_proposals_col.find_one(identity)
+        if not doc:
+            raise HTTPException(404, "proposal not found")
+        if doc.get("executed_at"):
+            raise HTTPException(410, "proposal already executed")
+        if not doc.get("cancelled_at"):
+            raise HTTPException(409, "This proposal has already been submitted. Check the app for its result.")
     return {"cancelled": True, "proposal_id": proposal_id}

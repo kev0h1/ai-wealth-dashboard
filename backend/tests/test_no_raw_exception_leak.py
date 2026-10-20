@@ -110,23 +110,23 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 5124),
-    ("app/services/penny_tools.py", 5289),  # ValueError from compute_intent_preview, see above
-    # G296 adds two lines inside revoke_agent_consent above these same
-    # authored HTTPException forwards; no handlers or exceptions changed.
-    ("app/services/penny_tools.py", 5800),
-    ("app/services/penny_tools.py", 5820),
-    ("app/services/penny_tools.py", 5856),
-    ("app/services/penny_tools.py", 5879),
-    ("app/services/penny_tools.py", 6021),
-    ("app/services/penny_tools.py", 6026),
-    ("app/services/penny_tools.py", 6031),
-    ("app/services/penny_tools.py", 6129),
-    ("app/services/penny_tools.py", 6134),
-    ("app/services/penny_tools.py", 6139),
-    ("app/services/penny_tools.py", 7080),
-    ("app/services/penny_tools.py", 7735),
-    ("app/services/penny_tools.py", 7749),
+    ("app/services/penny_tools.py", 5125),
+    ("app/services/penny_tools.py", 5290),  # ValueError from compute_intent_preview, see above
+    # G296 and A170 shift these same authored HTTPException forwards;
+    # no handlers or exceptions changed. Entries map to identical source lines.
+    ("app/services/penny_tools.py", 5811),
+    ("app/services/penny_tools.py", 5831),
+    ("app/services/penny_tools.py", 5867),
+    ("app/services/penny_tools.py", 5890),
+    ("app/services/penny_tools.py", 6032),
+    ("app/services/penny_tools.py", 6037),
+    ("app/services/penny_tools.py", 6042),
+    ("app/services/penny_tools.py", 6140),
+    ("app/services/penny_tools.py", 6145),
+    ("app/services/penny_tools.py", 6150),
+    ("app/services/penny_tools.py", 7091),
+    ("app/services/penny_tools.py", 7746),
+    ("app/services/penny_tools.py", 7760),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry

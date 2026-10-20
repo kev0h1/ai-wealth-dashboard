@@ -73,6 +73,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.build import engine_build
@@ -5326,8 +5327,12 @@ async def _create_proposal(
     2026-09-08 — PennyConversation.tsx's proposal card has none), it's
     carried on the stored doc and returned dict so one can be added without
     a second migration of every past proposal shape."""
+    # Bind even a delayed insert to its original consent epoch. Revoke's
+    # cleanup can miss an insert in flight, but execute's generation CAS cannot.
+    prefs = await preferences_col.find_one({"user_id": uid}, {"penny_consent_generation": 1}) or {}
     now = datetime.now()
     doc = {
+        "penny_consent_generation": prefs.get("penny_consent_generation", 0),
         "_id": str(uuid.uuid4()),
         "user_id": uid,
         "kind": kind,
@@ -5367,10 +5372,11 @@ async def revoke_agent_consent(uid: str) -> dict:
     Two effects, in the same call: (1) clears `penny_agent_consent` back to
     falsy, exactly as before — app.services.penny_agent reads this live on
     every call, so the very next question excludes the propose-tool
-    schemas again; execute_proposal also re-checks consent at EXECUTE time,
-    so nothing already-built can slip through after this fires. (2) cancels
-    every one of the user's still-pending proposals (never executed, never
-    already cancelled) in the same stroke — a proposal sitting unactioned
+    schemas again. The generation increment and execute_proposal's
+    authorisation CAS share this same preferences document: revoke-first
+    prevents dispatch, while an execution authorised first may finish.
+    (2) cancels unclaimed proposals from earlier generations (never executed,
+    never already cancelled) — a proposal sitting unactioned
     in its 15-minute window represents an action the user is no longer
     trusting Penny to take, revoking consent should mean exactly that,
     not "revoke consent AND separately still let this one specific
@@ -5382,13 +5388,18 @@ async def revoke_agent_consent(uid: str) -> dict:
     Idempotent — revoking when already not consented, with nothing
     pending, just confirms the off state: `proposals_cancelled` is 0."""
     now = datetime.now()
-    await preferences_col.update_one(
+    prefs = await preferences_col.find_one_and_update(
         {"user_id": uid},
-        {"$set": {"penny_agent_consent": None, "user_id": uid}, "$inc": {"version": 1}},
-        upsert=True,
+        {"$set": {"penny_agent_consent": None, "user_id": uid},
+         "$inc": {"version": 1, "penny_consent_generation": 1}},
+        upsert=True, return_document=ReturnDocument.AFTER,
     )
     result = await penny_proposals_col.update_many(
-        {"user_id": uid, "executed_at": None, "cancelled_at": None},
+        {"user_id": uid, "executed_at": None, "cancelled_at": None, "execution_claim": None,
+         "$or": [
+             {"penny_consent_generation": {"$lt": prefs["penny_consent_generation"]}},
+             {"penny_consent_generation": {"$exists": False}},
+         ]},
         {"$set": {"cancelled_at": now}},
     )
     cancelled = getattr(result, "modified_count", 0) or 0
