@@ -775,6 +775,7 @@ export default function PlanningPage() {
         // shared with Home's "Plans reserved" (commitments_reserved), so the
         // two surfaces agree. The per-account view keeps its own plan lines.
         const plansReservedTotal = cashflow.plans_reserved ?? 0;
+        const allocationsRemainingCount = (cashflow.allocations ?? []).filter(a => a.active && a.remaining > 0).length;
         const plansUnavailable = cashflow.plans_available === false;
         const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal;
         const runwayNegative = runway < 0;
@@ -1011,6 +1012,8 @@ export default function PlanningPage() {
                 runwayBillsTotal={runwayBillsTotal}
                 allocationsRemainingTotal={allocationsRemainingTotal}
                 plansReservedTotal={plansReservedTotal}
+                allocationsCount={allocationsRemainingCount}
+                plansCount={cashflow.plans_count}
                 plansUnavailable={plansUnavailable}
                 savingsNow={savingsNow}
                 runway={runway}
