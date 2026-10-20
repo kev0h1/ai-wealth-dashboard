@@ -56,6 +56,7 @@
     "check:g176-account-status": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-status.test.mjs",
     "check:g176-attention": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-attention.test.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
+    "check:build-mobile-mirror": "bash scripts/build-mobile-mirror.test.sh",
     "check:legal-content": "node scripts/legal-content.test.mjs",
     "check:legal-pdfs-fresh": "node scripts/check-legal-pdfs-fresh.mjs",
     "check:g140-pace-copy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g140-pace-copy.test.mjs",
