@@ -22,7 +22,8 @@ const render = (props) =>
       React.createElement(SafeToSpendCard, { loading: false, onRetry: noop, previewBalancesVisible: true, data: FIGURE_DATA["on-track"], spendFrom: SPEND_FROM_RAIL, ...props }),
     ),
   );
-const hrefs = (html) => [...html.matchAll(/<a [^>]*href="([^"]+)"/g)].map((m) => m[1]);
+// G304: the ledger explainer carries its own edit links (inside the closed Full calculation); this gate is about the action row.
+const hrefs = (html) => [...html.replace(/<div data-g304-ledger-explainer[\s\S]*?<\/div>/g, "").matchAll(/<a [^>]*href="([^"]+)"/g)].map((m) => m[1]);
 const count = (html, needle) => html.split(needle).length - 1;
 const text = (html) => html.replace(/<[^>]+>/g, " ");
 

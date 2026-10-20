@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import PooledLedgerExplainer, { POOLED_PROJECTION_SENTENCE } from "@/components/PooledLedgerExplainer";
 
 // Shared production/preview runway. G176 keeps the existing headline,
 // calculation and payments caveat, with account-specific evidence now in
@@ -15,6 +16,9 @@ export interface UpcomingHeroCardProps {
   allocationsRemainingTotal: number;
   /** G227: goal contributions planned for this pay period (same figure as Home's Plans reserved). */
   plansReservedTotal?: number;
+  /** G304: counts, so the release lines can say "envelopes"/"plans" when there is more than one. */
+  allocationsCount?: number;
+  plansCount?: number;
   /** The plans figure could not be read; say so instead of implying there are none. */
   plansUnavailable?: boolean;
   savingsNow: number;
@@ -34,6 +38,8 @@ export default function UpcomingHeroCard({
   runwayBillsTotal,
   allocationsRemainingTotal,
   plansReservedTotal = 0,
+  allocationsCount,
+  plansCount,
   plansUnavailable = false,
   savingsNow,
   runway,
@@ -151,6 +157,15 @@ export default function UpcomingHeroCard({
             </dd>
           </div>
         </dl>
+        <div className="border-t border-slate-200/80 pb-2 dark:border-white/10">
+          <PooledLedgerExplainer
+            pooled
+            poolingSentence={POOLED_PROJECTION_SENTENCE}
+            envelope={{ amount: allocationsRemainingTotal, count: allocationsCount }}
+            plan={plansUnavailable ? null : { amount: plansReservedTotal, count: plansCount }}
+            format={(v) => `${sym}${v.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+          />
+        </div>
       </details>
 
       {savingsNow > 0 && (

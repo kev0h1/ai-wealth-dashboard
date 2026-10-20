@@ -22,6 +22,13 @@ export default function G303Client() {
   const dark = params.get("mode") === "dark";
   const move = params.get("move") === "1";
   const { preferencesReady, setHideNetWorth } = usePreferences();
+  // G304 screenshot aid: ?open=1 expands the ledger and adds an envelope and a plan reservation.
+  const open = params.get("open") === "1";
+  useEffect(() => {
+    if (!open) return;
+    const t = window.setInterval(() => document.querySelectorAll("details").forEach((d) => { d.open = true; }), 300);
+    return () => window.clearInterval(t);
+  }, [open, current.id]);
 
   useLayoutEffect(() => {
     const nativeFetch = window.fetch.bind(window);
@@ -74,7 +81,7 @@ export default function G303Client() {
       </nav>
       <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">{current.note}</p>
       <SafeToSpendCard
-        data={heroFor(current.pool)}
+        data={open ? { ...heroFor(current.pool), allocations_reserved: 101.52, allocations_count: 1, commitments_reserved: 100, commitments_count: 1 } : heroFor(current.pool)}
         loading={false}
         onRetry={noop}
         spendFrom={current.spendFrom}

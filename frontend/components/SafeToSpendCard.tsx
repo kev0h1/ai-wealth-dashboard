@@ -18,6 +18,7 @@ import {
 } from "@/lib/spendFromAccount";
 import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
+import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
 
 type SpendFromTreatment = {
@@ -864,6 +865,13 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
               {calculationItems.map((item) => <CalculationRow key={item.label} operator="−" label={item.label} value={exactAmount(item.value)} spokenValue={`minus ${exactAmount(item.value)}`} />)}
               <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total risk={exactCashRunway < 0 && !sync} />
             </dl>
+
+            <PooledLedgerExplainer
+              pooled={spendFromPlan.entries.length > 1}
+              envelope={{ amount: data.allocations_reserved ?? 0, count: data.allocations_count }}
+              plan={{ amount: data.commitments_reserved ?? 0, count: data.commitments_count }}
+              format={exactAmount}
+            />
 
             {cardReserve > 0 && (
               <section className="mt-5" aria-labelledby="card-safety-check">
