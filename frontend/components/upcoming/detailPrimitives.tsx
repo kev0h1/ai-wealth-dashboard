@@ -25,8 +25,9 @@ export function CategoryIcon({ Icon, colour }: { Icon: LucideIcon; colour: strin
   return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${colour}26` }}><Icon size={18} style={{ color: colour }} aria-hidden="true" /></span>;
 }
 
-export function DetailLedgerLine({ label, pence, total = false, positive = false }: { label: string; pence: number | null; total?: boolean; positive?: boolean }) {
-  const m = useMaskedMoney();
+export function DetailLedgerLine({ label, pence, total = false, positive = false, unmasked = false }: { label: string; pence: number | null; total?: boolean; positive?: boolean; unmasked?: boolean }) {
+  const masked = useMaskedMoney();
+  const m = unmasked ? money : masked;
   return <div className={`flex items-baseline justify-between gap-4 py-2 ${total ? "border-t border-slate-200 font-semibold dark:border-slate-700" : ""}`}>
     <dt className={total ? "text-slate-900 dark:text-slate-100" : detailMuted}>{label}</dt>
     <dd className={`shrink-0 text-right ${detailInk}`}>{pence === null ? "Unavailable" : m(pence, positive)}</dd>

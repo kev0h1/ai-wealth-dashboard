@@ -9,6 +9,13 @@ import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
 import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
+import UpcomingRow from "../components/upcoming/UpcomingRow.tsx";
+import UpcomingRowDetails from "../components/upcoming/UpcomingRowDetails.tsx";
+import UpcomingPlanDetails from "../components/upcoming/UpcomingPlanDetails.tsx";
+import UnlinkedGoalPlans from "../components/upcoming/UnlinkedGoalPlans.tsx";
+import { planConfirmMessage } from "../components/PlanOneOffSheet.tsx";
+import { maskMoneyText } from "../lib/balancesHidden.tsx";
+import { Landmark } from "lucide-react";
 import SetAsideList from "../components/upcoming/SetAsideList.tsx";
 import { SCENARIOS, PERIOD, plansFor, forecastFor } from "../app/design/g176-account-plans/fixtures.ts";
 
@@ -77,6 +84,50 @@ for (const { id } of SCENARIOS) {
   assert.match(shown, /£300 still to reserve/);
   assert.match(shown.replace(/<[^>]+>/g, ""), /£60 of £360 set aside/);
   renders += 2;
+}
+
+// Row, payment sheet, plan sheet, unlinked goals, confirmation message, mask regex.
+{
+  const model = {
+    rowKey: "bill-b55", type: "bill", name: "Example payment", amount: 80.5, expectedDate: "2026-09-30",
+    accountLabel: "Household account", category: "Bills", categoryColour: "#64748b", CategoryIcon: Landmark,
+    after: { kind: "balance", value: -234 }, accountShort: true, accountBalance: 1234, flagged: true, atRisk: true,
+    coverage: { before: 40, after: -40, shortfall: 40 }, why: { open: true, culprit: { amount: 321.5, expectedDate: "2026-09-29" } },
+  };
+  const BILL = /£80\.50/;
+  for (const treatment of ["current", "needs-attention", "account-coverage"]) {
+    const html = wrap(true, h(UpcomingRow, { model, treatment, onOpen() {}, onDismiss() {} }));
+    // The bill's own amount is not a balance; strip it, then nothing else may show a figure.
+    const rest = html.replace(/£80\.50/g, "BILL");
+    assert.doesNotMatch(rest, RAW, `row ${treatment}: only the bill amount stays visible`);
+    assert.match(html, BILL, `row ${treatment}: bill amount stays visible`);
+    const shown = wrap(false, h(UpcomingRow, { model, treatment, onOpen() {}, onDismiss() {} }));
+    assert.match(shown, /£\d/, `row ${treatment}: figures visible when shown`);
+    assert.doesNotMatch(shown, /£••••/, `row ${treatment}: nothing masked when shown`);
+    renders += 2;
+  }
+  const sheet = (hidden) => wrap(hidden, h(UpcomingRowDetails, { model: { ...model, amountBasis: undefined } }));
+  const hiddenSheet = sheet(true).replace(/£80\.50/g, "BILL");
+  assert.doesNotMatch(hiddenSheet, RAW, "payment sheet: shortfall, culprit and ledger masked");
+  assert.match(sheet(true), /£80\.50/, "payment sheet: headline and This payment line stay visible");
+  assert.match(sheet(false), /£321\.50/, "payment sheet: culprit visible when shown");
+  renders += 3;
+  for (const { id } of SCENARIOS) {
+    for (const plan of plansFor(id)) {
+      assert.doesNotMatch(wrap(true, h(UpcomingPlanDetails, { plan, accountName: "Monzo" })), RAW, `${id}/${plan.id}: plan sheet masked`);
+      renders++;
+    }
+  }
+  const unlinked = plansFor("unassigned").map((plan) => ({ ...plan, sourceId: null, evidence: "unknown" }));
+  assert.doesNotMatch(wrap(true, h(UnlinkedGoalPlans, { plans: unlinked, onPlan() {} })), RAW, "unlinked goals masked");
+  assert.match(wrap(false, h(UnlinkedGoalPlans, { plans: unlinked, onPlan() {} })), /£\d/, "unlinked goals visible when shown");
+  const impact = (v) => ({ safe_to_spend_after: v });
+  for (const v of [250, -80]) {
+    assert.doesNotMatch(planConfirmMessage(impact(v), true), RAW, "confirm message masked");
+    assert.match(planConfirmMessage(impact(v), false), /£\d/, "confirm message visible when shown");
+  }
+  assert.equal(maskMoneyText("£1.2k and £3m and £4,500.50", true), "£•••• and £•••• and £••••", "k/m suffixes mask fully");
+  renders += 6;
 }
 
 console.log(`PASS B55: ${renders} Upcoming renders, hero (text, aria, explainer, savings), By account rows, account sheets and envelope rows masked when hidden and restored when shown.`);

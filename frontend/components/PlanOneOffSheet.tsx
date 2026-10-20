@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, PlannedImpact } from "@/lib/api";
+import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
 import { DateField } from "@/components/DatePicker";
@@ -26,8 +27,21 @@ function todayIso() {
   return `${y}-${m}-${day}`;
 }
 
+/** B55: the post-save confirmation, with figures masked when Hide balances is on. */
+export function planConfirmMessage(impact: PlannedImpact | "none" | null, hidden: boolean): string | null {
+  if (impact === null) return null;
+  if (impact === "none") return "Planned. It's now in your upcoming bills.";
+  const sts = impact.safe_to_spend_after;
+  if (sts === null) return "Planned. It's now in your upcoming bills.";
+  const gbp = (v: number) => maskMoneyText(`£${v.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`, hidden);
+  return sts > 0
+    ? `Planned. You're still okay, ${gbp(sts)} in hand after this.`
+    : `Planned. This tips your window ${gbp(Math.abs(sts))} short, a cover plan will appear on Home.`;
+}
+
 export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneOffSheetProps) {
   const [mounted, setMounted] = useState(false);
+  const balancesHidden = useBalancesHidden();
   useEffect(() => setMounted(true), []);
 
   const today = todayIso();
@@ -87,21 +101,7 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
 
   const saved = impact !== null;
 
-  let confirmMessage: string | null = null;
-  if (saved && impact !== "none" && impact !== null) {
-    const sts = impact.safe_to_spend_after;
-    if (sts !== null) {
-      if (sts > 0) {
-        confirmMessage = `Planned. You're still okay, £${sts.toLocaleString("en-GB", { maximumFractionDigits: 0 })} in hand after this.`;
-      } else {
-        confirmMessage = `Planned. This tips your window £${Math.abs(sts).toLocaleString("en-GB", { maximumFractionDigits: 0 })} short, a cover plan will appear on Home.`;
-      }
-    } else {
-      confirmMessage = "Planned. It's now in your upcoming bills.";
-    }
-  } else if (saved) {
-    confirmMessage = "Planned. It's now in your upcoming bills.";
-  }
+  const confirmMessage = planConfirmMessage(impact, balancesHidden);
 
   return (
     <SheetFrame

@@ -17,5 +17,5 @@ export function useBalancesHidden(): boolean {
 
 /** Replace every £ figure in already-formatted text, keeping any sign or prefix. */
 export function maskMoneyText(text: string, hidden: boolean): string {
-  return hidden ? text.replace(/£\d[\d,]*(?:\.\d+)?/g, BALANCE_MASK) : text;
+  return hidden ? text.replace(/£\d[\d,]*(?:\.\d+)?[km]?/gi, BALANCE_MASK) : text;
 }
