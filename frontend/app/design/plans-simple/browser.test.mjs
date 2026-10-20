@@ -20,8 +20,8 @@ async function close() {
 }
 const text = () => b.evaluate("document.querySelector('[data-sheet-frame]').innerText");
 async function selectCategory(value) {
-  await b.evaluate(`(()=>{const e=${field("tracking-category")};e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await b.settle();
+  await tap(`document.querySelector('[data-g291-category="${value}"]')`);
+  assert.equal(await b.evaluate("!!document.querySelector('[data-sheet-frame] select')"),false,"category choices never invoke the native OS picker");
 }
 async function measure(label) {
   const row=await b.evaluate(`(()=>{
@@ -29,12 +29,14 @@ async function measure(label) {
     return {overflow:document.documentElement.scrollWidth>innerWidth+1,dialogs:document.querySelectorAll('[data-sheet-frame]').length,
       left:r.left,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight,footer:footer?.getBoundingClientRect().bottom??0,
       contribution:(()=>{const row=f.querySelector('[aria-label="Contribution"] > p:nth-child(2)');if(!row)return null;const [amount,caption]=row.children;return {amountBottom:amount.getBoundingClientRect().bottom,captionTop:caption.getBoundingClientRect().top}})(),
+      viewActions:(()=>{const dock=f.querySelector('[data-g291-view-actions]');if(!dock)return null;const edit=dock.querySelector('[data-g291-action="edit"]');return {dockWidth:dock.getBoundingClientRect().width,editWidth:edit.getBoundingClientRect().width,bodyActions:!!f.querySelector('[data-g291-step="view"] [data-g291-action]')}})(),
       fields:[...f.querySelectorAll('input:not([type=radio]):not([type=checkbox]),select')].map(e=>({label:!!e.labels?.length,font:parseFloat(getComputedStyle(e).fontSize)}))};
   })()`);
   assert.equal(row.overflow,false,label);assert.equal(row.dialogs,1,label);
   assert.ok(row.left>=-1&&row.right<=row.width+1&&row.bottom<=row.height+1,label);
   assert.ok(row.footer<=row.height+1,label);assert.ok(row.fields.every(e=>e.label&&e.font>=16),label);
   assert.ok(row.contribution===null||row.contribution.captionTop>=row.contribution.amountBottom-1,"contribution caption has its own line");
+  assert.ok(row.viewActions===null||!row.viewActions.bodyActions&&row.viewActions.editWidth>=row.viewActions.dockWidth-1,"view actions span the footer, not a left-side cluster");
   results.push({label,...row});
 }
 async function chooseAugust() {
@@ -47,6 +49,7 @@ async function chooseAugust() {
 try {
   if(phase!=="journeys") for(const variant of variants) for(const theme of ["light","dark"]) for(const state of ["matched","no-history","one-account","many-accounts","short","offline","no-source"]) {
     await b.viewport(390);await navigate(variant,state,theme);await click("open-view");await step("view");await measure(`${variant}/${theme}/${state}/view`);
+    if(variant==="b"&&["matched","one-account"].includes(state))await b.shot(`${state}-view-${theme}`);
     await b.evaluate("void(window.__g291Frame=document.querySelector('[data-sheet-frame]'))");
     await click("edit");await step("edit");await measure(`${variant}/${theme}/${state}/edit`);
     assert.equal(await b.evaluate("window.__g291Frame===document.querySelector('[data-sheet-frame]')"),true,"same physical sheet for edit");
@@ -62,15 +65,20 @@ try {
     if(variant==="a") {
       await step("target");assert.match(await text(),/£135/);await click("next-details");await step("source");await click("confirm-source");await step("destination");
     } else {
-      await step("review");await click("confirm-source");await click("edit-destination");await step("destination");
+      await step("setup");assert.equal(await b.evaluate("!!"+q("save")),false);await click("confirm-source");await click("edit-destination");await step("destination");
     }
     assert.equal(await b.evaluate(`${field("include-existing")}.checked`),false);
     await tap(field("include-existing"));await measure(`${variant}/existing-pot`);
     if(variant==="a")await b.shot("pot-choice-light");
     await click("confirm-destination");
-    if(variant==="b")await click("edit-tracking");
+    if(variant==="b"){await step("setup");await click("next-setup");}
     await step("tracking");await tap("document.querySelector('[data-g291-tracking=\"category\"]')");await selectCategory("groceries");assert.match(await text(),/0 transfers/);await selectCategory("savings");
     assert.match(await text(),/2 transfers/);assert.match(await text(),/£150/);assert.doesNotMatch(await text(),/Skip for now/);
+    await b.evaluate("document.querySelector('[data-g291-category=savings] input').focus()");
+    await b.key("ArrowUp","ArrowUp",38);
+    assert.equal(await b.evaluate("document.querySelector('[data-g291-category=groceries] input').checked"),true,"category rows support native radio keyboard navigation");
+    await b.key("ArrowDown","ArrowDown",40);
+    assert.equal(await b.evaluate("document.querySelector('[data-g291-category=savings] input').checked"),true);
     await measure(`${variant}/goal-category`);if(variant==="a")await b.shot("goal-category-light");
     await click("confirm-tracking");await step("review");assert.match(await text(),/£115/);assert.match(await text(),/£200 of £1,200/);
     await click("save");await step("result");await click("view-result");await step("view");assert.match(await text(),/£200 of £1,200/,"save includes existing share once");
@@ -89,8 +97,8 @@ try {
     await navigate(variant,"one-account","dark");await click("start-aside");await step("purpose");assert.match(await text(),/£300.*groceries/);
     await b.type(field("name"),"Groceries");await click("next-purpose");
     if(variant==="a"){await step("amount");await b.type(field("amount"),"300");await click("next-details");await step("source");await click("confirm-source");}
-    else{await step("review");await click("confirm-source");await click("edit-target");await step("amount");await b.type(field("amount"),"300");await click("next-details");}
-    await step("review");await click("edit-tracking");await step("tracking");
+    else{await step("setup");assert.equal(await b.evaluate("!!"+q("save")),false);await click("confirm-source");await click("edit-target");await step("amount");await b.type(field("amount"),"300");await click("next-details");await step("setup");await click("next-setup");}
+    await step("tracking");assert.equal(await b.evaluate("!!"+q("save")),false,"new set-asides reach tracking before Save");
     await tap("document.querySelector('[data-g291-tracking=\"category\"]')");await selectCategory("groceries");
     assert.match(await text(),/3 purchases/);assert.match(await text(),/£105/);assert.match(await text(),/-£5/);assert.match(await text(),/£100/);assert.match(await text(),/refund/);await measure(`${variant}/aside-category`);if(variant==="b")await b.shot("groceries-category-dark");
     await click("confirm-tracking");await step("review");await click("save");await step("result");await click("view-result");await step("view");
@@ -110,7 +118,10 @@ try {
     await tap("document.querySelector('[data-g291-tracking=\"none\"]')");await click("confirm-tracking");await step("edit");await close();
   }
   if(phase!=="layouts") {
-    for(const width of [320,1280]) {await b.viewport(width);await navigate("b");await click("open-view");await click("edit");await step("edit");await measure(`width-${width}`);await b.shot(`width-${width}`);await click("edit-name");await step("purpose");await b.type(field("name"),"W".repeat(80));await click("next-purpose");await step("edit");await measure(`long-name-${width}`);await close();}
+    for(const width of [320,1280]) {await b.viewport(width);await navigate("b");await click("open-view");await step("view");await measure(`view-width-${width}`);await b.shot(`view-width-${width}`);await click("edit");await step("edit");await measure(`width-${width}`);await b.shot(`width-${width}`);await click("edit-name");await step("purpose");await b.type(field("name"),"W".repeat(80));await click("next-purpose");await step("edit");await measure(`long-name-${width}`);await close();}
+    await b.viewport(390);await navigate("b","one-account","dark");await click("start-aside");await b.type(field("name"),"Groceries");await click("next-purpose");await step("setup");await click("confirm-source");await b.shot("b-aside-setup-dark");await click("next-setup");await step("tracking");await b.shot("b-aside-tracking-dark");
+    await tap("document.querySelector('[data-g291-tracking=\"category\"]')");await tap("document.querySelector('[data-sheet-frame] header button[aria-label^=\"Back\"]')");await step("setup");
+    assert.equal(await b.evaluate(q("next-setup")+".disabled"),false,"an unfinished tracking choice never blocks returning to that step");await click("next-setup");await step("tracking");await click("confirm-tracking");await step("review");await close();
     await b.viewport(390);await navigate("a","matched","light");await b.evaluate(`${q("open-view")}.focus()`);await b.key("Enter","Enter",13);await step("view");await b.key("Tab","Tab",9);
     assert.equal(await b.evaluate("document.querySelector('[data-sheet-frame]').contains(document.activeElement)"),true,"keyboard focus stays in sheet");await close();
   }

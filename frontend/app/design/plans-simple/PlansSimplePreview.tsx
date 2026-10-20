@@ -14,7 +14,7 @@ function Preview({ params }: {
 }) {
     const variant: Variant = params.get("variant") === "b" ? "b" : "a";
     const scenario = SCENARIOS.find(s => s.id === params.get("state"))?.id ?? "matched";
-    const dark = params.get("theme") !== "light";
+    const dark = (params.get("theme") ?? params.get("mode")) !== "light";
     const [ready, setReady] = useState(false);
     const [saved, setSaved] = useState<Saved>(() => initialPlan(scenario));
     const [draft, setDraft] = useState<Draft>(() => initialPlan(scenario));
@@ -53,7 +53,7 @@ function Preview({ params }: {
     function update(patch: Partial<Draft>) { setDraft(current => applyDraft(current, patch)); setError(""); }
     function dispatch(action: Action, step: Step, nav: UpcomingFlowNavigation<Step>) {
         setError("");
-        const summary = () => { if (!nav.returnTo(s => s === "review" || s === "edit"))
+        const summary = () => { if (!nav.returnTo(s => s === "setup" || s === "review" || s === "edit"))
             nav.goTo("review"); };
         const value = facts(scenario, draft);
         switch (action) {
@@ -68,10 +68,10 @@ function Preview({ params }: {
                     setError("Give your plan a name, up to 80 letters.");
                     return;
                 }
-                if (nav.canReturnTo(s => s === "review" || s === "edit"))
+                if (nav.canReturnTo(s => s === "setup" || s === "review" || s === "edit"))
                     summary();
                 else if (newPlanKind)
-                    nav.goTo(variant === "b" ? "review" : newPlanKind === "goal" ? "target" : "amount");
+                    nav.goTo(variant === "b" ? "setup" : newPlanKind === "goal" ? "target" : "amount");
                 else
                     nav.goTo("kind");
                 return;
@@ -79,15 +79,19 @@ function Preview({ params }: {
             case "choose-aside": {
                 const kind = action === "choose-goal" ? "goal" : "set-aside";
                 update({ kind, destinationId: kind === "goal" ? (scenario === "offline" ? "offline-pot" : "holiday") : "", transferConfirmed: false, progressPence: 0 });
-                nav.goTo(variant === "b" ? "review" : kind === "goal" ? "target" : "amount");
+                nav.goTo(variant === "b" ? "setup" : kind === "goal" ? "target" : "amount");
                 return;
             }
+            case "next-setup":
+                if (!value.canStartTracking) { setError("Check the amount and confirm the account before continuing."); return; }
+                nav.goTo("tracking");
+                return;
             case "next-details":
                 if (!(Number.isSafeInteger(draft.kind === "goal" ? draft.targetPence : draft.amountPence) && (draft.kind === "goal" ? draft.targetPence : draft.amountPence) > 0) || draft.kind === "goal" && !validMonth(draft.month)) {
                     setError("Add an amount above £0 and choose a future month.");
                     return;
                 }
-                if (nav.canReturnTo(s => s === "review" || s === "edit"))
+                if (nav.canReturnTo(s => s === "setup" || s === "review" || s === "edit"))
                     summary();
                 else
                     nav.goTo("source");
@@ -98,22 +102,22 @@ function Preview({ params }: {
                     return;
                 }
                 update({ sourceConfirmed: true });
-                if (step === "review" || step === "edit")
+                if (step === "setup" || step === "review" || step === "edit")
                     return;
-                if (nav.canReturnTo(s => s === "review" || s === "edit"))
+                if (nav.canReturnTo(s => s === "setup" || s === "review" || s === "edit"))
                     summary();
                 else
-                    nav.goTo(draft.kind === "goal" ? "destination" : "review");
+                    nav.goTo(draft.kind === "goal" ? "destination" : "tracking");
                 return;
             case "confirm-destination":
                 if (draft.kind === "goal" && !value.destination) {
                     setError("Choose where you will save this money.");
                     return;
                 }
-                if (nav.canReturnTo(s => s === "review" || s === "edit"))
+                if (nav.canReturnTo(s => s === "setup" || s === "review" || s === "edit"))
                     summary();
                 else
-                    nav.goTo(draft.destinationId ? "tracking" : "review");
+                    nav.goTo("tracking");
                 return;
             case "confirm-transfer":
                 update({ transferConfirmed: true, customMatch: "" });
@@ -139,7 +143,7 @@ function Preview({ params }: {
                 else {
                     update({ trackingConfirmed: draft.trackingMode !== "none", transferConfirmed: draft.trackingMode === "payment" });
                 }
-                summary();
+                if (!nav.returnTo(s => s === "review" || s === "edit")) nav.goTo("review");
                 return;
             case "edit-name":
                 nav.goTo("purpose");
@@ -205,7 +209,7 @@ function Preview({ params }: {
     }
     const savedFacts = facts(scenario, saved, saved.status === "paused");
     const href = (nextVariant: Variant, nextScenario: Scenario, nextDark = dark) => `?variant=${nextVariant}&state=${nextScenario}&theme=${nextDark ? "dark" : "light"}`;
-    const title = (step: Step) => ({ purpose: COPY.purpose, kind: COPY.kind, target: COPY.target, amount: COPY.amount, source: COPY.source, destination: COPY.destination, tracking: COPY.tracking, review: "Check your plan", edit: "Edit your plan", view: saved.name, pause: COPY.pause, delete: COPY.remove, result: result === "deleted" ? "Plan deleted" : result === "paused" ? "Plan paused" : result === "resumed" ? "Plan started again" : "Plan saved" })[step];
+    const title = (step: Step) => ({ purpose: COPY.purpose, kind: COPY.kind, target: COPY.target, amount: COPY.amount, source: COPY.source, destination: COPY.destination, tracking: COPY.tracking, setup: "Set up your plan", review: "Check your plan", edit: "Edit your plan", view: saved.name, pause: COPY.pause, delete: COPY.remove, result: result === "deleted" ? "Plan deleted" : result === "paused" ? "Plan paused" : result === "resumed" ? "Plan started again" : "Plan saved" })[step];
     return <main data-g291-ready={ready} data-g291-variant={variant} data-g291-state={scenario} className="min-h-screen bg-slate-100 px-4 py-6 font-sans text-slate-950 dark:bg-slate-950 dark:text-slate-100">
     <div className="mx-auto max-w-3xl space-y-6">
       <header className="space-y-2"><Link href="/design" className={`${button} -ml-4 text-indigo-700 dark:text-indigo-300`}>Back to designs</Link><h1 className="text-xl font-bold">Plans, made simple</h1><p className="text-sm leading-6 text-slate-600 dark:text-slate-300">G291 design round. Synthetic examples only. Nothing is saved to an account.</p></header>
@@ -221,7 +225,7 @@ function Preview({ params }: {
     {open && ready && <UpcomingFlowSheet<Step> key={generation} initialView={entry} onClose={() => setOpen(false)} renderView={(step, nav) => {
                 const visibleDraft = step === "view" || step === "pause" || step === "delete" ? saved : draft;
                 const props = { step, draft: visibleDraft, saved, scenario, facts: facts(scenario, visibleDraft, step === "view" && saved.status === "paused"), sources: sourceChoices(scenario), destinations: destinationChoices(scenario, visibleDraft), editing, error, result, onDraft: update, onAction: (action: Action) => dispatch(action, step, nav) };
-                return { title: title(step), subtitle: step === "view" ? saved.kind === "goal" ? "Your goal" : "Money kept aside" : undefined, body: <JourneyBody {...props}/>, footer: step === "view" || step === "kind" ? undefined : <JourneyFooter {...props}/> };
+                return { title: title(step), subtitle: step === "view" ? saved.kind === "goal" ? "Your goal" : "Money kept aside" : undefined, body: <JourneyBody {...props}/>, footer: step === "kind" ? undefined : <JourneyFooter {...props}/> };
             }}/>}
   </main>;
 }

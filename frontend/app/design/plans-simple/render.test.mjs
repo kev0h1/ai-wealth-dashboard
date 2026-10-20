@@ -6,10 +6,12 @@ import {initialPlan,facts,sourceChoices,destinationChoices,SCENARIOS} from "./mo
 let cases=0;
 for(const {id:scenario} of SCENARIOS){
   const saved=initialPlan(scenario);
-  for(const step of ["purpose","kind","target","amount","source","destination","tracking","review","edit","view","pause","delete","result"]){
+  for(const step of ["purpose","kind","target","amount","source","destination","tracking","setup","review","edit","view","pause","delete","result"]){
     const props={step,draft:saved,saved,scenario,facts:facts(scenario,saved),sources:sourceChoices(scenario),destinations:destinationChoices(scenario,saved),editing:true,error:"",result:"saved",onDraft:()=>{},onAction:()=>{}};
     const html=renderToStaticMarkup(React.createElement(React.Fragment,null,React.createElement(JourneyBody,props),React.createElement(JourneyFooter,props)));
-    assert.doesNotMatch(html,/NaN|Infinity|—/);
+    assert.doesNotMatch(html,/NaN|Infinity|—|<select/);
+    if(step==="setup"){assert.match(html,/data-g291-action="next-setup"/);assert.doesNotMatch(html,/data-g291-action="save"/);}
+    if(step==="view"){assert.match(html,/data-g291-view-accounts/);assert.match(html,/data-g291-view-actions/);}
     if(saved.kind==="goal"&&["target","review","edit","view"].includes(step))assert.match(html,/estimated each pay period/);
     if(saved.kind==="set-aside"&&step==="view")assert.doesNotMatch(html,/Payment tracking|role="progressbar"/);
     if(saved.kind==="set-aside"&&["view","edit","review"].includes(step))assert.match(html,/Check Upcoming to see if it fits before payday/);
@@ -28,7 +30,7 @@ for(const kind of ["goal","set-aside"])for(const trackingMode of ["none","paymen
     const props={step,draft:plan,saved:plan,scenario:"matched",facts:facts("matched",plan),sources:sourceChoices("matched"),destinations:destinationChoices("matched",plan),editing:false,error:"",result:"saved",onDraft:()=>{},onAction:()=>{}};
     const body=renderToStaticMarkup(React.createElement(React.Fragment,null,React.createElement(JourneyBody,props),React.createElement(JourneyFooter,props)));
     assert.doesNotMatch(body,/NaN|Infinity|—|Skip for now/);
-    if(step==="tracking")assert.equal((body.match(/data-g291-action="confirm-tracking"/g)||[]).length,1,"one tracking footer");
+    if(step==="tracking"){assert.equal((body.match(/data-g291-action="confirm-tracking"/g)||[]).length,1,"one tracking footer");if(trackingMode==="category"){assert.match(body,/data-g291-category-picker/);assert.match(body,/name="tracking-category"/);assert.doesNotMatch(body,/<select/);}}
     if(step==="view"&&trackingMode==="category")assert.match(body,/category tracking/);
     cases++;
   }

@@ -38,6 +38,9 @@ assert.equal(facts("matched",{...saved,trackingMode:"category",categoryId:"savin
 assert.equal(facts("matched",{...saved,trackingMode:"category",categoryId:"savings",trackingConfirmed:true}).progressPence,30000,"category rule confirmation is not another pot deposit");
 assert.equal(applyDraft(categoryAside,{categoryId:"savings"}).trackingConfirmed,false);
 assert.equal(facts("one-account",{...categoryAside,trackingConfirmed:false}).canSave,false);
+assert.equal(facts("one-account",{...categoryAside,trackingConfirmed:false}).canStartTracking,true,"unfinished tracking can be resumed from setup without weakening Save validation");
+assert.equal(facts("one-account",{...categoryAside,sourceConfirmed:false}).canStartTracking,false,"setup still requires a confirmed account");
+assert.equal(facts("one-account",{...categoryAside,amountPence:0}).canStartTracking,false,"setup still requires a valid amount");
 assert.equal(facts("one-account",initialPlan("one-account")).reservePence,10000);assert.equal(initialPlan("one-account").destinationId,"");
 assert.equal(sourceChoices("one-account").length,1);assert.equal(sourceChoices("no-source").length,0);
 assert.equal(facts("no-source",initialPlan("no-source")).canSave,false);

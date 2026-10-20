@@ -2,8 +2,8 @@ import type { Account } from "@/lib/api";
 export type Variant = "a" | "b";
 export type Scenario = "matched" | "no-history" | "one-account" | "many-accounts" | "short" | "offline" | "no-source";
 export type Kind = "goal" | "set-aside";
-export type Step = "purpose" | "kind" | "target" | "amount" | "source" | "destination" | "tracking" | "review" | "edit" | "view" | "pause" | "delete" | "result";
-export type Action = "next-purpose" | "choose-goal" | "choose-aside" | "next-details" | "confirm-source" | "confirm-destination" | "confirm-transfer" | "skip-transfer" | "confirm-custom-match" | "confirm-tracking" | "save" | "edit" | "pause" | "delete" | "confirm-pause" | "confirm-delete" | "resume" | "back" | "close" | "view-result" | "edit-name" | "edit-target" | "edit-source" | "edit-destination" | "edit-tracking" | "lower-target" | "later-date";
+export type Step = "purpose" | "kind" | "target" | "amount" | "source" | "destination" | "tracking" | "setup" | "review" | "edit" | "view" | "pause" | "delete" | "result";
+export type Action = "next-purpose" | "choose-goal" | "choose-aside" | "next-details" | "next-setup" | "confirm-source" | "confirm-destination" | "confirm-transfer" | "skip-transfer" | "confirm-custom-match" | "confirm-tracking" | "save" | "edit" | "pause" | "delete" | "confirm-pause" | "confirm-delete" | "resume" | "back" | "close" | "view-result" | "edit-name" | "edit-target" | "edit-source" | "edit-destination" | "edit-tracking" | "lower-target" | "later-date";
 export type Draft = {
     name: string;
     kind: Kind;
@@ -32,6 +32,7 @@ export type ViewFacts = {
     source?: Account;
     destination?: Account;
     canSave: boolean;
+    canStartTracking: boolean;
     hasCandidate: boolean;
     shortfallPence: number | null;
     reservePence: number | null;
@@ -139,11 +140,12 @@ export function facts(scenario: Scenario, draft: Draft, paused = false): ViewFac
     const positive = (n: number) => Number.isSafeInteger(n) && n > 0 && n <= 100000000;
     const validGoal = draft.kind !== "goal" || positive(draft.targetPence) && validMonth(draft.month) && Boolean(destination);
     const validTracking = draft.trackingMode === "none" || draft.trackingConfirmed && (draft.trackingMode !== "category" || CATEGORIES.some(c => c.id === draft.categoryId));
-    const canSave = draft.name.trim().length > 0 && draft.name.trim().length <= 80 && Boolean(source) && draft.sourceConfirmed && positive(draft.kind === "goal" ? draft.targetPence : draft.amountPence) && validGoal && validTracking;
+    const canStartTracking = draft.name.trim().length > 0 && draft.name.trim().length <= 80 && Boolean(source) && draft.sourceConfirmed && positive(draft.kind === "goal" ? draft.targetPence : draft.amountPence) && validGoal;
+    const canSave = canStartTracking && validTracking;
     const shortfallPence = scenario === "short" && draft.targetPence === 120000 && draft.month === "2027-07" && progressPence === 30000 ? 143700 : null;
     const hasCandidate = source?.id === "natwest" && (draft.kind === "goal" && destination?.id === "holiday" && scenario !== "no-history" && scenario !== "offline" || draft.kind === "set-aside" && destination?.id === "monzo" && scenario === "many-accounts");
     const category = categoryEvidence(draft);
-    return { source, destination, progressPence, remainingPence, slicePence, canSave, hasCandidate, shortfallPence, reservePence: paused ? 0 : source ? slicePence : null, periodsLeft: periods, availablePotPence, categoryCount: category.count, categoryPence: category.pence, categoryGrossPence: category.grossPence, categoryRefundPence: category.refundPence, categoryPurchaseCount: category.purchaseCount, categoryLabel: CATEGORIES.find(c => c.id === draft.categoryId)?.label ?? "Choose a category" };
+    return { source, destination, progressPence, remainingPence, slicePence, canSave, canStartTracking, hasCandidate, shortfallPence, reservePence: paused ? 0 : source ? slicePence : null, periodsLeft: periods, availablePotPence, categoryCount: category.count, categoryPence: category.pence, categoryGrossPence: category.grossPence, categoryRefundPence: category.refundPence, categoryPurchaseCount: category.purchaseCount, categoryLabel: CATEGORIES.find(c => c.id === draft.categoryId)?.label ?? "Choose a category" };
 }
 export function applyDraft(draft: Draft, patch: Partial<Draft>): Draft {
     const routeChanged = patch.sourceId !== undefined && patch.sourceId !== draft.sourceId || patch.destinationId !== undefined && patch.destinationId !== draft.destinationId;

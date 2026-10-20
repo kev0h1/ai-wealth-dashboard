@@ -7,7 +7,7 @@ async function click(selector){await pause();await b.activate(selector);await b.
 async function check(variant,theme,state,step){
   const row=await b.evaluate(`(()=>{const f=document.querySelector('[data-sheet-frame]'),r=f.getBoundingClientRect();return{text:f.innerText,overflow:document.documentElement.scrollWidth>innerWidth+1,right:r.right,width:innerWidth,footer:f.querySelector('[data-sheet-footer]')?.getBoundingClientRect().bottom??0,height:innerHeight,save:f.querySelector('[data-g291-action="save"]')?.disabled??null,optional:[...f.querySelectorAll('button')].some(e=>e.innerText==='Use another account instead')}})()`);
   assert.match(row.text,/Check Upcoming to see if it fits before payday/);assert.equal(row.overflow,false);assert.ok(row.right<=row.width+1);assert.ok(row.footer<=row.height+1);
-  if(state==="no-source"){assert.equal(row.optional,false);if(step==="edit")assert.equal(row.save,true);else {assert.match(row.text,/planned each pay period/);assert.match(row.text,/Choose a paying account before this amount is held back/);assert.doesNotMatch(row.text,/£100 held back/);}}
+  if(state==="no-source"){assert.equal(row.optional,false);if(step==="edit")assert.equal(row.save,true);else {assert.match(row.text,/planned/);assert.match(row.text,/each pay period/);assert.match(row.text,/Choose a paying account before this amount is held back/);assert.doesNotMatch(row.text,/£100 held back/);}}
   if(state==="many-accounts"&&step==="edit")assert.equal(row.optional,true);
   if(variant==="b")await b.shot(`${state}-${theme}-${step}`);
   results.push({variant,theme,state,step,...row});
