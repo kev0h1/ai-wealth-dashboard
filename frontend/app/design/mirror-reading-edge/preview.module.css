@@ -1,11 +1,12 @@
 /* Design-round adapter only. The shipped G286 card/default CSS is unchanged. */
-.proposed { overflow:hidden; border:1px solid #e2e8f0; border-radius:16px; background:#fff; box-shadow:0 1px 2px rgb(15 23 42 / .05); }
+.proposed { position:relative; overflow:hidden; border:1px solid #e2e8f0; border-radius:16px; background:#fff; box-shadow:0 1px 2px rgb(15 23 42 / .05); }
+.patternIcon { position:absolute; top:16px; right:16px; display:grid; width:16px; height:20px; place-items:center; color:#64748b; pointer-events:none; }
 .proposed > section[aria-labelledby] { border:0; border-radius:0; background:transparent; box-shadow:none; }
 .proposed > section > header { border-bottom:0; padding:16px 16px 0; }
-.proposed > section > header > div:first-child { flex-direction:row-reverse; align-items:flex-start; gap:8px; }
+.proposed > section > header > div:first-child { align-items:flex-start; }
 .proposed > section > header > div:first-child > div { flex:1; }
-.proposed > section > header > div:first-child > span[aria-hidden="true"] { flex:0 0 16px; width:16px; height:20px; border-radius:0; background:transparent !important; }
-.proposed > section > header > div:first-child > span svg { width:16px; height:16px; }
+.proposed > section > header > div:first-child h2 { padding-right:24px; }
+.proposed > section > header > div:first-child > span[aria-hidden="true"] { display:none; }
 .proposed > section > header > div:not(:first-child):not([aria-label]) { margin:12px 0 0; gap:4px; }
 .proposed > section > header > div:not(:first-child):not([aria-label]) p { color:#475569; }
 .proposed > section > header > div[aria-label] { margin-top:16px; }
@@ -23,6 +24,7 @@
 .reference { pointer-events:none; }
 .reference :is(button,a,input) { pointer-events:none; }
 :global(.dark) .proposed { border-color:#334155; background:#1e293b; box-shadow:none; }
+:global(.dark) .patternIcon { color:#94a3b8; }
 :global(.dark) .proposed > section[aria-labelledby] { background:transparent; }
 :global(.dark) .proposed > section > header > div:not(:first-child):not([aria-label]) p { color:#cbd5e1; }
 :global(.dark) .rowFooter { border-color:#334155; }

@@ -18,6 +18,20 @@ assert.deepEqual(traits.map(({ id }) => id), ["saving_habit", "orchestrator", "s
 assert.deepEqual(traits.map(({ kind }) => kind), ["habit", "structure", "pleasure", "hygiene", "structure", "structure"]);
 assert.equal(traits.find(trait => trait.id === "signature_pleasure").ref_category, "Eating Out");
 
+const expectedIcons = ["piggy-bank", "arrow-left-right", "utensils", "receipt-text", "calendar-days", "credit-card"];
+for (const variant of ["a", "b"]) {
+  for (const [index, trait] of traits.entries()) {
+    const html = render({ variant, trait, category: trait.ref_category ?? null, activeAim: null, completed: null, loading: false, error: null, masked: false });
+    const icon = html.match(/<span data-pattern-icon="[^"]+"[^>]*>[\s\S]*?<\/span>/g) ?? [];
+    assert.equal(icon.length, 1, `${variant}/${trait.id} has one consistent pattern cue`);
+    assert.match(icon[0], /aria-hidden="true"/);
+    assert.match(icon[0], /width="16" height="16"/);
+    assert.ok(icon[0].includes(`lucide-${expectedIcons[index]}`), `${trait.id} uses a relevant icon`);
+  }
+}
+const futureTrait = render({ trait: { ...traits[0], id: "future_pattern" }, category: null, activeAim: null, completed: null, loading: false, error: null, masked: false });
+assert.match(futureTrait, /lucide-circle-dot/, "an unknown pattern still receives a neutral cue");
+
 for (const choice of [null, "keep", "change"]) {
   const trait = { ...traits[2], choice };
   const html = render({ trait, category: "Eating Out", activeAim: ACTIVE, completed: COMPLETED, loading: false, error: null, masked: false });
