@@ -128,7 +128,9 @@ function localBank(account: SpendFromAccount["account"]) {
 // and the per-account figure footnote is dropped.
 function SpendFromScope({ coverMoveVisible, combinedLine }: { coverMoveVisible: boolean; combinedLine?: string | null }) {
   return (
-    <p className="mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty">
+    <p className={combinedLine
+      ? "mt-2 text-[12px] font-semibold leading-[1.45] text-slate-700 dark:text-slate-200 text-pretty"
+      : "mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty"}>
       {combinedLine ?? "Each figure is what that account can cover, never more than your Safe to Spend."}
       {coverMoveVisible ? " The move above is already held back." : ""}
     </p>
@@ -201,8 +203,7 @@ function SpendFromNameRows({ entries, amount, coverMoveVisible, combinedLine }: 
     return (
       <div data-g115-treatment="name-fallback" data-g300-combined="true" className="mt-2">
         <p className="sr-only">Accounts with room to spend from</p>
-        <p className="text-[12px] font-semibold leading-snug text-slate-700 dark:text-slate-200 text-pretty">{combinedLine}</p>
-        {coverMoveVisible ? <SpendFromScope coverMoveVisible combinedLine="" /> : null}
+        <SpendFromScope coverMoveVisible={coverMoveVisible} combinedLine={combinedLine} />
       </div>
     );
   }

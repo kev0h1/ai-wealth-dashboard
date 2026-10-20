@@ -657,6 +657,13 @@ const NEVER_BRANDED = () => false;
   );
   check("G300: mixed alternative line is null", alt(mixed, 9), null);
 
+  // Rounding: compare displayed whole pounds.
+  const rounded = { barclays: E(9.6, false), hsbc: E(9.6, false) };
+  check("G300: pool 19.4 with 9.6 + 9.6 (shown £10 + £10 against £19) is combined", plan(rounded, 19.4).combined, true);
+  const edge = { barclays: E(9, true), hsbc: E(8.6, false) };
+  check("G300: pool 9.0 with 9.0 and 8.6 is combined", plan(edge, 9).combined, true);
+  check("G300: 8.6 displays as £9 so no below-pool clause", hero(edge, 9), "Spend up to £9 from Barclays or HSBC.");
+
   // Two below the pool whose sum fits: unchanged.
   const fits = { barclays: E(40, false), hsbc: E(30, false) };
   check("G300: figures that fit inside the pool are not combined", plan(fits, 100).combined, false);

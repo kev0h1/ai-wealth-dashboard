@@ -206,6 +206,13 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const railMarkup = renderTreatment(combinedPlan(true)).markup;
   check("G300: the rail keeps its list label", railMarkup.includes("Accounts with room to spend from"));
   check("G300: the sr-only text carries no figure in the combined case", railMarkup.includes("has room to spend from") && !railMarkup.includes("spare"));
+  for (const markBank of [true, false]) {
+    const withMove = renderToStaticMarkup(React.createElement(React.Fragment, null,
+      ...(() => { const t = approvedSpendFromTreatment(combinedPlan(markBank), amount, true, noop, noop); return [t.body]; })()));
+    check(`G300: cover-move combined paragraph reads cleanly (${markBank ? "rail" : "names"})`,
+      withMove.includes("Spend up to £9 from Everyday or Flex current. The move above is already held back.")
+      && /text-\[12px\][^"]*font-semibold/.test(withMove));
+  }
   const unknown = spendFromTreatmentPlan(bestSpendAccount({ monzo: E(9), chase: E(9) }, ACCOUNTS), () => true);
   check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is what that account can cover"));
 }

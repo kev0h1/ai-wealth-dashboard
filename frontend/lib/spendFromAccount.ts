@@ -251,7 +251,6 @@ export function bestSpendAccount(
 // rule lives here as pure functions so the card, the sentences and the tests
 // share it. Never split the pool proportionally: that implies a precision
 // that is not there.
-const POOL_EPSILON = 0.005;
 
 function usablePool(pool: number | null | undefined): number | null {
   return typeof pool === "number" && Number.isFinite(pool) ? Math.max(0, pool) : null;
@@ -266,8 +265,9 @@ export function spendFromIsCombined(
 ): boolean {
   const limit = usablePool(pool);
   if (limit == null || entries.length < 2) return false;
-  const total = entries.reduce((sum, entry) => sum + entry.headroom, 0);
-  return total > limit + POOL_EPSILON;
+  // Compare what the card DISPLAYS (whole pounds), not the raw 2dp values.
+  const total = entries.reduce((sum, entry) => sum + Math.round(entry.headroom), 0);
+  return total > Math.round(limit);
 }
 
 function joinNames(names: string[]): string {
@@ -284,7 +284,7 @@ export function spendFromCombinedLine(
 ): string {
   const limit = Math.max(0, pool);
   const names = joinNames(entries.map((entry) => entry.name));
-  const below = entries.filter((entry) => entry.headroom < limit - POOL_EPSILON);
+  const below = entries.filter((entry) => Math.round(entry.headroom) < Math.round(limit));
   if (below.length === 0) return `Spend up to ${amount(limit)} from ${names}.`;
   const clauses = below.map((entry) => `${entry.name} can cover up to ${amount(entry.headroom)}.`);
   return [`Spend up to ${amount(limit)} in total from ${names}.`, ...clauses].join(" ");
