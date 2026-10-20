@@ -19,7 +19,7 @@
     "check:g217-allocation-card": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g217-allocation-card.test.mjs",
     "check:g292-home-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g292-home-anatomy.test.mjs",
     "check:g293-spend-spacing": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g293-spend-spacing.test.mjs",
-    "check:g295-home-brief-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs app/design/home-brief-anatomy/contracts.test.mjs",
+    "check:g295-home-brief-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g295-home-brief-anatomy.test.mjs",
     "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
     "check:apk-single": "node scripts/check-apk-single.mjs",
     "check:b44-stale-tips": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b44-stale-tips.test.mjs",

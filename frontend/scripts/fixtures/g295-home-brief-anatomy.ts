@@ -1,4 +1,4 @@
-// Synthetic fixtures for G295's Home brief anatomy round. They exercise the
+// Permanent synthetic fixtures for G295's approved B regression. They exercise the
 // exported production cards without copying any account, merchant or amount
 // from a customer session.
 import type { CompanionItem, MoveMap, PaydayPlanDest, SavingsInsight } from "@/lib/api";

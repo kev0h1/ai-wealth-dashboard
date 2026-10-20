@@ -469,20 +469,26 @@ export const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white
 export const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
 const EVIDENCE_BLOCK = "divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700/70 dark:border-slate-700/70";
 
-export function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "penny" }) {
-  const surface = tone === "penny"
-    ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"
-    : "bg-slate-100 text-slate-500 dark:bg-slate-700/70 dark:text-slate-300";
-  return <span aria-hidden="true" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${surface}`}>{children}</span>;
+// G295 B: the cue and kind share a compact first row; the headline spans
+// both tracks so every subsequent row keeps the card's reading edge.
+const BRIEF_HEADER = "grid grid-cols-[16px_minmax(0,1fr)] items-center gap-x-2 gap-y-1";
+
+export function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
+  const ink = tone === "watch"
+    ? "text-amber-600 dark:text-amber-400"
+    : tone === "positive"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-slate-500 dark:text-slate-300";
+  return <span aria-hidden="true" className={`flex h-4 w-4 shrink-0 items-center justify-center ${ink}`}>{children}</span>;
 }
 
-export function KindLabel({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
+export function KindLabel({ children, tone = "neutral", signifier = true }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive"; signifier?: boolean }) {
   const labelClass = "text-[10px] font-semibold uppercase tracking-[0.05em]";
   if (tone === "positive") {
-    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{children}</span>;
+    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}>{signifier && <Check size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}{children}</span>;
   }
   if (tone === "watch") {
-    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}><Circle size={8} fill="currentColor" className="text-amber-500 dark:text-amber-400" aria-hidden="true" />{children}</span>;
+    return <span className={`inline-flex items-center gap-1 ${labelClass} text-slate-600 dark:text-slate-300`}>{signifier && <Circle size={8} fill="currentColor" className="text-amber-500 dark:text-amber-400" aria-hidden="true" />}{children}</span>;
   }
   return <span className={`${labelClass} text-slate-500 dark:text-slate-400`}>{children}</span>;
 }
@@ -575,14 +581,14 @@ export function AskPaydayCard({ item, router, maskAmounts, onRefresh, previewMod
   return (
     <div className={`${BRIEF_CARD} p-4`}>
       {/* Penny gradient chip — suppressed on the Penny screen itself */}
-      <div className="flex items-start gap-3">
-        <BriefIcon tone="penny"><CalendarDays size={16} /></BriefIcon>
-        <div className="min-w-0 flex-1">
+      <div data-brief-header className={BRIEF_HEADER}>
+        <BriefIcon><CalendarDays size={16} /></BriefIcon>
+        <div className="flex min-w-0 items-center">
           <PennyKindLabel hideAttribution={hideAttribution}>Payday check</PennyKindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
-            {item.headline}
-          </p>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+          {item.headline}
+        </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
@@ -664,14 +670,14 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
   return (
     <div className={`${BRIEF_CARD} p-4`}>
       {/* Penny gradient chip — suppressed on the Penny screen itself */}
-      <div className="flex items-start gap-3">
-        <BriefIcon tone="penny"><CreditCard size={16} /></BriefIcon>
-        <div className="min-w-0 flex-1">
+      <div data-brief-header className={BRIEF_HEADER}>
+        <BriefIcon><CreditCard size={16} /></BriefIcon>
+        <div className="flex min-w-0 items-center">
           <PennyKindLabel hideAttribution={hideAttribution}>{item.kind_label ?? "Card detail"}</PennyKindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
-            {item.headline}
-          </p>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+          {item.headline}
+        </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
@@ -797,7 +803,7 @@ interface CliffCardProps {
 // approaching/projected risk, not materialised risk — red stays strictly
 // reserved for materialised risk (Red-is-Risk rule). Rhythm items stay
 // neutral, they state an observed pattern, not a risk. The mark is the small
-// dot/check in KindLabel, not the label text or headline (Amber Lives In The
+// inline glyph, not the label text or headline (Amber Lives In The
 // Signifier, DESIGN.md). The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
 //
@@ -829,6 +835,7 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
   const trajectoryIcon = (item.trend && TRAJECTORY_ICON[item.trend]) || TrendingDown;
   const Icon = isTrajectory ? trajectoryIcon : isRhythm ? Clock3 : AlertTriangle;
   const label = isTrajectory ? "Debt trajectory" : isRhythm ? "Spending pattern" : "Rate change";
+  const tone = item.type === "cliff" ? "watch" : isTrajectory ? (item.tone ?? "watch") : "neutral";
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -846,14 +853,14 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div className="flex items-start gap-3 pr-9">
-        <BriefIcon><Icon size={16} /></BriefIcon>
-        <div className="min-w-0 flex-1">
-          <KindLabel tone={item.type === "cliff" ? "watch" : isTrajectory ? (item.tone ?? "watch") : "neutral"}>{label}</KindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
-            <MoneyText text={maskAmounts(item.headline)} />
-          </p>
+      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+        <BriefIcon tone={tone}><Icon size={16} /></BriefIcon>
+        <div className="flex min-w-0 items-center">
+          <KindLabel tone={tone} signifier={false}>{label}</KindLabel>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+          <MoneyText text={maskAmounts(item.headline)} />
+        </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
@@ -1180,14 +1187,14 @@ export function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div className="flex items-start gap-3 pr-9">
+      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
         <BriefIcon><Clock3 size={16} /></BriefIcon>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center">
           <KindLabel>Pace note</KindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
-            <MoneyText text={maskAmounts(item.headline)} />
-          </p>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+          <MoneyText text={maskAmounts(item.headline)} />
+        </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
@@ -1677,26 +1684,22 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div className="flex items-start gap-3">
-        {/* Category icon chip — same size/treatment as Spend tile chips */}
-        <span
-          aria-hidden="true"
-          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
-          style={{ backgroundColor: `${colour}26` }}
-        >
+      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+        {/* The user's category colour stays on the inline glyph, not a tile. */}
+        <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center">
           <Icon size={16} style={{ color: colour }} />
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center">
           <KindLabel>Spending pattern</KindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
-            <MoneyText text={headline} />
-          </p>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+          <MoneyText text={headline} />
+        </p>
 
         {/* Dismiss button — Home-only, see the dismissible docstring above */}
         {dismissible && (
-          <DismissChip label="Hide on Home" onClick={handleDismiss} />
+          <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
         )}
       </div>
 
@@ -1726,7 +1729,7 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
         )
       )}
 
-      {/* Answer pair — outside the icon-indented column, full width. The two
+      {/* Answer pair — full width at the shared reading edge. The two
           real answers sit in a symmetric 50/50 grid; the softer "See the
           payments" deep link drops below as its own quiet, ghost-styled
           full-width row so it reads as subordinate to the pair. On success,
@@ -1859,14 +1862,14 @@ export function PlanEasingCard({ item, hideNetWorth = false, dismissible, onHome
 
   return (
     <div data-plan-easing={capped ? "capped" : "eligible"} className={`${BRIEF_CARD} !shadow-none p-4`}>
-      <div className="flex items-start gap-3 pr-9">
+      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
         <BriefIcon><CalendarClock size={16} /></BriefIcon>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center">
           <KindLabel>Goal plan</KindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
-            {capped ? `Easing is held back for ${name}` : "Cash looks short this period"}
-          </p>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+          {capped ? `Easing is held back for ${name}` : "Cash looks short this period"}
+        </p>
       </div>
       <div className="mt-2">
         {capped ? (
@@ -1984,12 +1987,12 @@ export function AllocationShortfallCard({ item, hideNetWorth = false, dismissibl
 
   return (
     <div data-allocation-card="shortfall" data-move-source={hasSource ? "available" : "none"} className={`${BRIEF_CARD} !shadow-none p-4`}>
-      <div className="flex items-start gap-3 pr-9">
+      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
         <BriefIcon><PiggyBank size={16} /></BriefIcon>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center">
           <KindLabel>Set-aside</KindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{item.headline}</p>
         </div>
+        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{item.headline}</p>
       </div>
       <div className="mt-3">
         <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white">{money(data.shortfall)}</p>
@@ -2361,7 +2364,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
             {needleItem.action && (
               <button
                 onClick={() => router.push(actionHref(needleItem.action!.route))}
-                className="inline-flex items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                className="inline-flex min-h-11 items-center gap-1 text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
                 <ActionLabel>{needleItem.action.label}</ActionLabel>
               </button>

@@ -121,20 +121,18 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           aria-label so it never reads as "dismiss". */}
       <div className="p-4">
         <div className="mb-3 flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-              <WalletCards size={17} />
+          <div className="grid min-w-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-x-2 gap-y-1">
+            <span aria-hidden="true" className="grid size-4 place-items-center text-slate-500 dark:text-slate-300">
+              <WalletCards size={16} />
             </span>
-            <div className="min-w-0">
-              <span
-                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
-                style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-              >
-                <PennyMark size={11} />
-                Penny
-              </span>
-              <h2 className="mt-1 text-[15px] font-bold leading-5 text-slate-950 dark:text-white">Your payday plan</h2>
-            </div>
+            <span
+              className="inline-flex w-fit shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
+              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+            >
+              <PennyMark size={11} />
+              Penny
+            </span>
+            <h2 className="col-span-2 text-[15px] font-bold leading-5 text-slate-950 dark:text-white">Your payday plan</h2>
           </div>
           {showCloseButton && (
             <button
