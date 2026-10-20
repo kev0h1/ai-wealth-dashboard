@@ -24,6 +24,7 @@ function Preview({ params }: {
     const [editing, setEditing] = useState(false);
     const [error, setError] = useState("");
     const [result, setResult] = useState<"saved" | "paused" | "deleted" | "resumed">("saved");
+    const [newPlanKind, setNewPlanKind] = useState<Draft["kind"] | null>(null);
     useEffect(() => {
         const root = document.documentElement;
         const wasDark = root.classList.contains("dark");
@@ -33,8 +34,16 @@ function Preview({ params }: {
         const frame = requestAnimationFrame(() => setReady(true));
         return () => { cancelAnimationFrame(frame); root.classList.toggle("dark", wasDark); root.style.colorScheme = previousScheme; };
     }, [dark]);
-    function begin(step: Step) {
-        setDraft(step === "purpose" ? newDraft(scenario) : { ...saved });
+    function begin(step: Step, kind?: Draft["kind"]) {
+        const nextDraft = step === "purpose" ? newDraft(scenario) : { ...saved };
+        if (step === "purpose" && kind) {
+            nextDraft.kind = kind;
+            nextDraft.destinationId = kind === "goal" ? (scenario === "offline" ? "offline-pot" : "holiday") : "";
+            nextDraft.progressPence = 0;
+            nextDraft.includeExisting = false;
+        }
+        setDraft(nextDraft);
+        setNewPlanKind(step === "purpose" ? kind ?? null : null);
         setEditing(step !== "purpose");
         setError("");
         setEntry(step);
@@ -61,6 +70,8 @@ function Preview({ params }: {
                 }
                 if (nav.canReturnTo(s => s === "review" || s === "edit"))
                     summary();
+                else if (newPlanKind)
+                    nav.goTo(variant === "b" ? "review" : newPlanKind === "goal" ? "target" : "amount");
                 else
                     nav.goTo("kind");
                 return;
@@ -120,6 +131,16 @@ function Preview({ params }: {
                 update({ transferConfirmed: true });
                 summary();
                 return;
+            case "confirm-tracking":
+                if (draft.trackingMode === "payment" && !draft.customMatch.trim() && !value.hasCandidate) {
+                    setError("Add a payment name or choose Not now.");
+                    return;
+                }
+                else {
+                    update({ trackingConfirmed: draft.trackingMode !== "none", transferConfirmed: draft.trackingMode === "payment" });
+                }
+                summary();
+                return;
             case "edit-name":
                 nav.goTo("purpose");
                 return;
@@ -146,7 +167,7 @@ function Preview({ params }: {
                     setError("Check the amount and confirm the account before you save.");
                     return;
                 }
-                setSaved({ ...draft, name: draft.name.trim(), progressPence: value.progressPence, status: "active" });
+                setSaved({ ...draft, name: draft.name.trim(), status: "active" });
                 setResult("saved");
                 nav.goTo("result");
                 return;
@@ -191,11 +212,11 @@ function Preview({ params }: {
       <nav aria-label="Design direction" className="flex flex-wrap gap-2">{(["a", "b"] as const).map(v => <Link key={v} href={href(v, scenario)} aria-current={variant === v ? "page" : undefined} className={variant === v ? primary : quiet}>{v === "a" ? "A · Small steps" : "B · One clear page"}</Link>)}</nav>
       <div className="space-y-2"><label htmlFor="g291-example" className="block text-sm font-semibold">Try an example</label><select id="g291-example" className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-base dark:border-slate-600 dark:bg-slate-800" value={scenario} onChange={e => window.location.assign(href(variant, e.target.value as Scenario))}>{SCENARIOS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}</select><Link className={`${button} -ml-4 text-indigo-700 dark:text-indigo-300`} href={href(variant, scenario, !dark)}>Use {dark ? "light" : "dark"} mode</Link></div>
       <section aria-label="Example plan" className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-bold">{saved.name}</h2><span data-g291-saved-status={saved.status} className="text-sm text-slate-600 dark:text-slate-300">{saved.status === "paused" ? "Paused" : saved.status === "deleted" ? "Deleted in this preview" : saved.kind === "goal" ? "Goal" : "Set-aside"}</span></div>
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2"><h2 className="min-w-0 break-words text-lg font-bold">{saved.name}</h2><span data-g291-saved-status={saved.status} className="text-sm text-slate-600 dark:text-slate-300">{saved.status === "paused" ? "Paused" : saved.status === "deleted" ? "Deleted in this preview" : saved.kind === "goal" ? "Goal" : "Set-aside"}</span></div>
         {saved.status !== "deleted" && <>{savedFacts.slicePence !== null && <PlanContribution amount={savedFacts.slicePence / 100} cadence={saved.kind === "goal" ? "estimated each pay period" : saved.cadence === "once" ? "this pay period" : "each pay period"} {...(saved.kind === "goal" ? { progress: { current: savedFacts.progressPence / 100, target: saved.targetPence / 100 } } : {})}/>}<p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{saved.status === "paused" ? "Nothing is held back while this plan is paused." : !savedFacts.source ? "Choose a paying account before this amount is held back." : savedFacts.slicePence === null ? "A new forecast is needed for this date." : `${money(savedFacts.reservePence ?? 0)} stays held back in ${savedFacts.source.provider}.`}</p><button type="button" data-g291-action="open-view" className={`${primary} mt-4 w-full`} onClick={() => begin("view")}>View plan</button></>}
       </section>
-      <button type="button" data-g291-action="start" className={`${quiet} w-full`} onClick={() => begin("purpose")}>Make a new plan</button>
-      <details className="border-t border-slate-300 pt-2 text-sm leading-6 dark:border-slate-700"><summary className="min-h-11 cursor-pointer py-3 font-semibold">What to review</summary><div className="space-y-3 pt-2 text-slate-600 dark:text-slate-300"><p>{variant === "a" ? "A asks one short question at a time." : "B asks for a name and target type, then keeps the plan on one editable page."} Both use one sheet for viewing and editing.</p><p>Goal Pause is a proposed action and would need API support. Set-asides already support pausing. All actions here are local to this preview.</p><p>The July 2027 amounts use a synthetic nine-pay-period quote. A different date needs a fresh forecast. Affordability is shown only for the unchanged short-month example.</p><p>{COPY.noMove} {COPY.standingOrder}</p></div></details>
+      <div className="grid gap-2 sm:grid-cols-3"><button type="button" data-g291-action="start-goal" className={`${primary} w-full`} onClick={() => begin("purpose", "goal")}>New goal</button><button type="button" data-g291-action="start-aside" className={`${quiet} w-full`} onClick={() => begin("purpose", "set-aside")}>New set-aside</button><button type="button" data-g291-action="start" className={`${quiet} w-full`} onClick={() => begin("purpose")}>Help me choose</button></div>
+      <details className="border-t border-slate-300 pt-2 text-sm leading-6 dark:border-slate-700"><summary className="min-h-11 cursor-pointer py-3 font-semibold">What to review</summary><div className="space-y-3 pt-2 text-slate-600 dark:text-slate-300"><p>{variant === "a" ? "A asks one short question at a time." : "B starts with an editable summary."} Both preselect the relevant path when you start a goal or a set-aside.</p><p>Changing the month updates the synthetic monthly-calendar contribution. The next period starts on 1 November 2026. Including pot money is an explicit choice, and only free pot money is offered.</p><p>Category tracking is proposed design capability only. It is evidence, not a claim that everyday spending has become saving.</p><p>{COPY.noMove} {COPY.standingOrder}</p></div></details>
     </div>
     {open && ready && <UpcomingFlowSheet<Step> key={generation} initialView={entry} onClose={() => setOpen(false)} renderView={(step, nav) => {
                 const visibleDraft = step === "view" || step === "pause" || step === "delete" ? saved : draft;

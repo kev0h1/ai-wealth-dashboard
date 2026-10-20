@@ -58,7 +58,7 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "plans-simple",
     name: "Plans made simple · G291",
-    description: "Two working journey proposals: A Small steps, B One clear page. Purpose and target first, explicit paying-account confirmation, keep money here by default, optional transfer matching, direct Edit/Pause/Delete and Back within one production flow frame. Goals and set-asides retain different money rules. Synthetic examples only; goal Pause is a proposed capability, not a live bank action. G274's keep-here intent is folded into this review. No production change before selection.",
+    description: "Revised from Kevin's feedback: A Small steps, B One clear page. Goal/set-aside starts preselect the path, month changes keep the estimated contribution, existing pot money is an explicit choice, and tracking can use a payment or category. Concrete Japan-trip and groceries examples, clearer review and one footer action. Synthetic examples only; category tracking and goal Pause are proposed capabilities. G274's keep-here intent remains here. No production change before selection.",
     variants: [{ label: "A · Small steps", value: "a" }, { label: "B · One clear page", value: "b" }],
     states: [{ label: "Known transfer", value: "matched" }, { label: "No transfer yet", value: "no-history" }, { label: "One account", value: "one-account" }, { label: "Several accounts", value: "many-accounts" }, { label: "Month is short", value: "short" }, { label: "Offline pot", value: "offline" }, { label: "No paying account", value: "no-source" }],
     group: "current",
