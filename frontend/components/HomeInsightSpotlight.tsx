@@ -113,7 +113,7 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
     load(); // surface the next eligible insight (or nothing)
   }
 
-  // AI-surface card — identity via icon chip gradient (Penny Gradient Rule), no side rail
+  // The New badge keeps Penny's signature; the topic cue is unfilled.
   return (
     <div className="px-4 lg:px-0 fade-in">
       <div
@@ -142,15 +142,14 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
           onClick={() => router.push(spotlightHref(insight))}
           className="w-full text-left p-4 active:scale-[0.98] transition-transform duration-150"
         >
-          {/* Topic chip + new badge — tasteful icon-chip + tint, matching
-              InsightCard's CategoryChip treatment (no solid violet slabs;
-              the indigo→violet gradient stays reserved for Penny). */}
-          <div className="flex items-center gap-2 mb-3 pr-8">
+          {/* Compact topic cue and new badge. The eyebrow keeps a 24px row so
+              the existing close target always has clear space above the copy. */}
+          <div className="flex min-h-6 items-center gap-2 mb-3 pr-8">
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+              <span className="flex size-4 shrink-0 items-center justify-center text-indigo-500 dark:text-indigo-400">
                 {(() => {
                   const ChipIcon = insightCategoryIcon(insight.category);
-                  return <ChipIcon size={15} className="text-indigo-500 dark:text-indigo-400" />;
+                  return <ChipIcon size={16} />;
                 })()}
               </span>
               <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">{insight.label}</span>
