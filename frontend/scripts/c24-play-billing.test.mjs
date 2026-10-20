@@ -68,7 +68,6 @@ const ssr = renderToStaticMarkup(React.createElement(Probe));
 check("usePurchaseChannel renders 'unknown' on an SSR pass, never a purchasable channel", ssr.includes(">unknown<") && !ssr.includes("stripe_web") && !ssr.includes("play<"));
 
 // ── 3. Offer text follows the store ──────────────────────────────────────────
-const entry = (id, price, intro, extra = {}) => ({ identifier: id, priceString: price, introductoryPrice: intro, ...extra });
 const phase = (units, unit, price = 0) => ({ price, subscriptionPeriod: { numberOfUnits: units, unitString: unit } });
 check("a 14 day free phase the store reports is described as 14 days", describeFreeTrial({ introductoryPrice: phase(14, "day") })?.periodText === "14 days");
 check("a 3 day phase is described as 3 days, not any fixed length", describeFreeTrial({ introductoryPrice: phase(3, "day") })?.periodText === "3 days");
@@ -76,16 +75,37 @@ check("a 1 week phase is singular", describeFreeTrial({ introductoryPrice: phase
 check("no offer, no trial", describeFreeTrial({ introductoryPrice: null }) === null && describeFreeTrial({}) === null);
 check("a paid introductory phase is not described as free", describeFreeTrial({ introductoryPrice: phase(1, "month", 1.99) }) === null);
 check("a malformed period promises nothing", describeFreeTrial({ introductoryPrice: { price: 0, subscriptionPeriod: {} } }) === null && periodText({ numberOfUnits: 0, unitString: "day" }) === null && periodText(undefined) === null && periodText({ numberOfUnits: 2, unitString: "unknown" }) === null);
+// The plugin's real Android shape (@capgo/native-purchases definitions.d.ts):
+// for a subscription entry `identifier` is the BASE PLAN id and
+// `planIdentifier` is the PRODUCT id; a one-time product has `identifier` =
+// product id and no planIdentifier.
+const sub = (productId, basePlan, price, intro, extra = {}) =>
+  ({ identifier: basePlan, planIdentifier: productId, priceString: price, introductoryPrice: intro, ...extra });
 const views = toProductViews([
-  entry("any.id", "£7.77", null, { planIdentifier: "base", offerToken: "tok-plain" }),
-  entry("any.id", "£7.77", phase(14, "day"), { planIdentifier: "base", offerToken: "tok-trial" }),
-  entry("other.id", "£1.11", null, { planIdentifier: "b2", offerToken: "tok-o" }),
+  sub("sorted.lite.monthly", "monthly", "£5.99", null, { offerToken: "t1" }),
+  sub("sorted.lite.monthly", "monthly", "£5.99", phase(14, "day"), { offerToken: "tok-trial" }),
+  sub("sorted.lite.yearly", "yearly", "£49.99", null, { offerToken: "tok-y" }),
 ]);
-check("the store's own price string is carried untouched", views["any.id"].priceString === "£7.77" && views["other.id"].priceString === "£1.11");
-check("an entry carrying a free trial wins over the plain base plan, with its offer token", views["any.id"].freeTrial?.periodText === "14 days" && views["any.id"].offerToken === "tok-trial");
-check("an entry with no trial promises none", views["other.id"].freeTrial === null);
+check("a subscription entry is keyed by its product id (planIdentifier), not the base plan",
+  Object.keys(views).sort().join(",") === "sorted.lite.monthly,sorted.lite.yearly" && !("monthly" in views) && !("yearly" in views));
+check("a subscription view carries the base plan id (identifier) as planIdentifier", views["sorted.lite.monthly"].planIdentifier === "monthly" && views["sorted.lite.yearly"].planIdentifier === "yearly");
+check("a subscription view's productId is the product id", views["sorted.lite.monthly"].productId === "sorted.lite.monthly");
+check("the store's own price string is carried untouched", views["sorted.lite.monthly"].priceString === "£5.99" && views["sorted.lite.yearly"].priceString === "£49.99");
+check("an entry carrying a free trial wins over the plain base plan, with its offer token", views["sorted.lite.monthly"].freeTrial?.periodText === "14 days" && views["sorted.lite.monthly"].offerToken === "tok-trial");
+check("an entry with no trial promises none", views["sorted.lite.yearly"].freeTrial === null);
+check("a plain subscription entry keeps its offer token",
+  toProductViews([sub("sorted.lite.monthly", "monthly", "£5.99", null, { offerToken: "t1" })])["sorted.lite.monthly"].offerToken === "t1");
 check("a trial entry listed first is not displaced by a later plain one",
-  toProductViews([entry("a", "£1", phase(7, "day"), { offerToken: "t" }), entry("a", "£1", null, { offerToken: "p" })]).a.offerToken === "t");
+  toProductViews([sub("a.p", "monthly", "£1", phase(7, "day"), { offerToken: "t" }), sub("a.p", "monthly", "£1", null, { offerToken: "p" })])["a.p"].offerToken === "t");
+const oneTime = toProductViews([{ identifier: "sorted.penny.20", priceString: "£0.99" }]);
+check("a one-time product is keyed by its identifier with no base plan", Object.keys(oneTime).join(",") === "sorted.penny.20" && oneTime["sorted.penny.20"].planIdentifier === null && oneTime["sorted.penny.20"].productId === "sorted.penny.20" && oneTime["sorted.penny.20"].priceString === "£0.99");
+const shared = toProductViews([
+  sub("sorted.lite.monthly", "monthly", "£5.99", null, { offerToken: "a" }),
+  sub("sorted.plus.monthly", "monthly", "£12.99", null, { offerToken: "b" }),
+]);
+check("two products sharing the base plan id 'monthly' stay two separate views",
+  Object.keys(shared).length === 2 && shared["sorted.lite.monthly"].priceString === "£5.99" && shared["sorted.plus.monthly"].priceString === "£12.99"
+  && shared["sorted.lite.monthly"].planIdentifier === "monthly" && shared["sorted.plus.monthly"].planIdentifier === "monthly");
 
 // ── Charged versus not charged (F1) ──────────────────────────────────────────
 check("only the plugin's USER_CANCELED code is a user cancellation", isCancellation({ code: "USER_CANCELED" }) === true);

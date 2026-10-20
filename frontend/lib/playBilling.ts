@@ -126,19 +126,28 @@ type EntryLike = Pick<Product, "identifier" | "priceString"> &
 
 /** One view per product id. Play returns one entry per base plan and offer;
  *  an entry carrying a free trial wins over the plain base plan, because the
- *  store only lists it when this user can have it. */
+ *  store only lists it when this user can have it.
+ *
+ *  Field meaning differs by product type (@capgo/native-purchases
+ *  definitions.d.ts, Android subscription notes). For a subscription entry
+ *  `identifier` is the BASE PLAN id ("monthly") and `planIdentifier` is the
+ *  PRODUCT id ("sorted.lite.monthly"); base plan ids repeat across products,
+ *  so keying by `identifier` would collapse them. For a one-time product
+ *  `identifier` is the product id and there is no `planIdentifier`. */
 export function toProductViews(entries: EntryLike[]): Record<string, PlayProductView> {
   const out: Record<string, PlayProductView> = {};
   for (const entry of entries) {
+    const isSubscription = typeof entry.planIdentifier === "string" && entry.planIdentifier !== "";
+    const productId = isSubscription ? (entry.planIdentifier as string) : entry.identifier;
     const view: PlayProductView = {
-      productId: entry.identifier,
+      productId,
       priceString: entry.priceString,
-      planIdentifier: entry.planIdentifier ?? null,
+      planIdentifier: isSubscription ? entry.identifier : null,
       offerToken: entry.offerToken ?? null,
       freeTrial: describeFreeTrial(entry),
     };
-    const current = out[entry.identifier];
-    if (!current || (!current.freeTrial && view.freeTrial)) out[entry.identifier] = view;
+    const current = out[productId];
+    if (!current || (!current.freeTrial && view.freeTrial)) out[productId] = view;
   }
   return out;
 }
