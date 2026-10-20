@@ -943,6 +943,25 @@ static export (`MOBILE_TARGET` pattern) and publish it with Codemagic's
 `scripts/release.py deploy` starts `android-capacitor-prod` right after
 `ios-capacitor-prod` (see "Release trigger").
 
+**Instance type: `mac_mini_m2` (C28, 2026-10-20).** Both Android workflows run
+on the same Apple silicon Mac mini as the iOS pair, not on Linux. Codemagic's
+free personal plan has no Linux builders (`linux_x2` and `linux_x4` need
+billing enabled), and the first manual start of `android-capacitor` on
+`linux_x2` was refused with "The selected instance type is not available with
+the current billing plan". Consequences for anyone editing these steps or the
+`capacitor-spike/scripts/` they call: the build machine is macOS, so use
+portable shell. No `sed -i` without a suffix (BSD sed reads the next argument
+as the backup suffix; use `perl -pi -e`, as `set-android-version.sh` does), no
+`base64 -w` (use `base64 --decode` to decode, and
+`base64 < file | tr -d '\n'` to encode), no `apt-get` (use Homebrew; the
+workflow runs `brew install imagemagick` for `apply-icons.sh` because the
+image does not list ImageMagick), and nothing that needs bash 4 (macOS
+`/bin/bash` is 3.2: no `declare -A`, no `${var^^}`). Java is pinned with
+`java: 21` because the macOS image's default is 17. The Android SDK is
+preinstalled (platforms and build-tools up to 36.x) and Codemagic exports
+`ANDROID_SDK_ROOT`; the bundle step writes it to `android/local.properties`
+and does not hardcode a path. The scripts still run unchanged on the Linux VPS.
+
 **Manual-start only for now.** Neither workflow has an active `triggering:`
 block, because the three Codemagic inputs below do not exist yet and an
 automatic trigger would fail every push to `main`. Each workflow carries a
@@ -964,7 +983,8 @@ have no `groups:` key.
 2. **Variable group `google_play`** (mark both secure):
    - `GCLOUD_SERVICE_ACCOUNT_CREDENTIALS`: the Play service-account JSON,
      pasted as is.
-   - `GOOGLE_SERVICES_JSON_BASE64`: `base64 -w0 capacitor-spike/google-services.json`.
+   - `GOOGLE_SERVICES_JSON_BASE64`: `base64 < capacitor-spike/google-services.json | tr -d '\n'`
+     (single-line output; works on macOS and Linux).
      The file is gitignored, so CI restores it from this variable (the build
      fails loudly if it is unset).
 3. **The Play service account** behind (2). In Google Cloud (the project
@@ -983,7 +1003,8 @@ keystore reference), `npx cap sync android`, sets the version, applies
 `debugSymbolLevel SYMBOL_TABLE` (`setup-android-debug-symbols.sh`), runs
 `./gradlew bundleRelease` (CI has no product flavours, so not
 `bundleSortedRelease`, and Board is not built), and refuses to publish an
-unsigned bundle. Java 21 (Capacitor 8's Android library compiles at Java 21).
+unsigned bundle. Java 21 (Capacitor 8's Android library compiles at Java 21;
+the macOS image defaults to 17, so `java: 21` is set explicitly).
 Artifacts: the `.aab`, plus `native-debug-symbols.zip` when a bundled native
 library still carries symbols (today the only native library, androidx
 datastore, is already stripped, so no zip is produced).
