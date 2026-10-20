@@ -968,3 +968,8 @@ def test_plan_shortfall_body_normal_name_unchanged():
         "The Number One at NatWest looks about £86 short of what its plans need "
         "after its payments through Sat 31 Oct. Review it on Upcoming."
     )
+
+
+def test_plan_shortfall_body_surname_and_initials_is_holder_named():
+    body = notifications._plan_shortfall_body("Maingi K M", "HSBC", 86.0, _date(2026, 10, 31), _TOK)
+    assert body.startswith("Your HSBC account looks about £86 short")
