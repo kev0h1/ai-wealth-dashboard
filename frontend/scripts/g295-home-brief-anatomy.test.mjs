@@ -75,7 +75,7 @@ assert.equal(F.PAYDAY_PLAN_ITEM.total + F.PAYDAY_PLAN_ITEM.salary.stays, F.PAYDA
 for (const destination of F.PAYDAY_PLAN_ITEM.dests) assert.equal(destination.balance + destination.move, destination.target, "payday destination figures reconcile");
 assert.equal(F.ALLOCATION_ITEM.allocation_shortfall.moves.reduce((sum, move) => sum + move.amount, 0), F.ALLOCATION_ITEM.allocation_shortfall.shortfall, "allocation movement reconciles to its shortfall");
 assert.equal(2100 + 504, 2604, "trajectory fixture's rate-known and unclear balances reconcile");
-assert.match(F.TRAJECTORY_ITEM.brief_lead.companion, /more owed than three months ago/, "trajectory lead remains a flow, not a stock balance");
+assert.match(F.TRAJECTORY_ITEM.brief_lead.companion, /more than 3 months ago/, "trajectory lead remains a flow, not a stock balance");
 assert.equal(F.PLAN_EASING_DEFERRED_ITEM.plan_easing.eased_this_period, 70, "deferred goal figure stays the contribution, not the reduction");
 assert.equal(F.SPOTLIGHT_TIP.triggered_by.reduce((sum, trigger) => sum + trigger.monthly_amount, 0), 31, "tip sources reconcile to its monthly total");
 assert.equal(F.COVERED_ITEM.id, "g292-covered", "covered regression remains the approved G292 fixture");

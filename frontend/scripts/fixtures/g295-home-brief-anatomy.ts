@@ -49,44 +49,44 @@ const SAFE_MOVE: MoveMap = {
 export const TRAJECTORY_ITEM: CompanionItem = {
   id: "g295-trajectory-rising",
   type: "trajectory",
-  headline: "Your cards are going up, not down, and it isn't clear whether part of the balance is charging interest.",
-  body: "£2,100 of the balance is on 0% deals. No interest has shown up on the other £504, though that could mean it's cleared each statement, or on a deal that isn't on file. £2,604 is carried across 3 cards in total. 2 cards have no rate on file, so interest there isn't counted.",
+  headline: "You owe more on your cards than 3 months ago. We can't tell if any of it has interest.",
+  body: "You owe £2,604 on 3 cards. £2,100 of it is on 0% deals. We can't see any interest on the other £504. You may pay it off each month. Or it may be on a deal we don't know about. We don't know the rate on 2 cards, so their interest isn't included.",
   action: { label: "See the route", route: "/planning" },
   estimated: false,
   tone: "watch",
   trend: "rising",
-  brief_lead: { value: "£186", companion: "more owed than three months ago" },
+  brief_lead: { value: "£186", companion: "more than 3 months ago" },
 };
 
 export const TRAJECTORY_FALLING_ITEM: CompanionItem = {
   id: "g295-trajectory-falling",
   type: "trajectory",
-  headline: "Your cards are coming down.",
-  body: "The whole balance is on 0% deals, so no interest is being charged right now. £1,740 is carried across 3 cards in total.",
+  headline: "You owe less on your cards than 3 months ago. None of it has interest right now.",
+  body: "You owe £1,740 on 3 cards. All of it is on 0% deals.",
   action: null,
   estimated: false,
   tone: "positive",
   trend: "falling",
-  brief_lead: { value: "£240", companion: "less owed than three months ago" },
+  brief_lead: { value: "£240", companion: "less than 3 months ago" },
 };
 
 export const TRAJECTORY_FLAT_ITEM: CompanionItem = {
   id: "g295-trajectory-flat",
   type: "trajectory",
-  headline: "Your cards are holding steady, not coming down.",
-  body: "The whole balance is on 0% deals, so no interest is being charged right now. £840 is carried across 3 cards in total.",
+  headline: "You owe about the same on your cards as 3 months ago. None of it has interest right now.",
+  body: "You owe £840 on 3 cards. All of it is on 0% deals.",
   action: null,
   estimated: false,
   tone: "neutral",
   trend: "flat",
-  brief_lead: { value: "£0", companion: "change over the last three months" },
+  brief_lead: { value: "£0", companion: "change over the last 3 months" },
 };
 
 export const TRAJECTORY_UNKNOWN_ITEM: CompanionItem = {
   id: "g295-trajectory-unknown",
   type: "trajectory",
-  headline: "There isn't enough card history yet to say which way the cards are going.",
-  body: "The whole balance is on 0% deals, so no interest is being charged right now. £840 is carried across 3 cards in total. The direction needs at least one completed month of card history behind it.",
+  headline: "We need more card history to tell if you owe more or less.",
+  body: "You owe £840 on 3 cards. All of it is on 0% deals. We need at least 1 full month of card history to tell.",
   action: null,
   estimated: true,
   tone: "neutral",
