@@ -54,16 +54,17 @@
 // something is EMITTED, not proof that it is SEEN.
 
 import React from "react";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { bestSpendAccount, spendFromTreatmentPlan } from "../lib/spendFromAccount.ts";
 import { approvedSpendFromTreatment } from "../components/SafeToSpendCard.tsx";
 
 let failures = 0;
 
-function check(label, cond) {
+function check(label, cond, detail) {
   if (!cond) {
     failures += 1;
-    console.error(`FAIL: ${label}`);
+    console.error(`FAIL: ${label}${detail ? ` (${detail})` : ""}`);
   } else {
     console.log(`PASS: ${label}`);
   }
@@ -189,32 +190,77 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("G234: the footnote ties the figure to Safe to Spend", footnote.includes("never more than your Safe to Spend"));
 }
 
-// ── G300: a binding pool renders one combined line and no per-account figures ──
+// ── G300 + G303: a binding pool renders ONE combined line, bank names, no column ──
 {
   const E = (v) => ({ short: false, headroom: v, spend_from_headroom: v, spend_from_capped: true });
-  const combinedPlan = (markBank) => spendFromTreatmentPlan(
-    bestSpendAccount({ monzo: E(9), chase: E(9) }, ACCOUNTS), () => markBank, 9,
-  );
+  const ACCTS = [
+    account({ id: "barclays", name: "Premier Current Account", provider: "Barclays", provider_id: "barclays_personal" }),
+    account({ id: "hsbc", name: "MAINGI K M", provider: "HSBC", provider_id: "hsbc_personal" }),
+  ];
+  const combinedPlan = (markBank, elig = { barclays: E(9), hsbc: E(9) }, accts = ACCTS) =>
+    spendFromTreatmentPlan(bestSpendAccount(elig, accts), () => markBank, 9);
+  const textOf = (markup) => markup.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
   for (const [label, markBank] of [["bank rail", true], ["name fallback", false]]) {
     const plan = combinedPlan(markBank);
-    check(`G300: ${label} plan is combined`, plan.combined === true);
-    const { markup } = renderTreatment(plan);
-    check(`G300: ${label} states the single combined limit`, markup.includes("Spend up to £9 from Everyday or Flex current."));
-    check(`G300: ${label} shows no per-account figure`, (markup.match(/£9/g) ?? []).length === 1);
-    check(`G300: ${label} drops the per-account footnote`, !markup.includes("Each figure is what that account can cover"));
+    check(`G303: ${label} plan is combined`, plan.combined === true);
+    const t = approvedSpendFromTreatment(plan, amount, false, noop, noop);
+    check(`G303: ${label} has no hero aside (no right-hand column)`, t.heroAside == null);
+    const markup = renderToStaticMarkup(React.createElement(React.Fragment, null, t.body));
+    check(`G303: ${label} has no amountless icon column`, !markup.includes('data-g115-treatment="bank-rail"'));
+    check(`G303: ${label} has no "Spend from" label`, !markup.includes("Spend from</p>") && !/>Spend from</.test(markup));
+    check(`G303: ${label} is one line reading with bank names`, textOf(markup) === "Spend up to £9 from Barclays or HSBC.");
+    check(`G303: ${label} names no holder or product`, !/maingi/i.test(markup) && !markup.includes("Premier Current Account"));
+    check(`G303: ${label} shows the figure once`, (markup.match(/£9/g) ?? []).length === 1);
+    check(`G303: ${label} drops the per-account footnote`, !markup.includes("Each figure is what that account can cover"));
+    check(`G303: ${label} uses the agreed combined text style`, /text-\[12px\][^"]*font-semibold/.test(markup) && markup.includes("dark:text-slate-200"));
+    check(`G303: exactly one paragraph`, (markup.match(/<p /g) ?? []).length === 1);
+    const badges = (markup.match(/<img /g) ?? []).length;
+    check(`G303: ${label} badges inline before each name only when marks exist`, markBank ? badges === 2 : true);
   }
-  const railMarkup = renderTreatment(combinedPlan(true)).markup;
-  check("G300: the rail keeps its list label", railMarkup.includes("Accounts with room to spend from"));
-  check("G300: the sr-only text carries no figure in the combined case", railMarkup.includes("has room to spend from") && !railMarkup.includes("spare"));
+  // Bank without a bundled mark falls back to its name alone.
+  const unmarked = renderToStaticMarkup(React.createElement(React.Fragment, null,
+    approvedSpendFromTreatment(combinedPlan(false, { barclays: E(9), x: E(9) }, [
+      ACCTS[0], account({ id: "x", name: "Everyday", provider: "Zzyzx Bank", provider_id: "zzyzx" }),
+    ]), amount, false, noop, noop).body));
+  check("G303: a bank with no mark falls back to its name alone", !unmarked.includes("/banks/zzyzx") && textOf(unmarked).startsWith("Spend up to £9 from Barclays or"), textOf(unmarked));
+  // Cover move clause.
   for (const markBank of [true, false]) {
     const withMove = renderToStaticMarkup(React.createElement(React.Fragment, null,
-      ...(() => { const t = approvedSpendFromTreatment(combinedPlan(markBank), amount, true, noop, noop); return [t.body]; })()));
-    check(`G300: cover-move combined paragraph reads cleanly (${markBank ? "rail" : "names"})`,
-      withMove.includes("Spend up to £9 from Everyday or Flex current. The move above is already held back.")
-      && /text-\[12px\][^"]*font-semibold/.test(withMove));
+      approvedSpendFromTreatment(combinedPlan(markBank), amount, true, noop, noop).body));
+    check(`G303: cover-move clause is appended (${markBank ? "rail" : "names"})`,
+      textOf(withMove) === "Spend up to £9 from Barclays or HSBC. The move above is already held back.");
   }
-  const unknown = spendFromTreatmentPlan(bestSpendAccount({ monzo: E(9), chase: E(9) }, ACCOUNTS), () => true);
+  // Same bank twice reads "from Barclays" once.
+  const same = [
+    account({ id: "b1", name: "Premier Current Account", provider: "Barclays", provider_id: "barclays_personal" }),
+    account({ id: "b2", name: "MAINGI K M", provider: "Barclays", provider_id: "barclays_personal" }),
+  ];
+  const sameMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null,
+    approvedSpendFromTreatment(combinedPlan(true, { b1: E(9), b2: E(9) }, same), amount, false, noop, noop).body));
+  check("G303: same bank twice reads from Barclays once", textOf(sameMarkup) === "Spend up to £9 from Barclays.", textOf(sameMarkup));
+  check("G303: same bank twice shows one badge", (sameMarkup.match(/<img /g) ?? []).length === 1);
+  const unknown = spendFromTreatmentPlan(bestSpendAccount({ barclays: E(9), hsbc: E(9) }, ACCTS), () => true);
   check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is what that account can cover"));
+}
+
+// ── G303: the per-account case is byte-identical to main ───────────────────
+{
+  const baseline = JSON.parse(readFileSync(new URL("./fixtures/g303-per-account-baseline.json", import.meta.url), "utf8"));
+  for (const [k, mark] of [["rail", true], ["names", false]]) {
+    for (const cm of [false, true]) {
+      const plan = spendFromTreatmentPlan(
+        bestSpendAccount({ monzo: { short: false, headroom: 40, spend_from_headroom: 40 }, chase: { short: false, headroom: 30, spend_from_headroom: 30 } }, ACCOUNTS),
+        () => mark, 120,
+      );
+      const t = approvedSpendFromTreatment(plan, amount, cm, noop, noop);
+      const markup = renderToStaticMarkup(React.createElement(React.Fragment, null, t.heroAside ?? null, t.body));
+      check(`G303: per-account ${k} (cover move ${cm}) unchanged from main`, markup === baseline[`${k}-${cm}`]);
+    }
+  }
+  const railMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null, approvedSpendFromTreatment(
+    spendFromTreatmentPlan(bestSpendAccount({ monzo: { short: false, headroom: 40 }, chase: { short: false, headroom: 30 } }, ACCOUNTS), () => true, 120),
+    amount, false, noop, noop).heroAside));
+  check("G303: per-account keeps the SPEND FROM column", railMarkup.includes('data-g115-treatment="bank-rail"') && railMarkup.includes(">Spend from<"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

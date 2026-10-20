@@ -703,6 +703,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
     group: "earlier",
   },
+  {
+    slug: "g303-spend-from",
+    name: "Spend from, combined line · G303",
+    description:
+      "G303 preview, delete on fold-in. Kevin's fix for G300: when the pooled Safe to Spend binds for two accounts the right-hand SPEND FROM column is gone and ONE line sits under the hero, \"Spend up to £9 from Barclays or HSBC.\", with a small bank badge before each bank name and bank names (never account names) · the same bank twice is named once · figures that fit inside the pool keep the SPEND FROM column and footnote exactly as before · renders the production SafeToSpendCard with synthetic props · ?case=combined|same-bank|per-account&mode=light|dark&move=0|1",
+    states: [{ label: "Combined", value: "combined" }, { label: "Same bank", value: "same-bank" }, { label: "Per account", value: "per-account" }],
+  },
 ];
 
 const CURRENT_ROUTES = ROUTES.filter((route) => (route.group ?? "current") === "current");

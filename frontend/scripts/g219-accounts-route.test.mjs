@@ -66,10 +66,13 @@ for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
 }
 
 // 5. Bank rail and name-row fallback carry no anchors of their own.
-const rail = render({});
+// G303: these fixture figures (£265 and up) only fit inside a pool this large;
+// a smaller pool would (correctly) collapse them into one combined line.
+const BIG_POOL = { data: { ...FIGURE_DATA["on-track"], safe_to_spend: 10000 } };
+const rail = render(BIG_POOL);
 assert.ok(rail.includes('data-g115-treatment="bank-rail"'), "bank rail renders");
 assert.deepEqual(hrefs(rail), ["/accounts"], "rail rows are not links");
-const named = render({ spendFrom: SPEND_FROM_NAMED });
+const named = render({ ...BIG_POOL, spendFrom: SPEND_FROM_NAMED });
 assert.ok(named.includes('data-g115-treatment="name-fallback"'), "name fallback renders");
 assert.deepEqual(hrefs(named), ["/accounts"], "name rows are not links");
 

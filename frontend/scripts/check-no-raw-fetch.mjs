@@ -54,6 +54,7 @@ const ALLOW = [
     ["g88-home-real/G88HomeRealClient.tsx"],
     ["g134-home-inventory/HomeInventoryClient.tsx"],
     ["sync-loading/SyncLoadingClient.tsx"],
+    ["g303-spend-from/G303Client.tsx"],
     ["home-cleanup/HomeCleanupClient.tsx"],
     ["home-accounts-rhythm/HomeAccountsRhythmClient.tsx"],
     ["card-terms-sheet/CardTermsSheetClient.tsx"],

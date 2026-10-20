@@ -275,19 +275,62 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
 }
 
+/** G303: how the combined sentence is built, as parts, so the card can put a
+ *  small bank badge before each name while the plain string (hero line,
+ *  tests, screen readers) is composed from the very same parts. */
+export type SpendFromCombinedParts = {
+  /** "Spend up to £9 from" (or "... in total from" when a clause follows). */
+  lead: string;
+  /** One group per distinct label. Two accounts at the same bank collapse to
+   *  one group ("from Barclays" once); the first account's entry carries the
+   *  badge. */
+  groups: { label: string; entry: SpendFromAccount }[];
+  /** "X can cover up to £Y." for accounts below the pool. Empty when two
+   *  accounts share a label, because one name could not say which is meant. */
+  clauses: string[];
+};
+
+/**
+ * G303: the combined sentence in parts. `labelFor` names an account in the
+ * line; it defaults to the account's own display name (what the pure tests
+ * use) and the card passes the bank name (G212's rule: an account named
+ * after its holder or a generic product is spoken as its bank, and a bank
+ * name is always safe, so the combined line always uses it).
+ */
+export function spendFromCombinedParts(
+  entries: SpendFromAccount[],
+  pool: number,
+  amount: (value: number) => string,
+  labelFor: (entry: SpendFromAccount) => string = (entry) => entry.name,
+): SpendFromCombinedParts {
+  const limit = Math.max(0, pool);
+  const groups: SpendFromCombinedParts["groups"] = [];
+  for (const entry of entries) {
+    const label = labelFor(entry);
+    if (!groups.some((group) => group.label === label)) groups.push({ label, entry });
+  }
+  const sameBank = groups.length < entries.length;
+  const below = sameBank ? [] : entries.filter((entry) => Math.round(entry.headroom) < Math.round(limit));
+  return {
+    lead: below.length === 0
+      ? `Spend up to ${amount(limit)} from`
+      : `Spend up to ${amount(limit)} in total from`,
+    groups,
+    clauses: below.map((entry) => `${labelFor(entry)} can cover up to ${amount(entry.headroom)}.`),
+  };
+}
+
 /** The one combined sentence, plus one short clause per account that can
  *  cover less than the pool. Call only when `spendFromIsCombined` is true. */
 export function spendFromCombinedLine(
   entries: SpendFromAccount[],
   pool: number,
   amount: (value: number) => string,
+  labelFor?: (entry: SpendFromAccount) => string,
 ): string {
-  const limit = Math.max(0, pool);
-  const names = joinNames(entries.map((entry) => entry.name));
-  const below = entries.filter((entry) => Math.round(entry.headroom) < Math.round(limit));
-  if (below.length === 0) return `Spend up to ${amount(limit)} from ${names}.`;
-  const clauses = below.map((entry) => `${entry.name} can cover up to ${amount(entry.headroom)}.`);
-  return [`Spend up to ${amount(limit)} in total from ${names}.`, ...clauses].join(" ");
+  const parts = spendFromCombinedParts(entries, pool, amount, labelFor);
+  const names = joinNames(parts.groups.map((group) => group.label));
+  return [`${parts.lead} ${names}.`, ...parts.clauses].join(" ");
 }
 
 /** One quiet line under the Safe-to-Spend hero. Never implies the figure is
