@@ -168,7 +168,7 @@ def test_new_move_recommendation_detected_not_sent(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={})
     item = _move_item("plan:2026-09-01:fp1")
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [item]
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
@@ -186,7 +186,7 @@ def test_unchanged_recommendation_not_renotified_on_second_sync(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={"kevin": {"move_recommended": [item_id]}})
     item = _move_item(item_id)
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [item]
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
@@ -205,7 +205,7 @@ def test_materially_changed_recommendation_is_new_again(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={"kevin": {"move_recommended": [old_id]}})
     item = _move_item(new_id, amount=150)
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [item]
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
@@ -222,7 +222,7 @@ def test_preference_off_suppresses_detection(monkeypatch):
     state, sent = _patch_common(monkeypatch, pref_on=False, state_docs={})
     called = {"n": 0}
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         called["n"] += 1
         return [_move_item("plan:2026-09-01:fp1")]
 
@@ -291,7 +291,7 @@ def test_money_movement_merges_when_both_fire(monkeypatch):
 
     bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
 
     async def fake_resp(cached):
@@ -315,7 +315,7 @@ def test_money_movement_sends_bill_alone_when_only_bill_fires(monkeypatch):
 
     bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return []  # no move recommendation this sync
 
     async def fake_resp(cached):
@@ -335,7 +335,7 @@ def test_money_movement_sends_move_alone_when_only_move_fires(monkeypatch):
     _state_col, sent = _patch_common(monkeypatch, state_docs={})
     monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
 
     async def fake_resp(cached):
@@ -355,7 +355,7 @@ def test_money_movement_sends_nothing_when_neither_fires(monkeypatch):
     _state_col, sent = _patch_common(monkeypatch, state_docs={})
     monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return []
 
     async def fake_resp(cached):
@@ -382,7 +382,7 @@ def test_money_movement_two_bills_one_move_sends_every_event(monkeypatch):
         _bill("Broadband", 4, 30.0, 5.0, "acc-third"),
     ]
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
 
     async def fake_resp(cached):
@@ -415,7 +415,7 @@ def test_money_movement_one_bill_two_moves_sends_every_event(monkeypatch):
         _move_item("plan:2026-09-01:fp2", amount=60, account_id="acc-isa", name="ISA"),
     ]
 
-    async def fake_items(uid):
+    async def fake_items(uid, **kw):
         return moves
 
     async def fake_resp(cached):
@@ -922,3 +922,18 @@ def test_plan_shortfall_skips_account_with_live_move_and_sends_move_separately(m
     titles = sorted(s["title"] for s in sent)
     assert titles == ["Move £110 to THE NUMBER ONE", "Short for plans"]
     assert sum(1 for s in sent if s["title"] == "Short for plans") == 1
+
+
+def test_money_movement_computes_today_items_once(monkeypatch):
+    _state, sent = _patch_plan(monkeypatch, {"acc-natwest": _pos(-90.0)})
+    calls = []
+    inner = companion.compute_today_items
+
+    async def counting(uid, **kw):
+        calls.append(uid)
+        return await inner(uid, **kw)
+
+    monkeypatch.setattr(companion, "compute_today_items", counting)
+    asyncio.run(notifications._maybe_money_movement("kevin"))
+    assert len(calls) == 1
+    assert [s["title"] for s in sent] == ["Short for plans"]
