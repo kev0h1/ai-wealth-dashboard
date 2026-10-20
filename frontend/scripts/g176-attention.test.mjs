@@ -7,6 +7,10 @@ import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import UpcomingAttentionDay from "../components/upcoming/UpcomingAttentionDay.tsx";
 import UpcomingRowDetails from "../components/upcoming/UpcomingRowDetails.tsx";
 
+assert.equal(upcomingMoney(12.3), "£12.30");
+assert.equal(upcomingMoney(-12.3), "−£12.30");
+assert.equal(upcomingMoney(12), "£12");
+
 const base = {
   rowKey: "bill-test-2026-09-30", type: "bill", name: "Example payment", amount: 80,
   expectedDate: "2026-09-30", accountLabel: "Household account", category: "Bills",
