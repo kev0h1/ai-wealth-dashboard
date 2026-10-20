@@ -189,6 +189,34 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("G234: the footnote ties the figure to Safe to Spend", footnote.includes("never more than your Safe to Spend"));
 }
 
+// ── G300: a binding pool renders one combined line and no per-account figures ──
+{
+  const E = (v) => ({ short: false, headroom: v, spend_from_headroom: v, spend_from_capped: true });
+  const combinedPlan = (markBank) => spendFromTreatmentPlan(
+    bestSpendAccount({ monzo: E(9), chase: E(9) }, ACCOUNTS), () => markBank, 9,
+  );
+  for (const [label, markBank] of [["bank rail", true], ["name fallback", false]]) {
+    const plan = combinedPlan(markBank);
+    check(`G300: ${label} plan is combined`, plan.combined === true);
+    const { markup } = renderTreatment(plan);
+    check(`G300: ${label} states the single combined limit`, markup.includes("Spend up to £9 from Everyday or Flex current."));
+    check(`G300: ${label} shows no per-account figure`, (markup.match(/£9/g) ?? []).length === 1);
+    check(`G300: ${label} drops the per-account footnote`, !markup.includes("Each figure is what that account can cover"));
+  }
+  const railMarkup = renderTreatment(combinedPlan(true)).markup;
+  check("G300: the rail keeps its list label", railMarkup.includes("Accounts with room to spend from"));
+  check("G300: the sr-only text carries no figure in the combined case", railMarkup.includes("has room to spend from") && !railMarkup.includes("spare"));
+  for (const markBank of [true, false]) {
+    const withMove = renderToStaticMarkup(React.createElement(React.Fragment, null,
+      ...(() => { const t = approvedSpendFromTreatment(combinedPlan(markBank), amount, true, noop, noop); return [t.body]; })()));
+    check(`G300: cover-move combined paragraph reads cleanly (${markBank ? "rail" : "names"})`,
+      withMove.includes("Spend up to £9 from Everyday or Flex current. The move above is already held back.")
+      && /text-\[12px\][^"]*font-semibold/.test(withMove));
+  }
+  const unknown = spendFromTreatmentPlan(bestSpendAccount({ monzo: E(9), chase: E(9) }, ACCOUNTS), () => true);
+  check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is what that account can cover"));
+}
+
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────
 {
   const failed = renderTreatment(PLANS["check-failed"]).markup;

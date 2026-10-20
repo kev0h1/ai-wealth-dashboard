@@ -625,6 +625,67 @@ const NEVER_BRANDED = () => false;
   check("G234: a null account_eligibility (pool unknown) is unavailable, not an uncapped rail", bestSpendAccount(null, accounts).kind, "unavailable");
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// G300 (Kevin 2026-10-20): the per-account figures must never read as adding
+// up to more than the pooled Safe to Spend.
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const accounts = [
+    account({ id: "barclays", name: "Barclays", subtype: "CURRENT", cover_source_eligible: true }),
+    account({ id: "hsbc", name: "HSBC", subtype: "CURRENT", cover_source_eligible: true }),
+  ];
+  const E = (v, capped) => ({ short: false, headroom: v, spend_from_headroom: v, spend_from_capped: capped });
+  const plan = (elig, pool) => spendFromTreatmentPlan(bestSpendAccount(elig, accounts), () => true, pool);
+  const hero = (elig, pool) => spendFromHeroLine(bestSpendAccount(elig, accounts), amount, null, pool);
+  const alt = (elig, pool) => spendFromAlternativeLine(bestSpendAccount(elig, accounts), amount, pool);
+
+  // Pool binds for both: £9 each against a £9 pool.
+  const both = { barclays: E(9, true), hsbc: E(9, true) };
+  check("G300: pool binding for two accounts is combined", plan(both, 9).combined, true);
+  check("G300: combined hero line", hero(both, 9), "Spend up to £9 from Barclays or HSBC.");
+  check("G300: combined alternative line is null", alt(both, 9), null);
+  check("G300: combined line never carries a per-account figure twice", (hero(both, 9).match(/£9/g) ?? []).length, 1);
+  check("G300: plan carries the pool", plan(both, 9).pool, 9);
+
+  // Mixed: one at the pool, one below it.
+  const mixed = { barclays: E(6, false), hsbc: E(9, true) };
+  check("G300: mixed case is combined", plan(mixed, 9).combined, true);
+  check(
+    "G300: mixed hero line adds a clause for the account below the pool",
+    hero(mixed, 9),
+    "Spend up to £9 in total from HSBC or Barclays. Barclays can cover up to £6.",
+  );
+  check("G300: mixed alternative line is null", alt(mixed, 9), null);
+
+  // Rounding: compare displayed whole pounds.
+  const rounded = { barclays: E(9.6, false), hsbc: E(9.6, false) };
+  check("G300: pool 19.4 with 9.6 + 9.6 (shown £10 + £10 against £19) is combined", plan(rounded, 19.4).combined, true);
+  const edge = { barclays: E(9, true), hsbc: E(8.6, false) };
+  check("G300: pool 9.0 with 9.0 and 8.6 is combined", plan(edge, 9).combined, true);
+  check("G300: 8.6 displays as £9 so no below-pool clause", hero(edge, 9), "Spend up to £9 from Barclays or HSBC.");
+
+  // Two below the pool whose sum fits: unchanged.
+  const fits = { barclays: E(40, false), hsbc: E(30, false) };
+  check("G300: figures that fit inside the pool are not combined", plan(fits, 100).combined, false);
+  check("G300: fitting figures keep today's hero line", hero(fits, 100), "In Barclays: £40 spare right now, within your Safe to Spend.");
+  check("G300: fitting figures keep today's alternative line", alt(fits, 100), "Next best: HSBC, £30 spare in that account.");
+
+  // Single account: unchanged even when capped.
+  const single = { barclays: E(9, true) };
+  check("G300: a single account is never combined", plan(single, 9).combined, false);
+  check("G300: a single capped account keeps today's line", hero(single, 9), "In Barclays: up to £9 right now, the most your Safe to Spend allows.");
+
+  // No account with room: unchanged.
+  const noRoom = { barclays: { short: true, headroom: 0 }, hsbc: { short: true, headroom: 1 } };
+  check("G300: no room keeps the no-single-account line", hero(noRoom, 9), "No single account has spare to spend from right now.");
+  check("G300: no room plan is not combined", plan(noRoom, 9).combined, false);
+
+  // Pool unknown: today's behaviour.
+  check("G300: unknown pool is not combined", plan(both, null).combined, false);
+  check("G300: undefined pool keeps today's capped hero line", hero(both, undefined), "In Barclays: up to £9 right now, the most your Safe to Spend allows.");
+  check("G300: unknown pool keeps today's alternative line", alt(both, null), "Next best: HSBC, up to £9, the most your Safe to Spend allows.");
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
   process.exit(1);
