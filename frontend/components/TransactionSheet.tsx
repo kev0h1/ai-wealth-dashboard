@@ -11,7 +11,7 @@ import { useCategories } from "@/components/CategoriesContext";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
-import { formatCurrency } from "@/lib/currency";
+import { formatCurrency, MINUS } from "@/lib/currency";
 import CustomSelect from "@/components/CustomSelect";
 
 type Scope = "single" | "all" | "future";
@@ -147,7 +147,7 @@ export default function TransactionSheet({
           >
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Amount</p>
             <p className={`text-xl font-bold ${isCredit ? "text-emerald-500" : "text-red-500"}`}>
-              {isCredit ? "+" : "-"}
+              {isCredit ? "+" : MINUS}
               {formatCurrency(transaction.amount, transaction.currency)}
             </p>
           </div>
@@ -281,7 +281,7 @@ export default function TransactionSheet({
                         <span className="block text-[10px] text-slate-400 dark:text-slate-500">{formatDate(tx.date)}</span>
                       </span>
                       <span className={`text-xs font-semibold flex-shrink-0 ${tx.transaction_type === "credit" ? "text-emerald-500" : "text-red-500"}`}>
-                        {tx.transaction_type === "credit" ? "+" : "-"}{formatCurrency(tx.amount, tx.currency)}
+                        {tx.transaction_type === "credit" ? "+" : MINUS}{formatCurrency(tx.amount, tx.currency)}
                       </span>
                     </button>
                   );

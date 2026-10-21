@@ -1,5 +1,6 @@
 "use client";
 
+import { MINUS } from "@/lib/currency";
 import { ArrowDownLeft, ArrowUpRight, X } from "lucide-react";
 import { Transaction } from "@/lib/api";
 
@@ -101,7 +102,7 @@ export default function TransactionList({
                   txn.transaction_type === "credit" ? "text-emerald-400" : "text-slate-200"
                 }`}
               >
-                {txn.transaction_type === "credit" ? "+" : "-"}£
+                {txn.transaction_type === "credit" ? "+" : MINUS}£
                 {txn.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>

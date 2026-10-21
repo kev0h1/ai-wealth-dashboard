@@ -19,6 +19,9 @@ export function currencySymbol(code?: string): string {
   return CURRENCY_SYMBOLS[code] ?? `${code} `;
 }
 
+// Currency signs use the Unicode minus (U+2212), as required by the copy rules.
+export const MINUS = "−";
+
 export function formatCurrency(amount: number, currency?: string): string {
   const abs = Math.abs(amount).toLocaleString("en-GB", {
     minimumFractionDigits: 2,

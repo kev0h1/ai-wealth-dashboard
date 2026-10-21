@@ -1,5 +1,6 @@
 "use client";
 
+import { MINUS } from "@/lib/currency";
 import { useState } from "react";
 import { KPIs } from "@/lib/api";
 import { TrendingDown, TrendingUp, Eye, EyeOff } from "lucide-react";
@@ -42,7 +43,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 money" aria-label={hidden ? "Balance hidden" : undefined}>
-            {hidden ? <span aria-hidden="true">••••••</span> : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
+            {hidden ? <span aria-hidden="true">••••••</span> : `${isNegative ? MINUS : ""}${fmt(netWorth, sym)}`}
           </span>
           <button
             onClick={() => setHideNetWorth(!hidden)}
@@ -80,7 +81,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
           >
             {hidden
               ? <span aria-hidden="true">••••••</span>
-              : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
+              : `${isNegative ? MINUS : ""}${fmt(netWorth, sym)}`}
           </span>
           <button
             onClick={() => setHideNetWorth(!hidden)}
@@ -134,7 +135,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
         >
           {hidden
             ? <span aria-hidden="true">••••••</span>
-            : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
+            : `${isNegative ? MINUS : ""}${fmt(netWorth, sym)}`}
         </div>
       )}
 
