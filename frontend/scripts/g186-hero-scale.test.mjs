@@ -22,9 +22,11 @@ for (const { id } of [{ id: "phone" }, ...STATES]) {
     if (!verdict) { assert.equal(html, ""); continue; }
     const model = spendHeroModel(verdict);
     assert.equal(Math.round((model.named + model.other + model.unresolved) * 100), Math.round(verdict.pills.spent * 100));
-    assert.match(html, /How Out adds up/);
-    assert.match(html, /Show income payments/);
-    assert.match(html, /Moved separately is not included in Out/);
+    // G310: variant b is the production hero; a wholly empty period (no Out, no In) has nothing to expand or break down.
+    const hollow = variant === "b" && verdict.pills.spent === 0 && verdict.pills.income === 0;
+    assert.equal(/How Out adds up/.test(html), !hollow);
+    assert.equal(/Show income payments/.test(html), (variant === "b" ? verdict.pills.income !== 0 : true));
+    assert.equal(/Moved separately is not included in Out/.test(html), !hollow);
     assert.ok(html.includes(spendHeroMoney(verdict.pills.spent)));
     assert.ok(html.includes(spendHeroMoney(verdict.pills.income)));
     assert.equal(html.includes("Show money moved separately"), model.hasMoved);

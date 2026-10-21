@@ -1338,6 +1338,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           tablist's own mb-2 with no added margin (avoids stacking two mt-5
           gaps back to back). */}
       {aboveMajority && <div className="mt-5">{aboveMajority}</div>}
+      {(!journey || nonZeroRows.length > 0) && (
       <section
         className={journey
           ? "relative scroll-mt-24 pb-10 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
@@ -1406,6 +1407,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, cat
           </p>
         )}
       </section>
+      )}
 
       {/* Money you moved — id is the "Moved" tap's Show Your Working
           scroll target (SpendHeader's onMovedTap, once that prop lands). */}

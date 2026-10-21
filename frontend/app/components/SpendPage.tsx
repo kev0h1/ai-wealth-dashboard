@@ -1104,7 +1104,7 @@ export default function SpendPage() {
       label: "To categorise",
       value: <>{verdict.unresolved.payments_count} payment{verdict.unresolved.payments_count === 1 ? "" : "s"} · <span className="font-mono tabular-nums">{wholeMoney(verdict.unresolved.total)}</span></>,
     }] : []),
-    {
+    ...(verdict.majority.some((r) => r.spent > 0) ? [{
       id: "spend-majority-section",
       label: "Spending",
       // G268: the chip is the period's total Out (the notables, the quieter
@@ -1112,7 +1112,7 @@ export default function SpendPage() {
       // hero leads with, not just the quieter categories the section below it
       // lists.
       value: <span className="font-mono tabular-nums">{wholeMoney(verdict.pills.spent)}</span>,
-    },
+    }] : []),
     {
       id: "spend-journey-charts",
       label: "Charts",
@@ -1178,13 +1178,15 @@ export default function SpendPage() {
         <main data-tutorial-id="tutorial-spend-categories" className="relative min-w-0 pl-8 before:absolute before:bottom-3 before:left-[11px] before:top-3 before:w-px before:bg-slate-300 dark:before:bg-slate-600 sm:pl-10 lg:col-start-2 lg:row-start-1">
           {verdict ? (
             <>
-              <section className="relative pb-10">
-                <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">
-                  <WalletCards size={12} />
-                </span>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · {periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
-                <h2 className="mt-2 text-xl font-bold text-slate-950 dark:text-white"><span className="font-mono tabular-nums">{wholeMoney(verdict.pills.income)}</span> recorded coming in</h2>
-              </section>
+              {verdict.pills.income > 0 && (
+                <section className="relative pb-10">
+                  <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">
+                    <WalletCards size={12} />
+                  </span>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · {periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
+                  <h2 className="mt-2 text-xl font-bold text-slate-950 dark:text-white"><span className="font-mono tabular-nums">{wholeMoney(verdict.pills.income)}</span> recorded coming in</h2>
+                </section>
+              )}
 
               <SpendVerdictView
                 verdict={verdict}
