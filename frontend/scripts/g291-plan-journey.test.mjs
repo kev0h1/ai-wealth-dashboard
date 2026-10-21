@@ -39,7 +39,8 @@ assert.match(source("../components/CommitmentSheet.tsx"), /commitment \? "main" 
 assert.match(source("../components/CommitmentSheet.tsx"), /setCreateNameStep\(false\)/);
 assert.match(source("../components/CommitmentSheet.tsx"), /event\.preventDefault\(\); createNext\(\)/, "Review navigation must not default-submit the newly rendered Save button");
 assert.match(source("../components/SetAsideSheet.tsx"), /"purpose", "details", "source", "destination", "tracking", "review"/);
-assert.match(source("../components/SetAsideSheet.tsx"), /scope === "upcoming" \? "envelope" : null/);
+// G311's Upcoming chooser and both handoffs are exercised in the browser
+// journey; it no longer preselects an envelope before asking the user.
 assert.match(source("../components/AllocationEditForm.tsx"), /onEdit \? onEdit\(\)/);
 assert.match(source("../components/upcoming/UpcomingDetailFlow.tsx"), /key=\{`view-\$\{plan.id\}`\} initialMode="view" onEdit=/);
 assert.match(source("../components/plans/PlanCategoryTracking.tsx"), /if \(!disposed\)/, "obsolete evidence cannot replace the current route");

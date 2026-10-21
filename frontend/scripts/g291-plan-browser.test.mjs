@@ -34,7 +34,10 @@ try {
   await browser.viewport(390, 900);
   await browser.navigate("/design/g291-production-qa", "document.documentElement?.dataset.planFixtureReady==='true'");
   await browser.activate("document.querySelector('main label input[type=checkbox]')");
-  await click("aside"); await browser.type("document.querySelector('#set-aside-name')", "Groceries"); await click("Continue");
+  await click("aside"); await click("One-off payment"); await click("Continue"); await browser.waitFor("document.querySelector('[data-fixture-result]')?.textContent==='One-off selected'"); checks++;
+  await browser.waitFor("document.querySelector('[data-sheet-frame]')?.textContent.includes('Plan a one-off')");
+  await browser.activate("document.querySelector('[data-sheet-frame] [aria-label^=\"Close \"]')"); await browser.waitFor("!document.querySelector('[data-sheet-frame]')");
+  await click("aside"); await click("Set aside"); await click("Continue"); await click("Back"); await browser.waitFor("document.querySelector('input[name=upcoming-plan-kind]:checked')?.value==='envelope'"); await click("Continue"); await browser.type("document.querySelector('#set-aside-name')", "Groceries"); await click("Continue");
   await browser.type("document.querySelector('#set-aside-amount')", "300"); await click("Continue"); await click("Continue"); await click("Continue");
   await click("A category"); await browser.waitFor("document.querySelector('input[type=radio]')");
   assert.equal(await browser.evaluate("document.querySelectorAll('select').length"), 0);
