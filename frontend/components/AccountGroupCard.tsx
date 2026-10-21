@@ -5,6 +5,7 @@
 // renders the production card. Markup unchanged. See AccountsPage for why the
 // section carries no overflow-hidden (sticky header).
 
+import { MINUS } from "@/lib/currency";
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -38,7 +39,7 @@ export default function AccountGroupCard({ label, count, subtotal, hidden, colla
           <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">
             {hidden
               ? "£••••"
-              : `${subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(subtotal)).toLocaleString("en-GB")}`}
+              : `${subtotal < 0 ? MINUS : ""}£${Math.abs(Math.round(subtotal)).toLocaleString("en-GB")}`}
           </span>
           <ChevronDown
             size={16}

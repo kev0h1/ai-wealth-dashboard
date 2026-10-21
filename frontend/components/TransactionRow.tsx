@@ -7,7 +7,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
-import { formatCurrency } from "@/lib/currency";
+import { formatCurrency, MINUS } from "@/lib/currency";
 
 interface TransactionRowProps {
   transaction: Transaction;
@@ -196,7 +196,7 @@ export default function TransactionRow({
           isCredit ? "text-emerald-500" : "text-slate-800 dark:text-slate-100"
         }`}
       >
-        {isCredit ? "+" : "-"}
+        {isCredit ? "+" : MINUS}
         {formatCurrency(amount, transaction.currency)}
       </span>
     </button>

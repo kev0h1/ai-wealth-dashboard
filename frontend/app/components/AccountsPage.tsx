@@ -1,5 +1,6 @@
 "use client";
 
+import { MINUS } from "@/lib/currency";
 import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
@@ -3147,7 +3148,7 @@ export default function AccountsPage() {
                           <p className="text-xs text-slate-400 dark:text-slate-500">{meta.label} · Offline</p>
                         </div>
                         <span className={`text-sm font-bold flex-shrink-0 font-mono tabular-nums ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
-                          {hideNetWorth ? "••••" : `${isCredit ? "-" : ""}${currency}${Math.round(acc.balance).toLocaleString("en-GB")}`}
+                          {hideNetWorth ? "••••" : `${isCredit ? MINUS : ""}${currency}${Math.round(acc.balance).toLocaleString("en-GB")}`}
                         </span>
                         <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
                       </div>
