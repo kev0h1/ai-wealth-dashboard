@@ -10,7 +10,7 @@ import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/Account
 import UpcomingFlowSheet, { UpcomingFlowFooter, type UpcomingFlowNavigation } from "@/components/UpcomingFlowSheet";
 import { UpcomingEditForm, type UpcomingEditItem, type UpcomingEditServices } from "@/components/UpcomingEditForm";
 import { PlannedEditForm, type PlannedEditItem, type PlannedEditServices } from "@/components/PlannedEditForm";
-import { AllocationEditForm, type AllocationEditServices } from "@/components/AllocationEditForm";
+import { AllocationPlanEditor, type AllocationEditServices } from "@/components/AllocationPlanEditor";
 import UpcomingAccountDetails from "./UpcomingAccountDetails";
 import UpcomingPlanDetails from "./UpcomingPlanDetails";
 import UpcomingRowDetails from "./UpcomingRowDetails";
@@ -108,20 +108,20 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     if (view.kind === "plan") {
       if (plan.kind === "allocation" && allocation) return {
         title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind={plan.kind} />,
-        body: <AllocationEditForm key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />,
+        body: <AllocationPlanEditor key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />,
       };
       const source = accounts.find((account) => account.id === plan.sourceId);
       return {
         title: plan.name, subtitle: `${plan.kind === "allocation" ? "Allocation" : "Goal"} · This pay period`, leading: <PlanIcon kind={plan.kind} />,
         body: <UpcomingPlanDetails plan={plan} accountName={source && plan.evidence !== "unknown" ? `${source.provider} · ${displayAccountName(source.name)}` : null} />,
-        footer: <button type="button" data-flow-focus={`edit-${plan.id}`} className={flowSecondary} onClick={() => navigation.goTo({ kind: "edit-plan", id: plan.id })}><Pencil size={16} aria-hidden="true" />{plan.kind === "allocation" ? "Edit allocation" : "Change paying account"}</button>,
+        footer: <button type="button" data-flow-focus={`edit-${plan.id}`} className={flowSecondary} onClick={() => navigation.goTo({ kind: "edit-plan", id: plan.id })}><Pencil size={16} aria-hidden="true" />{plan.kind === "allocation" ? "Edit plan" : "Change paying account"}</button>,
       };
     }
     return {
-      title: plan.kind === "allocation" ? "Edit allocation" : "Link goal to an account", subtitle: plan.name,
+      title: plan.kind === "allocation" ? "Edit plan" : "Link goal to an account", subtitle: plan.name,
       body: plan.kind === "goal"
         ? <GoalSourceForm key={plan.id} plan={plan} accounts={accounts} onCancel={navigation.back} onSaved={saved} onSave={async (source) => { await (services?.changeGoalSource ?? ((id, sourceId) => api.updateCommitment(id, { source_account_id: sourceId })))(plan.recordId!, source); }} />
-          : allocation ? <AllocationEditForm key={plan.id} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.back} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />
+          : allocation ? <AllocationPlanEditor key={plan.id} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.back} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />
           : <p role="status" className="text-sm">The allocation could not be loaded. Close these details and try again.</p>,
     };
   }

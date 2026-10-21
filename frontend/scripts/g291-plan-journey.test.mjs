@@ -41,7 +41,7 @@ assert.match(source("../components/CommitmentSheet.tsx"), /event\.preventDefault
 assert.match(source("../components/SetAsideSheet.tsx"), /"purpose", "details", "source", "destination", "tracking", "review"/);
 // G311's Upcoming chooser and both handoffs are exercised in the browser
 // journey; it no longer preselects an envelope before asking the user.
-assert.match(source("../components/AllocationEditForm.tsx"), /onEdit \? onEdit\(\)/);
+assert.match(source("../components/AllocationPlanEditor.tsx"), /onEdit/);
 assert.match(source("../components/upcoming/UpcomingDetailFlow.tsx"), /key=\{`view-\$\{plan.id\}`\} initialMode="view" onEdit=/);
 assert.match(source("../components/plans/PlanCategoryTracking.tsx"), /if \(!disposed\)/, "obsolete evidence cannot replace the current route");
 console.log(`g291 production plan journey: ${cases} render contracts, guided entry, inline categories, privacy and host navigation passed`);

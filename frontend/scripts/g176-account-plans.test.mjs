@@ -7,7 +7,7 @@ import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetail
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingPlanDetails from "../components/upcoming/UpcomingPlanDetails.tsx";
 import UnlinkedGoalPlans from "../components/upcoming/UnlinkedGoalPlans.tsx";
-import { AllocationEditForm } from "../components/AllocationEditForm.tsx";
+import { AllocationPlanEditor } from "../components/AllocationPlanEditor.tsx";
 import { UpcomingEditForm } from "../components/UpcomingEditForm.tsx";
 import { accountPlan, assessPlanOverlap, hasChosenPlanSource, hasPlanSource, plansFromApi, remaining } from "../lib/upcomingPlans.ts";
 import { planReturn } from "../lib/upcomingFlowStack.ts";
@@ -19,7 +19,7 @@ const previewSource = readFileSync(new URL("../app/design/g176-account-plans/Pre
 const flowSource = readFileSync(new URL("../components/upcoming/UpcomingDetailFlow.tsx", import.meta.url), "utf8");
 assert.match(previewSource, /import UpcomingDetailFlow from "@\/components\/upcoming\/UpcomingDetailFlow"/);
 assert.doesNotMatch(previewSource, /function (?:AccountContent|PaymentEditor|PlanEditor|PaymentContent)/, "The approved preview must not fork the shipped detail or edit UI");
-for (const component of ["UpcomingAccountDetails", "UpcomingPlanDetails", "UpcomingRowDetails", "UpcomingEditForm", "AllocationEditForm", "PlannedEditForm", "GoalSourceForm"]) assert.match(flowSource, new RegExp("<" + component + "[ >]"));
+for (const component of ["UpcomingAccountDetails", "UpcomingPlanDetails", "UpcomingRowDetails", "UpcomingEditForm", "AllocationPlanEditor", "PlannedEditForm", "GoalSourceForm"]) assert.match(flowSource, new RegExp("<" + component + "[ >]"));
 const plans = plansFor("gap");
 const gap = forecastFor("gap").accounts[0];
 const renderDetails = (account, input = plans, status = "ready") => renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, plans: input, plansStatus: status, periodLabel: "Through Thu 29 Oct", onPlan() {} }));
@@ -123,13 +123,14 @@ for (const type of ["bill", "income"]) {
   assert.match(editor, /Reset to prediction/);
 }
 
-const roundedAmountForm = renderToStaticMarkup(React.createElement(AllocationEditForm, {
+const roundedAmountForm = renderToStaticMarkup(React.createElement(AllocationPlanEditor, {
   allocation: { id: "rounded", name: "Rounded allocation", amount_per_period: 33.333, fill_account_id: "challenge", source_account_id: null, match_type: "description_contains", match_value: "ROUND", fill_display_name: "Rounded allocation", effective_from: "2026-10-01", recurrence: "every_period", completed: false, pending: false, active: true, filled_this_period: 0, remaining: 33.333, period_start: "2026-10-01", period_end: "2026-10-29" },
   accounts: [{ id: "challenge", provider: "Monzo", name: "Challenge pot", type: "saving", subtype: "saving", currency: "GBP", balance: 60, status: "active", manual: false }], periodStart: new Date("2026-10-01T12:00:00Z"), onCancel() {}, onSaved() {}, onDeleted() {},
 }));
-assert.match(roundedAmountForm, /£33\.33/, "G267 summary preserves the rounded two-decimal contribution");
-assert.doesNotMatch(roundedAmountForm, /<input/, "G267 A defers editable fields until the corresponding summary row opens");
-const allocationEditorSource = readFileSync(new URL("../components/AllocationEditForm.tsx", import.meta.url), "utf8");
+assert.match(roundedAmountForm, /What are you setting aside for/, "G312 opens the guided editor at its first question");
+assert.match(roundedAmountForm, /value="Rounded allocation"/, "G312 prefills the saved name without a summary pencil");
+assert.doesNotMatch(roundedAmountForm, /Save changes|<details|More options/, "Only the final review can save");
+const allocationEditorSource = readFileSync(new URL("../components/AllocationPlanEditor.tsx", import.meta.url), "utf8");
 assert.match(allocationEditorSource, /Number\(allocation\.amount_per_period\)\.toFixed\(2\)/, "The deferred amount input still starts at the precise two-decimal step");
 
 const missing = forecastFor("missing").accounts[0];

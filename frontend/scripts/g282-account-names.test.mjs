@@ -20,7 +20,7 @@ assert.equal(displayAccountName(null), "");
 for (const f of [
   "lib/accountsEstate.ts", "components/AccountRadioPicker.tsx", "lib/spendFromAccount.ts", "lib/upcomingAccountWalk.ts",
   "components/upcoming/UpcomingAccountsCard.tsx", "components/HomeEstateSection.tsx", "components/CommitmentSheet.tsx",
-  "components/SetAsideSheet.tsx", "components/AllocationEditForm.tsx", "components/CoverPlanSourcesCard.tsx",
+  "components/SetAsideSheet.tsx", "components/AllocationPlanEditor.tsx", "components/CoverPlanSourcesCard.tsx",
 ]) {
   assert.match(read(f), /displayAccountName|tidyAccountName/, `${f} uses the shared account name`);
 }

@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RefreshCw, AlertTriangle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, Clock3, ArrowRight, Circle, PiggyBank, CalendarClock } from "lucide-react";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
-import type { AllocationEditServices } from "@/components/AllocationEditForm";
+import type { AllocationEditServices } from "@/components/AllocationPlanEditor";
 import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
 import type { PlanEasingServices } from "@/components/PlanEasingSheet";
 import { api } from "@/lib/api";
