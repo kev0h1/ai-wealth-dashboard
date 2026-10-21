@@ -4,7 +4,7 @@ export { homeForecastPresentation } from "./pennyScreenViews";
 
 export type ForecastTone = "risk" | "watch" | "good" | "neutral";
 export type ForecastStatus = { tone: ForecastTone; label: string };
-export type UpcomingForecastPresentation = { status: ForecastStatus; qualifierTone: ForecastTone };
+export type UpcomingForecastPresentation = { status: ForecastStatus; qualifierTone: ForecastTone; pending?: boolean };
 export const FORECAST_INK = "text-slate-900 dark:text-slate-100";
 export const FORECAST_QUALIFIER: Record<ForecastTone, string> = {
   risk: "text-rose-700 dark:text-rose-300",
@@ -40,6 +40,7 @@ export function upcomingForecastPresentation(input: {
   nextPayday: number;
   isCalendarMonth: boolean;
   metadata: SafeToSpend | null;
+  metadataPending?: boolean;
   headline: SafeToSpendHeadline | null;
   plansAvailable: boolean;
 }): UpcomingForecastPresentation {
@@ -49,6 +50,7 @@ export function upcomingForecastPresentation(input: {
     status: { tone: "risk", label: input.runway < 0 ? "Short" : "Earlier gap" },
     qualifierTone: input.runway < 0 ? "risk" : "neutral",
   };
+  if (input.metadataPending) return { ...neutral, pending: true };
   const data = input.metadata;
   if (input.isCalendarMonth || !data || data.status !== "ok" || !input.headline || data.calculation_status !== "complete"
     || !ukDay(data.next_payday) || ukDay(data.next_payday) !== ukDay(input.nextPayday)

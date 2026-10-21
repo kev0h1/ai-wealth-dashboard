@@ -72,11 +72,15 @@ export default function UpcomingHeroCard({
       aria-labelledby="runway-heading"
       className="glass-hero rounded-2xl p-5 shadow-sm sm:p-6"
     >
-      <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+      <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(7rem,max-content)] items-center gap-3">
         <h2 id="runway-heading" className="min-w-0 text-base font-bold text-slate-950 dark:text-white">
           {isCalendarMonth ? "Projected at month end" : "Projected at payday"}
         </h2>
-        <ForecastStatusBadge status={forecastPresentation.status} />
+        <span className="flex justify-self-end">
+          {forecastPresentation.pending
+            ? <span data-forecast-pending aria-hidden="true" className="h-7 w-28" />
+            : <ForecastStatusBadge status={forecastPresentation.status} />}
+        </span>
       </div>
       <div className="mt-5 min-w-0">
         <div className="flex flex-wrap items-baseline gap-2">
