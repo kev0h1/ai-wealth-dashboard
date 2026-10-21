@@ -1,274 +1,75 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { Target, Wallet, Receipt, Pencil } from "lucide-react";
+
+import { useEffect, useState } from "react";
+import { Target, Wallet, Receipt } from "lucide-react";
 import { api, Account, Allocation } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
-import {
-  EffectiveDateField,
-  FillRulePicker,
-  RhythmToggle,
-  type AllocationRhythm,
-  type FillRuleValue,
-} from "@/components/AllocationFields";
+import { EffectiveDateField, FillRulePicker, RhythmToggle, type AllocationRhythm, type FillRuleValue } from "@/components/AllocationFields";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
-import { PlanAffordability, PlanContribution, PlanRouteSummary, PlanTrackingSummary } from "@/components/plans/PlanEditorSummary";
-import { tidyAccountName } from "@/lib/accountName";
+import { PlanAffordability, PlanContribution } from "@/components/plans/PlanEditorSummary";
+import { PlanCategoryTracking, type PlanCategoryTrackingValue } from "@/components/plans/PlanCategoryTracking";
+import MoneyText from "@/components/MoneyText";
+import { PlanTrackingMethod } from "@/components/plans/PlanTrackingMethod";
 
-// The ONE door replacing Planning's three creation affordances ("+ Plan a
-// big expense", "+ Allocation", "+ Plan a one-off") — Variant A from
-// /design/planning-create (owner pick, 2026-08-29), transplanted faithfully:
-// step 1 is three shape cards; picking "By a date" or "One payment" hands
-// off to the existing CommitmentSheet/PlanOneOffSheet UNCHANGED (byte-
-// identical behaviour, just reached through this door instead of their old
-// ones) — those two flows are already built, tested and live, re-
-// implementing their fields here would only invite drift. "An envelope" is
-// the one shape whose fields actually changed (owner amendment, 2026-08-29:
-// the fill rule now mirrors the offline-account rule — exact or contains —
-// plus an effective-date choice), so it gets a real step 2 inside this
-// sheet.
-
-function todayIso() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
+function todayIso() { return new Date().toISOString().slice(0, 10); }
 type Kind = "date" | "envelope" | "single";
-
+type Step = "purpose" | "details" | "source" | "destination" | "tracking" | "review";
+const EMPTY_RULE: FillRuleValue = { match_type: "description_contains", match_value: "", fill_display_name: "" };
 const KINDS: { id: Kind; title: string; sub: string; icon: typeof Target }[] = [
   { id: "date", title: "By a date", sub: "Save toward a target, a bit each pay period", icon: Target },
   { id: "envelope", title: "An envelope", sub: "Set aside an amount, every pay period or just this one", icon: Wallet },
   { id: "single", title: "One payment", sub: "A single payment you know is coming", icon: Receipt },
 ];
+interface SetAsideSheetProps { accounts: Account[]; periodStart: Date; onClose: () => void; onSelectByDate?: () => void; onSelectSingle: () => void; onSavedAllocation: (item: Allocation) => void; scope?: "all" | "upcoming"; operations?: Pick<typeof api, "createAllocation" | "allocationFillCandidates">; }
 
-interface SetAsideSheetProps {
-  accounts: Account[];
-  /** Start of the current pay period — labels the effective-date default chip. */
-  periodStart: Date;
-  onClose: () => void;
-  /** Hands off to the existing CommitmentSheet (create mode); this sheet closes itself. */
-  onSelectByDate?: () => void;
-  /** Hands off to the existing PlanOneOffSheet; this sheet closes itself. */
-  onSelectSingle: () => void;
-  onSavedAllocation: (item: Allocation) => void;
-  /** Limits the first step to period-scoped choices on Upcoming. */
-  scope?: "all" | "upcoming";
-  /** Injectable for fixture-only editor verification. */
-  operations?: Pick<typeof api, "createAllocation" | "allocationFillCandidates">;
-}
-
-export default function SetAsideSheet({
-  accounts,
-  periodStart,
-  onClose,
-  onSelectByDate,
-  onSelectSingle,
-  onSavedAllocation,
-  scope = "all",
-  operations = api,
-}: SetAsideSheetProps) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  const [step, setStep] = useState<"kind" | "envelope">("kind");
-  const [view, setView] = useState<"main" | "details" | "route" | "destination" | "tracking">("main");
-  const detailFocus = useRef<HTMLButtonElement>(null);
-  const routeFocus = useRef<HTMLButtonElement>(null);
-  const destinationFocus = useRef<HTMLButtonElement>(null);
-  const trackingFocus = useRef<HTMLButtonElement>(null);
-  const showEditor = step === "envelope" && view !== "main";
-  const returnKey = useRef<"details" | "route" | "destination" | "tracking">("details");
-  const backToMain = () => { setView("main"); requestAnimationFrame(() => { const targets = { details: detailFocus, route: routeFocus, destination: destinationFocus, tracking: trackingFocus }; targets[returnKey.current].current?.focus(); }); };
-
-  // ── Envelope fields (step 2 of the "An envelope" path only) ──────────────
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
+export default function SetAsideSheet({ accounts, periodStart, onClose, onSelectByDate, onSelectSingle, onSavedAllocation, scope = "all", operations = api }: SetAsideSheetProps) {
+  const [mounted, setMounted] = useState(false); useEffect(() => { queueMicrotask(() => setMounted(true)); }, []);
+  const [kind, setKind] = useState<Kind | null>(scope === "upcoming" ? "envelope" : null);
+  const [step, setStep] = useState<Step>("purpose");
+  const [name, setName] = useState(""); const [amount, setAmount] = useState("");
   const [rhythm, setRhythm] = useState<AllocationRhythm>("every_period");
-  const [accountId, setAccountId] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [trackingMode, setTrackingMode] = useState<"existing_payment" | "manual">("existing_payment");
-  const [rule, setRule] = useState<FillRuleValue>({ match_type: "description_contains", match_value: "", fill_display_name: "" });
-  const sourceAccounts = accounts.filter((account) => (trackingMode === "manual" || account.id !== accountId) && isPlanSourceAccount(account) && account.include_in_safe_to_spend !== false && !/saving|isa|credit/.test(`${account.type} ${account.subtype ?? ""}`.toLowerCase()));
+  const [accountId, setAccountId] = useState(""); const [sourceId, setSourceId] = useState("");
+  const [trackingMode, setTrackingMode] = useState<"existing_payment" | "manual">("manual");
+  const [rule, setRule] = useState<FillRuleValue>(EMPTY_RULE);
+  const [categoryTracking, setCategoryTracking] = useState<PlanCategoryTrackingValue>(null);
   const [effectiveFrom, setEffectiveFrom] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const periodStartLabel = periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-
-  function pickKind(kind: Kind, closeThen: (next: () => void) => void) {
-    if (kind === "date") { closeThen(() => onSelectByDate?.()); return; }
-    if (kind === "single") { closeThen(onSelectSingle); return; }
-    setStep("envelope");
+  const [returnToReview, setReturnToReview] = useState(false);
+  const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
+  const sourceAccounts = accounts.filter(a => isPlanSourceAccount(a) && a.include_in_safe_to_spend !== false && !/saving|isa|credit/.test(`${a.type} ${a.subtype ?? ""}`.toLowerCase()));
+  useEffect(() => {
+    if (!sourceId && sourceAccounts.length === 1) queueMicrotask(() => setSourceId(sourceAccounts[0].id));
+  }, [sourceId, sourceAccounts]);
+  const destinations = accounts.filter(a => a.id !== sourceId && !/credit|card/.test(`${a.type} ${a.subtype ?? ""}`.toLowerCase()) && ((a as Account & { currency?: string }).currency ?? "GBP") === "GBP");
+  const amountText = amount.trim();
+  const parsedAmount = Number(amountText);
+  const amountValid = /^\d+(?:\.\d{1,2})?$/.test(amountText) && Number.isFinite(parsedAmount) && parsedAmount > 0 && parsedAmount <= 1_000_000;
+  const hasSource = sourceAccounts.some(a => a.id === sourceId);
+  const hasTracking = trackingMode === "manual" || Boolean(categoryTracking) || Boolean(accountId && rule.match_value.trim());
+  const canSave = !saving && Boolean(name.trim()) && amountValid && hasSource && hasTracking;
+  const steps: Step[] = ["purpose", "details", "source", "destination", "tracking", "review"];
+  const stepIndex = steps.indexOf(step);
+  const back = () => { if (stepIndex) setStep(steps[stepIndex - 1]); else if (scope === "all") setKind(null); };
+  const next = () => { if (returnToReview) { setReturnToReview(false); setStep("review"); } else if (stepIndex < steps.length - 1) setStep(steps[stepIndex + 1]); };
+  const validStep = step === "purpose" ? Boolean(name.trim()) : step === "details" ? amountValid : step === "source" ? hasSource : step === "tracking" ? hasTracking : true;
+  async function save(close: () => void) {
+    if (!canSave) return; setSaving(true); setError(null);
+    try { const item = await operations.createAllocation({ name: name.trim(), amount_per_period: parsedAmount, source_account_id: sourceId, fill_account_id: trackingMode === "manual" || categoryTracking ? "" : accountId, destination_account_id: trackingMode === "manual" ? accountId || null : null, match_type: trackingMode === "manual" || categoryTracking ? "description_contains" : rule.match_type, match_value: trackingMode === "manual" || categoryTracking ? "" : rule.match_value, fill_display_name: trackingMode === "manual" || categoryTracking ? "" : rule.fill_display_name || undefined, tracking_mode: trackingMode, recurrence: rhythm, ...(effectiveFrom ? { effective_from: effectiveFrom } : {}), ...(categoryTracking ? { category_tracking: categoryTracking } : {}) } as Parameters<typeof operations.createAllocation>[0] & { category_tracking?: PlanCategoryTrackingValue; destination_account_id?: string | null }); onSavedAllocation(item); close(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Couldn’t save, please try again"); } finally { setSaving(false); }
   }
-
-  // Clear the fill rule when the account changes so a rule picked against
-  // one account is never silently submitted against another.
-  function pickAccount(id: string) {
-    setAccountId(id);
-    setRule({ match_type: "description_contains", match_value: "", fill_display_name: "" });
-    setError(null);
-  }
-
-  const parsedAmount = parseFloat(amount.replace(/[^0-9.]/g, ""));
-  const amountValid = !isNaN(parsedAmount) && parsedAmount > 0;
-  const canSave =
-    !saving &&
-    name.trim().length > 0 &&
-    amountValid &&
-    sourceAccounts.some(account => account.id === sourceId) &&
-    (trackingMode === "manual" || (accountId !== "" && rule.match_value.trim().length > 0));
-
-  async function handleSubmit(e: React.FormEvent, close: () => void) {
-    e.preventDefault();
-    if (!canSave) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const item = await operations.createAllocation({
-        name: name.trim(),
-        amount_per_period: parsedAmount,
-        source_account_id: sourceId,
-        fill_account_id: trackingMode === "manual" ? "" : accountId,
-        match_type: trackingMode === "manual" ? "description_contains" : rule.match_type,
-        match_value: trackingMode === "manual" ? "" : rule.match_value,
-        fill_display_name: trackingMode === "manual" ? "" : rule.fill_display_name || undefined,
-        tracking_mode: trackingMode,
-        recurrence: rhythm,
-        ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
-      });
-      onSavedAllocation(item);
-      close();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save, please try again");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   if (!mounted) return null;
-
-  const title = step === "kind" ? "Set money aside" : "An envelope";
-  const subtitle = step === "kind" ? "What shape is this?" : "Set aside an amount";
-
-  return (
-    <SheetFrame
-      title={title}
-      description={subtitle}
-      onClose={onClose}
-      dismissDisabled={saving}
-      onBack={step === "envelope" ? (view === "main" ? () => setStep("kind") : backToMain) : undefined}
-      footer={step === "envelope" ? ({ close }) => (
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={close} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 dark:border-slate-600 dark:text-slate-200">Cancel</button>
-          <button key={view === "main" ? "confirm" : "keep-draft"} type={view === "main" ? "submit" : "button"} onClick={view === "main" ? undefined : (event) => { event.preventDefault(); backToMain(); }} form={view === "main" ? "set-aside-envelope-form" : undefined} disabled={view === "main" ? !canSave : false} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : view === "main" ? (rhythm === "once" ? "Confirm this period" : "Confirm set-aside") : "Keep these changes"}</button>
-        </div>
-      ) : undefined}
-    >
-      {({ close, closeThen }) => {
-        return <>
-            {step === "kind" && (
-              <div className="space-y-2 pb-2">
-                {KINDS.filter((kind) => scope === "all" || kind.id !== "date").map((k) => {
-                  const Icon = k.icon;
-                  return (
-                    <button
-                      key={k.id}
-                      type="button"
-                      onClick={() => pickKind(k.id, closeThen)}
-                      className="w-full min-h-[44px] flex items-center gap-3 px-3.5 py-3 rounded-2xl border border-slate-200/70 dark:border-white/[0.08] bg-slate-50/60 dark:bg-white/[0.03] text-left transition-colors active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    >
-                      <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400">
-                        <Icon size={16} />
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{k.title}</span>
-                        <span className="block text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{k.sub}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {step === "envelope" && (
-              <form id="set-aside-envelope-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3">
-                {view === "main" && <>
-                  <PlanContribution amount={amountValid ? parsedAmount : null} cadence={rhythm === "once" ? "this pay period" : "each pay period"} />
-                  <PlanAffordability>This is a planned set-aside, not a bank payment. Check Upcoming for its effect on available cash.</PlanAffordability>
-                  <button ref={detailFocus} type="button" onClick={() => { returnKey.current = "details"; setView("details"); }} className="w-full border-y border-slate-200 py-4 text-left dark:border-slate-700"><span className="flex items-center justify-between gap-3"><span><strong className="block text-sm">{name || "Add a name"}</strong><small className="mt-1 block text-xs text-slate-500">{rhythm === "once" ? "Just this period" : "Every pay period"}</small></span><Pencil size={16} className="text-slate-400" /></span></button>
-                  <PlanRouteSummary sourceAccount={accounts.find((account) => account.id === sourceId)} destinationAccount={trackingMode === "existing_payment" ? accounts.find((account) => account.id === accountId) : undefined} buttonRef={routeFocus} destinationButtonRef={destinationFocus} source={accounts.find((account) => account.id === sourceId) ? tidyAccountName(accounts.find((account) => account.id === sourceId)!.name) : "Choose a paying account"} destination={trackingMode === "manual" ? "Reserve in this account" : accounts.find((account) => account.id === accountId) ? tidyAccountName(accounts.find((account) => account.id === accountId)!.name) : "Choose a receiving account"} onEdit={() => { returnKey.current = "route"; setView("route"); }} onDestinationEdit={() => { returnKey.current = "destination"; setView("destination"); }} />
-                  <PlanTrackingSummary buttonRef={trackingFocus} label={trackingMode === "manual" ? "Check it yourself" : rule.fill_display_name || "Choose a matching transfer"} detail={trackingMode === "manual" ? "The full amount stays reserved. No payment is matched automatically." : "Only a matching incoming transfer at the receiving account counts towards this set-aside."} onEdit={() => { returnKey.current = "tracking"; setView("tracking"); }} />
-                  <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Confirming saves every choice. It does not move money.</p>
-                </>}
-                {showEditor && <>
-                <button type="button" onClick={backToMain} className="min-h-11 text-sm font-semibold text-indigo-600 dark:text-indigo-400">Back to summary</button>
-                <PlanContribution amount={amountValid ? parsedAmount : null} cadence={rhythm === "once" ? "this pay period" : "each pay period"} />
-                {view === "details" && <>
-                {/* Name */}
-                <div>
-                  <label htmlFor="set-aside-name" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                    Name
-                  </label>
-                  <input
-                    id="set-aside-name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => { setName(e.target.value); setError(null); }}
-                    placeholder="House deposit top-up"
-                    maxLength={40}
-                    required
-                    className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm"
-                  />
-                </div>
-
-                {/* Amount per period */}
-                <div>
-                  <label htmlFor="set-aside-amount" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                    Amount per period
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">£</span>
-                    <input
-                      id="set-aside-amount"
-                      type="text"
-                      inputMode="decimal"
-                      value={amount}
-                      onChange={(e) => { setAmount(e.target.value); setError(null); }}
-                      placeholder="0.00"
-                      required
-                      className="w-full min-h-[48px] pl-7 pr-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm text-left tabular-nums"
-                    />
-                  </div>
-                </div>
-
-                <RhythmToggle value={rhythm} onChange={setRhythm} />
-                </>}
-
-                {view === "route" && <div id="allocation-route" className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <AccountRadioPicker accounts={sourceAccounts} value={sourceId} onChange={(id) => { setSourceId(id); setRule({ match_type: "description_contains", match_value: "", fill_display_name: "" }); setError(null); }} label="Pay from" />
-                </div>}
-                {view === "destination" && (trackingMode === "existing_payment" ? <AccountRadioPicker accounts={accounts.filter((account) => account.id !== sourceId)} value={accountId} onChange={pickAccount} label="Receiving account" /> : <><p className="text-sm leading-6 text-slate-600 dark:text-slate-300">This set-aside stays in the paying account. It has no receiving account.</p><button type="button" onClick={() => setView("tracking")} className="min-h-11 text-sm font-semibold text-indigo-600 dark:text-indigo-400">Change tracking</button></>)}
-                {view === "tracking" && <><fieldset><legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tracking</legend><div className="mt-2 grid grid-cols-2 gap-2"><button type="button" aria-pressed={trackingMode === "existing_payment"} onClick={() => setTrackingMode("existing_payment")} className="min-h-11 rounded-xl border border-slate-200 px-3 text-left text-sm font-semibold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 dark:border-slate-700 dark:aria-pressed:bg-indigo-950/30">Match a transfer</button><button type="button" aria-pressed={trackingMode === "manual"} onClick={() => setTrackingMode("manual")} className="min-h-11 rounded-xl border border-slate-200 px-3 text-left text-sm font-semibold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 dark:border-slate-700 dark:aria-pressed:bg-indigo-950/30">Reserve in account</button></div></fieldset>{trackingMode === "existing_payment" && accountId !== "" && <><p className="text-xs text-slate-500">Suggested payment, or choose a different payment below.</p><FillRulePicker accountId={accountId} value={rule} onChange={setRule} loadCandidates={operations.allocationFillCandidates} /></>}</>}
-
-                {view === "details" && <EffectiveDateField
-                  value={effectiveFrom}
-                  periodStartLabel={periodStartLabel}
-                  todayIso={todayIso()}
-                  onChange={setEffectiveFrom}
-                />}
-
-                {error && (
-                  <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
-                )}
-
-                </>}
-              </form>
-            )}
-        </>;
-      }}
-    </SheetFrame>
-  );
+  const chooseKind = (chosen: Kind, closeThen: (next: () => void) => void) => { if (chosen === "date") return closeThen(() => onSelectByDate?.()); if (chosen === "single") return closeThen(onSelectSingle); setKind(chosen); setStep("purpose"); };
+  const reviewRows: [string, string, Step][] = [["Name", name, "purpose"], ["Amount", amountValid ? `£${parsedAmount.toLocaleString("en-GB")} ${rhythm === "once" ? "once" : "each pay period"}` : "Add an amount", "details"], ["Pay from", accounts.find(a => a.id === sourceId)?.name ?? "Choose an account", "source"], ["Money", accountId ? `Move to ${accounts.find(a => a.id === accountId)?.name ?? "account"}` : "Stays in the paying account", "destination"], ["Tracking", categoryTracking ? "Category activity" : trackingMode === "existing_payment" ? rule.fill_display_name || rule.match_value || "A payment" : "Not linked yet", "tracking"]];
+  return <SheetFrame title="Set money aside" description={kind ? `Step ${stepIndex + 1} of ${steps.length}` : "What would you like to plan?"} onClose={onClose} dismissDisabled={saving} onHistoryBack={kind && stepIndex > 0 ? back : undefined} onBack={kind && stepIndex > 0 ? back : undefined} footer={kind ? ({ close }) => <div className="grid grid-cols-2 gap-2"><button type="button" onClick={step === "review" || stepIndex === 0 ? close : back} disabled={saving} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200">{step === "review" || stepIndex === 0 ? "Cancel" : "Back"}</button><button type="button" onClick={() => step === "review" ? void save(close) : next()} disabled={saving || (step === "review" ? !canSave : !validStep)} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Saving…" : step === "review" ? "Save set-aside" : step === "tracking" ? "Review set-aside" : returnToReview ? "Return to review" : "Continue"}</button></div> : undefined}>
+    {({ closeThen }) => <>{!kind && <div className="space-y-2">{KINDS.filter(k => scope === "all" || k.id === "envelope").map(k => { const Icon = k.icon; return <button key={k.id} type="button" onClick={() => chooseKind(k.id, closeThen)} className="flex min-h-12 w-full items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-left focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-white/[.08] dark:bg-white/[.03]"><span className="flex size-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-white/[.06]"><Icon size={16}/></span><span><strong className="block text-sm text-slate-900 dark:text-slate-100">{k.title}</strong><span className="block text-xs text-slate-500">{k.sub}</span></span></button>; })}</div>}
+    {kind && <div className="space-y-4">
+      {step === "purpose" && <div><p className="mb-4 text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText unmasked text="For example, set aside £300 for groceries each pay period." /></p><label htmlFor="set-aside-name" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">What are you setting money aside for?</label><input id="set-aside-name" autoFocus value={name} onChange={e => { setName(e.target.value); setError(null); }} placeholder="Groceries" maxLength={40} className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-base text-slate-900 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"/><button type="button" onClick={() => closeThen(onSelectSingle)} className="mt-3 min-h-11 text-sm font-semibold text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-300">Planning one payment instead?</button></div>}
+      {step === "details" && <><div><label htmlFor="set-aside-amount" className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Amount</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">£</span><input id="set-aside-amount" autoFocus inputMode="decimal" value={amount} onChange={e => { setAmount(e.target.value); setError(null); }} placeholder="300" className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-7 pr-3 text-base tabular-nums text-slate-900 focus:ring-2 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"/></div></div><RhythmToggle value={rhythm} onChange={setRhythm}/><EffectiveDateField value={effectiveFrom} periodStartLabel={periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} todayIso={todayIso()} onChange={setEffectiveFrom}/></>}
+      {step === "source" && <AccountRadioPicker accounts={sourceAccounts} value={sourceId} onChange={id => { setSourceId(id); setRule(EMPTY_RULE); setCategoryTracking(null); setError(null); }} label="Pay from"/>}
+      {step === "destination" && <div className="space-y-3"><p className="text-sm text-slate-600 dark:text-slate-300">Where should this money sit?</p><button type="button" onClick={() => { setAccountId(""); setTrackingMode("manual"); setRule(EMPTY_RULE); setCategoryTracking(null); }} aria-pressed={!accountId} className="min-h-12 w-full rounded-xl border border-slate-200 px-3 text-left text-sm font-semibold aria-pressed:border-indigo-600 aria-pressed:bg-indigo-50 dark:border-slate-700 dark:aria-pressed:bg-indigo-950/30">Keep it in the paying account</button><AccountRadioPicker accounts={destinations} value={accountId} onChange={id => { setAccountId(id); setRule(EMPTY_RULE); setCategoryTracking(null); }} label="Move it to another account, optional"/></div>}
+      {step === "tracking" && <div className="space-y-4"><PlanTrackingMethod value={categoryTracking ? "category" : trackingMode === "existing_payment" ? "payment" : "none"} onChange={method => { setTrackingMode(method === "payment" ? "existing_payment" : "manual"); setRule(EMPTY_RULE); setCategoryTracking(method === "category" ? { category: accountId ? "Savings" : "Groceries", ...(accountId ? { destination_account_ids: [accountId] } : {}) } : null); }} />{categoryTracking && <PlanCategoryTracking kind="set-aside" sourceAccountId={sourceId} destinationAccountIds={accountId ? [accountId] : undefined} value={categoryTracking} onChange={value => { setCategoryTracking(value); setTrackingMode(value ? "manual" : "existing_payment"); setRule(EMPTY_RULE); }}/>}{!categoryTracking && trackingMode === "existing_payment" && accountId && <FillRulePicker accountId={accountId} value={rule} onChange={setRule} loadCandidates={operations.allocationFillCandidates}/>} {trackingMode === "existing_payment" && !accountId && <p className="text-sm text-slate-600 dark:text-slate-300">Choose a receiving account to match a payment, or choose category or not now.</p>}</div>}
+      {step === "review" && <div className="space-y-4"><PlanContribution amount={amountValid ? parsedAmount : null} cadence={rhythm === "once" ? "this pay period" : "each pay period"}/><div className="divide-y divide-slate-200 border-y border-slate-200 text-sm dark:divide-slate-700 dark:border-slate-700">{reviewRows.map(([label, value, target]) => <button key={label} type="button" onClick={() => { setReturnToReview(true); setStep(target); }} className="flex min-h-12 w-full items-center justify-between gap-3 py-2 text-left"><span className="text-slate-500 dark:text-slate-400">{label}</span><span className="text-right font-semibold text-indigo-700 dark:text-indigo-300">{label === "Amount" && amountValid ? <><MoneyText text={`£${parsedAmount.toLocaleString("en-GB")} ${rhythm === "once" ? "once" : "each pay period"}`} /> · Edit</> : `${value} · Edit`}</span></button>)}</div><PlanAffordability>This is a planned set-aside, not a bank payment. It does not move money.</PlanAffordability></div>}
+      {error && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">{error}</p>}
+    </div>}</>}
+  </SheetFrame>;
 }

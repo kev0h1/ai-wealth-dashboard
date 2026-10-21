@@ -141,12 +141,14 @@ assert.match(flow, /!hasFooter && <div ref=\{fallbackFooterRef\}/, "Footerless f
 assert.match(flow, /useEffect\(retain, \[retain\]\)/, "Embedded action portals retain the pinned footer when present");
 assert.doesNotMatch(category, /<h2 className="text-base font-bold/, "SheetFrame owns the only sheet heading");
 assert.match(commitment, /onClose=\{handleSheetClose\}/);
-assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : editorView !== "main" \? returnToSummary : undefined\}/, "Consent and draft subviews return inside the same sheet");
-assert.match(commitment, /onBack=\{showConsent \? returnToDraft : editorView !== "main" \? returnToSummary : undefined\}/);
+assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : !commitment && createNameStep && !reviewEditing \? undefined : editorView !== "main" \? commitment \? returnToSummary : createPrevious : undefined\}/, "Consent and guided draft subviews return inside the same sheet");
+assert.match(commitment, /onBack=\{showConsent \? returnToDraft :[^\n]*returnToSavedView/, "Existing goal edits return to the saved record");
+assert.match(commitment, /onHistoryBack=\{showConsent \? returnToDraft :[^\n]*createPrevious/, "Hardware Back steps through the goal journey");
+assert.match(a11y, /!closingRef.current && optionsRef.current\?\.onHistoryBack/, "Internal Back is opt-in and explicit close bypasses it");
 assert.match(commitment, /key=\{sheetHistoryGeneration\}/, "Consent Back restores the SheetFrame history entry with the draft intact");
 assert.match(commitment, /allowConsentCloseRef\.current = true/, "A consent save or route handoff still closes the entire sheet");
 assert.match(insight, /setDone\(true\);\s+\/\/ The write has completed[\s\S]*setSaving\(false\);/, "Saved insight confirmation can be dismissed after the request finishes");
-assert.match(setAside, /if \(kind === "date"\) \{ closeThen\(\(\) => onSelectByDate\?\.\(\)\); return; \}/);
+assert.match(setAside, /if \(chosen === "date"\) return closeThen\(\(\) => onSelectByDate\?\.\(\)\)/, "Date-goal handoff closes the old frame before opening its replacement");
 assert.match(accountsPage, /useAccountDetailHistory\(setSelectedAccountId, clearSelectedTransaction\);/);
 assert.match(accountHistoryHook, /attachAccountPopListener\(window, \(\) => handlers\.current, openSheetHistoryCount\)/, "Account detail popstate asks whether a sheet owns the traversal");
 assert.match(source("../lib/accountSheetHistory.ts"), /addEventListener\("popstate", onPop, true\)/, "Capture phase reads the sheet stack before sheets pop themselves");

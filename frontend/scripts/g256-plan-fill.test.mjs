@@ -30,15 +30,15 @@ assert.match(sheet, /note=\{suggestedActive \? "Suggested from your transfers" :
 assert.match(sheet, /setRule\(\{ \.\.\.result\.suggestion,/, "suggestion is staged in the summary");
 assert.match(sheet, /suggestedName=\{suggestedActive/, "suggestion retains its label in the picker");
 assert.match(sheet, /Saving the plan confirms the displayed rule\./, "save explicitly confirms the staged rule");
-assert.match(sheet, /if \(ruleTouched \|\| suggestedActive \|\| \(sourceTouched && !sourceId\)\) body\.fill_rule = ruleBody/, "final edit sends touched or confirmed suggestion");
-assert.match(sheet, /\.\.\.\(ruleTouched \|\| suggestedActive \? \{ fill_rule: ruleBody \} : \{\}\)/, "final create sends touched or confirmed suggestion");
+assert.match(sheet, /if \(ruleTouched \|\| suggestedActive \|\| \(sourceTouched && !sourceId\) \|\| categoryTracking\) body\.fill_rule = ruleBody/, "final edit sends touched or confirmed suggestion, or clears it for category tracking");
+assert.match(sheet, /\.\.\.\(ruleTouched \|\| suggestedActive \|\| categoryTracking \? \{ fill_rule: ruleBody \} : \{\}\)/, "final create sends touched or confirmed suggestion without competing with a category rule");
 assert.match(sheet, /if \(stale\) return/, "late suggestions cannot overwrite a changed route");
 assert.match(sheet, /function togglePot\([^)]*\)\s*\{[^]*?setRule\(EMPTY_RULE\)/, "changing destination clears the old matching rule");
-assert.match(sheet, /setPots\(\[\]\); setSuggestion\(null\); setRule\(EMPTY_RULE\); setRuleTouched\(true\)/, "removing the sink clears its rule and saves the clear");
+assert.match(sheet, /setPots\(\[\]\); setSuggestion\(null\); setRule\(EMPTY_RULE\); setCategoryTracking\(null\); setRuleTouched\(true\)/, "removing the sink clears both tracking modes and saves the clear");
 assert.ok(!/useEffect\([^)]*updateCommitment/.test(sheet), "no auto-save of the suggestion");
 const setAside = read("../components/SetAsideSheet.tsx");
-assert.match(setAside, /key=\{view === "main" \? "confirm" : "keep-draft"\}/, "keep and confirm cannot reuse a mutable submit button");
-assert.match(setAside, /event\.preventDefault\(\); backToMain\(\)/, "keeping a draft cancels the click default before returning to main");
+assert.doesNotMatch(setAside, /type="submit"/, "guided navigation uses explicit button actions, never an implicit form submit");
+assert.match(setAside, /step === "review" \? void save\(close\) : next\(\)/, "only final review invokes the save mutation");
 const noop = () => {};
 const html = renderToStaticMarkup(React.createElement(FillRulePicker, {
   accountId: "current", value: { match_type: "description_contains", match_value: "Japan pot", fill_display_name: "Japan pot" },
