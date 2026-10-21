@@ -962,12 +962,70 @@ def test_vercel_check_mode_is_read_only_and_prints(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
     monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
     monkeypatch.setattr(release, "vercel_rest", fake)
+    monkeypatch.setattr(release, "_run_ok", lambda *a, **k: (True, "aaaa1111bbbb\n"))
     assert release.main(["--vercel-check", "--sha", "aaaa1111"]) == 0
     out = capsys.readouterr().out
-    assert "d_other" in out and "cccc2222" in out and "promote candidate for aaaa1111: d_target" in out
+    assert "d_other" in out and "cccc2222" in out and "promote candidate for aaaa1111bbbb: d_target" in out
     assert all(m == "GET" for m, _ in state["calls"])
     with pytest.raises(SystemExit):
         release.main(["--vercel-check", "check"])
+
+
+FULL_SHA = "aaaa1111bbbb2222cccc3333dddd4444eeee5555"
+
+
+def _strict_vercel(state):
+    """Like _fake_vercel but the candidate list only matches the full 40-char sha."""
+    base = _fake_vercel(state)
+
+    def http(method, url, token, timeout):
+        if "/v7/deployments" in url:
+            state["calls"].append((method, url))
+            if f"sha={FULL_SHA}&" in url:
+                return {"deployments": [{"uid": "d_target", "meta": {"githubCommitSha": FULL_SHA}}]}
+            return {"deployments": []}
+        return base(method, url, token, timeout)
+
+    return http
+
+
+def _vc_setup(monkeypatch, tmp_path, state, resolver):
+    state.setdefault("calls", [])
+    monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
+    monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
+    monkeypatch.setattr(release, "vercel_rest", _strict_vercel(state))
+    monkeypatch.setattr(release, "_run_ok", resolver)
+
+
+def test_vercel_check_resolves_short_sha_to_full(monkeypatch, tmp_path, capsys):
+    state = {"live": "d_other"}
+    seen = []
+
+    def resolver(cmd, **k):
+        seen.append(cmd)
+        return True, FULL_SHA + "\n"
+
+    _vc_setup(monkeypatch, tmp_path, state, resolver)
+    assert release.main(["--vercel-check", "--sha", "aaaa1111"]) == 0
+    out = capsys.readouterr().out
+    assert f"resolved aaaa1111 to {FULL_SHA}" in out
+    assert f"promote candidate for {FULL_SHA}: d_target" in out
+    assert seen and seen[0][:3] == ["git", "rev-parse", "--verify"]
+
+
+def test_vercel_check_resolves_release_tag(monkeypatch, tmp_path, capsys):
+    state = {"live": "d_other"}
+    _vc_setup(monkeypatch, tmp_path, state, lambda cmd, **k: (True, FULL_SHA + "\n") if "release-20261019-1200^{commit}" in cmd else (False, "bad"))
+    assert release.main(["--vercel-check", "--sha", "release-20261019-1200"]) == 0
+    assert f"promote candidate for {FULL_SHA}: d_target" in capsys.readouterr().out
+
+
+def test_vercel_check_unresolvable_sha_exits_1_without_candidate_call(monkeypatch, tmp_path, capsys):
+    state = {"live": "d_other"}
+    _vc_setup(monkeypatch, tmp_path, state, lambda *a, **k: (False, "fatal: bad revision"))
+    assert release.main(["--vercel-check", "--sha", "nope123"]) == 1
+    assert "could not resolve nope123 to a commit" in capsys.readouterr().err
+    assert not any("/v7/deployments" in u for _, u in state["calls"])
 
 
 def test_vercel_rest_non_json_body_raises_remote_error(monkeypatch):

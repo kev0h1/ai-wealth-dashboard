@@ -1043,6 +1043,15 @@ def verify_vercel_rollback(
     return False, f"promoted Vercel deployment {uid} but production still serves {live[:8]}, not {sha[:8]}"
 
 
+def resolve_commit(target: str, timeout: int) -> tuple[bool, str]:
+    """Resolve a short sha, full sha or tag to a full commit sha via git in the shared tree.
+
+    Returns (ok, full_sha_or_error_text). Shared by rollback and --vercel-check.
+    """
+    ok, out = _run_ok(["git", "rev-parse", "--verify", f"{target}^{{commit}}"], timeout=timeout, cwd=REPO_ROOT)
+    return ok, out.strip()
+
+
 def cmd_vercel_check(args: argparse.Namespace) -> int:
     """Read-only: only the GETs the rollback verify relies on."""
     token = vercel_cli_token()
@@ -1055,8 +1064,13 @@ def cmd_vercel_check(args: argparse.Namespace) -> int:
         print(f"live production deployment ({PROD_DOMAIN}): {dep_id}")
         print(f"live sha: {live}")
         if args.sha:
-            cand = find_promote_candidate(vercel_rest, token, project_id, org_id, args.sha, args.timeout)
-            print(f"promote candidate for {args.sha}: {cand or 'none found'}")
+            ok, full_sha = resolve_commit(args.sha, args.timeout)
+            if not ok or not full_sha:
+                print(f"could not resolve {args.sha} to a commit", file=sys.stderr)
+                return 1
+            print(f"resolved {args.sha} to {full_sha}")
+            cand = find_promote_candidate(vercel_rest, token, project_id, org_id, full_sha, args.timeout)
+            print(f"promote candidate for {full_sha}: {cand or 'none found'}")
     except RemoteError as exc:
         print(f"vercel-check failed: {exc}", file=sys.stderr)
         return 1
@@ -1363,11 +1377,11 @@ def cmd_rollback(args: argparse.Namespace) -> int:
         return 1
 
     target = args.target
-    ok, out = _run_ok(["git", "rev-parse", "--verify", target], timeout=args.timeout, cwd=REPO_ROOT)
+    ok, out = resolve_commit(target, args.timeout)
     if not ok:
         print(f"{target!r} does not resolve to a commit: {out}", file=sys.stderr)
         return 1
-    sha = out.strip()
+    sha = out
 
     is_our_tag = is_tag_from_this_tool(REPO_ROOT, target, args.timeout) or bool(
         re.match(r"^release-\d{8}-\d{4}$", target)
