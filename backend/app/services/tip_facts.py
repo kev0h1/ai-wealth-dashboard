@@ -333,7 +333,9 @@ def present_triggers(category: str, triggered_by: Optional[list[dict]], label: O
         latest = max(dated, key=lambda r: str(r["last_date"])) if dated else None
         merged = dict(biggest)
         merged.update({
-            "display_name": name,
+            # a generic noun starts a sentence in the evidence list ("Your mortgage
+            # lender") and sits lower case inside the headline (see headline_for)
+            "display_name": name[:1].upper() + name[1:] if generic else name,
             "generic": generic,
             "monthly_amount": round(sum(float(r.get("monthly_amount") or 0) for r in rows), 2),
             "occurrences": sum(int(r.get("occurrences") or 0) for r in rows),
@@ -379,7 +381,7 @@ def headline_for(category: str, label: str, rows: list[dict], profile_categories
     primary = tb[0]
     name = primary.get("display_name") or ""
     if is_regulated_category(category, label):
-        who = name
+        who = name[:1].lower() + name[1:] if primary.get("generic") else name
         when = short_date(primary.get("last_date")) if primary.get("last_date") else None
         last = primary.get("last_amount")
         if len(tb) == 1 and when and isinstance(last, (int, float)) and last > 0:
