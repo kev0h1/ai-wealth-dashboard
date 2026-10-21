@@ -49,6 +49,9 @@ const comfortableSts = {
   days_until_payday: 4,
   bills_total: 0,
   income_before_payday: 0,
+  spendable_now: 83.4,
+  lowest_projected_balance: 83.4,
+  calculation_status: "complete",
   buffer: 0,
   state: "comfortable",
   estimated: false,
@@ -92,6 +95,8 @@ const shortSts = {
   safe_to_spend_cash: -45,
   state: "short",
   short_reason: "bills",
+  bills_total: 128.4,
+  lowest_projected_balance: -45,
 };
 {
   const headline = deriveSafeToSpendHeadline(shortSts);
@@ -99,7 +104,7 @@ const shortSts = {
   check("genuine short hero amount is the absolute shortfall", headline.heroAmount, 45);
   const view = buildSafeToSpendView(shortSts, { hidden: false });
   check("short figure label reflects the shortfall framing", view.figures[0].label, "Short before payday");
-  check("short figure value is the positive shortfall amount", view.figures[0].value, "£45");
+  check("short figure keeps the signed amount shown on Home", view.figures[0].value, "−£45");
 }
 
 // cards_unconfirmed short carve-out — never treated as a genuine shortfall

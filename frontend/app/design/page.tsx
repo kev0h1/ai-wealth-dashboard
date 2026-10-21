@@ -174,18 +174,10 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
   },
   {
-    slug: "sts-tone",
-    name: "Safe to Spend · complete card · G287",
-    description: "E State-led and F Icon-led compare a complete paired Home and Upcoming status system: red only for genuine payment risk, amber for caution or optional reserves, green when on track, and ink money figures throughout. D Calm urgency and earlier A/B/C/current remain for comparison. Actual cards retain calculations, caveats, Your accounts and conditional Cards/payment actions. Synthetic examples only; actions stay local. ?variant=e|f|d|a|b|c|current&state=habitual|cards|card-check|plans|comfortable|chronology|loading|stale|error|empty|degraded|long&mode=light|dark",
-    states: [{ label: "Repeated shortfall", value: "habitual" }, { label: "On track", value: "comfortable" }, { label: "Plans only", value: "plans" }, { label: "Tight", value: "tight" }, { label: "Below buffer", value: "buffer" }, { label: "No headroom", value: "even" }, { label: "Review card bill", value: "card-check" }, { label: "Income arrives later", value: "chronology" }, { label: "See your cards", value: "cards" }, { label: "Account gap", value: "move" }, { label: "One-off", value: "one-off" }, { label: "Small cash gap", value: "small" }, { label: "Payment due soon", value: "urgent" }, { label: "Loading", value: "loading" }, { label: "Update delayed", value: "stale" }, { label: "Unavailable", value: "error" }, { label: "Not enough history", value: "empty" }, { label: "Incomplete calculation", value: "degraded" }, { label: "Long figures", value: "long" }],
-    variants: [{ label: "E · State-led", value: "e" }, { label: "F · Icon-led", value: "f" }, { label: "D · Calm urgency", value: "d" }, { label: "A · Calmer full card", value: "a" }, { label: "B · Original layout", value: "b" }, { label: "C · Shared risk colour", value: "c" }, { label: "Current production", value: "current" }],
-    group: "current",
-  },
-  {
     slug: "safe-to-spend-figure",
     name: "Safe to Spend figure colour · G218 · approved B, folded in",
     description:
-      "G218, approved B (Kevin 2026-10-06) and folded in: the Safe to Spend figure is emerald On track, red only for a cash shortfall (red-500 in dark mode), amber when the shortfall exists only because of plans and envelopes, ink for Tight, card checks, error, degraded and syncing · renders the production SafeToSpendCard through props with fixture data, so a drift in the shipped colours shows here · ?state=on-track|tight|card|short-cash|short-plans|error|degraded|syncing&mode=light|dark&view=single|strip|compare",
+      "Historic G218 comparison, superseded by Kevin’s G287 E approval on 21 October 2026. The production card now uses ink figures with compact semantic status indicators. This older fixture surface remains because the G218 regression gate imports its data; its historical tint alternatives are no longer the current production choice.",
     states: [
       { label: "Short (cash)", value: "short-cash" },
       { label: "On track", value: "on-track" },

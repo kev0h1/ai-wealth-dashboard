@@ -1,7 +1,6 @@
-// G218 (approved B, 2026-10-06): pins the SHIPPED Safe to Spend figure
-// colours. Emerald On track, red-500 (dark) for a cash shortfall, amber for a
-// shortfall that exists only because of set-asides, ink for Tight and card
-// checks. Changing a class here is a design decision, not a refactor.
+// G218 server plans-only derivation and disclaimer contract.
+// G287 E supersedes the old figure tints; production presentation is
+// covered by check:g287-sts-tone. These financial and privacy checks remain.
 //
 // Run: npm run -s check:g218-figure-tone
 
@@ -12,37 +11,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { renderToStaticMarkup } from "react-dom/server";
 import SafeToSpendCard from "../components/SafeToSpendCard.tsx";
 import { FIGURE_DATA } from "../app/design/safe-to-spend-figure/fixtures.ts";
-import { figureToneClasses } from "../components/SafeToSpendCard.tsx";
 import { isPlansOnlyShort, deriveSafeToSpendHeadline, buildSafeToSpendView } from "../lib/pennyScreenViews.ts";
-
-const CASES = {
-  onTrack: { state: "comfortable", isCardsUnconfirmedShort: false, plansOnly: false },
-  tight: { state: "tight", isCardsUnconfirmedShort: false, plansOnly: false },
-  card: { state: "short", isCardsUnconfirmedShort: true, plansOnly: false },
-  shortCash: { state: "short", isCardsUnconfirmedShort: false, plansOnly: false },
-  shortPlans: { state: "short", isCardsUnconfirmedShort: false, plansOnly: true },
-};
-const INK = "text-slate-900 dark:text-slate-100";
-const AMBER_CHIP = "bg-slate-100 text-amber-800 dark:bg-slate-700/70 dark:text-amber-200";
-const t = (c) => figureToneClasses(c);
-
-// 1. Figure classes.
-assert.equal(t(CASES.onTrack).figure, "text-emerald-700 dark:text-emerald-300");
-assert.equal(t(CASES.shortCash).figure, "text-red-600 dark:text-red-500", "dark red is 500, not the salmon 400");
-assert.equal(t(CASES.shortPlans).figure, "text-amber-700 dark:text-amber-300", "plans-only shortfall is amber");
-assert.equal(t(CASES.tight).figure, INK);
-assert.equal(t(CASES.card).figure, INK);
-
-// 2. Chips: amber for tight, card and plans-only; red only for a cash shortfall.
-assert.equal(t(CASES.onTrack).chip, "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300");
-assert.equal(t(CASES.tight).chip, AMBER_CHIP);
-assert.equal(t(CASES.card).chip, AMBER_CHIP);
-assert.equal(t(CASES.shortPlans).chip, AMBER_CHIP);
-assert.equal(t(CASES.shortCash).chip, "bg-slate-100 text-red-700 dark:bg-slate-700/70 dark:text-red-300");
-
-// 3. A plans-only flag on a non-short state or a card check never colours anything.
-assert.deepEqual(t({ ...CASES.onTrack, plansOnly: true }), t(CASES.onTrack));
-assert.deepEqual(t({ ...CASES.card, plansOnly: true }), t(CASES.card));
 
 // 4. Plans-only derivation (client twin of net_position.plans_only_short_for).
 const ok = { status: "ok", state: "short", short_reason: "bills", safe_to_spend: -250, safe_to_spend_cash: -250, buffer: 0, lowest_projected_balance: 0, commitments_reserved: 50, allocations_reserved: 200, next_payday: "2026-10-30T00:00:00" };
