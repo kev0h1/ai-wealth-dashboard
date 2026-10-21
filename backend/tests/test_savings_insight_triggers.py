@@ -28,6 +28,7 @@ in-memory fakes following the same monkeypatch-the-module-level-name
 pattern already established there.
 """
 import asyncio
+import pytest
 from datetime import datetime, timedelta
 
 import app.routers.savings_insights as savings_insights
@@ -126,6 +127,14 @@ class _FrozenDatetime(datetime):
 
 def _frozen_now(monkeypatch):
     monkeypatch.setattr(savings_insights, "datetime", _FrozenDatetime)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_clock(monkeypatch):
+    """H125: the fixtures are dated relative to NOW, so the 90-day windows in
+    `_detect_insight_categories` / `_find_triggered_transactions` must read the
+    same frozen clock, or the tests rot as real time moves on."""
+    _frozen_now(monkeypatch)
 
 
 # ── BUG 1: word-boundary trigger matching ──────────────────────────────────
