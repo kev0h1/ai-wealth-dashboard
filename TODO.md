@@ -916,6 +916,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **C31. Point the android-capacitor internal testing workflow at the production API (Kevin, 2026-10-20 and 2026-10-21): Play internal testers are the sideload sorted.apk audience and Play Billing is wired to production, so the internal track must bake build:mobile:prod; drop the UAT-only MCP connector vars from it per A17** [owner: claude] [priority: p1] [state: in-progress] [branch: feature-C31-android-internal-prod-api]
   - note (2026-10-21, claude): No stacking needed: feature-C30-android-internal-trigger no longer exists, C30 is already done on main (2fa1f49), so this branch is based on main and carries its workflow changes.
 - [ ] **C32. Point the android-capacitor internal testing workflow at the production API (Kevin 2026-10-21)** [owner: claude] [state: in-progress] [branch: feature-C32-android-internal-prod-api]
+  - note (2026-10-21, claude): session abandoned, branch feature-C32-android-internal-prod-api discarded
 
 ## D. Identity and sign-up
 
