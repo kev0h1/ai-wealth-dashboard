@@ -471,6 +471,25 @@ def test_product_ids_come_from_config_overrides(env, monkeypatch):
         _run(play_billing.process_subscription(T2))
 
 
+def test_client_product_ids_exclude_legacy_max_aliases():
+    # C33: the sorted.max.* aliases share the plus keys and used to overwrite
+    # the real Plus ids sent to the app, so Plus showed "Price unavailable".
+    ids = play_billing.client_product_ids()
+    assert ids["plus"] == "sorted.plus.monthly"
+    assert ids["plus_six_months"] == "sorted.plus.six_months"
+    assert ids["plus_annual"] == "sorted.plus.annual"
+    assert not any(v.startswith("sorted.max.") for v in ids.values())
+    # The aliases still resolve when a purchase names one.
+    assert "sorted.max.monthly" in play_billing.catalogue()
+
+
+def test_client_config_products_match_client_product_ids(env, client):
+    cfg = client.get("/billing/play/config").json()
+    assert cfg["products"] == play_billing.client_product_ids()
+    assert cfg["products"]["plus"] == "sorted.plus.monthly"
+    assert not any(v.startswith("sorted.max.") for v in cfg["products"].values())
+
+
 def test_test_purchase_refused_on_production_allowed_on_uat(env, monkeypatch):
     env.api.subs[T1] = sub_payload(test=True)
     with pytest.raises(play_billing.PlayRefused):
