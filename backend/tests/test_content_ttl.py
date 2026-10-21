@@ -32,6 +32,7 @@ from app.routers.savings_insights import (
     _serialize_insight,
     DEFAULT_RESEARCH_TTL,
     DEFAULT_RESEARCH_TTL_DAYS,
+    PROMPT_VERSION as _PV,
 )
 
 
@@ -94,7 +95,7 @@ def _fresh_doc(category="gym", **overrides):
         "researched_at": NOW - timedelta(days=1),
         "content_valid_until": NOW + timedelta(days=6),  # still inside the 7d TTL
         "pinned": False, "is_new": False, "refreshed_at": NOW,
-        "triggered_by": [],
+        "triggered_by": [], "prompt_version": _PV,
     }
     base.update(overrides)
     return base

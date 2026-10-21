@@ -19,7 +19,7 @@ from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, TIP_LLM_PHRASING, TIP_RESEARCH_PROFILE_KEYS
 from app.core.llm import openrouter_chat, record_tavily_call
 from app.core import timeutil
-from app.services import tip_copy, tip_research, tips_research_health
+from app.services import tip_copy, tip_facts, tip_research, tips_research_health
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
@@ -120,7 +120,14 @@ INSIGHT_CATEGORIES: dict[str, dict] = {
 # not one per user.
 # v8 (G283): tips state facts only, with no saving claimed or estimated, so every
 # stored tip regenerates once into the fact style (see app.services.tip_copy).
-PROMPT_VERSION = 8
+# v9 (G315): tips are factual and consistent (see app.services.tip_facts):
+# regulated categories carry only the user's own fact, "Also listed" only when
+# like for like from a named source, one figure per card, cleaned merged
+# merchant names and one freshness line. Stored tips below this version are
+# NEVER served (MIN_SERVE_PROMPT_VERSION), so old copy cannot linger between the
+# bump and the next regeneration pass; they show as no content until rewritten.
+PROMPT_VERSION = 9
+MIN_SERVE_PROMPT_VERSION = 9
 
 # In-app destination per category — the screen where the user can act on the
 # insight with their own data (frontend renders this as the primary action).
@@ -1212,12 +1219,19 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
         # recurring-matched figure (an exact, engine-known amount) is not.
         monthly_amount = round(engine_amount, 2) if is_recurring else round(sum(amounts) / 3, 2)
 
-        result.append({
+        row = {
             "merchant_key": norm_key, "display_name": display_name,
             "monthly_amount": monthly_amount, "occurrences": len(amounts),
             "overlapping_charge": overlapping_charge,
             "is_recurring": is_recurring,
-        })
+        }
+        if dated:
+            # G315: the user's own latest payment, for the regulated-category fact
+            # ("You paid your mortgage lender £1,124.44 on 1 Oct").
+            last_dt, last_amt = dated[-1]
+            row["last_date"] = last_dt.date().isoformat() if hasattr(last_dt, "date") else str(last_dt)[:10]
+            row["last_amount"] = round(abs(last_amt), 2)
+        result.append(row)
         if len(result) >= 4:
             break
     return result
@@ -1281,7 +1295,10 @@ async def _tavily_search(
                     for res in (data.get("results") or [])[:2]:
                         snippet = res.get("content", "")[:250]
                         if snippet:
-                            web_snippets.append(snippet)
+                            # G315: tag each snippet with its page host so a price can
+                            # only be attributed to the page it was stated on.
+                            page = tip_facts.host_of(str(res.get("url") or ""))
+                            web_snippets.append(f"Page {page}: {snippet}" if page else snippet)
                     for res in (data.get("results") or [])[:3]:
                         url = str(res.get("url") or "")
                         if url.startswith("https://") and len(url) <= 200:
@@ -1337,7 +1354,7 @@ _SHORT_PROVIDER_NAMES = frozenset({"ee", "bt", "o2", "lv", "bg"})
 
 _RANGE_NOUN = {
     "mobile":        "SIM-only plans",
-    "broadband":     "broadband deals",
+    "broadband":     "broadband plans",
     "energy":        "energy tariffs",
     "car_insurance": "car insurance policies",
     "gym":           "gym memberships",
@@ -1349,6 +1366,31 @@ _DEADLINE_PHRASE = {
 }
 
 _FINDINGS_ATTEMPTS = 2
+
+_PRODUCT_TYPE_WORDS = {
+    "sim_only": "a SIM-only plan (no handset, no bundle)",
+    "broadband_only": "a standalone broadband plan (no TV or phone bundle)",
+    "energy_tariff": "a household energy tariff",
+    "gym_membership": "a gym membership from the gym itself",
+    "streaming_subscription": "a streaming subscription",
+}
+
+
+def _alternatives_instruction(category_key: str) -> str:
+    """G315 (b): research may list an alternative only on the category's one product
+    type, with a stated monthly price and the page it came from. A category with
+    no product type (groceries, eating out, anything regulated) is asked for none."""
+    ptype = tip_facts.PRODUCT_TYPE.get(category_key)
+    if not ptype:
+        return "- alternatives: always an empty list [] for this category.\n"
+    return (
+        "- alternatives: up to 3 objects {name, price, product_type, basis, source_url}. Each is a UK "
+        f"provider named in the results offering {_PRODUCT_TYPE_WORDS.get(ptype, ptype)}, with its "
+        f"stated monthly GBP price. product_type must be exactly '{ptype}'. basis must be exactly "
+        "'month'. source_url is the page host or URL the price is stated on (the 'Page ...' tag). "
+        "OMIT any option without a stated price, any reseller, voucher, cashback or marketplace "
+        "listing, any bundle or handset deal, and any other product type.\n"
+    )
 
 
 def _trigger_phrase_for(category_key: str, merchant_key: Optional[str]) -> Optional[str]:
@@ -1476,18 +1518,39 @@ def _build_findings(
     # states prices and names, not a view on the market.
     headline = ""
     alternatives: list[dict] = []
-    for a in (parsed.get("alternatives") or [])[:3]:
-        if not isinstance(a, dict):
+    expected_type = tip_facts.PRODUCT_TYPE.get(category_key)
+    clean_urls = _clean_sources(urls)
+    result_hosts = {tip_facts.host_of(u) for u in clean_urls}
+    for a in (parsed.get("alternatives") or [])[:6]:
+        if not isinstance(a, dict) or not expected_type:
             continue
         name = re.sub(r"[^A-Za-z0-9 &'+.\-]", "", str(a.get("name") or "")).strip()[:40]
         if not name or not _is_shareable_text(name) or not tip_copy.is_clean(name):
             continue
-        note = grounded_text(a.get("note"), 60)
+        # G315 (b): only a like-for-like listing is kept. A price is required (never
+        # a product type alone), on the category's own product type and a monthly
+        # basis, taken from a named allowlisted page the search actually returned.
+        price = _grounded_number(a.get("price"), allowed)
+        if price is None:
+            continue
+        if str(a.get("product_type") or "").strip().lower() != expected_type:
+            continue
+        if str(a.get("basis") or "").strip().lower() != "month":
+            continue
+        host = tip_facts.host_of(str(a.get("source_url") or ""))
+        if not host or host not in result_hosts or tip_facts.allowed_source_name(host, name) is None:
+            continue
+        if not tip_facts.is_like_for_like(
+            {"category": category_key, "product_type": expected_type, "period": "month"},
+            {"name": name, "price": price, "product_type": expected_type, "basis": "month", "source_host": host},
+        ):
+            continue
         alternatives.append({
-            "name": name,
-            "price": _grounded_number(a.get("price"), allowed),
-            "note": (note if tip_copy.is_clean(note) else "") or None,
+            "name": name, "price": price, "note": None,
+            "product_type": expected_type, "basis": "month", "source_host": host,
         })
+        if len(alternatives) >= 3:
+            break
 
     deal: Optional[dict] = None
     claim_dt: Optional[datetime] = None
@@ -1521,7 +1584,10 @@ def _build_findings(
         return None, None, "empty"
     findings = {
         "typical_low": low, "typical_high": high, "headline": headline or None,
-        "alternatives": alternatives, "deal": deal, "sources": _clean_sources(urls),
+        "alternatives": alternatives, "deal": deal,
+        # G315 (e): only named, allowlisted sources are ever stored; an SEO price
+        # site or any unlisted domain is dropped here, at source.
+        "sources": tip_facts.allowed_source_urls(clean_urls),
     }
     return findings, claim_dt, None
 
@@ -1533,6 +1599,10 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
     the coarse price band: no user id, amount, transaction or name."""
     cfg = INSIGHT_CATEGORIES[key.category]
     outcome: dict = {}
+    if tip_facts.is_regulated_category(key.category, cfg.get("label")):
+        # G315 (a): a regulated category is never researched, whoever asks.
+        log.warning("tip research refused for regulated category=%s", key.category)
+        return tip_research.FetchOutcome(failure="error")
     today = timeutil.user_today()
     today_label = timeutil.user_now().strftime("%B %Y")
     provider_text = ""
@@ -1541,6 +1611,9 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
     band_text = tip_research.band_phrase(key.category, key.price_band)
     year = timeutil.user_now().year
     query = " ".join(p for p in (cfg["query"].format(year=year), provider_text, today_label) if p)
+    query = tip_facts.safe_research_query(key.category, cfg.get("label"), query)
+    if not query:
+        return tip_research.FetchOutcome(failure="error")
 
     searched = await _tavily_search(query, key.category, outcome, pipeline="tip_research_tavily")
     if searched is None:
@@ -1564,8 +1637,7 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
         "address or describe one. JSON fields:\n"
         "- typical_low and typical_high: numbers, the typical MONTHLY price range in GBP for comparable "
         "offers stated in the results (convert yearly to monthly), else null. Never invent a figure.\n"
-        "- alternatives: up to 3 objects {name, price, note}: a UK provider or product, its monthly GBP "
-        "price if stated (else null), and a note of at most 8 words (else null).\n"
+        + _alternatives_instruction(key.category) +
         "- deal: null, or {text, valid_until}: one sentence on a specific time-bound offer, and the date "
         "or month it is valid until ('2027-03-31' or 'March 2027'), or the literal 'no_expiry_known' if "
         "the sources never say. Never invent a date.\n"
@@ -1637,17 +1709,16 @@ def _checked_label(as_of: Optional[str]) -> Optional[str]:
     return f"{d.day} {d.strftime('%b')}"
 
 
-def _source_label(findings: dict) -> Optional[str]:
-    """The host names of the pages the shared findings came from (at most two),
-    for the "source" half of a tip's fact line. A host that would trip the
-    banned-phrase list is left out rather than shown."""
-    hosts: list[str] = []
-    for u in (findings.get("sources") or []):
-        host = (urlparse(str(u)).netloc or "").lower()
-        host = host[4:] if host.startswith("www.") else host
-        if host and host not in hosts and tip_copy.is_clean(host):
-            hosts.append(host)
-    return " and ".join(hosts[:2]) or None
+def _source_label(findings: dict, extra_names: Optional[list[str]] = None) -> Optional[str]:
+    """The NAMES (MoneySuperMarket, Which?) of the allowlisted pages the market
+    facts came from, at most two, never a bare domain: a source outside the
+    allowlist is left out, and with none left there is no source line at all
+    (G315 e)."""
+    names: list[str] = []
+    for n in list(extra_names or []) + tip_facts.source_names(list(findings.get("sources") or [])):
+        if n and n not in names:
+            names.append(n)
+    return " and ".join(names[:2]) or None
 
 
 def _context_sentence(user_context: Optional[dict]) -> Optional[str]:
@@ -1666,70 +1737,84 @@ def _compose_tip_content(
     user_context: Optional[dict], today,
 ) -> Optional[dict]:
     """The personal layer: shared findings plus the user's own figures, no
-    external call. Deterministic. G283: a tip states facts only, namely what the
-    user pays, to whom and how often, and what comparable options are listed at
-    with a source and a date. It never claims or estimates a saving, never
-    recommends, never names a product as the best option. A deal past its
+    external call. Deterministic. G283: a tip states facts only. G315: one
+    figure per card (the headline is `tip_facts.headline_for`, the same sentence
+    the lead line shows), merged cleaned merchant names, and market facts only
+    when they are like for like, from a named allowlisted source. A regulated
+    category (mortgage, car finance, insurance and the like) carries ONLY the
+    user's own fact, never a market line, a deal or a source. A deal past its
     deadline is never included. `_tip_content_for` gates every string against
-    the banned-phrase list (app.services.tip_copy) and drops the tip on a hit."""
+    the banned-phrase list and `tip_facts.card_violations`, and drops the tip
+    on a hit."""
     cfg = INSIGHT_CATEGORIES[category_key]
     f = doc.get("findings") or {}
     label = cfg["label"]
     label_l = label.lower()
-    tb = [t for t in (triggered_by or []) if t.get("monthly_amount")]
-    total = sum(float(t["monthly_amount"]) for t in tb)
-    primary = tb[0] if tb else None
-
-    if primary and len(tb) == 1 and primary.get("is_recurring"):
-        title = f"You pay {_provider_display(primary.get('display_name'))} {_money(total)} a month"
-    elif tb and category_key in tip_research.PROFILE_CATEGORIES:
-        title = f"You spend about {_money(total)} a month on {label_l}"
-    elif tb:
-        title = f"You pay {_money(total)} a month on {label_l}"
-    else:
+    regulated = tip_facts.is_regulated_category(category_key, label)
+    rows = tip_facts.present_triggers(category_key, triggered_by, label)
+    title = tip_facts.headline_for(category_key, label, rows, tip_research.PROFILE_CATEGORIES)
+    if title is None:
+        if regulated:
+            return None  # no figure of the user's own: no tip
         title = f"Listed prices for {label_l}"
 
     sentences: list[str] = []
-    if len(tb) > 1:
-        sentences.append("By merchant: " + ", ".join(
-            f"{_provider_display(t.get('display_name'))} {_money(float(t['monthly_amount']))} a month"
-            for t in tb[:4]
-        ) + ".")
-    elif primary and not primary.get("is_recurring") and primary.get("occurrences"):
-        n = int(primary["occurrences"])
-        sentences.append(f"That is based on {n} payment{'s' if n != 1 else ''} in the last 90 days.")
+    n_payments = sum(int(t.get("occurrences") or 0) for t in rows)
+    if rows and n_payments:
+        pl = "s" if n_payments != 1 else ""
+        if regulated and title.startswith("You paid "):
+            sentences.append(f"That was the latest of {n_payments} payment{pl} in the last 90 days.")
+        else:
+            sentences.append(f"That is based on {n_payments} payment{pl} in the last 90 days.")
 
-    low, high = f.get("typical_low"), f.get("typical_high")
-    noun = _RANGE_NOUN.get(category_key)
-    if noun and low is not None and high is not None:
-        sentences.append(f"{noun[:1].upper()}{noun[1:]} are listed at {_money(low)} to {_money(high)} a month.")
-    alts = f.get("alternatives") or []
-    if alts:
-        parts = []
-        for a in alts[:3]:
-            extra = ""
-            if a.get("price") is not None:
-                extra = f" {_money(a['price'])} a month"
-            elif a.get("note"):
-                extra = f" ({a['note']})"
-            parts.append(f"{a['name']}{extra}")
-        sentences.append("Also listed: " + ", ".join(parts) + ".")
-
+    market_names: list[str] = []
     claim_dt: Optional[datetime] = None
-    deal = f.get("deal")
-    if deal and deal.get("text"):
-        until = None
-        if deal.get("valid_until"):
-            try:
-                until = datetime.strptime(deal["valid_until"], "%Y-%m-%d")
-            except ValueError:
-                until = None
-        if until is None or until.date() >= today:  # never show a deal past its deadline
-            text = deal["text"].rstrip(".") + "."
-            if until is not None:
-                text += f" Offer listed until {until.day} {until.strftime('%b')}."
-            sentences.append(text)
-            claim_dt = until
+    market_used = False
+    if not regulated and category_key not in tip_facts.NO_COMPARE_CATEGORIES:
+        user_fact = {
+            "category": category_key,
+            "product_type": tip_facts.user_product_type(category_key, user_context),
+            "period": "month",
+            "merchant": rows[0].get("display_name") if rows else None,
+        }
+        doc_sources = tip_facts.source_names(list(f.get("sources") or []))
+        low, high = f.get("typical_low"), f.get("typical_high")
+        noun = _RANGE_NOUN.get(category_key)
+        if (
+            noun and low is not None and high is not None and doc_sources
+            and user_fact["product_type"] == tip_facts.PRODUCT_TYPE.get(category_key)
+        ):
+            sentences.append(f"{noun[:1].upper()}{noun[1:]} are listed at {_money(low)} to {_money(high)} a month.")
+            market_used = True
+        parts = []
+        for a in (f.get("alternatives") or []):
+            if len(parts) >= 3:
+                break
+            if not tip_facts.is_like_for_like(user_fact, a):
+                continue
+            parts.append(f"{a['name']} {_money(a['price'])} a month")
+            nm = tip_facts.allowed_source_name(str(a.get("source_host") or ""), a.get("name"))
+            if nm and nm not in market_names:
+                market_names.append(nm)
+        if parts:
+            sentences.append("Also listed: " + ", ".join(parts) + ".")
+            market_used = True
+
+        deal = f.get("deal")
+        if deal and deal.get("text") and doc_sources and not tip_facts.RESELLER_RE.search(deal["text"]):
+            until = None
+            if deal.get("valid_until"):
+                try:
+                    until = datetime.strptime(deal["valid_until"], "%Y-%m-%d")
+                except ValueError:
+                    until = None
+            if until is None or until.date() >= today:  # never show a deal past its deadline
+                text = deal["text"].rstrip(".") + "."
+                if until is not None:
+                    text += f" Offer listed until {until.day} {until.strftime('%b')}."
+                sentences.append(text)
+                claim_dt = until
+                market_used = True
 
     ctx = _context_sentence(user_context)
     if ctx:
@@ -1737,10 +1822,12 @@ def _compose_tip_content(
     if not sentences:
         return None
     core = " ".join(sentences)
+    # One freshness line (G315 f): "Checked 16 Oct", with a named source only when
+    # market facts are shown. Own-transaction facts carry the date alone.
     checked = _checked_label(doc.get("as_of"))
-    source = _source_label(f)
+    source = _source_label(f, market_names) if market_used else None
     if checked and source:
-        check = f"Checked {checked}, source {source}."
+        check = f"Checked {checked}, source {source}" + ("" if source.endswith("?") else ".")
     elif checked:
         check = f"Checked {checked}."
     else:
@@ -1818,29 +1905,45 @@ async def _tip_content_for(
     outcome = _RESEARCH_OUTCOME.get()
     if category_key not in INSIGHT_CATEGORIES:
         return None
-    key = await _tip_key_for(user_id, category_key, triggered_by)
-    result = await tip_research.ensure_research(key, _fetch_market_findings, allow_fetch=allow_fetch)
-    if outcome is not None and result.fetched:
-        outcome["fetched"] = True
-    if result.state not in ("fresh", "fetched"):
-        # Nothing current. Any older findings stay stored, marked stale, and
-        # the user's existing tip is kept (B44) rather than rewritten.
-        if outcome is not None:
-            if result.failure:
-                outcome["failure"] = result.failure
-            elif not allow_fetch:
-                outcome["deferred"] = True
-        return None
-    content = _compose_tip_content(category_key, result.doc, triggered_by, user_context, timeutil.user_today())
+    label = INSIGHT_CATEGORIES[category_key]["label"]
+    if tip_facts.is_regulated_category(category_key, label):
+        # G315 (a): a regulated category is never researched. The tip is the user's
+        # own fact, dated today, and lives as long as any other tip does.
+        now_n = datetime.utcnow()  # naive-ok: persisted tip timestamp, same convention as the weekly pass
+        doc = {
+            "as_of": timeutil.user_today().isoformat(), "fetched_at": now_n,
+            "content_valid_until": now_n + DEFAULT_RESEARCH_TTL, "findings": {},
+        }
+    else:
+        key = await _tip_key_for(user_id, category_key, triggered_by)
+        result = await tip_research.ensure_research(key, _fetch_market_findings, allow_fetch=allow_fetch)
+        if outcome is not None and result.fetched:
+            outcome["fetched"] = True
+        if result.state not in ("fresh", "fetched"):
+            # Nothing current. Any older findings stay stored, marked stale, and
+            # the user's existing tip is kept (B44) rather than rewritten.
+            if outcome is not None:
+                if result.failure:
+                    outcome["failure"] = result.failure
+                elif not allow_fetch:
+                    outcome["deferred"] = True
+            return None
+        doc = result.doc
+    content = _compose_tip_content(category_key, doc, triggered_by, user_context, timeutil.user_today())
     if content is None:
         return None
     content = await _maybe_rephrase(user_id, content, user_context) if tip_copy.is_clean(
         content.get("title"), content.get("body"),
     ) else content
-    if not tip_copy.is_clean(content.get("title"), content.get("body")):
+    violations = tip_facts.card_violations(
+        {"title": content.get("title"), "body": content.get("body"), "lead_line": content.get("title")},
+        category_key, label,
+    )
+    if not tip_copy.is_clean(content.get("title"), content.get("body")) or violations:
         if outcome is not None:
             outcome["copy_rejected"] = tip_copy.BANNED_FAILURE_CODE
-        log.warning("tip copy rejected category=%s code=%s", category_key, tip_copy.BANNED_FAILURE_CODE)
+        log.warning("tip copy rejected category=%s code=%s rules=%s", category_key,
+                    tip_copy.BANNED_FAILURE_CODE, ",".join(violations) or "banned_phrase")
         return None
     return content
 
@@ -2459,6 +2562,19 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     content_live = state in {"fresh", "stale"}
     title_raw = d.get("title", "") if content_live else ""
     body_raw = d.get("body", "") if content_live else ""
+    # G315: a tip written before PROMPT_VERSION 9 is never served, so old copy
+    # cannot linger between the version bump and the next regeneration pass.
+    if int(d.get("prompt_version") or 0) < MIN_SERVE_PROMPT_VERSION:
+        title_raw = body_raw = ""
+    # G315 (c, d): the user's own rows as the card shows them (cleaned names, one
+    # row per brand) and the ONE sentence that states their figure. The headline
+    # is that sentence, always recomputed from the same rows the lead line uses,
+    # so headline, lead and body can never carry different amounts.
+    _label = _cfg.get("label") or d.get("label", cat.replace("_", " ").title())
+    presented = tip_facts.present_triggers(cat, d.get("triggered_by"), _label)
+    lead_line = tip_facts.headline_for(cat, _label, presented, tip_research.PROFILE_CATEGORIES)
+    if title_raw.strip() and body_raw.strip() and lead_line:
+        title_raw = lead_line
     # A stale tip shows its text but never an expiry or deadline stamp: its
     # TTL has already passed, so those dates would read as current.
     claim_valid_until_raw = d.get("claim_valid_until") if state == "fresh" else None
@@ -2471,6 +2587,13 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     title_raw = _house_style(title_raw)
     body_raw = _house_style(body_raw)
     if not tip_copy.is_clean(title_raw, body_raw):
+        title_raw = body_raw = ""
+    # G315: the rendered-card gate (regulated categories, like for like, one
+    # figure, names, domain spacing, one freshness line). A card that breaks any
+    # rule is hidden, never edited into shape.
+    if title_raw.strip() and body_raw.strip() and tip_facts.card_violations(
+        {"title": title_raw, "body": body_raw, "lead_line": lead_line or title_raw}, cat, _label,
+    ):
         title_raw = body_raw = ""
 
     # THE INVARIANT, enforced a second time, at the end of the line (owner
@@ -2608,10 +2731,14 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         # style-consistency pattern as stopped_line/substituted_line
         # above (see `_expiry_line`). Only meaningful (non-null) while
         # content_live.
+        # G315 (f): one freshness line. The body already ends "Checked 16 Oct", so
+        # the second stamp ("Researched 5d ago", "Valid until ...") is not sent.
         "expiry_line": (
             _expiry_line(researched_at, content_valid_until_raw, claim_valid_until_raw, timeutil.user_now())
-            if state == "fresh" else None
+            if state == "fresh" and not tip_facts.has_checked_line(body_raw) else None
         ),
+        # G315 (c): the user's own figure as one plain sentence; the card's lead line.
+        "lead_line":       lead_line,
         # B44: set only for state == "stale"; the client shows it verbatim.
         "stale_note":      STALE_NOTE if state == "stale" else None,
         # STRUCTURAL FIX — the single source of truth every consumer should
@@ -2621,7 +2748,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         # `retired_at` docs from its own query before this function runs.)
         "state":           state,
         "researched_at":   researched_at.isoformat() + "Z" if content_live and researched_at else None,
-        "triggered_by":    d.get("triggered_by", []),
+        "triggered_by":    presented,
         "user_context":    d.get("user_context"),
         "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
         # In-app screen where the user can act on this with their own data,

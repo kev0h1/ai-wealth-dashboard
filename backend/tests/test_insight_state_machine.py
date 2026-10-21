@@ -36,6 +36,7 @@ from app.routers.savings_insights import (
     _serialize_insight,
     _refresh_savings_insights_for_user,
     _expiry_line,
+    PROMPT_VERSION,
     _job_for_category,
 )
 from app.services.categories import BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, MOVEMENT
@@ -303,6 +304,7 @@ def test_stored_fact_tip_is_served(monkeypatch):
         "researched_at": NOW - timedelta(hours=1),
         "content_valid_until": NOW + timedelta(days=6),
         "pinned": False, "is_new": False, "refreshed_at": NOW, "triggered_by": [],
+        "prompt_version": PROMPT_VERSION,
     }
     out = _serialize_insight(doc)
     assert out["state"] == "fresh"
@@ -487,7 +489,7 @@ def test_state_anatomy_invariant(monkeypatch, state, anatomy):
         "researched_at": NOW - timedelta(days=1),
         "content_valid_until": NOW + timedelta(days=6),
         "title": "A real title", "body": "A real body sentence.",
-        "savings_estimate": None, "triggered_by": [],
+        "savings_estimate": None, "triggered_by": [], "prompt_version": PROMPT_VERSION,
     }
     if state == "quiet":
         base["content_valid_until"] = None

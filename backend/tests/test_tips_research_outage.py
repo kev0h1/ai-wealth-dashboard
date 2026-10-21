@@ -137,6 +137,7 @@ def _doc(**over):
         "researched_at": now - timedelta(days=9),
         "content_valid_until": now - timedelta(days=2),
         "claim_valid_until": None, "triggered_by": [], "_id": "x",
+        "prompt_version": si.PROMPT_VERSION,
     }
     d.update(over)
     return d

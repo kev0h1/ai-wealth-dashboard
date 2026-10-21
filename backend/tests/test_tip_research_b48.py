@@ -292,7 +292,7 @@ def test_findings_text_with_a_figure_or_personal_word_is_not_shared():
                   alternatives=[{"name": "Giffgaff", "price": 10, "note": "your best bet"}],
                   deal={"text": "Save £5 now", "valid_until": "2099-03-31"})
     findings, claim, _ = si._build_findings(parsed, SNIPPET, [], "mobile", datetime(2026, 10, 16).date())
-    assert findings["headline"] is None and findings["alternatives"][0]["note"] is None
+    assert findings["headline"] is None and findings["alternatives"] == []
     assert findings["deal"] is None and claim is None
 
 
@@ -313,8 +313,7 @@ def test_two_users_same_provider_and_band_cause_one_research_call(pass_env):
     assert set(calls.tavily_pipelines) == {"tip_research_tavily"}
     a, b = _mobile_doc(insights, ALICE), _mobile_doc(insights, BOB)
     assert "£27" in a["title"] and "£33" in b["title"]  # personal layer: each user's own figure
-    assert a["body"].count("Checked ") == 1 and "listed at £8 to £25 a month" in a["body"]
-    assert a["body"].endswith("source example.com.")
+    assert a["body"].count("Checked ") == 1 and "listed at" not in a["body"] and "source" not in a["body"]
 
 
 def test_sequential_second_user_reuses_stored_findings(pass_env):
@@ -554,9 +553,10 @@ def test_deal_past_its_deadline_is_not_shown_at_compose_time():
     doc = {
         "as_of": "2026-10-01", "fetched_at": datetime(2026, 10, 1), "content_valid_until": datetime(2026, 10, 8),
         "findings": {"typical_low": 8, "typical_high": 25, "headline": None, "alternatives": [],
-                     "deal": {"text": "A switching offer is running", "valid_until": "2026-10-05"}, "sources": []},
+                     "deal": {"text": "A switching offer is running", "valid_until": "2026-10-05"},
+                     "sources": ["https://www.uswitch.com/mobiles/"]},
     }
-    tb = [{"merchant_key": "ee", "display_name": "Ee", "monthly_amount": 30.0, "is_recurring": True}]
+    tb = [{"merchant_key": "ee", "display_name": "Ee", "monthly_amount": 30.0, "is_recurring": True, "occurrences": 3}]
     live = si._compose_tip_content("mobile", doc, tb, None, datetime(2026, 10, 4).date())
     assert "switching offer" in live["body"] and "Offer listed until 5 Oct" in live["body"]
     assert live["claim_valid_until"] == datetime(2026, 10, 5)
@@ -580,8 +580,7 @@ def test_figures_not_in_the_search_results_are_dropped():
     parsed = dict(LLM_FINDINGS, typical_low=3, typical_high=999,
                   alternatives=[{"name": "Giffgaff", "price": 777, "note": None}])
     findings, _, _ = si._build_findings(parsed, SNIPPET, [], "mobile", datetime(2026, 10, 16).date())
-    assert findings["typical_low"] is None and findings["typical_high"] is None
-    assert findings["alternatives"][0]["price"] is None
+    assert findings is None  # G315: no grounded figure and no priced listing leaves nothing to store
 
 
 # ── personal layer ──────────────────────────────────────────────────────────
@@ -592,10 +591,12 @@ def test_composed_tip_is_personal_hedged_dated_and_in_house_style(pass_env):
     doc = _mobile_doc(insights, ALICE)
     text = doc["title"] + " " + doc["body"]
     assert doc["title"] == "You pay EE £27 a month"
-    assert "listed at £8 to £25 a month" in doc["body"] and re.search(r"Checked \d{1,2} \w{3}, source example\.com\.", doc["body"])
+    # G315: a mobile bill has no like-for-like product type and example.com is not an
+    # allowlisted source, so the body is the user's own fact plus one freshness line.
+    assert "listed at" not in doc["body"] and re.search(r"Checked \d{1,2} \w{3}\.$", doc["body"])
     assert "—" not in text and "–" not in text and "!" not in text
     assert "savings_estimate" not in doc
-    assert doc["claim_valid_until"] == datetime(2099, 3, 31)
+    assert doc["claim_valid_until"] is None
     assert doc["researched_at"] is not None and doc["prompt_version"] == si.PROMPT_VERSION
     out = si._serialize_insight(doc)
     assert out["state"] == "fresh" and out["title"] == doc["title"]
@@ -758,7 +759,7 @@ def test_tavily_search_counts_each_request_sent(monkeypatch):
     monkeypatch.setattr(si.tips_research_health, "load", health_load)
     monkeypatch.setattr(si.tips_research_health, "record_success", health_ok)
     out = run(si._tavily_search("q", "mobile", {}, pipeline="tip_research_tavily"))
-    assert out == (["a", "c"], ["https://example.com/x"]) and sent == ["tip_research_tavily"]
+    assert out == (["a", "Page example.com: c"], ["https://example.com/x"]) and sent == ["tip_research_tavily"]
 
 
 # ── backfill ────────────────────────────────────────────────────────────────
