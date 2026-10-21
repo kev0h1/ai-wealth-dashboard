@@ -613,8 +613,12 @@ workflows:
   # ---------------------------------------------------------------------
   # ANDROID (C11): Google Play, mirroring the iOS pair above.
   #
-  #   - android-capacitor:      UAT API, MOBILE_TARGET=uat. Uploads the signed
-  #                             AAB to the Play INTERNAL testing track.
+  #   - android-capacitor:      production API, MOBILE_TARGET=prod (C31, Kevin
+  #                             2026-10-20 and 2026-10-21). Uploads the signed
+  #                             AAB to the Play INTERNAL testing track. Unlike
+  #                             ios-capacitor it triggers on pushes to main yet
+  #                             bakes production, so internal testers run
+  #                             unreleased main code against production data.
   #   - android-capacitor-prod: production API, MOBILE_TARGET=prod. Uploads to
   #                             the Play PRODUCTION track as a DRAFT release
   #                             (submit_as_draft: true), so nothing reaches
@@ -680,7 +684,7 @@ workflows:
   # workflows (or the manual first upload, versionCode 3, versionName 1.0.0).
   # ---------------------------------------------------------------------
   android-capacitor:
-    name: Android Capacitor (Play internal testing)
+    name: Android Capacitor (Play internal testing, production API)
     instance_type: mac_mini_m2
     max_build_duration: 60
     # Fires on pushes to main that change the mobile app, identical to
@@ -697,12 +701,14 @@ workflows:
       android_signing:
         - sorted_upload_keystore
       vars:
-        # Same meanings as in ios-capacitor above.
-        MOBILE_TARGET: "uat"
-        BUILD_TAG_ENV: "uat"
-        NEXT_PUBLIC_MCP_CONNECTOR: "on"
-        NEXT_PUBLIC_MCP_URL: "https://uat.wealth.auriqltd.co.uk/api/mcp"
-        NEXT_PUBLIC_APP_ENV: "uat"
+        # Same meanings as in ios-capacitor-prod above (C31): the Play
+        # internal track bakes the PRODUCTION API, because internal testers are
+        # the sideload sorted.apk audience and Play Billing is wired to
+        # production. The MCP connector flags are NEVER set here (A17
+        # doctrine: the connector is never baked into a production-API build).
+        MOBILE_TARGET: "prod"
+        BUILD_TAG_ENV: "prod"
+        NEXT_PUBLIC_APP_ENV: "production"
     scripts:
       - *step_build_web
       - &step_android_google_services
