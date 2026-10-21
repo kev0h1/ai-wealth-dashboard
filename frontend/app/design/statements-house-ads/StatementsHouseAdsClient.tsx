@@ -287,7 +287,8 @@ export default function StatementsHouseAdsClient() {
           <Link href={href({ risk: risk ? null : "1" })} className={`${pill} ${off}`}>{risk ? "Hero: short (red)" : "Hero: on track"}</Link>
         </div>
       </nav>
-      <p className="mt-3 text-xs text-slate-700 dark:text-slate-200">{account.note}</p>
+      <p className="mt-3 text-xs text-slate-700 dark:text-slate-200">Preview: the Statements Home shell, the upload result and the limit state are hand-authored mocks. Only the Safe to Spend hero and the dismiss chip are production components. £5.99 and 1 November are fixture values; production uses the server price and the real reset date.</p>
+      <p className="mt-2 text-xs text-slate-700 dark:text-slate-200">{account.note}</p>
       <HomeScreen {...props} />
       <UploadScreen {...props} />
       <LimitScreen {...props} />
@@ -299,6 +300,7 @@ export default function StatementsHouseAdsClient() {
           <li>Hidden when the hero is in a risk state, and for every plan except Statements. A user on the 14-day trial counts as a trial user.</li>
           <li>Never the Penny gradient. The action goes to the existing plan picker ({PLAN_PICKER_HREF}), link only.</li>
           <li>Trial available: the card says a card is needed and that it renews unless cancelled. Trial used: plain subscribe prompt.</li>
+          <li>Fold-in eligibility tests: (1) trial available shows the trial invitation with the card disclosure; (2) trial used shows the plain subscribe prompt; (3) eligibility unknown (trial_eligible null or absent) shows only the plain subscribe prompt, as PlanPicker's <code>?? false</code> does.</li>
           {MEASUREMENT.map((m) => <li key={m}>{m}</li>)}
         </ul>
       </details>

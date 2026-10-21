@@ -4,10 +4,13 @@
 // the card disappears, rather than a variant simply not drawing it.
 //
 // The trial is the existing card-first one (B45): 14 days, card details up
-// front, renews unless cancelled. Disclosure phrasing comes from
-// lib/billingCopy.ts (the B22 wording) so it cannot drift.
+// front, renews unless cancelled. The trial-available disclosure is built
+// from lib/billingCopy.ts trialDisclosureLine (the B22 wording) so it cannot
+// drift. The trial-used line has no billingCopy helper: only money() is
+// shared. TODO fold-in: add a billingCopy helper for it and use the server
+// price and charge timing.
 
-import { money } from "@/lib/billingCopy";
+import { money, trialDisclosureLine } from "@/lib/billingCopy";
 
 export type Placement = "home" | "upload" | "limit";
 export type HouseAdAccount =
@@ -69,7 +72,7 @@ export type AdCopy = { title: string; body: string; cta: string; fine: string; c
 
 // The disclosure sits on the card, next to the action (B22): that a card is
 // needed and that it renews unless cancelled. Built from billingCopy phrases.
-const FINE_AVAILABLE = `14 days free, then ${money(LITE_MONTHLY_GBP)} every month unless you cancel. Card details needed, cancel any time.`;
+const FINE_AVAILABLE = `${trialDisclosureLine(14, LITE_MONTHLY_GBP, "when the trial ends", "every month")} Card details needed.`;
 const FINE_USED = `${money(LITE_MONTHLY_GBP)} every month, cancel any time.`;
 
 // One headline per placement, two bodies (one per trial state). British
