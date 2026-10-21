@@ -27,19 +27,28 @@ import MoneyText from "@/components/MoneyText";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { actionHref } from "@/lib/actionRoutes";
 
+// G315 (a): no broker or comparison link for a regulated product (mortgage, car
+// finance and loans, credit cards and balance transfers, insurance, pensions,
+// investments), and none for groceries or eating out, where a link beside the
+// user's own spend reads as a better price or a voucher. The map below simply
+// has no entry for them, and `compareLinksFor` also refuses any category whose
+// key or label names a regulated product, so an unknown category fails closed.
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
   energy:        [{ label: "uSwitch", url: "https://www.uswitch.com/gas-electricity/" }, { label: "MSE Utilities", url: "https://www.moneysavingexpert.com/utilities/" }],
-  mortgage:      [{ label: "Habito", url: "https://www.habito.com" }, { label: "MSE Mortgages", url: "https://www.moneysavingexpert.com/mortgages/best-buys/" }],
-  car_finance:   [{ label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/car-finance/" }, { label: "MSE Car Finance", url: "https://www.moneysavingexpert.com/car-finance/" }],
-  car_insurance: [{ label: "Compare the Market", url: "https://www.comparethemarket.com/car-insurance/" }, { label: "GoCompare", url: "https://www.gocompare.com/car-insurance/" }],
   broadband:     [{ label: "uSwitch", url: "https://www.uswitch.com/broadband/" }, { label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/broadband/" }],
   mobile:        [{ label: "uSwitch", url: "https://www.uswitch.com/mobiles/" }, { label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/mobile-phones/" }],
-  groceries:     [{ label: "Trolley.co.uk", url: "https://trolley.co.uk" }, { label: "MSE Supermarket Tips", url: "https://www.moneysavingexpert.com/shopping/cheap-supermarket-shopping/" }],
-  eating_out:    [{ label: "VoucherCodes", url: "https://www.vouchercodes.co.uk/restaurants" }, { label: "Tastecard", url: "https://www.tastecard.co.uk" }],
   gym:           [{ label: "Hussle", url: "https://www.hussle.com" }, { label: "ClassPass UK", url: "https://classpass.com/uk" }],
-  subscriptions: [{ label: "MSE Deals", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
+  subscriptions: [{ label: "MoneySavingExpert", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
 };
+
+const REGULATED_CATEGORY_RE =
+  /mortgage|loan|financ|credit|card|balance[\s_-]*transfer|insur|pension|annuit|invest|isa\b|sipp|lender|broker|equity|bond|fund|stock|share/i;
+
+export function compareLinksFor(category: string, label: string): { label: string; url: string }[] {
+  if (REGULATED_CATEGORY_RE.test(`${category} ${label}`)) return [];
+  return CATEGORY_LINKS[category] ?? [];
+}
 
 // In-app primary action label per category ("See your X" → insight.app_route)
 const APP_ROUTE_LABELS: Record<string, string> = {
@@ -166,7 +175,7 @@ export function CompactInsightRow({
       )}
       {placeCount > 0 && (
         <span className="text-[12px] font-mono tabular-nums text-slate-500 dark:text-slate-400 flex-shrink-0">
-          {maskMoneyText(`~£${Math.round(total).toLocaleString("en-GB")}/mo`, hidden)} · {placeCount} place{placeCount !== 1 ? "s" : ""}
+          {maskMoneyText(`about £${Math.round(total).toLocaleString("en-GB")} a month`, hidden)}
         </span>
       )}
       <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
@@ -192,7 +201,9 @@ function InsightBody({ body }: { body: string }) {
   // Decimal points (digit.digit) are protected first so "4.47%" survives as
   // one token instead of being split into "4." + "47%" (see
   // _DECIMAL_PLACEHOLDER above).
-  const protectedBody = body.replace(/(\d)\.(\d)/g, `$1${_DECIMAL_PLACEHOLDER}$2`);
+  // G315 (e): a dot between two letters or digits is never a sentence end either,
+  // so "moneysupermarket.com" is not split into "moneysupermarket." and "com".
+  const protectedBody = body.replace(/([A-Za-z0-9])\.(?=[A-Za-z0-9])/g, `$1${_DECIMAL_PLACEHOLDER}`);
   const restoreDecimals = (s: string) => s.replace(new RegExp(_DECIMAL_PLACEHOLDER, "g"), ".");
   const sentences = (protectedBody.match(/[^.!?]+[.!?]+/g) ?? [protectedBody]).map(restoreDecimals);
   const preview = sentences.slice(0, 2).join(" ").trim();
@@ -473,7 +484,6 @@ export function InsightCard({
   }, [insight.id]);
   // The user's own figure — leads the card (verdict first, then the web copy)
   const topTrigger = insight.triggered_by[0] ?? null;
-  const extraTriggers = insight.triggered_by.length - 1;
   // The generated title below sums every trigger (see facts_block in
   // savings_insights.py), so with more than one trigger the lead must sum
   // too — a single merchant's figure next to a total-across-merchants title
@@ -482,11 +492,19 @@ export function InsightCard({
   // the same set the title's prompt sees, so this total always reconciles
   // with every row the "Based on N transactions" disclosure below lists.
   const triggerTotal = insight.triggered_by.reduce((sum, t) => sum + (t.monthly_amount || 0), 0);
+  // G315 (c): ONE sentence states the user's figure, composed on the server and
+  // shown verbatim, so the headline and the card body can never carry different
+  // amounts. The fallback (an older backend) is a plain sentence with the same
+  // shape, never "across N places".
+  const leadLine =
+    insight.lead_line ??
+    (topTrigger
+      ? `You pay about £${triggerTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })} a month for ${insight.label.toLowerCase()}`
+      : "");
   // Real transaction count (sum of each row's own ×-count) vs place count
   // (triggered_by.length, one row per merchant) — see the "Based on N
   // transactions" disclosure below, which used to conflate the two.
   const txnCount   = insight.triggered_by.reduce((sum, t) => sum + (t.occurrences || 0), 0);
-  const placeCount = insight.triggered_by.length;
   // Zone 2 state (STRUCTURAL FIX — switches on `insight.state`, the single
   // server-derived source of truth; see `isCompactPullInsight` above for why
   // the old combination-of-booleans approach was the root cause of
@@ -576,18 +594,8 @@ export function InsightCard({
               transactions. With more than one trigger this is the summed
               total (see triggerTotal comment above). */}
           {topTrigger && (
-            <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
-              {extraTriggers > 0 ? (
-                <>
-                  <span className="font-mono tabular-nums">{maskMoneyText(`~£${triggerTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`, hidden)}</span>{" "}
-                  <span className="font-medium">across {insight.triggered_by.length} places</span>{" "}
-                </>
-              ) : (
-                <>
-                  <span className="font-mono tabular-nums">{maskMoneyText(`~£${topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`, hidden)}</span>{" "}
-                  <span className="font-medium">at {fixShortAllCaps(topTrigger.display_name)}</span>{" "}
-                </>
-              )}
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]">
+              <MoneyText text={leadLine} />{" "}
               <span className="text-xs font-normal text-slate-500 dark:text-slate-400">· from your transactions</span>
             </p>
           )}
@@ -620,7 +628,7 @@ export function InsightCard({
             <>
               {/* Generic title — demoted beneath the personal figure (leads
                   only when Zone 1 had no trigger figure of its own) */}
-              {insight.title && (
+              {insight.title && insight.title !== leadLine && (
                 <p
                   className={
                     topTrigger
@@ -664,10 +672,10 @@ export function InsightCard({
 
               {/* Comparison sites — secondary, quiet. Hidden inSheet, a
                   page-level action, not part of a payments drill-down. */}
-              {!inSheet && CATEGORY_LINKS[insight.category] && (
+              {!inSheet && compareLinksFor(insight.category, insight.label).length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] text-slate-400 dark:text-slate-500">Compare:</span>
-                  {CATEGORY_LINKS[insight.category].map(link => (
+                  {compareLinksFor(insight.category, insight.label).map(link => (
                     <a
                       key={link.url}
                       href={link.url}
@@ -747,7 +755,6 @@ export function InsightCard({
                     is the merchant/place count triggered_by.length always
                     was. */}
                 Based on {txnCount} transaction{txnCount !== 1 ? "s" : ""}
-                {placeCount > 1 ? ` across ${placeCount} places` : ""}
               </span>
               <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${showTriggers ? "rotate-180" : ""}`} />
             </button>

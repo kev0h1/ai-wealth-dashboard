@@ -142,7 +142,17 @@ export interface SavingsInsight {
      *  render with a "~" hedge). Optional so a client running against an
      *  older backend degrades to treating it as approximate. */
     is_recurring?: boolean;
+    /** G315: the user's own latest payment, for the regulated-category fact. */
+    last_date?: string;
+    last_amount?: number;
+    /** G315: true when the name is a plain noun ("your mortgage lender") because
+     *  the lender is not a known brand. */
+    generic?: boolean;
   }[];
+  /** G315 (c): the user's own figure as one plain sentence ("You pay about £61 a
+   *  month for mobile"), the same sentence as `title`. Server-composed, rendered
+   *  verbatim. Optional so a client running against an older backend falls back. */
+  lead_line?: string | null;
   user_context: Record<string, string> | null;
   has_workflow: boolean;
   /** In-app route showing the user's own spend for this category (primary action) */

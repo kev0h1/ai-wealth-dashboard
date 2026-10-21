@@ -285,7 +285,7 @@ const SUBSTITUTED: SavingsInsight = {
   stopped_line: null,
   substituted: true,
   substituted_merchant: "Nandos",
-  substituted_line: "Payments to Nandos stopped, but Eating Out overall hasn't moved. Worth a look at where it went.",
+  substituted_line: "Payments to Nandos stopped, and Eating Out overall hasn't moved.",
   deadline_at: null,
   claim_valid_until: null,
   content_valid_until: null,

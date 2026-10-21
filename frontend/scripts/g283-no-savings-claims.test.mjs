@@ -26,7 +26,9 @@ const read = (rel) => readFileSync(path.join(root, rel), "utf8");
 // The banned list, mirrored from tip_copy.py. Allowed: the category name
 // "Savings" (capital S) and "savings account"/"pot"/"ISA".
 const ALLOWED = /\bSavings\b|\bsavings\s+(?:accounts?|pots?|ISAs?|goals?|buffers?)\b/g;
-const BANNED = /\b(?:save|saves|saved|saving|savings|cut|cuts|cutting|cheaper|cheapest|could|should|recommend\w*|best|worth\s+switching|switch(?:ing)?\s+to)\b/i;
+// G315 widened it to the whole rendered card and its "Also listed" lines: bare
+// "switch", "deal" and "worth" are banned too (see tip_copy.py).
+const BANNED = /\b(?:save|saves|saved|saving|savings|cut|cuts|cutting|cheaper|cheapest|could|should|recommend\w*|best|worth|switch\w*|deals?)\b/i;
 const bannedIn = (text) => BANNED.exec(text.replace(ALLOWED, " "))?.[0] ?? null;
 
 const stripComments = (src) =>
@@ -92,11 +94,33 @@ for (const rel of TIP_FILES) {
 }
 
 // the banned-phrase detector itself
-for (const bad of ["Could save £5", "A cheaper plan", "You should switch to X", "The best deal", "worth switching"]) {
+for (const bad of ["Could save £5", "A cheaper plan", "You should switch to X", "The best deal", "worth switching", "A deal", "Switch now", "Worth a look"]) {
   assert.notEqual(bannedIn(bad), null, `detector must flag "${bad}"`);
 }
 for (const ok of ["You pay EE £57 a month.", "Savings", "Your savings account", "Checked 14 Oct, source uswitch.com."]) {
   assert.equal(bannedIn(ok), null, `detector must not flag "${ok}"`);
+}
+
+// 5. G315: regulated categories carry no comparison link, the lead line is the
+// server sentence, no "across N places", and the body splitter keeps domains whole.
+{
+  const card = read("components/InsightCard.tsx");
+  const linksBlock = card.slice(card.indexOf("const CATEGORY_LINKS"), card.indexOf("const REGULATED_CATEGORY_RE"));
+  for (const key of ["mortgage", "car_finance", "car_insurance", "insurance", "groceries", "eating_out"]) {
+    assert.ok(!new RegExp(`^\\s*${key}:`, "m").test(linksBlock), `CATEGORY_LINKS must have no ${key} entry (G315 a)`);
+  }
+  assert.ok(!/habito|vouchercodes|tastecard|trolley\.co\.uk|best-buys/i.test(stripComments(card)), "no broker or voucher link");
+  assert.ok(card.includes("compareLinksFor(insight.category, insight.label)"), "compare chips go through compareLinksFor");
+  assert.ok(!/across \$\{|across \{/.test(stripComments(card)), 'no "across N places" text in the card');
+  assert.ok(card.includes("insight.lead_line"), "the lead line comes from the server sentence");
+  // the splitter: "moneysupermarket.com" and "4.47%" survive, sentences still split
+  const PH = "\0";
+  const split = (body) => {
+    const prot = body.replace(/([A-Za-z0-9])\.(?=[A-Za-z0-9])/g, `$1${PH}`);
+    return (prot.match(/[^.!?]+[.!?]+/g) ?? [prot]).map((x) => x.replace(new RegExp(PH, "g"), ".")).join(" ").replace(/\s+/g, " ").trim();
+  };
+  assert.equal(split("Checked 16 Oct, source moneysupermarket.com. Rate 4.47%."), "Checked 16 Oct, source moneysupermarket.com. Rate 4.47%.");
+  assert.ok(card.includes("([A-Za-z0-9])\\.(?=[A-Za-z0-9])"), "InsightBody protects dots inside words");
 }
 
 // 4. sublines are a count only
