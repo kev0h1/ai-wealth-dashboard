@@ -243,6 +243,57 @@ class SubscriptionMapping:
     trial_ends_at: datetime | None = None
     trial_started_at: datetime | None = None
     grace_until: datetime | None = None
+    trial_reason: str | None = None   # why trialing was (or was not) chosen, for the C34 log line
+
+
+_RENEWAL_ORDER_RE = re.compile(r"\.\.\d+$")
+
+
+def _offer_details(line: dict) -> dict:
+    """lineItems[].offerDetails: {basePlanId, offerId, offerTags}. Absent for
+    a purchase on a base plan with no offer."""
+    details = line.get("offerDetails")
+    return details if isinstance(details, dict) else {}
+
+
+def _trial_decision(sub: dict, line: dict, start: datetime | None, now: datetime) -> tuple[bool, str]:
+    """Trialing is decided by the offer plus the billing cycle (C34):
+    offerDetails.offerId equals PLAY_TRIAL_OFFER_ID, or offerTags carries it,
+    AND the latest order id has no "..N" renewal suffix (Google keeps the
+    offer on the line item after the trial and does not expose the current
+    pricing phase). The trial length is NOT checked: on the accelerated tester
+    clock the phase lasts minutes. A start far outside the trial window is
+    only logged. A missing order id fails open to the offer alone."""
+    trial_id = play_config.PLAY_TRIAL_OFFER_ID
+    if not trial_id:
+        return False, "no_trial_offer_configured"
+    details = _offer_details(line)
+    offer_id = details.get("offerId")
+    tags = details.get("offerTags")
+    tags = [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
+    if offer_id == trial_id:
+        reason = "offer_id_match"
+    elif trial_id in tags:
+        reason = "offer_tag_match"
+    elif offer_id:
+        return False, "offer_id_differs"
+    else:
+        return False, "no_offer_id"
+    order_id = sub.get("latestOrderId") or line.get("latestOrderId") or line.get("orderId")
+    if isinstance(order_id, str) and order_id:
+        if _RENEWAL_ORDER_RE.search(order_id):
+            return False, "renewal_order"
+    else:
+        if start is not None and now >= start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS + 1):
+            # No order id to tell a renewal apart and well past the trial window: not a trial.
+            return False, "no_order_id_past_window"
+        reason += "_no_order_id"
+    if start is not None and now >= start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS + 1):
+        logger.warning(
+            "play billing: trial offer %r seen more than %d days after the start; still treated as trialing",
+            trial_id, SUBSCRIPTION_TRIAL_DAYS + 1,
+        )
+    return True, reason
 
 
 def _line_item(sub: dict, products: dict[str, StoreProduct]) -> dict:
@@ -273,18 +324,15 @@ def map_subscription(sub: dict, line: dict, now: datetime) -> SubscriptionMappin
         if expiry is None:
             raise PlayRefused("no_expiry")
         start = parse_rfc3339(sub.get("startTime"))
-        offer_id = (line.get("offerDetails") or {}).get("offerId")
-        in_trial = bool(
-            play_config.PLAY_TRIAL_OFFER_ID and offer_id == play_config.PLAY_TRIAL_OFFER_ID and start is not None
-            and now < start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS + 1)
-        )
+        in_trial, trial_reason = _trial_decision(sub, line, start, now)
         auto_renew = (line.get("autoRenewingPlan") or {}).get("autoRenewEnabled")
         cancelled = state == "SUBSCRIPTION_STATE_CANCELED" or auto_renew is False
         return SubscriptionMapping(
             "upsert", status="trialing" if in_trial else "active", expires_at=expiry,
             cancel_at_period_end=cancelled,
-            trial_ends_at=start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS) if in_trial and start else None,
+            trial_ends_at=expiry if in_trial else None,
             trial_started_at=start if in_trial else None,
+            trial_reason=trial_reason,
         )
     logger.warning("play billing: unrecognised subscription state %r, failing closed", state)
     return SubscriptionMapping("expired", expires_at=expiry)
@@ -337,6 +385,19 @@ async def process_subscription(token, *, expected_uid: str | None = None, expect
         return await _process_subscription(token, expected_uid=expected_uid, expected_product_id=expected_product_id)
 
 
+def _log_verified_purchase(sub: dict, line: dict, mapping: SubscriptionMapping) -> None:
+    """One INFO line per verified subscription purchase (C34). Never the
+    purchase token, the obfuscated account id or the order id."""
+    details = _offer_details(line)
+    logger.info(
+        "play billing: verified subscription product=%s state=%s base_plan=%s offer_id=%s offer_tags=%s "
+        "action=%s status=%s trialing=%s trial_reason=%s expiry=%s",
+        line.get("productId"), sub.get("subscriptionState"), details.get("basePlanId"), details.get("offerId"),
+        details.get("offerTags"), mapping.action, mapping.status, mapping.status == "trialing",
+        mapping.trial_reason, line.get("expiryTime"),
+    )
+
+
 async def _process_subscription(token: str, *, expected_uid: str | None, expected_product_id: str | None) -> dict:
     """Verify one subscription purchase token against the Developer API and
     apply the state it reports. Used by the RTDN receiver (expected_uid None:
@@ -367,6 +428,7 @@ async def _process_subscription(token: str, *, expected_uid: str | None, expecte
 
     sid = token_digest(token)
     mapping = map_subscription(sub, line, signed_at)
+    _log_verified_purchase(sub, line, mapping)
     if stored and stored.get("voided_at"):
         # A voided purchase never comes back, whatever a later read says.
         mapping = SubscriptionMapping("expired", expires_at=mapping.expires_at)
