@@ -35,9 +35,9 @@ for (const method of ["payment", "category", "none"]) {
   cases++;
 }
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
-assert.match(source("../components/CommitmentSheet.tsx"), /commitment \? "main" : "details"/);
-assert.match(source("../components/CommitmentSheet.tsx"), /setCreateNameStep\(false\)/);
-assert.match(source("../components/CommitmentSheet.tsx"), /event\.preventDefault\(\); createNext\(\)/, "Review navigation must not default-submit the newly rendered Save button");
+assert.match(source("../components/CommitmentSheet.tsx"), /useState<PlanEditorStep>\("purpose"\)/);
+assert.match(source("../components/CommitmentSheet.tsx"), /if \(editorView !== "review"\) return/, "Only the final review can submit a goal");
+assert.match(source("../components/plans/PlanEditorFlow.tsx"), /event\.preventDefault\(\); onContinue\(\)/, "Review navigation must not default-submit the newly rendered Save button");
 assert.match(source("../components/SetAsideSheet.tsx"), /"purpose", "details", "source", "destination", "tracking", "review"/);
 // G311's Upcoming chooser and both handoffs are exercised in the browser
 // journey; it no longer preselects an envelope before asking the user.

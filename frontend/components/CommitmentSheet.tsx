@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CircleDashed, Pencil } from "lucide-react";
+import { Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
@@ -13,12 +13,13 @@ import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { SheetFrame } from "@/components/SheetFrame";
 import { DateField } from "@/components/DatePicker";
-import { PlanAffordability, PlanContribution, PlanRouteSummary, PlanTrackingSummary } from "@/components/plans/PlanEditorSummary";
+import { PlanAffordability, PlanContribution, PlanEditorSummaryRow } from "@/components/plans/PlanEditorSummary";
 import { tidyAccountName } from "@/lib/accountName";
 import { PlanCategoryTracking, type PlanCategoryTrackingValue } from "@/components/plans/PlanCategoryTracking";
 import { PlanRecordView } from "@/components/plans/PlanRecordView";
 import { useCategories } from "@/components/CategoriesContext";
 import { PlanTrackingMethod } from "@/components/plans/PlanTrackingMethod";
+import PlanEditorFlow, { PlanEditorActions, PLAN_EDITOR_STEPS, type PlanEditorStep } from "@/components/plans/PlanEditorFlow";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -180,21 +181,17 @@ export default function CommitmentSheet({
   const [categoryTracking, setCategoryTracking] = useState<PlanCategoryTrackingValue>(() => (commitment as (Commitment & { category_tracking?: PlanCategoryTrackingValue }) | undefined)?.category_tracking ?? null);
   const [suggestion, setSuggestion] = useState<PlanFillCandidates["suggestion"]>(null);
   const [saving, setSaving] = useState(false);
+  // State updates do not land until the next render. Keep an immediate fence
+  // around the one write path so a double tap cannot create two plans or
+  // send two PATCHes before the disabled footer has painted.
+  const saveInFlightRef = useRef(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [viewing, setViewing] = useState(Boolean(commitment && initialMode === "view"));
-  const [createNameStep, setCreateNameStep] = useState(!commitment);
   const [reviewEditing, setReviewEditing] = useState(false);
   const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
-  // A newly created goal is a short guided journey. Existing plans keep the
-  // established summary and subview editor so their edit contract is stable.
-  const [editorView, setEditorView] = useState<"main" | "details" | "route" | "destination" | "tracking">(commitment ? "main" : "details");
-  const summaryFocus = useRef<HTMLButtonElement>(null);
-  const routeFocus = useRef<HTMLButtonElement>(null);
-  const trackingFocus = useRef<HTMLButtonElement>(null);
-  const destinationFocus = useRef<HTMLButtonElement>(null);
-  const returnFocus = useRef<"details" | "route" | "destination" | "tracking">("details");
-  const returnToSummary = () => { setEditorView("main"); requestAnimationFrame(() => { const targets = { details: summaryFocus, route: routeFocus, destination: destinationFocus, tracking: trackingFocus }; targets[returnFocus.current].current?.focus(); }); };
+  const [editorView, setEditorView] = useState<PlanEditorStep>("purpose");
+  const returnToSummary = () => { setReviewEditing(false); setEditorView("review"); };
   const returnToSavedView = () => {
     if (!commitment) return;
     setName(commitment.name);
@@ -207,27 +204,27 @@ export default function CommitmentSheet({
     setRuleTouched(false);
     setPaymentPickerOpen(Boolean(commitment.fill_rule));
     setCategoryTracking((commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ?? null);
-    setEditorView("main");
+    setSaveError(false);
+    setReviewEditing(false);
+    setEditorView("purpose");
     setViewing(true);
   };
   const createPrevious = () => {
-    if (reviewEditing) { setReviewEditing(false); setCreateNameStep(false); setEditorView("main"); return; }
-    if (!commitment && editorView === "details" && !createNameStep) {
-      setCreateNameStep(true);
-      return;
-    }
-    const previous = { details: null, route: "details", destination: "route", tracking: "destination", main: "tracking" } as const;
-    const next = previous[editorView];
-    if (next) setEditorView(next);
+    setSaveError(false);
+    if (reviewEditing) { returnToSummary(); return; }
+    const index = PLAN_EDITOR_STEPS.indexOf(editorView);
+    if (index > 0) setEditorView(PLAN_EDITOR_STEPS[index - 1]);
   };
   const createNext = () => {
-    if (reviewEditing) { setReviewEditing(false); setCreateNameStep(false); setEditorView("main"); return; }
-    if (!commitment && createNameStep) {
-      setCreateNameStep(false);
-      return;
-    }
-    const next = { details: "route", route: "destination", destination: "tracking", tracking: "main", main: "main" } as const;
-    setEditorView(next[editorView]);
+    if (reviewEditing) { returnToSummary(); return; }
+    const index = PLAN_EDITOR_STEPS.indexOf(editorView);
+    if (index < PLAN_EDITOR_STEPS.length - 1) setEditorView(PLAN_EDITOR_STEPS[index + 1]);
+  };
+  const previousStep = () => {
+    setSaveError(false);
+    setReviewEditing(false);
+    const index = PLAN_EDITOR_STEPS.indexOf(editorView);
+    if (index > 0) setEditorView(PLAN_EDITOR_STEPS[index - 1]);
   };
   const allowConsentCloseRef = useRef(false);
 
@@ -414,6 +411,8 @@ export default function CommitmentSheet({
   const feasibilityCaution = feasibilityTone ? feasibilityTone === "caution" : feasibility === "stretch";
 
   async function doSave(close: () => void) {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
     setSaving(true);
     setSaveError(false);
     const target_date = `${month}-01`;
@@ -470,13 +469,14 @@ export default function CommitmentSheet({
       allowConsentCloseRef.current = false;
       setSaveError(true);
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   }
 
   function handleSubmit(e: React.FormEvent, close: () => void) {
     e.preventDefault();
-    if (!commitment && editorView !== "main") return;
+    if (editorView !== "review") return;
     if (!name.trim() || !amountValid || !monthValid || saving || !trackingValid || !sourceOptions.some(account => account.id === sourceId)) return;
     // Consent gate applies only on CREATE, never when editing an existing
     // plan — an edit's own preview already excludes the plan's prior self
@@ -522,6 +522,21 @@ export default function CommitmentSheet({
   // explicit confirmation even when the backend inferred a likely source.
   const trackingValid = Boolean(categoryTracking) || !paymentPickerOpen || Boolean(rule.match_value.trim());
   const canSave = !saving && name.trim().length > 0 && amountValid && monthValid && trackingValid && sourceOptions.some(account => account.id === sourceId);
+  const canContinue = editorView === "purpose"
+    ? Boolean(name.trim())
+    : editorView === "details"
+      ? amountValid && monthValid
+      : editorView === "source"
+        ? sourceOptions.some(account => account.id === sourceId)
+        : editorView === "tracking"
+          ? trackingValid
+          : true;
+  const startEditing = () => {
+    setConfirmingCancel(false);
+    setReviewEditing(false);
+    setEditorView("purpose");
+    setViewing(false);
+  };
   const returnToDraft = () => {
     setShowConsent(false);
     setEditorView("details");
@@ -554,19 +569,19 @@ export default function CommitmentSheet({
   return (
     <SheetFrame
       key={sheetHistoryGeneration}
-      title={commitment ? viewing ? commitment.name : "Edit plan" : editorView === "main" ? "Check your plan" : createNameStep ? "What is this for?" : editorView === "details" ? "How much do you want to save?" : editorView === "route" ? "Which account pays for it?" : editorView === "destination" ? "Where will you save it?" : "How should we track this?"}
-      description={commitment ? viewing ? "Your goal" : "A goal you set money aside for, separate from single bills." : editorView === "main" ? "Review your goal before saving." : `Step ${createNameStep ? 1 : (["details", "route", "destination", "tracking"] as const).indexOf(editorView as "details" | "route" | "destination" | "tracking") + 2} of 6`}
+      title={commitment ? viewing ? commitment.name : "Edit plan" : "Create a goal"}
+      description={commitment && viewing ? "Your goal" : commitment ? undefined : "A goal you set money aside for, separate from single bills."}
       onClose={handleSheetClose}
       dismissDisabled={saving}
-      onEscape={showConsent ? returnToDraft : !commitment && createNameStep && !reviewEditing ? undefined : editorView !== "main" ? commitment ? returnToSummary : createPrevious : undefined}
-      onBack={showConsent ? returnToDraft : !commitment && createNameStep && !reviewEditing ? undefined : editorView !== "main" ? commitment ? returnToSummary : createPrevious : commitment && !viewing ? returnToSavedView : !commitment ? createPrevious : undefined}
+      onEscape={showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onBack={showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
       backLabel="Back to plan"
-      onHistoryBack={showConsent ? returnToDraft : !commitment && createNameStep && !reviewEditing ? undefined : editorView !== "main" ? commitment ? returnToSummary : createPrevious : commitment && !viewing ? returnToSavedView : !commitment ? createPrevious : undefined}
+      onHistoryBack={showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
       footer={({ close, closeThen }) => {
         if (viewing && commitment) {
           if (confirmingCancel) return <div className="space-y-2"><p className="text-sm leading-5 text-slate-700 dark:text-slate-200">Delete this plan? Money already set aside stays where it is. This only stops tracking it.</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmingCancel(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold dark:border-slate-600">Keep plan</button><button type="button" disabled={saving} onClick={() => void handleCancelCommitment(close)} className="min-h-11 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Deleting…" : "Delete plan"}</button></div></div>;
           const paused = Boolean((commitment as Commitment & { paused?: boolean }).paused);
-          return <div className="space-y-2"><button type="button" onClick={() => setViewing(false)} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white">Edit plan</button><div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={() => void setPaused(close, !paused)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold dark:border-slate-600">{paused ? "Resume plan" : "Pause plan"}</button><button type="button" disabled={saving} onClick={() => setConfirmingCancel(true)} className="min-h-11 rounded-xl border border-red-300 px-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300">Delete plan</button></div></div>;
+          return <div className="space-y-2"><button type="button" onClick={startEditing} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white">Edit plan</button><div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={() => void setPaused(close, !paused)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold dark:border-slate-600">{paused ? "Resume plan" : "Pause plan"}</button><button type="button" disabled={saving} onClick={() => setConfirmingCancel(true)} className="min-h-11 rounded-xl border border-red-300 px-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300">Delete plan</button></div></div>;
         }
         if (showConsent && consentSnapshot) {
           return (
@@ -583,23 +598,7 @@ export default function CommitmentSheet({
             </div>
           );
         }
-        if (commitment && !viewing && editorView === "main") {
-          return <div className="grid grid-cols-2 gap-2"><button type="button" onClick={returnToSavedView} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200">Back to plan</button><button type="submit" form="commitment-form" disabled={!canSave} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Saving…" : "Save changes"}</button></div>;
-        }
-        if (!commitment && editorView === "main") {
-          return <div className="grid grid-cols-2 gap-2"><button type="button" onClick={createPrevious} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200">Back</button><button type="submit" form="commitment-form" disabled={!canSave} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Saving…" : "Save goal"}</button></div>;
-        }
-        if (!commitment && editorView !== "main") {
-          const createValid = createNameStep ? name.trim().length > 0 : editorView === "details" ? amountValid && monthValid : editorView === "route" ? sourceOptions.some(account => account.id === sourceId) : editorView === "tracking" ? trackingValid : true;
-          return <div className="grid grid-cols-2 gap-2"><button type="button" onClick={reviewEditing ? returnToSummary : createNameStep ? close : createPrevious} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200">{createNameStep && !reviewEditing ? "Cancel" : "Back"}</button><button key="navigate-draft" type="button" disabled={!createValid} onClick={event => { event.preventDefault(); createNext(); }} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{reviewEditing ? "Return to review" : editorView === "tracking" ? "Review goal" : "Continue"}</button></div>;
-        }
-        return (
-          editorView !== "main" ? <button type="button" onClick={returnToSummary} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95">Keep these changes</button> :
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={saving} onClick={close} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">Cancel</button>
-            <button type="submit" form="commitment-form" disabled={!canSave} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving ? "Saving…" : commitment ? "Save changes" : "Save plan"}</button>
-          </div>
-        );
+        return <PlanEditorActions step={editorView} reviewing={reviewEditing} busy={saving} formId="commitment-form" onBack={commitment ? returnToSavedView : editorView === "purpose" && !reviewEditing ? close : createPrevious} onContinue={createNext} continueDisabled={!canContinue} canSave={canSave} submitLabel={commitment ? "Save changes" : "Save goal"} backLabel={commitment ? "Back to plan" : editorView === "purpose" && !reviewEditing ? "Cancel" : "Back"} reviewLabel={commitment ? undefined : "Review goal"} />;
       }}
     >
       {({ close }) => <>
@@ -640,39 +639,26 @@ export default function CommitmentSheet({
                 {(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking && <PlanCategoryTracking kind="goal" sourceAccountId={commitment.source_account_id ?? ""} destinationAccountIds={potsFromCommitment(commitment).map(pot => pot.account_id)} value={(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ?? null} onChange={() => {}} commitmentId={commitment.id} readOnly />}
               </PlanRecordView>
             ) : (
-            <form id="commitment-form" onSubmit={(event) => handleSubmit(event, close)} className="space-y-3 [&_input]:text-base">
-              {editorView === "main" && !commitment ? <div className="space-y-5">
-                <div><button type="button" onClick={() => { setReviewEditing(true); setCreateNameStep(true); setEditorView("details"); }} className="min-h-11 max-w-full break-words text-left text-lg font-bold text-slate-900 dark:text-slate-100">{name || "Name this goal"}</button><p className="text-sm text-slate-600 dark:text-slate-300">{amountValid ? <MoneyText text={`£${parsedAmount.toLocaleString("en-GB")} by ${new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}`} /> : "Choose a target amount"}</p><button type="button" onClick={() => { setReviewEditing(true); setCreateNameStep(false); setEditorView("details"); }} className="min-h-11 text-sm font-semibold text-indigo-700 underline underline-offset-2 dark:text-indigo-300">Change target</button></div>
-                <PlanContribution amount={summarySlice} cadence="estimated each pay period" progress={amountValid ? { current: estimatedProgress, target: parsedAmount } : undefined} />
-                <div className="divide-y divide-slate-200 border-y border-slate-200 text-sm dark:divide-slate-700 dark:border-slate-700">
-                  <button type="button" onClick={() => { setReviewEditing(true); setEditorView("route"); }} className="flex min-h-12 w-full items-center justify-between gap-4 py-3 text-left"><span className="shrink-0 text-slate-600 dark:text-slate-300">Pay from</span><strong className="min-w-0 break-words text-right text-slate-900 dark:text-slate-100">{tidyAccountName(accountList.find(account => account.id === sourceId)?.name ?? "Choose an account")}</strong></button>
-                  <button type="button" onClick={() => { setReviewEditing(true); setEditorView("destination"); }} className="flex min-h-12 w-full items-center justify-between gap-4 py-3 text-left"><span className="shrink-0 text-slate-600 dark:text-slate-300">Save in</span><strong className="min-w-0 break-words text-right text-slate-900 dark:text-slate-100">{pots.length ? pots.map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "Savings pot")).join(", ") : "Stays in the paying account"}</strong></button>
-                  <button type="button" onClick={() => { setReviewEditing(true); setEditorView("tracking"); }} className="flex min-h-12 w-full items-center justify-between gap-4 py-3 text-left"><span className="shrink-0 text-slate-600 dark:text-slate-300">Tracking</span><strong className="min-w-0 break-words text-right text-slate-900 dark:text-slate-100">{categoryTracking ? `${categoryTracking.category} category` : rule.match_value ? "Payment confirmed" : "Not linked yet"}</strong></button>
-                </div>
-                <PlanAffordability caution={feasibilityCaution}>{feasibilityNote ?? "Check Upcoming to see how this fits before payday."}</PlanAffordability>
-                <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">This is a plan. You move the money in your bank. Any standing order will keep running.</p>
-                {saveError && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
-              </div> : editorView === "main" ? <>
-              <PlanContribution amount={summarySlice} cadence={contributionCadence} progress={amountValid ? { current: estimatedProgress, target: parsedAmount } : undefined} />
-              {unchangedFinancials && fulfilment && <p className="pb-3 text-xs leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={`£${(fulfilment.matched_pence / 100).toLocaleString("en-GB")} paid this period · £${(fulfilment.unmet_pence / 100).toLocaleString("en-GB")} still to set aside`} /></p>}
+            <PlanEditorFlow formId="commitment-form" step={editorView} reviewing={reviewEditing} busy={saving} onBack={commitment ? returnToSavedView : createPrevious} onContinue={createNext} onPrevious={commitment ? previousStep : undefined} continueDisabled={!canContinue} canSave={canSave} submitLabel={commitment ? "Save changes" : "Save goal"} reviewLabel={commitment ? undefined : "Review goal"} onSubmit={(event) => handleSubmit(event, close)} renderActions={() => null} className="[&_input]:text-base">
+              {editorView === "review" ? <>
+              <PlanContribution amount={summarySlice} cadence={contributionCadence} />
+              {!commitment && <PlanAffordability caution={feasibilityCaution}>{feasibilityNote ?? "Check Upcoming to see how this fits before payday."}</PlanAffordability>}
+              <div className="border-y border-slate-200 dark:border-slate-700">
+                <PlanEditorSummaryRow label="Purpose" value={name || "Name this goal"} onEdit={() => { setReviewEditing(true); setEditorView("purpose"); }} />
+                <PlanEditorSummaryRow label="Target" value={amountValid ? <MoneyText text={`£${parsedAmount.toLocaleString("en-GB")} by ${new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}`} /> : "Choose a target"} onEdit={() => { setReviewEditing(true); setEditorView("details"); }} />
+                <PlanEditorSummaryRow label="Pay from" value={tidyAccountName(accountList.find(account => account.id === sourceId)?.name ?? "Choose an account")} detail={sourceInferred ? "Suggested from recent transfers" : undefined} onEdit={() => { setReviewEditing(true); setEditorView("source"); }} />
+                <PlanEditorSummaryRow label="Save in" value={pots.length ? pots.map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "Savings pot")).join(", ") : "Stays in the paying account"} onEdit={() => { setReviewEditing(true); setEditorView("destination"); }} />
+                <PlanEditorSummaryRow label="Tracking" value={categoryTracking ? `${categoryTracking.category} category` : rule.match_value ? "Payment confirmed" : "Not linked yet"} onEdit={() => { setReviewEditing(true); setEditorView("tracking"); }} />
+              </div>
+              <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Saving changes this plan only. It does not move money.</p>
               {saveError && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
-              <PlanAffordability caution={feasibilityCaution}>{feasibilityNote ?? "We will check the contribution against your current plan before you save."}</PlanAffordability>
-              <button ref={summaryFocus} type="button" aria-label="Change details" onClick={() => { returnFocus.current = "details"; setEditorView("details"); }} className="flex min-h-12 w-full items-center justify-between border-y border-slate-200 py-3 text-left dark:border-slate-700"><span><strong className="block text-sm">{name || "Add a name"}</strong><small className="mt-1 block text-xs text-slate-600 dark:text-slate-300">{amountValid ? <MoneyText text={`Target £${parsedAmount.toLocaleString("en-GB")}`} /> : "Choose a target"} · by {new Date(`${month}-01T12:00:00`).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}</small></span><Pencil size={16} className="text-slate-400" aria-hidden="true" /></button>
-              <PlanRouteSummary
-                source={accountList.find((account) => account.id === sourceId) ? tidyAccountName(accountList.find((account) => account.id === sourceId)!.name) : "Choose a paying account"}
-                sourceAccount={accountList.find(account => account.id === sourceId)}
-                destinationAccount={pots.length === 1 ? accountList.find(account => account.id === pots[0].account_id) : undefined}
-                destination={pots.length ? pots.map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "Savings pot")).join(", ") : "Kept in the paying account"}
-                buttonRef={routeFocus} onEdit={() => { returnFocus.current = "route"; setEditorView("route"); }}
-                destinationButtonRef={destinationFocus} onDestinationEdit={() => { returnFocus.current = "destination"; setEditorView("destination"); }}
-              />
-              {sourceInferred && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Paying account suggested from recent transfers. Saving confirms this choice.</p>}
-              <PlanTrackingSummary buttonRef={trackingFocus} label={categoryTracking ? `${categoryTracking.category} category activity` : rule.match_value ? (suggestedActive ? "Suggested transfer to your savings pot" : "Your chosen transfer") : "Check it yourself"} detail={categoryTracking ? "Category activity is evidence only. It does not count as progress or release money." : rule.match_value ? "A matching outgoing payment counts towards this period’s contribution, not as spending." : "No transfer rule is set. The contribution stays reserved until you change the plan."} onEdit={() => { returnFocus.current = "tracking"; setEditorView("tracking"); }} />
-              {rule.match_value && <details><summary className="min-h-11 cursor-pointer py-3 text-xs text-slate-600 dark:text-slate-300">Transfer reference</summary><p className="break-words pb-3 text-xs text-slate-600 dark:text-slate-300">{rule.match_value}</p></details>}
-              <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Confirming saves every choice. It does not move money.</p>
               </> : <>
-              {!commitment && editorView === "details" && createNameStep && <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText unmasked text="For example, save £2,000 for a trip to Japan by December 2028." /></p>}
-              <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">{editorView === "details" ? createNameStep ? "Name your goal" : "Choose your target" : editorView === "route" ? "Choose a paying account" : editorView === "destination" ? "Choose savings pots" : "Recognise your transfer"}</h3>
+              {commitment && editorView !== "purpose" && <PlanContribution amount={summarySlice} cadence={contributionCadence} />}
+              {editorView === "purpose" && <>{!commitment && <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText unmasked text="For example, save £2,000 for a trip to Japan by December 2028." /></p>}<h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Name your goal</h3></>}
+              {editorView === "details" && <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Choose your target</h3>}
+              {editorView === "source" && <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Choose a paying account</h3>}
+              {editorView === "destination" && <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Choose savings pots</h3>}
+              {editorView === "tracking" && <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Recognise your transfer</h3>}
               {/* G228: a quiet statement, no control. Changing the amount or the
                   date below ends the easing; that is the way back. */}
               {editorView === "details" && commitment?.eased_this_period != null && (
@@ -681,13 +667,13 @@ export default function CommitmentSheet({
                 </p>
               )}
               {/* Name */}
-              {editorView === "details" && <>
-              {(commitment || createNameStep) && <div>
+              {editorView === "purpose" && <>
+              <div>
                 <label htmlFor="commitment-name" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   Name
                 </label>
                 <input
-                  id="commitment-name" type="text" autoComplete="off"
+                  id="commitment-name" name="goal-name" type="text" autoComplete="off"
                   value={name}
                   onChange={(e) => { setName(e.target.value); setSaveError(false); }}
                   placeholder="Summer holiday"
@@ -695,10 +681,11 @@ export default function CommitmentSheet({
                   required
                   className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm"
                 />
-              </div>}
+              </div>
+              </>}
 
               {/* Amount */}
-              {(!createNameStep || commitment) && <>
+              {editorView === "details" && <>
               <div>
                 <label htmlFor="commitment-amount" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   Total amount
@@ -706,7 +693,7 @@ export default function CommitmentSheet({
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">£</span>
                   <input
-                    id="commitment-amount" type="text"
+                    id="commitment-amount" name="goal-amount" type="text" autoComplete="off"
                     inputMode="decimal"
                     value={amount}
                     onChange={(e) => { setAmount(e.target.value); setSaveError(false); }}
@@ -728,7 +715,6 @@ export default function CommitmentSheet({
                   required
                 />
               </div>
-              </>}
               </>}
 
               {/* Funding pots (optional, multi) — connected savings pots plus
@@ -848,8 +834,8 @@ export default function CommitmentSheet({
 
               {/* G230: the current account the contribution leaves each period.
                   Quiet and optional; "Not set" keeps the plan pooled-only. */}
-              {editorView === "route" && sourceOptions.length === 0 && <p role="status" className="text-sm leading-6 text-slate-600 dark:text-slate-300">No counted GBP current account is available. Check Accounts or connect a paying account before saving this plan.</p>}
-              {editorView === "route" && sourceOptions.length > 0 && (
+              {editorView === "source" && sourceOptions.length === 0 && <p role="status" className="text-sm leading-6 text-slate-600 dark:text-slate-300">No counted GBP current account is available. Check Accounts or connect a paying account before saving this plan.</p>}
+              {editorView === "source" && sourceOptions.length > 0 && (
                 <div id="commitment-source-picker" data-testid="paid-from-field">
                   <AccountRadioPicker
                     accounts={sourceOptions}
@@ -910,30 +896,6 @@ export default function CommitmentSheet({
                 </div>
               )}
 
-              {/* Live per-period estimate — hedged, backend derives the real slice */}
-              {editorView === "details" && slice != null && (
-                <p className="text-[13px] text-slate-500 dark:text-slate-400 num" aria-live="polite">
-                  <MoneyText text={`≈ £${slice.toLocaleString("en-GB")} ${periodLabel ? `each pay period (${periodLabel})` : "a period"} · ${periods} ${periods === 1 ? "period" : "periods"}`} />
-                </p>
-              )}
-
-              {/* Feasibility verdict — slate text always; amber dot signifier
-                  when feasibility needs attention (savings or stretch), never red. */}
-              {editorView === "details" && slice != null && feasibility && feasibilityNote && (
-                <p
-                  className="text-[13px] leading-snug text-slate-500 dark:text-slate-400"
-                  aria-live="polite"
-                >
-                  {feasibilityCaution && (
-                    <span
-                      className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 align-middle"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {feasibilityNote}
-                </p>
-              )}
-
               {/* Error — quiet, per the AimSheet idiom */}
               {saveError && (
                 <p className="text-[13px] text-slate-500 dark:text-slate-400">
@@ -941,44 +903,8 @@ export default function CommitmentSheet({
                 </p>
               )}
 
-              {/* Cancel-commitment — edit mode only, quiet two-step confirm */}
-              {editorView === "details" && commitment && !confirmingCancel && (
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => setConfirmingCancel(true)}
-                  className="w-full min-h-[44px] text-[13px] font-medium text-slate-400 dark:text-slate-500 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
-                >
-                  Cancel this plan
-                </button>
-              )}
-              {editorView === "details" && commitment && confirmingCancel && (
-                <div className="rounded-xl bg-slate-50 dark:bg-slate-700/50 px-4 py-3 space-y-2">
-                  <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug">
-                    Stop reserving for this? Money already set aside stays where it is.
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void handleCancelCommitment(close)}
-                      className="flex-1 min-h-[44px] rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-200/70 dark:bg-slate-600 active:scale-95 transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    >
-                      {saving ? "Cancelling…" : "Yes, cancel it"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => setConfirmingCancel(false)}
-                      className="flex-1 min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    >
-                      Keep it
-                    </button>
-                  </div>
-                </div>
-              )}
               </>}
-            </form>
+            </PlanEditorFlow>
             )}
       </>}
     </SheetFrame>

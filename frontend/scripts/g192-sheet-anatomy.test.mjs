@@ -141,7 +141,7 @@ assert.match(flow, /!hasFooter && <div ref=\{fallbackFooterRef\}/, "Footerless f
 assert.match(flow, /useEffect\(retain, \[retain\]\)/, "Embedded action portals retain the pinned footer when present");
 assert.doesNotMatch(category, /<h2 className="text-base font-bold/, "SheetFrame owns the only sheet heading");
 assert.match(commitment, /onClose=\{handleSheetClose\}/);
-assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : !commitment && createNameStep && !reviewEditing \? undefined : editorView !== "main" \? commitment \? returnToSummary : createPrevious : undefined\}/, "Consent and guided draft subviews return inside the same sheet");
+assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : commitment && !viewing \? returnToSavedView : !commitment && editorView !== "purpose" \? createPrevious : undefined\}/, "Consent and guided drafts return inside the same sheet, while existing edits discard to saved View");
 assert.match(commitment, /onBack=\{showConsent \? returnToDraft :[^\n]*returnToSavedView/, "Existing goal edits return to the saved record");
 assert.match(commitment, /onHistoryBack=\{showConsent \? returnToDraft :[^\n]*createPrevious/, "Hardware Back steps through the goal journey");
 assert.match(a11y, /!closingRef.current && optionsRef.current\?\.onHistoryBack/, "Internal Back is opt-in and explicit close bypasses it");
