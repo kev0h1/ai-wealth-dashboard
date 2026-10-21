@@ -21,7 +21,7 @@ assert.equal(tidyAccountText("1234"), "1234");
 
 // A fieldset defaults to min-inline-size: min-content, so nowrap/truncate rows inside it
 // widen the whole sheet body. Every editor fieldset must opt out with min-w-0.
-for (const file of ["../components/upcoming/GoalSourceForm.tsx", "../components/PlannedEditForm.tsx", "../components/AllocationEditForm.tsx", "../components/UpcomingEditForm.tsx"]) {
+for (const file of ["../components/upcoming/GoalSourceForm.tsx", "../components/PlannedEditForm.tsx", "../components/AllocationPlanEditor.tsx", "../components/UpcomingEditForm.tsx"]) {
   const tags = source(file).match(/<fieldset disabled=[^>]*>/g) ?? [];
   assert.ok(tags.length > 0, `${file} has an editor fieldset`);
   for (const tag of tags) assert.match(tag, /className="min-w-0 /, `${file}: editor fieldset must carry min-w-0`);
