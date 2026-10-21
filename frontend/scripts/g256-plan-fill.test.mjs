@@ -65,7 +65,7 @@ assert.equal(fulfilmentRow({ ...paid, active: false }), null);
 assert.equal(paid.remainingPence, 0, "a fulfilled plan reserves nothing on the account");
 
 // 4. Copy rules over everything this item adds.
-for (const text of [sheet.slice(sheet.lastIndexOf("G256: the payment that fulfils"), sheet.indexOf("Live per-period estimate")), fulfilmentRow.toString(), api.slice(api.indexOf("G256: the same fill rule"), api.indexOf("export type Commitment = {"))]) {
+for (const text of [sheet.slice(sheet.lastIndexOf("G256: the payment that fulfils"), sheet.indexOf("{/* Error", sheet.lastIndexOf("G256: the payment that fulfils"))), fulfilmentRow.toString(), api.slice(api.indexOf("G256: the same fill rule"), api.indexOf("export type Commitment = {"))]) {
   assert.ok(!/—/.test(text), "no em dashes");
 }
 assert.ok(!/!["'`<]/.test(sheet.slice(sheet.indexOf("plan-fill-rule-field"), sheet.indexOf("plan-fill-rule-field") + 2600)), "no exclamation marks");

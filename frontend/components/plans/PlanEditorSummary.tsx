@@ -9,7 +9,7 @@ import { useBalancesHidden } from "@/lib/balancesHidden";
 
 type SummaryRowProps = {
   label: string;
-  value: string;
+  value: ReactNode;
   detail?: string;
   onEdit: () => void;
 };
