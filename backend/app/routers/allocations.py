@@ -96,11 +96,12 @@ from app.db.collections import (
     yapily_accounts_col,
     yapily_transactions_col,
 )
-from app.services import response_cache
+from app.services import response_cache, plan_tracking
 from app.services.categories import clean_name
 from app.services.categorisation import series_key
 from app.services.description_match import matches_contains, matches_equals
 from app.services.pay_period import get_pay_period_for_date
+from app.services.account_kinds import is_credit_card_account
 from app.services.account_plan_sources import (
     account_label,
     chosen_source,
@@ -226,6 +227,30 @@ def _tracking_mode(raw) -> str:
     if mode not in _TRACKING_MODES:
         raise HTTPException(400, "tracking_mode must be existing_payment or manual")
     return mode
+
+
+async def _category_tracking(raw, uid: str, source_id: str, accounts: dict) -> dict | None:
+    tracking = await plan_tracking.validate_tracking(raw, uid, account_map=accounts)
+    if tracking:
+        destinations = tracking.get("destination_account_ids") or []
+        if len(destinations) > 1:
+            raise HTTPException(400, "Choose one receiving account.")
+        validate_source_account(source_id, accounts, set(destinations))
+    return tracking
+
+
+def _manual_destination(raw, source_id: str, accounts: dict) -> str | None:
+    """Optional intended route, not a payment rule or proof of a transfer."""
+    if raw in (None, ""):
+        return None
+    if not isinstance(raw, str) or raw not in accounts:
+        raise HTTPException(404, "Account not found")
+    account = accounts[raw]
+    currency = account.get("currency") or ("GBP" if account.get("_account_plan_manual") else "")
+    if str(currency).upper() != "GBP" or is_credit_card_account(account):
+        raise HTTPException(422, "Choose a GBP savings or bank account.")
+    validate_source_account(source_id, accounts, {raw})
+    return raw
 
 
 def _is_completed(doc: dict) -> bool:
@@ -383,6 +408,8 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         "name":                doc.get("name"),
         "amount_per_period":   amount,
         "tracking_mode":       tracking_mode,
+        **({"category_tracking": doc["category_tracking"]} if doc.get("category_tracking") else {}),
+        **({"destination_account_id": doc["destination_account_id"]} if doc.get("destination_account_id") else {}),
         # G217: what THIS pay period asks for. Equals amount_per_period unless
         # the user reduced this period only (period_override, in pounds).
         "period_amount":       period_amount,
@@ -504,14 +531,16 @@ async def list_account_plans(user: dict = Depends(current_user)):
     for doc in allocation_docs:
         serial = await _serialise(doc, start, end)
         if _tracking_mode(doc.get("tracking_mode")) == "manual":
-            source_id, basis = chosen_source(doc, account_map, set())
+            destination_id = doc.get("destination_account_id") or next(iter((doc.get("category_tracking") or {}).get("destination_account_ids") or []), None)
+            destination_ids = {destination_id} if destination_id in account_map else set()
+            source_id, basis = chosen_source(doc, account_map, destination_ids)
             items.append({
                 "id": f"allocation:{doc['_id']}",
                 "record_id": str(doc["_id"]),
                 "kind": "allocation",
                 "name": doc.get("name"),
-                "destination": "Kept in paying account",
-                "destination_account_ids": [],
+                "destination": account_label(account_map[destination_id]) if destination_ids else "Kept in paying account",
+                "destination_account_ids": sorted(destination_ids),
                 "source_account_id": source_id,
                 "source_basis": basis,
                 "inferred": False,
@@ -694,6 +723,8 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
     name = _validate_name(body.get("name"))
     amount = _validate_amount(body.get("amount_per_period"))
     tracking_mode = _tracking_mode(body.get("tracking_mode"))
+    if tracking_mode != "manual" and body.get("category_tracking"):
+        raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
     recurrence = _validate_recurrence(body.get("recurrence"))
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
@@ -703,6 +734,11 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
         source_id = validate_source_account(body.get("source_account_id"), sources, set())
         if source_id is None:
             raise HTTPException(400, "source_account_id required for manual tracking")
+        tracking = await _category_tracking(body.get("category_tracking"), uid, source_id, sources)
+        tracking_destination = next(iter((tracking or {}).get("destination_account_ids") or []), None)
+        destination = _manual_destination(body.get("destination_account_id", tracking_destination), source_id, sources)
+        if tracking and set(tracking.get("destination_account_ids") or []) != ({destination} if destination else set()):
+            raise HTTPException(400, "Category tracking must use the selected receiving account.")
         doc = {
             "user_id": uid, "name": name, "amount_per_period": amount,
             "tracking_mode": "manual", "fill_account_id": "",
@@ -710,6 +746,8 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
             "source_account_id": source_id,
             "effective_from": datetime(effective_from.year, effective_from.month, effective_from.day),
             "recurrence": recurrence, "active": True, "created_at": datetime.now(timezone.utc),  # naive-ok: persisted UTC audit timestamp, not a calendar reading
+            **({"category_tracking": tracking} if tracking else {}),
+            **({"destination_account_id": destination} if destination else {}),
         }
         if recurrence == "once":
             doc["created_period_start"] = datetime(start.year, start.month, start.day)
@@ -773,9 +811,11 @@ async def update_allocation(
     doc = await _get_owned(uid, allocation_id)
     current_mode = _tracking_mode(doc.get("tracking_mode"))
     target_mode = _tracking_mode(body.get("tracking_mode", current_mode))
+    if target_mode != "manual" and body.get("category_tracking"):
+        raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
     update_filter = {"_id": doc["_id"], "user_id": uid}
-    if target_mode == "manual" or "source_account_id" in body or "fill_account_id" in body:
-        update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id"))
+    if target_mode == "manual" or "source_account_id" in body or "fill_account_id" in body or "category_tracking" in body:
+        update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id", "category_tracking", "destination_account_id"))
 
     updates: dict = {}
     if "name" in body:
@@ -791,13 +831,32 @@ async def update_allocation(
         )
         if source_id is None:
             raise HTTPException(400, "source_account_id required for manual tracking")
+        if "destination_account_id" in body or doc.get("destination_account_id"):
+            updates["destination_account_id"] = _manual_destination(body.get("destination_account_id", doc.get("destination_account_id")), source_id, sources)
         updates.update({
             "tracking_mode": "manual", "fill_account_id": "",
             "match_type": "description_contains", "match_value": "", "fill_display_name": "",
             "source_account_id": source_id,
         })
+        if "category_tracking" in body:
+            updates["category_tracking"] = await _category_tracking(body["category_tracking"], uid, source_id, sources)
+        elif source_id != doc.get("source_account_id") or ("destination_account_id" in updates and updates["destination_account_id"] != doc.get("destination_account_id")):
+            updates["category_tracking"] = None
+        effective_tracking = updates.get("category_tracking", doc.get("category_tracking"))
+        effective_destination = updates.get("destination_account_id", doc.get("destination_account_id"))
+        if effective_tracking and "category_tracking" in body:
+            tracked_destinations = effective_tracking.get("destination_account_ids") or []
+            if "destination_account_id" not in body and not effective_destination:
+                effective_destination = next(iter(tracked_destinations), None)
+                if effective_destination:
+                    updates["destination_account_id"] = _manual_destination(effective_destination, source_id, sources)
+            if set(tracked_destinations) != ({effective_destination} if effective_destination else set()):
+                raise HTTPException(400, "Category tracking must use the selected receiving account.")
     elif "tracking_mode" in body:
         updates["tracking_mode"] = "existing_payment"
+        updates["category_tracking"] = None
+        if doc.get("destination_account_id"):
+            updates["destination_account_id"] = None
     if target_mode == "existing_payment" and "fill_account_id" in body:
         fid = str(body.get("fill_account_id") or "").strip()
         if not fid:

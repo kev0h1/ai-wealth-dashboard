@@ -37,6 +37,7 @@ export function SheetFrame({
   dismissDisabled = false,
   manageHistory = true,
   onEscape,
+  onHistoryBack,
   bodyClassName = "px-5 py-5",
   bodyRef,
   panelRef,
@@ -60,6 +61,7 @@ export function SheetFrame({
   dismissDisabled?: boolean;
   manageHistory?: boolean;
   onEscape?: () => void;
+  onHistoryBack?: () => void;
   bodyClassName?: string;
   bodyRef?: Ref<HTMLDivElement>;
   panelRef?: (node: HTMLElement | null) => void;
@@ -80,7 +82,7 @@ export function SheetFrame({
     if (next) queueMicrotask(next);
   }, [onClose]);
   const { ref, close: requestClose } = useSheetA11y<HTMLElement>(finishClose, {
-    lockScroll: true, backToClose: manageHistory, dismissDisabled, onEscape,
+    lockScroll: true, backToClose: manageHistory, dismissDisabled, onEscape, onHistoryBack,
   });
   // Programmatic completion may close during the final saving render. Only
   // user dismissal (X, backdrop, Escape/Back) is disabled during submission.

@@ -50,18 +50,10 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "keep-money-here",
     name: "Earlier keep-money-here round · G274 · superseded by G291",
-    description: "Earlier alternatives, not shipping separately: Kevin folded this round into G291. Review plans-simple for the new end-to-end journey. Original A Reserve here and B Details then review remain for context, using synthetic drafts only. ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
+    description: "Earlier alternatives, not shipping separately: Kevin folded this round into G291, whose approved A is implemented in the production plan sheets. Original A Reserve here and B Details then review remain for context, using synthetic drafts only. ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
     variants: [{ label: "A · Reserve here", value: "a" }, { label: "B · Details then review", value: "b" }],
     states: [{ label: "Ready", value: "ready" }, { label: "Load failure", value: "load-error" }, { label: "Save failure", value: "save-error" }],
     group: "earlier",
-  },
-  {
-    slug: "plans-simple",
-    name: "Plans made simple · G291",
-    description: "Revised from Kevin's feedback: A Small steps, B One clear page. Both new-plan routes include tracking before Save, with an inline app-styled category picker and a full-width View plan layout. Month changes keep the contribution, existing pot money is an explicit choice, and concrete Japan-trip and groceries examples remain. Synthetic examples only; category tracking and goal Pause are proposed capabilities. G274's keep-here intent remains here. No production change before selection.",
-    variants: [{ label: "A · Small steps", value: "a" }, { label: "B · One clear page", value: "b" }],
-    states: [{ label: "Known transfer", value: "matched" }, { label: "No transfer yet", value: "no-history" }, { label: "One account", value: "one-account" }, { label: "Several accounts", value: "many-accounts" }, { label: "Month is short", value: "short" }, { label: "Offline pot", value: "offline" }, { label: "No paying account", value: "no-source" }],
-    group: "current",
   },
   {
     slug: "marketing-kit",

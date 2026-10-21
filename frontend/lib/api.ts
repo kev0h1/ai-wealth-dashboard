@@ -820,6 +820,15 @@ export type PlanFillRule = {
   match_value: string;
 };
 
+/** G291: category evidence is separate from payment fulfilment and pot progress. */
+export type PlanCategoryTracking = { category: string; destination_account_ids?: string[] };
+export type PlanCategoryActivity = {
+  category: string; mode: "spending" | "transfers";
+  period_start: string; period_end: string; count: number;
+  gross: number; refunds: number; amount: number;
+  items: { id: string; date: string; label: string; amount: number }[];
+};
+
 /** G256: this pay period's fulfilment of a plan that has a fill rule. A
  * matched OUTGOING transfer from the paying account fulfils it; the sink
  * rising (`seen_in_sink`) is confirmation only. */
@@ -844,6 +853,10 @@ export type PlanFillCandidates = {
 };
 
 export type Commitment = {
+  category_tracking?: PlanCategoryTracking | null;
+  /** Pause holds no contribution but retains this goal's existing pot claims. */
+  paused?: boolean;
+  planned_per_period_slice?: number;
   /** G256: the payment that fulfils each period's contribution, if the user chose one. */
   fill_rule?: PlanFillRule | null;
   fulfilment?: PlanFulfilment | null;
@@ -1000,6 +1013,9 @@ export type CommitmentPreview = {
  * `remaining` is always 0 (it reserves nothing further) but the record
  * stays in listings — never deleted — so history stays honest. */
 export type Allocation = {
+  category_tracking?: PlanCategoryTracking | null;
+  /** An intended receiving account, not an automatic payment rule. */
+  destination_account_id?: string | null;
   /** Explicit paying account. Omitted legacy choices may be suggested separately. */
   source_account_id?: string | null;
   /** Manual allocations reserve from their source but never auto-match an
@@ -3159,6 +3175,7 @@ export const api = {
       body: JSON.stringify({ contribution_pence: Math.round(contribution * 100), mode }),
     }).then((r) => toJson<Commitment>(r)),
   createCommitment: (body: {
+    category_tracking?: PlanCategoryTracking | null;
     source_account_id?: string | null;
     /** G230: true only when the user picks "Not set" (never inferred). */
     source_unset?: boolean;
@@ -3174,6 +3191,8 @@ export const api = {
     source?: "manual" | "can_i";
   }) => post<Commitment>("/commitments", body),
   updateCommitment: (id: string, body: {
+    category_tracking?: PlanCategoryTracking | null;
+    paused?: boolean;
     source_account_id?: string | null;
     source_unset?: boolean;
     fill_rule?: PlanFillRule | null;
@@ -3205,7 +3224,7 @@ export const api = {
     post<CommitmentPreview>("/commitments/preview", {
       amount,
       target_date,
-      ...(funding_pots && funding_pots.length > 0 ? { funding_pots } : {}),
+      ...(funding_pots !== undefined ? { funding_pots } : {}),
       ...(commitment_id ? { commitment_id } : {}),
     }),
   cancelCommitment: (id: string) =>
@@ -3233,7 +3252,15 @@ export const api = {
   // suggested from the transfers that reached its pots. Nothing is written.
   planFillCandidates: (sourceAccountId: string, potIds: string[]) =>
     get<PlanFillCandidates>(`/commitments/fill-candidates?source_account_id=${encodeURIComponent(sourceAccountId)}&pot_ids=${encodeURIComponent(potIds.join(","))}`),
+  planCategoryActivity: (body: {
+    preview?: boolean;
+    kind: "goal" | "set-aside"; source_account_id: string;
+    destination_account_ids?: string[]; category: string;
+    commitment_id?: string; allocation_id?: string; effective_from?: string;
+  }) => post<PlanCategoryActivity>("/plans/category-activity", body),
   createAllocation: (body: {
+    category_tracking?: PlanCategoryTracking | null;
+    destination_account_id?: string | null;
     source_account_id?: string | null;
     name: string;
     amount_per_period: number;
@@ -3249,6 +3276,8 @@ export const api = {
     tracking_mode?: "manual" | "existing_payment";
   }) => post<Allocation>("/allocations", body),
   updateAllocation: (id: string, body: {
+    category_tracking?: PlanCategoryTracking | null;
+    destination_account_id?: string | null;
     source_account_id?: string | null;
     name?: string;
     amount_per_period?: number;

@@ -5,6 +5,7 @@ import type { ReactNode, RefObject } from "react";
 import MoneyText from "@/components/MoneyText";
 import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
 import type { Account } from "@/lib/api";
+import { useBalancesHidden } from "@/lib/balancesHidden";
 
 type SummaryRowProps = {
   label: string;
@@ -23,12 +24,13 @@ export function PlanEditorSummaryRow({ label, value, detail, onEdit }: SummaryRo
 }
 
 export function PlanContribution({ amount, cadence, progress }: { amount: number | null; cadence: string; progress?: { current: number; target: number } }) {
+  const hidden = useBalancesHidden();
   if (amount == null) return null;
   const percent = progress && progress.target > 0 ? Math.min(100, Math.max(0, progress.current / progress.target * 100)) : null;
   return <section aria-label="Contribution" className="pb-4">
     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Contribution</p>
-    <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-slate-900 dark:text-slate-100"><span className="font-mono text-[30px] font-bold tracking-tight tabular-nums"><MoneyText text={`£${amount.toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2 })}`} /></span><span className="text-sm text-slate-600 dark:text-slate-300">{cadence}</span></p>
-    {progress && <><div role="progressbar" aria-label="Goal progress" aria-valuemin={0} aria-valuemax={progress.target} aria-valuenow={Math.min(progress.current, progress.target)} className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"><span className="block h-full rounded-full bg-indigo-600" style={{ width: `${percent}%` }} /></div><p className="mt-2 text-xs text-slate-600 dark:text-slate-300"><MoneyText text={`£${progress.current.toLocaleString("en-GB")} of £${progress.target.toLocaleString("en-GB")} set aside`} /></p></>}
+    <p className="mt-1 text-slate-900 dark:text-slate-100"><span className="block font-mono text-[30px] font-bold tracking-tight tabular-nums"><MoneyText text={`£${amount.toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2 })}`} /></span><span className="mt-1 block text-sm text-slate-600 dark:text-slate-300">{cadence}</span></p>
+    {progress && <><div role="progressbar" aria-label="Goal progress" aria-valuemin={0} aria-valuemax={hidden ? 100 : progress.target} aria-valuenow={hidden ? undefined : Math.min(progress.current, progress.target)} aria-valuetext={hidden ? "Amount hidden" : undefined} className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"><span className="block h-full rounded-full bg-indigo-600" style={{ width: `${hidden ? 0 : percent}%` }} /></div><p className="mt-2 text-xs text-slate-600 dark:text-slate-300"><MoneyText text={`£${progress.current.toLocaleString("en-GB")} of £${progress.target.toLocaleString("en-GB")} set aside`} /></p></>}
   </section>;
 }
 

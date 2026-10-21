@@ -83,7 +83,7 @@ from app.db.collections import (
     yapily_accounts_col,
 )
 from app.routers.savings import _cashflow, _current_savings
-from app.services import plan_easing, response_cache
+from app.services import plan_easing, response_cache, plan_tracking
 from app.services.plan_fulfilment import fill_candidates as _plan_fill_candidates, validate_fill_rule
 from app.services.debt_plan import (
     DAYS_PER_MONTH,
@@ -448,6 +448,17 @@ async def _pot_progress_and_slice(
     target = date.fromisoformat(str(doc["target_date"])[:10])
     periods_left = max(1, _period_starts_between(today, target, cfg))
     per_period_slice = _ceil5(remaining / periods_left) if remaining > 0 else 0
+    planned_per_period_slice = per_period_slice
+    # Pausing is not cancellation: keep the goal ACTIVE in the pot ledger so
+    # its already-saved pounds cannot be reassigned to another goal. Only its
+    # ongoing contribution stops. Every reservation reader shares this result.
+    if doc.get("paused") is True:
+        return {
+            "fulfilment": None, "progress": progress, "remaining": remaining,
+            "periods_left": periods_left, "per_period_slice": 0,
+            "usual_slice": 0, "eased_this_period": None,
+            "planned_per_period_slice": planned_per_period_slice,
+        }
     # G228: an easing for THIS pay period (the live period_eased key only) takes
     # the slice down to what the user chose, never below 0 and never above the
     # slice the engine would ask for. Every reader (Safe to Spend's reserve,
@@ -479,6 +490,7 @@ async def _pot_progress_and_slice(
         "per_period_slice": per_period_slice,
         "usual_slice":      usual_slice,
         "eased_this_period": eased_this_period,
+        "planned_per_period_slice": planned_per_period_slice,
     }
 
 
@@ -512,17 +524,13 @@ async def _plan_fulfilment(doc: dict, slice_due: int, start: date, end: date) ->
         source_id, _inferred = await resolve_goal_source(uid, doc, account_map, dest)
         if not source_id:
             return None
-        others = [
-            d for d in await commitments_col.find(
-                {"user_id": uid, "status": "active", "fill_rule": {"$ne": None}}
-            ).to_list(None)
-            if d.get("_id") != doc.get("_id") and d.get("fill_rule")
-        ]
+        active_docs = await commitments_col.find({"user_id": uid, "status": "active"}).to_list(None)
+        others = [d for d in active_docs if d.get("_id") != doc.get("_id") and d.get("fill_rule") and d.get("paused") is not True]
         rivals: list[dict] = []
         if others:
             cfg = await _pay_cfg(uid)
             today = timeutil.user_today()
-            all_docs = others + [doc]
+            all_docs = [d for d in active_docs if d.get("_id") != doc.get("_id")] + [doc]
             ledger = await compute_pot_ledger(uid, docs=all_docs)
             for o in others:
                 o_dest = {str(p["account_id"]) for p in _doc_pots(o)}
@@ -708,7 +716,7 @@ def _apply_joint_feasibility(
     """Mutate `items` (index-aligned with `docs`) with feasibility fields,
     judging each active goal against the spare rate/savings left over after
     every OTHER active goal's own reserve (see `_classify_feasibility`)."""
-    active_idx = [i for i, d in enumerate(docs) if d.get("status", "active") == "active"]
+    active_idx = [i for i, d in enumerate(docs) if d.get("status", "active") == "active" and d.get("paused") is not True]
     for i in active_idx:
         others_slice = sum(items[j].get("usual_slice", items[j]["per_period_slice"]) for j in active_idx if j != i)
         others_remaining = sum(items[j]["remaining"] for j in active_idx if j != i)
@@ -948,7 +956,7 @@ async def _serialise(
     total = max(1, total_raw)
     elapsed = min(total, max(0, total_raw - left_raw))
     elapsed_fraction = min(1.0, max(0.0, elapsed / total))
-    on_track = progress >= amount * elapsed_fraction
+    on_track = doc.get("paused") is True or progress >= amount * elapsed_fraction
 
     return {
         "id":                  cid,
@@ -961,6 +969,8 @@ async def _serialise(
         "source_account_id":  doc.get("source_account_id"),
         "source_unset":        bool(doc.get("source_unset")),
         "fill_rule":           _public_fill_rule(doc),
+        **({"category_tracking": doc["category_tracking"]} if doc.get("category_tracking") else {}),
+        **({"paused": doc["paused"], "planned_per_period_slice": slice_info["planned_per_period_slice"]} if "paused" in doc else {}),
         "fulfilment":          slice_info.get("fulfilment"),
         **_paid_fields(slice_info.get("fulfilment")),
         "source":              doc.get("source", "manual"),
@@ -1072,7 +1082,7 @@ async def total_reserved_slices(uid: str) -> tuple[int, int]:
     for doc in docs:
         slice_info = await _pot_progress_and_slice(doc, cfg, ledger, today)
         total += slice_info["per_period_slice"]
-    return int(total), len(docs)
+    return int(total), sum(d.get("paused") is not True for d in docs)
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -1246,6 +1256,12 @@ async def plan_fill_candidates(
     return await _plan_fill_candidates(uid, source_id, pots, account_map)
 
 
+@router.post("/plans/category-activity")
+async def plan_category_activity(body: dict, user: dict = Depends(current_user)):
+    """Read-only, authenticated evidence for a saved or unsaved plan rule."""
+    return await plan_tracking.category_activity(body, user["email"])
+
+
 @router.post("/commitments")
 async def create_commitment(
     body: dict,
@@ -1338,6 +1354,15 @@ async def create_commitment(
         rule = validate_fill_rule(body.get("fill_rule"))
         if rule is not None and not doc.get("source_unset"):
             doc["fill_rule"] = rule
+    if body.get("category_tracking") is not None:
+        if doc.get("fill_rule"):
+            raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
+        tracking = await plan_tracking.validate_tracking(body["category_tracking"], uid)
+        if tracking.get("destination_account_ids"):
+            raise HTTPException(400, "Goal tracking uses the selected savings pots.")
+        if not doc.get("source_account_id"):
+            raise HTTPException(400, "Choose a paying account for category tracking.")
+        doc["category_tracking"] = tracking
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
 
@@ -1368,8 +1393,13 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
         except (InvalidId, TypeError):
             self_oid = None
 
+    original = await _get_owned(uid, str(raw_cid)) if raw_cid else None
+    # A date-only preview must retain saved growth and manual contributions,
+    # exactly as PATCH does. Capturing fresh baselines on every preview made
+    # progress disappear whenever the target month changed.
+    prior = {(p["account_id"], bool(p.get("count_existing"))): p for p in _doc_pots(original or {})}
     draft_pots: list[dict] = []
-    raw_pots = body.get("funding_pots")
+    raw_pots = body.get("funding_pots", _doc_pots(original or {}))
     if isinstance(raw_pots, list):
         seen: set[str] = set()
         for entry in raw_pots[:_MAX_POTS]:
@@ -1385,6 +1415,9 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
             if not count_existing:
                 live = await _live_balance(aid, uid)
                 baseline = float(live) if live is not None else 0.0
+            kept = prior.get((aid, count_existing))
+            if kept is not None:
+                baseline = float(kept.get("baseline") or 0.0)
             draft_pots.append({
                 "account_id":     aid,
                 "kind":           kind,
@@ -1412,7 +1445,7 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
         "created_at":   draft_created,
         "amount":       amount,
         "target_date":  target_date,
-        "contributed":  0.0,
+        "contributed":  float((original or {}).get("contributed") or 0.0),
         "funding_pots": draft_pots,
     }
 
@@ -1437,7 +1470,8 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     for d in other_docs:
         info = await _pot_progress_and_slice(d, cfg, full_ledger, today)
         others_slice += info["usual_slice"]
-        others_remaining += info["remaining"]
+        if d.get("paused") is not True:
+            others_remaining += info["remaining"]
 
     draft_info = await _pot_progress_and_slice(draft_doc, cfg, full_ledger, today)
     starting = draft_info["progress"]
@@ -1527,12 +1561,12 @@ async def update_commitment(
     uid = user["email"]
     doc = await _get_owned(uid, commitment_id)
     update_filter = {"_id": doc["_id"], "user_id": uid}
-    link_changed = any(field in body for field in ("source_account_id", "funding_pots", "funding_account_id"))
+    link_changed = any(field in body for field in ("source_account_id", "funding_pots", "funding_account_id", "category_tracking", "fill_rule"))
     if link_changed:
         # Validate and write against the same raw stored destination/source,
         # including the legacy single-pot shape and an absent source key.
         update_filter.update(source_link_snapshot(
-            doc, "source_account_id", "funding_pots", "funding_account_id", "status",
+            doc, "source_account_id", "funding_pots", "funding_account_id", "status", "category_tracking", "fill_rule",
         ))
 
     current_status = doc.get("status") or "active"
@@ -1561,6 +1595,13 @@ async def update_commitment(
         cas_status = current_status
 
     updates: dict = {}
+    if "paused" in body:
+        if not isinstance(body["paused"], bool):
+            raise HTTPException(400, "paused must be true or false")
+        if target_status != "active":
+            raise HTTPException(409, "Only an active goal can be paused or resumed.")
+        updates["paused"] = body["paused"]
+        update_filter.update(source_link_snapshot(doc, "paused", "status"))
     if "status" in body:
         updates["status"] = target_status
     if "name" in body:
@@ -1636,6 +1677,27 @@ async def update_commitment(
         updates["fill_rule"] = rule
     if updates.get("source_unset") is True:
         updates["fill_rule"] = None  # "Not set" has no account to match against
+    route_changed = (
+        ("source_account_id" in updates and updates["source_account_id"] != doc.get("source_account_id"))
+        or ("funding_pots" in updates and [p["account_id"] for p in updates["funding_pots"]] != [p["account_id"] for p in _doc_pots(doc)])
+    )
+    if "category_tracking" in body:
+        if target_status != "active":
+            raise HTTPException(409, "Tracking can only be changed for active goals.")
+        tracking = await plan_tracking.validate_tracking(body["category_tracking"], uid)
+        if tracking:
+            if tracking.get("destination_account_ids"):
+                raise HTTPException(400, "Goal tracking uses the selected savings pots.")
+            if body.get("fill_rule"):
+                raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
+            if not updates.get("source_account_id", doc.get("source_account_id")):
+                raise HTTPException(400, "Choose a paying account for category tracking.")
+            updates["fill_rule"] = None
+        updates["category_tracking"] = tracking
+    elif (route_changed or body.get("fill_rule")) and doc.get("category_tracking"):
+        updates["category_tracking"] = None
+    if route_changed and "fill_rule" not in body and doc.get("fill_rule"):
+        updates["fill_rule"] = None
     if "contribute_delta" in body:
         # A86: a contribution only ever makes sense against a commitment that
         # is (and, after this same request, remains) active — reject 409
@@ -1726,7 +1788,7 @@ async def _ease_context(uid: str, doc: dict) -> dict:
 
 
 def _require_active(doc: dict) -> None:
-    if (doc.get("status") or "active") != "active":
+    if (doc.get("status") or "active") != "active" or doc.get("paused") is True:
         raise HTTPException(409, "Only an active plan can be eased.")
 
 

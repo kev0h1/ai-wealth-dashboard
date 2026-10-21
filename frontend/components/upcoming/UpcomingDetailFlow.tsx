@@ -104,7 +104,12 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     }
     const plan = plans.find((item) => item.id === view.id);
     if (!plan) return absent;
+    const allocation = allocations.find((item) => item.id === plan.recordId);
     if (view.kind === "plan") {
+      if (plan.kind === "allocation" && allocation) return {
+        title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind={plan.kind} />,
+        body: <AllocationEditForm key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />,
+      };
       const source = accounts.find((account) => account.id === plan.sourceId);
       return {
         title: plan.name, subtitle: `${plan.kind === "allocation" ? "Allocation" : "Goal"} · This pay period`, leading: <PlanIcon kind={plan.kind} />,
@@ -112,7 +117,6 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
         footer: <button type="button" data-flow-focus={`edit-${plan.id}`} className={flowSecondary} onClick={() => navigation.goTo({ kind: "edit-plan", id: plan.id })}><Pencil size={16} aria-hidden="true" />{plan.kind === "allocation" ? "Edit allocation" : "Change paying account"}</button>,
       };
     }
-    const allocation = allocations.find((item) => item.id === plan.recordId);
     return {
       title: plan.kind === "allocation" ? "Edit allocation" : "Link goal to an account", subtitle: plan.name,
       body: plan.kind === "goal"

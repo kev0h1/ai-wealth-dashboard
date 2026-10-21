@@ -112,6 +112,8 @@ export interface SheetA11yOptions {
   dismissDisabled?: boolean;
   /** Multi-step flows use Escape as Back, while X still closes the flow. */
   onEscape?: () => void;
+  /** Optional internal journey Back. Explicit X/close still closes the sheet. */
+  onHistoryBack?: () => void;
   /** Lock background scroll while the sheet is open and restore the exact
    * pre-open scroll offset on close. Off by default. */
   lockScroll?: boolean;
@@ -330,6 +332,14 @@ export function useSheetA11y<T extends HTMLElement>(
       if (optionsRef.current?.dismissDisabled && !closingRef.current) {
         history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");
         closingRef.current = false;
+        return;
+      }
+      if (!closingRef.current && optionsRef.current?.onHistoryBack) {
+        // A hardware/browser Back steps within a journey without dismissing
+        // its physical frame. Keep this frame's one owned entry; X/close
+        // sets closingRef and therefore still consumes it normally.
+        history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");
+        optionsRef.current.onHistoryBack();
         return;
       }
       consumed = true;
