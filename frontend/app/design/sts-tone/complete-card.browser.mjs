@@ -101,6 +101,8 @@ try {
     for (const state of ["habitual", "cards", "plans", "card-check"]) cases.push({ variant: "b", state, mode, width: 390 });
     for (const state of ["habitual", "cards"]) cases.push({ variant: "current", state, mode, width: 390 });
     for (const state of ["habitual", "plans", "cards", "card-check", "comfortable", "chronology", "stale", "loading"]) cases.push({ variant: "c", state, mode, width: 390 });
+    for (const state of states) cases.push({ variant: "d", state, mode, width: 390 });
+    for (const width of [320, 1280]) for (const state of ["habitual", "long"]) cases.push({ variant: "d", state, mode, width });
     for (const width of [320, 1280]) cases.push({ variant: "c", state: "long", mode, width });
     for (const width of [320, 375, 1280]) for (const state of ["long", "cards"]) cases.push({ variant: "a", state, mode, width });
   }
@@ -121,6 +123,11 @@ try {
       return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,frame:{x:r.x,right:r.right},
         figures:frame.querySelectorAll('#safe-to-spend-heading').length,
         amount:figure?.textContent,colour:figure?getComputedStyle(figure).color:null,size:figure?getComputedStyle(figure).fontSize:null,
+        eyebrow:frame.querySelector('.sts-card > div:first-child > p')?.textContent,
+        summaryColour:summary?getComputedStyle(summary).color:null,
+        upcomingQualifier:upcoming?.querySelector('#runway-heading + div > span')?.textContent?.trim(),
+        upcomingQualifierColour:upcoming?.querySelector('#runway-heading + div > span')?getComputedStyle(upcoming.querySelector('#runway-heading + div > span')).color:null,
+        upcomingAmount:uf?.textContent?.trim(),
         upcomingColour:uc,chipColour:cc,
         contrast:fc?contrast(fc,getComputedStyle(frame.querySelector('.glass-hero')).backgroundColor):null,
         upcomingContrast:uc?contrast(uc,getComputedStyle(upcoming.querySelector('.glass-hero')).backgroundColor):null,
@@ -142,6 +149,27 @@ try {
     if (state === "card-check") { assert.deepEqual(measure.actions, ["Review card bill"]); assert.equal(measure.amount, "£0"); }
     if (figureState && variant === "a") assert.equal(measure.size, "30px");
     if (state === "habitual" && ["a", "b"].includes(variant)) assert.equal(measure.colour, mode === "dark" ? "rgb(241, 245, 249)" : "rgb(15, 23, 42)");
+    if (variant === "d" && figureState) {
+      assert.equal(measure.size, "30px");
+      const ink = mode === "dark" ? "rgb(241, 245, 249)" : "rgb(15, 23, 42)";
+      if (["habitual", "one-off", "small", "urgent", "chronology", "long"].includes(state)) {
+        assert.match(measure.amount, /^−£/, "actual signed text, readable without colour");
+        assert.equal(measure.colour, ink);
+        assert.equal(measure.eyebrow, "Shortfall before payday");
+        assert.equal(measure.summaryColour, mode === "dark" ? "rgb(203, 213, 225)" : "rgb(71, 85, 105)");
+      } else assert.doesNotMatch(measure.amount, /^−/, "no invented negative cash for card-check, positive or stale states");
+      if (["habitual", "one-off", "small", "urgent", "long", "plans"].includes(state)) {
+        assert.match(measure.upcomingAmount, /^−£/);
+        assert.equal(measure.upcomingColour, ink);
+        assert.equal(measure.upcomingQualifier, "short");
+        assert.notEqual(measure.upcomingQualifierColour, ink, "amber lives in the qualifier");
+      }
+      if (state === "habitual") {
+        assert.equal(measure.chipColour, measure.upcomingQualifierColour, "same amber signifier on both cards");
+        assert.ok(measure.contrast >= 4.5 && measure.upcomingContrast >= 4.5 && measure.chipContrast >= 4.5, JSON.stringify({test,measure}));
+      }
+      if (state === "chronology") assert.doesNotMatch(measure.upcomingAmount, /^−/, "a positive payday forecast stays positive despite Home's earlier shortfall");
+    }
     if (variant === "c" && ["habitual", "long"].includes(state)) {
       assert.equal(measure.colour, measure.upcomingColour, "same actual risk colour on Home and Upcoming");
       assert.equal(measure.chipColour, measure.colour, "Short signifier shares the semantic foreground");
@@ -158,7 +186,7 @@ try {
       if (variant !== "current") assert.equal(await evaluate(`getComputedStyle(${summary}).backgroundColor`), "rgba(0, 0, 0, 0)", "no sticky touch-hover purple fill");
       if (state === "cards") assert.equal(await evaluate("document.querySelector('[data-g287-card]').innerText.includes('Transfers between your own included accounts do not change the total')"), true);
       if (state === "chronology") assert.equal(await evaluate("document.querySelector('[data-g287-card]').innerText.includes('Bills before payday')"), false);
-      if (["a", "c"].includes(variant) && width === 390 && ["habitual", "card-check"].includes(state)) {
+      if (["a", "c", "d"].includes(variant) && width === 390 && ["habitual", "card-check"].includes(state)) {
         if (variant === "c" && state === "habitual") {
           await activate("document.querySelector('[data-g287-upcoming] summary')", true);
           const riskColours=await evaluate("[...document.querySelectorAll('[data-g287-card] dd[class*=\"text-red-600\"], [data-g287-upcoming] dd[class*=\"text-rose-600\"]')].map(e=>getComputedStyle(e).color)");
@@ -174,7 +202,7 @@ try {
   // Exercise the real footer controls with touch, then keyboard activation.
   await viewport(390);
   for (const [state, label, href] of [["habitual", "See what’s due", "/upcoming"], ["cards", "See your cards", "/cards"], ["card-check", "Review card bill", "/cards"]]) {
-    await navigate("a", state, "dark");
+    await navigate("d", state, "dark");
     await activate("document.querySelector('[data-g219-action-row] button')", true);
     await waitFor(`document.querySelector('[data-preview-destination]').dataset.previewDestination === '${href}'`);
     assert.match(await evaluate("location.pathname"), /\/design\/sts-tone$/);
@@ -183,7 +211,7 @@ try {
     await waitFor("document.querySelector('[data-preview-destination]').dataset.previewDestination === '/accounts'");
     assert.match(await evaluate("location.pathname"), /\/design\/sts-tone$/);
   }
-  await navigate("a", "habitual", "light");
+  await navigate("d", "habitual", "light");
   await evaluate(`${summary}.focus()`); await key("Enter", "Enter", 13);
   await waitFor("document.querySelector('[data-g287-card] details').open");
   const focus = await evaluate(`({active:document.activeElement.tagName,ring:getComputedStyle(${summary}).boxShadow})`);
@@ -195,11 +223,11 @@ try {
   await key("Tab", "Tab", 9); await key("Enter", "Enter", 13);
   await waitFor("document.querySelector('[data-preview-destination]').dataset.previewDestination === '/accounts'");
   for (const state of ["error", "empty", "degraded", "stale"]) {
-    await navigate("a", state, "light");
+    await navigate("d", state, "light");
     await activate("[...document.querySelectorAll('[data-g287-card] button')].find(e=>['Retry','Try again','Check again'].includes(e.textContent.trim()))", true);
     await waitFor(`document.querySelector('[data-g287-scenario="habitual"]')`);
   }
-  await navigate("c", "plans", "dark");
+  await navigate("d", "plans", "dark");
   await activate("document.querySelector('[data-g287-upcoming] summary')", true);
   await activate("document.querySelector('[data-g287-upcoming] [data-g304-plan] a')", true);
   await waitFor("document.querySelector('[data-preview-destination]').dataset.previewDestination === '/planning#commitments'");
@@ -209,6 +237,9 @@ try {
   assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
   await navigate("c", "habitual", "dark", true);
   assert.equal(await evaluate("!!document.querySelector('[data-g287-upcoming], [data-g287-card]')"), false, "both colour examples honour masking");
+  assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
+  await navigate("d", "habitual", "dark", true);
+  assert.equal(await evaluate("!!document.querySelector('[data-g287-upcoming], [data-g287-card]')"), false);
   assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
   assert.deepEqual(exceptions, [], "no page exceptions"); assert.deepEqual(customerRequests, [], "no customer API attempts");
   await writeFile(path.join(output, "results.json"), JSON.stringify({ layouts: results.length, interactions: "touch/keyboard disclosure, footer destinations, local retry and legacy privacy gate", exceptions, customerRequests, results }, null, 2));

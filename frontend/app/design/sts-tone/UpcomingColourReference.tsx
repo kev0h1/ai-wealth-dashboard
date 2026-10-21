@@ -29,9 +29,9 @@ export function upcomingPropsFor(scenario: Scenario): UpcomingHeroCardProps | nu
   };
 }
 
-export default function UpcomingColourReference({ scenario, consolidated, onDestination }: { scenario: Scenario; consolidated: boolean; onDestination?: (label: string, href: string) => void }) {
+export default function UpcomingColourReference({ scenario, consolidated, calmUrgency = false, onDestination }: { scenario: Scenario; consolidated: boolean; calmUrgency?: boolean; onDestination?: (label: string, href: string) => void }) {
   const props = upcomingPropsFor(scenario);
-  return <section aria-label="Upcoming colour comparison" data-g287-upcoming className={consolidated ? styles.sharedRisk : undefined} onClickCapture={event => {
+  return <section aria-label="Upcoming colour comparison" data-g287-upcoming className={calmUrgency ? styles.calmUpcoming : consolidated ? styles.sharedRisk : undefined} onClickCapture={event => {
     const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!anchor) return;
     event.preventDefault(); event.stopPropagation();
