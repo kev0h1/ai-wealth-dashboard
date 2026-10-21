@@ -32,6 +32,21 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "statements-house-ads",
+    name: "Statements house ads · B58",
+    description:
+      "B58 design round, impeccable · Kevin 2026-10-21: Sorted's own upgrade prompt on the free Statements plan, no third-party ads. Three placements (Statements Home, after an upload, at the 3-uploads limit), one card per screen, glass-chip dismiss with a 7 day snooze, hidden on a risk hero and for every plan but Statements, never the Penny gradient, taps link to the existing plan picker. Two copy states: trial available (Try Lite free for 14 days, card details needed, renews unless cancelled) and trial used (See plans). A Quiet card / B Side by side / C On the canvas · the Home hero is the production SafeToSpendCard with fixture data and the dismiss is the production DismissChip; the Statements Home shell, the post-upload state and the limit state are hand-authored (no production component exists) · fixtures only · ?variant=a|b|c&state=statements-trial-available|statements-trial-used|trial-active|lite|standard|plus&risk=1&mode=light|dark",
+    states: [
+      { label: "Trial available", value: "statements-trial-available" },
+      { label: "Trial used", value: "statements-trial-used" },
+    ],
+    variants: [
+      { label: "A · Quiet card", value: "a" },
+      { label: "B · Side by side", value: "b" },
+      { label: "C · On the canvas", value: "c" },
+    ],
+  },
+  {
     slug: "mirror-reading-edge",
     name: "Mirror card reading edge · G302",
     description: "Two focused proposals using the real G286 cards: A quiet in-card evidence link, B a full-width evidence row. One reading edge, a small category glyph, one coaching explanation and plain-English observations. Local synthetic callbacks only; production layout, saved choices and APIs are unchanged.",
