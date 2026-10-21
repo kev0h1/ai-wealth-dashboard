@@ -96,7 +96,7 @@ Before:
 After:
 - Lead: You pay Octopus Energy £130 a month · from your transactions
 - Headline: (same sentence as the lead, shown once)
-- Body: That is based on 3 payments in the last 90 days. Octopus lists a 12 month fixed tariff. Offer listed until 31 Oct. Checked 16 Oct, source Ofgem and Uswitch.
+- Body: That is based on 3 payments in the last 90 days. Checked 16 Oct.
 - Freshness line below the body: (none, the body carries the one "Checked" line)
 
 ### Other: broadband
@@ -152,12 +152,12 @@ Before:
 After:
 - Lead: You pay about £25 a month for subscriptions · from your transactions
 - Headline: (same sentence as the lead, shown once)
-- Body: That is based on 6 payments in the last 90 days. Streaming subscriptions are listed at £5 to £18 a month. Also listed: Disney+ £5 a month. Checked 16 Oct, source Which?
+- Body: That is based on 6 payments in the last 90 days. Checked 16 Oct.
 - Freshness line below the body: (none, the body carries the one "Checked" line)
 
 ## Your own tips on UAT (read-only render)
 
-Read from the cached tips for the account named Premier Current Account. Nothing was written. The 'After' text is what the next weekly pass would write.
+Read from the owner's cached tips. Nothing was written. The 'After' text is what the next weekly pass would write.
 
 #### Car Finance
 

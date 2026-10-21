@@ -62,15 +62,13 @@ def _fmt_after(s):
 async def _uat():
     from dotenv import dotenv_values
     v = dotenv_values("/root/ai-wealth-dashboard/backend/.env")
-    for k in ("MONGO_URI", "MONGO_DB"):
-        if v.get(k):
-            os.environ[k] = v[k]
+    for k, val in v.items():
+        if val is not None:
+            os.environ.setdefault(k, val)
     import app.routers.savings_insights as si
-    from app.db.collections import accounts_col, savings_insights_col, tip_research_col
-    acct = await accounts_col.find_one({"name": "Premier Current Account"}, {"user_id": 1})
-    if not acct:
-        return ["No account named Premier Current Account was found."]
-    uid = acct["user_id"]
+    from app.core.config import PRIMARY_EMAIL
+    from app.db.collections import savings_insights_col, tip_research_col
+    uid = PRIMARY_EMAIL  # the owner, looked up from the environment and never printed
     docs = await savings_insights_col.find({"user_id": uid, "retired_at": {"$exists": False}}).to_list(None)
     out = []
     for d in sorted(docs, key=lambda x: x.get("category", "")):
@@ -148,7 +146,7 @@ def _doc(path, uat):
               f"- Freshness line below the body: {b['expiry']}", "", "After:"] + _fmt_after(_after(cat)) + [""]
     if uat:
         L += ["## Your own tips on UAT (read-only render)", "",
-              "Read from the cached tips for the account named Premier Current Account. Nothing was written. The 'After' text is what the next weekly pass would write.", ""]
+              "Read from the owner's cached tips. Nothing was written. The 'After' text is what the next weekly pass would write.", ""]
         L += asyncio.run(_uat())
     open(path, "w", encoding="utf-8").write("\n".join(L) + "\n")
 
