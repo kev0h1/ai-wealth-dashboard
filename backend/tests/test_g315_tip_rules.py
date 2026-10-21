@@ -252,9 +252,9 @@ def test_known_lender_reads_its_own_name_and_unknown_car_finance_provider_is_gen
     assert tip_facts.clean_merchant("Xyz Ltd", "car_finance", "Car Finance")[0] == "your car finance provider"
 
 
-def test_unknown_long_descriptor_loses_its_dangling_word():
+def test_unknown_long_descriptor_is_not_cut_by_length():
     name, generic = tip_facts.clean_merchant("Fancy Local Cafe Birmingham Cen", "eating_out", "Eating Out")
-    assert not generic and not name.endswith("Cen")
+    assert not generic and name == "Fancy Local Cafe Birmingham Cen"
 
 
 def test_serializer_returns_cleaned_merged_rows():
@@ -547,11 +547,19 @@ def test_brand_is_scoped_to_the_tips_own_category():
     assert tip_facts.clean_merchant("Aldi", "gym", "Gym")[0] == "Aldi"  # not rebranded by another category
 
 
-def test_last_word_kept_when_it_reads_whole_and_dropped_when_cut():
-    kept = tip_facts.clean_merchant("Fancy Local Cafe Birmingham Stores", "eating_out", "Eating Out")[0]
-    assert kept.endswith("Stores") or kept.endswith("Store")
-    cut = tip_facts.clean_merchant("Fancy Local Cafe Birmingham Cen", "eating_out", "Eating Out")[0]
-    assert not cut.endswith("Cen")
+@pytest.mark.parametrize("raw", ["Marks and Spencer Simply Food", "Almond Branch National Trust",
+                                 "Five Guys Burgers and Shakes"])
+def test_whole_names_are_left_exactly_as_given(raw):
+    assert tip_facts.clean_merchant(raw, "eating_out", "Eating Out")[0] == raw
+
+
+def test_only_fragments_banks_were_seen_to_cut_are_completed():
+    cm = lambda r, c="eating_out", l="Eating Out": tip_facts.clean_merchant(r, c, l)[0]
+    assert cm("The Good Life Eatery Birming") == "The Good Life Eatery Birmingham"
+    assert cm("Some Cafe Castle Bromw") == "Some Cafe Castle Bromwich"
+    assert cm("Corner Shop S/Mkts") == "Corner Shop Supermarkets"
+    assert cm("Fancy Local Cafe Xyzcen") == "Fancy Local Cafe Xyzcen"  # unseen fragment: untouched
+    assert tip_facts.clean_merchant("David Lloyd Leisur", "gym", "Gym")[0] == "David Lloyd"
 
 
 def test_evidence_rows_are_checked_for_truncated_names():
@@ -592,3 +600,20 @@ def test_regen_script_counts_hidden_tips_and_defaults_to_dry_run():
     assert run(m.collect(Col())) == {"a": 1, "b": 1}
     src = open("scripts/regen_tips.py", encoding="utf-8").read()
     assert "--apply" in src and "dry-run" in src
+
+
+def test_provider_name_must_sit_before_its_own_price_in_the_host_snippet():
+    text = "Page which.co.uk: PureGym from £25 a month. Premium clubs £117 a month."
+    urls = ["https://www.which.co.uk/a"]
+    parsed = {"typical_low": 25, "typical_high": 117, "alternatives": [
+        {"name": n, "price": p, "product_type": "gym_membership", "basis": "month", "source_url": "which.co.uk"}
+        for n, p in (("Gymbox", 25), ("PureGym", 117), ("PureGym", 25))]}
+    f, _, _ = si._build_findings(parsed, text, urls, "gym", TODAY)
+    assert [(a["name"], a["price"]) for a in f["alternatives"]] == [("PureGym", 25.0)]
+
+
+def test_serve_and_content_gates_receive_the_evidence_rows():
+    import inspect
+    src = inspect.getsource(si)
+    assert src.count('"triggered_by": presented}') == 1
+    assert 'tip_facts.present_triggers(category_key, triggered_by, label)}' in src

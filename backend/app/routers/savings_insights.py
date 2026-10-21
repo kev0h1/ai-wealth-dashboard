@@ -1489,6 +1489,27 @@ def _is_shareable_text(text: str) -> bool:
     return True
 
 
+_POUND_FIGURE_RE = re.compile(r"£\s*\d[\d,]*(?:\.\d+)?")
+
+
+def _provider_named_before_price(text: str, name: str, price: float) -> bool:
+    want = re.sub(r"[^a-z0-9]", "", name.lower())
+    if not want:
+        return False
+    figures = list(_POUND_FIGURE_RE.finditer(text))
+    for i, m in enumerate(figures):
+        try:
+            value = float(m.group(0).replace("£", "").replace(",", "").strip())
+        except ValueError:
+            continue
+        if abs(value - price) > 0.005:
+            continue
+        start = max(m.start() - 80, figures[i - 1].end() if i else 0)
+        if want in re.sub(r"[^a-z0-9]", "", text[start:m.start()].lower()):
+            return True
+    return False
+
+
 def _host_snippets(web_text: str) -> dict[str, str]:
     """The search text split by the page host it came from ("Page host: ..."), so a
     price can be tied to the page that states it. Text with no tag belongs to no host."""
@@ -1554,6 +1575,12 @@ def _build_findings(
         # the price must be derivable from the stated host's OWN snippet, not just
         # from some other page in the same search; no snippet for the host, no listing
         if host not in host_text or not _number_is_derivable(price, _build_allowed_savings_numbers(host_text[host], None, None)):
+            continue
+        # and that snippet must tie THIS provider to THIS price: the provider's name
+        # sits in the clause just before the figure (within 80 characters, after the
+        # previous £ figure), so "PureGym from £25. Premium clubs £117" cannot give
+        # Gymbox £25 or PureGym £117
+        if not _provider_named_before_price(host_text[host], name, price):
             continue
         if not tip_facts.is_like_for_like(
             {"category": category_key, "product_type": expected_type, "period": "month"},
@@ -1962,7 +1989,8 @@ async def _tip_content_for(
         content.get("title"), content.get("body"),
     ) else content
     violations = tip_facts.card_violations(
-        {"title": content.get("title"), "body": content.get("body"), "lead_line": content.get("title")},
+        {"title": content.get("title"), "body": content.get("body"), "lead_line": content.get("title"),
+         "triggered_by": tip_facts.present_triggers(category_key, triggered_by, label)},
         category_key, label,
     )
     if not tip_copy.is_clean(content.get("title"), content.get("body")) or violations:
@@ -2618,7 +2646,8 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     # figure, names, domain spacing, one freshness line). A card that breaks any
     # rule is hidden, never edited into shape.
     if title_raw.strip() and body_raw.strip() and tip_facts.card_violations(
-        {"title": title_raw, "body": body_raw, "lead_line": lead_line or title_raw}, cat, _label,
+        {"title": title_raw, "body": body_raw, "lead_line": lead_line or title_raw, "triggered_by": presented},
+        cat, _label,
     ):
         title_raw = body_raw = ""
 

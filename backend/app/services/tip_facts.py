@@ -341,8 +341,22 @@ _NOISE_TOKENS = frozenset({
 })
 
 _COMPANY_TAIL_RE = re.compile(r"\s+(?:ltd|limited|plc|llp|uk)\.?$", re.IGNORECASE)
-_TRUNCATION_LEN = 28  # a bank descriptor cut at 30 characters ends mid-word
-_WHOLE_WORD_END_RE = re.compile(r"(?:[aeiouys]|ing|ed|er|tion|ly)$", re.IGNORECASE)
+# Fragments banks have actually been seen to cut a payee at, and their completions.
+# Nothing else is ever completed or dropped: an unseen fragment stays exactly as it
+# came (ugly, never a false name).
+_KNOWN_FRAGMENTS = {
+    "castle bromw": "Castle Bromwich", "birming": "Birmingham", "birmin": "Birmingham",
+    "leisur": "Leisure", "supermark": "Supermarket", "s/mkts": "Supermarkets", "s/mkt": "Supermarket",
+}
+_FRAGMENT_END_RE = re.compile(
+    r"(?<![A-Za-z/])(" + "|".join(re.escape(k) for k in sorted(_KNOWN_FRAGMENTS, key=len, reverse=True)) + r")$",
+    re.IGNORECASE,
+)
+
+
+def _complete_known_fragment(name: str) -> str:
+    m = _FRAGMENT_END_RE.search(name)
+    return name[:m.start()] + _KNOWN_FRAGMENTS[m.group(1).lower()] if m else name
 
 
 def _known_brand(raw: str, category: str) -> Optional[str]:
@@ -359,32 +373,20 @@ def _known_brand(raw: str, category: str) -> Optional[str]:
     return None
 
 
-def _looks_whole(word: str) -> bool:
-    """A last word is kept when it reads as complete: more than four letters and
-    ending like a finished English word. The cut-off ones ("Birmin", "Leisur")
-    end mid-syllable. A heuristic, deliberately cautious about keeping."""
-    w = re.sub(r"[^A-Za-z]", "", word)
-    return len(w) > 4 and bool(_WHOLE_WORD_END_RE.search(w))
-
-
 def clean_merchant(raw: str, category: str, label: Optional[str] = None) -> tuple[str, bool]:
     """(display name, is_generic). A known brand of the tip's own category reads as
     its own name. An unknown lender in a regulated category reads as a plain noun
     ("your mortgage lender"), never an abbreviation. Any other merchant is
-    title-cased and, when its descriptor looks cut off (28 characters or more and
-    a last word that does not read as whole), loses the dangling last word."""
+    title-cased; a trailing fragment banks have been seen to cut (see
+    _KNOWN_FRAGMENTS) is completed, and anything else is left exactly as given."""
     brand = _known_brand(raw, category)
     if brand:
         return brand, False
     if is_regulated_category(category, label):
         return _GENERIC_NAME.get(category, "your provider"), True
     name = re.sub(r"\s+", " ", (raw or "").strip())
-    if len(name) >= _TRUNCATION_LEN and " " in name:
-        head, last = name.rsplit(" ", 1)
-        if not _looks_whole(last):
-            name = head
     name = _COMPANY_TAIL_RE.sub("", name).strip()
-    return (display_account_name(name) or "your provider"), False
+    return _complete_known_fragment(display_account_name(name) or "your provider"), False
 
 
 def present_triggers(category: str, triggered_by: Optional[list[dict]], label: Optional[str] = None) -> list[dict]:
@@ -481,7 +483,7 @@ _ABBREV_RE = re.compile(r"\bMtg\b")
 _DASH_OR_BANG_RE = re.compile(r"[—–!]")
 _CHECKED_RE = re.compile(r"\bChecked \d{1,2} [A-Z][a-z]{2}\b")
 _OTHER_FRESHNESS_RE = re.compile(r"\bResearched\b|\bValid until\b", re.IGNORECASE)
-_TRUNCATED_NAME_RE = re.compile(r"\b(?:Leisur|Birmin|Supermark|S/Mkts?)\b")
+_TRUNCATED_NAME_RE = re.compile(r"\b(?:Leisur|Birmin|Birming|Bromw|Supermark|S/Mkts?)\b")
 
 
 def has_checked_line(body: Optional[str]) -> bool:
