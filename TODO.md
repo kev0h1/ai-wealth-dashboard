@@ -917,6 +917,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-21, claude): No stacking needed: feature-C30-android-internal-trigger no longer exists, C30 is already done on main (2fa1f49), so this branch is based on main and carries its workflow changes.
 - [ ] **C32. Point the android-capacitor internal testing workflow at the production API (Kevin 2026-10-21)** [owner: claude]
   - note (2026-10-21, claude): session abandoned, branch feature-C32-android-internal-prod-api discarded
+  - note (2026-10-21, claude): Empty duplicate of C31 (the real change, in review). Recommend Kevin cancels this item.
 
 ## D. Identity and sign-up
 
