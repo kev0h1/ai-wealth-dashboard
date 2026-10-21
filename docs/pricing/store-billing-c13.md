@@ -1045,13 +1045,15 @@ makes `trialing` depend on the offer alone (offer id equal to
 `PLAY_TRIAL_OFFER_ID`, or the same value in `offerTags`), sets `trial_ends_at`
 from `expiryTime`, downgrades the length check to a logged warning, and logs one
 INFO line per verified purchase (`play billing: verified subscription
-product=... state=... base_plan=... offer_id=... offer_tags=... trial_reason=...
-expiry=...`, never the token, account id or order id). Read the offer id from
+product=... state=... base_plan=... offer_id=... offer_tags=... action=...
+status=... trialing=... trial_reason=... expiry=...`, never the token, account id or order id). Read the offer id from
 that line on the next tester purchase and set `PLAY_TRIAL_OFFER_ID` to match what
 Play Console actually holds. A renewal (order id with a `..N` suffix, since Google keeps the
 offer on the line item and does not expose the pricing phase) or a read with
 no matching offer maps to `active` and clears `trial_ends_at`. With no order id
-the mapper fails open to the offer (`offer_id_match_no_order_id`).
+the mapper fails open to the offer within the 15-day window
+(`offer_id_match_no_order_id`) and maps to `active` past it
+(`no_order_id_past_window`).
 
 ## 10. Apple details not independently confirmed in this session
 

@@ -415,6 +415,17 @@ def test_missing_order_id_fails_open_to_the_offer(env, caplog):
     assert any("trial_reason=offer_id_match_no_order_id" in r.getMessage() for r in caplog.records)
 
 
+def test_missing_order_id_past_the_window_is_active(env, caplog):
+    body = _trial_sub(expiry=timedelta(days=10), start_days_ago=60)
+    body.pop("latestOrderId")
+    env.api.subs[T1] = body
+    with caplog.at_level(logging.INFO, logger=play_billing.logger.name):
+        _run(play_billing.process_subscription(T1))
+    doc = sub_doc(env)
+    assert doc["status"] == "active" and doc.get("trial_ends_at") is None
+    assert any("trial_reason=no_order_id_past_window" in r.getMessage() for r in caplog.records)
+
+
 def test_fourteen_day_trial_is_trialing(env):
     env.api.subs[T1] = _trial_sub(expiry=timedelta(days=14))
     _run(play_billing.process_subscription(T1))
@@ -471,6 +482,7 @@ def test_verified_purchase_log_line_has_offer_fields_and_no_identifiers(env, cap
                    "trialing=True", "trial_reason=offer_id_match", "expiry="):
         assert expect in line
     assert T1 not in line and account_id() not in line and "GPA." not in line
+    assert "@" not in line and UID not in line
 
 
 def test_cancelled_but_unexpired_keeps_access_and_flags_cancel(env):

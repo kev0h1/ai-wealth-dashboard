@@ -256,7 +256,7 @@ def _offer_details(line: dict) -> dict:
     return details if isinstance(details, dict) else {}
 
 
-def _trial_decision(sub: dict, line: dict, start: datetime | None, expiry: datetime, now: datetime) -> tuple[bool, str]:
+def _trial_decision(sub: dict, line: dict, start: datetime | None, now: datetime) -> tuple[bool, str]:
     """Trialing is decided by the offer plus the billing cycle (C34):
     offerDetails.offerId equals PLAY_TRIAL_OFFER_ID, or offerTags carries it,
     AND the latest order id has no "..N" renewal suffix (Google keeps the
@@ -284,6 +284,9 @@ def _trial_decision(sub: dict, line: dict, start: datetime | None, expiry: datet
         if _RENEWAL_ORDER_RE.search(order_id):
             return False, "renewal_order"
     else:
+        if start is not None and now >= start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS + 1):
+            # No order id to tell a renewal apart and well past the trial window: not a trial.
+            return False, "no_order_id_past_window"
         reason += "_no_order_id"
     if start is not None and now >= start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS + 1):
         logger.warning(
@@ -321,7 +324,7 @@ def map_subscription(sub: dict, line: dict, now: datetime) -> SubscriptionMappin
         if expiry is None:
             raise PlayRefused("no_expiry")
         start = parse_rfc3339(sub.get("startTime"))
-        in_trial, trial_reason = _trial_decision(sub, line, start, expiry, now)
+        in_trial, trial_reason = _trial_decision(sub, line, start, now)
         auto_renew = (line.get("autoRenewingPlan") or {}).get("autoRenewEnabled")
         cancelled = state == "SUBSCRIPTION_STATE_CANCELED" or auto_renew is False
         return SubscriptionMapping(
