@@ -915,9 +915,10 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-20, claude): Added a workflow-level Codemagic when: changeset filter (includes frontend/**, capacitor-spike/**, codemagic.yaml; excludes **/*.md and the sideload APK files) shared by ios-capacitor and android-capacitor via the uat_changeset YAML anchor. It also stops board-only pushes (about 168 of 227 a day) from building ios-capacitor; prod workflows are untouched. Manual-start behaviour is unverified in the docs.
 - [ ] **C31. Point the android-capacitor internal testing workflow at the production API (Kevin, 2026-10-20 and 2026-10-21): Play internal testers are the sideload sorted.apk audience and Play Billing is wired to production, so the internal track must bake build:mobile:prod; drop the UAT-only MCP connector vars from it per A17** [owner: claude] [priority: p1] [state: in-progress] [branch: feature-C31-android-internal-prod-api]
   - note (2026-10-21, claude): No stacking needed: feature-C30-android-internal-trigger no longer exists, C30 is already done on main (2fa1f49), so this branch is based on main and carries its workflow changes.
-- [ ] **C32. Point the android-capacitor internal testing workflow at the production API (Kevin 2026-10-21)** [owner: claude]
+- [ ] **C32. Point the android-capacitor internal testing workflow at the production API (Kevin 2026-10-21)** [owner: claude] [state: cancelled: duplicate of C31]
   - note (2026-10-21, claude): session abandoned, branch feature-C32-android-internal-prod-api discarded
   - note (2026-10-21, claude): Empty duplicate of C31 (the real change, in review). Recommend Kevin cancels this item.
+  - note (2026-10-21, kevin): cancelled: duplicate of C31
 
 ## D. Identity and sign-up
 
