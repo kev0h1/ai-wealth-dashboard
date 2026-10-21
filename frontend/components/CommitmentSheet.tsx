@@ -671,6 +671,7 @@ export default function CommitmentSheet({
               {rule.match_value && <details><summary className="min-h-11 cursor-pointer py-3 text-xs text-slate-600 dark:text-slate-300">Transfer reference</summary><p className="break-words pb-3 text-xs text-slate-600 dark:text-slate-300">{rule.match_value}</p></details>}
               <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Confirming saves every choice. It does not move money.</p>
               </> : <>
+              {!commitment && editorView === "details" && createNameStep && <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText unmasked text="For example, save £2,000 for a trip to Japan by December 2028." /></p>}
               <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">{editorView === "details" ? createNameStep ? "Name your goal" : "Choose your target" : editorView === "route" ? "Choose a paying account" : editorView === "destination" ? "Choose savings pots" : "Recognise your transfer"}</h3>
               {/* G228: a quiet statement, no control. Changing the amount or the
                   date below ends the easing; that is the way back. */}
@@ -682,7 +683,6 @@ export default function CommitmentSheet({
               {/* Name */}
               {editorView === "details" && <>
               {(commitment || createNameStep) && <div>
-                {!commitment && <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText unmasked text="For example, save £2,000 for a trip to Japan by December 2028." /></p>}
                 <label htmlFor="commitment-name" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   Name
                 </label>
