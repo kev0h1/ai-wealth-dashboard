@@ -1066,7 +1066,7 @@ def cmd_vercel_check(args: argparse.Namespace) -> int:
         if args.sha:
             ok, full_sha = resolve_commit(args.sha, args.timeout)
             if not ok or not full_sha:
-                print(f"could not resolve {args.sha} to a commit", file=sys.stderr)
+                print(f"could not resolve {args.sha} to a commit: {full_sha}", file=sys.stderr)
                 return 1
             print(f"resolved {args.sha} to {full_sha}")
             cand = find_promote_candidate(vercel_rest, token, project_id, org_id, full_sha, args.timeout)

@@ -1022,9 +1022,9 @@ def test_vercel_check_resolves_release_tag(monkeypatch, tmp_path, capsys):
 
 def test_vercel_check_unresolvable_sha_exits_1_without_candidate_call(monkeypatch, tmp_path, capsys):
     state = {"live": "d_other"}
-    _vc_setup(monkeypatch, tmp_path, state, lambda *a, **k: (False, "fatal: bad revision"))
+    _vc_setup(monkeypatch, tmp_path, state, lambda *a, **k: (False, "fatal: short object ID nope123 is ambiguous"))
     assert release.main(["--vercel-check", "--sha", "nope123"]) == 1
-    assert "could not resolve nope123 to a commit" in capsys.readouterr().err
+    assert "could not resolve nope123 to a commit: fatal: short object ID nope123 is ambiguous" in capsys.readouterr().err
     assert not any("/v7/deployments" in u for _, u in state["calls"])
 
 
@@ -1060,6 +1060,29 @@ def test_rollback_exits_1_when_promote_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(release.time, "sleep", lambda n: None)
     monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
     assert release.cmd_rollback(_rollback_args()) == 1
+
+
+def test_rollback_resolver_argv_peels_annotated_tag_to_commit(monkeypatch, tmp_path):
+    state = {"live": "d_other", "promote_fails": True}
+    seen = []
+
+    def resolver(cmd, **k):
+        seen.append(cmd)
+        return True, "aaaa1111bbbb\n"
+
+    monkeypatch.setattr(release, "_run_ok", resolver)
+    monkeypatch.setattr(release, "_run", lambda *a, **k: "")
+    monkeypatch.setattr(release, "is_ancestor", lambda *a, **k: True)
+    monkeypatch.setattr(release, "poll_vercel_ready", lambda *a, **k: (True, []))
+    monkeypatch.setattr(release, "poll_railway_services", lambda *a, **k: ({s: True for s in release.RAILWAY_SERVICES}, {}))
+    monkeypatch.setattr(release, "link_vercel", lambda timeout=30: _link(tmp_path))
+    monkeypatch.setattr(release, "vercel_cli_token", lambda *a, **k: "t")
+    monkeypatch.setattr(release, "vercel_rest", _fake_vercel(state))
+    monkeypatch.setattr(release.time, "sleep", lambda n: None)
+    monkeypatch.setattr(release, "run_smoke_checks", lambda *a, **k: [])
+    release.cmd_rollback(_rollback_args(target="release-20261019-1200"))
+    assert seen[0][-1] == "release-20261019-1200^{commit}"
+    assert release.resolve_commit("release-20261019-1200", 5) == (True, "aaaa1111bbbb")
 
 
 def _tag_args(**kw):
