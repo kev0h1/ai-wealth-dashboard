@@ -98,6 +98,13 @@
 .iconLed .stateBadge svg { color: var(--g287-tone); }
 .stateUpcoming :global(.glass-hero) { border-radius: 16px; }
 .stateUpcoming :global(#runway-heading) { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+/* E uses the same full-width status row and 20px figure separation as Home.
+   Let the title wrap in its own column while the status stays at the right. */
+.refinedHeader :global(.glass-hero) > div:first-child > div { flex: 1; }
+.refinedHeader :global(#runway-heading) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px;
+  min-height: 28px; margin-bottom: 20px;
+}
 .stateUpcoming :global(#runway-heading) + div { flex-wrap: wrap; }
 .stateUpcoming :global(#runway-heading) + div > p { color: var(--g287-ink); font-size: 30px; line-height: 1.2; letter-spacing: -.025em; }
 .stateUpcoming[data-g287-qualifier-tone="risk"] { --g287-qualifier: var(--g287-risk); }

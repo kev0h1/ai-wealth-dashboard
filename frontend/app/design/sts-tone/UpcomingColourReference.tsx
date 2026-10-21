@@ -43,7 +43,7 @@ export default function UpcomingColourReference({ scenario, consolidated, calmUr
   const attachHeading = useCallback((node: HTMLElement | null) => {
     setHeading(stateSystem && node?.dataset.g287UpcomingScenario === scenario ? node.querySelector<HTMLElement>("#runway-heading") : null);
   }, [stateSystem, scenario]);
-  return <section ref={attachHeading} aria-label="Upcoming colour comparison" data-g287-upcoming data-g287-upcoming-scenario={scenario} data-g287-upcoming-tone={stateSystem ? presentation.upcoming.tone : undefined} data-g287-qualifier-tone={stateSystem ? presentation.upcomingQualifierTone : undefined} className={stateSystem ? `${styles.stateSystem} ${styles.stateUpcoming} ${variant === "f" ? styles.iconLed : ""}` : calmUrgency ? styles.calmUpcoming : consolidated ? styles.sharedRisk : undefined} onClickCapture={event => {
+  return <section ref={attachHeading} aria-label="Upcoming colour comparison" data-g287-upcoming data-g287-upcoming-scenario={scenario} data-g287-upcoming-tone={stateSystem ? presentation.upcoming.tone : undefined} data-g287-qualifier-tone={stateSystem ? presentation.upcomingQualifierTone : undefined} className={stateSystem ? `${styles.stateSystem} ${styles.stateUpcoming} ${variant === "e" ? styles.refinedHeader : styles.iconLed}` : calmUrgency ? styles.calmUpcoming : consolidated ? styles.sharedRisk : undefined} onClickCapture={event => {
     const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
     if (!anchor) return;
     event.preventDefault(); event.stopPropagation();

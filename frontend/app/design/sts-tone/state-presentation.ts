@@ -40,7 +40,7 @@ export function statePresentationFor(scenario: Scenario): StatePresentation {
     : null;
   if (lowest != null && lowest < 0) return {
     home: { tone: "risk", label: "Short" },
-    upcoming: { tone: "risk", label: end != null && end >= 0 ? "Earlier gap" : "Payments short" },
+    upcoming: { tone: "risk", label: end != null && end >= 0 ? "Earlier gap" : "Short" },
     homeEyebrow: "Shortfall before payday", signedHome: cash < 0 && !headline.isCardsUnconfirmedShort,
     upcomingQualifierTone: end != null && end < 0 ? "risk" : "neutral",
     explanation: end != null && end >= 0
