@@ -1,13 +1,15 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertCircle, AlertTriangle, ArrowRight, ChevronDown, CreditCard, ShieldCheck } from "lucide-react";
+import { AlertCircle, ArrowRight, ChevronDown, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
+import { homeForecastPresentation, FORECAST_INK } from "@/lib/cashForecastStatus";
+import ForecastStatusBadge from "@/components/ForecastStatusBadge";
 import {
   spendFromCombinedParts,
   spendFromTreatmentPlan,
@@ -69,33 +71,6 @@ interface SafeToSpendCardProps {
    * fixture amounts. Production never passes it, so masking is unchanged.
    */
   previewBalancesVisible?: boolean;
-}
-
-export type FigureToneClasses = { figure: string; chip: string };
-
-const INK_FIGURE = "text-slate-900 dark:text-slate-100";
-const CHIP_GREEN = "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300";
-const CHIP_AMBER = "bg-slate-100 text-amber-800 dark:bg-slate-700/70 dark:text-amber-200";
-const CHIP_RED = "bg-slate-100 text-red-700 dark:bg-slate-700/70 dark:text-red-300";
-
-/**
- * G218 (approved B, 2026-10-06): the hero figure and chip colour for each
- * verdict. Emerald when On track, red (red-500 in dark mode) only for a cash
- * shortfall, amber for a shortfall that exists only because of set-asides
- * (plans and envelopes), ink for Tight and card checks (amber lives in their
- * chip alone). Pure and exported so scripts/g218-figure-tone.test.mjs pins it.
- */
-export function figureToneClasses(
-  v: { state: "comfortable" | "tight" | "short"; isCardsUnconfirmedShort: boolean; plansOnly: boolean },
-): FigureToneClasses {
-  const cautionState = v.state === "tight" || v.isCardsUnconfirmedShort;
-  const cashShort = v.state === "short" && !v.isCardsUnconfirmedShort;
-  const plansOnly = cashShort && v.plansOnly;
-  if (plansOnly) return { figure: "text-amber-700 dark:text-amber-300", chip: CHIP_AMBER };
-  return {
-    figure: v.state === "comfortable" ? "text-emerald-700 dark:text-emerald-300" : cashShort ? "text-red-600 dark:text-red-500" : INK_FIGURE,
-    chip: v.state === "comfortable" ? CHIP_GREEN : cautionState ? CHIP_AMBER : CHIP_RED,
-  };
 }
 
 function fmt(value: number): string {
@@ -427,7 +402,6 @@ function CalculationRow({
   spokenValue,
   detail,
   total = false,
-  risk = false,
 }: {
   operator: "" | "+" | "−" | "→" | "=";
   label: string;
@@ -435,7 +409,6 @@ function CalculationRow({
   spokenValue?: string;
   detail?: string;
   total?: boolean;
-  risk?: boolean;
 }) {
   // G154: every separator in this ledger is drawn on a row's TOP edge, so any
   // two adjacent rows share exactly one rule and the total's heavier rule IS
@@ -458,7 +431,7 @@ function CalculationRow({
         <dt className={`${total ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-200"} text-[13px] leading-snug`}>{label}</dt>
         {detail && <p className="mt-0.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{detail}</p>}
       </div>
-      <dd aria-label={spokenValue} className={`money shrink-0 text-sm font-semibold ${risk ? "text-red-600 dark:text-red-400" : total ? "text-slate-950 dark:text-white" : "text-slate-800 dark:text-slate-100"}`}>{value}</dd>
+      <dd aria-label={spokenValue} className={`money shrink-0 text-sm font-semibold ${FORECAST_INK}`}>{value}</dd>
     </div>
   );
 }
@@ -607,7 +580,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // left over from a previous successful render) — placed above every
   // early `return` in this component for exactly that reason.
   useEffect(() => {
-    if (loading || !data) {
+    if (loading || !data || syncing) {
       setPennyScreenView("home", null);
       return;
     }
@@ -621,11 +594,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       return;
     }
     setPennyScreenView("home", buildSafeToSpendView(data, { hidden }));
-  }, [data, loading, hidden]);
+  }, [data, loading, hidden, syncing]);
 
   if (loading && !data) {
     return (
-      <div className="rounded-3xl p-5 glass-hero" aria-busy="true" aria-label="Loading Safe to Spend">
+      <div className="rounded-2xl p-5 glass-hero" aria-busy="true" aria-label="Loading Safe to Spend">
         <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <div className="mb-3 h-6 w-56 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700" />
         <div className="h-24 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700" />
@@ -635,7 +608,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
   if (error && !data) {
     return (
-      <section className="rounded-3xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-unavailable">
+      <section className="rounded-2xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-unavailable">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-unavailable" className="text-base font-bold text-slate-900 dark:text-slate-100">Your Safe to Spend figure is unavailable</h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">Your accounts may still be visible, but we can&apos;t safely calculate what is free until payday.</p>
@@ -646,7 +619,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
   if (!data || data.status === "insufficient_data") {
     return (
-      <section className="rounded-3xl p-5 glass-hero" aria-labelledby="safe-to-spend-history">
+      <section className="rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-history">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-history" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure isn’t ready yet</h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We need a little more account history to map bills and work out what is safe until payday.</p>
@@ -659,7 +632,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     // G210: a first bank sync is still running, so any verdict would come from
     // partial data. Not an error (so no alert role), never red, no amount.
     return (
-      <section className="rounded-3xl p-5 glass-hero" aria-busy="true" aria-labelledby="safe-to-spend-syncing">
+      <section className="rounded-2xl p-5 glass-hero" aria-busy="true" aria-labelledby="safe-to-spend-syncing">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-syncing" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure is on its way</h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We are still fetching your transactions, so there is no verdict yet.</p>
@@ -669,7 +642,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
   if (data.calculation_status === "degraded") {
     return (
-      <section className="rounded-3xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-incomplete">
+      <section className="rounded-2xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-incomplete">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-incomplete" className="text-base font-bold text-slate-900 dark:text-slate-100">We couldn&apos;t verify every set-aside</h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We&apos;re withholding the figure rather than risk showing more money as available than is actually safe.</p>
@@ -689,7 +662,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // now come from `deriveSafeToSpendHeadline` (this file, above) — the SAME
   // call the Penny screen-context effect above makes, not a second copy of
   // this maths (B39).
-  const { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly } = deriveSafeToSpendHeadline(data);
+  const headline = deriveSafeToSpendHeadline(data);
+  const { state, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly } = headline;
+  const presentation = homeForecastPresentation(data, headline);
 
   const amount = (value: number) => hidden ? "£••••" : fmt(value);
   const exactAmount = (value: number) => hidden ? "£••••" : fmt2(value);
@@ -697,20 +672,17 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `${value < 0 ? "−" : "+"}£••••`
     : `${value < 0 ? "−" : "+"}${fmt2(value)}`;
 
-  const StateIcon = state === "comfortable" ? ShieldCheck : state === "tight" || isCardsUnconfirmedShort || plansOnly ? AlertCircle : AlertTriangle;
-  const { figure: figureClass, chip: stateChipClass } = figureToneClasses({ state, isCardsUnconfirmedShort, plansOnly });
-
   const sync = syncing ? { info: syncing, phase: syncPhase(syncing) } : null;
   const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
 
 
   const heroCaption = sync
     ? `last known cash figure until ${paydayLabel}`
-    : plansOnly
+    : presentation.caption ?? (plansOnly
     ? "short after plans and envelopes"
     : state === "short" && !isCardsUnconfirmedShort
     ? "short before payday"
-    : `available in cash until ${paydayLabel}`;
+    : `available in cash until ${paydayLabel}`);
 
   const calculationItems = [
     { label: "Plans reserved", shortLabel: "plans", value: data.commitments_reserved ?? 0 },
@@ -774,10 +746,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const recovery = sync ? null : state === "short"
     ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
     : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
-  const heroFigureClass = sync ? "text-slate-700 dark:text-slate-200" : figureClass;
+  const heroFigureClass = sync ? "text-slate-700 dark:text-slate-200" : FORECAST_INK;
   const heroHeading = (
     <h2 id="safe-to-spend-heading" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
-      <span className={`money block text-[38px] font-bold leading-none tracking-[-0.05em] ${heroFigureClass}`}>{amount(heroAmount)}</span>
+      <span className={`money block text-[30px] font-bold leading-[1.2] tracking-[-0.025em] ${heroFigureClass}`}>{presentation.signed ? "−" : ""}{amount(heroAmount)}</span>
       <span className="mt-2 block text-[15px] font-semibold text-slate-700 dark:text-slate-200">
         {heroCaption}{data.estimated && <span className="font-normal text-slate-500 dark:text-slate-400"> · estimated</span>}
       </span>
@@ -785,19 +757,16 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   );
 
   return (
-    <section className="hero-arrive sts-card relative rounded-3xl p-5 glass-hero" aria-labelledby="safe-to-spend-heading">
+    <section className="hero-arrive sts-card relative rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-heading">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{sync ? "Safe to Spend" : presentation.eyebrow}</p>
         {sync ? (
           <span data-sync-chip={sync.phase} className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${syncChipClass}`}>
             <SyncGlyph phase={sync.phase} />
             {syncChipLabel(sync.info)}
           </span>
         ) : (
-          <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${stateChipClass}`}>
-            <StateIcon size={13} className="shrink-0" aria-hidden="true" />
-            {stateLabel}
-          </span>
+          <ForecastStatusBadge status={presentation.status} />
         )}
       </div>
       {error && <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30" role="status"><p className="text-xs text-slate-700 dark:text-slate-200">Couldn&apos;t refresh. Showing your last figure.</p>{onRetry && <button type="button" onClick={onRetry} className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Retry</button>}</div>}
@@ -845,7 +814,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       <div className="mt-3 border-t border-slate-100 dark:border-white/10">
         <details className="group">
-          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 hover:text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl bg-transparent text-sm font-semibold text-slate-600 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 [-webkit-tap-highlight-color:transparent] [&::-webkit-details-marker]:hidden">
             {summaryLabel}
             <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
@@ -860,10 +829,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
               {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across counted current accounts." />}
               {canShowLedgerBreakdown && data.bills_total > 0 && <CalculationRow operator="−" label="Bills before payday" value={exactAmount(data.bills_total)} spokenValue={`minus ${exactAmount(data.bills_total)}`} />}
               {canShowLedgerBreakdown && data.income_before_payday > 0 && <CalculationRow operator="+" label="Income before payday" value={exactAmount(data.income_before_payday)} spokenValue={`plus ${exactAmount(data.income_before_payday)}`} />}
-              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} risk={exactLowestProjected < 0 && !sync} />}
+              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} />}
               {data.buffer > 0 && <CalculationRow operator="−" label="Safety buffer" value={exactAmount(data.buffer)} spokenValue={`minus ${exactAmount(data.buffer)}`} />}
               {calculationItems.map((item) => <CalculationRow key={item.label} operator="−" label={item.label} value={exactAmount(item.value)} spokenValue={`minus ${exactAmount(item.value)}`} />)}
-              <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total risk={exactCashRunway < 0 && !sync} />
+              <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total />
             </dl>
 
             <PooledLedgerExplainer

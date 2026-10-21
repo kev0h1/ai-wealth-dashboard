@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
-import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
+import { api, Account, Allocation, CashflowData, type SafeToSpend, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -15,7 +15,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
-import { buildUpcomingRunwayView, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
+import { buildUpcomingRunwayView, deriveSafeToSpendHeadline, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
+import { upcomingForecastPresentation } from "@/lib/cashForecastStatus";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
@@ -219,6 +220,18 @@ export default function PlanningPage() {
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [cashflowError, setCashflowError] = useState(false);
+  const [forecastContext, setForecastContext] = useState<{ forecast: CashflowData; data: SafeToSpend } | null>(null);
+  // Read Home's buffer/card/Tight context without holding up the cashflow.
+  // Associate it with this exact snapshot: a refresh immediately stops using
+  // the previous verdict, including the commit before this effect runs.
+  useEffect(() => {
+    if (!cashflow) return;
+    let cancelled = false;
+    api.safeToSpend().then(data => {
+      if (!cancelled) setForecastContext({ forecast: cashflow, data });
+    }).catch(() => { if (!cancelled) setForecastContext(null); });
+    return () => { cancelled = true; };
+  }, [cashflow]);
 
   // Tour readiness — the runway hero and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
@@ -782,6 +795,20 @@ export default function PlanningPage() {
         const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal;
         const runwayNegative = runway < 0;
         const runwayStatus = runwayNegative ? "short" : runway > 0 ? "left" : "even";
+        // Reuse the existing date-ordered pooled walk, strictly before payday.
+        // Savings fallback, stale balances, invalid events or incomplete plans
+        // cannot prove that payments are safe. The amount above is unchanged.
+        const cashEvidence = typeof cashflow.spendable_balance === "number" && Number.isFinite(cashflow.spendable_balance)
+          && cashflow.balances_live !== false && rawItems.every(item => Number.isFinite(Date.parse(item.expected_date)) && Number.isFinite(item.amount));
+        const lowestCash = cashEvidence ? Math.min(cashflow.spendable_balance!, ...items
+          .filter(item => Date.parse(item.expected_date) < nextPaydayMidnight.getTime())
+          .map(item => item.balance_after)) : null;
+        const statusData = forecastContext?.forecast === cashflow ? forecastContext.data : null;
+        const forecastPresentation = upcomingForecastPresentation({
+          runway, lowestCash, evidenceCurrent: cashEvidence, nextPayday: nextPaydayMidnight.getTime(), isCalendarMonth,
+          metadata: statusData, headline: statusData?.status === "ok" ? deriveSafeToSpendHeadline(statusData) : null,
+          plansAvailable: !plansUnavailable,
+        });
         // Penny screen context (B39) — plain JS assignment, not a hook
         // call (see `pennyRunwayRef`'s own declaration above for why this
         // lives inside a render-time IIFE rather than a `useEffect`). The
@@ -790,7 +817,7 @@ export default function PlanningPage() {
         // fixture inputs, so the figure Penny can quote back can never
         // disagree with the hero below, which renders these same three
         // values.
-        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth, plansUnavailable };
+        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth, plansUnavailable, forecastVerdict: forecastPresentation.status.label };
 
         // Bank-side settling debits are display-only: their cash has already
         // left. Neither the shared account walk nor this pooled walk deducts
@@ -1020,6 +1047,7 @@ export default function PlanningPage() {
                 savingsNow={savingsNow}
                 runway={runway}
                 runwayStatus={runwayStatus}
+                presentation={forecastPresentation}
                 balancesHidden={balancesHidden}
               />
             )}

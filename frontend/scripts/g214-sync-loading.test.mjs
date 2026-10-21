@@ -111,19 +111,19 @@ const sts = src("../components/SafeToSpendCard.tsx");
 assert.match(sts, /syncing\?: SyncingInfo;/);
 assert.doesNotMatch(sts, /syncTreatment|sync\.treatment|SyncLedgerRow|syncLedgerClass/, "A and C treatments are gone from production");
 assert.match(sts, /const sync = syncing \? \{ info: syncing, phase: syncPhase\(syncing\) \} : null;/);
-assert.match(sts, /const heroFigureClass = sync \? "text-slate-700 dark:text-slate-200" : figureClass;/, "figure steps to secondary ink; default colour path retained");
-assert.match(sts, /\$\{stateChipClass\}/, "default chip classes retained");
+assert.match(sts, /const heroFigureClass = sync \? "text-slate-700 dark:text-slate-200" : FORECAST_INK;/, "figure steps to secondary ink; G287 ink path retained");
+assert.match(sts, /<ForecastStatusBadge status=\{presentation.status\}/, "G287 status is retained outside syncing");
 assert.match(sts, /Last known amount · as of/, "stale caption");
 // G218 fold-in: the figure is forced to slate ink (no emerald, red or amber)
 // whenever a sync is active.
 const heroFigureLine = sts.split("\n").find((l) => l.includes("const heroFigureClass ="));
 assert.ok(heroFigureLine, "heroFigureClass is defined");
-const syncBranch = heroFigureLine.slice(heroFigureLine.indexOf("sync ?"), heroFigureLine.lastIndexOf(": figureClass"));
+const syncBranch = heroFigureLine.slice(heroFigureLine.indexOf("sync ?"), heroFigureLine.lastIndexOf(": FORECAST_INK"));
 assert.match(syncBranch, /text-slate-/, "syncing figure is slate ink");
 assert.doesNotMatch(syncBranch, /amber|red|emerald|rose/, "no verdict colour in the syncing branch");
 assert.match(sts, /const freshnessLabel = sync \? null/, "no second timestamp while syncing");
 assert.match(sts, /const recovery = sync \? null/, "no recovery CTA while syncing");
-assert.match(sts, /risk=\{exactCashRunway < 0 && !sync\}/, "ledger figures stay ink while syncing");
+assert.match(sts, /<dd aria-label=\{spokenValue\}[^\n]*FORECAST_INK/, "G287 ledger figures stay ink, including while syncing");
 assert.match(sts, /onRetry=\{onSyncRetry\}/, "Try again is the sync retry, not the card reload");
 assert.doesNotMatch(sts.slice(sts.indexOf("const sync = syncing"), sts.indexOf("const calculationItems")), /red|rose/);
 const note = src("../components/SyncNote.tsx");

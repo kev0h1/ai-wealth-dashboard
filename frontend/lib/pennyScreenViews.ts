@@ -16,6 +16,7 @@
 // without pulling in a full component-testing framework this repo doesn't
 // otherwise have.
 import type { SafeToSpend, SpendVerdict, PennyScreenView } from "./api";
+import type { HomeForecastPresentation } from "./cashForecastStatus";
 
 export function zeroSafe(value: number): number {
   return Math.abs(value) < 1 ? 0 : value;
@@ -80,6 +81,33 @@ export function deriveSafeToSpendHeadline(data: Extract<SafeToSpend, { status: "
   return { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly: state === "short" && isPlansOnlyShort(data) };
 }
 
+type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+
+/** Presentation only. The server's cash, reserve and verdict calculations
+ * remain separate. Optional reserves cannot establish a payment cash gap. */
+export function homeForecastPresentation(data: SafeToSpendOk, headline: SafeToSpendHeadline): HomeForecastPresentation {
+  const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
+  const signed = headline.state === "short" && !headline.isCardsUnconfirmedShort && cash < 0 && headline.heroAmount > 0;
+  const neutral: HomeForecastPresentation = {
+    status: { tone: "neutral", label: "Check forecast" },
+    eyebrow: signed ? "Cash before payday" : "Safe to Spend", signed,
+  };
+  const low = data.lowest_projected_balance;
+  if (data.calculation_status === "syncing" || data.calculation_status === "degraded" || !finite(low) || !finite(cash)
+    || ![data.buffer, data.allocations_reserved ?? 0, data.commitments_reserved ?? 0].every(finite)) return neutral;
+  if (low < 0) return { status: { tone: "risk", label: "Short" }, eyebrow: "Shortfall before payday", signed };
+  if (headline.isCardsUnconfirmedShort) return { status: { tone: "watch", label: "Check card bill" }, eyebrow: "Safe to Spend", signed: false };
+  const end = finite(data.spendable_now) && finite(data.income_before_payday) && finite(data.bills_total)
+    ? data.spendable_now + data.income_before_payday - data.bills_total - (data.allocations_reserved ?? 0) - (data.commitments_reserved ?? 0)
+    : null;
+  if (headline.plansOnly || (finite(end) && end < 0)) return { status: { tone: "watch", label: "Plans gap" }, eyebrow: "Short after plans", signed };
+  if (cash < 0) return { status: { tone: "watch", label: "Below buffer" }, eyebrow: "Below your buffer", caption: "below your safety buffer", signed };
+  if (headline.state === "tight" || end === 0) return { status: { tone: "watch", label: end === 0 ? "No headroom" : "Tight" }, eyebrow: "Safe to Spend", signed };
+  if (headline.state === "comfortable" && finite(end) && end > 0) return { status: { tone: "good", label: "On track" }, eyebrow: "Safe to Spend", signed };
+  return neutral;
+}
+
 /** Home's published `PennyScreenView` for the Safe-to-Spend card. `hidden`
  * mirrors the card's own `hideNetWorth`/`preferencesReady` gate: while
  * balances are hidden on screen, figures are OMITTED here too (not merely
@@ -96,16 +124,17 @@ export function buildSafeToSpendView(
     return { route: "/", scope: "Safe to Spend", figures: [], asOf: new Date().toISOString() };
   }
   const headline = deriveSafeToSpendHeadline(data);
+  const presentation = homeForecastPresentation(data, headline);
   return {
     route: "/",
     scope: `Until payday, ${headline.paydayLabel}`,
-    verdict: headline.stateLabel,
+    verdict: presentation.status.label,
     figures: opts.hidden ? [] : [{
       key: "safe_to_spend",
-      label: headline.plansOnly
+      label: presentation.caption ? "Below your safety buffer" : headline.plansOnly
         ? "Short after plans and envelopes"
         : headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Safe to spend",
-      value: fmtGbp(headline.heroAmount),
+      value: `${presentation.signed ? "−" : ""}${fmtGbp(headline.heroAmount)}`,
     }],
     asOf: data.last_synced ?? new Date().toISOString(),
   };
@@ -147,6 +176,8 @@ export type UpcomingRunwayInput = {
   isCalendarMonth: boolean;
   /** Goal plans could not be loaded, so the runway may be too high. */
   plansUnavailable?: boolean;
+  /** G287: the same verified dated-risk verdict rendered beside the figure. */
+  forecastVerdict?: string;
 };
 
 /** Upcoming's runway hero — mirrors PlanningPage.tsx's own
@@ -161,7 +192,7 @@ export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreen
   return {
     route: "/upcoming",
     scope: isCalendarMonth ? "Projected at month end" : "Projected at payday",
-    verdict: label,
+    verdict: input.forecastVerdict ?? label,
     figures: [{
       key: "runway",
       label: (isCalendarMonth ? "Projected at month end" : "Projected at payday") + (plansUnavailable ? " (estimated, goal plans not loaded so it may be too high)" : ""),
