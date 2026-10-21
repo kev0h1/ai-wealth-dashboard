@@ -949,8 +949,17 @@ static export (`MOBILE_TARGET` pattern) and publish it with Codemagic's
 
 | Workflow | API baked in | Play track | When to use |
 |----------|--------------|------------|-------------|
-| `android-capacitor` | `https://uat.wealth.auriqltd.co.uk/api` (`npm run build:mobile`) | `internal` | day-to-day Android testers without the sideload APK |
+| `android-capacitor` | `https://wealth.auriqltd.co.uk/api` (`npm run build:mobile:prod`; production API since C31, 2026-10-21) | `internal` | day-to-day Android testers without the sideload APK |
 | `android-capacitor-prod` | `https://wealth.auriqltd.co.uk/api` (`npm run build:mobile:prod`) | `production`, `submit_as_draft: true` | the real Play release; nothing reaches users until Kevin reviews and rolls the draft out in Play Console |
+
+Unlike `ios-capacitor`, `android-capacitor` bakes the production API even
+though it builds every qualifying push to `main`: Play internal testers are the
+sideload `sorted.apk` audience and Play Billing is wired to production, so
+internal testers run unreleased main code against production data, as the
+sideload APK has since C20, by Kevin's decision of 2026-10-20 (repeated
+2026-10-21). Its `environment.vars` therefore set `MOBILE_TARGET: "prod"`,
+`BUILD_TAG_ENV: "prod"` and `NEXT_PUBLIC_APP_ENV: "production"`, and never set
+the `NEXT_PUBLIC_MCP_*` connector flags (A17).
 
 `scripts/release.py deploy` starts `android-capacitor-prod` right after
 `ios-capacitor-prod` (see "Release trigger").
@@ -984,7 +993,7 @@ out) would build twice per release. The evidence for switching on the UAT
 trigger is the first manual run on 2026-10-20 (C11, C28), which built on
 `mac_mini_m2`, signed with `sorted_upload_keystore`, took Play's latest
 versionCode plus one and published versionCode 6 to the internal testing
-track. Minutes budget: both UAT workflows share one changeset filter (the
+track. Minutes budget: both push-triggered workflows share one changeset filter (the
 `uat_changeset` YAML anchor, a workflow-level `when: changeset:` that includes
 `frontend/**`, `capacitor-spike/**` and `codemagic.yaml` and excludes
 `**/*.md`, `frontend/public/sorted.apk` and `frontend/public/sorted-apk.json`),
