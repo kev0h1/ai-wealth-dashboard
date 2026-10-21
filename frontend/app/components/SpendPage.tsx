@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
 import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
 import { loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
-import SpendShapeCard from "@/components/SpendShapeCard";
+import SpendShapeCard, { hasShapeContent } from "@/components/SpendShapeCard";
 import { useAllTransactions } from "@/lib/useAllTransactions";
 import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/verdictCache";
 import { cachedSignals, fetchSignals, invalidateSignalsCache, applyAimChange, SignalMap, type AimChange } from "@/lib/signalsCache";
@@ -1251,10 +1251,12 @@ export default function SpendPage() {
                 }}
               />
 
-              <section className="relative scroll-mt-24 pb-10">
-                <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-emerald-400 bg-white ring-4 ring-[#f0f2f7] dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
-                <SpendShapeCard shape={moneyShape} hideValues={hideNetWorth} onOpen={() => router.push("/spend/shape")} />
-              </section>
+              {hasShapeContent(moneyShape) && (
+                <section className="relative scroll-mt-24 pb-10">
+                  <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-emerald-400 bg-white ring-4 ring-[#f0f2f7] dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
+                  <SpendShapeCard shape={moneyShape} hideValues={hideNetWorth} onOpen={() => router.push("/spend/shape")} />
+                </section>
+              )}
 
               <section ref={setChartsAnchor} id="spend-journey-charts" tabIndex={-1} className="relative scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
                 <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full border border-indigo-300 bg-indigo-50 text-indigo-700 ring-4 ring-[#f0f2f7] dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300 dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">

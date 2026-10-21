@@ -23,6 +23,7 @@
     "check:b56-penny-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b56-penny-masking.test.mjs",
     "check:b55-upcoming-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b55-upcoming-masking.test.mjs",
     "check:b54-home-move-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b54-home-move-masking.test.mjs",
+    "check:g308-spend-shape-node": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g308-spend-shape-node.test.mjs",
     "check:g293-spend-spacing": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g293-spend-spacing.test.mjs",
     "check:g295-home-brief-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g295-home-brief-anatomy.test.mjs",
     "check:finexer-intro": "node scripts/g226-finexer-intro.test.mjs",
