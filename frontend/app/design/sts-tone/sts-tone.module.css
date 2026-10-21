@@ -46,6 +46,19 @@
    calculation, caveats, risk chip, card panel and footer are not rewritten. */
 .cashShort :global(#safe-to-spend-heading) > span:first-child { color: #0f172a; }
 .dark .cashShort :global(#safe-to-spend-heading) > span:first-child { color: #f1f5f9; }
+/* D explores calm urgency without changing the production card. Meaning is
+   carried by actual signed text and the status, never colour alone. */
+.calmUrgency, .calmUpcoming { --g287-ink: #0f172a; --g287-watch: var(--color-amber-800); }
+.dark .calmUrgency, .dark .calmUpcoming { --g287-ink: #f1f5f9; --g287-watch: var(--color-amber-200); }
+.calmUrgency :global([class~="text-red-600"]),
+.calmUpcoming :global([class~="text-rose-600"]),
+.signedShort :global(#safe-to-spend-heading) > span:first-child { color: var(--g287-ink); }
+.calmUrgency :global([class~="text-red-700"]),
+.calmUpcoming :global(#runway-heading) + div > span:global([class~="text-rose-600"]) { color: var(--g287-watch); }
+.calmUpcoming :global(.glass-hero) { border-radius: 16px; }
+.calmUpcoming :global(#runway-heading) + div > p { font-size: 30px; line-height: 1.2; letter-spacing: -.025em; }
+.calmUpcoming :global(summary) { color: #475569; background: transparent; -webkit-tap-highlight-color: transparent; }
+.dark .calmUpcoming :global(summary) { color: #cbd5e1; }
 .calm :global(.glass-hero) { border-radius: 16px; }
 .calm :global(#safe-to-spend-heading) > span:first-child { font-size: 30px; line-height: 1.2; letter-spacing: -.025em; }
 .calm :global(.sts-card) > div > details > summary { color: #475569; }

@@ -23,7 +23,7 @@ for (const scenario of SCENARIO_ORDER) {
   const props = cardPropsFor(scenario);
   const direct = markup(render(React.createElement(SafeToSpendCard, { ...props, onRetry: noop, onSyncRetry: noop, previewBalancesVisible: true })));
   rendered[scenario] = plain(direct);
-  for (const variant of ["a", "b", "c", "current"]) {
+  for (const variant of ["a", "b", "c", "d", "current"]) {
     const wrapped = markup(render(React.createElement(CompleteCard, { scenario, variant, onRetry: noop, onDestination: noop })));
     assert.equal(wrapped.replace(/^<div\b[^>]*>/, "").replace(/<\/div>$/, ""), direct, `${scenario}/${variant}: exact production component content`);
     assert.equal((wrapped.match(/id="safe-to-spend-heading"/g) ?? []).length, ["loading", "error", "empty", "degraded"].includes(scenario) ? 0 : 1, `${scenario}/${variant}: one card identity`);
@@ -91,4 +91,4 @@ assert.match(css, /--g287-risk-foreground: var\(--color-rose-700\)/);
 assert.match(css, /\.dark \.sharedRisk \{ --g287-risk-foreground: var\(--color-rose-300\)/);
 assert.doesNotMatch(css.slice(css.indexOf(".sharedRisk {"), css.indexOf("/* The design shell")), /amber|emerald|background:/, "shared foreground never recolours warning/success or fills surfaces");
 assert.doesNotMatch(client + wrapper, /4 of 6|<dialog|aria-modal/, "no unshippable history or replacement sheet");
-console.log(`PASS G287: ${SCENARIO_ORDER.length} fixtures × four Home presentations and real Upcoming comparison; exact production content, independent financial lenses, shared semantic colour, unchanged amber/emerald, actions and privacy gate.`);
+console.log(`PASS G287: ${SCENARIO_ORDER.length} fixtures × five Home presentations and real Upcoming comparison; exact production content before D’s browser copy adapter, independent financial lenses, actions and privacy gate.`);
