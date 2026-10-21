@@ -919,7 +919,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-21, claude): session abandoned, branch feature-C32-android-internal-prod-api discarded
   - note (2026-10-21, claude): Empty duplicate of C31 (the real change, in review). Recommend Kevin cancels this item.
   - note (2026-10-21, kevin): cancelled: duplicate of C31
-- [ ] **C33. Android plan picker shows Price unavailable for Plus only (Kevin 2026-10-21): play_billing.client_product_ids() does not exclude the legacy sorted.max.* alias products, which share the plus keys and overwrite the real sorted.plus.* ids sent to the app; use the catalogue's legacy filter and add a regression test** [owner: claude] [priority: p1]
+- [ ] **C33. Android plan picker shows Price unavailable for Plus only (Kevin 2026-10-21): play_billing.client_product_ids() does not exclude the legacy sorted.max.* alias products, which share the plus keys and overwrite the real sorted.plus.* ids sent to the app; use the catalogue's legacy filter and add a regression test** [owner: claude] [priority: p1] [state: in-progress] [branch: feature-C33-play-plus-alias-leak]
 
 ## D. Identity and sign-up
 
