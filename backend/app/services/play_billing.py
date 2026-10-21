@@ -246,6 +246,9 @@ class SubscriptionMapping:
     trial_reason: str | None = None   # why trialing was (or was not) chosen, for the C34 log line
 
 
+_RENEWAL_ORDER_RE = re.compile(r"\.\.\d+$")
+
+
 def _offer_details(line: dict) -> dict:
     """lineItems[].offerDetails: {basePlanId, offerId, offerTags}. Absent for
     a purchase on a base plan with no offer."""
@@ -254,10 +257,13 @@ def _offer_details(line: dict) -> dict:
 
 
 def _trial_decision(sub: dict, line: dict, start: datetime | None, expiry: datetime, now: datetime) -> tuple[bool, str]:
-    """Trialing is decided by the offer alone (C34): offerDetails.offerId equals
-    PLAY_TRIAL_OFFER_ID, or offerTags carries it. The trial length is NOT
-    checked: on the accelerated tester clock the phase lasts minutes. A start
-    far outside the configured trial window is only logged."""
+    """Trialing is decided by the offer plus the billing cycle (C34):
+    offerDetails.offerId equals PLAY_TRIAL_OFFER_ID, or offerTags carries it,
+    AND the latest order id has no "..N" renewal suffix (Google keeps the
+    offer on the line item after the trial and does not expose the current
+    pricing phase). The trial length is NOT checked: on the accelerated tester
+    clock the phase lasts minutes. A start far outside the trial window is
+    only logged. A missing order id fails open to the offer alone."""
     trial_id = play_config.PLAY_TRIAL_OFFER_ID
     if not trial_id:
         return False, "no_trial_offer_configured"
@@ -273,6 +279,12 @@ def _trial_decision(sub: dict, line: dict, start: datetime | None, expiry: datet
         return False, "offer_id_differs"
     else:
         return False, "no_offer_id"
+    order_id = sub.get("latestOrderId") or line.get("latestOrderId") or line.get("orderId")
+    if isinstance(order_id, str) and order_id:
+        if _RENEWAL_ORDER_RE.search(order_id):
+            return False, "renewal_order"
+    else:
+        reason += "_no_order_id"
     if start is not None and now >= start + timedelta(days=SUBSCRIPTION_TRIAL_DAYS + 1):
         logger.warning(
             "play billing: trial offer %r seen more than %d days after the start; still treated as trialing",

@@ -798,7 +798,9 @@ lists only the offers the user is eligible for), and uses the store's own
 period text. The server recognises the trial from `offerDetails.offerId`
 equal to `PLAY_TRIAL_OFFER_ID` (default `free-trial`), or `offerDetails.offerTags`
 carrying it, and stores it as `trialing` with `trial_ends_at` set to the line
-item's `expiryTime` (C34: the trial length is no longer checked).
+item's `expiryTime`, for the first billing cycle only: a latest order id with a
+`..N` renewal suffix maps to `active` even if the offer is still present (C34:
+the trial length is no longer checked).
 
 ### 9.2 Receiver and verification
 
@@ -1046,8 +1048,10 @@ INFO line per verified purchase (`play billing: verified subscription
 product=... state=... base_plan=... offer_id=... offer_tags=... trial_reason=...
 expiry=...`, never the token, account id or order id). Read the offer id from
 that line on the next tester purchase and set `PLAY_TRIAL_OFFER_ID` to match what
-Play Console actually holds. A renewal with no matching offer maps to `active`
-and clears `trial_ends_at`.
+Play Console actually holds. A renewal (order id with a `..N` suffix, since Google keeps the
+offer on the line item and does not expose the pricing phase) or a read with
+no matching offer maps to `active` and clears `trial_ends_at`. With no order id
+the mapper fails open to the offer (`offer_id_match_no_order_id`).
 
 ## 10. Apple details not independently confirmed in this session
 

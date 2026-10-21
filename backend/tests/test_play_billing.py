@@ -386,6 +386,35 @@ def test_three_minute_tester_trial_is_trialing_and_ends_at_expiry(env):
     assert abs((doc["trial_ends_at"] - (NOW + timedelta(minutes=3))).total_seconds()) < 2
 
 
+def test_renewal_order_suffix_with_offer_is_active_and_clears_trial_end(env):
+    body = _trial_sub(expiry=timedelta(minutes=3))
+    body["latestOrderId"] = "GPA.1111-2222-3333-44444..0"
+    env.api.subs[T1] = body
+    _run(play_billing.process_subscription(T1))
+    doc = sub_doc(env)
+    assert doc["status"] == "active" and doc.get("trial_ends_at") is None
+
+
+def test_first_cycle_order_id_with_offer_is_trialing(env):
+    body = _trial_sub(expiry=timedelta(minutes=3))
+    body["latestOrderId"] = "GPA.1111-2222-3333-44444"
+    env.api.subs[T1] = body
+    _run(play_billing.process_subscription(T1))
+    assert sub_doc(env)["status"] == "trialing"
+
+
+def test_missing_order_id_fails_open_to_the_offer(env, caplog):
+    # With no latestOrderId the renewal suffix cannot be read, so the offer
+    # alone decides (trialing), and the reason says so.
+    body = _trial_sub(expiry=timedelta(minutes=3))
+    body.pop("latestOrderId")
+    env.api.subs[T1] = body
+    with caplog.at_level(logging.INFO, logger=play_billing.logger.name):
+        _run(play_billing.process_subscription(T1))
+    assert sub_doc(env)["status"] == "trialing"
+    assert any("trial_reason=offer_id_match_no_order_id" in r.getMessage() for r in caplog.records)
+
+
 def test_fourteen_day_trial_is_trialing(env):
     env.api.subs[T1] = _trial_sub(expiry=timedelta(days=14))
     _run(play_billing.process_subscription(T1))
