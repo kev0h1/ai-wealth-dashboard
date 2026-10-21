@@ -124,6 +124,10 @@ Slice 1 shows what existing data supports:
 
 Colour is information: slate for figures, green for healthy, amber from 75 percent, red only for a genuinely failing state (database not responding, memory, disk or load at 90 percent or more).
 
+### Recent webhooks (E9)
+
+`/ops/health` has a "Recent webhooks" block fed by its own owner-only read, `GET /ops/webhooks/recent` (separate from `/ops/health` so a slow read never blanks the summary). It lists the last 50 provider notifications across `webhook_events` (Finexer, TrueLayer) and `billing_events` (Stripe, Apple, Google Play), newest first, plus per-provider outcome counts for the last 24 hours. Each row is `{received_at, provider, event_type, outcome, reason?}`; outcomes are queued, coalesced, noted, ignored, skipped, failed or processed (mapping in the docstring of `backend/app/services/recent_webhooks.py`). The reads use a Mongo projection that lists only those fields, so `payload`, consent, connection, account and user ids, emails, amounts, URLs and order ids are never fetched. Event types are matched against a per-provider catalogue and anything else is shown as `other`; `reason` is a short code from a fixed allowlist, never stored text. A "failed (unfinished)" row is a billing claim with no `processed_at` after 15 minutes, meaning the handler raised or the process died and no retry has landed yet; it flips to processed once a retry succeeds. The webhook sort uses the existing `received_at` TTL index; `billing_events` has no `received_at` index, so its top 50 is sorted in memory (small ledger, no index added).
+
 ### Slice 2 (E7): metrics collectors
 
 Code: `backend/app/services/health/` (one small module per collector, shared interface in `base.py`), endpoints in `routers/ops.py`, page `frontend/app/ops/health/page.tsx` with the section list in `sections.ts` (pinned by `npm run check:e7-health-page`).
