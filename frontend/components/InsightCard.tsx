@@ -38,15 +38,18 @@ const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   energy:        [{ label: "uSwitch", url: "https://www.uswitch.com/gas-electricity/" }, { label: "MSE Utilities", url: "https://www.moneysavingexpert.com/utilities/" }],
   broadband:     [{ label: "uSwitch", url: "https://www.uswitch.com/broadband/" }, { label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/broadband/" }],
   mobile:        [{ label: "uSwitch", url: "https://www.uswitch.com/mobiles/" }, { label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/mobile-phones/" }],
-  gym:           [{ label: "Hussle", url: "https://www.hussle.com" }, { label: "ClassPass UK", url: "https://classpass.com/uk" }],
   subscriptions: [{ label: "MoneySavingExpert", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
 };
 
 const REGULATED_CATEGORY_RE =
-  /mortgage|loan|financ|credit|card|balance[\s_-]*transfer|insur|pension|annuit|invest|isa\b|sipp|lender|broker|equity|bond|fund|stock|share/i;
+  /\b(?:mortgages?|remortgag\w*|loans?|finance|financing|credit|overdrafts?|bnpl|klarna|clearpay|debt|balance transfers?|insur\w*|pensions?|annuit\w*|invest\w*|isas?|sipps?|lenders?|brokers?|equity|bonds?|funds?|stocks?|shares?)\b/i;
+
+export function isRegulatedCategory(category: string, label: string): boolean {
+  return REGULATED_CATEGORY_RE.test(`${category} ${label}`.replace(/[_-]+/g, " "));
+}
 
 export function compareLinksFor(category: string, label: string): { label: string; url: string }[] {
-  if (REGULATED_CATEGORY_RE.test(`${category} ${label}`)) return [];
+  if (isRegulatedCategory(category, label)) return [];
   return CATEGORY_LINKS[category] ?? [];
 }
 
@@ -359,8 +362,7 @@ function WorkflowDrawer({
             <div className="flex flex-col items-center gap-3 py-8">
               <CheckCircle2 size={48} className="text-emerald-500" />
               <p className="text-[14px] text-slate-500 dark:text-slate-400 text-center">
-                Saved, Penny is crunching your numbers.<br />
-                Your personalised advice appears on this card in a moment.
+                Saved. Your answers are used the next time this card is checked.
               </p>
             </div>
           ) : (
@@ -369,7 +371,7 @@ function WorkflowDrawer({
               {topTrigger && (
                 <div className="mb-4 px-3 py-2.5 rounded-xl border border-indigo-100/80 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 text-[11px] text-indigo-700 dark:text-indigo-300">
                   We can already see <span className="font-semibold font-mono tabular-nums">{maskMoneyText(`~£${topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`, hidden)}</span> at{" "}
-                  <span className="font-semibold">{topTrigger.display_name}</span>, {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
+                  <span className="font-semibold">{topTrigger.display_name}</span>, {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to add your own details to the facts on this card.
                 </div>
               )}
 
@@ -722,7 +724,7 @@ export function InsightCard({
               surface on this card again — the CTA would be a dead end
               exactly like the caption text this same ruling deleted above,
               just one furniture item later. */}
-          {!inSheet && workflow && !isResolved && (
+          {!inSheet && workflow && !isResolved && !isRegulatedCategory(insight.category, insight.label) && (
             <button
               onClick={() => { setShowWorkflow(true); markOpened(); }}
               className="w-full py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700/50 active:scale-[0.98] text-slate-600 dark:text-slate-300 text-sm font-medium flex items-center justify-center gap-2 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
