@@ -367,10 +367,81 @@ def test_free_trial_offer_is_trialing_with_a_trial_end(env):
     assert doc["tier"] == "lite" and doc.get("trial_used_at") is not None
 
 
-def test_trial_offer_id_long_after_start_is_not_a_trial(env):
-    env.api.subs[T1] = sub_payload("sorted.lite.monthly", offer="free-trial", start_days_ago=60, expiry_days=10)
+def _trial_sub(*, expiry, offer="free-trial", start_days_ago=0, tags=None, with_offer=True, product="sorted.lite.monthly"):
+    body = sub_payload(product, start_days_ago=start_days_ago, offer=offer if with_offer else None)
+    line = body["lineItems"][0]
+    line["expiryTime"] = _iso(NOW + expiry)
+    if not with_offer:
+        line.pop("offerDetails")
+    elif tags is not None:
+        line["offerDetails"]["offerTags"] = tags
+    return body
+
+
+def test_three_minute_tester_trial_is_trialing_and_ends_at_expiry(env):
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(minutes=3))
+    _run(play_billing.process_subscription(T1))
+    doc = sub_doc(env)
+    assert doc["status"] == "trialing"
+    assert abs((doc["trial_ends_at"] - (NOW + timedelta(minutes=3))).total_seconds()) < 2
+
+
+def test_fourteen_day_trial_is_trialing(env):
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(days=14))
+    _run(play_billing.process_subscription(T1))
+    assert sub_doc(env)["status"] == "trialing"
+
+
+def test_missing_offer_details_is_active_with_no_trial_end(env):
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(days=30), with_offer=False)
+    _run(play_billing.process_subscription(T1))
+    doc = sub_doc(env)
+    assert doc["status"] == "active" and doc.get("trial_ends_at") is None
+
+
+def test_different_offer_is_active(env):
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(days=30), offer="intro-discount")
     _run(play_billing.process_subscription(T1))
     assert sub_doc(env)["status"] == "active"
+
+
+def test_offer_tag_match_is_trialing(env):
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(minutes=3), offer=None, tags=["free-trial"])
+    _run(play_billing.process_subscription(T1))
+    assert sub_doc(env)["status"] == "trialing"
+
+
+def test_renewal_after_trial_without_offer_clears_trial_end(env):
+    # Contract: the mapper recomputes from the latest read, so a renewal with
+    # no offerDetails goes active and trial_ends_at is cleared (not kept).
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(minutes=3))
+    _run(play_billing.process_subscription(T1))
+    assert sub_doc(env)["status"] == "trialing"
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(minutes=8), with_offer=False)
+    _run(play_billing.process_subscription(T1))
+    doc = sub_doc(env)
+    assert doc["status"] == "active" and doc.get("trial_ends_at") is None
+
+
+def test_trial_offer_long_after_start_is_still_trialing_but_warns(env, caplog):
+    env.api.subs[T1] = sub_payload("sorted.lite.monthly", offer="free-trial", start_days_ago=60, expiry_days=10)
+    with caplog.at_level(logging.INFO, logger=play_billing.logger.name):
+        _run(play_billing.process_subscription(T1))
+    assert sub_doc(env)["status"] == "trialing"
+    assert any(r.levelno == logging.WARNING and "still treated as trialing" in r.getMessage() for r in caplog.records)
+
+
+def test_verified_purchase_log_line_has_offer_fields_and_no_identifiers(env, caplog):
+    env.api.subs[T1] = _trial_sub(expiry=timedelta(minutes=3), tags=["promo"])
+    with caplog.at_level(logging.INFO, logger=play_billing.logger.name):
+        _run(play_billing.process_subscription(T1))
+    lines = [r.getMessage() for r in caplog.records if "verified subscription" in r.getMessage()]
+    assert len(lines) == 1
+    line = lines[0]
+    for expect in ("product=sorted.lite.monthly", "offer_id=free-trial", "offer_tags=['promo']", "base_plan=base",
+                   "trialing=True", "trial_reason=offer_id_match", "expiry="):
+        assert expect in line
+    assert T1 not in line and account_id() not in line and "GPA." not in line
 
 
 def test_cancelled_but_unexpired_keeps_access_and_flags_cancel(env):

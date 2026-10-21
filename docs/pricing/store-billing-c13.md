@@ -796,8 +796,9 @@ Every subscription carries a 14-day free-trial offer (Play Console, section
 only when the store returns a free introductory phase for that user (Play
 lists only the offers the user is eligible for), and uses the store's own
 period text. The server recognises the trial from `offerDetails.offerId`
-equal to `PLAY_TRIAL_OFFER_ID` (default `free-trial`) within the trial length
-of the start time, and stores it as `trialing` with `trial_ends_at`.
+equal to `PLAY_TRIAL_OFFER_ID` (default `free-trial`), or `offerDetails.offerTags`
+carrying it, and stores it as `trialing` with `trial_ends_at` set to the line
+item's `expiryTime` (C34: the trial length is no longer checked).
 
 ### 9.2 Receiver and verification
 
@@ -1022,8 +1023,7 @@ checked against the first real test notification and purchase: the exact
 `lineItems[].expiryTime`, `lineItems[].offerDetails.offerId`,
 `externalAccountIdentifiers.obfuscatedExternalAccountId`, `linkedPurchaseToken`,
 `acknowledgementState`, `testPurchase`); that `expiryTime` marks the end of the
-grace period during `IN_GRACE_PERIOD`; that the free-trial offer is
-recognisable by offer id (there is no "is trial" field); that Play lists only
+grace period during `IN_GRACE_PERIOD`; that Play lists only
 eligible offers to `getProducts`; the `purchases.products.get` fields
 (`purchaseState`, `consumptionState`, `orderId`, `purchaseType`,
 `obfuscatedExternalAccountId`). Checked in the plugin's source (8.9.6) rather
@@ -1031,6 +1031,23 @@ than assumed: `purchaseProduct` maps `appAccountToken` to
 `BillingFlowParams.setObfuscatedAccountId` on Android, and the purchases it
 returns carry `getObfuscatedAccountId()` back as `appAccountToken`, so the
 restore filter and the server's mapping use the same value.
+
+Trial detection (C34): this assumption, that the free-trial offer is
+recognisable by `lineItems[].offerDetails.offerId` (there is no "is trial"
+field), is now confirmed by Kevin's 2026-10-21 tester purchase: the Play sheet
+showed the offer, the state was `SUBSCRIPTION_STATE_ACTIVE`, and the mapper did
+not mark the purchase `trialing`. The old window check (start plus 15 days) could
+not have rejected a 3-minute accelerated phase, so the mapper's offer id test did
+not match what Google returned; the exact `offerId` seen is not yet known. The fix
+makes `trialing` depend on the offer alone (offer id equal to
+`PLAY_TRIAL_OFFER_ID`, or the same value in `offerTags`), sets `trial_ends_at`
+from `expiryTime`, downgrades the length check to a logged warning, and logs one
+INFO line per verified purchase (`play billing: verified subscription
+product=... state=... base_plan=... offer_id=... offer_tags=... trial_reason=...
+expiry=...`, never the token, account id or order id). Read the offer id from
+that line on the next tester purchase and set `PLAY_TRIAL_OFFER_ID` to match what
+Play Console actually holds. A renewal with no matching offer maps to `active`
+and clears `trial_ends_at`.
 
 ## 10. Apple details not independently confirmed in this session
 
