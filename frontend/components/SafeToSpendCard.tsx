@@ -599,7 +599,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   if (loading && !data) {
     return (
       <div className="rounded-2xl p-5 glass-hero" aria-busy="true" aria-label="Loading Safe to Spend">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <div className="mb-3 h-6 w-56 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700" />
         <div className="h-24 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700" />
       </div>
@@ -609,9 +609,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   if (error && !data) {
     return (
       <section className="rounded-2xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-unavailable">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-unavailable" className="text-base font-bold text-slate-900 dark:text-slate-100">Your Safe to Spend figure is unavailable</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">Your accounts may still be visible, but we can&apos;t safely calculate what is free until payday.</p>
+        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">Your accounts may still be visible, but we can&apos;t safely calculate what is free until payday.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Try again</button>}
       </section>
     );
@@ -620,9 +620,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   if (!data || data.status === "insufficient_data") {
     return (
       <section className="rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-history">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-history" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure isn’t ready yet</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We need a little more account history to map bills and work out what is safe until payday.</p>
+        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">We need a little more account history to map bills and work out what is safe until payday.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Check again</button>}
       </section>
     );
@@ -633,9 +633,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     // partial data. Not an error (so no alert role), never red, no amount.
     return (
       <section className="rounded-2xl p-5 glass-hero" aria-busy="true" aria-labelledby="safe-to-spend-syncing">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-syncing" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure is on its way</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We are still fetching your transactions, so there is no verdict yet.</p>
+        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">We are still fetching your transactions, so there is no verdict yet.</p>
       </section>
     );
   }
@@ -643,9 +643,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   if (data.calculation_status === "degraded") {
     return (
       <section className="rounded-2xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-incomplete">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Safe to Spend</p>
         <h2 id="safe-to-spend-incomplete" className="text-base font-bold text-slate-900 dark:text-slate-100">We couldn&apos;t verify every set-aside</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">We&apos;re withholding the figure rather than risk showing more money as available than is actually safe.</p>
+        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">We&apos;re withholding the figure rather than risk showing more money as available than is actually safe.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Try again</button>}
       </section>
     );
@@ -676,13 +676,14 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
 
 
+  const belowBuffer = !sync && presentation.status.label === "Below buffer";
   const heroCaption = sync
-    ? `last known cash figure until ${paydayLabel}`
+    ? `Last known cash figure until ${paydayLabel}`
     : presentation.caption ?? (plansOnly
     ? "short after plans and envelopes"
     : state === "short" && !isCardsUnconfirmedShort
     ? "short before payday"
-    : `available in cash until ${paydayLabel}`);
+    : `Available in cash until ${paydayLabel}`);
 
   const calculationItems = [
     { label: "Plans reserved", shortLabel: "plans", value: data.commitments_reserved ?? 0 },
@@ -691,11 +692,21 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const contextParts = [
     data.bills_total > 0 ? "upcoming bills" : "the cash forecast",
     ...calculationItems.map((item) => item.shortLabel),
-    ...(data.buffer > 0 ? [`your ${amount(data.buffer)} buffer`] : []),
+    ...(data.buffer > 0 && !belowBuffer ? [`your ${amount(data.buffer)} buffer`] : []),
   ];
-  const heroContext = isCardsUnconfirmedShort
-    ? `The cash forecast found ${amount(cashRunway)}, then held back ${amount(cardReserve)} for an unconfirmed card repayment.`
-    : `After ${listPhrase(contextParts)}.`;
+  // Say the scope once, using Spend's supporting-prose role. Card reserves
+  // keep their separate cash explanation rather than implying a cash gap.
+  const heroSupport = isCardsUnconfirmedShort
+    ? `${heroCaption}. The cash forecast found ${amount(cashRunway)}, then held back ${amount(cardReserve)} for an unconfirmed card repayment.`
+    : sync
+    ? `${heroCaption}. After ${listPhrase(contextParts)}.`
+    : belowBuffer
+    ? `After ${listPhrase(contextParts)}, this is below your ${amount(data.buffer)} safety buffer.`
+    : plansOnly
+    ? `Short after ${listPhrase(contextParts)}.`
+    : state === "short"
+    ? `After ${listPhrase(contextParts)}, you are short before payday.`
+    : `${heroCaption}, after ${listPhrase(contextParts)}.`;
 
   // G115 approved variant A: up to two ranked current accounts sit in a
   // compact rail beside the pooled hero. The rail is used only when every
@@ -748,18 +759,15 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
   const heroFigureClass = sync ? "text-slate-700 dark:text-slate-200" : FORECAST_INK;
   const heroHeading = (
-    <h2 id="safe-to-spend-heading" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
+    <h2 id="safe-to-spend-heading" aria-describedby="safe-to-spend-scope" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
       <span className={`money block text-[30px] font-bold leading-[1.2] tracking-[-0.025em] ${heroFigureClass}`}>{presentation.signed ? "−" : ""}{amount(heroAmount)}</span>
-      <span className="mt-2 block text-[15px] font-semibold text-slate-700 dark:text-slate-200">
-        {heroCaption}{data.estimated && <span className="font-normal text-slate-500 dark:text-slate-400"> · estimated</span>}
-      </span>
     </h2>
   );
 
   return (
-    <section className="hero-arrive sts-card relative rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-heading">
+    <section className="hero-arrive sts-card relative rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-label safe-to-spend-heading">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{sync ? "Safe to Spend" : presentation.eyebrow}</p>
+        <p id="safe-to-spend-label" className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">{sync ? "Safe to Spend" : presentation.eyebrow}</p>
         {sync ? (
           <span data-sync-chip={sync.phase} className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${syncChipClass}`}>
             <SyncGlyph phase={sync.phase} />
@@ -785,7 +793,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </>
       ) : null}
 
-      <p className="mt-2 text-[13px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={heroContext} /></p>
+      <p id="safe-to-spend-scope" className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={data.estimated ? heroSupport.replace(/\.$/, "") : heroSupport} />{data.estimated && <span className="text-xs text-slate-500 dark:text-slate-400"> · estimated</span>}</p>
 
       {spendFromTreatment?.body}
 

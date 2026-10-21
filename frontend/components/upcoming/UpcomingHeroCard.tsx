@@ -73,7 +73,7 @@ export default function UpcomingHeroCard({
       className="glass-hero rounded-2xl p-5 shadow-sm sm:p-6"
     >
       <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(7rem,max-content)] items-center gap-3">
-        <h2 id="runway-heading" className="min-w-0 text-base font-bold text-slate-950 dark:text-white">
+        <h2 id="runway-heading" className="min-w-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">
           {isCalendarMonth ? "Projected at month end" : "Projected at payday"}
         </h2>
         <span className="flex justify-self-end">
@@ -93,7 +93,7 @@ export default function UpcomingHeroCard({
               {pounds(Math.abs(runway))}
             </span>
           </p>
-          <span className={`text-sm font-semibold ${FORECAST_QUALIFIER[forecastPresentation.qualifierTone]}`}>
+          <span className={`text-[13px] ${FORECAST_QUALIFIER[forecastPresentation.qualifierTone]}`}>
             {runwayStatus}
           </span>
           {plansUnavailable && (
