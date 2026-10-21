@@ -105,8 +105,13 @@ try {
     for (const width of [320, 1280]) for (const state of ["habitual", "long"]) cases.push({ variant: "d", state, mode, width });
     for (const width of [320, 1280]) cases.push({ variant: "c", state: "long", mode, width });
     for (const width of [320, 375, 1280]) for (const state of ["long", "cards"]) cases.push({ variant: "a", state, mode, width });
+    for (const variant of ["e", "f"]) {
+      for (const state of [...states, "tight", "buffer", "even"]) cases.push({ variant, state, mode, width: 390 });
+      for (const width of [320, 1280]) for (const state of ["habitual", "comfortable", "plans", "long"]) cases.push({ variant, state, mode, width });
+    }
   }
-  for (const test of process.env.G287_BROWSER_PHASE === "interactions" ? [] : cases) {
+  const selectedVariants = process.env.G287_BROWSER_VARIANTS?.split(",");
+  for (const test of process.env.G287_BROWSER_PHASE === "interactions" ? [] : cases.filter(test => !selectedVariants || selectedVariants.includes(test.variant))) {
     const { variant, state, mode, width } = test;
     await viewport(width); await navigate(variant, state, mode);
     const figureState = !["loading", "error", "empty", "degraded"].includes(state);
@@ -116,10 +121,12 @@ try {
       const r=frame.getBoundingClientRect(); const p=panel?.getBoundingClientRect();
       const upcoming=document.querySelector('[data-g287-upcoming]');const uf=upcoming?.querySelector('p[aria-label]');
       const rgb=colour=>{const c=document.createElement('canvas');c.width=c.height=1;const ctx=c.getContext('2d');ctx.fillStyle=colour;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].slice(0,3)};
+      const canonical=colour=>'rgb('+rgb(colour).join(', ')+')';
       const luma=colour=>rgb(colour).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
       const contrast=(a,b)=>{const x=luma(a),y=luma(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
       const fc=figure?getComputedStyle(figure).color:null;const uc=uf?getComputedStyle(uf).color:null;
       const chip=frame.querySelector('[class~="text-red-700"]');const cc=chip?getComputedStyle(chip).color:null;
+      const badgeFacts=root=>{const badge=root?.querySelector('[data-g287-tone]');if(!badge)return null;const icon=badge.querySelector('svg');const bg=getComputedStyle(badge).backgroundColor;const r=badge.getBoundingClientRect();return{tone:badge.dataset.g287Tone,text:badge.textContent,colour:canonical(getComputedStyle(badge).color),icon:icon?canonical(getComputedStyle(icon).color):null,textContrast:contrast(getComputedStyle(badge).color,bg),iconContrast:icon?contrast(getComputedStyle(icon).color,bg):null,left:r.left,right:r.right}};
       return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,frame:{x:r.x,right:r.right},
         figures:frame.querySelectorAll('#safe-to-spend-heading').length,
         amount:figure?.textContent,colour:figure?getComputedStyle(figure).color:null,size:figure?getComputedStyle(figure).fontSize:null,
@@ -128,6 +135,7 @@ try {
         upcomingQualifier:upcoming?.querySelector('#runway-heading + div > span')?.textContent?.trim(),
         upcomingQualifierColour:upcoming?.querySelector('#runway-heading + div > span')?getComputedStyle(upcoming.querySelector('#runway-heading + div > span')).color:null,
         upcomingAmount:uf?.textContent?.trim(),
+        homeBadge:badgeFacts(frame),upcomingBadge:badgeFacts(upcoming),
         upcomingColour:uc,chipColour:cc,
         contrast:fc?contrast(fc,getComputedStyle(frame.querySelector('.glass-hero')).backgroundColor):null,
         upcomingContrast:uc?contrast(uc,getComputedStyle(upcoming.querySelector('.glass-hero')).backgroundColor):null,
@@ -176,9 +184,38 @@ try {
       assert.ok(measure.contrast >= 4.5 && measure.upcomingContrast >= 4.5 && measure.chipContrast >= 4.5, JSON.stringify({test,measure}));
     }
     if (variant === "current" && state === "habitual") assert.notEqual(measure.colour, measure.upcomingColour, "reference retains the reported drift");
+    if (["e", "f"].includes(variant)) {
+      const ink = mode === "dark" ? "rgb(241, 245, 249)" : "rgb(15, 23, 42)";
+      if (figureState) { assert.equal(measure.colour, ink, "all hero states keep ink figures"); assert.equal(measure.size, "30px"); }
+      const neutral = ["loading", "stale", "error", "empty", "degraded"].includes(state);
+      if (neutral) { assert.equal(measure.homeBadge, null); assert.equal(measure.upcomingBadge, null); }
+      else {
+        const risk = ["habitual", "one-off", "small", "urgent", "chronology", "long"].includes(state);
+        const tone = risk ? "risk" : state === "comfortable" ? "good" : "watch";
+        assert.equal(measure.homeBadge?.tone, tone, JSON.stringify({test,measure}));
+        assert.equal(measure.upcomingBadge?.tone, tone, JSON.stringify({test,measure}));
+        assert.equal(measure.upcomingColour, ink);
+        assert.equal(measure.homeBadge.icon, measure.upcomingBadge.icon, "shared semantic icon colour on both cards");
+        for (const badge of [measure.homeBadge, measure.upcomingBadge]) {
+          assert.ok(badge.textContrast >= 4.5 && badge.iconContrast >= 3, JSON.stringify({test,badge}));
+          assert.ok(badge.left >= 0 && badge.right <= width + 1, "status stays in viewport");
+          if (variant === "f") assert.equal(badge.colour, ink, "only the icon is coloured in F");
+          else assert.equal(badge.colour, badge.icon, "icon and label share status colour in E");
+        }
+        if (risk || ["plans", "buffer"].includes(state)) assert.match(measure.amount, /^−£/, "shortfalls preserve an actual text minus sign");
+        else assert.doesNotMatch(measure.amount, /^−/, "no invented cash debt in positive, zero or card-check states");
+        if (state === "plans") assert.equal(measure.eyebrow, "Short after plans");
+        if (state === "buffer") assert.equal(measure.eyebrow, "Below your buffer");
+        if (state === "even") assert.equal(measure.upcomingQualifier, "even");
+        if (state === "chronology") {
+          assert.equal(measure.upcomingAmount, "£427"); assert.equal(measure.upcomingBadge.text, "Earlier gap");
+          assert.equal(measure.upcomingQualifierColour, ink, "positive ending cash cannot get a green qualifier while an earlier payment gap is known");
+        }
+      }
+    }
     if (variant !== "current" && figureState) assert.equal(measure.summaryBackground, "rgba(0, 0, 0, 0)");
     assert.deepEqual(measure.smallTargets, [], `${state}: 44px target audit`);
-    const shouldCapture = (width === 390 && ["habitual", "cards", "card-check"].includes(state)) || (width !== 390 && (mode === "dark" || width === 320));
+    const shouldCapture = (["e", "f"].includes(variant) && ["habitual", "comfortable", "plans", "tight", "buffer", "even", "card-check", "chronology", "stale", "error"].includes(state)) || (width === 390 && ["habitual", "cards", "card-check"].includes(state)) || (width !== 390 && (mode === "dark" || width === 320));
     if (shouldCapture) await screenshot(`${variant}-${mode}-${width}-${state}`);
     if (["habitual", "cards", "card-check", "chronology", "plans"].includes(state)) {
       await activate(summary, width < 600);
@@ -241,6 +278,27 @@ try {
   await navigate("d", "habitual", "dark", true);
   assert.equal(await evaluate("!!document.querySelector('[data-g287-upcoming], [data-g287-card]')"), false);
   assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
+  for (const variant of ["e", "f"]) {
+    await navigate(variant, "habitual", "dark");
+    for (const state of ["comfortable", "plans", "chronology", "habitual"]) {
+      await activate(`[...document.querySelectorAll('a[href]')].find(e=>e.closest('ul')&&new URL(e.href).searchParams.get('state')===${JSON.stringify(state)})`, true);
+      await waitFor(`document.querySelector('[data-g287-card="${variant}"][data-g287-scenario="${state}"]')`);
+      await evaluate("document.fonts.ready");
+      if (state === "habitual") {
+        assert.equal(await evaluate("document.querySelector('#safe-to-spend-heading > span:first-child').textContent"), "−£573", "query navigation restores a single sign");
+        assert.equal(await evaluate("document.querySelectorAll('#runway-heading [data-g287-tone]').length"), 1, "one portal status after state changes");
+      }
+    }
+    await activate("document.querySelector('[data-g219-action-row] button')", true);
+    await waitFor("document.querySelector('[data-preview-destination]').dataset.previewDestination === '/upcoming'");
+    await navigate(variant, "stale", "light");
+    await activate("[...document.querySelectorAll('[data-g287-card] button')].find(e=>['Retry','Try again','Check again'].includes(e.textContent.trim()))", true);
+    await waitFor("document.querySelector('[data-g287-scenario=\"habitual\"]')");
+    await waitFor("document.querySelector('#runway-heading [data-g287-tone]')");
+    await navigate(variant, "habitual", "dark", true);
+    assert.equal(await evaluate("!!document.querySelector('[data-g287-upcoming], [data-g287-card], #complete-state-overview')"), false, "new state overview and both cards honour masking");
+    assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
+  }
   assert.deepEqual(exceptions, [], "no page exceptions"); assert.deepEqual(customerRequests, [], "no customer API attempts");
   await writeFile(path.join(output, "results.json"), JSON.stringify({ layouts: results.length, interactions: "touch/keyboard disclosure, footer destinations, local retry and legacy privacy gate", exceptions, customerRequests, results }, null, 2));
   console.log(JSON.stringify({ layouts: results.length, interactions: "passed", output }));

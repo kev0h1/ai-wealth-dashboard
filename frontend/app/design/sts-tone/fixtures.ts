@@ -2,9 +2,9 @@ import type { Account, SafeToSpend } from "@/lib/api";
 import type { SpendFromResult } from "@/lib/spendFromAccount";
 import type { SyncingInfo } from "@/components/SyncNote";
 
-export type Scenario = "one-off" | "habitual" | "plans" | "move" | "small" | "urgent" | "cards" | "card-check" | "comfortable" | "chronology" | "loading" | "stale" | "error" | "empty" | "degraded" | "long";
+export type Scenario = "one-off" | "habitual" | "plans" | "move" | "small" | "urgent" | "cards" | "card-check" | "comfortable" | "tight" | "buffer" | "even" | "chronology" | "loading" | "stale" | "error" | "empty" | "degraded" | "long";
 export type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
-export type Variant = "a" | "b" | "c" | "d" | "current";
+export type Variant = "a" | "b" | "c" | "d" | "e" | "f" | "current";
 
 const payday = (days: number) => {
   const date = new Date();
@@ -32,13 +32,16 @@ const cashWithCards: SafeToSpendOk = {
 export const SCENARIOS: Record<Scenario, { label: string; data: SafeToSpend | null; note: string }> = {
   "one-off": { label: "One-off shortfall", data: shortBase, note: "A cash shortfall keeps the existing Short status, payment route and exact calculation. Only its visual treatment is proposed." },
   habitual: { label: "Repeated shortfall", data: shortBase, note: "The same genuine cash gap remains Short. No historical count is shown: that history is not available from the current API." },
-  plans: { label: "Plans only", data: { ...shortBase, safe_to_spend: -250, safe_to_spend_cash: -250, spendable_now: 400, bills_total: 300, buffer: 100, lowest_projected_balance: 100, commitments_reserved: 100, commitments_count: 1, allocations_reserved: 150, allocations_count: 2, plans_only_short: true }, note: "The existing plans-only wording and amber treatment remain. Optional reserves are not recast as a payment at risk." },
+  plans: { label: "Plans only", data: { ...shortBase, safe_to_spend: -250, safe_to_spend_cash: -250, spendable_now: 400, bills_total: 300, buffer: 100, lowest_projected_balance: 100, commitments_reserved: 100, commitments_count: 1, allocations_reserved: 150, allocations_count: 2, plans_only_short: true }, note: "Optional plans and envelopes exceed the cash left after bills. Home also holds back a £100 buffer, explaining its £250 gap versus Upcoming’s £150 gap. Neither is a payment cash shortfall." },
   move: { label: "Account gap", data: { ...shortBase, safe_to_spend: 185, safe_to_spend_cash: 185, spendable_now: 365, bills_total: 80, buffer: 100, lowest_projected_balance: 285, state: "tight", short_reason: null }, note: "The pooled forecast is positive. A separate Home payment card may flag a short paying account; this hero does not claim a transfer has happened or increases the pool." },
   small: { label: "Small cash gap", data: { ...shortBase, safe_to_spend: -18, safe_to_spend_cash: -18, spendable_now: 202, bills_total: 220, lowest_projected_balance: -18 }, note: "A small genuine cash gap still keeps the Short status and See what’s due action." },
   urgent: { label: "Payment due soon", data: { ...shortBase, next_payday: payday(6), days_until_payday: 6 }, note: "The existing payment route is retained. The hero does not invent a more specific due date than its payload provides." },
   cards: { label: "See your cards", data: cashWithCards, note: "Tight with card debt: the production card shows See your cards beside Your accounts. Card purchases remain separate from cash." },
   "card-check": { label: "Review card bill", data: { ...cashWithCards, safe_to_spend: -73, card_growth_total: 325, card_growth_reserved: 325, state: "short", short_reason: "cards_unconfirmed" }, note: "The existing Check card bill state shows £0 available, not a negative cash balance. The separate card safety calculation preserves the signed £73 gap." },
-  comfortable: { label: "On track", data: { ...cashWithCards, safe_to_spend: 600, safe_to_spend_cash: 600, bills_total: 152, lowest_projected_balance: 848, state: "comfortable", card_debt: 0, card_growth_total: 0, card_new_spend_total: 0, pooled_transfers_excluded: 0 }, note: "The existing emerald On track state is unchanged. Your accounts remains even when no primary recovery action is needed." },
+  comfortable: { label: "On track", data: { ...cashWithCards, safe_to_spend: 600, safe_to_spend_cash: 600, bills_total: 152, lowest_projected_balance: 848, state: "comfortable", card_debt: 0, card_growth_total: 0, card_new_spend_total: 0, pooled_transfers_excluded: 0 }, note: "Home has £600 available after its £100 buffer; Upcoming projects £700 at payday. Your accounts remains even when no recovery action is needed." },
+  tight: { label: "Tight", data: { ...shortBase, safe_to_spend: 125, safe_to_spend_cash: 125, spendable_now: 600, bills_total: 375, buffer: 100, lowest_projected_balance: 225, state: "tight", short_reason: null }, note: "The cash forecast stays positive, with £125 left after Home’s buffer. Tight is caution, not a claim that a payment will fail." },
+  buffer: { label: "Below buffer", data: { ...shortBase, safe_to_spend: -50, safe_to_spend_cash: -50, spendable_now: 350, bills_total: 300, buffer: 100, lowest_projected_balance: 50 }, note: "Bills leave £50 in cash, below the £100 buffer. Home is £50 below that buffer while Upcoming remains positive. This needs an amber caution, not a red payment warning." },
+  even: { label: "No headroom", data: { ...shortBase, safe_to_spend: 0, safe_to_spend_cash: 0, spendable_now: 350, bills_total: 350, lowest_projected_balance: 0, state: "tight", short_reason: null }, note: "The forecast ends exactly at £0, with no buffer or reserve. No money is missing, but there is no spare cash. Both indicators stay amber rather than green." },
   chronology: { label: "Income arrives later", data: { ...shortBase, income_before_payday: 1000 }, note: "Income arrives after the low point. The real production calculation withholds a misleading simple bills/income sum and explains the date-ordered forecast." },
   loading: { label: "Loading", data: null, note: "The real production skeleton, with no invented amount or action." },
   stale: { label: "Update delayed", data: { ...shortBase, last_synced: ago(30) }, note: "The production delayed-sync treatment keeps a neutral last-known amount and Retry. No current risk verdict is claimed." },
@@ -48,7 +51,7 @@ export const SCENARIOS: Record<Scenario, { label: string; data: SafeToSpend | nu
   long: { label: "Long figures", data: { ...shortBase, safe_to_spend: -12_573, safe_to_spend_cash: -12_573, spendable_now: 15_350, bills_total: 27_923, lowest_projected_balance: -12_573 }, note: "Long grouped amounts use the same signed production ledger. No alternate financial calculation is introduced." },
 };
 
-export const SCENARIO_ORDER: Scenario[] = ["habitual", "one-off", "plans", "cards", "card-check", "comfortable", "move", "small", "urgent", "chronology", "loading", "stale", "error", "empty", "degraded", "long"];
+export const SCENARIO_ORDER: Scenario[] = ["habitual", "comfortable", "plans", "tight", "buffer", "even", "card-check", "chronology", "cards", "move", "one-off", "small", "urgent", "loading", "stale", "error", "empty", "degraded", "long"];
 
 const account = (id: string, name: string, provider: string, balance: number): Account => ({ id: `g287-${id}`, name, provider, balance, type: "bank", subtype: "TRANSACTION", currency: "GBP", status: "AUTHORIZED", cover_source_eligible: true });
 const railEntry = (bank: Account, headroom: number, capped = false) => ({ accountId: bank.id, name: bank.name, provider: bank.provider, headroom, capped, account: bank });

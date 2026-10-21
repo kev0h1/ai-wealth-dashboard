@@ -9,6 +9,7 @@ import UpcomingHeroCard from "../../../components/upcoming/UpcomingHeroCard.tsx"
 import UpcomingColourReference, { upcomingPropsFor } from "./UpcomingColourReference.tsx";
 import { SCENARIOS, SCENARIO_ORDER, cardPropsFor, previewRouteFor } from "./fixtures.ts";
 import { deriveSafeToSpendHeadline } from "../../../lib/pennyScreenViews.ts";
+import { statePresentationFor } from "./state-presentation.ts";
 
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
@@ -23,7 +24,7 @@ for (const scenario of SCENARIO_ORDER) {
   const props = cardPropsFor(scenario);
   const direct = markup(render(React.createElement(SafeToSpendCard, { ...props, onRetry: noop, onSyncRetry: noop, previewBalancesVisible: true })));
   rendered[scenario] = plain(direct);
-  for (const variant of ["a", "b", "c", "d", "current"]) {
+  for (const variant of ["a", "b", "c", "d", "e", "f", "current"]) {
     const wrapped = markup(render(React.createElement(CompleteCard, { scenario, variant, onRetry: noop, onDestination: noop })));
     assert.equal(wrapped.replace(/^<div\b[^>]*>/, "").replace(/<\/div>$/, ""), direct, `${scenario}/${variant}: exact production component content`);
     assert.equal((wrapped.match(/id="safe-to-spend-heading"/g) ?? []).length, ["loading", "error", "empty", "degraded"].includes(scenario) ? 0 : 1, `${scenario}/${variant}: one card identity`);
@@ -73,6 +74,33 @@ assert.equal(SCENARIOS.plans.data.lowest_projected_balance - SCENARIOS.plans.dat
 assert.equal(SCENARIOS.move.data.safe_to_spend, 185);
 assert.equal(upcomingPropsFor("chronology").runway, 427, "later income changes the end forecast, not Home's negative low point");
 assert.equal(upcomingPropsFor("cards").runway, 352, "Upcoming does not deduct Home's buffer");
+for (const scenario of ["habitual", "one-off", "small", "urgent", "chronology", "long"]) {
+  const status = statePresentationFor(scenario);
+  assert.equal(status.home.tone, "risk", `${scenario}: genuine dated cash gaps stay red on Home`);
+  assert.equal(status.upcoming.tone, "risk", `${scenario}: ending cash cannot hide an earlier payment gap`);
+  assert.equal(status.signedHome, true);
+}
+for (const scenario of ["plans", "tight", "buffer", "even", "card-check", "cards", "move"]) {
+  const status = statePresentationFor(scenario);
+  assert.equal(status.home.tone, "watch", `${scenario}: no proven cash shortfall, use amber`);
+  assert.equal(status.upcoming.tone, "watch");
+}
+assert.equal(statePresentationFor("comfortable").home.tone, "good");
+assert.equal(statePresentationFor("comfortable").upcoming.tone, "good");
+assert.equal(statePresentationFor("chronology").upcomingQualifierTone, "neutral", "positive endpoint does not get a reassuring green left qualifier while an earlier gap is known");
+assert.equal(statePresentationFor("card-check").signedHome, false, "the separate card safety gap is not negative cash available");
+assert.equal(statePresentationFor("plans").signedHome, true, "reserve-adjusted shortfall keeps its actual minus sign and its own plans wording");
+assert.equal(statePresentationFor("buffer").homeEyebrow, "Below your buffer");
+for (const scenario of ["loading", "stale", "error", "empty", "degraded"]) {
+  assert.equal(statePresentationFor(scenario).home.tone, "neutral");
+  assert.equal(statePresentationFor(scenario).upcoming.tone, "neutral");
+  assert.equal(upcomingPropsFor(scenario), null, "no invented current Upcoming figure on unavailable data");
+}
+const currentComfortable = SCENARIOS.comfortable.data;
+try {
+  SCENARIOS.comfortable.data = { ...currentComfortable, lowest_projected_balance: undefined };
+  assert.equal(statePresentationFor("comfortable").home.tone, "neutral", "no on-track assertion without a verified cash low point");
+} finally { SCENARIOS.comfortable.data = currentComfortable; }
 for (const [label, href] of [["See your cards", "/cards"], ["Review card bill", "/cards"], ["See what’s due", "/upcoming"], ["Retry", null]]) assert.equal(previewRouteFor(label), href);
 
 const client = readFileSync(new URL("./StsToneClient.tsx", import.meta.url), "utf8");
@@ -81,7 +109,7 @@ const reference = readFileSync(new URL("./UpcomingColourReference.tsx", import.m
 for (const source of [client, wrapper, reference]) assert.doesNotMatch(source, /api\.|fetch\(|localStorage|sessionStorage|—/, "no direct customer operations or forbidden copy");
 assert.match(client, /key=\{params\.toString\(\)\}/);
 assert.match(client, /masked \? <div[\s\S]*: <CompleteCard/, "legacy mask links do not mount an unmasked card");
-assert.match(client, /!masked && <p>\{SCENARIOS\[displayed\]\.note\}/, "masked notes do not leak fixture amounts");
+assert.match(client, /!masked && <p><MoneyText unmasked text=\{SCENARIOS\[displayed\]\.note\}/, "masked notes do not leak fixture amounts");
 assert.match(wrapper, /onClickCapture=\{captureNavigation\}/);
 assert.match(wrapper, /event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\)/);
 assert.match(client, /!masked && paired && <UpcomingColourReference/, "privacy gate applies to both cards");
@@ -91,4 +119,4 @@ assert.match(css, /--g287-risk-foreground: var\(--color-rose-700\)/);
 assert.match(css, /\.dark \.sharedRisk \{ --g287-risk-foreground: var\(--color-rose-300\)/);
 assert.doesNotMatch(css.slice(css.indexOf(".sharedRisk {"), css.indexOf("/* The design shell")), /amber|emerald|background:/, "shared foreground never recolours warning/success or fills surfaces");
 assert.doesNotMatch(client + wrapper, /4 of 6|<dialog|aria-modal/, "no unshippable history or replacement sheet");
-console.log(`PASS G287: ${SCENARIO_ORDER.length} fixtures × five Home presentations and real Upcoming comparison; exact production content before D’s browser copy adapter, independent financial lenses, actions and privacy gate.`);
+console.log(`PASS G287: ${SCENARIO_ORDER.length} fixtures × seven Home presentations and real Upcoming comparison; production content before preview copy adapters, payment-risk precedence, reserve/buffer/card distinctions, actions and privacy gate.`);
