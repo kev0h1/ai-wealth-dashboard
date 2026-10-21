@@ -89,7 +89,7 @@ try {
   };
   const screenshot = async name => {
     await evaluate("scrollTo(0,0)");
-    const clip = await evaluate("(() => {const r=document.querySelector('[data-g287-card]')?.getBoundingClientRect();return r?{x:Math.max(0,r.x-2),y:Math.max(0,r.y-2),width:r.width+4,height:r.height+4}:null;})()");
+    const clip = await evaluate("(() => {const paired=document.querySelector('[data-g287-upcoming]');const r=document.querySelector(paired?'#complete-card-proposal':'[data-g287-card]')?.getBoundingClientRect();return r?{x:Math.max(0,r.x-2),y:Math.max(0,r.y-2),width:r.width+4,height:r.height+4}:null;})()");
     const shot = await call("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
     await writeFile(path.join(output, `${name}.png`), Buffer.from(shot.data, "base64"));
   };
@@ -100,6 +100,8 @@ try {
     for (const state of states) cases.push({ variant: "a", state, mode, width: 390 });
     for (const state of ["habitual", "cards", "plans", "card-check"]) cases.push({ variant: "b", state, mode, width: 390 });
     for (const state of ["habitual", "cards"]) cases.push({ variant: "current", state, mode, width: 390 });
+    for (const state of ["habitual", "plans", "cards", "card-check", "comfortable", "chronology", "stale", "loading"]) cases.push({ variant: "c", state, mode, width: 390 });
+    for (const width of [320, 1280]) cases.push({ variant: "c", state: "long", mode, width });
     for (const width of [320, 375, 1280]) for (const state of ["long", "cards"]) cases.push({ variant: "a", state, mode, width });
   }
   for (const test of process.env.G287_BROWSER_PHASE === "interactions" ? [] : cases) {
@@ -110,14 +112,26 @@ try {
       const frame=document.querySelector('[data-g287-card]'); const figure=frame.querySelector('#safe-to-spend-heading > span:first-child');
       const panel=frame.querySelector('aside[aria-label="Card balance activity"]'); const summary=${summary};
       const r=frame.getBoundingClientRect(); const p=panel?.getBoundingClientRect();
+      const upcoming=document.querySelector('[data-g287-upcoming]');const uf=upcoming?.querySelector('p[aria-label]');
+      const rgb=colour=>{const c=document.createElement('canvas');c.width=c.height=1;const ctx=c.getContext('2d');ctx.fillStyle=colour;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].slice(0,3)};
+      const luma=colour=>rgb(colour).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+      const contrast=(a,b)=>{const x=luma(a),y=luma(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05)};
+      const fc=figure?getComputedStyle(figure).color:null;const uc=uf?getComputedStyle(uf).color:null;
+      const chip=frame.querySelector('[class~="text-red-700"]');const cc=chip?getComputedStyle(chip).color:null;
       return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,frame:{x:r.x,right:r.right},
         figures:frame.querySelectorAll('#safe-to-spend-heading').length,
         amount:figure?.textContent,colour:figure?getComputedStyle(figure).color:null,size:figure?getComputedStyle(figure).fontSize:null,
+        upcomingColour:uc,chipColour:cc,
+        contrast:fc?contrast(fc,getComputedStyle(frame.querySelector('.glass-hero')).backgroundColor):null,
+        upcomingContrast:uc?contrast(uc,getComputedStyle(upcoming.querySelector('.glass-hero')).backgroundColor):null,
+        chipContrast:cc?contrast(cc,getComputedStyle(chip).backgroundColor):null,
         summaryBackground:summary?getComputedStyle(summary).backgroundColor:null,
         cardVisible:!!panel&&getComputedStyle(panel).display!=='none'&&p.width>0&&p.height>0,
         accountLinks:frame.querySelectorAll('[data-g219-accounts-link]').length,
         actions:[...frame.querySelectorAll('[data-g219-action-row] button')].map(e=>e.textContent.trim()),
-        smallTargets:[...frame.querySelectorAll('button,a,summary')].filter(e=>{const b=e.getBoundingClientRect();return b.width>0&&(b.width<44||b.height<44)}).map(e=>e.textContent.trim())};
+        // G304 added true inline prose links, covered by the WCAG inline
+        // target-size exception. Keep all standalone actions at 44px.
+        smallTargets:[...frame.querySelectorAll('button,a,summary')].filter(e=>!e.closest('[data-g304-envelope],[data-g304-plan]')).filter(e=>{const b=e.getBoundingClientRect();return b.width>0&&(b.width<44||b.height<44)}).map(e=>e.textContent.trim())};
     })()`);
     assert.equal(measure.width, width); assert.equal(measure.overflow, false, JSON.stringify({ test, measure }));
     assert.ok(measure.frame.x >= 0 && measure.frame.right <= width + 1, "card fits shell");
@@ -127,7 +141,13 @@ try {
     if (state === "cards") assert.deepEqual(measure.actions, ["See your cards"]);
     if (state === "card-check") { assert.deepEqual(measure.actions, ["Review card bill"]); assert.equal(measure.amount, "£0"); }
     if (figureState && variant === "a") assert.equal(measure.size, "30px");
-    if (state === "habitual" && variant !== "current") assert.equal(measure.colour, mode === "dark" ? "rgb(241, 245, 249)" : "rgb(15, 23, 42)");
+    if (state === "habitual" && ["a", "b"].includes(variant)) assert.equal(measure.colour, mode === "dark" ? "rgb(241, 245, 249)" : "rgb(15, 23, 42)");
+    if (variant === "c" && ["habitual", "long"].includes(state)) {
+      assert.equal(measure.colour, measure.upcomingColour, "same actual risk colour on Home and Upcoming");
+      assert.equal(measure.chipColour, measure.colour, "Short signifier shares the semantic foreground");
+      assert.ok(measure.contrast >= 4.5 && measure.upcomingContrast >= 4.5 && measure.chipContrast >= 4.5, JSON.stringify({test,measure}));
+    }
+    if (variant === "current" && state === "habitual") assert.notEqual(measure.colour, measure.upcomingColour, "reference retains the reported drift");
     if (variant !== "current" && figureState) assert.equal(measure.summaryBackground, "rgba(0, 0, 0, 0)");
     assert.deepEqual(measure.smallTargets, [], `${state}: 44px target audit`);
     const shouldCapture = (width === 390 && ["habitual", "cards", "card-check"].includes(state)) || (width !== 390 && (mode === "dark" || width === 320));
@@ -138,7 +158,14 @@ try {
       if (variant !== "current") assert.equal(await evaluate(`getComputedStyle(${summary}).backgroundColor`), "rgba(0, 0, 0, 0)", "no sticky touch-hover purple fill");
       if (state === "cards") assert.equal(await evaluate("document.querySelector('[data-g287-card]').innerText.includes('Transfers between your own included accounts do not change the total')"), true);
       if (state === "chronology") assert.equal(await evaluate("document.querySelector('[data-g287-card]').innerText.includes('Bills before payday')"), false);
-      if (variant === "a" && width === 390 && ["habitual", "card-check"].includes(state)) await screenshot(`${variant}-${mode}-${width}-${state}-open`);
+      if (["a", "c"].includes(variant) && width === 390 && ["habitual", "card-check"].includes(state)) {
+        if (variant === "c" && state === "habitual") {
+          await activate("document.querySelector('[data-g287-upcoming] summary')", true);
+          const riskColours=await evaluate("[...document.querySelectorAll('[data-g287-card] dd[class*=\"text-red-600\"], [data-g287-upcoming] dd[class*=\"text-rose-600\"]')].map(e=>getComputedStyle(e).color)");
+          assert.ok(riskColours.length>=2);assert.ok(riskColours.every(colour=>colour===measure.colour), "both signed risk totals use the same foreground");
+        }
+        await screenshot(`${variant}-${mode}-${width}-${state}-open`);
+      }
     }
     results.push({ ...test, ...measure });
   }
@@ -172,8 +199,16 @@ try {
     await activate("[...document.querySelectorAll('[data-g287-card] button')].find(e=>['Retry','Try again','Check again'].includes(e.textContent.trim()))", true);
     await waitFor(`document.querySelector('[data-g287-scenario="habitual"]')`);
   }
+  await navigate("c", "plans", "dark");
+  await activate("document.querySelector('[data-g287-upcoming] summary')", true);
+  await activate("document.querySelector('[data-g287-upcoming] [data-g304-plan] a')", true);
+  await waitFor("document.querySelector('[data-preview-destination]').dataset.previewDestination === '/planning#commitments'");
+  assert.match(await evaluate("location.pathname"), /\/design\/sts-tone$/);
   await navigate("a", "card-check", "dark", true);
   assert.equal(await evaluate("!!document.querySelector('[data-g287-card]')"), false);
+  assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
+  await navigate("c", "habitual", "dark", true);
+  assert.equal(await evaluate("!!document.querySelector('[data-g287-upcoming], [data-g287-card]')"), false, "both colour examples honour masking");
   assert.doesNotMatch(await evaluate("document.body.innerText"), /£\d|£[\d,]+\.\d/);
   assert.deepEqual(exceptions, [], "no page exceptions"); assert.deepEqual(customerRequests, [], "no customer API attempts");
   await writeFile(path.join(output, "results.json"), JSON.stringify({ layouts: results.length, interactions: "touch/keyboard disclosure, footer destinations, local retry and legacy privacy gate", exceptions, customerRequests, results }, null, 2));

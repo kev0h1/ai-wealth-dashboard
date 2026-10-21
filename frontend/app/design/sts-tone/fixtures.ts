@@ -4,7 +4,7 @@ import type { SyncingInfo } from "@/components/SyncNote";
 
 export type Scenario = "one-off" | "habitual" | "plans" | "move" | "small" | "urgent" | "cards" | "card-check" | "comfortable" | "chronology" | "loading" | "stale" | "error" | "empty" | "degraded" | "long";
 export type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
-export type Variant = "a" | "b" | "current";
+export type Variant = "a" | "b" | "c" | "current";
 
 const payday = (days: number) => {
   const date = new Date();
