@@ -31,7 +31,7 @@ export default function CompleteCard({ scenario, variant, onRetry, onDestination
     onDestination(label, href);
   };
   return <div data-g287-card={variant} data-g287-scenario={scenario} onClickCapture={captureNavigation}
-    className={`${styles.cardFrame} ${variant === "a" ? styles.calm : ""} ${variant !== "current" && cashShort ? styles.cashShort : ""} ${variant !== "current" ? styles.proposal : ""}`}>
+    className={`${styles.cardFrame} ${variant === "a" ? styles.calm : ""} ${(variant === "a" || variant === "b") && cashShort ? styles.cashShort : ""} ${variant === "c" ? styles.sharedRisk : ""} ${variant !== "current" ? styles.proposal : ""}`}>
     <SafeToSpendCard {...props} onRetry={onRetry} onSyncRetry={onRetry} previewBalancesVisible />
   </div>;
 }
