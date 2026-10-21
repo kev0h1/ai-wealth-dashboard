@@ -55,4 +55,5 @@ assert.ok(guard > 0, "Pay arrived guarded on income > 0");
 assert.ok(!page.slice(guard, pay).includes("</section>"), "guard wraps the same section as the node");
 assert.match(page.slice(guard, pay), /WalletCards/, "node and text share the guarded section");
 assert.match(page, /verdict\.majority\.some\(\(r\) => r\.spent > 0\)/, "Spending chip only when its section exists");
+assert.match(page, /getElementById\("spend-majority-section"\) \? "spend-majority-section" : "spend-journey-changes"/, "Out tap falls back to Changes");
 console.log("g310 spend empty ok");

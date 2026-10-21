@@ -513,7 +513,9 @@ export default function SpendPage() {
   }
   function handleOutTap() {
     setExpandSignal((s) => (s ?? 0) + 1);
-    focusJourneySection("spend-majority-section");
+    // G310: the rest-of-spending section is not rendered when it has no rows;
+    // fall back to the Changes block so the Out tap always lands on content.
+    focusJourneySection(document.getElementById("spend-majority-section") ? "spend-majority-section" : "spend-journey-changes");
   }
 
   // "Moved" tap's Show Your Working destination — scroll to the "Money you

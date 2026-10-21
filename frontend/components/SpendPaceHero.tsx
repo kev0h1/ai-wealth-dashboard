@@ -65,7 +65,7 @@ export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = fal
         : incomeTxns.length === 0 ? <p className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">No income payments to show.</p>
           : <div className="mt-2 max-h-64 overflow-y-auto overscroll-contain">{incomeTxns.map(transaction => <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransactionClick(transaction)} />)}</div>}
     </div>}
-    {(verdict.pills.spent !== 0 || verdict.pills.income !== 0) && <details className="group mt-3 border-t border-slate-200 dark:border-slate-700">
+    {verdict.pills.spent !== 0 && <details className="group mt-3 border-t border-slate-200 dark:border-slate-700">
       <summary className={`${action} flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-slate-700 dark:text-slate-200 [&::-webkit-details-marker]:hidden`}>How Out adds up <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary>
       <dl className="space-y-2 pb-2 text-[13px] text-slate-700 dark:text-slate-200">
         {[{ label: "Named categories", amount: model.named }, { label: "Other categorised spending", amount: model.other }, ...(model.unresolved > 0 ? [{ label: "To categorise", amount: model.unresolved }] : [])].map(row => <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3"><dt>{row.label}</dt><dd className="font-mono font-semibold tabular-nums">{spendHeroMoney(row.amount)}</dd></div>)}
