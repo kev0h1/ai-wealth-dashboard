@@ -103,6 +103,18 @@ function CardSkeleton() {
   return <div className="glass-card h-[141px] animate-pulse rounded-2xl" aria-hidden="true" />;
 }
 
+/**
+ * The one predicate for "does this card draw anything": SpendPage gates the
+ * whole timeline section (emerald node included) on it, and the card's own
+ * early return uses it too, so the two can never disagree (G308). While the
+ * fetch is in flight (undefined) the card draws its skeleton, so the node
+ * stays; null (no data / failed) and a thin shape draw nothing.
+ */
+export function hasShapeContent(shape: MoneyShape | null | undefined): boolean {
+  if (shape === undefined) return true;
+  return shape !== null && shape.status !== "thin";
+}
+
 export default function SpendShapeCard({
   shape,
   hideValues,
@@ -117,7 +129,7 @@ export default function SpendShapeCard({
   onReferenceChange?: (id: GuideId) => void;
 }) {
   if (shape === undefined) return <CardSkeleton />;
-  if (shape === null || shape.status === "thin") return null;
+  if (!shape || !hasShapeContent(shape)) return null;
 
   const jobs = orderedJobs(shape.jobs ?? []);
   const fixed = jobs.find((j) => j.id === "fixed");
