@@ -48,7 +48,7 @@ from datetime import datetime, timedelta, timezone
 from pymongo.errors import DuplicateKeyError
 
 from app.core import config, play_config
-from app.core.store_catalogue import StoreProduct, build_catalogue
+from app.core.store_catalogue import StoreProduct, build_catalogue, product_ids_by_key
 from app.core.subscription import SUBSCRIPTION_TRIAL_DAYS
 from app.services import google_play, store_subscriptions
 from app.services.google_play import PlayApiError
@@ -715,7 +715,10 @@ async def handle_push(body: dict) -> dict:
 # ── Client-facing ────────────────────────────────────────────────────────────
 
 def client_product_ids() -> dict[str, str]:
-    return {p.key: p.product_id for p in catalogue().values()}
+    # Legacy aliases (sorted.max.*) share keys with the real Plus products and
+    # are never offered, so they are excluded here, with PLAY_PRODUCT_IDS
+    # overrides still applied (C33).
+    return product_ids_by_key(play_config.PLAY_PRODUCT_IDS)
 
 
 async def client_config(uid: str) -> dict:
