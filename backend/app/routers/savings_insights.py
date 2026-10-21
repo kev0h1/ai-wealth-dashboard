@@ -1293,7 +1293,7 @@ async def _tavily_search(
                     if data.get("answer"):
                         web_snippets.append(data["answer"][:500])
                     for res in (data.get("results") or [])[:2]:
-                        snippet = res.get("content", "")[:250]
+                        snippet = " ".join(str(res.get("content", "")).split())[:250]
                         if snippet:
                             # G315: tag each snippet with its page host so a price can
                             # only be attributed to the page it was stated on.
@@ -1362,7 +1362,7 @@ _RANGE_NOUN = {
 }
 
 _DEADLINE_PHRASE = {
-    "deal_end": "deal ends", "contract_end": "contract ends", "renewal_date": "policy renews",
+    "deal_end": "fixed term ends", "contract_end": "contract ends", "renewal_date": "policy renews",
 }
 
 _FINDINGS_ATTEMPTS = 2
@@ -1372,7 +1372,6 @@ _PRODUCT_TYPE_WORDS = {
     "broadband_only": "a standalone broadband plan (no TV or phone bundle)",
     "energy_tariff": "a household energy tariff",
     "gym_membership": "a gym membership from the gym itself",
-    "streaming_subscription": "a streaming subscription",
 }
 
 
@@ -1490,6 +1489,17 @@ def _is_shareable_text(text: str) -> bool:
     return True
 
 
+def _host_snippets(web_text: str) -> dict[str, str]:
+    """The search text split by the page host it came from ("Page host: ..."), so a
+    price can be tied to the page that states it. Text with no tag belongs to no host."""
+    out: dict[str, str] = {}
+    for part in (web_text or "").split("\n\n"):
+        m = re.match(r"Page ([a-z0-9.\-]+): (.*)$", part.strip(), re.DOTALL)
+        if m:
+            out[m.group(1)] = out.get(m.group(1), "") + " " + m.group(2)
+    return out
+
+
 def _build_findings(
     parsed: dict, web_text: str, urls: list[str], category_key: str, today,
 ) -> tuple[Optional[dict], Optional[datetime], Optional[str]]:
@@ -1521,6 +1531,7 @@ def _build_findings(
     expected_type = tip_facts.PRODUCT_TYPE.get(category_key)
     clean_urls = _clean_sources(urls)
     result_hosts = {tip_facts.host_of(u) for u in clean_urls}
+    host_text = _host_snippets(web_text)
     for a in (parsed.get("alternatives") or [])[:6]:
         if not isinstance(a, dict) or not expected_type:
             continue
@@ -1539,6 +1550,10 @@ def _build_findings(
             continue
         host = tip_facts.host_of(str(a.get("source_url") or ""))
         if not host or host not in result_hosts or tip_facts.allowed_source_name(host, name) is None:
+            continue
+        # the price must be derivable from the stated host's OWN snippet, not just
+        # from some other page in the same search; no snippet for the host, no listing
+        if host not in host_text or not _number_is_derivable(price, _build_allowed_savings_numbers(host_text[host], None, None)):
             continue
         if not tip_facts.is_like_for_like(
             {"category": category_key, "product_type": expected_type, "period": "month"},
@@ -1585,6 +1600,7 @@ def _build_findings(
     findings = {
         "typical_low": low, "typical_high": high, "headline": headline or None,
         "alternatives": alternatives, "deal": deal,
+        "findings_schema": tip_facts.FINDINGS_SCHEMA,
         # G315 (e): only named, allowlisted sources are ever stored; an SEO price
         # site or any unlisted domain is dropped here, at source.
         "sources": tip_facts.allowed_source_urls(clean_urls),
@@ -1770,7 +1786,11 @@ def _compose_tip_content(
     market_names: list[str] = []
     claim_dt: Optional[datetime] = None
     market_used = False
-    if not regulated and category_key not in tip_facts.NO_COMPARE_CATEGORIES:
+    if (
+        not regulated and category_key not in tip_facts.NO_COMPARE_CATEGORIES
+        and f.get("findings_schema") == tip_facts.FINDINGS_SCHEMA
+    ):
+        expected_type = tip_facts.PRODUCT_TYPE.get(category_key)
         user_fact = {
             "category": category_key,
             "product_type": tip_facts.user_product_type(category_key, user_context),
@@ -1782,7 +1802,7 @@ def _compose_tip_content(
         noun = _RANGE_NOUN.get(category_key)
         if (
             noun and low is not None and high is not None and doc_sources
-            and user_fact["product_type"] == tip_facts.PRODUCT_TYPE.get(category_key)
+            and expected_type is not None and user_fact["product_type"] == expected_type
         ):
             sentences.append(f"{noun[:1].upper()}{noun[1:]} are listed at {_money(low)} to {_money(high)} a month.")
             market_used = True
@@ -1801,7 +1821,13 @@ def _compose_tip_content(
             market_used = True
 
         deal = f.get("deal")
-        if deal and deal.get("text") and doc_sources and not tip_facts.RESELLER_RE.search(deal["text"]):
+        # the deal line must pass the same category and product match as the range
+        # and the alternatives: no known product type for the user, no deal line
+        if (
+            deal and deal.get("text") and doc_sources
+            and expected_type is not None and user_fact["product_type"] == expected_type
+            and not tip_facts.RESELLER_RE.search(deal["text"])
+        ):
             until = None
             if deal.get("valid_until"):
                 try:
@@ -2671,7 +2697,7 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     is_verified = state == "verified"
     is_substituted = state == "substituted"
 
-    return {
+    out = {
         "id":              d.get("insight_id", str(d["_id"])),
         "category":        cat,
         # The exact visible Spend category this opportunity can annotate.
@@ -2750,12 +2776,20 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         "researched_at":   researched_at.isoformat() + "Z" if content_live and researched_at else None,
         "triggered_by":    presented,
         "user_context":    d.get("user_context"),
-        "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
+        # G315: no details workflow for a regulated category (own-fact tips only)
+        "has_workflow":    d["category"] in CATEGORY_WORKFLOWS and not tip_facts.is_regulated_category(cat, _label),
         # In-app screen where the user can act on this with their own data,
         # scoped to the triggering merchants when it drills into a spend
         # category; null when no natural home exists.
         "app_route":       _merchant_scoped_route(cat, d.get("triggered_by") or []),
     }
+    # G315: every other user-visible string goes through the same banned-phrase gate
+    # as title and body (return_reason, resolution lines, freshness and stale notes),
+    # so nothing shown can escape it. A string that trips it is withheld.
+    for _k in ("return_reason", "stopped_line", "substituted_line", "expiry_line", "stale_note"):
+        if out.get(_k) and tip_copy.find_banned(out[_k]):
+            out[_k] = None
+    return out
 
 
 def _parse_deadline(context: dict | None) -> Optional[datetime]:
@@ -2796,7 +2830,7 @@ def _material_change_reason(d: dict) -> Optional[str]:
         _today_ld = timeutil.user_today()
         _deadline_ld = timeutil.to_user_date(deadline)
         if _today_ld < _deadline_ld <= _today_ld + timedelta(days=60):
-            return f"Your deal ends around {deadline.strftime('%b %Y')}"
+            return f"Your fixed term ends around {deadline.strftime('%b %Y')}"
 
     # Left as a raw UTC-instant TTL check (G161 review, deliberate): this is
     # a 30-day cooldown gate on an internal decision (does the callout

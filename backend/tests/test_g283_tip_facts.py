@@ -17,7 +17,7 @@ import app.services.penny_tools as penny_tools
 from app.services import tip_copy
 
 TODAY = datetime(2026, 10, 17).date()
-SNIPPET = ("SIM-only deals cost between £8 and £25 a month. Giffgaff offers 20GB for £10, "
+SNIPPET = ("Page uswitch.com: SIM-only deals cost between £8 and £25 a month. Giffgaff offers 20GB for £10, "
            "Lebara 30GB for £12. Offer ends 2099-03-31.")
 
 
@@ -92,6 +92,7 @@ def test_alternative_note_and_name_with_banned_words_are_dropped():
 
 def _doc(**findings):
     base = {"typical_low": 5, "typical_high": 14, "headline": "Could be cheaper", "deal": None,
+            "findings_schema": "g315-2",
             "alternatives": [{"name": "Asda Mobile", "price": 5, "note": None, "product_type": "sim_only",
                               "basis": "month", "source_host": "uswitch.com"},
                              {"name": "Lebara", "price": 6, "note": None, "product_type": "sim_only",
@@ -108,6 +109,7 @@ CASES = {
     "broadband": [{"merchant_key": "bt", "display_name": "Bt", "monthly_amount": 38.0, "occurrences": 3, "is_recurring": True}],
     "car_insurance": [{"merchant_key": "admiral", "display_name": "Admiral", "monthly_amount": 70.0, "occurrences": 3, "is_recurring": True}],
     "groceries": [{"merchant_key": "tesco", "display_name": "Tesco", "monthly_amount": 400.0, "occurrences": 12, "is_recurring": False}],
+    "gym": [{"merchant_key": "david lloyd", "display_name": "David Lloyd", "monthly_amount": 61.0, "occurrences": 3, "is_recurring": True}],
     "eating_out": [{"merchant_key": "nandos", "display_name": "Nandos", "monthly_amount": 60.0, "occurrences": 5, "is_recurring": False}],
 }
 
@@ -134,7 +136,7 @@ def test_mobile_tip_wording():
 
 def test_deal_line_is_a_dated_fact_not_a_call_to_action():
     doc = _doc(deal={"text": "Octopus lists a 12 month fixed tariff", "valid_until": "2026-10-31"})
-    c = si._compose_tip_content("energy", doc, CASES["energy"], None, TODAY)
+    c = si._compose_tip_content("gym", doc, CASES["gym"], None, TODAY)
     assert "Octopus lists a 12 month fixed tariff. Offer listed until 31 Oct." in c["body"]
 
 
@@ -181,7 +183,7 @@ def test_deal_text_stored_in_findings_with_a_banned_phrase_never_reaches_a_tip(m
     outcome: dict = {}
     tok = si._RESEARCH_OUTCOME.set(outcome)
     try:
-        out = run(si._tip_content_for("mobile", "u@example.com", None, CASES["mobile"]))
+        out = run(si._tip_content_for("gym", "u@example.com", None, CASES["gym"]))
     finally:
         si._RESEARCH_OUTCOME.reset(tok)
     assert out is None and outcome["copy_rejected"] == "banned_phrase"

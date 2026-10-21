@@ -37,10 +37,16 @@ REGULATED_CATEGORIES = frozenset({
 # Fail closed: a category outside the list whose key or label contains any of
 # these words is treated as regulated too.
 _REGULATED_WORD_RE = re.compile(
-    r"mortgage|remortgage|loan|finance|financ|credit|card|balance[\s_-]*transfer|insur|pension|"
-    r"annuit|invest|isa\b|sipp|lender|broker|equity|bond|fund|stocks?\b|shares?\b",
+    r"\b(?:mortgages?|remortgag\w*|loans?|finance|financing|credit|overdrafts?|bnpl|klarna|clearpay|debt|"
+    r"balance transfers?|insur\w*|pensions?|annuit\w*|invest\w*|isas?|sipps?|lenders?|brokers?|"
+    r"equity|bonds?|funds?|stocks?|shares?)\b",
     re.IGNORECASE,
 )
+
+
+def _spaced(text: str) -> str:
+    """Keys use underscores and hyphens; word boundaries need spaces."""
+    return re.sub(r"[_\-]+", " ", text or "")
 
 # Words that turn a research query into a market pitch.
 _QUERY_PITCH_RE = re.compile(
@@ -57,7 +63,7 @@ def is_regulated_category(category_key: Optional[str], label: Optional[str] = No
         return True
     if key in _KNOWN_UNREGULATED:
         return False
-    return bool(_REGULATED_WORD_RE.search(f"{key} {label or ''}"))
+    return bool(_REGULATED_WORD_RE.search(_spaced(f"{key} {label or ''}")))
 
 
 # Categories that are known to be outside the regulated list. Anything not here
@@ -77,6 +83,13 @@ def safe_research_query(category_key: str, label: Optional[str], query: str) -> 
     return cleaned or None
 
 
+# Marker written ONLY by the G315 `_build_findings`. Shared findings without it
+# were fetched before the like-for-like rules and are never used for a range, a
+# deal or an alternative (fail closed). It is a string, not a number, because a
+# shared document may hold numbers only in its price fields.
+FINDINGS_SCHEMA = "g315-2"
+
+
 # ── (b) like for like ───────────────────────────────────────────────────────
 
 # Categories where a market list beside the user's own spend is never shown:
@@ -91,12 +104,15 @@ PRODUCT_TYPE = {
     "broadband": "broadband_only",
     "energy": "energy_tariff",
     "gym": "gym_membership",
-    "subscriptions": "streaming_subscription",
+    # Subscriptions are deliberately absent: streaming prices differ by tier (with
+    # adverts, standard, premium) and a bank row cannot say which tier the user is
+    # on, nor can it tell video from audio, so no like-for-like pairing is reliable.
 }
 
 RESELLER_RE = re.compile(
     r"groupon|voucher|via\s|reseller|resale|cashback|quidco|topcashback|gift\s*card|ebay|"
-    r"marketplace|coupon|promo\s*code|discount\s*code|tastecard|wowcher|vouchercodes",
+    r"marketplace|coupon|promo\s*code|discount\s*code|tastecard|wowcher|vouchercodes|"
+    r"day\s*passes?|\bpass(?:es)?\b|hussle|classpass",
     re.IGNORECASE,
 )
 
@@ -110,8 +126,6 @@ def user_product_type(category_key: str, user_context: Optional[dict] = None) ->
     ctx = user_context or {}
     if category_key == "gym":
         return "gym_membership"
-    if category_key == "subscriptions":
-        return "streaming_subscription"
     if category_key == "mobile" and str(ctx.get("plan_type") or "").strip().lower() in ("sim only", "sim-only"):
         return "sim_only"
     return None
@@ -277,39 +291,98 @@ _GENERIC_NAME = {
     "insurance": "your insurer",
 }
 
-_BRAND_PATTERNS = sorted(
-    (
-        (re.compile(r"(?<![a-z0-9])" + re.escape(p) + r"s?(?![a-z0-9])"), p, n)
-        for p, n in _BRAND_NAMES.items()
-    ),
-    key=lambda x: -len(x[1]),
-)
+_REGULATED_NOUN = {
+    "mortgage": "your mortgage", "car_finance": "your car finance",
+    "car_insurance": "your car insurance", "insurance": "your insurance",
+}
+
+# The curated provider phrases of each tip category (the same vocabulary as the
+# INSIGHT_CATEGORIES triggers). A payee is only rebranded by a phrase of ITS OWN
+# category, so "Three Rivers" paid under eating out is never "Three".
+_CATEGORY_PHRASES = {
+    "energy": ["british gas", "eon", "edf", "scottish power", "octopus energy", "npower", "sse", "bulb energy",
+               "shell energy", "utilita", "utility warehouse", "bg energy"],
+    "mortgage": ["nationwide", "halifax", "santander mortgage", "barclays mortgage", "lloyds mortgage",
+                 "natwest mortgage", "hsbc mortgage", "virgin money mortgage"],
+    "car_finance": ["m&s loans", "m&s bank", "black horse", "close brothers", "moneybarn", "evolution funding",
+                    "motonovo", "santander consumer", "toyota finance", "volkswagen finance"],
+    "car_insurance": ["direct line", "admiral", "aviva", "hastings direct", "churchill", "more than", "lv=",
+                      "esure", "elephant auto"],
+    "broadband": ["bt", "virgin media", "sky broadband", "talktalk", "vodafone broadband", "now broadband",
+                  "plusnet", "community fibre", "hyperoptic"],
+    "mobile": ["ee ltd", "ee limited", "ee", "o2", "vodafone", "three", "giffgaff", "sky mobile", "tesco mobile",
+               "id mobile", "lycamobile"],
+    "groceries": ["tesco", "sainsbury", "asda", "morrisons", "waitrose", "lidl", "aldi", "co-op",
+                  "marks and spencer food", "m&s food", "ocado"],
+    "eating_out": ["mcdonald", "kfc", "nando", "wagamama", "pizza express", "prezzo", "costa coffee", "starbucks",
+                   "pret a manger", "itsu", "leon", "subway"],
+    "gym": ["pure gym", "the gym group", "david lloyd", "virgin active", "anytime fitness", "nuffield health",
+            "fitness first", "bannatyne", "everyone active"],
+    "subscriptions": ["netflix", "spotify", "amazon prime", "disney+", "disney plus", "apple tv", "youtube premium",
+                      "now tv", "paramount+", "apple music", "sky entertainment"],
+}
+
+_BRAND_PATTERNS: dict[str, list] = {
+    cat: sorted(
+        ((re.compile(r"(?<![a-z0-9])" + re.escape(p) + r"s?(?![a-z0-9])"), p, _BRAND_NAMES[p])
+         for p in phrases if p in _BRAND_NAMES),
+        key=lambda x: -len(x[1]),
+    )
+    for cat, phrases in _CATEGORY_PHRASES.items()
+}
+
+# Brand phrases that are also ordinary words or names. They rebrand a payee only when
+# the rest of the payee is plain company noise ("Three Mobile Ltd", "Admiral Insurance"),
+# so "Three Rivers Cafe" or "Leon Smith" keeps its own name.
+_AMBIGUOUS_PHRASES = frozenset({"three", "leon", "admiral", "churchill", "more than", "subway", "bt", "ee", "o2"})
+_NOISE_TOKENS = frozenset({
+    "ltd", "limited", "plc", "llp", "uk", "mobile", "mobiles", "bill", "bills", "payment", "payments", "direct",
+    "insurance", "group", "stores", "store", "services", "telecom", "broadband", "energy", "ee", "bs", "cy",
+})
 
 _COMPANY_TAIL_RE = re.compile(r"\s+(?:ltd|limited|plc|llp|uk)\.?$", re.IGNORECASE)
 _TRUNCATION_LEN = 28  # a bank descriptor cut at 30 characters ends mid-word
+_WHOLE_WORD_END_RE = re.compile(r"(?:[aeiouys]|ing|ed|er|tion|ly)$", re.IGNORECASE)
 
 
-def _known_brand(raw: str) -> Optional[str]:
-    low = re.sub(r"['’]", "", (raw or "").lower())
-    for pat, _phrase, name in _BRAND_PATTERNS:
-        if pat.search(low):
-            return name
+def _known_brand(raw: str, category: str) -> Optional[str]:
+    low = re.sub(r"['\u2019]", "", (raw or "").lower())
+    for pat, phrase, name in _BRAND_PATTERNS.get(category, []):
+        m = pat.search(low)
+        if not m:
+            continue
+        if phrase in _AMBIGUOUS_PHRASES:
+            rest = (low[:m.start()] + " " + low[m.end():]).split()
+            if any(t not in _NOISE_TOKENS and not t.isdigit() for t in rest):
+                continue
+        return name
     return None
 
 
+def _looks_whole(word: str) -> bool:
+    """A last word is kept when it reads as complete: more than four letters and
+    ending like a finished English word. The cut-off ones ("Birmin", "Leisur")
+    end mid-syllable. A heuristic, deliberately cautious about keeping."""
+    w = re.sub(r"[^A-Za-z]", "", word)
+    return len(w) > 4 and bool(_WHOLE_WORD_END_RE.search(w))
+
+
 def clean_merchant(raw: str, category: str, label: Optional[str] = None) -> tuple[str, bool]:
-    """(display name, is_generic). A known brand reads as its own name. An
-    unknown lender in a regulated category reads as a plain noun ("your
-    mortgage lender"), never an abbreviation. Any other merchant is title-cased
-    and, when its descriptor looks cut off, loses the dangling last word."""
-    brand = _known_brand(raw)
+    """(display name, is_generic). A known brand of the tip's own category reads as
+    its own name. An unknown lender in a regulated category reads as a plain noun
+    ("your mortgage lender"), never an abbreviation. Any other merchant is
+    title-cased and, when its descriptor looks cut off (28 characters or more and
+    a last word that does not read as whole), loses the dangling last word."""
+    brand = _known_brand(raw, category)
     if brand:
         return brand, False
     if is_regulated_category(category, label):
         return _GENERIC_NAME.get(category, "your provider"), True
     name = re.sub(r"\s+", " ", (raw or "").strip())
     if len(name) >= _TRUNCATION_LEN and " " in name:
-        name = name.rsplit(" ", 1)[0]
+        head, last = name.rsplit(" ", 1)
+        if not _looks_whole(last):
+            name = head
     name = _COMPANY_TAIL_RE.sub("", name).strip()
     return (display_account_name(name) or "your provider"), False
 
@@ -322,7 +395,8 @@ def present_triggers(category: str, triggered_by: Optional[list[dict]], label: O
     for t in triggered_by or []:
         raw = str(t.get("display_name") or t.get("merchant_key") or "")
         name, generic = clean_merchant(raw, category, label)
-        k = name.lower()
+        # two unknown payees stay two rows: "your mortgage lender" is not one lender
+        k = f"generic:{t.get('merchant_key') or raw}".lower() if generic else name.lower()
         groups[k].append(t)
         names[k] = (name, generic)
     out: list[dict] = []
@@ -381,6 +455,9 @@ def headline_for(category: str, label: str, rows: list[dict], profile_categories
     primary = tb[0]
     name = primary.get("display_name") or ""
     if is_regulated_category(category, label):
+        if len(tb) > 1:
+            # more than one distinct payee: name nobody, state the one total
+            return f"You pay about {money(total)} a month on {_REGULATED_NOUN.get(category, 'your ' + label_l)}"
         who = name[:1].lower() + name[1:] if primary.get("generic") else name
         when = short_date(primary.get("last_date")) if primary.get("last_date") else None
         last = primary.get("last_amount")
@@ -436,6 +513,11 @@ def card_violations(card: dict, category: str, label: Optional[str] = None) -> l
         found.append("raw_merchant_name")
     if _DOMAIN_SPACE_RE.search(blob):
         found.append("domain_spacing")
+    for r in card.get("triggered_by") or []:
+        nm = str(r.get("display_name") or "")
+        if _ABBREV_RE.search(nm) or _TRUNCATED_NAME_RE.search(nm):
+            found.append("raw_merchant_name")
+            break
     body = card.get("body") or ""
     if _CHECKED_RE.search(body) and _OTHER_FRESHNESS_RE.search(blob):
         found.append("two_freshness_lines")

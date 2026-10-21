@@ -554,13 +554,14 @@ def test_deal_past_its_deadline_is_not_shown_at_compose_time():
         "as_of": "2026-10-01", "fetched_at": datetime(2026, 10, 1), "content_valid_until": datetime(2026, 10, 8),
         "findings": {"typical_low": 8, "typical_high": 25, "headline": None, "alternatives": [],
                      "deal": {"text": "A switching offer is running", "valid_until": "2026-10-05"},
-                     "sources": ["https://www.uswitch.com/mobiles/"]},
+                     "sources": ["https://www.uswitch.com/mobiles/"], "findings_schema": "g315-2"},
     }
     tb = [{"merchant_key": "ee", "display_name": "Ee", "monthly_amount": 30.0, "is_recurring": True, "occurrences": 3}]
-    live = si._compose_tip_content("mobile", doc, tb, None, datetime(2026, 10, 4).date())
+    ctx = {"plan_type": "SIM only"}
+    live = si._compose_tip_content("mobile", doc, tb, ctx, datetime(2026, 10, 4).date())
     assert "switching offer" in live["body"] and "Offer listed until 5 Oct" in live["body"]
     assert live["claim_valid_until"] == datetime(2026, 10, 5)
-    past = si._compose_tip_content("mobile", doc, tb, None, datetime(2026, 10, 6).date())
+    past = si._compose_tip_content("mobile", doc, tb, ctx, datetime(2026, 10, 6).date())
     assert "switching offer" not in past["body"] and past["claim_valid_until"] is None
 
 

@@ -174,7 +174,8 @@ def test_findings_drop_product_types_without_prices_resellers_and_unlisted_sourc
         {"name": "Bannatyne", "price": 30, "product_type": "gym_membership", "basis": "month", "source_url": "example.com"},
         {"name": "Nuffield", "price": 30, "product_type": "gym_membership", "basis": "month", "source_url": "notreturned.which.co.uk"},
     ]}
-    f, _, _ = si._build_findings(parsed, "PureGym is £25 a month. Prices from £30. Between £25 and £80.", urls, "gym", TODAY)
+    f, _, _ = si._build_findings(
+        parsed, "Page which.co.uk: PureGym is £25 a month. Between £25 and £80. Page example.com: from £30.", urls, "gym", TODAY)
     assert [a["name"] for a in f["alternatives"]] == ["PureGym"]
     assert f["sources"] == ["https://www.which.co.uk/reviews/gyms"]
 
@@ -298,8 +299,7 @@ def test_provider_own_site_is_allowed_by_its_name_only():
 
 
 def test_source_names_never_contain_a_bare_domain_or_a_split_one():
-    c = compose("energy")
-    assert "Checked 16 Oct, source Ofgem and Uswitch." in c["body"]
+    assert compose("gym")["body"].endswith("Checked 16 Oct, source Which?")
     for cat in CASES:
         body = compose(cat)["body"]
         assert not re.search(r"\b[a-z0-9-]+\.(com|co\.uk)\b", body), body
@@ -391,3 +391,204 @@ def test_old_shared_findings_cannot_surface_a_market_line():
            "alternatives": [{"name": "PureGym", "price": 25, "note": None}]}
     c = si._compose_tip_content("gym", doc(old), CASES["gym"][1], None, TODAY)
     assert "Also listed" not in c["body"] and "listed at" not in c["body"] and "source" not in c["body"]
+
+
+# ── review round 1 ──────────────────────────────────────────────────────────
+
+# H1: the saved deadline sentence must never trip the banned list
+
+@pytest.mark.parametrize("cat", ["energy", "mortgage"])
+def test_deal_end_context_still_produces_a_served_tip(cat):
+    _, rows, findings = CASES[cat]
+    c = si._compose_tip_content(cat, doc(findings), rows, {"deal_end": "March 2027"}, TODAY)
+    assert "You noted your fixed term ends March 2027." in c["body"]
+    assert tip_copy.find_banned(c["title"] + " " + c["body"]) is None
+    out = serialized(cat, c)
+    assert out["state"] == "fresh" and "fixed term ends" in out["body"]
+
+
+@pytest.mark.parametrize("cat", ["energy", "mortgage"])
+def test_deal_end_context_survives_the_content_path(monkeypatch, cat):
+    async def ensure(key, fetch, allow_fetch=True):
+        from types import SimpleNamespace
+        return SimpleNamespace(state="fresh", doc=doc(CASES[cat][2]), fetched=False, failure=None)
+    monkeypatch.setattr(si.tip_research, "ensure_research", ensure)
+    out = run(si._tip_content_for(cat, "u@example.com", {"deal_end": "March 2027"}, CASES[cat][1]))
+    assert out and "fixed term ends March 2027" in out["body"]
+
+
+def test_material_change_reason_is_clean():
+    d = {"deadline_at": datetime.utcnow() + timedelta(days=20)}  # naive-ok: test fixture
+    r = si._material_change_reason(d)
+    assert r and tip_copy.find_banned(r) is None and "fixed term" in r
+
+
+def test_every_shown_string_goes_through_the_serve_gate():
+    c = compose("gym")
+    out = serialized("gym", c, _return_reason="You could save by switching")
+    assert out["return_reason"] is None
+    assert tip_copy.first_banned(tip_copy.serialized_tip_texts(out)) is None
+
+
+# M1: findings need the G315 marker
+
+def test_old_shape_findings_with_an_allowlisted_source_compose_nothing_market():
+    old = {"typical_low": 25, "typical_high": 80, "sources": ["https://www.which.co.uk/reviews/gyms"],
+           "deal": {"text": "A listed offer", "valid_until": None},
+           "alternatives": [alt("PureGym", 25, "gym_membership", "which.co.uk")]}
+    d = {"as_of": "2026-10-16", "fetched_at": datetime(2026, 10, 16), "content_valid_until": datetime(2026, 10, 23),
+         "findings": old}  # no findings_schema
+    c = si._compose_tip_content("gym", d, CASES["gym"][1], None, TODAY)
+    for bad in ("listed at", "Also listed", "Offer listed", "A listed offer", "source"):
+        assert bad not in c["body"], c["body"]
+    d["findings"] = {**old, "findings_schema": "g315-2"}
+    assert "Also listed: PureGym £25 a month." in si._compose_tip_content("gym", d, CASES["gym"][1], None, TODAY)["body"]
+
+
+def test_build_findings_writes_the_marker():
+    f, _, _ = si._build_findings({"typical_low": 25, "typical_high": 80}, "Page which.co.uk: from £25 to £80 a month",
+                                 ["https://www.which.co.uk/x"], "gym", TODAY)
+    assert f["findings_schema"] == "g315-2"
+    tip_research.assert_no_user_data({"findings": f})
+
+
+# M2
+
+@pytest.mark.parametrize("name", ["Hussle day pass", "ClassPass", "PureGym day pass", "Gym pass seller", "Hussle"])
+def test_pass_sellers_are_resellers(name):
+    assert not tip_facts.is_like_for_like(GYM_FACT, {**GOOD, "name": name})
+
+
+def test_subscriptions_have_no_like_for_like_type():
+    assert "subscriptions" not in tip_facts.PRODUCT_TYPE
+    assert tip_facts.user_product_type("subscriptions") is None
+    assert not tip_facts.is_like_for_like(
+        {"category": "subscriptions", "product_type": "streaming_subscription", "period": "month"},
+        alt("Disney+", 5, "streaming_subscription", "which.co.uk"))
+    c = compose("subscriptions")
+    assert "Also listed" not in c["body"] and "listed at" not in c["body"]
+
+
+def test_deal_line_needs_the_same_product_match():
+    f = {"typical_low": None, "typical_high": None, "alternatives": [], "findings_schema": "g315-2",
+         "sources": ["https://www.which.co.uk/x"], "deal": {"text": "A listed offer", "valid_until": None}}
+    no_match = si._compose_tip_content("energy", doc(f), CASES["energy"][1], None, TODAY)
+    assert "A listed offer" not in no_match["body"]
+    match = si._compose_tip_content("gym", doc(f), CASES["gym"][1], None, TODAY)
+    assert "A listed offer." in match["body"]
+
+
+def test_alternative_price_must_come_from_its_own_host_snippet():
+    urls = ["https://www.which.co.uk/a", "https://www.uswitch.com/b"]
+    parsed = {"alternatives": [
+        {"name": "PureGym", "price": 25, "product_type": "gym_membership", "basis": "month", "source_url": "which.co.uk"},
+        {"name": "Gym Group", "price": 19, "product_type": "gym_membership", "basis": "month", "source_url": "which.co.uk"},
+        {"name": "Anytime", "price": 31, "product_type": "gym_membership", "basis": "month", "source_url": "uswitch.com"},
+    ]}
+    text = "Page which.co.uk: PureGym costs £25 a month.\n\nPage uswitch.com: Gym Group costs £19 a month. Anytime £31 a month."
+    f, _, _ = si._build_findings(parsed, text, urls, "gym", TODAY)
+    # Gym Group's £19 is only in the uswitch snippet, not the which.co.uk one it cites
+    assert [a["name"] for a in f["alternatives"]] == ["PureGym", "Anytime"]
+    only_other = {"alternatives": [parsed["alternatives"][1]]}
+    f2, _, _ = si._build_findings({**only_other, "typical_low": 19, "typical_high": 31}, text, urls, "gym", TODAY)
+    assert not f2 or f2["alternatives"] == []
+
+
+# M3
+
+def test_regulated_category_with_two_payees_names_nobody():
+    rows = [row("Halifax", 700.0, last="2026-10-01"), row("Nationwide", 500.0, last="2026-10-03")]
+    c = si._compose_tip_content("mortgage", doc({}), rows, None, TODAY)
+    assert c["title"] == "You pay about £1,200 a month on your mortgage"
+    assert "Halifax" not in c["title"] + c["body"] and "Nationwide" not in c["title"] + c["body"]
+    assert "latest" not in c["body"] and c["body"].startswith("That is based on")
+    assert tip_facts.card_violations({"title": c["title"], "body": c["body"], "lead_line": c["title"]}, "mortgage") == []
+
+
+def test_two_unknown_lenders_are_not_merged_into_one():
+    rows = tip_facts.present_triggers("mortgage", [row("Mtg", 600.0, key="mtg"), row("Mort", 500.0, key="mort")], "Mortgage")
+    assert len(rows) == 2
+    assert tip_facts.headline_for("mortgage", "Mortgage", rows).startswith("You pay about £1,100 a month on your mortgage")
+
+
+# L1
+
+def test_no_details_workflow_for_a_regulated_category():
+    for cat in ("mortgage", "car_finance", "car_insurance"):
+        assert serialized(cat, compose(cat))["has_workflow"] is False
+    assert serialized("gym", compose("gym"))["has_workflow"] is True
+
+
+# L2
+
+@pytest.mark.parametrize("cat,label", [("gift_cards", "Gift Cards"), ("refund", "Refund"), ("cardio", "Cardio"),
+                                       ("fundraising", "Fundraising")])
+def test_ordinary_words_are_not_regulated(cat, label):
+    assert not tip_facts.is_regulated_category(cat, label)
+
+
+@pytest.mark.parametrize("label", ["Overdraft", "BNPL", "Klarna", "Clearpay", "Debt", "Credit Card", "Pension"])
+def test_added_regulated_words(label):
+    assert tip_facts.is_regulated_category("custom", label)
+
+
+# L3
+
+def test_ambiguous_brand_inside_another_payee_is_not_rebranded():
+    assert tip_facts.clean_merchant("Three Rivers Cafe", "mobile", "Mobile")[0] != "Three"
+    assert tip_facts.clean_merchant("Leon Smith", "eating_out", "Eating Out")[0] != "Leon"
+    assert tip_facts.clean_merchant("Admiral Road Garage", "car_insurance", "Car Insurance")[1] is True
+    assert tip_facts.clean_merchant("Three Mobile Ltd", "mobile", "Mobile")[0] == "Three"
+    assert tip_facts.clean_merchant("Leon", "eating_out", "Eating Out")[0] == "Leon"
+
+
+def test_brand_is_scoped_to_the_tips_own_category():
+    assert tip_facts.clean_merchant("Tesco Bank Loans", "mortgage", "Mortgage")[1] is True
+    assert tip_facts.clean_merchant("Aldi", "gym", "Gym")[0] == "Aldi"  # not rebranded by another category
+
+
+def test_last_word_kept_when_it_reads_whole_and_dropped_when_cut():
+    kept = tip_facts.clean_merchant("Fancy Local Cafe Birmingham Stores", "eating_out", "Eating Out")[0]
+    assert kept.endswith("Stores") or kept.endswith("Store")
+    cut = tip_facts.clean_merchant("Fancy Local Cafe Birmingham Cen", "eating_out", "Eating Out")[0]
+    assert not cut.endswith("Cen")
+
+
+def test_evidence_rows_are_checked_for_truncated_names():
+    card = {"title": "t", "body": "b", "triggered_by": [{"display_name": "David Lloyd Leisur"}]}
+    assert "raw_merchant_name" in tip_facts.card_violations(card, "gym")
+    card["triggered_by"] = [{"display_name": "Mtg"}]
+    assert "raw_merchant_name" in tip_facts.card_violations(card, "mortgage")
+
+
+# L4 and regeneration script
+
+def test_gym_has_no_compare_chips_in_the_card():
+    src = open("../frontend/components/InsightCard.tsx", encoding="utf-8").read()
+    assert "hussle" not in src.lower() and "classpass" not in src.lower()
+
+
+def test_review_renderer_has_no_hardcoded_account_name():
+    src = open("tests/g315_review_render.py", encoding="utf-8").read()
+    assert "Premier" not in src and "PRIMARY_EMAIL" in src
+    assert "Premier" not in open("../docs/copy/tips-review-2026-10.md", encoding="utf-8").read()
+
+
+def test_regen_script_counts_hidden_tips_and_defaults_to_dry_run():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("regen_tips", "scripts/regen_tips.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    class Col:
+        async def find(self, *a, **k):
+            return self
+        def find(self, *a, **k):
+            class C:
+                async def to_list(self, n):
+                    return [{"user_id": "a", "prompt_version": 8}, {"user_id": "a", "prompt_version": 9},
+                            {"user_id": "b", "prompt_version": None}, {"user_id": "c", "prompt_version": 9}]
+            return C()
+    assert run(m.collect(Col())) == {"a": 1, "b": 1}
+    src = open("scripts/regen_tips.py", encoding="utf-8").read()
+    assert "--apply" in src and "dry-run" in src

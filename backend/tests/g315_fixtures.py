@@ -22,6 +22,8 @@ def alt(name, price, ptype, host, basis="month"):
 
 
 def doc(findings):
+    findings = dict(findings)
+    findings.setdefault("findings_schema", "g315-2")
     return {"as_of": AS_OF, "fetched_at": FETCHED, "content_valid_until": VALID_UNTIL, "findings": findings}
 
 
