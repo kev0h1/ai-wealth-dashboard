@@ -1099,7 +1099,7 @@ export default function SettingsPage() {
         {preferencesSaveError?.field === "pay_period_config" && <p role="status" className="mt-3 text-xs font-medium text-slate-700 dark:text-slate-300">{preferencesSaveError.message}</p>}
         <div className="mt-10 border-t border-slate-200 pt-2 dark:border-slate-700">
           <button type="button" onClick={() => void logout()} className="flex min-h-11 items-center gap-2 rounded-xl px-1 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800"><LogOut size={16} aria-hidden="true" />Sign out</button>
-          <div className="mt-6 border-t border-slate-200 pt-2 dark:border-slate-700"><Link href="/settings?section=delete" className="inline-flex min-h-11 items-center rounded-xl px-1 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800">Delete account and all data</Link></div>
+          <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700"><Link href="/settings?section=delete" className="inline-flex min-h-11 items-center rounded-xl px-1 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800">Delete account and all data</Link></div>
         </div>
       </aside>
 
