@@ -302,6 +302,18 @@ async def ops_health(user: dict = Depends(current_user)):
     return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks}
 
 
+@router.get("/webhooks/recent")
+async def ops_recent_webhooks(user: dict = Depends(current_user)):
+    """E9: the last 50 provider webhooks and 24 h counts per provider and
+    outcome. A separate owner-only GET rather than part of /ops/health, so a
+    slow or failing read here can never blank the health summary and the page
+    loads it as its own block. See app/services/recent_webhooks.py for the
+    outcome mapping and the projection allowlist."""
+    _require_owner(user)
+    from app.services.recent_webhooks import recent_webhooks
+    return await recent_webhooks()
+
+
 # E7 slice 2: the metrics collectors (app/services/health). Each collector has
 # its own time budget and the endpoints never wait on one that hangs.
 @router.get("/health/collectors")

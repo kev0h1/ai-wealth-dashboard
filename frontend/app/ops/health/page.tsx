@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type OpsAlert, type OpsAlerts, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSyncStats, type OpsTrends } from "@/lib/api";
+import RecentWebhooks, { RECENT_WEBHOOKS_TITLE } from "./RecentWebhooks";
 import { ALERTS_TITLE, ALERTS_WORDING, SECTIONS, TRENDS_TITLE, WORDING } from "./sections";
 
 type Load<T> = { state: "loading" } | { state: "error" } | { state: "forbidden" } | { state: "ok"; data: T };
@@ -522,6 +523,7 @@ export default function OpsHealthPage() {
   const sync = useLoad(api.getOpsSyncStats);
   const trends = useLoad(api.getOpsTrends);
   const alerts = useLoad(api.getOpsAlerts);
+  const webhooks = useLoad(api.getOpsRecentWebhooks);
 
   if (health.state === "forbidden") {
     return (
@@ -547,6 +549,12 @@ export default function OpsHealthPage() {
         {health.state === "loading" && <Skeleton />}
         {health.state === "error" && <Unavailable what="server health" />}
         {health.state === "ok" && <HealthBlocks health={health.data} />}
+
+        <Block title={RECENT_WEBHOOKS_TITLE}>
+          {webhooks.state === "loading" && <Skeleton />}
+          {(webhooks.state === "error" || webhooks.state === "forbidden") && <Unavailable what="recent webhooks" />}
+          {webhooks.state === "ok" && <RecentWebhooks data={webhooks.data} />}
+        </Block>
 
         <Block title="Model usage">
           {llm.state === "loading" && <Skeleton />}
