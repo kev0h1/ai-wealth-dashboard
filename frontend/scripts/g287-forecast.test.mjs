@@ -73,6 +73,14 @@ for (const key of ["habitual", "comfortable", "plans", "buffer", "card-check", "
   assert.equal(published.verdict, status.label, `${key}: Penny uses the displayed dated-risk verdict`);
 }
 assert.equal(upcoming("habitual", { metadata: null, headline: null, plansAvailable: false }).status.tone, "risk", "known dated payment gap survives absent optional metadata");
+const pendingContext = upcoming("plans", { metadata: null, headline: null, metadataPending: true });
+assert.equal(pendingContext.pending, true, "a pending context is distinct from a settled unknown forecast");
+const pendingCard = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...g287UpcomingProps(ok("plans")), presentation: pendingContext }));
+assert.match(pendingCard, /data-forecast-pending="true" aria-hidden="true"/, "pending status reserves space without an accessible verdict");
+assert.doesNotMatch(pendingCard, /data-forecast-tone|Check forecast|role="status"/, "no default badge or live announcement before the context settles");
+assert.match(pendingCard, /−£150/, "the actual forecast figure is not held back for status context");
+assert.equal(upcoming("plans", { metadata: null, headline: null, metadataPending: false }).status.label, "Check forecast", "settled unavailable context keeps the real neutral fallback");
+assert.equal(upcoming("habitual", { metadata: null, headline: null, metadataPending: true }).pending, undefined, "proved payment risk is not delayed by optional context");
 for (const low of [undefined, NaN, Infinity]) {
   const data = { ...ok("comfortable"), lowest_projected_balance: low };
   assert.equal(homeForecastPresentation(data, deriveSafeToSpendHeadline(data)).status.tone, "neutral");
@@ -115,7 +123,7 @@ assert.match(upcomingShort, /Full calculation/);
 assert.match(upcomingShort, /Savings backup/);
 assert.match(upcomingShort, /Payments can take a day or two to appear/);
 assert.match(upcomingShort, /text-\[30px\].*text-slate-900/, "main Upcoming figure stays ink");
-assert.match(upcomingShort, /grid-cols-\[minmax\(0,1fr\)_auto\]/, "status uses the real right-aligned header row");
+assert.match(upcomingShort, /justify-self-end/, "status uses the real right-aligned header row");
 const maskedUpcoming = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...upcomingProps, balancesHidden: true, presentation: upcoming("habitual") }));
 assert.match(maskedUpcoming, /£••••/);
 assert.doesNotMatch(maskedUpcoming, /573|350|923|1,400/, "Upcoming masking does not leak figures");

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
-import { api, Account, Allocation, CashflowData, type SafeToSpend, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
+import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -17,6 +17,7 @@ import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildUpcomingRunwayView, deriveSafeToSpendHeadline, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
 import { upcomingForecastPresentation } from "@/lib/cashForecastStatus";
+import { useForecastContext } from "@/lib/useForecastContext";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
 import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
@@ -220,18 +221,7 @@ export default function PlanningPage() {
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [cashflowError, setCashflowError] = useState(false);
-  const [forecastContext, setForecastContext] = useState<{ forecast: CashflowData; data: SafeToSpend } | null>(null);
-  // Read Home's buffer/card/Tight context without holding up the cashflow.
-  // Associate it with this exact snapshot: a refresh immediately stops using
-  // the previous verdict, including the commit before this effect runs.
-  useEffect(() => {
-    if (!cashflow) return;
-    let cancelled = false;
-    api.safeToSpend().then(data => {
-      if (!cancelled) setForecastContext({ forecast: cashflow, data });
-    }).catch(() => { if (!cancelled) setForecastContext(null); });
-    return () => { cancelled = true; };
-  }, [cashflow]);
+  const forecastContext = useForecastContext(cashflow, api.safeToSpend);
 
   // Tour readiness — the runway hero and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
@@ -803,10 +793,11 @@ export default function PlanningPage() {
         const lowestCash = cashEvidence ? Math.min(cashflow.spendable_balance!, ...items
           .filter(item => Date.parse(item.expected_date) < nextPaydayMidnight.getTime())
           .map(item => item.balance_after)) : null;
-        const statusData = forecastContext?.forecast === cashflow ? forecastContext.data : null;
+        const statusData = forecastContext.data;
         const forecastPresentation = upcomingForecastPresentation({
           runway, lowestCash, evidenceCurrent: cashEvidence, nextPayday: nextPaydayMidnight.getTime(), isCalendarMonth,
           metadata: statusData, headline: statusData?.status === "ok" ? deriveSafeToSpendHeadline(statusData) : null,
+          metadataPending: forecastContext.pending,
           plansAvailable: !plansUnavailable,
         });
         // Penny screen context (B39) — plain JS assignment, not a hook
@@ -817,7 +808,7 @@ export default function PlanningPage() {
         // fixture inputs, so the figure Penny can quote back can never
         // disagree with the hero below, which renders these same three
         // values.
-        pennyRunwayRef.current = { runway, runwayStatus, isCalendarMonth, plansUnavailable, forecastVerdict: forecastPresentation.status.label };
+        pennyRunwayRef.current = forecastPresentation.pending ? undefined : { runway, runwayStatus, isCalendarMonth, plansUnavailable, forecastVerdict: forecastPresentation.status.label };
 
         // Bank-side settling debits are display-only: their cash has already
         // left. Neither the shared account walk nor this pooled walk deducts
