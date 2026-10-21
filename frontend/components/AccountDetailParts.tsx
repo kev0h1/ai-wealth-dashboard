@@ -51,7 +51,7 @@ export function AccountTransactionsToolbar({
           value={searchQuery}
           onChange={e => onSearchChange(e.target.value)}
           placeholder="Search transactions…"
-          className="w-full min-h-[44px] pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+          className="w-full min-h-[44px] pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm [&::-webkit-search-cancel-button]:hidden"
         />
         {searchQuery && (
           <button

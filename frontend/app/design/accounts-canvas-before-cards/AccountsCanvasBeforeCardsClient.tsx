@@ -263,7 +263,7 @@ function EstateControls({ query, onQuery, lens, onLens }: { query: string; onQue
           onChange={(event) => onQuery(event.target.value)}
           placeholder="Find an account…"
           aria-label="Find an account"
-          className="min-h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 text-[14px] text-slate-900 shadow-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
+          className="min-h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 text-[14px] text-slate-900 shadow-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 [&::-webkit-search-cancel-button]:hidden"
         />
         {query && (
           <button
@@ -713,7 +713,7 @@ function DetailPanel({ fixture, notice, onAction }: { fixture: AccountDetailFixt
         <>
           <div className="relative">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400" aria-hidden="true" />
-            <input type="search" name="transaction-search" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions…" aria-label="Search transactions" className="min-h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 text-[14px] text-slate-900 shadow-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400" />
+            <input type="search" name="transaction-search" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search transactions…" aria-label="Search transactions" className="min-h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 text-[14px] text-slate-900 shadow-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 [&::-webkit-search-cancel-button]:hidden" />
             {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear transaction search" className="absolute right-0 top-0 flex size-11 items-center justify-center rounded-xl text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-slate-400"><X size={16} aria-hidden="true" /></button>}
           </div>
           <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
