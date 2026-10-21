@@ -107,7 +107,7 @@ try {
     for (const width of [320, 375, 1280]) for (const state of ["long", "cards"]) cases.push({ variant: "a", state, mode, width });
     for (const variant of ["e", "f"]) {
       for (const state of [...states, "tight", "buffer", "even"]) cases.push({ variant, state, mode, width: 390 });
-      for (const width of [320, 1280]) for (const state of ["habitual", "comfortable", "plans", "long"]) cases.push({ variant, state, mode, width });
+      for (const width of [320, 1280]) for (const state of ["habitual", "comfortable", "plans", "long", ...(variant === "e" ? ["card-check"] : [])]) cases.push({ variant, state, mode, width });
     }
   }
   const selectedVariants = process.env.G287_BROWSER_VARIANTS?.split(",");
@@ -127,6 +127,7 @@ try {
       const fc=figure?getComputedStyle(figure).color:null;const uc=uf?getComputedStyle(uf).color:null;
       const chip=frame.querySelector('[class~="text-red-700"]');const cc=chip?getComputedStyle(chip).color:null;
       const badgeFacts=root=>{const badge=root?.querySelector('[data-g287-tone]');if(!badge)return null;const icon=badge.querySelector('svg');const bg=getComputedStyle(badge).backgroundColor;const r=badge.getBoundingClientRect();return{tone:badge.dataset.g287Tone,text:badge.textContent,colour:canonical(getComputedStyle(badge).color),icon:icon?canonical(getComputedStyle(icon).color):null,textContrast:contrast(getComputedStyle(badge).color,bg),iconContrast:icon?contrast(getComputedStyle(icon).color,bg):null,left:r.left,right:r.right}};
+      const headerFacts=(root,heading,amount)=>{const card=root?.querySelector('.glass-hero');const badge=root?.querySelector('[data-g287-tone]');if(!card||!badge||!heading||!amount)return null;const c=card.getBoundingClientRect(),b=badge.getBoundingClientRect(),h=heading.getBoundingClientRect(),f=amount.getBoundingClientRect(),s=getComputedStyle(card);return{rightInset:c.right-b.right-parseFloat(s.paddingRight)-parseFloat(s.borderRightWidth),figureGap:f.top-h.bottom}};
       return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,frame:{x:r.x,right:r.right},
         figures:frame.querySelectorAll('#safe-to-spend-heading').length,
         amount:figure?.textContent,colour:figure?getComputedStyle(figure).color:null,size:figure?getComputedStyle(figure).fontSize:null,
@@ -136,6 +137,8 @@ try {
         upcomingQualifierColour:upcoming?.querySelector('#runway-heading + div > span')?getComputedStyle(upcoming.querySelector('#runway-heading + div > span')).color:null,
         upcomingAmount:uf?.textContent?.trim(),
         homeBadge:badgeFacts(frame),upcomingBadge:badgeFacts(upcoming),
+        homeHeader:headerFacts(frame,frame.querySelector('.sts-card > div:first-child'),figure),
+        upcomingHeader:headerFacts(upcoming,upcoming?.querySelector('#runway-heading'),uf),
         upcomingColour:uc,chipColour:cc,
         contrast:fc?contrast(fc,getComputedStyle(frame.querySelector('.glass-hero')).backgroundColor):null,
         upcomingContrast:uc?contrast(uc,getComputedStyle(upcoming.querySelector('.glass-hero')).backgroundColor):null,
@@ -210,6 +213,10 @@ try {
         if (state === "chronology") {
           assert.equal(measure.upcomingAmount, "£427"); assert.equal(measure.upcomingBadge.text, "Earlier gap");
           assert.equal(measure.upcomingQualifierColour, ink, "positive ending cash cannot get a green qualifier while an earlier payment gap is known");
+        } else if (risk) assert.equal(measure.upcomingBadge.text, measure.homeBadge.text, "both payment-shortfall badges say Short");
+        if (variant === "e") for (const header of [measure.homeHeader, measure.upcomingHeader]) {
+          assert.ok(header && Math.abs(header.rightInset) < 1, JSON.stringify({test,header,message:"status aligns to the card's right content edge"}));
+          assert.ok(Math.abs(header.figureGap - 20) < 1, JSON.stringify({test,header,message:"both figures sit 20px below their header row"}));
         }
       }
     }
