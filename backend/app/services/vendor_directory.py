@@ -106,10 +106,50 @@ _IBAN_RE = re.compile(r"\b[A-Za-z]{2}\d{2}[A-Za-z0-9]{10,}\b")
 _ACCOUNT_WORDS_RE = re.compile(r"\b(?:sort\s*code|a/c|acc(?:ount)?\s*(?:no|number|num))\b", re.I)
 _CONTACT_RE = re.compile(r"@|\+\d{2}|\b0\d{9,10}\b")
 _P2P_TEXT_RE = re.compile(
-    r"^\s*to\s+[a-z]|\bvia\s+mobile\b|\bfp\s*\d|\bfaster\s+payment\b|\bbank\s+transfer\b|"
+    r"^\s*to\s+[a-z]|\bvia\s+mobile\b|\bfp\s*\d|\bfaster\s+payments?\b|\bbank\s+transfer\b|"
     r"\btransfer\s+(?:to|from)\b|\bpayment\s+(?:to|from)\b|\bbacs\b|\bchaps\b|\bxfer\b|\bsto\b",
     re.I,
 )
+
+# Words that mark a key as a business. A key of two to four plain alphabetic
+# words with none of these (and no provider merchant name) is shaped like a
+# person ("c c gondwe", "j smith", "daniel gondwe") and is never sent anywhere.
+BUSINESS_TOKENS = frozenset("""
+ltd limited plc llp inc co company group holdings services service shop shops store stores centre center
+club golf cafe coffee restaurant bar pub inn hotel gym fitness leisure sport sports market supermarket
+pharmacy chemist garage motors cars car taxi bank insurance energy water gas electric council school
+college university hospital clinic dental dentist optician vet salon barber beauty spa nails bakery
+butchers grocer foods food kitchen grill pizza burger kebab curry takeaway deli diner bistro brasserie
+books music games travel tours airlines airways air rail trains train bus coach parking fuel petrol
+station shell tesco asda amazon apple google microsoft paypal uber eats deliveroo online direct retail
+pay payments play app apps tv radio media digital software cloud hosting mobile telecom broadband
+fitness yoga pilates padel tennis squash badminton swimming pool course links estate lettings
+properties property rentals rent builders building plumbing electrical joinery roofing decorating
+cleaning laundry dry florist flowers gifts cards toys kids baby pets pet feed farm nursery
+church trust charity foundation society association union fund pension isa invest investments
+""".split())
+
+_WORD_RE = re.compile(r"[a-z]+")
+
+
+def looks_like_a_person(key: str, *, has_merchant_name: bool = False) -> bool:
+    """Deterministic person-shape refusal for a bare payee name that carries no
+    FP, TO or via wording. Safe direction is exclusion."""
+    words = key.lower().split()
+    if not words:
+        return False
+    if any(len(w) == 1 and w.isalpha() for w in words):
+        return True                      # a standalone initial: "j smith", "c c gondwe"
+    if not all(_WORD_RE.fullmatch(w) for w in words):
+        return False
+    if any(w in BUSINESS_TOKENS for w in words):
+        return False
+    if len(words) == 1:
+        return False
+    if len(words) <= 3 and not has_merchant_name:
+        return True
+    return len(words) == 4                # every word name-like, four plain words
+
 
 PRIVACY_REASONS = ("empty_key", "transfer", "person_payment", "own_name", "account_digits", "contact_detail")
 
@@ -121,6 +161,7 @@ def privacy_exclusion(
     category: Optional[str] = None,
     identity: Optional[dict] = None,
     own_account_id=None,
+    has_merchant_name: bool = False,
 ) -> Optional[str]:
     """Why this merchant must NOT leave the user's scope, or None when it may.
 
@@ -165,6 +206,8 @@ def privacy_exclusion(
     for text in samples:
         if _P2P_TEXT_RE.search(text):
             return "person_payment"
+    if looks_like_a_person(key, has_merchant_name=has_merchant_name):
+        return "person_payment"
     return None
 
 
@@ -520,6 +563,44 @@ async def _release(key: str, cooldown: bool = False, now: Optional[datetime] = N
         pass
 
 
+async def _store_refresh(existing: Optional[dict], doc: dict, now: datetime) -> dict:
+    """Write a looked-up entry. A refresh that comes back not_found or not_a_business
+    never wipes a good found entry: its date is bumped and its description kept."""
+    if existing and existing.get("status") == FOUND and doc.get("status") != FOUND:
+        await vendors_col.update_one({"_id": doc["_id"]}, {"$set": {"looked_up_at": now}})
+        return {**existing, "looked_up_at": now}
+    await _write_directory(doc)
+    return doc
+
+
+WRITEUP_FAILURES_BEFORE_BACKOFF = 5
+WRITEUP_BACKOFF = timedelta(hours=1)
+
+
+async def _note_writeup_failure(now: datetime) -> None:
+    """A dead model key would otherwise burn one Tavily call per merchant per hour:
+    after N consecutive write-up failures, stop all lookups for an hour."""
+    try:
+        await worker_runs_col.update_one({"_id": STATE_DOC_ID}, {"$inc": {"writeup_failures": 1}}, upsert=True)
+        doc = await worker_runs_col.find_one({"_id": STATE_DOC_ID})
+        if int((doc or {}).get("writeup_failures") or 0) >= WRITEUP_FAILURES_BEFORE_BACKOFF:
+            await worker_runs_col.update_one(
+                {"_id": STATE_DOC_ID},
+                {"$set": {"skip_until": now + WRITEUP_BACKOFF, "last_error_code": "write_up",
+                          "lookup_status": "failing", "writeup_failures": 0}},
+            )
+    except Exception:
+        log.warning("vendor lookups: could not record write-up failure")
+
+
+async def _reset_writeup_failures() -> None:
+    try:
+        await worker_runs_col.update_one({"_id": STATE_DOC_ID, "writeup_failures": {"$gt": 0}},
+                                         {"$set": {"writeup_failures": 0}})
+    except Exception:
+        pass
+
+
 async def ensure_vendor(
     key: str, budget: SyncBudget, now: Optional[datetime] = None,
 ) -> tuple[Optional[dict], Optional[str]]:
@@ -563,8 +644,7 @@ async def ensure_vendor(
         await record_success(now)
         if not found["answer"] and not found["snippets"]:
             doc = _doc_from_llm(key, {"status": NOT_FOUND}, found["urls"], now)
-            await _write_directory(doc)
-            return doc, None
+            return await _store_refresh(existing, doc, now), None
         llm = await _llm_json(
             cfg.VENDOR_REASONING_MODEL, _describe_prompt(key, found),
             user_id=None, pipeline="vendor_lookup", max_tokens=400,
@@ -572,9 +652,10 @@ async def ensure_vendor(
         doc = _doc_from_llm(key, llm, found["urls"], now) if llm else None
         if doc is None:
             cooldown = True
+            await _note_writeup_failure(now)
             return existing, "write_up_failed"
-        await _write_directory(doc)
-        return doc, None
+        await _reset_writeup_failures()
+        return await _store_refresh(existing, doc, now), None
     finally:
         await _release(key, cooldown=cooldown, now=now)
 
@@ -701,10 +782,14 @@ async def _gather(uid: str) -> tuple[list[str], dict, dict, dict]:
         key = cat.canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or "")
         if not key:
             continue
-        g = groups.setdefault(key, {"ids": [], "texts": [], "cats": Counter(), "latest": None, "accounts": set(),
+        g = groups.setdefault(key, {"ids": [], "texts": [], "all_texts": set(), "named": False, "cats": Counter(), "latest": None, "accounts": set(),
                                     "sample": t})
         g["ids"].append(t["_id"])
         text = _row_text(t)
+        if text:
+            g["all_texts"].add(text)
+        if (t.get("merchant_name") or "").strip():
+            g["named"] = True
         if text and text not in g["texts"] and len(g["texts"]) < 5:
             g["texts"].append(text)
         g["cats"][t.get("category")] += 1
@@ -743,14 +828,27 @@ async def _rule_patterns(uid: str) -> list[re.Pattern]:
     return out
 
 
+def _rule_matches(rules: list, g: dict) -> bool:
+    """A user rule matching ANY row of the merchant (not just the sampled few)."""
+    return any(p.search(t.lower()) for p in rules for t in g["all_texts"])
+
+
 def has_custom_categories(allowed: list[str]) -> bool:
     return len(allowed) > len(_builtin_names())
 
 
 async def apply_decisions_for_user(uid: str) -> int:
     """Cache-only pass for apply_rules_bulk (no network, no model): write each stored
-    per-user decision onto the user's still-open debit rows. A no-op for a user with
-    no stored decisions, which is every user without custom categories."""
+    per-user decision onto the user's still-open debit rows. Returns 0 at once when the
+    ladder is switched off or the user has no custom categories. Skips decisions made
+    against a different set of categories, merchants the user corrected, and merchants a
+    user rule covers."""
+    if not cfg.VENDOR_LADDER_ENABLED:
+        return 0
+    from app.services import categorisation as cat
+    allowed = await cat.user_allowed_categories(uid)
+    if not has_custom_categories(allowed):
+        return 0
     decisions = {
         d["merchant_key"]: d
         for d in await user_vendor_categories_col.find({"user_id": uid}).to_list(None)
@@ -758,11 +856,21 @@ async def apply_decisions_for_user(uid: str) -> int:
     }
     if not decisions:
         return 0
+    chash = categories_hash(allowed)
+    decisions = {k: d for k, d in decisions.items() if d.get("categories_hash") == chash}
+    if not decisions:
+        return 0
     allowed, _kinds, _identity, groups = await _gather(uid)
+    if not groups:
+        return 0
+    corrected = await _corrected_keys(uid)
+    rules = await _rule_patterns(uid)
     updated = 0
     for key, g in groups.items():
         d = decisions.get(key)
         if not d or d.get("category") in (None, "Other") or d.get("category") not in allowed:
+            continue
+        if key in corrected or _rule_matches(rules, g):
             continue
         res = await transactions_col.update_many(
             {"_id": {"$in": g["ids"]}, "custom_category": None, "category": {"$ne": d["category"]}},
@@ -825,11 +933,11 @@ async def run_vendor_ladder(
         if key in corrected:
             stats["corrected_skipped"] += 1
             continue
-        if any(p.search(t.lower()) for p in rules for t in g["texts"]):
+        if _rule_matches(rules, g):
             stats["rule_skipped"] += 1
             continue
         top_cat = g["cats"].most_common(1)[0][0]
-        why = privacy_exclusion(key, g["texts"], category=top_cat, identity=identity,
+        why = privacy_exclusion(key, g["texts"], category=top_cat, identity=identity, has_merchant_name=g["named"],
                                 own_account_id=next(iter(g["accounts"]), None))
         if why:
             stats["private_skipped"][why] = stats["private_skipped"].get(why, 0) + 1

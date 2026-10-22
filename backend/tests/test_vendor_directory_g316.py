@@ -169,6 +169,30 @@ def test_privacy_exclusion_reasons(key, texts, category, expected):
     assert vd.privacy_exclusion(key, texts, category=category, identity=KEVIN_IDENTITY) == expected
 
 
+@pytest.mark.parametrize("key,text", [
+    ("c c gondwe", "C C GONDWE"),
+    ("j smith", "J SMITH"),
+    ("daniel gondwe", "DANIEL GONDWE"),
+    ("jo bloggs", "JO BLOGGS"),
+    ("smith", "FASTER PAYMENTS TO J SMITH"),
+    ("widney manor golf bar cafe 1 x", "WIDNEY X 1"),
+])
+def test_bare_payee_names_are_refused(key, text):
+    assert vd.privacy_exclusion(key, [text], category="Shopping", identity=NO_IDENTITY) == "person_payment"
+
+
+@pytest.mark.parametrize("key", ["widney manor golf", "charles waite golf", "playtomic", "tesco stores", "the gym ltd"])
+def test_business_shaped_keys_stay_allowed(key):
+    assert vd.privacy_exclusion(key, [key.upper()], category="Health", identity=NO_IDENTITY) is None
+
+
+def test_a_named_provider_merchant_may_have_two_plain_words():
+    assert vd.privacy_exclusion("green dragon", ["GREEN DRAGON"], category="Shopping",
+                                identity=NO_IDENTITY, has_merchant_name=True) is None
+    assert vd.privacy_exclusion("green dragon", ["GREEN DRAGON"], category="Shopping",
+                                identity=NO_IDENTITY, has_merchant_name=False) == "person_payment"
+
+
 def test_a_plain_business_is_allowed():
     assert vd.privacy_exclusion("widney manor golf", ["WIDNEY MANOR GOLF ON 19 OCT CPM"],
                                 category="Health", identity=NO_IDENTITY) is None
@@ -470,7 +494,8 @@ def test_stored_decision_applies_without_any_network(env):
     t = env.add_txn(KEVIN, "WIDNEY MANOR GOLF", category="Health")
     env.decisions.docs[f"{KEVIN}::widney manor golf"] = {
         "_id": f"{KEVIN}::widney manor golf", "user_id": KEVIN, "merchant_key": "widney manor golf",
-        "category": "Golf", "reason": "r"}
+        "category": "Golf", "reason": "r",
+        "categories_hash": vd.categories_hash(cat.VALID_CATEGORIES + env.customs[KEVIN])}
     assert run(vd.apply_decisions_for_user(KEVIN)) == 1
     assert env.cat_of(t) == "Golf"
 
@@ -487,10 +512,82 @@ def test_a_new_custom_category_makes_the_decision_stale_so_it_is_matched_again(e
 
 
 def test_kill_switch_disables_the_ladder(env, monkeypatch):
-    monkeypatch.setattr(vd.cfg, "VENDOR_LADDER_ENABLED", False)
     t = env.add_txn(KEVIN, "WIDNEY MANOR GOLF")
+    env.decisions.docs[f"{KEVIN}::widney manor golf"] = {
+        "_id": f"{KEVIN}::widney manor golf", "user_id": KEVIN, "merchant_key": "widney manor golf",
+        "category": "Golf", "reason": "r", "categories_hash": vd.categories_hash(cat.VALID_CATEGORIES + env.customs[KEVIN])}
+    monkeypatch.setattr(vd.cfg, "VENDOR_LADDER_ENABLED", False)
+    reads = []
+
+    class Spy(Col):
+        def find(self, *a, **k):
+            reads.append(1)
+            return super().find(*a, **k)
+
+        async def find_one(self, *a, **k):
+            reads.append(1)
+            return await super().find_one(*a, **k)
+    for n in ("txns", "decisions"):
+        spy = Spy(n, list(getattr(env, n).docs.values()))
+        monkeypatch.setattr(vd, {"txns": "transactions_col", "decisions": "user_vendor_categories_col"}[n], spy)
     stats = run(vd.run_vendor_ladder(KEVIN, now=NOW))
     assert stats["skipped"] == "disabled" and env.tavily_calls == [] and env.cat_of(t) == "Health"
+    assert run(vd.apply_decisions_for_user(KEVIN)) == 0
+    assert reads == [] and env.cat_of(t) == "Health"
+
+
+def test_apply_decisions_needs_custom_categories_and_a_matching_category_set(env):
+    t = env.add_txn(KEVIN, "WIDNEY MANOR GOLF", category="Health")
+    doc = {"_id": f"{KEVIN}::widney manor golf", "user_id": KEVIN, "merchant_key": "widney manor golf",
+           "category": "Golf", "reason": "r", "categories_hash": "stale"}
+    env.decisions.docs[doc["_id"]] = doc
+    assert run(vd.apply_decisions_for_user(KEVIN)) == 0 and env.cat_of(t) == "Health"   # hash differs
+    doc["categories_hash"] = vd.categories_hash(cat.VALID_CATEGORIES + env.customs[KEVIN])
+    env.customs[KEVIN] = []
+    assert run(vd.apply_decisions_for_user(KEVIN)) == 0 and env.cat_of(t) == "Health"   # no custom categories
+
+
+def test_apply_decisions_skips_corrected_merchants_and_rule_matches(env):
+    h = vd.categories_hash(cat.VALID_CATEGORIES + env.customs[KEVIN])
+    for k in ("widney manor golf", "alpha golf"):
+        env.decisions.docs[f"{KEVIN}::{k}"] = {"_id": f"{KEVIN}::{k}", "user_id": KEVIN, "merchant_key": k,
+                                               "category": "Golf", "categories_hash": h}
+    a = env.add_txn(KEVIN, "WIDNEY MANOR GOLF")
+    env.add_txn(KEVIN, "WIDNEY MANOR GOLF", category="Padel", custom="Padel")
+    b = env.add_txn(KEVIN, "ALPHA GOLF")
+    env.rules.docs["r"] = {"_id": "r", "uid": KEVIN, "pattern": "alpha", "category": "Padel"}
+    assert run(vd.apply_decisions_for_user(KEVIN)) == 0
+    assert env.cat_of(a) == "Health" and env.cat_of(b) == "Health"
+
+
+def test_refresh_returning_not_found_keeps_the_found_entry(env):
+    env.tavily_answer = {"answer": "", "snippets": [], "urls": []}
+    old = NOW - timedelta(days=400)
+    env.vendors.docs["widney manor golf"] = {
+        "_id": "widney manor golf", "merchant_key": "widney manor golf", "status": "found",
+        "description": "Members golf club.", "display_name": "Widney Manor Golf", "type_tags": [],
+        "domain": None, "sources": [], "confidence": "high", "version": 1, "looked_up_at": old}
+    run(vd.ensure_vendor("widney manor golf", vd.SyncBudget(), NOW))
+    d = env.vendors.docs["widney manor golf"]
+    assert d["status"] == "found" and d["description"] == "Members golf club." and d["looked_up_at"] == NOW
+
+
+def test_rule_matching_only_a_later_row_still_beats_the_ladder(env):
+    env.rules.docs["r"] = {"_id": "r", "uid": KEVIN, "pattern": "on 7 oct", "category": "Padel"}
+    for i in range(7):
+        env.add_txn(KEVIN, f"WIDNEY MANOR GOLF ON {i + 1} OCT")
+    stats = run(vd.run_vendor_ladder(KEVIN, now=NOW))
+    assert stats["merchants"] == 1 and stats["rule_skipped"] == 1 and env.tavily_calls == []
+
+
+def test_repeated_write_up_failures_trigger_a_short_global_backoff(env):
+    env.describe = {"status": "banana"}
+    for i in range(8):
+        env.add_txn(KEVIN, f"ALPHA{chr(97 + i)} GOLF")
+    s = run(vd.run_vendor_ladder(KEVIN, now=NOW, budget=vd.SyncBudget(20)))
+    assert len(env.tavily_calls) == 5 and s["deferred"].get("backoff") == 3
+    assert run(vd.backoff_until(NOW + timedelta(minutes=30)))
+    assert not run(vd.backoff_until(NOW + timedelta(minutes=61)))
 
 
 # ── Display name helper ─────────────────────────────────────────────────────
