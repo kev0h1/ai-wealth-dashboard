@@ -2,6 +2,8 @@
 
 Background: ENGINE.md, "The Vendor Directory". Code: `backend/app/services/vendor_directory.py`.
 
+**Ships dark.** `VENDOR_LADDER_ENABLED` defaults to off (see `docs/ops/ENV.md`). Kevin enables it per host after signing off a real report (OpenRouter key and Tavily quota restored first). While off, the backfill refuses `--apply`; the dry run still works.
+
 All commands run from `backend/`. Pass `--env-file .env` (or the shared tree's `backend/.env`) so the script reaches the same database the app uses. The scripts print counts only: never a user id, email, amount or account number.
 
 ## `scripts/backfill_vendor_categories.py`

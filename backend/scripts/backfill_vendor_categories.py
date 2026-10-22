@@ -89,6 +89,11 @@ async def backfill(apply: bool, *, transactions=None, rules_col=None, ladder=Non
 
 
 async def _main(apply: bool) -> int:
+    from app.core import config as cfg
+    if apply and not cfg.VENDOR_LADDER_ENABLED:
+        print("refusing --apply: VENDOR_LADDER_ENABLED is off. It ships dark; Kevin enables it after signing off "
+              "a real vendor-directory report. Dry run is still allowed.")
+        return 2
     from app.db.collections import db
     print(f"database: {db.name}  mode: {'APPLY' if apply else 'dry-run'}")
     counts = await backfill(apply)

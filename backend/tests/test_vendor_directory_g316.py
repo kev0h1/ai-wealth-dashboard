@@ -517,6 +517,21 @@ def test_a_new_custom_category_makes_the_decision_stale_so_it_is_matched_again(e
     assert [p for p, _ in env.llm_calls].count("vendor_match") == 2
 
 
+def test_ladder_ships_off_by_default(monkeypatch):
+    import importlib
+    from app.core import config as config_mod
+    monkeypatch.delenv("VENDOR_LADDER_ENABLED", raising=False)
+    try:
+        importlib.reload(config_mod)
+        assert config_mod.VENDOR_LADDER_ENABLED is False
+        monkeypatch.setenv("VENDOR_LADDER_ENABLED", "true")
+        importlib.reload(config_mod)
+        assert config_mod.VENDOR_LADDER_ENABLED is True
+    finally:
+        monkeypatch.delenv("VENDOR_LADDER_ENABLED", raising=False)
+        importlib.reload(config_mod)
+
+
 def test_kill_switch_disables_the_ladder(env, monkeypatch):
     t = env.add_txn(KEVIN, "WIDNEY MANOR GOLF")
     env.decisions.docs[f"{KEVIN}::widney manor golf"] = {

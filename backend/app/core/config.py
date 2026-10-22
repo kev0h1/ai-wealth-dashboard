@@ -256,9 +256,10 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-# Master switch. When false the ladder never runs and categorisation is
-# exactly as before G316.
-VENDOR_LADDER_ENABLED = os.getenv("VENDOR_LADDER_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+# Master switch. Ships OFF: when false the ladder never runs and categorisation
+# is exactly as before G316. Kevin enables it per host after signing off a real
+# vendor-directory report.
+VENDOR_LADDER_ENABLED = os.getenv("VENDOR_LADDER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 # New web lookups (Tavily search plus one reasoning-model write-up) one sync
 # may start, and the whole service may start per UTC day.
 VENDOR_LOOKUP_CAP_PER_SYNC = _env_int("VENDOR_LOOKUP_CAP_PER_SYNC", 5)
