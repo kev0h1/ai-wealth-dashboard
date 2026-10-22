@@ -307,7 +307,7 @@ async def _get_or_create_customer(uid: str) -> str:
     """Look up `uid`'s Stripe customer id in billing_customers_col,
     creating both the Stripe Customer and the mapping doc on first use.
     `email=uid` since this codebase's user_id IS the user's email
-    (app.core.config.resolve_allowed_email)."""
+    (app.core.allowlist)."""
     from app.db.collections import billing_customers_col
 
     doc = await billing_customers_col.find_one({"user_id": uid})

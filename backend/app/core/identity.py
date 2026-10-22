@@ -20,8 +20,8 @@ generalises that idea into one resolver used by ALL four sign-in handlers
        the verified email itself, lowercased.
     c. Allow list.  `resolve_allowed_signup()` gets the final say on
        spelling: if the candidate (or a Gmail-key match of it) is on
-       ALLOWED_EMAILS, or invited via the in-app allow list (D5, see
-       app.core.allowlist), that spelling wins over anything the alias map
+       the account owner, or invited via the in-app allow list (D5, A174,
+       see app.core.allowlist), that spelling wins over anything the alias map
        produced.
     d. Gate.  Proceed if the candidate is allow-listed OR OPEN_SIGNUP is on;
        otherwise refuse (masked warning, caller turns this into its usual

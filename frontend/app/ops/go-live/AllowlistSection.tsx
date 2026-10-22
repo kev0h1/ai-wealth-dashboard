@@ -1,6 +1,6 @@
 "use client";
 
-// D5: sign-up allow list managed in the app instead of the ALLOWED_EMAILS
+// D5: sign-up allow list managed in the app (database only, A174) instead of an
 // env var + a Railway redeploy. Backend: app/routers/admin_allowlist.py
 // (bot-or-owner gate, same pairing as GET /ops/go-live's own owner check).
 // Every write (invite/revoke) returns the full refreshed list, same
@@ -150,27 +150,6 @@ export function AllowlistSection({
           ))
         )}
       </div>
-
-      {data.env_seeded.length > 0 && (
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            From the env allow list
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {data.env_seeded.map((addr) => (
-              <span
-                key={addr}
-                className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500 dark:bg-white/5 dark:text-slate-400"
-              >
-                {addr}
-                <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-white/10 dark:text-slate-400">
-                  from env
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
 
       <ConfirmDialog
         open={confirmEntry !== null}
