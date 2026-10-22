@@ -73,9 +73,9 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
-    description: "New C22 campaign round: an original Blender receipt, Friday typography and a dated payments calendar. Three distinct directions, light/dark feed and story images, six finished 12-second films and real production components with fictional data. Creative review, not approved advertising. Earlier rounds remain linked in the gallery.",
+    description: "C22 replacement round: three separately designed images and two edited 15-second product films with sound, in light and dark. Uses the latest fully loaded product components with fictional data. Feed and story image downloads, MP4 downloads and previous rounds are in the gallery. Creative review only.",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "The receipt", value: "receipt" }, { label: "Friday?", value: "friday" }, { label: "The month, laid out", value: "calendar" }],
+    variants: [{ label: "What is yours?", value: "amount" }, { label: "By account", value: "account" }, { label: "The working", value: "working" }],
     group: "current",
   },
   {
