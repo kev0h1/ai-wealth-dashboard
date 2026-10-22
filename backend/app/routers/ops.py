@@ -14,14 +14,14 @@ auth_middleware).
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.auth import current_user
 from app.core.config import PRIMARY_EMAIL
-from app.services import backlog
+from app.services import backlog, runtime_settings
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -373,3 +373,58 @@ async def ops_health_alerts_test(user: dict = Depends(current_user)):
     from app.services.health import alerts
 
     return await alerts.send_test(alert_state_col)
+
+
+# ── E10: owner-editable runtime settings ────────────────────────────────────
+# Owner session only. A bot/service credential is refused outright (it carries
+# no email, and is also refused explicitly here so the rule does not depend on
+# that). The response is built from the registry, so a denylisted key is never
+# listed, and a PUT/DELETE for one answers 404 like any unknown key.
+
+
+def _require_owner_session(user: dict) -> str:
+    if user.get("bot_name") or user.get("scopes") is not None:
+        raise HTTPException(403, "Not authorised")
+    _require_owner(user)
+    return (user.get("email") or "").strip().lower()
+
+
+class SettingWrite(BaseModel):
+    value: Any
+    confirm: bool = False
+
+
+def _setting_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, runtime_settings.UnknownSetting):
+        return HTTPException(404, "Unknown setting")
+    if isinstance(exc, runtime_settings.SettingError):
+        return HTTPException(422, str(exc))
+    if isinstance(exc, runtime_settings.ConfirmRequired):
+        return HTTPException(409, {"code": "confirm_required", "message": "Turning this on needs confirm: true."})
+    return HTTPException(503, "Settings store unavailable")
+
+
+@router.get("/settings")
+async def ops_settings(user: dict = Depends(current_user)):
+    _require_owner_session(user)
+    return {"settings": await runtime_settings.snapshot()}
+
+
+@router.put("/settings/{key}")
+async def ops_settings_put(key: str, body: SettingWrite, user: dict = Depends(current_user)):
+    actor = _require_owner_session(user)
+    try:
+        return await runtime_settings.set_value(key, body.value, actor, confirm=body.confirm)
+    except (runtime_settings.UnknownSetting, runtime_settings.SettingError,
+            runtime_settings.ConfirmRequired, runtime_settings.SettingsUnavailable) as exc:
+        raise _setting_http_error(exc)
+
+
+@router.delete("/settings/{key}")
+async def ops_settings_delete(key: str, user: dict = Depends(current_user)):
+    """Remove the database override: the key falls back to env, then default."""
+    actor = _require_owner_session(user)
+    try:
+        return await runtime_settings.clear_value(key, actor)
+    except (runtime_settings.UnknownSetting, runtime_settings.SettingsUnavailable) as exc:
+        raise _setting_http_error(exc)

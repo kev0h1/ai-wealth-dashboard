@@ -20,7 +20,7 @@ export const ALERTS_TITLE = "Alerts";
 
 // E8: alert block wording, shared with scripts/e7-health-page.test.mjs.
 export const ALERTS_WORDING = {
-  off: "Alerts are off. Set ALERTS_ENABLED on the server to turn them on.",
+  off: "Alerts are off. Turn them on in Runtime settings below.",
   none: "No open alerts.",
   noHistory: "Nothing in the last 24 hours.",
   testButton: "Send test alert",

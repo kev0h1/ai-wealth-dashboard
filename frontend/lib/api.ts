@@ -1941,6 +1941,21 @@ export type OpsRecentWebhooks = {
   webhook_counts_24h: Record<string, Record<string, number>>;
   counts_truncated: boolean;
 };
+// E10: GET/PUT/DELETE /ops/settings (owner-only). Built from a server registry:
+// non-secret operational settings only.
+export type OpsSetting = {
+  key: string;
+  label: string;
+  group: string;
+  type: "bool" | "int" | "float" | "str";
+  value: boolean | number | string | null;
+  source: "database" | "env" | "default";
+  default: boolean | number | string | null;
+  min: number | null;
+  max: number | null;
+  confirm_on: boolean;
+  help: string;
+};
 export type OpsCollector = {
   name: string;
   title: string;
@@ -4110,6 +4125,20 @@ export const api = {
   getOpsCollector: (name: string) => get<OpsCollector>(`/ops/health/collectors/${encodeURIComponent(name)}`),
   getOpsTrends: () => get<OpsTrends>("/ops/health/trends"),
   getOpsAlerts: () => get<OpsAlerts>("/ops/health/alerts"),
+  getOpsSettings: () => get<{ settings: OpsSetting[] }>("/ops/settings"),
+  putOpsSetting: async (key: string, value: boolean | number | string, confirm = false): Promise<OpsSetting> => {
+    const res = await fetch(`${API_BASE}/ops/settings/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ value, confirm }),
+    });
+    if (!res.ok) {
+      reportIfUnauthorized(res);
+      throw await apiErrorFromResponse(res);
+    }
+    return res.json();
+  },
+  clearOpsSetting: (key: string) => del<OpsSetting>(`/ops/settings/${encodeURIComponent(key)}`),
   sendOpsTestAlert: () => post<OpsAlertTest>("/ops/health/alerts/test"),
   getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
   getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),

@@ -18,8 +18,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type OpsAlert, type OpsAlerts, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSyncStats, type OpsTrends } from "@/lib/api";
+import { api, type OpsAlert, type OpsAlerts, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSetting, type OpsSyncStats, type OpsTrends } from "@/lib/api";
 import RecentWebhooks, { RECENT_WEBHOOKS_TITLE } from "./RecentWebhooks";
+import RuntimeSettings, { RUNTIME_SETTINGS_TITLE, RUNTIME_SETTINGS_WORDING } from "./RuntimeSettings";
 import { ALERTS_TITLE, ALERTS_WORDING, SECTIONS, TRENDS_TITLE, WORDING } from "./sections";
 
 type Load<T> = { state: "loading" } | { state: "error" } | { state: "forbidden" } | { state: "ok"; data: T };
@@ -517,6 +518,48 @@ function AlertsBlock({ alerts }: { alerts: OpsAlerts }) {
   );
 }
 
+function SettingsBlock() {
+  const [rows, setRows] = useState<OpsSetting[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getOpsSettings()
+      .then((r) => { if (!cancelled) setRows(r.settings); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const apply = async (key: string, run: () => Promise<OpsSetting>) => {
+    setBusyKey(key);
+    setMessage(null);
+    try {
+      const next = await run();
+      setRows((cur) => (cur ?? []).map((r) => (r.key === key ? next : r)));
+      setMessage(RUNTIME_SETTINGS_WORDING.saved);
+    } catch (e) {
+      const detail = e instanceof Error ? e.message.replace(/^\d+:?\s*/, "") : "";
+      setMessage(detail ? `${RUNTIME_SETTINGS_WORDING.failed} ${detail}` : RUNTIME_SETTINGS_WORDING.failed);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  if (failed) return <Unavailable what="runtime settings" />;
+  if (rows === null) return <Skeleton />;
+  return (
+    <RuntimeSettings
+      rows={rows}
+      busyKey={busyKey}
+      message={message}
+      onSave={(key, value, confirm) => apply(key, () => api.putOpsSetting(key, value, confirm))}
+      onClear={(key) => apply(key, () => api.clearOpsSetting(key))}
+    />
+  );
+}
+
 export default function OpsHealthPage() {
   const health = useLoad(api.getOpsHealth);
   const llm = useLoad(api.getOpsLlmUsage);
@@ -576,6 +619,10 @@ export default function OpsHealthPage() {
           {alerts.state === "loading" && <Skeleton />}
           {(alerts.state === "error" || alerts.state === "forbidden") && <Unavailable what="alerts" />}
           {alerts.state === "ok" && <AlertsBlock alerts={alerts.data} />}
+        </Block>
+
+        <Block title={RUNTIME_SETTINGS_TITLE}>
+          <SettingsBlock />
         </Block>
 
         <Block title={TRENDS_TITLE}>
