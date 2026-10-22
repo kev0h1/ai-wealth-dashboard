@@ -85,6 +85,16 @@ instrument_prices_col   = db["instrument_prices"]
 # B48: shared, non-personal savings-tip research (_id = category|provider|band|UK|vN).
 # Holds NO user data: never write a user id, amount or transaction here.
 tip_research_col        = db["tip_research"]
+# G316: the shared vendor directory (_id = merchant_key). Holds ONLY facts about
+# the world: a plain description, type tags, domain, sources, status. Never a
+# category, never a user id, never a transaction or amount (Firewall Rule).
+vendors_col             = db["vendors"]
+# G316: one row per (user, merchant): the category THAT user's categories map the
+# vendor description to, with the reason. _id = "<uid>::<merchant_key>".
+user_vendor_categories_col = db["user_vendor_categories"]
+# G316: in-flight lookup claims and the per-day lookup counter, TTL'd on
+# `expires_at`. Holds merchant keys and counts only, no user id.
+vendor_claims_col       = db["vendor_claims"]
 investment_valuations_col = db["investment_valuations"]  # G271: one daily value snapshot per account, user_id-keyed
 investment_notes_col    = db["investment_contract_notes"]  # per-trade contract notes, additive between statements
 
@@ -598,6 +608,11 @@ ERASURE_MANIFEST = frozenset({
     # `user_id`/`_id == uid` sweep deliberately matches nothing in it. Erasing a
     # user must never delete market research other users' tips read.
     "tip_research_col",
+    # G316: the shared vendor directory and its claim/counter rows hold merchant
+    # facts only (no user id on any document), so erase_user's sweep matches
+    # nothing in them, same decision as tip_research_col. The per-user match
+    # results carry `user_id`, so the sweep removes them with the account.
+    "vendors_col", "vendor_claims_col", "user_vendor_categories_col",
     # G271: per-user daily valuation snapshots (user_id on every document), so
     # erase_user's `user_id` sweep removes them with the account.
     "investment_valuations_col",

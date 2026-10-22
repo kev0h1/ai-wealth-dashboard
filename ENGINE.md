@@ -103,7 +103,7 @@ Four tiers, cost-ordered, escalated only when the tier above gives up. Every ans
 
 1. **Deterministic** — merchant identity (`merchant_key`), the learned cache, user rules. Free, instant. Absorbs the vast majority. (Today: `MERCHANT_PATTERNS` + Passes 0–3.5 in `backend/app/services/categorisation.py`.)
 2. **LLM judgement** — the existing name-check / classify pass on the Haiku tier (`llm_name_check`, `categorise_others_bg` in `categorisation.py`, `anthropic/claude-haiku-4-5`). Cheap, for routine ambiguity. Direction (debit/credit) is part of the signal handed to the model on every line, not just the text: amounts are absolute and `transaction_type` carries direction, so a description alone can't tell the model which way money moved. A debit can never be Income, whatever the text says.
-3. **Web search + reasoning** — for merchants that survive tiers 1–2, one Tavily search ("What is Playtomic?" — the key already exists, `TAVILY_API_KEY` at `backend/app/core/config.py:22`) synthesised by a Sonnet-tier call into a judgement.
+3. **Web search + reasoning** — for merchants that survive tiers 1–2, one Tavily search ("What is Playtomic?" — the key already exists, `TAVILY_API_KEY` at `backend/app/core/config.py:22`) synthesised by a Sonnet-tier call. **Since G316 (2026-10-22) this tier runs at sync time and writes a description, not a category**: see "The Vendor Directory" below.
 4. **Ask the user** — last resort. ≤50 characters, in Penny's voice. Precedent: the debt page's `ask_card` ("tell me how you use it and the picture sharpens", `backend/app/services/debt_narration.py:100`).
 
 **The One-Way Ladder Rule.** Escalation is one-way and paid once. A merchant only reaches tier 3 after tiers 1–2 fail; model tiering follows the deciding-vs-formatting split — pay for reasoning exactly where reasoning happens (tier 3), never blanket-upgrade the routine tiers. A tier-3 web answer becomes a cached tier-1 fact, so the fifth Playtomic row costs nothing.
@@ -136,6 +136,31 @@ The engine already scopes name-based decisions per user (`cache_merchant(..., ui
 A built-in category name is not, by itself, proof a merchant key is safe to share: the 2026-08-17 incident cached "MAINGI KM" globally under Income because Income is a built-in, and the account owner's own standing-order text then stood ready to poison categorisation for anyone else's colliding bank narrative. `cache_merchant` now gates every global write behind kind (spend-kind built-ins only, movement and income always stay per-user) and shape (a key that names or addresses a person, by owner-name match or payment-reference pattern, stays per-user regardless of category).
 
 **The Destination Rule.** Spending gets vocabulary; movement gets destinations. Categories answer "what did you consume?" — and consumption has no account on the other end. Moved money always has an other end, and the engine can usually see it: own-transfer detection identifies the counterparty (`is_own_transfer`, `categorisation.py:149`), and the pot ledger knows which goal that account funds (`compute_pot_ledger`, `backend/app/routers/commitments.py`). So movement is never explained by a category — "£1,020 to WISE" does not become a House Fund *category*; it resolves to a destination: an existing pot/goal, a newly linked offline pot for accounts the engine cannot see (supported since goals v2, `manual_accounts_col`), or at minimum "an account of mine elsewhere" with no goal attached. The teaching flow forks on kind: a spend correction opens the naming picker; a movement resolution asks "is this account yours?" and links into the goal/pot system that already owns verification, payday legs and progress. Two parallel systems describing moved money — movement categories and the pot ledger — was the borrowed core leaking through; the ledger is canonical.
+
+---
+
+## The Vendor Directory (G316, Kevin 2026-10-22)
+
+Tier 3 moved from a manual endpoint to the sync-time ladder, and its output changed shape. A new merchant is looked up on the web ONCE, by anyone; a reasoning-tier model writes a plain one or two sentence description of what it is into a shared table; and each user's own categories are then matched to that description. Code: `backend/app/services/vendor_directory.py`.
+
+**What is global and what is not (the Firewall Rule, applied).** `vendors_col` is keyed by the shared `merchant_key` and holds facts about the world only: `display_name`, `description` ("Members golf club and course in Solihull"), `type_tags`, `domain`, `sources`, `looked_up_at`, `confidence`, `status` (`found` | `not_found` | `not_a_business`). It never holds a category, a user id, an amount or a transaction; `assert_directory_doc` enforces the field list on every write and fails closed. Every category choice is per user, in `user_vendor_categories_col` under `uid::merchant_key`, with the reason and when it was decided. Two users with the same merchant and different categories never see each other's answer.
+
+**The ladder at sync** (`run_vendor_ladder`, called from `categorise_others_bg`, which every sync path already calls; stored decisions are also applied by `apply_rules_bulk` as Pass 3.45, cache-only):
+
+1. Structural passes stay deterministic and first: own transfers, card payments, income, and lender, landlord and rent matches (Mortgage, Rent, Car finance) are final and never reach the ladder. Only debit rows whose category is unset, raw, Other or a spend category are open to it.
+2. A merchant the user has corrected (any row with a `custom_category`) or that one of their rules covers is skipped entirely. Corrections and rules always win, including at write time (`custom_category: None` is part of every update filter).
+3. Per merchant: the user's stored decision, then the directory description, then a lookup if the directory has nothing fresh. The description is matched to the user's categories (built-in plus custom) by the cheap model, with the broad `MERCHANT_PATTERNS` keyword result passed as a **hint**, not an answer.
+4. A user with NO custom categories is never touched: their categorisation is exactly what it was before G316.
+
+**Looked up once.** Tavily search (basic, three results) then the reasoning model writes the entry. Refreshed after 12 months (`VENDOR_REFRESH_DAYS`); `not_found` and `not_a_business` are cached for the same period so they are not retried every sync. A provider failure is never cached as `not_found`, and a failed write-up rests the merchant for an hour.
+
+**Privacy exclusions** (`privacy_exclusion`), applied before anything leaves the user's scope to Tavily, a model or the directory: person-to-person payment wording and shapes (`to <name>`, `via mobile`, `FP <digits>`, faster payment, bank transfer), text carrying the user's own name tokens (the `llm_name_check` prefilter, including a standalone initial), account or sort-code digit patterns (and IBAN, email or phone shapes), and transfers. A hit on any sample excludes the whole merchant. Only the normalised merchant key is searched, never the raw descriptor, and the matcher is shown the description, never raw bank text.
+
+**Cost guards.** Caps per sync and per UTC day, a Mongo claim document per merchant (TTL'd, taken over atomically once expired) so two users hitting the same new merchant trigger one lookup, and a quota backoff: Tavily HTTP 432, auth and rate failures stop lookups for `VENDOR_BACKOFF_HOURS` (24), and the tips research backoff is honoured too because it is the same Tavily key. State shows on `/ops/health` as the `vendor_lookups` block inside the `llm_tavily` collector (lookups today, cap, `backoff_until`, queue depth, directory size). Model tiering: reasoning model only at the lookup write-up (`VENDOR_REASONING_MODEL`), cheap model for every per-user match (`VENDOR_MATCH_MODEL`). Config keys are in `docs/ops/ENV.md`.
+
+**Display names.** `vendor_display_name(merchant_key)` returns the directory's clean name for a later G282 or G315 to read. Nothing consumes it yet.
+
+**Backfill and report.** `backend/scripts/backfill_vendor_categories.py` (dry run by default, counts only) and `backend/scripts/vendor_directory_report.py` (read-only before and after for the account owner): see `docs/ops/VENDOR_DIRECTORY.md` and `docs/engine/vendor-directory-report.md`. Kevin confirms categorisation rule changes, so the report is the gate before the ladder is released.
 
 ---
 
@@ -195,7 +220,7 @@ The doctrine is mostly aspiration today; the pipeline works but its learning loo
 
 **Poisoned cache keys.** Keys built from raw descriptions can embed dates and reference numbers that never recur (the mechanism: `normalise_merchant` retains `A/C 76526682`-style numeric identity; several call sites cache from truncated raw labels, e.g. `categorise_others_bg` caches `normalise_merchant("", label)` at `categorisation.py:757`). Such a key can never match a future row, so the write is dead on arrival. *(The doctrine's "roughly a third poisoned" figure is a data claim, not verifiable from code alone — but the mechanism that produces poisoned keys is present and confirmed.)*
 
-**Tier 3 exists but is bolted to the wrong place.** `tavily_lookup_merchants` (`categorisation.py:296`, `search_depth: "basic"`, one result) is wired only into the manual `/transactions/auto-categorise` endpoint (`transactions.py:369`), not into the sync-time ladder, and there is no reasoning tier on top of the search. Tier 4 (ask the user) does not exist for categorisation at all.
+**Tier 3 exists but is bolted to the wrong place.** *(Superseded by G316, 2026-10-22: see "The Vendor Directory". The manual endpoint remains.)* `tavily_lookup_merchants` (`categorisation.py:296`, `search_depth: "basic"`, one result) is wired only into the manual `/transactions/auto-categorise` endpoint (`transactions.py:369`), not into the sync-time ladder, and there is no reasoning tier on top of the search. Tier 4 (ask the user) does not exist for categorisation at all.
 
 *Prompt cross-check: the recurring trusted-tier thresholds cited as "~line 532" are actually the acceptance logic at `analytics.py:537–550` (line 532 is a comment); everything else in the brief verified at the lines given.*
 
@@ -206,6 +231,6 @@ The doctrine is mostly aspiration today; the pipeline works but its learning loo
 Each stage ships value on its own.
 
 1. **Identity.** `merchant_key` — one shared identity function, stored at sync, indexed — plus the cache-gate fix (learn custom categories) and custom categories injected into the LLM prompt. Fixes the broken loop; unblocks everything below.
-2. **The ladder + scoped learning + the teaching-event stream.** Tiers 1–3 in sequence at sync time, with the global/user split and the Firewall Rule enforced on every write — all reading from one uniform teaching-event stream (the One Stream Rule) so every signal feeds the ladder the same way.
+2. **The ladder + scoped learning + the teaching-event stream.** *(Tier 3 at sync time shipped as the vendor directory, G316.)* Tiers 1–3 in sequence at sync time, with the global/user split and the Firewall Rule enforced on every write — all reading from one uniform teaching-event stream (the One Stream Rule) so every signal feeds the ladder the same way.
 3. **The ask tier.** Tier 4, governed by the Ask Budget Rule — batched, capped, skippable.
 4. **Internalised recurrence + granular attribution.** Retire the trust grid; define regularity from `merchant_key` + cadence; compute overspend attribution deterministically in Python for the Show Your Working Rule.
