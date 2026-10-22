@@ -302,3 +302,35 @@ def test_summary_doc_written_to_worker_runs_col(monkeypatch):
     assert stored["summary"]["reconciled"] == result["reconciled"]
     assert stored["summary"]["spread_minutes"] == result["spread_minutes"]
     assert stored["summary"]["overflow"] == result["overflow"]
+
+
+def test_worker_reads_reconcile_keys_through_runtime_settings(monkeypatch):
+    """E10: a database value beats the module constants, read at run time."""
+    from collections import Counter
+
+    from app.services import runtime_settings
+
+    connections, accounts = _many_tl_connections(100)
+    _patch_common(monkeypatch, connections=connections, accounts=accounts)
+    _patch_now(monkeypatch)
+    monkeypatch.setattr(
+        sync_worker, "get_subscription",
+        _make_subscription_lookup({"std@example.com": Tier.STANDARD}),
+    )
+    monkeypatch.setattr(sync_worker, "RECONCILE_MAX_PER_MINUTE", 40)
+    monkeypatch.setattr(sync_worker, "RECONCILE_MIN_GAP_SECONDS", 2)
+    monkeypatch.setattr(sync_worker, "RECONCILE_SPREAD_MINUTES", 210)
+
+    async def _no_refresh(*a, **k):
+        return None
+
+    monkeypatch.setattr(runtime_settings, "ensure_fresh", _no_refresh)
+    monkeypatch.setitem(runtime_settings._state["values"], "RECONCILE_SPREAD_MINUTES", 30)
+    monkeypatch.setitem(runtime_settings._state["values"], "RECONCILE_MAX_PER_MINUTE", 10)
+    arq = FakeArq()
+
+    result = asyncio.run(sync_worker.task_reconcile_truelayer(_ctx(arq)))
+
+    assert result["spread_minutes"] == 30
+    seconds = [c[1]["_defer_by"].total_seconds() for c in arq.calls]
+    assert all(c <= 10 for c in Counter(int(s) // 60 for s in seconds).values())
