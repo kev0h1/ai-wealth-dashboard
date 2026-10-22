@@ -333,7 +333,9 @@ def test_account_plan_row_reports_filled_and_released(monkeypatch):
     row = rows[0]
     assert row["filled_amount"] == 80.0 and row["remaining"] == 0
     assert row["paid_this_period"] is True and row["paid_amount"] == 80.0
-    assert row["period_amount"] >= 80 and row["fulfilment"]["state"] == "fulfilled"
+    # G318 includes the live period in the schedule. The matched £80 can
+    # exceed the ordinary £75 total while still releasing its whole reserve.
+    assert row["period_amount"] == 75 and row["fulfilment"]["state"] == "fulfilled"
     assert row["fulfilment"]["matched"][0]["label"].lower().startswith("to japan pot")
 
 

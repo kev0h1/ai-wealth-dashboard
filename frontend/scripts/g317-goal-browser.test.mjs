@@ -35,6 +35,11 @@ try {
     assert.match(await body(), /Everyday account/); assert.doesNotMatch(await body(), /Joint current account|Link goal to an account/);
     assert.match(await body(), /Suggested from recent transfers/); assert.match(await body(), /Not tracking a payment/);
     await fit(`${host}-${width}-view`, width === 320); checks++;
+    await click("Change this period’s contribution");
+    await b.waitFor(`${sheet}?.textContent.includes('This is already your amount for this pay period.')`);
+    assert.equal(await b.evaluate(`${button("Review changes")}.disabled`), true);
+    assert.equal((await writes()).length, 0); checks++;
+    await click("Back to plan"); await b.waitFor("document.querySelector('[data-plan-record]')");
     await click("Edit plan"); await b.waitFor("document.querySelector('[data-plan-editor-step]')?.dataset.planEditorStep==='purpose'");
     await b.type("document.querySelector('#commitment-name')", "Discard this draft"); await click("Back to plan");
     await b.waitFor("document.querySelector('[data-plan-record]')"); assert.doesNotMatch(await body(), /Discard this draft/); assert.equal((await writes()).length, 0); checks++;

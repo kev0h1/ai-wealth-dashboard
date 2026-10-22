@@ -101,10 +101,9 @@ def test_engine_figures_for_the_japan_example(monkeypatch):
     doc = _japan()
     _setup(monkeypatch, [doc])
     base = _get(doc)
-    assert (base["usual_slice"], base["per_period_slice"], base["periods_left"]) == (80, 80, 25)
+    assert (base["usual_slice"], base["per_period_slice"], base["periods_left"]) == (80, 80, 26)
     opts = _preview(doc, 3000)
-    # Mid-period the current period is not one of the counted starts, so the
-    # engine already has 25 later periods: 1,970 / 25 rounds up to 80.
+    # The live October slot counts too; 25 slots remain after this period.
     assert opts["keep_date"]["later_slice"] == 80 and opts["keep_date"]["refused"] is None
     assert opts["keep_amount"]["date_moves_periods"] == 0 and opts["keep_amount"]["target_date"] == "2028-11-01"
 
@@ -129,7 +128,7 @@ def test_easing_lapses_when_the_next_period_starts(monkeypatch):
     _ease(doc, 3000)
     _today(monkeypatch, date(2026, 11, 2))
     out = _get(doc)
-    assert out["eased_this_period"] is None and out["per_period_slice"] == out["usual_slice"] == 85
+    assert out["eased_this_period"] is None and out["per_period_slice"] == out["usual_slice"] == 80
     assert "2026-10-31" in doc["period_eased"]  # kept as history for the caps
 
 
@@ -246,7 +245,7 @@ def test_editing_the_plan_clears_the_live_easing_but_history_still_counts(monkey
     asyncio.run(commitments.update_commitment(str(doc["_id"]), {"name": "Japan trip", "amount": 2000}, USER))
     assert _get(doc)["eased_this_period"] == 30
     out = asyncio.run(commitments.update_commitment(str(doc["_id"]), {"amount": 2400}, USER))
-    assert out["eased_this_period"] is None and out["per_period_slice"] == out["usual_slice"] == 100
+    assert out["eased_this_period"] is None and out["per_period_slice"] == out["usual_slice"] == 95
     assert doc["period_eased"]["2026-10-31"]["cleared"] is True
     assert out["eased_count_12m"] == 1
     out = asyncio.run(commitments.update_commitment(str(doc["_id"]), {"target_date": "2028-12-01"}, USER))

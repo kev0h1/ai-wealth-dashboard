@@ -2055,7 +2055,7 @@ export function AllocationShortfallCard({ item, hideNetWorth: hideNetWorthProp =
           services={services}
           suggestedSourceId={data.estimated ? paying.account_id : null}
           onClose={() => setEditing(null)}
-          onSaved={async () => { setEditing(null); await onRefresh?.(); }}
+          onSaved={async item => { setEditing(current => current ? { ...current, allocation: item } : current); await onRefresh?.(); }}
           onDeleted={async () => { setEditing(null); await onRefresh?.(); }}
         />
       )}

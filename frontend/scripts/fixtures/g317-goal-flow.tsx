@@ -22,13 +22,15 @@ export default function GoalFlowFixture() {
   const [hidden, setHidden] = useState(false);
   const [blockLater, setBlockLater] = useState(false);
   const failures = useRef({ refresh: false, lookup: false, save: false });
-  const recordRef = useRef(record); recordRef.current = record;
-  const blockedRef = useRef(blockLater); blockedRef.current = blockLater;
+  const recordRef = useRef(record);
+  useEffect(() => { recordRef.current = record; }, [record]);
+  const blockedRef = useRef(blockLater);
+  useEffect(() => { blockedRef.current = blockLater; }, [blockLater]);
   useEffect(() => { document.documentElement.dataset.g317Ready = "true"; return () => { delete document.documentElement.dataset.g317Ready; }; }, []);
   const services = useMemo(() => {
     function preview(pence: number): GoalContributionPreview {
       const c = recordRef.current, contribution = Math.min(c.remaining, pence / 100), after = c.remaining - contribution;
-      return { period_start: "2026-11-01", period_end: "2026-11-30", target_date: c.target_date, requested_contribution: pence / 100, contribution, reserved: contribution, matched_this_period: 0, remaining: c.remaining, remaining_after: after, later_periods: blockedRef.current ? 0 : 2, later_contribution: blockedRef.current && after > 0 ? null : Math.ceil(after / 10) * 5, covers_remaining: after === 0, capped: contribution !== pence / 100, large_increase: after > 250, blocked_reason: blockedRef.current && after > 0 ? "There are no later pay periods before this target date. Choose enough for the remaining target or change the target date separately." : null, preview_token: `fixture-${pence}`, replaces_easing: false };
+      return { period_start: "2026-11-01", period_end: "2026-11-30", target_date: c.target_date, requested_contribution: pence / 100, unchanged: pence === Math.round((c.current_period_contribution?.contribution ?? c.planned_per_period_slice ?? c.per_period_slice) * 100), contribution, reserved: contribution, matched_this_period: 0, remaining: c.remaining, remaining_after: after, later_periods: blockedRef.current ? 0 : 2, later_contribution: blockedRef.current && after > 0 ? null : Math.ceil(after / 10) * 5, covers_remaining: after === 0, capped: contribution !== pence / 100, large_increase: after > 250, blocked_reason: blockedRef.current && after > 0 ? "There are no later pay periods before this target date. Choose enough for the remaining target or change the target date separately." : null, preview_token: `fixture-${pence}`, replaces_easing: false };
     }
     async function write(body: object): Promise<Commitment> {
       if (failures.current.save) { failures.current.save = false; throw Error("Example save failed"); }

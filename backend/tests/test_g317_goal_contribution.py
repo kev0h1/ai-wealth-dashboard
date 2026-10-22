@@ -151,10 +151,10 @@ def test_owner_and_active_guards_apply_to_detail_preview_and_write(monkeypatch):
 @pytest.mark.parametrize("change", [lambda d: d.update(amount=400), lambda d: d.update(paused=True), lambda d: d.update(fill_rule={"match_type": "description_contains", "match_value": "new"}), lambda d: d.update(period_contributions={"2026-11-30": {"contribution_pence": 200}})])
 def test_concurrent_financial_edit_is_refused(monkeypatch, change):
     doc, col = setup(monkeypatch)
-    checked = preview(doc, 10000)
+    checked = preview(doc, 7500)
     col.before_write = change
     with pytest.raises(HTTPException) as exc:
-        save(doc, 10000, checked)
+        save(doc, 7500, checked)
     assert exc.value.status_code == 409
 
 

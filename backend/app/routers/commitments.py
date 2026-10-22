@@ -446,8 +446,11 @@ async def _pot_progress_and_slice(
         progress = round(min(amount, min(pot_sum, amount) + max(0.0, contributed)), 2)
     remaining = round(max(0.0, amount - progress), 2)
     target = date.fromisoformat(str(doc["target_date"])[:10])
-    periods_left = max(1, _period_starts_between(today, target, cfg))
-    per_period_slice = _ceil5(remaining / periods_left) if remaining > 0 else 0
+    # A contribution can still be made in the live pay period. Counting only
+    # starts after today lost that slot midway through a period (G318).
+    _start, _end = get_pay_period_for_date(today, cfg)
+    periods_left = 1 + _later_periods(doc, cfg, _end)
+    per_period_slice = goal_contribution.schedule(round(remaining * 100), periods_left)[0] / 100
     planned_per_period_slice = per_period_slice
     # Pausing is not cancellation: keep the goal ACTIVE in the pot ledger so
     # its already-saved pounds cannot be reassigned to another goal. Only its
@@ -1961,7 +1964,27 @@ async def _contribution_preview(uid: str, doc: dict, contribution_pence: int) ->
     }}
     info = await _pot_progress_and_slice(draft, ctx["cfg"], ctx["ledger"], ctx["today"])
     preview = dict(info["current_period_contribution"])
+    current_total = ctx["info"].get("planned_per_period_slice", ctx["info"]["usual_slice"])
+    preview["unchanged"] = pence == round(current_total * 100)
+    if preview["unchanged"]:
+        # A no-op retains the saved schedule, including its rounding and
+        # fulfilment policy. It must not silently create a manual override.
+        current = ctx["info"].get("current_period_contribution")
+        if current:
+            preview.update(current)
+        else:
+            preview["reserved"] = ctx["info"]["per_period_slice"]
+            preview["matched_this_period"] = (ctx["info"].get("fulfilment") or {}).get("matched_pence", 0) / 100
+            preview["remaining_after"] = round(max(0, ctx["info"]["remaining"] - preview["reserved"]), 2)
+            slots = goal_contribution.schedule(round(ctx["info"]["remaining"] * 100), ctx["info"]["periods_left"])
+            preview["later_contribution"] = slots[1] / 100 if len(slots) > 1 else (0 if preview["remaining_after"] == 0 else None)
+            if ctx["info"].get("eased_this_period") is not None:
+                preview["later_contribution"] = _ease_fields(doc, ctx["cfg"], ctx["info"], ctx["today"])["later_slice"]
+            preview["covers_remaining"] = preview["remaining_after"] == 0
+            preview["blocked_reason"] = None
     preview["replaces_easing"] = bool(
+        not preview["unchanged"]
+        and
         plan_easing.live_entry(doc.get("period_eased"), live_key)
         and not goal_contribution.live_entry(doc.get("period_contributions"), live_key)
     )
@@ -1989,6 +2012,8 @@ async def set_goal_contribution(commitment_id: str, body: dict, user: dict = Dep
     preview, ctx = await _contribution_preview(uid, doc, body.get("contribution_pence"))
     if body.get("period_end") != preview["period_end"] or body.get("preview_token") != preview["preview_token"]:
         raise HTTPException(409, "This plan or pay period changed. Check the contribution again before saving.")
+    if preview["unchanged"]:
+        return await _serialise_one_with_siblings(uid, doc)
     if preview["blocked_reason"]:
         raise HTTPException(422, preview["blocked_reason"])
     # Check rollover again immediately before the write. Stored keys are also
