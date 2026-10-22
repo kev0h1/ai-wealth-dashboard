@@ -247,6 +247,38 @@ TIP_LLM_PHRASING = _parse_flag(os.getenv("TIP_LLM_PHRASING"))
 # users for a profile key to be a crowd rather than a person.
 TIP_RESEARCH_PROFILE_KEYS = _parse_flag(os.getenv("TIP_RESEARCH_PROFILE_KEYS"))
 
+# G316: shared vendor directory and the sync-time categorisation ladder.
+# Every cost guard is a constant with an env override (docs/ops/ENV.md).
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+# Master switch. When false the ladder never runs and categorisation is
+# exactly as before G316.
+VENDOR_LADDER_ENABLED = os.getenv("VENDOR_LADDER_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+# New web lookups (Tavily search plus one reasoning-model write-up) one sync
+# may start, and the whole service may start per UTC day.
+VENDOR_LOOKUP_CAP_PER_SYNC = _env_int("VENDOR_LOOKUP_CAP_PER_SYNC", 5)
+VENDOR_LOOKUP_CAP_PER_DAY = _env_int("VENDOR_LOOKUP_CAP_PER_DAY", 100)
+# Merchants one user's sync may match to that user's categories (cheap model).
+VENDOR_MATCH_CAP_PER_SYNC = _env_int("VENDOR_MATCH_CAP_PER_SYNC", 40)
+# A directory entry (found, not_found or not_a_business) is looked up again
+# after this many days.
+VENDOR_REFRESH_DAYS = _env_int("VENDOR_REFRESH_DAYS", 365)
+# How long one process may hold the in-flight claim on a merchant, and how long
+# a merchant rests after a write-up failure before it is tried again.
+VENDOR_CLAIM_TTL_SECONDS = _env_int("VENDOR_CLAIM_TTL_SECONDS", 120)
+VENDOR_FAILURE_COOLDOWN_SECONDS = _env_int("VENDOR_FAILURE_COOLDOWN_SECONDS", 3600)
+# Tavily quota (HTTP 432), auth and rate failures stop lookups for this long.
+VENDOR_BACKOFF_HOURS = _env_int("VENDOR_BACKOFF_HOURS", 24)
+# Model tiering (ENGINE.md): the reasoning model writes the directory
+# description once; the cheap model matches a description to a user's categories.
+VENDOR_REASONING_MODEL = os.getenv("VENDOR_REASONING_MODEL", "anthropic/claude-sonnet-4-5")
+VENDOR_MATCH_MODEL = os.getenv("VENDOR_MATCH_MODEL", "anthropic/claude-haiku-4-5")
+
 # F10: MCP-only service mode. The same backend image can run as a second
 # Railway service on a dedicated `mcp` hostname, mounting only the
 # oauth/mcp routers (see app.main.build_app's `mcp_only` param), sharing

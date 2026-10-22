@@ -18,6 +18,7 @@ from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
     instrument_prices_col, investment_holdings_col, investment_valuations_col, tip_research_col,
+    vendors_col, user_vendor_categories_col, vendor_claims_col,
     connections_col, accounts_col, transactions_col, preferences_col,
     chat_sessions_col, episodic_memory_col, user_categories_col,
     budgets_col,
@@ -417,6 +418,13 @@ async def _create_indexes():
     await _ensure_index(instrument_prices_col, "fetched_at", name="instrument_fetched_at")
     # B48: shared savings-tip research. _id is the key; fetched_at orders reads.
     await _ensure_index(tip_research_col, "fetched_at", name="tip_research_fetched_at")
+    # G316: shared vendor directory (one row per shared merchant_key), the
+    # per-user match results, and the TTL'd in-flight lookup claims.
+    await _ensure_index(vendors_col, "merchant_key", unique=True, name="vendors_merchant_key_unique")
+    await _ensure_index(vendors_col, "looked_up_at", name="vendors_looked_up_at")
+    await _ensure_index(user_vendor_categories_col, [("user_id", 1), ("merchant_key", 1)],
+                        unique=True, name="user_vendor_categories_user_key_unique")
+    await _ensure_index(vendor_claims_col, "expires_at", expireAfterSeconds=0, name="vendor_claims_expires_at")
     await _ensure_index(investment_holdings_col, "instrument_key", name="holding_instrument_key")
     await _ensure_index(investment_holdings_col, "account_id", name="holding_account_id")
     # G271: daily valuation snapshots, read per account in date order
