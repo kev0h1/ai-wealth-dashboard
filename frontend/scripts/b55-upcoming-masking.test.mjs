@@ -11,13 +11,13 @@ import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.ts
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingRow from "../components/upcoming/UpcomingRow.tsx";
 import UpcomingRowDetails from "../components/upcoming/UpcomingRowDetails.tsx";
-import UpcomingPlanDetails from "../components/upcoming/UpcomingPlanDetails.tsx";
+import { PlanRecordView } from "../components/plans/PlanRecordView.tsx";
 import UnlinkedGoalPlans from "../components/upcoming/UnlinkedGoalPlans.tsx";
 import { planConfirmMessage } from "../components/PlanOneOffSheet.tsx";
 import { maskMoneyText } from "../lib/balancesHidden.tsx";
 import { Landmark } from "lucide-react";
 import SetAsideList from "../components/upcoming/SetAsideList.tsx";
-import { SCENARIOS, PERIOD, plansFor, forecastFor } from "../app/design/g176-account-plans/fixtures.ts";
+import { ACCOUNTS, SCENARIOS, PERIOD, plansFor, forecastFor } from "../app/design/g176-account-plans/fixtures.ts";
 
 const RAW = /£\d/;
 const wrap = (hidden, el) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, el));
@@ -112,12 +112,12 @@ for (const { id } of SCENARIOS) {
   assert.match(sheet(true), /£80\.50/, "payment sheet: headline and This payment line stay visible");
   assert.match(sheet(false), /£321\.50/, "payment sheet: culprit visible when shown");
   renders += 3;
-  for (const { id } of SCENARIOS) {
-    for (const plan of plansFor(id)) {
-      assert.doesNotMatch(wrap(true, h(UpcomingPlanDetails, { plan, accountName: "Monzo" })), RAW, `${id}/${plan.id}: plan sheet masked`);
-      renders++;
-    }
-  }
+  const goalView = (hidden) => wrap(hidden, h(PlanRecordView, { kind: "goal", contribution: 65, cadence: "each pay period", target: { amount: 2000, month: "August 2027" }, progress: 320, sourceAccount: ACCOUNTS[0], destinationAccounts: [ACCOUNTS[2]], trackingLabel: "Not linked yet" }));
+  assert.doesNotMatch(goalView(true), RAW, "canonical goal View masks contribution, target and progress");
+  assert.match(goalView(true), /£••••/, "canonical goal View displays the mask");
+  assert.match(goalView(false), /£65/, "canonical goal View restores contribution");
+  assert.match(goalView(false), /£320 of £2,000/, "canonical goal View restores progress");
+  renders += 2;
   const unlinked = plansFor("unassigned").map((plan) => ({ ...plan, sourceId: null, evidence: "unknown" }));
   assert.doesNotMatch(wrap(true, h(UnlinkedGoalPlans, { plans: unlinked, onPlan() {} })), RAW, "unlinked goals masked");
   assert.match(wrap(false, h(UnlinkedGoalPlans, { plans: unlinked, onPlan() {} })), /£\d/, "unlinked goals visible when shown");

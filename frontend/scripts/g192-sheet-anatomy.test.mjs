@@ -141,9 +141,9 @@ assert.match(flow, /!hasFooter && <div ref=\{fallbackFooterRef\}/, "Footerless f
 assert.match(flow, /useEffect\(retain, \[retain\]\)/, "Embedded action portals retain the pinned footer when present");
 assert.doesNotMatch(category, /<h2 className="text-base font-bold/, "SheetFrame owns the only sheet heading");
 assert.match(commitment, /onClose=\{handleSheetClose\}/);
-assert.match(commitment, /onEscape=\{showConsent \? returnToDraft : commitment && !viewing \? returnToSavedView : !commitment && editorView !== "purpose" \? createPrevious : undefined\}/, "Consent and guided drafts return inside the same sheet, while existing edits discard to saved View");
-assert.match(commitment, /onBack=\{showConsent \? returnToDraft :[^\n]*returnToSavedView/, "Existing goal edits return to the saved record");
-assert.match(commitment, /onHistoryBack=\{showConsent \? returnToDraft :[^\n]*createPrevious/, "Hardware Back steps through the goal journey");
+assert.match(commitment, /onEscape=\{contributionMode \? leaveContribution : showConsent \? returnToDraft : commitment && !viewing \? returnToSavedView : !commitment && editorView !== "purpose" \? createPrevious : undefined\}/, "Contribution, consent and guided drafts stay inside the sheet; existing edits discard to saved View");
+assert.match(commitment, /onBack=\{contributionMode \? leaveContribution : showConsent \? returnToDraft :[^\n]*returnToSavedView/, "Existing goal edits return to the saved record");
+assert.match(commitment, /onHistoryBack=\{contributionMode \? leaveContribution : showConsent \? returnToDraft :[^\n]*createPrevious/, "Hardware Back steps through the goal journey");
 assert.match(a11y, /!closingRef.current && optionsRef.current\?\.onHistoryBack/, "Internal Back is opt-in and explicit close bypasses it");
 assert.match(commitment, /key=\{sheetHistoryGeneration\}/, "Consent Back restores the SheetFrame history entry with the draft intact");
 assert.match(commitment, /allowConsentCloseRef\.current = true/, "A consent save or route handoff still closes the entire sheet");
@@ -160,7 +160,8 @@ assert.match(contractExamples, /useAccountDetailHistory\(setAccountId, \(\) => s
 assert.match(contractExamples, /<SheetFrame title="Account editor"/, "The account fixture uses a real nested production sheet");
 assert.match(contractExamples, /title: "Footerless details", body:/);
 assert.match(contractExamples, /title: "Editor with footer actions", body: <LocalEditor/, "The fixture exercises footerless → portalled editor → footerless flow");
-assert.match(commitment, /allowConsentCloseRef\.current = false;[\s\S]*setSaveError\(true\);/, "A failed consent save restores one-step dismissal");
+assert.match(commitment, /catch \(error\) \{\s*allowConsentCloseRef\.current = false;\s*throw error;/, "A failed consent save restores one-step dismissal before the shared request hook reports it");
+assert.match(commitment, /<EditorError message=\{normalRequest\.error\}/, "The shared request error stays visible in the goal sheet");
 assert.match(commitment, /operations = api/);
 assert.match(commitment, /operations\.previewCommitment/);
 assert.match(commitment, /operations\.createCommitment/);

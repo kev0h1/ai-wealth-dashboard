@@ -35,7 +35,8 @@ for (const method of ["payment", "category", "none"]) {
   cases++;
 }
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
-assert.match(source("../components/CommitmentSheet.tsx"), /useState<PlanEditorStep>\("purpose"\)/);
+assert.match(source("../components/CommitmentSheet.tsx"), /initialStep = "purpose"/);
+assert.match(source("../components/CommitmentSheet.tsx"), /useState<PlanEditorStep>\(initialStep\)/);
 assert.match(source("../components/CommitmentSheet.tsx"), /if \(editorView !== "review"\) return/, "Only the final review can submit a goal");
 assert.match(source("../components/plans/PlanEditorFlow.tsx"), /event\.preventDefault\(\); onContinue\(\)/, "Review navigation must not default-submit the newly rendered Save button");
 assert.match(source("../components/SetAsideSheet.tsx"), /"purpose", "details", "source", "destination", "tracking", "review"/);

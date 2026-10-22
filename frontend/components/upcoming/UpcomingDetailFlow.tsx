@@ -1,9 +1,9 @@
 "use client";
 
-import { displayAccountName } from "@/lib/accountName";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
-import { api, type Account, type Allocation } from "@/lib/api";
+import { type Account, type Allocation, type Commitment } from "@/lib/api";
+import { displayAccountName } from "@/lib/accountName";
 import type { Plan } from "@/lib/upcomingPlans";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
@@ -12,22 +12,22 @@ import { UpcomingEditForm, type UpcomingEditItem, type UpcomingEditServices } fr
 import { PlannedEditForm, type PlannedEditItem, type PlannedEditServices } from "@/components/PlannedEditForm";
 import { AllocationPlanEditor, type AllocationEditServices } from "@/components/AllocationPlanEditor";
 import UpcomingAccountDetails from "./UpcomingAccountDetails";
-import UpcomingPlanDetails from "./UpcomingPlanDetails";
 import UpcomingRowDetails from "./UpcomingRowDetails";
 import type { UpcomingRowModel } from "./UpcomingRow";
-import GoalSourceForm from "./GoalSourceForm";
 import { CategoryIcon, PlanIcon, detailFocus } from "./detailPrimitives";
 import { useEditorRequest } from "./editorSupport";
+import UpcomingGoalPlan, { type UpcomingGoalServices } from "./UpcomingGoalPlan";
 
 export type PaymentDetail = { id: string; model: UpcomingRowModel; editor: UpcomingEditItem; planned?: PlannedEditItem; skip?: () => Promise<void>;
   /** The cashflow item this payment was built from, so an account event (UpcomingAccountEvent.source) can open it. */
   source?: object };
-export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan"; id: string } | { kind: "payment" | "edit-payment"; id: string };
+export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan" | "goal-contribution"; id: string; step?: "details" } | { kind: "payment" | "edit-payment"; id: string };
 export type UpcomingDetailServices = {
   upcoming?: UpcomingEditServices;
   planned?: PlannedEditServices;
   allocation?: AllocationEditServices;
-  changeGoalSource?: (id: string, source: string | null) => Promise<unknown>;
+  /** Complete records only. Upcoming plan rows are read-only forecast projections. */
+  goal?: UpcomingGoalServices;
 };
 export type UpcomingDetailFlowProps = {
   initialView: UpcomingDetailView; onClose(): void;
@@ -68,9 +68,21 @@ function PaymentActions({ payment, navigation }: { payment: PaymentDetail; navig
   </div>;
 }
 
+/** A forecast row can outlive the refreshed allocation record briefly. Do not
+ * substitute a plan projection for a record that is no longer available. */
+function MissingAllocation({ onRetry }: { onRetry(): Promise<void> }) {
+  const request = useEditorRequest();
+  return <div className="space-y-4">
+    <p role="alert" className="text-sm leading-6 text-slate-700 dark:text-slate-200">We could not load this set-aside. It has not been changed.</p>
+    {request.error && <p role="alert" className="text-sm leading-6 text-slate-700 dark:text-slate-200">{request.error}</p>}
+    <button type="button" disabled={request.busy} onClick={() => void request.run(onRetry, undefined, "We could not refresh this set-aside. Please try again.")} className={flowSecondary}>{request.busy ? "Refreshing…" : "Try again"}</button>
+  </div>;
+}
+
 /** The preview and Upcoming mount this exact flow, including the real editors. */
 export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
   const { accounts, summaries, plans, allocations, payments, services } = props;
+  const [goals, setGoals] = useState<Record<string, Commitment>>({});
   function renderView(view: UpcomingDetailView, navigation: UpcomingFlowNavigation<UpcomingDetailView>) {
     const done = <button type="button" className={flowPrimary} onClick={navigation.close}>Done</button>;
     const absent = { title: "Details updated", body: <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">This item is no longer expected in this period.</p>, footer: done };
@@ -105,24 +117,38 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     const plan = plans.find((item) => item.id === view.id);
     if (!plan) return absent;
     const allocation = allocations.find((item) => item.id === plan.recordId);
+    if (plan.kind === "goal") {
+      const goal = plan.recordId ? goals[plan.recordId] : undefined;
+      return {
+        title: view.kind === "edit-plan" ? "Edit plan" : view.kind === "goal-contribution" ? "Change this period" : goal?.name ?? "Goal",
+        subtitle: view.kind === "plan" ? goal ? "Your goal" : "Loading goal" : undefined,
+        leading: <PlanIcon kind="goal" />,
+        body: <UpcomingGoalPlan
+          key={`${view.kind}-${plan.recordId ?? plan.id}`}
+          id={plan.recordId}
+          planId={plan.id}
+          mode={view.kind === "edit-plan" ? "edit" : view.kind === "goal-contribution" ? "contribution" : "view"}
+          editStep={view.kind === "edit-plan" ? view.step : undefined}
+          accounts={accounts}
+          commitment={goal}
+          services={services?.goal}
+          navigation={navigation}
+          onLoaded={(commitment) => setGoals(previous => ({ ...previous, [commitment.id]: commitment }))}
+          onRefresh={props.onRefresh}
+        />,
+      };
+    }
     if (view.kind === "plan") {
       if (plan.kind === "allocation" && allocation) return {
         title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind={plan.kind} />,
         body: <AllocationPlanEditor key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />,
       };
-      const source = accounts.find((account) => account.id === plan.sourceId);
-      return {
-        title: plan.name, subtitle: `${plan.kind === "allocation" ? "Allocation" : "Goal"} · This pay period`, leading: <PlanIcon kind={plan.kind} />,
-        body: <UpcomingPlanDetails plan={plan} accountName={source && plan.evidence !== "unknown" ? `${source.provider} · ${displayAccountName(source.name)}` : null} />,
-        footer: <button type="button" data-flow-focus={`edit-${plan.id}`} className={flowSecondary} onClick={() => navigation.goTo({ kind: "edit-plan", id: plan.id })}><Pencil size={16} aria-hidden="true" />{plan.kind === "allocation" ? "Edit plan" : "Change paying account"}</button>,
-      };
+      return { title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind="allocation" />, body: <MissingAllocation onRetry={props.onRefresh} /> };
     }
     return {
-      title: plan.kind === "allocation" ? "Edit plan" : "Link goal to an account", subtitle: plan.name,
-      body: plan.kind === "goal"
-        ? <GoalSourceForm key={plan.id} plan={plan} accounts={accounts} onCancel={navigation.back} onSaved={saved} onSave={async (source) => { await (services?.changeGoalSource ?? ((id, sourceId) => api.updateCommitment(id, { source_account_id: sourceId })))(plan.recordId!, source); }} />
-          : allocation ? <AllocationPlanEditor key={plan.id} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.back} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />
-          : <p role="status" className="text-sm">The allocation could not be loaded. Close these details and try again.</p>,
+      title: "Set-aside unavailable", subtitle: plan.name,
+      body: allocation ? <AllocationPlanEditor key={plan.id} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.back} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />
+        : <MissingAllocation onRetry={props.onRefresh} />,
     };
   }
   return <UpcomingFlowSheet initialView={props.initialView} onClose={props.onClose} renderView={renderView} />;

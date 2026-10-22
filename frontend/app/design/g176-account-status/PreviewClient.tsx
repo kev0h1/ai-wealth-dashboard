@@ -6,16 +6,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, Moon, Sun } from "lucide-react";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
-import UpcomingPlanDetails from "@/components/upcoming/UpcomingPlanDetails";
 import UpcomingFlowSheet from "@/components/UpcomingFlowSheet";
-import SetAsideList from "@/components/upcoming/SetAsideList";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
-import { PlanIcon } from "@/components/upcoming/detailPrimitives";
 import { fixtureFor, PERIOD, SCENARIOS, type Scenario } from "./fixtures";
 
 const focus = "touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900";
 const muted = "text-slate-600 dark:text-slate-400";
-type View = { kind: "account" | "plan"; id: string };
+type View = { kind: "account"; id: string };
 
 function Preview({ scenario, mode }: { scenario: Scenario; mode: "light" | "dark" }) {
   const fixture = useMemo(() => fixtureFor(scenario), [scenario]);
@@ -51,10 +48,6 @@ function Preview({ scenario, mode }: { scenario: Scenario; mode: "light" | "dark
       <main id="preview" className="mx-auto grid max-w-5xl items-start gap-8 px-3 py-6 pb-28 min-[360px]:px-4 sm:px-6 lg:grid-cols-2 lg:gap-12">
         <section aria-label="Approved account formatting" className="min-w-0 space-y-6">
           <UpcomingAccountsCard {...props} />
-          {fixture.plans.length > 0 && <section aria-labelledby="set-aside-heading">
-            <h2 id="set-aside-heading" className="mb-3 text-sm font-semibold">Set aside this period</h2>
-            <SetAsideList items={fixture.plans.map((plan) => ({ id: plan.id, name: plan.name, feedLabel: plan.destination, amountPerPeriod: plan.periodPence / 100, filledThisPeriod: plan.filledPence / 100, remaining: (plan.remainingPence ?? 0) / 100, recurrence: "every_period", pending: false, completed: false }))} onEdit={(id) => setView({ kind: "plan", id })} />
-          </section>}
         </section>
         <section aria-label="About this refinement" className="min-w-0 space-y-5">
           <div>
@@ -73,14 +66,9 @@ function Preview({ scenario, mode }: { scenario: Scenario; mode: "light" | "dark
     </div>
     {view && <UpcomingFlowSheet<View> initialView={view} onClose={() => setView(null)} renderView={(current, navigation) => {
       const action = (text: string, onClick: () => void) => <button type="button" onClick={onClick} className={`flex min-h-11 w-full items-center justify-center rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 active:opacity-70 ${focus}`}>{text}</button>;
-      if (current.kind === "account") {
-        const account = fixture.accounts.find((item) => item.id === current.id)!;
-        const meta = BANK_META[bankKey({ provider: account.bank })];
-        return { title: account.bank, subtitle: `${account.name} · ${PERIOD}`, leading: <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2)} altText="" size={36} />, body: <UpcomingAccountDetails account={account} plans={fixture.plans} plansStatus={plansStatus} periodLabel={PERIOD} onPlan={(id) => navigation.goTo({ kind: "plan", id })} />, footer: action("Done", navigation.close) };
-      }
-      const plan = fixture.plans.find((item) => item.id === current.id)!;
-      const account = fixture.accounts.find((item) => item.id === plan.sourceId);
-      return { title: plan.name, subtitle: "Allocation · This pay period", leading: <PlanIcon kind={plan.kind} />, body: <UpcomingPlanDetails plan={plan} accountName={account ? `${account.bank} · ${account.name}` : null} />, footer: action(view.kind === "account" ? "Back to account" : "Done", view.kind === "account" ? navigation.back : navigation.close) };
+      const account = fixture.accounts.find((item) => item.id === current.id)!;
+      const meta = BANK_META[bankKey({ provider: account.bank })];
+      return { title: account.bank, subtitle: `${account.name} · ${PERIOD}`, leading: <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2)} altText="" size={36} />, body: <UpcomingAccountDetails account={account} plans={fixture.plans} plansStatus={plansStatus} periodLabel={PERIOD} />, footer: action("Done", navigation.close) };
     }} />}
   </>;
 }

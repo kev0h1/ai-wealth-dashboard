@@ -1112,7 +1112,7 @@ async def _active_commitment_slices(
     """Per-destination payday slices for the user's ACTIVE commitments (named
     future big expenses funded from one or more pots — goals v2).
 
-    Returns {dest_account_id: {"slice_total": int, "names": [str]}} — the
+    Returns {dest_account_id: {"slice_total": float, "names": [str]}} — the
     sum of each commitment's per-period slice routed to that destination plus
     the commitment names, so the payday plan can lift a pot's move to cover
     them. Routing rule (documented contract): a goal's WHOLE slice goes to its
@@ -1146,7 +1146,9 @@ async def _active_commitment_slices(
             {"user_id": uid, "status": "active"},
             {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
              "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
-             "created_at": 1},
+             "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
+             "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
+             "fill_rule": 1},
         ).to_list(None)
         if not docs:
             return {}
@@ -1170,12 +1172,21 @@ async def _active_commitment_slices(
                 slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
             except Exception:
                 continue
-            entry = out.setdefault(dest, {"slice_total": 0, "names": []})
-            entry["slice_total"] += int(slice_info["per_period_slice"])
+            # Slices are money, including manually-entered contributions. Keep
+            # the aggregation in pennies so two decimal slices never lose a
+            # penny before the payday-plan reader sees them.
+            entry = out.setdefault(dest, {"slice_total_pence": 0, "names": []})
+            entry["slice_total_pence"] += int(round(float(slice_info["per_period_slice"]) * 100))
             name = str(c.get("name") or "").strip()
             if name:
                 entry["names"].append(name)
-        return out
+        return {
+            account_id: {
+                "slice_total": round(entry["slice_total_pence"] / 100, 2),
+                "names": entry["names"],
+            }
+            for account_id, entry in out.items()
+        }
     except Exception:
         return {}
 
@@ -3598,7 +3609,7 @@ async def compute_today_items(
                 # the sum of their per-period slices (never lowered).
                 _commit = commitment_slices.get(acct_id)
                 if _commit:
-                    _c_slice = int(_commit.get("slice_total") or 0)
+                    _c_slice = round(float(_commit.get("slice_total") or 0), 2)
                     if _c_slice > 0 and move < _c_slice:
                         move = _c_slice
                         if _dest_is_savings:
@@ -3625,8 +3636,8 @@ async def compute_today_items(
                     "bill_count": bill_count,
                     "spend_typical": spend_typical,
                     "buffer": int(buffer),
-                    "target": int(round(target)),
-                    "move": int(move),
+                    "target": round(target, 2),
+                    "move": round(move, 2),
                     "usual": int(usual) if usual is not None else None,
                     # Explicit destination kind (G129) — "savings" carries its
                     # own target formula (target = move + bills_total, no
@@ -3870,7 +3881,7 @@ async def compute_today_items(
                     "headline": headline,
                     "body": body,
                     "covered": covered,
-                    "total": int(total),
+                    "total": round(total, 2),
                     "trimmed": bool(trimmed),
                     "salary": {
                         "account_id": salary_acct,

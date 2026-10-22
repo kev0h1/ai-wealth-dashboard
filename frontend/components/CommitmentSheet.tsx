@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
@@ -19,7 +20,10 @@ import { PlanCategoryTracking, type PlanCategoryTrackingValue } from "@/componen
 import { PlanRecordView } from "@/components/plans/PlanRecordView";
 import { useCategories } from "@/components/CategoriesContext";
 import { PlanTrackingMethod } from "@/components/plans/PlanTrackingMethod";
+import { EditorError, useEditorRequest } from "@/components/upcoming/editorSupport";
 import PlanEditorFlow, { PlanEditorActions, PLAN_EDITOR_STEPS, type PlanEditorStep } from "@/components/plans/PlanEditorFlow";
+import GoalContributionEditor from "@/components/plans/GoalContributionEditor";
+
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -71,18 +75,26 @@ interface CommitmentSheetProps {
   prefill?: { name: string; amount: number; target_date: string } | null;
   source?: "manual" | "can_i";
   onClose: () => void;
-  onSaved?: (item: Commitment) => void;
-  onCancelled?: () => void;
+  onSaved?: (item: Commitment) => void | Promise<void>;
+  onCancelled?: () => void | Promise<void>;
   /** Injectable only for deterministic auth-free component fixtures. */
   operations?: CommitmentSheetOperations;
-  initialMode?: "view" | "edit";
+  initialMode?: "view" | "edit" | "contribution";
+  initialStep?: "purpose" | "details";
+  embedded?: {
+    renderActions(actions: ReactNode): ReactNode;
+    onEdit(step?: "details"): void;
+    onCancel(): void;
+    onChangeContribution(): void;
+    onBusyChange?(busy: boolean): void;
+  };
 }
 
 /** The existing Commitment API surface, kept injectable for real component
  * fixtures without changing production behaviour. */
 export type CommitmentSheetOperations = Pick<typeof api,
   "accounts" | "previewCommitment" | "createCommitment" | "updateCommitment" | "cancelCommitment">
-  & Partial<Pick<typeof api, "planFillCandidates">>;
+  & Partial<Pick<typeof api, "planFillCandidates" | "previewGoalContribution" | "setGoalContribution">>;
 
 /** "1 Oct" from an ISO date. */
 function shortDate(iso: string): string {
@@ -138,6 +150,8 @@ export default function CommitmentSheet({
   onCancelled,
   operations = api,
   initialMode = "edit",
+  initialStep = "purpose",
+  embedded,
 }: CommitmentSheetProps) {
   const { payPeriodConfig } = usePreferences();
   const { allCategories } = useCategories();
@@ -180,19 +194,27 @@ export default function CommitmentSheet({
   const [paymentPickerOpen, setPaymentPickerOpen] = useState(Boolean(commitment?.fill_rule));
   const [categoryTracking, setCategoryTracking] = useState<PlanCategoryTrackingValue>(() => (commitment as (Commitment & { category_tracking?: PlanCategoryTrackingValue }) | undefined)?.category_tracking ?? null);
   const [suggestion, setSuggestion] = useState<PlanFillCandidates["suggestion"]>(null);
-  const [saving, setSaving] = useState(false);
-  // State updates do not land until the next render. Keep an immediate fence
-  // around the one write path so a double tap cannot create two plans or
-  // send two PATCHes before the disabled footer has painted.
-  const saveInFlightRef = useRef(false);
+  const [contributionSaving, setSaving] = useState(false);
+  const normalRequest = useEditorRequest();
+  const saving = normalRequest.busy || contributionSaving;
+  const needsRefresh = normalRequest.needsRefresh;
+  const reportBusy = embedded?.onBusyChange;
+  useEffect(() => {
+    reportBusy?.(saving);
+    return () => reportBusy?.(false);
+  }, [reportBusy, saving]);
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [viewing, setViewing] = useState(Boolean(commitment && initialMode === "view"));
+  const [contributionMode, setContributionMode] = useState(Boolean(commitment && initialMode === "contribution"));
+  const [contributionFooterHost, setContributionFooterHost] = useState<HTMLDivElement | null>(null);
   const [reviewEditing, setReviewEditing] = useState(false);
   const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
-  const [editorView, setEditorView] = useState<PlanEditorStep>("purpose");
+  const [editorView, setEditorView] = useState<PlanEditorStep>(initialStep);
+  const retryCommittedRefresh = normalRequest.retryRefresh;
   const returnToSummary = () => { setReviewEditing(false); setEditorView("review"); };
   const returnToSavedView = () => {
+    if (embedded) { embedded.onCancel(); return; }
     if (!commitment) return;
     setName(commitment.name);
     setAmount(String(Math.round(commitment.amount * 100) / 100));
@@ -397,9 +419,11 @@ export default function CommitmentSheet({
   // (it knows accrued growth the preview can't see), mirroring how
   // estimatedProgress trusts commitment.progress in the same branch.
   const unchangedFinancials = commitment && !potsChanged && parsedAmount === commitment.amount && month === commitment.target_date.slice(0, 7);
+  const currentContribution = unchangedFinancials ? commitment.current_period_contribution : null;
   const summarySlice = unchangedFinancials
-    ? fulfilment ? fulfilment.expected_pence / 100 : commitment.usual_slice ?? commitment.per_period_slice
+    ? currentContribution?.contribution ?? (fulfilment ? fulfilment.expected_pence / 100 : commitment.usual_slice ?? commitment.per_period_slice)
     : activePreview?.per_period_slice ?? slice;
+  const summaryCadence = currentContribution ? "this pay period" : contributionCadence;
   const feasibility =
     unchangedFinancials ? commitment.feasibility : activePreview?.feasibility;
   const feasibilityNote =
@@ -411,17 +435,15 @@ export default function CommitmentSheet({
   const feasibilityCaution = feasibilityTone ? feasibilityTone === "caution" : feasibility === "stretch";
 
   async function doSave(close: () => void) {
-    if (saveInFlightRef.current) return;
-    saveInFlightRef.current = true;
-    setSaving(true);
     setSaveError(false);
     const target_date = `${month}-01`;
     // G256: a rule needs a paying account to read; "Not set" or an emptied rule sends null.
     const ruleBody = !categoryTracking && sourceId && rule.match_value.trim()
       ? { match_type: rule.match_type, match_value: rule.match_value.trim() }
       : null;
-    try {
-      let item: Commitment;
+    let item: Commitment;
+    await normalRequest.run(async () => {
+      try {
       if (commitment) {
         const body: Parameters<CommitmentSheetOperations["updateCommitment"]>[1] = {
           name: name.trim(),
@@ -455,23 +477,15 @@ export default function CommitmentSheet({
           ...(categoryTracking ? { category_tracking: { category: categoryTracking.category } } : {}),
         });
       }
-      // G83 fix-round: a commitment create/edit can change the goal-name
-      // labels /spend/verdict's "money you moved to your pots" line reads
-      // off commitments_col (see spend_verdict.py's own module docstring)
-      // — the backend already response_cache.invalidate()s on this write.
-      invalidateVerdictCache();
-      onSaved?.(item);
-      close();
-    } catch {
-      // A failed consent save must restore the ordinary consent dismissal
-      // contract. Otherwise the next X/Back would be mistaken for the
-      // successful programmatic close this attempt had prepared.
-      allowConsentCloseRef.current = false;
-      setSaveError(true);
-    } finally {
-      saveInFlightRef.current = false;
-      setSaving(false);
-    }
+        invalidateVerdictCache();
+      } catch (error) {
+        allowConsentCloseRef.current = false;
+        throw error;
+      }
+    }, close, undefined, async () => {
+      try { await onSaved?.(item); }
+      catch (error) { allowConsentCloseRef.current = false; throw error; }
+    });
   }
 
   function handleSubmit(e: React.FormEvent, close: () => void) {
@@ -492,31 +506,21 @@ export default function CommitmentSheet({
   }
 
   async function handleCancelCommitment(close: () => void) {
-    if (!commitment || saving) return;
-    setSaving(true);
-    setSaveError(false);
-    try {
+    if (!commitment) return;
+    await normalRequest.run(async () => {
       await operations.cancelCommitment(commitment.id);
       invalidateVerdictCache();
-      onCancelled?.();
-      close();
-    } catch {
-      setSaveError(true);
-    } finally {
-      setSaving(false);
-    }
+    }, close, undefined, async () => { await onCancelled?.(); });
   }
 
   async function setPaused(close: () => void, paused: boolean) {
-    if (!commitment || saving) return;
-    setSaving(true); setSaveError(false);
-    try {
-      const item = await operations.updateCommitment(commitment.id, { paused } as Parameters<CommitmentSheetOperations["updateCommitment"]>[1] & { paused: boolean });
-      invalidateVerdictCache(); onSaved?.(item); close();
-    } catch { setSaveError(true); } finally { setSaving(false); }
+    if (!commitment) return;
+    let item: Commitment;
+    await normalRequest.run(async () => {
+      item = await operations.updateCommitment(commitment.id, { paused });
+      invalidateVerdictCache();
+    }, close, undefined, async () => { await onSaved?.(item); });
   }
-
-  if (!mounted) return null;
 
   // A plan must name the account its contribution leaves. This remains an
   // explicit confirmation even when the backend inferred a likely source.
@@ -532,11 +536,21 @@ export default function CommitmentSheet({
           ? trackingValid
           : true;
   const startEditing = () => {
+    if (embedded) { embedded.onEdit(); return; }
     setConfirmingCancel(false);
     setReviewEditing(false);
     setEditorView("purpose");
     setViewing(false);
   };
+  const leaveContribution = () => {
+    if (embedded) { embedded.onCancel(); return; }
+    setContributionMode(false);
+    setViewing(true);
+  };
+  const contributionServices = useMemo(() => ({
+    previewGoalContribution: operations.previewGoalContribution ?? api.previewGoalContribution,
+    setGoalContribution: operations.setGoalContribution ?? api.setGoalContribution,
+  }), [operations]);
   const returnToDraft = () => {
     setShowConsent(false);
     setEditorView("details");
@@ -557,52 +571,48 @@ export default function CommitmentSheet({
     allowConsentCloseRef.current = false;
     onClose();
   };
-  const closeConsentThen = (closeThen: (next: () => void) => void, next: () => void) => {
-    allowConsentCloseRef.current = true;
-    closeThen(next);
-  };
-  const saveFromConsent = (close: () => void) => {
-    allowConsentCloseRef.current = true;
-    void doSave(close);
-  };
-
-  return (
-    <SheetFrame
-      key={sheetHistoryGeneration}
-      title={commitment ? viewing ? commitment.name : "Edit plan" : "Create a goal"}
-      description={commitment && viewing ? "Your goal" : commitment ? undefined : "A goal you set money aside for, separate from single bills."}
-      onClose={handleSheetClose}
-      dismissDisabled={saving}
-      onEscape={showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
-      onBack={showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
-      backLabel="Back to plan"
-      onHistoryBack={showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
-      footer={({ close, closeThen }) => {
+  type HostControls = { close(): void; closeThen(next: () => void): void };
+  const renderActions = ({ close, closeThen }: HostControls): ReactNode => {
+        if (needsRefresh) return <button type="button" disabled={saving} onClick={event => { event.preventDefault(); void retryCommittedRefresh(); }} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Refreshing…" : "Retry refresh"}</button>;
+        if (contributionMode) return <div ref={setContributionFooterHost} />;
         if (viewing && commitment) {
-          if (confirmingCancel) return <div className="space-y-2"><p className="text-sm leading-5 text-slate-700 dark:text-slate-200">Delete this plan? Money already set aside stays where it is. This only stops tracking it.</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmingCancel(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold dark:border-slate-600">Keep plan</button><button type="button" disabled={saving} onClick={() => void handleCancelCommitment(close)} className="min-h-11 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Deleting…" : "Delete plan"}</button></div></div>;
+          if (confirmingCancel) return <div className="space-y-2"><p className="text-sm leading-5 text-slate-700 dark:text-slate-200">Delete this plan? Money already set aside stays where it is. This only stops tracking it.</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmingCancel(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold dark:border-slate-600">Keep plan</button><button type="button" disabled={saving} onClick={() => void handleCancelCommitment(() => close())} className="min-h-11 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Deleting…" : "Delete plan"}</button></div></div>;
           const paused = Boolean((commitment as Commitment & { paused?: boolean }).paused);
-          return <div className="space-y-2"><button type="button" onClick={startEditing} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white">Edit plan</button><div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving} onClick={() => void setPaused(close, !paused)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold dark:border-slate-600">{paused ? "Resume plan" : "Pause plan"}</button><button type="button" disabled={saving} onClick={() => setConfirmingCancel(true)} className="min-h-11 rounded-xl border border-red-300 px-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300">Delete plan</button></div></div>;
+          return <div className="space-y-2">{!paused && commitment.status === "active" && <button type="button" onClick={() => { if (embedded) embedded.onChangeContribution(); else { setContributionMode(true); setViewing(false); } }} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Change this period’s contribution</button>}<button type="button" onClick={startEditing} className="min-h-11 w-full rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200">Edit plan</button><div className="grid grid-cols-2 gap-2"><button type="button" disabled={saving || needsRefresh} onClick={() => void setPaused(() => close(), !paused)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold dark:border-slate-600">{paused ? "Resume plan" : "Pause plan"}</button><button type="button" disabled={saving} onClick={() => setConfirmingCancel(true)} className="min-h-11 rounded-xl border border-red-300 px-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300">Delete plan</button></div></div>;
         }
         if (showConsent && consentSnapshot) {
           return (
             <div className="space-y-2">
-              <button type="button" disabled={saving} onClick={() => saveFromConsent(close)} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">
+              {/* The extracted footer is rendered in two hosts. The ref is written only in this click handler. */}
+              {/* eslint-disable-next-line react-hooks/refs -- event-only consent fence, never evaluated during render */}
+              <button type="button" disabled={saving} onClick={() => { allowConsentCloseRef.current = true; void doSave(() => close()); }} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">
                 {saving ? "Saving…" : consentSnapshot.actions.anyway}
               </button>
               <button type="button" disabled={saving} onClick={returnToDraft} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">
                 {consentSnapshot.actions.later_date}
               </button>
-              <button type="button" disabled={saving} onClick={() => closeConsentThen(closeThen, () => router.push("/cards"))} className="w-full rounded-xl px-4 py-2 text-sm font-semibold text-indigo-600 active:scale-95 disabled:opacity-50 dark:text-indigo-400">
+              <button type="button" disabled={saving} onClick={() => { allowConsentCloseRef.current = true; closeThen(() => router.push("/cards")); }} className="w-full rounded-xl px-4 py-2 text-sm font-semibold text-indigo-600 active:scale-95 disabled:opacity-50 dark:text-indigo-400">
                 {consentSnapshot.actions.debt_first}
               </button>
             </div>
           );
         }
-        return <PlanEditorActions step={editorView} reviewing={reviewEditing} busy={saving} formId="commitment-form" onBack={commitment ? returnToSavedView : editorView === "purpose" && !reviewEditing ? close : createPrevious} onContinue={createNext} continueDisabled={!canContinue} canSave={canSave} submitLabel={commitment ? "Save changes" : "Save goal"} backLabel={commitment ? "Back to plan" : editorView === "purpose" && !reviewEditing ? "Cancel" : "Back"} reviewLabel={commitment ? undefined : "Review goal"} />;
-      }}
-    >
-      {({ close }) => <>
-            {showConsent && consentSnapshot ? (
+        return <PlanEditorActions step={editorView} reviewing={reviewEditing} busy={saving} locked={saving || needsRefresh} formId="commitment-form" onBack={commitment ? returnToSavedView : editorView === "purpose" && !reviewEditing ? close : createPrevious} onContinue={createNext} continueDisabled={!canContinue} canSave={canSave} submitLabel={commitment ? "Save changes" : "Save goal"} backLabel={commitment ? "Back to plan" : editorView === "purpose" && !reviewEditing ? "Cancel" : "Back"} reviewLabel={commitment ? undefined : "Review goal"} />;
+  };
+  const renderBody = ({ close }: Pick<HostControls, "close">): ReactNode => <>
+    <EditorError message={normalRequest.error} />
+            {contributionMode && commitment ? (
+              <GoalContributionEditor
+                commitment={commitment}
+                services={contributionServices}
+                onCancel={leaveContribution}
+                onChangeDate={() => { if (embedded) embedded.onEdit("details"); else { setContributionMode(false); startEditing(); setEditorView("details"); } }}
+                onSaved={async item => { await onSaved?.(item); }}
+                onComplete={leaveContribution}
+                renderActions={embedded?.renderActions ?? (actions => contributionFooterHost ? createPortal(actions, contributionFooterHost) : null)}
+                onBusyChange={setSaving}
+              />
+            ) : showConsent && consentSnapshot ? (
               <div className="space-y-4">
                 <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
                   {consentSnapshot.title}
@@ -614,7 +624,7 @@ export default function CommitmentSheet({
                     </p>
                   ))}
                 </div>
-                {saveError && (
+                {saveError && !needsRefresh && (
                   <p className="text-[13px] text-slate-500 dark:text-slate-400">
                     That didn&apos;t save. Try again.
                   </p>
@@ -623,25 +633,29 @@ export default function CommitmentSheet({
             ) : viewing && commitment ? (
               <PlanRecordView
                 kind="goal"
-                contribution={commitment.paused ? 0 : commitment.planned_per_period_slice ?? commitment.usual_slice ?? commitment.per_period_slice}
-                cadence="estimated each pay period"
+                contribution={commitment.paused ? 0 : commitment.current_period_contribution?.contribution ?? commitment.planned_per_period_slice ?? commitment.usual_slice ?? commitment.per_period_slice}
+                cadence={commitment.current_period_contribution ? "this pay period" : "estimated each pay period"}
                 target={{ amount: commitment.amount, month: new Date(`${commitment.target_date.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) }}
                 progress={commitment.progress}
+                currentPeriod={commitment.current_period_contribution ?? null}
                 sourceAccount={accountList.find(account => account.id === commitment.source_account_id)}
+                sourceSuggested={sourceInferred}
                 sourceUnavailable={Boolean(commitment.source_account_id) && !accountList.some(account => account.id === commitment.source_account_id)}
                 destinationUnavailable={potsFromCommitment(commitment).some(pot => !accountList.some(account => account.id === pot.account_id))}
                 destinationAccounts={potsFromCommitment(commitment).map(pot => accountList.find(account => account.id === pot.account_id)).filter((account): account is Account => Boolean(account))}
-                trackingLabel={(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ? `${(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking?.category} category activity` : commitment.fill_rule?.match_value ? commitment.fill_rule.match_value : "Not linked yet"}
+                trackingLabel={(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ? `${(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking?.category} category activity` : commitment.fill_rule?.match_value ? commitment.fill_rule.match_value : "Not tracking a payment"}
                 paused={Boolean((commitment as Commitment & { paused?: boolean }).paused)}
                 periodNote={commitment.fulfilment ? `£${(commitment.fulfilment.matched_pence / 100).toLocaleString("en-GB")} paid this period` : undefined}
               >
-                {saveError && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
+                {saveError && !needsRefresh && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
                 {(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking && <PlanCategoryTracking kind="goal" sourceAccountId={commitment.source_account_id ?? ""} destinationAccountIds={potsFromCommitment(commitment).map(pot => pot.account_id)} value={(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ?? null} onChange={() => {}} commitmentId={commitment.id} readOnly />}
+
               </PlanRecordView>
             ) : (
-            <PlanEditorFlow formId="commitment-form" step={editorView} reviewing={reviewEditing} busy={saving} onBack={commitment ? returnToSavedView : createPrevious} onContinue={createNext} onPrevious={commitment ? previousStep : undefined} continueDisabled={!canContinue} canSave={canSave} submitLabel={commitment ? "Save changes" : "Save goal"} reviewLabel={commitment ? undefined : "Review goal"} onSubmit={(event) => handleSubmit(event, close)} renderActions={() => null} className="[&_input]:text-base">
+            <PlanEditorFlow formId="commitment-form" step={editorView} reviewing={reviewEditing} busy={saving} locked={saving || needsRefresh} onBack={commitment ? returnToSavedView : createPrevious} onContinue={createNext} onPrevious={commitment ? previousStep : undefined} continueDisabled={!canContinue} canSave={canSave} submitLabel={commitment ? "Save changes" : "Save goal"} reviewLabel={commitment ? undefined : "Review goal"} onSubmit={(event) => handleSubmit(event, close)} renderActions={() => null} className="[&_input]:text-base">
               {editorView === "review" ? <>
-              <PlanContribution amount={summarySlice} cadence={contributionCadence} />
+              <PlanContribution amount={summarySlice} cadence={summaryCadence} />
+              {currentContribution && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Your chosen contribution lasts for this pay period. Changing the target amount or date ends that choice.</p>}
               {!commitment && <PlanAffordability caution={feasibilityCaution}>{feasibilityNote ?? "Check Upcoming to see how this fits before payday."}</PlanAffordability>}
               <div className="border-y border-slate-200 dark:border-slate-700">
                 <PlanEditorSummaryRow label="Purpose" value={name || "Name this goal"} onEdit={() => { setReviewEditing(true); setEditorView("purpose"); }} />
@@ -651,9 +665,9 @@ export default function CommitmentSheet({
                 <PlanEditorSummaryRow label="Tracking" value={categoryTracking ? `${categoryTracking.category} category` : rule.match_value ? "Payment confirmed" : "Not linked yet"} onEdit={() => { setReviewEditing(true); setEditorView("tracking"); }} />
               </div>
               <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Saving changes this plan only. It does not move money.</p>
-              {saveError && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
+              {saveError && !needsRefresh && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
               </> : <>
-              {commitment && editorView !== "purpose" && <PlanContribution amount={summarySlice} cadence={contributionCadence} />}
+              {commitment && editorView !== "purpose" && <PlanContribution amount={summarySlice} cadence={summaryCadence} />}
               {editorView === "purpose" && <>{!commitment && <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText unmasked text="For example, save £2,000 for a trip to Japan by December 2028." /></p>}<h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Name your goal</h3></>}
               {editorView === "details" && <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Choose your target</h3>}
               {editorView === "source" && <h3 className="mb-5 text-base font-semibold text-slate-900 dark:text-slate-100">Choose a paying account</h3>}
@@ -666,6 +680,7 @@ export default function CommitmentSheet({
                   Eased to £{commitment.eased_this_period.toLocaleString("en-GB")} this period. Changing the amount or the date here ends the easing.
                 </p>
               )}
+              {editorView === "details" && commitment?.current_period_contribution && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Changing the target amount or date ends this period’s chosen contribution.</p>}
               {/* Name */}
               {editorView === "purpose" && <>
               <div>
@@ -897,7 +912,7 @@ export default function CommitmentSheet({
               )}
 
               {/* Error — quiet, per the AimSheet idiom */}
-              {saveError && (
+              {saveError && !needsRefresh && (
                 <p className="text-[13px] text-slate-500 dark:text-slate-400">
                   That didn&apos;t save. Try again.
                 </p>
@@ -906,7 +921,28 @@ export default function CommitmentSheet({
               </>}
             </PlanEditorFlow>
             )}
-      </>}
+  </>;
+
+  if (!mounted) return null;
+  if (embedded) return <>
+    {renderBody({ close: onClose })}
+    {!contributionMode && embedded.renderActions(renderActions({ close: onClose, closeThen: next => { onClose(); next(); } }))}
+  </>;
+
+  return (
+    <SheetFrame
+      key={sheetHistoryGeneration}
+      title={contributionMode ? "Change this period" : commitment ? viewing ? commitment.name : "Edit plan" : "Create a goal"}
+      description={contributionMode ? "Choose this goal's total contribution for the current pay period." : commitment && viewing ? "Your goal" : commitment ? undefined : "A goal you set money aside for, separate from single bills."}
+      onClose={handleSheetClose}
+      dismissDisabled={saving}
+      onEscape={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onBack={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      backLabel="Back to plan"
+      onHistoryBack={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      footer={renderActions}
+    >
+      {renderBody}
     </SheetFrame>
   );
 }

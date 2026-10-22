@@ -1866,7 +1866,7 @@ export function PlanEasingCard({ item, hideNetWorth: hideNetWorthProp = false, d
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{name} is <span className="money"><AmountText text={money(eased)} /></span> this period.</p>
           <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400"><AmountText text={detail} /></p>
         </div>
-        <Link href="/planning" className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
+        <Link href={`/planning?goal=${encodeURIComponent(data.plan.id)}`} className={`${PLAN_EASING_LINK} -ml-3`}>Edit plan</Link>
         <DismissChip label={`Dismiss ${name} note`} onClick={handleDismiss} className="absolute top-1 right-0 z-10" />
       </div>
     );
