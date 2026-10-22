@@ -187,7 +187,7 @@
     "@sentry/react": "10.69.0",
     "@wealth/shared": "file:../shared",
     "lucide-react": "^1.8.0",
-    "next": "16.4.0",
+    "next": "16.4.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
@@ -203,7 +203,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.4.0",
+    "eslint-config-next": "16.4.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
