@@ -73,9 +73,9 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
-    description: "C Real life retained; D Payday path now gathers real payment cards from different accounts outside the phone; E Money movement replaces Penny bubbles with a suggested transfer route. Generated 3D scenes and production components. Sorted suggests, the user transfers with their bank. Creative review, not approved advertising.",
+    description: "New C22 campaign round: an original Blender receipt, Friday typography and a dated payments calendar. Three distinct directions, light/dark feed and story images, six finished 12-second films and real production components with fictional data. Creative review, not approved advertising. Earlier rounds remain linked in the gallery.",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "C · Real life", value: "c" }, { label: "D · Payday path", value: "d" }, { label: "E · Money movement", value: "e" }],
+    variants: [{ label: "The receipt", value: "receipt" }, { label: "Friday?", value: "friday" }, { label: "The month, laid out", value: "calendar" }],
     group: "current",
   },
   {
