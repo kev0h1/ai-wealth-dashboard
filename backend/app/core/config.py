@@ -384,7 +384,7 @@ class RotatingSessionSerializer:
                 self._until = date.fromisoformat(previous_until.strip())
             except ValueError:
                 self._until = None
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(timezone.utc))  # naive-ok: aware UTC key-expiry date, not user-facing
 
     def previous_active(self) -> bool:
         return (
