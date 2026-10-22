@@ -66,3 +66,16 @@ def test_return_timestamp_passthrough():
     s = RotatingSessionSerializer(NEW, OLD, "2099-01-01", clock=_clock(2026, 10, 22))
     data, issued = s.loads(_old_token(), max_age=60, return_timestamp=True)
     assert data["email"] == "a@example.com" and issued is not None
+
+
+def test_far_future_until_is_clamped_to_seven_days(caplog):
+    with caplog.at_level("WARNING"):
+        early = RotatingSessionSerializer(NEW, OLD, "2099-01-01", clock=_clock(2026, 10, 22))
+    assert "clamped" in caplog.text
+    assert OLD not in caplog.text
+    inside = RotatingSessionSerializer(NEW, OLD, "2099-01-01", clock=_clock(2026, 10, 29))
+    assert inside.previous_active() is True
+    assert early._until.isoformat() == "2026-10-29"
+    outside = RotatingSessionSerializer(NEW, OLD, "2099-01-01", clock=_clock(2026, 10, 22))
+    outside._clock = _clock(2026, 10, 30)
+    assert outside.previous_active() is False

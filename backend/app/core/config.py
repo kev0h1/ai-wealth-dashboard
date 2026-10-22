@@ -2,7 +2,7 @@
 import logging
 import os
 import secrets
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
@@ -385,6 +385,16 @@ class RotatingSessionSerializer:
             except ValueError:
                 self._until = None
         self._clock = clock or (lambda: datetime.now(timezone.utc))  # naive-ok: aware UTC key-expiry date, not user-facing
+        if self._until is not None:
+            # Clamp to today + SESSION_MAX_AGE: a previous key can never be
+            # trusted for longer than a session lives, whatever the variable says.
+            limit = self._clock().date() + timedelta(seconds=SESSION_MAX_AGE)
+            if self._until > limit:
+                logging.getLogger(__name__).warning(
+                    "SESSION_SECRET_PREVIOUS_UNTIL is more than %d days away; "
+                    "clamped to %s.", SESSION_MAX_AGE // 86400, limit.isoformat(),
+                )
+                self._until = limit
 
     def previous_active(self) -> bool:
         return (
