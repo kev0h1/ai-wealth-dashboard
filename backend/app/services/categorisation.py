@@ -1359,6 +1359,19 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 )
                 updated += 1
 
+    # Pass 3.45 (G316): stored per-user vendor decisions. A user with custom
+    # categories gets their own category for a merchant from the vendor
+    # directory description (see app.services.vendor_directory), which beats a
+    # broad keyword match from Pass 3. Cache-only: no network and no model here,
+    # the sync-time ladder (categorise_others_bg) is what makes new decisions.
+    # Runs BEFORE user rules and Pass 4 so a rule or a user's own correction
+    # still wins. A no-op for every user with no stored decisions.
+    try:
+        from app.services.vendor_directory import apply_decisions_for_user
+        updated += await apply_decisions_for_user(user_id)
+    except Exception:
+        log.exception("apply_rules_bulk: vendor decisions pass failed for %s", user_id)
+
     # Pass 3.5: user-defined rules
     user_rules = await user_rules_col.find({"uid": user_id}).to_list(None)
     if user_rules:
@@ -1549,9 +1562,19 @@ async def count_rule_matches(user_id: str, pattern: str, category: str, exclude_
 
 
 async def categorise_others_bg(uid: str) -> int:
-    """LLM-classify transactions still on None/Other across all collections."""
+    """LLM-classify transactions still on None/Other across all collections.
+
+    G316: first runs the vendor-directory ladder for users who have custom
+    categories (a no-op for everyone else). It lives here because every sync
+    path already calls this right after `apply_rules_bulk`."""
+    ladder_updated = 0
+    try:
+        from app.services.vendor_directory import run_vendor_ladder
+        ladder_updated = (await run_vendor_ladder(uid)).get("rows_updated", 0)
+    except Exception:
+        log.exception("categorise_others_bg: vendor ladder failed for %s", uid)
     if not OPENROUTER_API_KEY:
-        return 0
+        return ladder_updated
     identity = await user_identity(uid)
     owner_name = " ".join(t.capitalize() for t in identity["name_tokens"]) if identity["name_tokens"] else None
     # This user's own vocabulary (VALID_CATEGORIES + their custom categories,
@@ -1669,7 +1692,7 @@ async def categorise_others_bg(uid: str) -> int:
         if missed:
             await col.update_many({"_id": {"$in": missed}}, {"$set": {"ai_attempted": True}})
 
-    return total_updated
+    return total_updated + ladder_updated
 
 
 async def llm_name_check(uid: str) -> int:

@@ -52,11 +52,15 @@ class LlmTavilyCollector(Collector):
     # E8: numeric top-level values the alert evaluator reads from the trend store.
     sample_fields = {"tavily_backoff": "tavily_backoff", "budget_used_pct": "budget_used_pct"}
 
-    def __init__(self, usage=None, research_loader=None):
+    def __init__(self, usage=None, research_loader=None, vendor_loader=None):
         from app.db import collections as c
         from app.services import tips_research_health as trh
+        from app.services import vendor_directory as vd
         self.usage = usage or c.llm_usage_col
         self.research_loader = research_loader or trh.load
+        # G316: the shared vendor directory's lookup state, shown as the
+        # `vendor_lookups` block inside this collector's values.
+        self.vendor_loader = vendor_loader or vd.health_snapshot
         self.trh = trh
 
     async def collect(self) -> dict:
@@ -82,8 +86,15 @@ class LlmTavilyCollector(Collector):
             spend_status = level(month_cost / budget, BUDGET_WARN, BUDGET_CRIT)
 
         skip_until = (doc or {}).get("skip_until")
+        vendor = await self.vendor_loader()
+        vendor_status = OK
+        if vendor.get("backoff_active"):
+            vendor_status = CRIT
+        elif vendor.get("cap_per_day") and vendor.get("lookups_today", 0) >= 0.8 * vendor["cap_per_day"]:
+            vendor_status = WARN
         values = {
-            "tavily_backoff": 1 if backoff else 0,
+            "tavily_backoff": 1 if (backoff or vendor.get("backoff_active")) else 0,
+            "vendor_lookups": vendor,
             "budget_used_pct": round(month_cost / budget * 100, 1) if budget and budget > 0 else None,
             "month_cost_usd": month_cost, "week_cost_usd": week_cost,
             "budget_usd": budget, "month_by_pipeline": month_p[:10], "week_by_pipeline": week_p[:10],
@@ -97,5 +108,5 @@ class LlmTavilyCollector(Collector):
                 "line": self.trh.status_line(doc),
             },
         }
-        return result(self.name, status=worst(spend_status, tavily_status), values=values,
+        return result(self.name, status=worst(spend_status, tavily_status, vendor_status), values=values,
                       note=None if budget else "No monthly budget set (LLM_MONTHLY_BUDGET_USD), so spend is shown only.")
