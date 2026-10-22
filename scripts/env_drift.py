@@ -41,6 +41,20 @@ PRESENCE_RE = re.compile(r"^\**\s*(present|absent|optional)\b", re.IGNORECASE)
 NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
+# E10: operational settings now owned by the database (app/services/
+# runtime_settings.py REGISTRY, edited on /ops/health). The environment value
+# is only a fallback, so presence or absence in any environment is never
+# drift. backend/tests/test_runtime_settings.py keeps this list equal to the
+# registry.
+RUNTIME_SETTING_NAMES = frozenset({
+    "OPEN_SIGNUP", "LLM_GLOBAL_MONTHLY_CALL_CEILING", "LLM_MONTHLY_BUDGET_USD",
+    "MONGO_STORAGE_LIMIT_MB", "FINEXER_TEMPLATE_DARK", "APPLE_IAP_ENABLED",
+    "PLAY_IAP_ENABLED", "ALERTS_ENABLED", "ALERT_COOLDOWN_HOURS", "ALERT_WARN_STREAK",
+    "ALERT_HOURLY_CAP", "ALERT_ERROR_RATE", "ALERT_SYNC_FAILURES",
+    "RECONCILE_SPREAD_MINUTES", "RECONCILE_MAX_PER_MINUTE", "RECONCILE_MIN_GAP_SECONDS",
+})
+
+
 # ── Manifest (docs/ops/ENV.md) parsing ──────────────────────────────────────
 
 
@@ -361,14 +375,17 @@ def build_backend_rows(
         for service in RAILWAY_SERVICES:
             names = railway_actual.get(service) if railway_actual else None
             prod_actual[service] = (mv.name in names) if names is not None else None
-        v_uat = verdict_for(mv.uat_expected, uat_present)
-        v_prod = _worst([verdict_for(mv.prod_expected, prod_actual[s]) for s in RAILWAY_SERVICES])
+        # E10: a runtime setting is optional everywhere (database first).
+        uat_exp = "optional" if mv.name in RUNTIME_SETTING_NAMES else mv.uat_expected
+        prod_exp = "optional" if mv.name in RUNTIME_SETTING_NAMES else mv.prod_expected
+        v_uat = verdict_for(uat_exp, uat_present)
+        v_prod = _worst([verdict_for(prod_exp, prod_actual[s]) for s in RAILWAY_SERVICES])
         rows.append(
             DriftRow(
                 name=mv.name,
-                uat_expected=mv.uat_expected,
+                uat_expected=uat_exp,
                 uat_actual=uat_present,
-                prod_expected=mv.prod_expected,
+                prod_expected=prod_exp,
                 prod_actual=prod_actual,
                 verdict=_worst([v_uat, v_prod]),
                 notes=mv.notes,
@@ -380,6 +397,7 @@ def build_backend_rows(
             if service_names is not None:
                 extra += [n for n in sorted(service_names - seen) if n not in extra]
     for name in sorted(set(extra)):
+        runtime = name in RUNTIME_SETTING_NAMES
         prod_actual = {}
         for service in RAILWAY_SERVICES:
             names = railway_actual.get(service) if railway_actual else None
@@ -387,12 +405,13 @@ def build_backend_rows(
         rows.append(
             DriftRow(
                 name=name,
-                uat_expected="-",
+                uat_expected="optional" if runtime else "-",
                 uat_actual=name in uat_actual,
-                prod_expected="-",
+                prod_expected="optional" if runtime else "-",
                 prod_actual=prod_actual,
-                verdict="not-in-manifest",
-                notes="present in an environment but not in docs/ops/ENV.md",
+                verdict="ok" if runtime else "not-in-manifest",
+                notes=("runtime setting (database first), env is an optional fallback"
+                       if runtime else "present in an environment but not in docs/ops/ENV.md"),
             )
         )
     return rows
