@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, type Account, type Commitment, type DebtPlanSummary } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import MoneyText from "@/components/MoneyText";
@@ -147,17 +147,25 @@ export function DebtPosition({ debt, hideValues, onOpen }: { debt: Loadable<Debt
 
 export default function LongTermPlanningPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const goalFromQuery = searchParams.get("goal");
   const { hideNetWorth } = usePreferences();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [goals, setGoals] = useState<Loadable<Commitment[]>>(undefined);
   const [debt, setDebt] = useState<Loadable<DebtPlanSummary>>(undefined);
   const [editingGoal, setEditingGoal] = useState<Commitment | null | undefined>(undefined);
+  const [goalRouteError, setGoalRouteError] = useState<string | null>(null);
+  const handledGoalRoute = useRef<string | null>(null);
   const [growReady, setGrowReady] = useState(false);
 
+  const refreshGoals = useCallback(async () => {
+    const response = await api.listCommitments();
+    setGoals(response.items.filter((item) => item.status === "active"));
+  }, []);
   const loadGoals = useCallback(() => {
     setGoals(undefined);
-    api.listCommitments().then((response) => setGoals(response.items.filter((item) => item.status === "active"))).catch(() => setGoals(null));
-  }, []);
+    void refreshGoals().catch(() => setGoals(null));
+  }, [refreshGoals]);
 
   // Stable identity (empty deps) so passing it straight to GrowPanel's
   // `onLoaded` prop never changes on a parent re-render — an unstable
@@ -177,6 +185,20 @@ export default function LongTermPlanningPage() {
     api.getDebtPlanSummary().then(setDebt).catch(() => setDebt(null));
   }, [loadGoals]);
 
+  // A deep link names a record, never an editor state. Wait for the canonical
+  // goal list, then open its saved View. Keeping this one-shot prevents a
+  // refresh after save or close from reopening the sheet behind the user.
+  useEffect(() => {
+    if (!goalFromQuery || goals === undefined || handledGoalRoute.current === goalFromQuery) return;
+    if (goals === null) return;
+    handledGoalRoute.current = goalFromQuery;
+    const goal = goals.find((item) => item.id === goalFromQuery);
+    queueMicrotask(() => {
+      if (goal) { setGoalRouteError(null); setEditingGoal(goal); }
+      else setGoalRouteError("That goal is no longer available.");
+    });
+  }, [goalFromQuery, goals]);
+
   useTutorialReady("planning", goals !== undefined && growReady);
 
   return (
@@ -193,6 +215,7 @@ export default function LongTermPlanningPage() {
           goalsSlot={
             <section id="commitments" className="scroll-mt-4" aria-labelledby="long-term-goals-heading" data-tutorial-id="tutorial-planning-goals">
               <SectionHeading id="long-term-goals-heading" title="Long-term goals" side={<button type="button" onClick={() => setEditingGoal(null)} className="inline-flex min-h-11 items-center gap-1 px-2 text-xs font-semibold text-indigo-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"><Plus size={14} aria-hidden="true" /> Set a goal</button>} />
+              {goalRouteError && <p role="status" className="mb-3 px-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{goalRouteError}</p>}
               <div className="glass-card overflow-hidden rounded-2xl divide-y divide-slate-200/70 dark:divide-white/10">
                 {goals === undefined ? (
                   <div className="space-y-3 p-4" aria-label="Loading long-term goals"><div className="h-4 w-36 animate-pulse rounded bg-slate-200 dark:bg-slate-700" /><div className="h-1.5 animate-pulse rounded bg-slate-200 dark:bg-slate-700" /><div className="h-3 w-56 animate-pulse rounded bg-slate-200 dark:bg-slate-700" /></div>
@@ -213,7 +236,7 @@ export default function LongTermPlanningPage() {
         <p className="px-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">One-off payments and this pay period&apos;s envelopes live in <button type="button" onClick={() => router.push("/upcoming")} className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Upcoming</button>.</p>
       </main>
 
-      {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} initialMode={editingGoal ? "view" : "edit"} onClose={() => setEditingGoal(undefined)} onSaved={() => { setEditingGoal(undefined); loadGoals(); }} onCancelled={() => { setEditingGoal(undefined); loadGoals(); }} />}
+      {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} initialMode={editingGoal ? "view" : "edit"} onClose={() => setEditingGoal(undefined)} onSaved={async item => { setEditingGoal(item); await refreshGoals(); }} onCancelled={refreshGoals} />}
     </div>
   );
 }

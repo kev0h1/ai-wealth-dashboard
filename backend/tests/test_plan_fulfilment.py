@@ -154,6 +154,25 @@ def test_assess_pure_edges():
     assert pf.assess(8000, 0) == {"state": "unmet", "unmet_pence": 8000}
 
 
+def test_exact_assessment_requires_every_penny_while_default_keeps_tolerance():
+    assert pf.assess(10000, 9000)["state"] == "fulfilled"
+    assert pf.assess(10000, 9000, exact=True) == {"state": "partial", "unmet_pence": 1000}
+
+
+def test_exact_period_fulfilment_keeps_pennies_in_the_unmet_amount():
+    start, end = _period()
+    goal = _goal(fill_rule=RULE)
+    pf.transactions_col = _Txns([_debit(50.10)])
+    pf.yapily_transactions_col = _Txns()
+    result = asyncio.run(
+        pf.period_fulfilment(UID, goal, 100.25, "current", start, end, exact=True)
+    )
+    assert result["expected_pence"] == 10025
+    assert result["matched_pence"] == 5010
+    assert result["unmet_pence"] == 5015
+    assert result["unmet"] == 50.15
+
+
 # ── partial match: the unmet remainder stays reserved, counted once ─────────
 
 def test_partial_match_reserves_only_the_unmet_remainder():
@@ -366,3 +385,10 @@ def test_claims_debit_pure_ordering():
     assert pf.claims_debit(me, [rival], _debit(80.0), 8000) is True     # exact amount beats earlier
     assert pf.claims_debit(me, [rival], _debit(40.0), 8000) is False    # rival's exact amount
     assert pf.claims_debit(me, [rival], _debit(55.0), 8000) is False    # neither exact: earliest wins
+
+
+def test_claims_debit_keeps_penny_exact_match_ownership():
+    a, b = _two()
+    me = {"doc": b, "rule": pf.validate_fill_rule(RULE), "expected_pence": 10025}
+    rival = {"doc": a, "rule": pf.validate_fill_rule(RULE), "expected_pence": 10024}
+    assert pf.claims_debit(me, [rival], _debit(100.25), 10025) is True

@@ -852,7 +852,29 @@ export type PlanFillCandidates = {
   }) | null;
 };
 
+export type GoalContributionPreview = {
+  period_start: string;
+  period_end: string;
+  target_date: string;
+  requested_contribution: number;
+  contribution: number;
+  reserved: number;
+  matched_this_period: number;
+  remaining: number;
+  remaining_after: number;
+  later_periods: number;
+  later_contribution: number | null;
+  covers_remaining: boolean;
+  capped: boolean;
+  large_increase: boolean;
+  blocked_reason: string | null;
+  replaces_easing: boolean;
+  preview_token: string;
+};
+
 export type Commitment = {
+  /** A reservation intention for this live pay period, never saved progress. */
+  current_period_contribution?: Omit<GoalContributionPreview, "preview_token"> | null;
   category_tracking?: PlanCategoryTracking | null;
   /** Pause holds no contribution but retains this goal's existing pot claims. */
   paused?: boolean;
@@ -3170,6 +3192,13 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ penny_agent_consent: null; proposals_cancelled: number }>(r)),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
+  getCommitment: (id: string) => get<Commitment>(`/commitments/${encodeURIComponent(id)}`),
+  previewGoalContribution: (id: string, contributionPence: number) =>
+    get<GoalContributionPreview>(`/commitments/${encodeURIComponent(id)}/contribution-preview?contribution_pence=${contributionPence}`),
+  setGoalContribution: (id: string, body: { contribution_pence: number; period_end: string; preview_token: string }) =>
+    fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}/contribution`, {
+      method: "PUT", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body),
+    }).then(r => toJson<Commitment>(r)),
   /** G228: the engine's figures for easing a plan to `contribution` pounds this period. Nothing is saved. */
   previewPlanEase: (id: string, contribution: number) =>
     get<PlanEasePreview>(`/commitments/${encodeURIComponent(id)}/ease-preview?contribution_pence=${Math.round(contribution * 100)}`),

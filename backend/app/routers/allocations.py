@@ -660,7 +660,12 @@ async def list_account_plans(user: dict = Depends(current_user)):
             # G256: with a fill rule, the period amount is the slice due, the
             # filled amount what the matched outgoing transfer(s) covered and
             # the remainder what is still reserved. Without one: as before.
-            "period_amount": (slice_info["fulfilment"]["expected_pence"] / 100
+            # Manual intent can exceed the remaining target. The gross raw
+            # expectation stays stable for debit ownership, while the display
+            # total reconciles matched money plus the capped goal reservation.
+            "period_amount": (slice_info["current_period_contribution"]["contribution"]
+                              if slice_info.get("current_period_contribution") else
+                              slice_info["fulfilment"]["expected_pence"] / 100
                               if slice_info.get("fulfilment") else slice_info["per_period_slice"]),
             "filled_amount": (slice_info["fulfilment"]["matched_pence"] / 100
                               if slice_info.get("fulfilment") else None),

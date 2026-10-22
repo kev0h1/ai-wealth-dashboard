@@ -76,7 +76,7 @@ assert.equal(buttonLabels(capped).filter(([, l]) => /^Ease/.test(l)).length, 0, 
 
 assert.match(deferred, /Japan is <span class="money">£30<\/span> this period\./);
 assert.match(deferred, /Later periods are about £85 and it should still land in Nov 2028\./);
-assert.match(deferred, /href="\/planning"[^>]*>Edit plan</, "deferred: quiet Edit plan link");
+assert.match(deferred, /href="\/planning\?goal=goal-japan"[^>]*>Edit plan</, "deferred: quiet link opens this goal's saved View");
 assert.equal(buttonLabels(deferred).filter(([, l]) => /^Ease/.test(l)).length, 0, "deferred: no action");
 for (const html of [eligible, capped, deferred]) {
   assert.doesNotMatch(html, /text-(?:red|rose|amber)|bg-(?:red|rose|amber)|linear-gradient/, "calm");

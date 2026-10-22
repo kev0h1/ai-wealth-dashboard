@@ -4879,7 +4879,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
     try:
         from app.routers.commitments import total_reserved_slices
         _plans, _plans_n = await total_reserved_slices(uid)
-        resp["plans_reserved"] = int(_plans)
+        resp["plans_reserved"] = round(_plans, 2)
         resp["plans_count"] = int(_plans_n)
         resp["plans_available"] = True
     except Exception:
@@ -5370,7 +5370,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "card_growth_reserved": card_growth_reserved,
         "card_growth_wording": card_growth_wording,
         "card_growth_due_date": card_growth_due_date,
-        "commitments_reserved": int(commitments_reserved),
+        "commitments_reserved": round(commitments_reserved, 2),
         "commitments_count":   commitments_count,
         "commitments_reserved_period_label": (
             _period_rhythm_label(_pay_cfg) if commitments_reserved else None

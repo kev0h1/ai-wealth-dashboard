@@ -111,13 +111,20 @@ async def _load(uid: str, account_ids: list[str], kind: str, start: date, end: d
     return out
 
 
-def assess(expected_pence: int, matched_pence: int) -> dict:
+def assess(
+    expected_pence: int,
+    matched_pence: int,
+    *,
+    exact: bool = False,
+    tolerance: float = FULFIL_TOLERANCE,
+) -> dict:
     """Pure fulfilment arithmetic. `unmet_pence` is what stays reserved."""
     expected_pence = max(0, int(expected_pence))
     matched_pence = max(0, int(matched_pence))
+    tolerance = 0.0 if exact else max(0.0, float(tolerance))
     if matched_pence == 0:
         return {"state": "unmet", "unmet_pence": expected_pence}
-    if expected_pence == 0 or matched_pence >= expected_pence * (1 - FULFIL_TOLERANCE) - 1e-9:
+    if expected_pence == 0 or matched_pence >= expected_pence * (1 - tolerance) - 1e-9:
         return {"state": "fulfilled", "unmet_pence": 0}
     return {"state": "partial", "unmet_pence": expected_pence - matched_pence}
 
@@ -150,23 +157,28 @@ def claims_debit(me: dict, rivals: list[dict], txn: dict, my_expected_pence: int
 
 
 async def period_fulfilment(
-    uid: str, doc: dict, expected_pounds: int, source_id: str | None,
+    uid: str, doc: dict, expected_pounds: float, source_id: str | None,
     start: date, end: date, rivals: list[dict] | None = None,
+    *, exact: bool = False,
 ) -> dict | None:
     """Fulfilment of this period's slice, or None when the plan has no rule or
     no known paying account (it then reserves its full slice, as before)."""
     rule = validate_fill_rule(doc.get("fill_rule")) if doc.get("fill_rule") else None
     if rule is None or not source_id:
         return None
+    expected_value = float(expected_pounds)
+    if not math.isfinite(expected_value):
+        raise ValueError("expected_pounds must be finite")
+    expected_pence = max(0, int(round(expected_value * 100)))
     window_end = min(end, timeutil.user_today())
     debits = await _load(uid, [source_id], "debit", start, window_end)
     hits = sorted((t for t in debits if rule_matches(rule, t)), key=lambda t: t["date"])
     if rivals:
-        me = {"doc": doc, "rule": rule, "expected_pence": int(expected_pounds) * 100}
+        me = {"doc": doc, "rule": rule, "expected_pence": expected_pence}
         hits = [t for t in hits if claims_debit(me, rivals, t, me["expected_pence"])]
-    matched = round(sum(abs(float(t.get("amount") or 0)) for t in hits), 2)
-    matched_pence = int(round(matched * 100))
-    verdict = assess(int(expected_pounds) * 100, matched_pence)
+    matched_pence = sum(int(round(abs(float(t.get("amount") or 0)) * 100)) for t in hits)
+    matched = matched_pence / 100
+    verdict = assess(expected_pence, matched_pence, exact=exact)
     seen = False
     if matched_pence:
         pots = [str(p["account_id"]) for p in (doc.get("funding_pots") or []) if p.get("account_id")]
@@ -177,10 +189,10 @@ async def period_fulfilment(
         )
     return {
         "state": verdict["state"],
-        "expected_pence": int(expected_pounds) * 100,
+        "expected_pence": expected_pence,
         "matched_pence": matched_pence,
         "unmet_pence": verdict["unmet_pence"],
-        "unmet": math.ceil(verdict["unmet_pence"] / 100),
+        "unmet": verdict["unmet_pence"] / 100 if exact else math.ceil(verdict["unmet_pence"] / 100),
         "seen_in_sink": seen,
         "matched": [
             {"date": _day(t).isoformat(), "amount": round(abs(float(t.get("amount") or 0)), 2),

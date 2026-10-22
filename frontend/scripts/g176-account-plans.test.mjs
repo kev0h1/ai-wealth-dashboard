@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
-import UpcomingPlanDetails from "../components/upcoming/UpcomingPlanDetails.tsx";
+import { PlanRecordView } from "../components/plans/PlanRecordView.tsx";
 import UnlinkedGoalPlans from "../components/upcoming/UnlinkedGoalPlans.tsx";
 import { AllocationPlanEditor } from "../components/AllocationPlanEditor.tsx";
 import { UpcomingEditForm } from "../components/UpcomingEditForm.tsx";
@@ -19,7 +19,12 @@ const previewSource = readFileSync(new URL("../app/design/g176-account-plans/Pre
 const flowSource = readFileSync(new URL("../components/upcoming/UpcomingDetailFlow.tsx", import.meta.url), "utf8");
 assert.match(previewSource, /import UpcomingDetailFlow from "@\/components\/upcoming\/UpcomingDetailFlow"/);
 assert.doesNotMatch(previewSource, /function (?:AccountContent|PaymentEditor|PlanEditor|PaymentContent)/, "The approved preview must not fork the shipped detail or edit UI");
-for (const component of ["UpcomingAccountDetails", "UpcomingPlanDetails", "UpcomingRowDetails", "UpcomingEditForm", "AllocationPlanEditor", "PlannedEditForm", "GoalSourceForm"]) assert.match(flowSource, new RegExp("<" + component + "[ >]"));
+for (const component of ["UpcomingAccountDetails", "UpcomingGoalPlan", "UpcomingRowDetails", "UpcomingEditForm", "AllocationPlanEditor", "PlannedEditForm"]) assert.match(flowSource, new RegExp("<" + component + "(?:\\s|>)"));
+assert.doesNotMatch(flowSource, new RegExp(["Upcoming" + "PlanDetails", "Goal" + "SourceForm", "change" + "GoalSource"].join("|")), "Goals use the canonical record adapter, never a forecast detail or source-only editor");
+assert.match(previewSource, /getCommitment/, "The production-flow preview provides canonical goal records rather than a source-only write stub");
+const mismatchedGoalProjection = plansFor("cardrepay").find((plan) => plan.recordId === "goal-japan");
+assert.equal(mismatchedGoalProjection?.sourceId, "barclays", "The forecast fixture opens Japan from Barclays");
+assert.match(previewSource, /id: "goal-japan"[\s\S]*source_account_id: "monzo"/, "The canonical fixture deliberately keeps Japan's saved payer, rather than accepting the forecast projection");
 const plans = plansFor("gap");
 const gap = forecastFor("gap").accounts[0];
 const renderDetails = (account, input = plans, status = "ready") => renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, plans: input, plansStatus: status, periodLabel: "Through Thu 29 Oct", onPlan() {} }));
@@ -29,11 +34,9 @@ assert.equal(remaining(plans[0]), 30000, "Server remainder wins over display tar
 assert.equal(remaining({ ...plans[0], filledPence: 40000 }), 30000);
 assert.equal(remaining({ ...plans[0], active: false }), 0);
 assert.equal(accountPlan(gap, plans.map((plan) => ({ ...plan, active: false }))).reservedPence, 0);
-const paused = renderToStaticMarkup(React.createElement(UpcomingPlanDetails, { plan: { ...plans[0], active: false } }));
-assert.match(paused, /Not reserved in this period/);
-assert.doesNotMatch(paused, /Still to set aside/);
-const overfilled = renderToStaticMarkup(React.createElement(UpcomingPlanDetails, { plan: { ...plans[0], filledPence: 40000, remainingPence: 0 } }));
-assert.match(overfilled, /£40.*above the target/);
+const goalRecord = renderToStaticMarkup(React.createElement(PlanRecordView, { kind: "goal", contribution: 65, cadence: "each pay period", target: { amount: 2000, month: "August 2027" }, progress: 320, trackingLabel: "Not linked yet" }));
+assert.match(goalRecord, /Goal progress/);
+assert.match(goalRecord, /£320 of £2,000/);
 const details = renderDetails(gap);
 for (const text of ["−£29", "£336", "−£300", "−£65", "more needed for plans", "Payments are covered"]) assert.match(details, new RegExp(text));
 assert.doesNotMatch(details, /needed for payments|bg-rose-500/);
@@ -107,10 +110,9 @@ const screenshotAccount = { ...gap, opening: 312.46, outgoing: 7, closing: 305.4
 assert.equal(accountPlan(screenshotAccount, [screenshotExample]).afterPlans, -1006, "£305.46 less £315.52 remaining equals −£10.06; the £61.08 already saved is not deducted again");
 assert.match(renderDetails(screenshotAccount, [screenshotExample]), /£10\.06 more needed for plans · estimated/);
 assert.doesNotMatch(renderDetails(screenshotAccount, [screenshotExample]), /Not assigned to an account|Paying accounts need linking/);
-const inferredPlan = renderToStaticMarkup(React.createElement(UpcomingPlanDetails, { plan: suggested[0], accountName: "Monzo · Everyday account" }));
-assert.match(inferredPlan, /Based on recent transfers/);
-assert.match(inferredPlan, /included in this account’s estimate/);
-assert.doesNotMatch(inferredPlan, /Suggested|Select it and save/);
+const suggestedGoalRecord = renderToStaticMarkup(React.createElement(PlanRecordView, { kind: "goal", contribution: 65, cadence: "each pay period", target: { amount: 2000, month: "August 2027" }, progress: 320, trackingLabel: "Not tracking a payment", sourceAccount: { id: "current", name: "Current account", provider: "Monzo", type: "bank", currency: "GBP", balance: 100 }, sourceSuggested: true }));
+assert.match(suggestedGoalRecord, /Suggested from recent transfers/);
+assert.match(suggestedGoalRecord, /Edit and save to confirm/);
 
 for (const type of ["bill", "income"]) {
   const editor = renderToStaticMarkup(React.createElement(UpcomingEditForm, { item: { name: "Example", amount: 19.99, expected_date: "2026-10-01", type, edited: true }, onCancel() {}, onSaved() {}, onDismiss() {} }));

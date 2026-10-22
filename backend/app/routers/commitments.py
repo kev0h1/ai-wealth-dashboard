@@ -83,7 +83,7 @@ from app.db.collections import (
     yapily_accounts_col,
 )
 from app.routers.savings import _cashflow, _current_savings
-from app.services import plan_easing, response_cache, plan_tracking
+from app.services import goal_contribution, plan_easing, response_cache, plan_tracking
 from app.services.plan_fulfilment import fill_candidates as _plan_fill_candidates, validate_fill_rule
 from app.services.debt_plan import (
     DAYS_PER_MONTH,
@@ -472,6 +472,17 @@ async def _pot_progress_and_slice(
         usual_slice = max(per_period_slice, int(entry.get("usual_pence") or 0) // 100)
         eased_this_period = max(0, min(int(entry["contribution_pence"]) // 100, per_period_slice))
         per_period_slice = eased_this_period
+    manual = goal_contribution.live_entry(doc.get("period_contributions"), _end.isoformat())
+    if manual is not None:
+        # This is an intended TOTAL for the period, not a progress adjustment.
+        # Match outgoing payments against that total before capping the unpaid
+        # reserve at the actual remaining target (pot progress may already
+        # contain those payments).
+        per_period_slice = manual["contribution_pence"] / 100
+        usual_slice = planned_per_period_slice
+        eased_this_period = None
+    planned_per_period_slice = per_period_slice
+    fulfilment_expected = per_period_slice
     # G256: a matched OUTGOING transfer from the paying account releases the
     # slice (whole when fulfilled, the matched part when partial). Applied after
     # easing, so `usual_slice` and every easing figure above are untouched, and
@@ -479,9 +490,21 @@ async def _pot_progress_and_slice(
     # Penny all follow. Any failure keeps the full reservation (fail closed).
     fulfilment = None
     if claim and doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
-        fulfilment = await _plan_fulfilment(doc, per_period_slice, _start, _end)
+        fulfilment = await _plan_fulfilment(doc, per_period_slice, _start, _end, **({"exact": True} if manual else {}))
         if fulfilment is not None:
             per_period_slice = min(per_period_slice, fulfilment["unmet"])
+    current_contribution = None
+    if manual is not None:
+        per_period_slice = round(min(remaining, per_period_slice), 2)
+        current_contribution = goal_contribution.projection(
+            requested_pence=manual["contribution_pence"], remaining=remaining,
+            reserved=per_period_slice,
+            matched_pence=int((fulfilment or {}).get("matched_pence") or 0),
+            later_periods=_later_periods(doc, cfg, _end), usual=usual_slice,
+            period_start=_start.isoformat(), period_end=_end.isoformat(),
+            target_date=str(doc["target_date"])[:10],
+        )
+        planned_per_period_slice = current_contribution["contribution"]
     return {
         "fulfilment":       fulfilment,
         "progress":         progress,
@@ -491,6 +514,8 @@ async def _pot_progress_and_slice(
         "usual_slice":      usual_slice,
         "eased_this_period": eased_this_period,
         "planned_per_period_slice": planned_per_period_slice,
+        "fulfilment_expected": fulfilment_expected,
+        "current_period_contribution": current_contribution,
     }
 
 
@@ -509,7 +534,7 @@ def _public_fill_rule(doc: dict) -> dict | None:
     return {"match_type": rule.get("match_type"), "match_value": rule.get("match_value")}
 
 
-async def _plan_fulfilment(doc: dict, slice_due: int, start: date, end: date) -> dict | None:
+async def _plan_fulfilment(doc: dict, slice_due: float, start: date, end: date, *, exact: bool = False) -> dict | None:
     """G256: this period's fulfilment for a plan carrying a fill rule, or None
     (no rule, no known paying account, or any lookup failure). A debit fulfils
     at most one plan: rivals are the user's other active plans with a rule and
@@ -540,9 +565,9 @@ async def _plan_fulfilment(doc: dict, slice_due: int, start: date, end: date) ->
                 info = await _pot_progress_and_slice(o, cfg, ledger, today, claim=False)
                 rivals.append({
                     "doc": o, "rule": plan_fulfilment.validate_fill_rule(o["fill_rule"]),
-                    "expected_pence": int(info["per_period_slice"]) * 100,
+                    "expected_pence": int(round(info.get("fulfilment_expected", info["per_period_slice"]) * 100)),
                 })
-        return await plan_fulfilment.period_fulfilment(uid, doc, slice_due, source_id, start, end, rivals)
+        return await plan_fulfilment.period_fulfilment(uid, doc, slice_due, source_id, start, end, rivals, **({"exact": True} if exact else {}))
     except Exception:
         logger.exception("commitments: plan fulfilment lookup failed")
         return None
@@ -876,6 +901,10 @@ def _ease_fields(doc: dict, cfg: dict, slice_info: dict, today: date) -> dict:
     cap = plan_easing.period_cap_reason(doc.get("period_eased"), live_key, start)
     if cap is None and slice_info["usual_slice"] <= 0:
         cap = plan_easing.MSG_NOTHING
+    current = slice_info.get("current_period_contribution")
+    if current is not None:
+        later = current["later_contribution"]
+        cap = "You have chosen this period's contribution. Change it from your plan."
     return {
         "eased_this_period":  eased,
         "eased_mode":         entry.get("mode") if entry else None,
@@ -970,7 +999,9 @@ async def _serialise(
         "source_unset":        bool(doc.get("source_unset")),
         "fill_rule":           _public_fill_rule(doc),
         **({"category_tracking": doc["category_tracking"]} if doc.get("category_tracking") else {}),
-        **({"paused": doc["paused"], "planned_per_period_slice": slice_info["planned_per_period_slice"]} if "paused" in doc else {}),
+        **({"paused": doc["paused"]} if "paused" in doc else {}),
+        "planned_per_period_slice": slice_info["planned_per_period_slice"],
+        "current_period_contribution": slice_info.get("current_period_contribution"),
         "fulfilment":          slice_info.get("fulfilment"),
         **_paid_fields(slice_info.get("fulfilment")),
         "source":              doc.get("source", "manual"),
@@ -1063,7 +1094,7 @@ async def _serialise_all(
     return items
 
 
-async def total_reserved_slices(uid: str) -> tuple[int, int]:
+async def total_reserved_slices(uid: str) -> tuple[float, int]:
     """(sum of per_period_slice across ACTIVE commitments, count).
 
     Called by analytics.compute_safe_to_spend to reserve committed slices
@@ -1082,7 +1113,7 @@ async def total_reserved_slices(uid: str) -> tuple[int, int]:
     for doc in docs:
         slice_info = await _pot_progress_and_slice(doc, cfg, ledger, today)
         total += slice_info["per_period_slice"]
-    return int(total), sum(d.get("paused") is not True for d in docs)
+    return round(total, 2), sum(d.get("paused") is not True for d in docs)
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -1728,14 +1759,21 @@ async def update_commitment(
     # The live easing stops shaping the slice (marked cleared, never deleted, so
     # the per-year caps still count it); a lapsed one is left alone.
     ease_clear_key = None
-    if doc.get("period_eased") and (
+    contribution_clear_key = None
+    if (
         ("amount" in updates and round(float(updates["amount"]), 2) != round(float(doc.get("amount") or 0), 2))
         or ("target_date" in updates and str(updates["target_date"])[:10] != str(doc.get("target_date"))[:10])
     ):
-        _cfg_e = await _pay_cfg(uid)
-        _live = get_pay_period_for_date(timeutil.user_today(), _cfg_e)[1].isoformat()
-        if plan_easing.live_entry(doc.get("period_eased"), _live):
-            ease_clear_key = _live
+        if doc.get("period_eased") or doc.get("period_contributions"):
+            _cfg_e = await _pay_cfg(uid)
+            _live = get_pay_period_for_date(timeutil.user_today(), _cfg_e)[1].isoformat()
+            if plan_easing.live_entry(doc.get("period_eased"), _live):
+                ease_clear_key = _live
+            if goal_contribution.live_entry(doc.get("period_contributions"), _live):
+                contribution_clear_key = _live
+        # A concurrent period choice must not survive an amount/date edit
+        # computed from the older goal, nor be silently overwritten by it.
+        update_filter.update(source_link_snapshot(doc, "period_eased", "period_contributions", "amount", "target_date"))
 
     # A86: when this request depends on the status it read (a transition, a
     # contribution, or both), the write is a compare-and-set against that
@@ -1748,6 +1786,8 @@ async def update_commitment(
     set_doc = dict(updates)
     if ease_clear_key:
         set_doc[f"period_eased.{ease_clear_key}.cleared"] = True
+    if contribution_clear_key:
+        set_doc[f"period_contributions.{contribution_clear_key}.cleared"] = True
     result = await commitments_col.update_one(update_filter, {"$set": set_doc})
     if result.matched_count == 0:
         if link_changed or cas_status is None:
@@ -1761,6 +1801,10 @@ async def update_commitment(
         eased_map = {k: dict(v) if isinstance(v, dict) else v for k, v in doc["period_eased"].items()}
         eased_map[ease_clear_key]["cleared"] = True
         doc["period_eased"] = eased_map
+    if contribution_clear_key:
+        contributions = {k: dict(v) if isinstance(v, dict) else v for k, v in doc["period_contributions"].items()}
+        contributions[contribution_clear_key]["cleared"] = True
+        doc["period_contributions"] = contributions
 
     await response_cache.ainvalidate(uid)
     return await _serialise_one_with_siblings(uid, doc)
@@ -1780,7 +1824,7 @@ async def _ease_context(uid: str, doc: dict) -> dict:
     info = await _pot_progress_and_slice(doc, cfg, ledger, today)
     start, end = get_pay_period_for_date(today, cfg)
     return {
-        "cfg": cfg, "today": today, "info": info,
+        "cfg": cfg, "today": today, "info": info, "ledger": ledger,
         "period_start": start, "live_key": end.isoformat(),
         "target": date.fromisoformat(str(doc["target_date"])[:10]),
         "later_periods": _later_periods(doc, cfg, end),
@@ -1799,6 +1843,11 @@ def _parse_ease_body(body: dict, usual: int) -> tuple[int, str | None]:
     return pounds, body.get("mode")
 
 
+def _manual_blocks_ease(doc: dict, live_key: str) -> str | None:
+    return ("You have chosen this period's contribution. Change it from your plan."
+            if goal_contribution.live_entry(doc.get("period_contributions"), live_key) else None)
+
+
 @router.get("/commitments/{commitment_id}/ease-preview")
 async def preview_ease(commitment_id: str, contribution_pence: int, user: dict = Depends(current_user)):
     """The engine's figures for both ways of easing this period to
@@ -1808,7 +1857,7 @@ async def preview_ease(commitment_id: str, contribution_pence: int, user: dict =
     _require_active(doc)
     ctx = await _ease_context(uid, doc)
     info = ctx["info"]
-    blocked = plan_easing.period_cap_reason(doc.get("period_eased"), ctx["live_key"], ctx["period_start"])
+    blocked = _manual_blocks_ease(doc, ctx["live_key"]) or plan_easing.period_cap_reason(doc.get("period_eased"), ctx["live_key"], ctx["period_start"])
     usual = info["usual_slice"]
     pounds, _m = _parse_ease_body({"contribution_pence": contribution_pence}, usual)
     options = plan_easing.ease_options(
@@ -1835,7 +1884,7 @@ async def ease_commitment(commitment_id: str, body: dict, user: dict = Depends(c
     _require_active(doc)
     ctx = await _ease_context(uid, doc)
     info, live_key = ctx["info"], ctx["live_key"]
-    reason = plan_easing.period_cap_reason(doc.get("period_eased"), live_key, ctx["period_start"])
+    reason = _manual_blocks_ease(doc, live_key) or plan_easing.period_cap_reason(doc.get("period_eased"), live_key, ctx["period_start"])
     if reason:
         raise HTTPException(422, reason)
     usual = info["usual_slice"]
@@ -1875,6 +1924,7 @@ async def ease_commitment(commitment_id: str, body: dict, user: dict = Depends(c
     flt = {"_id": doc["_id"], "user_id": uid, "status": "active"}
     # Compare-and-set against the date and history this decision was made on.
     flt["target_date"] = doc["target_date"]
+    flt.update(source_link_snapshot(doc, "period_contributions", "paused", "amount"))
     # The live key must still be absent: a concurrent ease, or one cleared by an
     # edit, can never be overwritten by a second ease in the same period.
     flt[f"period_eased.{live_key}"] = {"$exists": False}
@@ -1886,6 +1936,96 @@ async def ease_commitment(commitment_id: str, body: dict, user: dict = Depends(c
     doc["period_eased"] = eased_map
     if moved:
         doc["target_date"] = new_target
+    await response_cache.ainvalidate(uid)
+    return await _serialise_one_with_siblings(uid, doc)
+
+
+@router.get("/commitments/{commitment_id}")
+async def get_commitment(commitment_id: str, user: dict = Depends(current_user)):
+    """One canonical owned goal for every View/editor entry point."""
+    uid = user["email"]
+    return await _serialise_one_with_siblings(uid, await _get_owned(uid, commitment_id))
+
+
+async def _contribution_preview(uid: str, doc: dict, contribution_pence: int) -> tuple[dict, dict]:
+    if (doc.get("status") or "active") != "active" or doc.get("paused") is True:
+        raise HTTPException(409, "Only an active, unpaused goal can change this period's contribution.")
+    try:
+        pence = goal_contribution.validate_pence(contribution_pence)
+    except ValueError:
+        raise HTTPException(422, goal_contribution.INVALID_AMOUNT) from None
+    ctx = await _ease_context(uid, doc)
+    live_key = ctx["live_key"]
+    draft = {**doc, "period_contributions": {
+        **(doc.get("period_contributions") or {}), live_key: {"contribution_pence": pence},
+    }}
+    info = await _pot_progress_and_slice(draft, ctx["cfg"], ctx["ledger"], ctx["today"])
+    preview = dict(info["current_period_contribution"])
+    preview["replaces_easing"] = bool(
+        plan_easing.live_entry(doc.get("period_eased"), live_key)
+        and not goal_contribution.live_entry(doc.get("period_contributions"), live_key)
+    )
+    preview["preview_token"] = goal_contribution.preview_token(doc, ctx["cfg"], preview)
+    return preview, ctx
+
+
+@router.get("/commitments/{commitment_id}/contribution-preview")
+async def preview_goal_contribution(commitment_id: str, contribution_pence: int, user: dict = Depends(current_user)):
+    uid = user["email"]
+    doc = await _get_owned(uid, commitment_id)
+    preview, _ctx = await _contribution_preview(uid, doc, contribution_pence)
+    return preview
+
+
+@router.put("/commitments/{commitment_id}/contribution")
+async def set_goal_contribution(commitment_id: str, body: dict, user: dict = Depends(current_user)):
+    """Change the intention for this period only, without moving any money.
+
+    The owned goal, preview and write all share a financial snapshot. A stale
+    preview or simultaneous plan edit is refused, rather than reinterpreted.
+    """
+    uid = user["email"]
+    doc = await _get_owned(uid, commitment_id)
+    preview, ctx = await _contribution_preview(uid, doc, body.get("contribution_pence"))
+    if body.get("period_end") != preview["period_end"] or body.get("preview_token") != preview["preview_token"]:
+        raise HTTPException(409, "This plan or pay period changed. Check the contribution again before saving.")
+    if preview["blocked_reason"]:
+        raise HTTPException(422, preview["blocked_reason"])
+    # Check rollover again immediately before the write. Stored keys are also
+    # period-scoped, so an old key can never shape the next period's reserve.
+    latest_cfg = await _pay_cfg(uid)
+    if latest_cfg != ctx["cfg"] or get_pay_period_for_date(timeutil.user_today(), latest_cfg)[1].isoformat() != ctx["live_key"]:
+        raise HTTPException(409, "Your pay period changed. Check the contribution again before saving.")
+    entry = {
+        # Keep the reviewed gross intention stable for exact debit ownership.
+        # The shared resolver caps only the unpaid reservation at remaining.
+        "contribution_pence": body["contribution_pence"],
+        "requested_pence": body["contribution_pence"],
+        "noted_at": datetime.now(timezone.utc).isoformat(),  # naive-ok: persisted UTC audit timestamp, not calendar copy
+    }
+    live_key = ctx["live_key"]
+    update = {"$set": {f"period_contributions.{live_key}": entry}}
+    # Replacing a live coaching easing is explicit in the preview. Keep its
+    # history entry for G228's caps, but prevent it reviving after a later edit.
+    if plan_easing.live_entry(doc.get("period_eased"), live_key):
+        update["$set"][f"period_eased.{live_key}.cleared"] = True
+    horizon = (ctx["today"] - timedelta(days=396)).isoformat()
+    stale = {f"period_contributions.{k}": "" for k in (doc.get("period_contributions") or {}) if k < horizon}
+    if stale:
+        update["$unset"] = stale
+    flt = {"_id": doc["_id"], "user_id": uid, **source_link_snapshot(
+        doc, "status", "paused", "amount", "target_date", "contributed",
+        "funding_pots", "funding_account_id", "baseline_balance", "source_account_id",
+        "source_unset", "fill_rule", "category_tracking", "period_eased", "period_contributions",
+    )}
+    result = await commitments_col.update_one(flt, update)
+    if result.matched_count == 0:
+        raise HTTPException(409, "This plan changed while you were editing. Check the contribution again before saving.")
+    doc["period_contributions"] = {k: v for k, v in (doc.get("period_contributions") or {}).items() if k >= horizon}
+    doc["period_contributions"][live_key] = entry
+    if preview["replaces_easing"]:
+        doc["period_eased"] = {k: dict(v) if isinstance(v, dict) else v for k, v in doc["period_eased"].items()}
+        doc["period_eased"][live_key]["cleared"] = True
     await response_cache.ainvalidate(uid)
     return await _serialise_one_with_siblings(uid, doc)
 
