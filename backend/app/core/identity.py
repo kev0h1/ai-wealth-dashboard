@@ -90,6 +90,9 @@ async def resolve_signin_email(
     if allowed:
         candidate = allowed
 
+    if not allowed:
+        from app.services import runtime_settings
+        await runtime_settings.ensure_fresh()   # E10: OPEN_SIGNUP is owner-editable
     if not (allowed or is_signup_open()):
         warn_provider = "apple-native-linked" if via_explicit_link else provider
         logging.warning(

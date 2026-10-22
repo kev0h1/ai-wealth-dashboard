@@ -13,8 +13,9 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Optional
 
+from app.services import runtime_settings
 from app.services.health.base import (
-    CRIT, OK, WARN, Collector, env_float, iso, level, result, utc_now, worst,
+    CRIT, OK, WARN, Collector, iso, level, result, utc_now, worst,
 )
 
 BUDGET_WARN, BUDGET_CRIT = 0.75, 1.0
@@ -80,7 +81,7 @@ class LlmTavilyCollector(Collector):
 
         month_cost = round(sum(p["cost_usd"] for p in month_p), 4)
         week_cost = round(sum(p["cost_usd"] for p in week_p), 4)
-        budget = env_float("LLM_MONTHLY_BUDGET_USD")
+        budget = await runtime_settings.asetting("LLM_MONTHLY_BUDGET_USD")   # E10: database, then env
         spend_status = OK
         if budget and budget > 0:
             spend_status = level(month_cost / budget, BUDGET_WARN, BUDGET_CRIT)

@@ -46,6 +46,9 @@ ALLOWLIST: set[tuple[str, int]] = {
     # /ops/go-live admin surface.
     ("app/routers/ops.py", 248),
     ("app/routers/ops.py", 272),
+    # E10: app.services.runtime_settings.SettingError, raised only by that
+    # module's own validate() with an authored message ("Must be at most 40.").
+    ("app/routers/ops.py", 416),
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)

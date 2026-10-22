@@ -191,6 +191,10 @@ health_samples_col      = db["health_samples"]
 # only: keys, counts and timestamps, no user id, no payloads.
 alert_state_col         = db["alert_state"]
 error_types_seen_col    = db["error_types_seen"]
+# E10: owner-editable runtime settings (one doc per key, _id == key) and its
+# append-only audit log. Operational values only, never secrets, no user id.
+settings_col            = db["settings"]
+settings_audit_col      = db["settings_audit"]
 
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
@@ -630,6 +634,10 @@ ERASURE_MANIFEST = frozenset({
     # E8: alert keys and exception class names only, no user id on any document.
     "alert_state_col",
     "error_types_seen_col",
+    # E10: operational setting values and who changed them (the owner's email
+    # in `actor`, a row of the audit trail, kept for the account's lifetime of
+    # the deployment, not user data), no `user_id` on any document.
+    "settings_col", "settings_audit_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98

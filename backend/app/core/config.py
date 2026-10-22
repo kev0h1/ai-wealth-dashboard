@@ -200,7 +200,10 @@ OPEN_SIGNUP = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "true",
 
 
 def is_signup_open() -> bool:
-    return OPEN_SIGNUP
+    # E10: database value (owner-editable on /ops/health), then the env value
+    # above. Async callers await runtime_settings.ensure_fresh() first.
+    from app.services import runtime_settings
+    return bool(runtime_settings.setting("OPEN_SIGNUP", env=OPEN_SIGNUP))
 
 
 # MCP connector kill switch (A17). The /mcp Streamable HTTP connector (F3)

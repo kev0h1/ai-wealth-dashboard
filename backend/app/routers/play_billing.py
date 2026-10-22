@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core import play_config
 from app.core.auth import current_user
-from app.services import google_play, play_billing
+from app.services import google_play, play_billing, runtime_settings
 from app.services.play_billing import PlayNotEnabled, PlayRefused, PlayUnavailable
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ async def _authenticate_push(request: Request) -> None:
 
 @router.post("/webhooks/google-play", status_code=200)
 async def google_play_webhook(request: Request):
-    if not play_config.PLAY_IAP_ENABLED:
+    if not await runtime_settings.asetting("PLAY_IAP_ENABLED", env=play_config.PLAY_IAP_ENABLED):
         raise HTTPException(status_code=503, detail=_UNAVAILABLE)
     await _authenticate_push(request)
     # Reject on the declared size before reading anything (an absent or

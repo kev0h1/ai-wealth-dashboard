@@ -50,7 +50,7 @@ from pymongo.errors import DuplicateKeyError
 from app.core import config, play_config
 from app.core.store_catalogue import StoreProduct, build_catalogue, product_ids_by_key
 from app.core.subscription import SUBSCRIPTION_TRIAL_DAYS
-from app.services import google_play, store_subscriptions
+from app.services import google_play, runtime_settings, store_subscriptions
 from app.services.google_play import PlayApiError
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,9 @@ def play_enabled() -> bool:
     """Everything a purchase and its verification need is configured. The
     receiver's own authentication is checked separately (receiver_auth_mode)."""
     return bool(
-        play_config.PLAY_IAP_ENABLED
+        # E10: database value (owner-editable), then the env constant. Async
+        # callers await runtime_settings.ensure_fresh() first.
+        runtime_settings.setting("PLAY_IAP_ENABLED", env=play_config.PLAY_IAP_ENABLED)
         and play_config.PLAY_PACKAGE_NAME
         and play_config.PLAY_ACCOUNT_ID_SALT
         and google_play.service_account_configured()
@@ -788,6 +790,7 @@ async def client_config(uid: str) -> dict:
     never hard-coded in the app), the account id to set as the purchase's
     obfuscatedAccountId, and a reason when buying is not allowed right now
     (an active web subscription already covers the user)."""
+    await runtime_settings.ensure_fresh()
     if not play_enabled():
         return {"enabled": False}
     blocked = None
@@ -819,6 +822,7 @@ async def verify_client_purchase(uid: str, token, product_id) -> dict:
     """The client says a purchase finished (or is restoring one). Only the
     token and product id are used, as lookup keys: the Developer API answer
     decides everything, and the purchase must belong to `uid`."""
+    await runtime_settings.ensure_fresh()
     if not play_enabled():
         raise PlayNotEnabled("play billing is not enabled")
     product = catalogue().get(product_id) if isinstance(product_id, str) else None

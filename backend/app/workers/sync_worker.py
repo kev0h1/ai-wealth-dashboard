@@ -14,6 +14,7 @@ from app.core.config import (
     RECONCILE_MIN_GAP_SECONDS,
 )
 from app.core.push import send_push_to_user
+from app.services import runtime_settings
 from app.db.collections import (
     accounts_col, connections_col, yapily_consents_col,
     webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
@@ -329,11 +330,17 @@ async def task_reconcile_truelayer(ctx):
     # See _spread_offsets's own docstring and RECONCILE_* in app.core.config
     # for why (Finexer rate limits, once Railway Pro + replicas land, E2).
     total_jobs = len(tl_ordered) + len(retry_ordered) + len(fx_ordered)
+    # E10: read at run time through the runtime-settings accessor (database
+    # value, then the env constants), so an owner change applies on the next run.
+    await runtime_settings.ensure_fresh()
+    max_per_minute = int(runtime_settings.setting("RECONCILE_MAX_PER_MINUTE", env=RECONCILE_MAX_PER_MINUTE))
+    min_gap_seconds = int(runtime_settings.setting("RECONCILE_MIN_GAP_SECONDS", env=RECONCILE_MIN_GAP_SECONDS))
+    spread_minutes = int(runtime_settings.setting("RECONCILE_SPREAD_MINUTES", env=RECONCILE_SPREAD_MINUTES))
     offsets, overflow = _spread_offsets(
         total_jobs,
-        max_per_minute=RECONCILE_MAX_PER_MINUTE,
-        min_gap_seconds=RECONCILE_MIN_GAP_SECONDS,
-        spread_minutes=RECONCILE_SPREAD_MINUTES,
+        max_per_minute=max_per_minute,
+        min_gap_seconds=min_gap_seconds,
+        spread_minutes=spread_minutes,
     )
     offset_iter = iter(offsets)
 
@@ -380,15 +387,15 @@ async def task_reconcile_truelayer(ctx):
             "(last offset %ds) — connection count is outgrowing "
             "RECONCILE_MAX_PER_MINUTE=%d at RECONCILE_SPREAD_MINUTES=%d; "
             "consider raising the ceiling or widening the cron interval",
-            overflow, total_jobs, RECONCILE_SPREAD_MINUTES, last_offset_seconds,
-            RECONCILE_MAX_PER_MINUTE, RECONCILE_SPREAD_MINUTES,
+            overflow, total_jobs, spread_minutes, last_offset_seconds,
+            max_per_minute, spread_minutes,
         )
 
     summary = {
         "reconciled": reconciled,
         "skipped_on_upload": skipped_on_upload,
         "skipped_fresh": skipped_fresh,
-        "spread_minutes": RECONCILE_SPREAD_MINUTES,
+        "spread_minutes": spread_minutes,
         "last_offset_seconds": last_offset_seconds,
         "overflow": overflow,
         "at": now.isoformat(),

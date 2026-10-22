@@ -272,7 +272,9 @@ async def apple_account_token(user: dict = Depends(current_user)):
     from app.core import config
     from app.services import apple_billing, store_subscriptions
 
-    if not config.APPLE_IAP_ENABLED:
+    from app.services import runtime_settings
+
+    if not await runtime_settings.asetting("APPLE_IAP_ENABLED", env=config.APPLE_IAP_ENABLED):
         return {"enabled": False, "app_account_token": None, "products": {},
                 "purchase_allowed": False, "blocked_reason": "not_enabled"}
     blocked = None

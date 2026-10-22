@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import calendar
 import logging
-import os
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Awaitable, Callable, Optional
@@ -39,6 +38,7 @@ from typing import Awaitable, Callable, Optional
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from app.services import runtime_settings
 from app.services.health import error_types, latency, vps
 from app.services.health.base import iso, naive_utc_now
 from app.services.health.samples import BUCKET_S
@@ -86,23 +86,24 @@ class Config:
     sync_failures: int = 5
 
 
-def _num(name: str, default: float, lo: float) -> float:
-    try:
-        v = float((os.environ.get(name) or "").strip() or default)
-    except ValueError:
-        return default
-    return v if v >= lo else default
-
-
 def load_config() -> Config:
+    """E10: every field resolves through the runtime-settings accessor
+    (database value, then the env var read now, then the default). Callers in
+    async code await `_fresh_config()` so the snapshot is current."""
+    g = runtime_settings.setting
     return Config(
-        enabled=(os.environ.get("ALERTS_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"},
-        cooldown_h=_num("ALERT_COOLDOWN_HOURS", 6.0, 0.0),
-        warn_streak=min(int(_num("ALERT_WARN_STREAK", 3, 1)), ROWS_PER_COLLECTOR),
-        hourly_cap=int(_num("ALERT_HOURLY_CAP", 5, 1)),
-        error_rate=_num("ALERT_ERROR_RATE", 0.10, 0.001),
-        sync_failures=int(_num("ALERT_SYNC_FAILURES", 5, 1)),
+        enabled=bool(g("ALERTS_ENABLED")),
+        cooldown_h=float(g("ALERT_COOLDOWN_HOURS")),
+        warn_streak=min(int(g("ALERT_WARN_STREAK")), ROWS_PER_COLLECTOR),
+        hourly_cap=int(g("ALERT_HOURLY_CAP")),
+        error_rate=float(g("ALERT_ERROR_RATE")),
+        sync_failures=int(g("ALERT_SYNC_FAILURES")),
     )
+
+
+async def _fresh_config() -> Config:
+    await runtime_settings.ensure_fresh()
+    return load_config()
 
 
 @dataclass
@@ -432,7 +433,7 @@ async def fetch_rows(samples_col, now) -> dict[str, list[dict]]:
 
 async def run_alerts(samples_col=None, state_col=None, now=None, send: Optional[Send] = None, cfg: Optional[Config] = None) -> dict:
     """The cron entry point. Off unless ALERTS_ENABLED; never raises."""
-    cfg = cfg or load_config()
+    cfg = cfg or await _fresh_config()
     if not cfg.enabled:
         return {"enabled": False}
     try:
@@ -454,7 +455,7 @@ async def process_new_error_types(seen_col=None, state_col=None, now=None, send:
     """Flush this process's exception class names; alert on the new ones.
     The baseline is recorded even while alerts are off, so enabling them later
     does not announce every class the app has ever raised."""
-    cfg = cfg or load_config()
+    cfg = cfg or await _fresh_config()
     try:
         from app.db import collections as c
         seen_col = seen_col if seen_col is not None else c.error_types_seen_col
@@ -486,7 +487,7 @@ def _public(d: dict) -> dict:
 
 
 async def snapshot(state_col, now=None, cfg: Optional[Config] = None) -> dict:
-    cfg = cfg or load_config()
+    cfg = cfg or await _fresh_config()
     now = now or naive_utc_now()
     since = now - timedelta(hours=HISTORY_HOURS)
     real = {"_id": {"$nin": [CAP_ID, TEST_ID]}}
@@ -509,7 +510,7 @@ async def snapshot(state_col, now=None, cfg: Optional[Config] = None) -> dict:
 async def send_test(state_col, now=None, send: Optional[Send] = None, cfg: Optional[Config] = None) -> dict:
     """One test push to the owner, at most one a minute. Works with alerts
     switched off so delivery can be checked before enabling them."""
-    cfg = cfg or load_config()
+    cfg = cfg or await _fresh_config()
     now = now or naive_utc_now()
     try:
         await state_col.insert_one({"_id": TEST_ID, "last_notified": None})

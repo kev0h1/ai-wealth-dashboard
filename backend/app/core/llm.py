@@ -25,6 +25,7 @@ facing failure: `record_llm_usage` catches everything and logs a warning.
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 from fastapi import HTTPException
@@ -69,13 +70,13 @@ class LLMCeilingReached(HTTPException):
     any other 402 raised elsewhere in the same stack."""
 
 
-def _global_ceiling_exception(ym: str) -> LLMCeilingReached:
+def _global_ceiling_exception(ym: str, ceiling: Optional[int] = None) -> LLMCeilingReached:
     return LLMCeilingReached(
         status_code=402,
         detail={
             "code": _GLOBAL_CEILING_CODE,
             "year_month": ym,
-            "ceiling": LLM_GLOBAL_MONTHLY_CALL_CEILING,
+            "ceiling": LLM_GLOBAL_MONTHLY_CALL_CEILING if ceiling is None else ceiling,
         },
     )
 
@@ -100,7 +101,11 @@ async def _check_global_ceiling() -> None:
     since this one is not allowed to be silently harmless) and treated as
     over the ceiling.
     """
-    if LLM_GLOBAL_MONTHLY_CALL_CEILING <= 0:
+    # E10: read at call time through the runtime-settings accessor (database
+    # value, then the env constant), so an owner change applies without a restart.
+    from app.services import runtime_settings
+    ceiling = int(await runtime_settings.asetting("LLM_GLOBAL_MONTHLY_CALL_CEILING", env=LLM_GLOBAL_MONTHLY_CALL_CEILING))
+    if ceiling <= 0:
         return
     ym = datetime.now(timezone.utc).strftime("%Y-%m")
     try:
@@ -116,9 +121,9 @@ async def _check_global_ceiling() -> None:
             "llm: global ceiling counter write failed for %s, refusing the call (fail closed)",
             ym, exc_info=True,
         )
-        raise _global_ceiling_exception(ym)
+        raise _global_ceiling_exception(ym, ceiling)
 
-    warn_threshold = LLM_GLOBAL_MONTHLY_CALL_CEILING * 0.8
+    warn_threshold = ceiling * 0.8
     if count >= warn_threshold and not (doc or {}).get("warned_80"):
         try:
             flagged = await llm_global_usage_col.update_one(
@@ -127,17 +132,17 @@ async def _check_global_ceiling() -> None:
             if flagged.modified_count:
                 logger.warning(
                     "llm: global monthly call count %d has crossed 80%% of the %d ceiling for %s",
-                    count, LLM_GLOBAL_MONTHLY_CALL_CEILING, ym,
+                    count, ceiling, ym,
                 )
         except Exception:
             logger.warning("llm: failed to record/emit global-ceiling 80%% warning for %s", ym, exc_info=True)
 
-    if count > LLM_GLOBAL_MONTHLY_CALL_CEILING:
+    if count > ceiling:
         logger.error(
             "llm: global monthly call ceiling (%d) exceeded for %s (count=%d), refusing the call",
-            LLM_GLOBAL_MONTHLY_CALL_CEILING, ym, count,
+            ceiling, ym, count,
         )
-        raise _global_ceiling_exception(ym)
+        raise _global_ceiling_exception(ym, ceiling)
 
 
 async def _ensure_indexes() -> None:
