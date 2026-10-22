@@ -402,7 +402,7 @@ async def health_snapshot(now: Optional[datetime] = None) -> dict:
         }
     except Exception as exc:
         log.warning("vendor lookups: health snapshot failed (%s)", type(exc).__name__)
-        return {"enabled": bool(cfg.VENDOR_LADDER_ENABLED), "error": type(exc).__name__}
+        return {"enabled": bool(cfg.VENDOR_LADDER_ENABLED), "error": "unavailable"}
 
 
 # ── The lookup: claim, Tavily search, reasoning-model write-up ──────────────
@@ -639,12 +639,14 @@ async def ensure_vendor(
         try:
             found = await _tavily_search(f'"{key}" UK: what is this business or service, and where is it?')
         except ProviderFailure as pf:
-            if pf.code != "not_configured":
+            unconfigured = pf.code == "not_configured"
+            if not unconfigured:
                 await record_failure(pf.code, pf.http_status, now)
             else:
                 await _release_daily_slot(now)
                 budget.used -= 1
-            return existing, pf.code if pf.code == "not_configured" else "provider_error"
+            outcome = "not_configured" if unconfigured else "provider_error"
+            return existing, outcome
         await record_success(now)
         if not found["answer"] and not found["snippets"]:
             doc = _doc_from_llm(key, {"status": NOT_FOUND}, found["urls"], now)
