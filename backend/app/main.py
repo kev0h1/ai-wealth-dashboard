@@ -947,11 +947,19 @@ async def _migrate_bot_credential_expiry():
 async def _seed_subscriptions():
     """Seed subscription tiers for all known users. Idempotent — skips existing docs."""
     from datetime import datetime, timezone
-    from app.core.config import ALLOWED_EMAILS
+    from app.core.config import PRIMARY_EMAIL
+    from app.db.collections import allowed_signups_col
 
     FREE_USERS = {"mbithi.maingi12@gmail.com"}
 
-    for email in ALLOWED_EMAILS:
+    try:
+        docs = await allowed_signups_col.find({"status": "invited"}).to_list(None)
+    except Exception:
+        logging.getLogger(__name__).warning("_seed_subscriptions: allow-list read failed; seeding the owner only")
+        docs = []
+    emails = {PRIMARY_EMAIL} | {(d.get("email") or "").strip().lower() for d in docs if d.get("email")}
+
+    for email in sorted(emails):
         existing = await subscriptions_col.find_one({"user_id": email})
         if existing:
             continue

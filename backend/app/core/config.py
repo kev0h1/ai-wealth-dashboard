@@ -74,9 +74,12 @@ def _origin_of(url: str) -> str:
 # points at a dedicated host. Derived once here so app.core.auth and
 # app.main don't each re-parse MCP_PUBLIC_URL themselves.
 MCP_ORIGIN           = _origin_of(MCP_PUBLIC_URL)
-_raw_allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",") if e.strip()]
-ALLOWED_EMAILS      = set(_raw_allowed_emails)
-PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"
+# A174: the sign-up allow list lives in the `allowed_signups` Mongo
+# collection only (app.core.allowlist); no email list is read from env.
+# The account owner is identified by PRIMARY_EMAIL alone.
+if os.getenv("ALLOWED_EMAILS") is not None:
+    logging.getLogger(__name__).warning("ALLOWED_EMAILS is no longer read; delete it from the environment")
+PRIMARY_EMAIL       = (os.getenv("PRIMARY_EMAIL") or "kevin.maingi12@gmail.com").strip().lower()
 SESSION_MAX_AGE     = 7 * 24 * 3600
 
 # Subscription tier a user gets when they have no subscription doc (or an
@@ -95,27 +98,15 @@ def _gmail_key(email: str) -> str:
     return email.lower()
 
 
-# Earlier entries win if two allow-list emails collapse to the same Gmail key
-# (build in list order, only filling keys not already present).
-_ALLOWED_BY_KEY: dict[str, str] = {}
-for _e in _raw_allowed_emails:
-    _k = _gmail_key(_e)
-    if _k not in _ALLOWED_BY_KEY:
-        _ALLOWED_BY_KEY[_k] = _e
-
-
-def resolve_allowed_email(email: str) -> str | None:
-    """Return the allow-list spelling for `email`, or None if it is not allowed.
-
-    Exact (case-insensitive) matches win. Gmail/googlemail addresses also match
-    dot-insensitively, and the returned value is the allow-list spelling so the
-    same person always lands in the same account regardless of provider."""
+def resolve_owner_email(email: str) -> str | None:
+    """Return PRIMARY_EMAIL if `email` is the account owner (Gmail
+    dot-insensitive), else None. The owner is always allowed in, whatever
+    the DB allow list holds."""
     if not email:
         return None
-    e = email.strip().lower()
-    if e in ALLOWED_EMAILS:
-        return e
-    return _ALLOWED_BY_KEY.get(_gmail_key(e))
+    if _gmail_key(email.strip().lower()) == _gmail_key(PRIMARY_EMAIL):
+        return PRIMARY_EMAIL
+    return None
 
 
 def mask_email(email: str) -> str:
@@ -200,7 +191,7 @@ APPLE_BUNDLE_ID     = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.sorted")
 APPLE_SERVICES_ID   = os.getenv("APPLE_SERVICES_ID", "")
 
 # Phase 2 of the allow-list work (see app/core/identity.py): default false
-# keeps registration restricted to ALLOWED_EMAILS (today's behaviour,
+# keeps registration restricted to the DB allow list (today's behaviour,
 # unchanged). Set true to let any verified Google/Apple identity create an
 # account — the identity resolver still runs first (Gmail dot-insensitive
 # aliasing, Apple relay auto-linking) so the same person always lands in the

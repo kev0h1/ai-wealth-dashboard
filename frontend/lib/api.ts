@@ -2021,8 +2021,6 @@ export type AllowlistEntry = {
 };
 export type AllowlistResponse = {
   invited: AllowlistEntry[];
-  /** ALLOWED_EMAILS env var — read-only reference, never editable here. */
-  env_seeded: string[];
 };
 // B20: admin-composed offer broadcasts — owner-only compose/preview/send
 // surface (backend/app/routers/broadcast.py) plus the in-app-card half any

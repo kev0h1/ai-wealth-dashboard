@@ -7,17 +7,14 @@ re-point/409 rule in link_apple_identity, and the `auto` field on GET
 Monkeypatching `is_signup_open`: app/core/identity.py does
 `from app.core.config import is_signup_open`, which binds the name
 `is_signup_open` in identity.py's OWN module namespace at import time (same
-idiom noted in test_allowed_email_resolution.py's docstring for
-resolve_allowed_email/ALLOWED_EMAILS). So
+idiom noted in test_allowed_email_resolution.py's docstring). So
 `monkeypatch.setattr(identity_module, "is_signup_open", lambda: True)`
 rebinds that local name directly — identity.py always calls it through this
 name, so the patch takes effect regardless of the real OPEN_SIGNUP env var.
 
-Similarly, `resolve_allowed_email()` and the ALLOWED_EMAILS/_ALLOWED_BY_KEY
-globals it reads live in app.core.config; monkeypatching those two globals
-directly (rather than the real, unknown-to-this-test-suite deployed allow
-list) keeps every test here deterministic regardless of what ALLOWED_EMAILS
-is actually set to on whatever machine runs the suite.
+Similarly, `resolve_owner_email()` reads the PRIMARY_EMAIL global in
+app.core.config; monkeypatching it keeps every test here deterministic
+regardless of the machine's real environment.
 
 Fake-collection conventions (fake `linked_identities_col`, `_make_token` for
 signed fake Apple identity tokens, `_run` = asyncio.run(coro) to await route
@@ -141,14 +138,10 @@ def _open_signup(monkeypatch, is_open: bool) -> None:
 
 
 def _set_allow_list(monkeypatch, emails: list[str]) -> None:
+    """A174: the env list is gone; the only env-level identity is the owner
+    (PRIMARY_EMAIL). Pin it to the first entry."""
     lowered = [e.strip().lower() for e in emails]
-    by_key: dict[str, str] = {}
-    for e in lowered:
-        k = config._gmail_key(e)
-        if k not in by_key:
-            by_key[k] = e
-    monkeypatch.setattr(config, "ALLOWED_EMAILS", set(lowered))
-    monkeypatch.setattr(config, "_ALLOWED_BY_KEY", by_key)
+    monkeypatch.setattr(config, "PRIMARY_EMAIL", lowered[0])
 
 
 def _user(email: str) -> dict:

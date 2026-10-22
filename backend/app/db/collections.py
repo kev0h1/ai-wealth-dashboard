@@ -327,13 +327,11 @@ user_data_version_col   = db["user_data_version"]
 # and the /auth/identities endpoints.
 linked_identities_col   = db["linked_identities"]
 
-# D5: in-app sign-up allow list, the day-to-day layer on top of the
-# ALLOWED_EMAILS env var (app.core.config) — adding/removing an address no
-# longer needs a Railway env edit + redeploy, just the /ops/go-live page
-# (app/routers/admin_allowlist.py). ALLOWED_EMAILS stays the seed list and
-# is checked FIRST (app.core.allowlist.resolve_allowed_signup); this
-# collection is consulted only when the seed list doesn't already allow the
-# address. Doc shape: {key (Gmail dot-insensitive key, see
+# D5/A174: the sign-up allow list, the ONLY one (no env email list
+# any more); managed from /ops/go-live (app/routers/admin_allowlist.py) and
+# read by app.core.allowlist.resolve_allowed_signup. The owner is always
+# allowed through PRIMARY_EMAIL, not through this collection. Doc shape:
+# {key (Gmail dot-insensitive key, see
 # app.core.config._gmail_key — unique, the lookup key), email (as entered,
 # lower-cased), invited_by (inviter's email), created_at, status:
 # "invited" | "revoked", note (optional str)}. Revoking sets status

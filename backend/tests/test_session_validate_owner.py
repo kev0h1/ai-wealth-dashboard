@@ -5,7 +5,7 @@ the owner's own account apart from any other authorised sign-in so it can
 keep the full product reachable for the owner while everyone else gets the
 "Sorted is an app" shell. `validate_session()` derives this by lower-casing
 and stripping the session's email and comparing it to PRIMARY_EMAIL
-(app.core.config, the first entry of ALLOWED_EMAILS).
+(app.core.config, the PRIMARY_EMAIL env var).
 
 No TestClient/HTTP layer here, following the convention already established
 in test_apple_auth.py / test_linked_identities.py: the route coroutine is
