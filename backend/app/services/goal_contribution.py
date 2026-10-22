@@ -27,6 +27,20 @@ def live_entry(history, period_end: str) -> dict | None:
     return entry
 
 
+def schedule(remaining_pence: int, periods: int) -> tuple[int, ...]:
+    """One rounded contribution schedule, with a capped final payment.
+
+    The current period is a slot even when today is after its start. The
+    advertised approximate rate is repeated until the target is covered;
+    rounding never invents extra money for the final slot.
+    """
+    if periods <= 0:
+        return ()
+    remaining_pence = max(0, remaining_pence)
+    rate = math.ceil(remaining_pence / (periods * 500)) * 500
+    return tuple(min(rate, max(0, remaining_pence - rate * slot)) for slot in range(periods))
+
+
 def projection(*, requested_pence: int, remaining: float, reserved: float,
                matched_pence: int, later_periods: int, usual: float,
                period_start: str, period_end: str, target_date: str,
@@ -41,8 +55,9 @@ def projection(*, requested_pence: int, remaining: float, reserved: float,
     contribution_pence = min(requested_pence, remaining_pence + matched_pence)
     reserved_pence = min(remaining_pence, max(0, round(reserved * 100)))
     after = max(0, remaining_pence - reserved_pence)
-    later_pence = (math.ceil(after / (later_periods * 500)) * 500
-                   if after and later_periods > 0 else 0 if not after else None)
+    # Reuse the normal allocator, rather than a second rounded average.
+    later = schedule(after, later_periods)
+    later_pence = later[0] if later else 0 if not after else None
     return {
         "period_start": period_start, "period_end": period_end,
         "target_date": target_date,
@@ -55,7 +70,7 @@ def projection(*, requested_pence: int, remaining: float, reserved: float,
         "later_contribution": later_pence / 100 if later_pence is not None else None,
         "covers_remaining": after == 0,
         "capped": contribution_pence != requested_pence,
-        "large_increase": later_pence is not None and later_pence > round(usual * 125),
+        "large_increase": later_pence is not None and later_pence * 100 > round(usual * 100) * 125,
         "blocked_reason": (
             "There are no later pay periods before this target date. Choose enough for the remaining target or change the target date separately."
             if after and later_periods == 0 else None

@@ -96,7 +96,7 @@ from app.db.collections import (
     yapily_accounts_col,
     yapily_transactions_col,
 )
-from app.services import response_cache, plan_tracking
+from app.services import goal_contribution, response_cache, plan_tracking
 from app.services.categories import clean_name
 from app.services.categorisation import series_key
 from app.services.description_match import matches_contains, matches_equals
@@ -356,6 +356,20 @@ def _period_override_pence(doc: dict, period_end: date) -> int | None:
     return int(raw)
 
 
+def _period_contribution_pence(doc: dict, period_end: date) -> int | None:
+    """G318's intended total for this period, when one was explicitly saved.
+
+    This deliberately sits alongside the older reduction-only override. The
+    contribution is authoritative for its live period and can be above the
+    recurring amount; the legacy override remains readable history and takes
+    effect again once this contribution lapses.
+    """
+    entry = goal_contribution.live_entry(
+        doc.get("period_contributions"), period_end.isoformat(),
+    )
+    return entry["contribution_pence"] if entry is not None else None
+
+
 async def _serialise(doc: dict, start: date, end: date) -> dict:
     amount = float(doc.get("amount_per_period") or 0)
     recurrence = doc.get("recurrence", "every_period")
@@ -398,11 +412,27 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         doc.get("match_type"), doc.get("match_value", ""),
         window_start, window_end,
     )
+    contribution_pence = _period_contribution_pence(doc, eff_end)
     override_pence = _period_override_pence(doc, eff_end)
     # A reduction only: if the recurring amount was lowered below an older
     # this-period override, the lower recurring amount wins.
-    period_amount = amount if override_pence is None else min(round(override_pence / 100, 2), amount)
+    legacy_period_amount = (
+        amount if override_pence is None else min(round(override_pence / 100, 2), amount)
+    )
+    period_amount = contribution_pence / 100 if contribution_pence is not None else legacy_period_amount
     remaining = 0.0 if (completed or pending) else round(max(0.0, period_amount - filled), 2)
+    current_contribution = None
+    if contribution_pence is not None and not completed and not pending:
+        current_contribution = {
+            "period_start": eff_start.isoformat(),
+            "period_end": eff_end.isoformat(),
+            "requested_contribution": contribution_pence / 100,
+            "contribution": contribution_pence / 100,
+            "reserved": remaining,
+            "matched_this_period": round(filled, 2),
+            "next_contribution": amount,
+            "unchanged": True,
+        }
     return {
         "id":                  str(doc["_id"]),
         "name":                doc.get("name"),
@@ -413,7 +443,8 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         # G217: what THIS pay period asks for. Equals amount_per_period unless
         # the user reduced this period only (period_override, in pounds).
         "period_amount":       period_amount,
-        "period_override":     None if override_pence is None else period_amount,
+        "period_override":     None if override_pence is None else legacy_period_amount,
+        "current_period_contribution": current_contribution,
         "fill_account_id":     doc.get("fill_account_id"),
         "source_account_id":   doc.get("source_account_id"),
         "match_type":          doc.get("match_type"),
@@ -477,6 +508,48 @@ async def _get_owned(uid: str, allocation_id: str) -> dict:
     if not doc:
         raise HTTPException(404, "Allocation not found")
     return doc
+
+
+def _contribution_snapshot(doc: dict) -> dict:
+    """Every financial input to an allocation contribution, for write CAS."""
+    fields = (
+        "amount_per_period", "active", "recurrence", "effective_from",
+        "created_period_start", "created_period_end", "tracking_mode",
+        "fill_account_id", "match_type", "match_value", "source_account_id",
+        "source_unset", "category_tracking", "destination_account_id",
+        "period_overrides", "period_contributions",
+    )
+    return source_link_snapshot(doc, *fields)
+
+
+async def _contribution_preview(doc: dict, uid: str, contribution_pence: int) -> tuple[dict, dict, date, date, dict]:
+    """Build the current-period contribution preview from the canonical read."""
+    if doc.get("active", True) is not True or doc.get("recurrence", "every_period") != "every_period":
+        raise HTTPException(409, "This set-aside cannot take a contribution this period")
+    cfg = await _pay_cfg(uid)
+    start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    serial = await _serialise(doc, start, end)
+    effective_from = date.fromisoformat(serial["effective_from"])
+    if serial["completed"] or serial["pending"] or effective_from > timeutil.user_today():
+        raise HTTPException(409, "This set-aside is not active for this period")
+    matched_pence = int(round(float(serial["filled_this_period"]) * 100))
+    requested = contribution_pence / 100
+    contribution = requested
+    reserved = round(max(0, contribution - matched_pence / 100), 2)
+    preview = {
+        "period_start": serial["period_start"],
+        "period_end": serial["period_end"],
+        "requested_contribution": requested,
+        "contribution": contribution,
+        "reserved": reserved,
+        "matched_this_period": matched_pence / 100,
+        "next_contribution": float(doc.get("amount_per_period") or 0),
+        # The initial recurring total is already canonical too. Do not create
+        # empty contribution history merely because someone confirms it.
+        "unchanged": int(round(float(serial["period_amount"]) * 100)) == contribution_pence,
+    }
+    preview["preview_token"] = goal_contribution.preview_token(doc, cfg, preview)
+    return preview, serial, start, end, cfg
 
 
 async def _conflicts(uid: str, fill_account_id: str, match_type: str, match_value: str, *, exclude_id=None) -> bool:
@@ -910,6 +983,29 @@ async def update_allocation(
     if not updates:
         raise HTTPException(400, "no recognised fields to update")
 
+    # A changed recurring amount starts a fresh ordinary contribution for this
+    # period. Do it atomically with the edit so an old manual total cannot be
+    # mistaken for the new cadence; an unchanged edit leaves the intent alone.
+    contribution_unset: dict[str, str] = {}
+    contribution_schedule_changed = (
+        ("amount_per_period" in updates and updates["amount_per_period"] != float(doc.get("amount_per_period") or 0))
+        or ("recurrence" in updates and updates["recurrence"] != doc.get("recurrence", "every_period"))
+        or ("effective_from" in updates and updates["effective_from"] != doc.get("effective_from"))
+    )
+    if contribution_schedule_changed:
+        cfg = await _pay_cfg(uid)
+        _start, live_end = get_pay_period_for_date(timeutil.user_today(), cfg)
+        live_key = live_end.isoformat()
+        # Guard the absent case too: a contribution saved after this edit
+        # started must make the amount edit retry, rather than survive unseen.
+        update_filter.update(_contribution_snapshot(doc))
+        if _period_contribution_pence(doc, live_end) is not None:
+            contribution_unset[f"period_contributions.{live_key}"] = ""
+            # A manual choice superseded this older coaching reduction. Do
+            # not revive that hidden amount when ending the manual choice.
+            if _period_override_pence(doc, live_end) is not None:
+                contribution_unset[f"period_overrides.{live_key}"] = ""
+
     if target_mode == "existing_payment":
         # A manual record deliberately has blank payment-tracking fields.
         # Switching back therefore requires a complete valid rule in this
@@ -942,14 +1038,97 @@ async def update_allocation(
         if await _conflicts(uid, eff_fill, eff_match_type, eff_match_value, exclude_id=doc["_id"]):
             raise HTTPException(400, "an active allocation already fills from this payment")
 
-    result = await allocations_col.update_one(update_filter, {"$set": updates})
+    update = {"$set": updates}
+    if contribution_unset:
+        update["$unset"] = contribution_unset
+    result = await allocations_col.update_one(update_filter, update)
     if result.matched_count == 0:
         raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
     doc.update(updates)
+    for path in contribution_unset:
+        history, live_key = path.split(".", 1)
+        doc[history] = {
+            key: value for key, value in (doc.get(history) or {}).items()
+            if key != live_key
+        }
 
     await response_cache.ainvalidate(uid)
     cfg = await _pay_cfg(uid)
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
+    return await _serialise(doc, start, end)
+
+
+def _validate_contribution_pence(raw) -> int:
+    try:
+        return goal_contribution.validate_pence(raw)
+    except ValueError:
+        raise HTTPException(422, goal_contribution.INVALID_AMOUNT)
+
+
+@router.get("/allocations/{allocation_id}/contribution-preview")
+async def preview_allocation_contribution(
+    allocation_id: str,
+    contribution_pence: int = Query(...),
+    user: dict = Depends(current_user),
+):
+    """Show exactly what an intended current-period set-aside reserves.
+
+    This does not move money, mark a payment filled, or alter the recurring
+    amount. It is a required confirmation step before the corresponding PUT.
+    """
+    uid = user["email"]
+    doc = await _get_owned(uid, allocation_id)
+    pence = _validate_contribution_pence(contribution_pence)
+    preview, _serial, _start, _end, _cfg = await _contribution_preview(doc, uid, pence)
+    return preview
+
+
+@router.put("/allocations/{allocation_id}/contribution")
+async def set_allocation_contribution(
+    allocation_id: str, body: dict, user: dict = Depends(current_user),
+):
+    """Save an intended total for the live pay period after preview review."""
+    uid = user["email"]
+    pence = _validate_contribution_pence(body.get("contribution_pence"))
+    doc = await _get_owned(uid, allocation_id)
+    preview, serial, start, end, cfg = await _contribution_preview(doc, uid, pence)
+    if body.get("period_end") != preview["period_end"] or body.get("preview_token") != preview["preview_token"]:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
+
+    # A repeated confirmation of the already-saved total is deliberately a
+    # read: keep history/cache untouched and return the current canonical row.
+    if preview["unchanged"]:
+        return serial
+
+    # The user can change their pay cadence while reviewing. Re-read both the
+    # full config and today's period immediately before the write so an intent
+    # cannot be attached to a period that is no longer live.
+    write_cfg = await _pay_cfg(uid)
+    write_start, write_end = get_pay_period_for_date(timeutil.user_today(), write_cfg)
+    if write_cfg != cfg or (write_start, write_end) != (start, end):
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
+
+    live_key = end.isoformat()
+    update_filter = {"_id": doc["_id"], "user_id": uid}
+    update_filter.update(_contribution_snapshot(doc))
+    set_doc = {f"period_contributions.{live_key}": {"contribution_pence": pence}}
+    stale = {
+        f"period_contributions.{key}": ""
+        for key in (doc.get("period_contributions") or {}) if key < live_key
+    }
+    update: dict = {"$set": set_doc}
+    if stale:
+        update["$unset"] = stale
+    result = await allocations_col.update_one(update_filter, update)
+    if result.matched_count == 0:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
+    contributions = {
+        key: value for key, value in (doc.get("period_contributions") or {}).items()
+        if key >= live_key
+    }
+    contributions[live_key] = {"contribution_pence": pence}
+    doc["period_contributions"] = contributions
+    await response_cache.ainvalidate(uid)
     return await _serialise(doc, start, end)
 
 
@@ -984,6 +1163,8 @@ async def set_period_override(allocation_id: str, body: dict, user: dict = Depen
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     serial = await _serialise(doc, start, end)
     period_end = date.fromisoformat(serial["period_end"])
+    if _period_contribution_pence(doc, period_end) is not None:
+        raise HTTPException(409, "Change this period from your plan")
     # Write only the live key and prune stale (earlier-period) keys; never
     # replace the whole map from a possibly stale read.
     live_key = period_end.isoformat()
@@ -991,7 +1172,9 @@ async def set_period_override(allocation_id: str, body: dict, user: dict = Depen
     stale = {f"period_overrides.{k}": "" for k in (doc.get("period_overrides") or {}) if k < live_key}
     if stale:
         update["$unset"] = stale
-    result = await allocations_col.update_one({"_id": doc["_id"], "user_id": uid}, update)
+    update_filter = {"_id": doc["_id"], "user_id": uid}
+    update_filter.update(_contribution_snapshot(doc))
+    result = await allocations_col.update_one(update_filter, update)
     if result.matched_count == 0:
         raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
     overrides = dict(doc.get("period_overrides") or {})
@@ -1010,9 +1193,15 @@ async def clear_period_override(allocation_id: str, user: dict = Depends(current
     start, end = get_pay_period_for_date(timeutil.user_today(), cfg)
     serial = await _serialise(doc, start, end)
     live_key = serial["period_end"]
-    await allocations_col.update_one(
-        {"_id": doc["_id"], "user_id": uid}, {"$unset": {f"period_overrides.{live_key}": ""}},
+    if _period_contribution_pence(doc, date.fromisoformat(live_key)) is not None:
+        raise HTTPException(409, "Change this period from your plan")
+    update_filter = {"_id": doc["_id"], "user_id": uid}
+    update_filter.update(_contribution_snapshot(doc))
+    result = await allocations_col.update_one(
+        update_filter, {"$unset": {f"period_overrides.{live_key}": ""}},
     )
+    if result.matched_count == 0:
+        raise HTTPException(409, "Allocation changed while you were editing. Refresh and try again.")
     doc["period_overrides"] = {k: v for k, v in (doc.get("period_overrides") or {}).items() if k != live_key}
     await response_cache.ainvalidate(uid)
     return await _serialise(doc, start, end)

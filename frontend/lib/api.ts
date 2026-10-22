@@ -853,6 +853,8 @@ export type PlanFillCandidates = {
 };
 
 export type GoalContributionPreview = {
+  /** True when this is already the saved total for the live pay period. */
+  unchanged?: boolean;
   period_start: string;
   period_end: string;
   target_date: string;
@@ -869,6 +871,18 @@ export type GoalContributionPreview = {
   large_increase: boolean;
   blocked_reason: string | null;
   replaces_easing: boolean;
+  preview_token: string;
+};
+
+export type AllocationContributionPreview = {
+  period_start: string;
+  period_end: string;
+  requested_contribution: number;
+  contribution: number;
+  reserved: number;
+  matched_this_period: number;
+  next_contribution: number;
+  unchanged: boolean;
   preview_token: string;
 };
 
@@ -1035,6 +1049,8 @@ export type CommitmentPreview = {
  * `remaining` is always 0 (it reserves nothing further) but the record
  * stays in listings — never deleted — so history stays honest. */
 export type Allocation = {
+  /** Current-period intention only. The recurring amount is unchanged. */
+  current_period_contribution?: Omit<AllocationContributionPreview, "preview_token"> | null;
   category_tracking?: PlanCategoryTracking | null;
   /** An intended receiving account, not an automatic payment rule. */
   destination_account_id?: string | null;
@@ -1046,8 +1062,8 @@ export type Allocation = {
   id: string;
   name: string;
   amount_per_period: number;
-  /** G217: what THIS pay period asks for. Equals amount_per_period unless
-   * the user reduced this period only. `remaining` is measured against it. */
+  /** Total asked for this pay period, including any matched payment.
+   * A current-period choice may be above or below the recurring amount. */
   period_amount?: number;
   /** G217: the one-period reduction in pounds, or null. Lapses with the period. */
   period_override?: number | null;
@@ -3340,6 +3356,15 @@ export const api = {
   }) =>
     fetch(`${API_BASE}/allocations/${encodeURIComponent(id)}`, {
       method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => toJson<Allocation>(r)),
+  /** G318: change the current-period total, preserving the recurring amount. */
+  previewAllocationContribution: (id: string, contributionPence: number) =>
+    get<AllocationContributionPreview>(`/allocations/${encodeURIComponent(id)}/contribution-preview?contribution_pence=${contributionPence}`),
+  setAllocationContribution: (id: string, body: { contribution_pence: number; period_end: string; preview_token: string }) =>
+    fetch(`${API_BASE}/allocations/${encodeURIComponent(id)}/contribution`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => toJson<Allocation>(r)),

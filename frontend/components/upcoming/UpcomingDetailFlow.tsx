@@ -21,7 +21,7 @@ import UpcomingGoalPlan, { type UpcomingGoalServices } from "./UpcomingGoalPlan"
 export type PaymentDetail = { id: string; model: UpcomingRowModel; editor: UpcomingEditItem; planned?: PlannedEditItem; skip?: () => Promise<void>;
   /** The cashflow item this payment was built from, so an account event (UpcomingAccountEvent.source) can open it. */
   source?: object };
-export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan" | "goal-contribution"; id: string; step?: "details" } | { kind: "payment" | "edit-payment"; id: string };
+export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan" | "goal-contribution" | "allocation-contribution"; id: string; step?: "details" } | { kind: "payment" | "edit-payment"; id: string };
 export type UpcomingDetailServices = {
   upcoming?: UpcomingEditServices;
   planned?: PlannedEditServices;
@@ -83,6 +83,7 @@ function MissingAllocation({ onRetry }: { onRetry(): Promise<void> }) {
 export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
   const { accounts, summaries, plans, allocations, payments, services } = props;
   const [goals, setGoals] = useState<Record<string, Commitment>>({});
+  const [savedAllocations, setSavedAllocations] = useState<Record<string, Allocation>>({});
   function renderView(view: UpcomingDetailView, navigation: UpcomingFlowNavigation<UpcomingDetailView>) {
     const done = <button type="button" className={flowPrimary} onClick={navigation.close}>Done</button>;
     const absent = { title: "Details updated", body: <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">This item is no longer expected in this period.</p>, footer: done };
@@ -116,7 +117,9 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     }
     const plan = plans.find((item) => item.id === view.id);
     if (!plan) return absent;
-    const allocation = allocations.find((item) => item.id === plan.recordId);
+    const allocation = (plan.recordId ? savedAllocations[plan.recordId] : undefined) ?? allocations.find((item) => item.id === plan.recordId);
+    async function allocationSaved(item: Allocation) { setSavedAllocations(previous => ({ ...previous, [item.id]: item })); await props.onRefresh(); }
+    const backToPlan = () => { if (!navigation.returnTo(item => item.kind === "plan" && item.id === plan.id)) navigation.back(); };
     if (plan.kind === "goal") {
       const goal = plan.recordId ? goals[plan.recordId] : undefined;
       return {
@@ -141,13 +144,13 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     if (view.kind === "plan") {
       if (plan.kind === "allocation" && allocation) return {
         title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind={plan.kind} />,
-        body: <AllocationPlanEditor key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />,
+        body: <AllocationPlanEditor key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} onChangeContribution={() => navigation.goTo({ kind: "allocation-contribution", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={allocationSaved} onDeleted={saved} renderActions={actionsInFooter} />,
       };
       return { title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind="allocation" />, body: <MissingAllocation onRetry={props.onRefresh} /> };
     }
     return {
-      title: "Set-aside unavailable", subtitle: plan.name,
-      body: allocation ? <AllocationPlanEditor key={plan.id} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.back} onSaved={saved} onDeleted={saved} renderActions={actionsInFooter} />
+      title: allocation ? view.kind === "allocation-contribution" ? "Change this period" : "Edit plan" : "Set-aside unavailable", subtitle: plan.name,
+      body: allocation ? <AllocationPlanEditor key={`${view.kind}-${plan.id}`} initialMode={view.kind === "allocation-contribution" ? "contribution" : "edit"} onChangeContribution={() => navigation.goTo({ kind: "allocation-contribution", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={backToPlan} onSaved={allocationSaved} onDeleted={saved} renderActions={actionsInFooter} />
         : <MissingAllocation onRetry={props.onRefresh} />,
     };
   }

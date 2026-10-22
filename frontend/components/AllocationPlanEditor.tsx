@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useState, type FormEvent, type ReactNode } from "react";
-import { api, type Account, type Allocation } from "@/lib/api";
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { api, type Account, type Allocation, type AllocationContributionPreview } from "@/lib/api";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
 import { AccountRadioPicker } from "./AccountRadioPicker";
 import { EffectiveDateField, FillRulePicker, RhythmToggle, type AllocationRhythm, type FillRuleValue } from "./AllocationFields";
@@ -13,8 +13,9 @@ import { PlanRecordView } from "./plans/PlanRecordView";
 import PlanEditorFlow, { PLAN_EDITOR_STEPS as steps, type PlanEditorStep as Step } from "./plans/PlanEditorFlow";
 import { tidyAccountName } from "@/lib/accountName";
 import MoneyText from "@/components/MoneyText";
+import { PeriodContributionEditor, periodMoney } from "@/components/plans/PeriodContributionEditor";
 
-export type AllocationEditServices = Pick<typeof api, "updateAllocation" | "deleteAllocation" | "allocationFillCandidates">;
+export type AllocationEditServices = Pick<typeof api, "updateAllocation" | "deleteAllocation" | "allocationFillCandidates"> & Partial<Pick<typeof api, "previewAllocationContribution" | "setAllocationContribution">>;
 
 export interface AllocationPlanEditorProps {
   allocation: Allocation;
@@ -27,20 +28,23 @@ export interface AllocationPlanEditorProps {
   onDeleted(): void | Promise<void>;
   services?: AllocationEditServices;
   renderActions?: (actions: ReactNode) => ReactNode;
-  initialMode?: "view" | "edit";
-  onModeChange?: (mode: "view" | "edit") => void;
+  initialMode?: "view" | "edit" | "contribution";
+  onModeChange?: (mode: "view" | "edit" | "contribution") => void;
   onEdit?: () => void;
+  onChangeContribution?: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }
 
 const todayIso = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 const dateLabel = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 /** The set-aside edit flow. It only writes from its final review step. */
-export function AllocationPlanEditor({ allocation, accounts, sourceChoices, suggestedSourceId, periodStart, onCancel, onSaved, onDeleted, services = api, renderActions, initialMode = "edit", onModeChange, onEdit }: AllocationPlanEditorProps) {
+export function AllocationPlanEditor({ allocation, accounts, sourceChoices, suggestedSourceId, periodStart, onCancel, onSaved, onDeleted, services = api, renderActions, initialMode = "edit", onModeChange, onEdit, onChangeContribution, onBusyChange }: AllocationPlanEditorProps) {
   const formId = useId();
   const initialEffective = allocation.effective_from && allocation.effective_from > allocation.period_start ? allocation.effective_from : null;
   const initialDestination = allocation.destination_account_id ?? allocation.category_tracking?.destination_account_ids?.[0] ?? allocation.fill_account_id ?? "";
-  const [mode, setMode] = useState<"view" | "edit">(initialMode);
+  const [mode, setMode] = useState<"view" | "edit" | "contribution">(initialMode);
+  const [contributionBusy, setContributionBusy] = useState(false);
   const [step, setStep] = useState<Step>("purpose");
   const [reviewing, setReviewing] = useState(false);
   const [confirm, setConfirm] = useState<"delete" | null>(null);
@@ -80,7 +84,7 @@ export function AllocationPlanEditor({ allocation, accounts, sourceChoices, sugg
     else setStep(steps[Math.min(steps.indexOf(step) + 1, steps.length - 1)]);
   };
   const changeRoute = (change: () => void) => { change(); setRule({ match_type: "description_contains", match_value: "", fill_display_name: "" }); setCategoryTracking(null); setTrackingMode("manual"); };
-  const changeMode = (next: "view" | "edit") => { setMode(next); onModeChange?.(next); };
+  const changeMode = (next: "view" | "edit" | "contribution") => { setMode(next); onModeChange?.(next); };
   async function save(event: FormEvent) {
     event.preventDefault();
     if (step !== "review") return;
@@ -110,12 +114,21 @@ export function AllocationPlanEditor({ allocation, accounts, sourceChoices, sugg
     }, onCancel, undefined, () => action === "delete" ? onDeleted() : onSaved(saved));
   }
   const busy = request.busy || request.needsRefresh;
+  useEffect(() => { onBusyChange?.(mode === "contribution" ? contributionBusy : busy); }, [busy, contributionBusy, mode, onBusyChange]);
   const compact = <PlanContribution amount={Number.isFinite(parsedAmount) ? parsedAmount : null} cadence={recurrence === "once" ? "this pay period" : "each pay period"} />;
+  const contributionAdapter = useMemo(() => ({
+    initial: allocation.current_period_contribution?.contribution ?? allocation.period_amount ?? allocation.amount_per_period,
+    preview: (pence: number) => services.previewAllocationContribution ? services.previewAllocationContribution(allocation.id, pence) : Promise.reject(new Error("Contribution preview unavailable")),
+    save: (input: { contribution_pence: number; period_end: string; preview_token: string }) => services.setAllocationContribution ? services.setAllocationContribution(allocation.id, input) : Promise.reject(new Error("Contribution save unavailable")),
+    renderReview: (preview: AllocationContributionPreview) => <p className="text-sm leading-6 text-slate-600 dark:text-slate-300"><MoneyText text={`Next pay period returns to ${periodMoney(preview.next_contribution)}.`} /></p>,
+  }), [allocation, services]);
+  if (mode === "contribution") return <PeriodContributionEditor adapter={contributionAdapter} onCancel={() => onChangeContribution ? onCancel() : changeMode("view")} onSaved={onSaved} onComplete={() => onChangeContribution ? onCancel() : changeMode("view")} renderActions={renderActions} onBusyChange={setContributionBusy} />;
   if (mode === "view") {
     const savedDestinationId = allocation.destination_account_id ?? allocation.category_tracking?.destination_account_ids?.[0] ?? allocation.fill_account_id;
     const savedDestination = accounts.find(account => account.id === savedDestinationId);
-    const actions = <fieldset disabled={busy} className="min-w-0 space-y-2"><button type="button" onClick={() => onEdit ? onEdit() : changeMode("edit")} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Edit plan</button>{confirm === "delete" ? <div className="space-y-2"><p className="text-sm leading-5 text-slate-700 dark:text-slate-200">Delete this set-aside? Money already set aside stays where it is.</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirm(null)} className={editorSecondary}>Keep plan</button><button type="button" onClick={() => void changeStatus("delete")} className="min-h-11 rounded-xl bg-red-600 px-3 text-sm font-semibold text-white hover:bg-red-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500">Delete plan</button></div></div> : <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => void changeStatus("pause")} className={editorSecondary}>{allocation.active ? "Pause plan" : "Resume plan"}</button><button type="button" onClick={() => setConfirm("delete")} className="min-h-11 rounded-xl border border-red-300 px-3 text-sm font-semibold text-red-700 hover:bg-red-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-900 dark:text-red-300">Delete plan</button></div>}</fieldset>;
-    return <div className="space-y-5"><PlanRecordView kind="set-aside" contribution={savedSourceAccount && !allocation.pending ? allocation.remaining : allocation.amount_per_period} cadence={savedSourceAccount && !allocation.pending ? "held back" : "planned"} frequency={allocation.recurrence === "once" ? "this pay period" : "each pay period"} sourceAccount={savedSourceAccount ?? inferredSourceAccount} sourceSuggested={Boolean(!savedSourceAccount && inferredSourceAccount)} sourceUnavailable={Boolean(allocation.source_account_id) && !savedSourceAccount} destinationUnavailable={Boolean(savedDestinationId) && !savedDestination} destinationAccounts={savedDestination ? [savedDestination] : []} trackingLabel={allocation.category_tracking ? `${allocation.category_tracking.category} category` : allocation.tracking_mode === "manual" ? "Not linked yet" : "Payment confirmed"} paused={!allocation.active}>{allocation.category_tracking && <PlanCategoryTracking readOnly kind="set-aside" sourceAccountId={allocation.source_account_id ?? ""} destinationAccountIds={allocation.category_tracking.destination_account_ids} value={allocation.category_tracking} allocationId={allocation.id} onChange={() => {}} />}</PlanRecordView><EditorError message={request.error} />{request.needsRefresh && <button type="button" onClick={() => void request.retryRefresh()} className={editorQuiet}>Retry refresh</button>}{renderActions ? renderActions(actions) : actions}</div>;
+    const canChangeContribution = Boolean(services.previewAllocationContribution && services.setAllocationContribution) && allocation.recurrence !== "once" && allocation.active && !allocation.pending && !allocation.completed && (!allocation.effective_from || allocation.effective_from <= todayIso());
+    const actions = <fieldset disabled={busy} className="min-w-0 space-y-2">{canChangeContribution && <button type="button" onClick={() => onChangeContribution ? onChangeContribution() : changeMode("contribution")} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Change this period’s contribution</button>}<button type="button" onClick={() => onEdit ? onEdit() : changeMode("edit")} className={`${editorSecondary} w-full active:scale-95`}>Edit plan</button>{confirm === "delete" ? <div className="space-y-2"><p className="text-sm leading-5 text-slate-700 dark:text-slate-200">Delete this set-aside? Money already set aside stays where it is.</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirm(null)} className={editorSecondary}>Keep plan</button><button type="button" onClick={() => void changeStatus("delete")} className="min-h-11 rounded-xl bg-red-600 px-3 text-sm font-semibold text-white hover:bg-red-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500">Delete plan</button></div></div> : <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => void changeStatus("pause")} className={editorSecondary}>{allocation.active ? "Pause plan" : "Resume plan"}</button><button type="button" onClick={() => setConfirm("delete")} className="min-h-11 rounded-xl border border-red-300 px-3 text-sm font-semibold text-red-700 hover:bg-red-50 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-900 dark:text-red-300">Delete plan</button></div>}</fieldset>;
+    return <div className="space-y-5"><PlanRecordView kind="set-aside" contribution={allocation.current_period_contribution?.contribution ?? (savedSourceAccount && !allocation.pending ? allocation.remaining : allocation.amount_per_period)} cadence={allocation.current_period_contribution ? "this pay period" : savedSourceAccount && !allocation.pending ? "held back" : "planned"} frequency={allocation.recurrence === "once" ? "this pay period" : "each pay period"} currentPeriod={allocation.current_period_contribution ?? null} nextContribution={allocation.current_period_contribution?.next_contribution ?? null} sourceAccount={savedSourceAccount ?? inferredSourceAccount} sourceSuggested={Boolean(!savedSourceAccount && inferredSourceAccount)} sourceUnavailable={Boolean(allocation.source_account_id) && !savedSourceAccount} destinationUnavailable={Boolean(savedDestinationId) && !savedDestination} destinationAccounts={savedDestination ? [savedDestination] : []} trackingLabel={allocation.category_tracking ? `${allocation.category_tracking.category} category` : allocation.tracking_mode === "manual" ? "Not linked yet" : "Payment confirmed"} paused={!allocation.active}>{allocation.category_tracking && <PlanCategoryTracking readOnly kind="set-aside" sourceAccountId={allocation.source_account_id ?? ""} destinationAccountIds={allocation.category_tracking.destination_account_ids} value={allocation.category_tracking} allocationId={allocation.id} onChange={() => {}} />}</PlanRecordView><EditorError message={request.error} />{request.needsRefresh && <button type="button" onClick={() => void request.retryRefresh()} className={editorQuiet}>Retry refresh</button>}{renderActions ? renderActions(actions) : actions}</div>;
   }
   return <PlanEditorFlow
     formId={formId} step={step} reviewing={reviewing}
