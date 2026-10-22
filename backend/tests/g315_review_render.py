@@ -102,7 +102,7 @@ async def _uat():
             out.append("- (no cached shared research for this tip yet, so the weekly pass would fetch it, then show the user's own fact and any like-for-like listing)")
             c = si._compose_tip_content(cat, {"as_of": TODAY.date().isoformat(), "fetched_at": None, "content_valid_until": None, "findings": {}},
                                         triggered, d.get("user_context"), TODAY.date())
-            out.append(f"- Own-fact only: {c['title'] + ' ' + c['body'] if c else '(no tip)'}")
+            out.append(f"- Own-fact only: {si.tip_facts.sentence(c['title']) + ' ' + c['body'] if c else '(no tip)'}")
         else:
             c = si._compose_tip_content(cat, rdoc, triggered, d.get("user_context"), TODAY.date())
             if c is None:

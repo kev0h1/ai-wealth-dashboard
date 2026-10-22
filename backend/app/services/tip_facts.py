@@ -486,6 +486,16 @@ _OTHER_FRESHNESS_RE = re.compile(r"\bResearched\b|\bValid until\b", re.IGNORECAS
 _TRUNCATED_NAME_RE = re.compile(r"\b(?:Leisur|Birmin|Birming|Bromw|Supermark|S/Mkts?)\b")
 
 
+_MISSING_STOP_RE = re.compile(r"[a-z0-9\u00a3)] (?:That|Checked|Also listed|Offer listed)\b")
+
+
+def sentence(text: Optional[str]) -> str:
+    """Ends a sentence with a full stop when it has no closing punctuation, so
+    two sentences can be joined without running together."""
+    t = (text or "").strip()
+    return t if not t or t[-1] in ".?" else t + "."
+
+
 def has_checked_line(body: Optional[str]) -> bool:
     return bool(_CHECKED_RE.search(body or ""))
 
@@ -521,6 +531,8 @@ def card_violations(card: dict, category: str, label: Optional[str] = None) -> l
             found.append("raw_merchant_name")
             break
     body = card.get("body") or ""
+    if _MISSING_STOP_RE.search(body):
+        found.append("missing_full_stop")
     if _CHECKED_RE.search(body) and _OTHER_FRESHNESS_RE.search(blob):
         found.append("two_freshness_lines")
     items = also_listed_items(body)

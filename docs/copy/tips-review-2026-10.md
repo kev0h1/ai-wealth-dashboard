@@ -279,5 +279,5 @@ Now (as served today, from the cached tip):
 
 After G315 (what the next weekly pass would write, from his current transactions and the cached shared research; nothing is written):
 - (no cached shared research for this tip yet, so the weekly pass would fetch it, then show the user's own fact and any like-for-like listing)
-- Own-fact only: You pay about £22 a month for subscriptions That is based on 6 payments in the last 90 days. Checked 21 Oct.
+- Own-fact only: You pay about £22 a month for subscriptions. That is based on 6 payments in the last 90 days. Checked 21 Oct.
 

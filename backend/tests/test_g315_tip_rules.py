@@ -617,3 +617,27 @@ def test_serve_and_content_gates_receive_the_evidence_rows():
     src = inspect.getsource(si)
     assert src.count('"triggered_by": presented}') == 1
     assert 'tip_facts.present_triggers(category_key, triggered_by, label)}' in src
+
+
+# ── sentence joins ──────────────────────────────────────────────────────────
+
+def test_sentence_helper_adds_a_full_stop_only_when_missing():
+    assert tip_facts.sentence("You pay about £22 a month for subscriptions") == "You pay about £22 a month for subscriptions."
+    assert tip_facts.sentence("Already ends.") == "Already ends."
+    assert tip_facts.sentence("") == ""
+
+
+def test_subscriptions_own_fact_body_reads_with_full_stops():
+    c = compose("subscriptions")
+    assert c is not None
+    joined = tip_facts.sentence(c["title"]) + " " + c["body"]
+    assert re.search(r"a month for subscriptions\. That is based on \d+ payments", joined)
+
+
+def test_gate_catches_a_missing_full_stop_between_sentences():
+    c = compose("subscriptions")
+    card = serialized("subscriptions", c)
+    assert "missing_full_stop" not in tip_facts.card_violations(card, "subscriptions")
+    bad = dict(card, body=card["body"].replace("days. Checked", "days Checked"))
+    assert "days Checked" in bad["body"]
+    assert "missing_full_stop" in tip_facts.card_violations(bad, "subscriptions", "Subscriptions")
