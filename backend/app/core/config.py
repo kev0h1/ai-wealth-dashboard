@@ -567,15 +567,32 @@ FINEXER_TEMPLATE_DARK   = os.getenv("FINEXER_TEMPLATE_DARK", "")
 # changes, so this is deliberately long.
 FINEXER_PROVIDERS_TTL_HOURS = int(os.getenv("FINEXER_PROVIDERS_TTL_HOURS", "24"))
 
-# URL secret embedded in the webhook path (same scheme as TRUELAYER_WEBHOOK_SECRET
-# above: env wins, else a persisted file, else generate one on first boot).
+# URL secret embedded in the webhook path. Env always wins. On UAT/local
+# (non-production APP_URL) it falls back to a persisted file, generated on first
+# boot, same as TRUELAYER_WEBHOOK_SECRET. In PRODUCTION (A171) there is no file
+# fallback and nothing is ever generated: Railway's filesystem does not persist,
+# so a generated secret would change every deploy and silently break the
+# registered webhook URL. With the variable unset in production the webhook
+# route is disabled (503) and the startup error below is logged; /ops/health
+# reports `path_secret_configured: false`.
 _finexer_webhook_secret_file = _BACKEND_DIR / ".finexer_webhook_secret"
+FINEXER_WEBHOOK_SECRET_SOURCE = "env"
 if _fws := os.getenv("FINEXER_WEBHOOK_SECRET"):
     FINEXER_WEBHOOK_SECRET = _fws
+elif not _is_non_production(APP_URL):
+    FINEXER_WEBHOOK_SECRET = ""
+    FINEXER_WEBHOOK_SECRET_SOURCE = "missing"
+    logging.getLogger(__name__).error(
+        "FINEXER_WEBHOOK_SECRET is not set in production: the Finexer webhook "
+        "route is disabled until it is. Set it on Railway (both services) and "
+        "register the matching URL in Finexer. See docs/ops/ENV.md."
+    )
 elif _finexer_webhook_secret_file.exists():
     FINEXER_WEBHOOK_SECRET = _finexer_webhook_secret_file.read_text().strip()
+    FINEXER_WEBHOOK_SECRET_SOURCE = "file"
 else:
     FINEXER_WEBHOOK_SECRET = secrets.token_urlsafe(32)
+    FINEXER_WEBHOOK_SECRET_SOURCE = "file"
     _finexer_webhook_secret_file.write_text(FINEXER_WEBHOOK_SECRET)
 
 # Signing secret Finexer issues after the webhook is registered in their
