@@ -1,0 +1,44 @@
+.poster{position:relative;isolation:isolate;box-sizing:border-box;width:1080px;height:1350px;overflow:hidden;background:#f0f2f7;color:#0f172a;font-family:var(--font-figtree),Figtree,sans-serif;--muted:#475569;--rule:#cbd5e1}
+.dark{background:#0f172a;color:#f1f5f9;--muted:#cbd5e1;--rule:#334155}
+.story{height:1920px}
+.poster header{position:absolute;top:105px;left:72px;display:flex;align-items:baseline;gap:24px;font-size:38px;line-height:1;font-weight:750;letter-spacing:-.05em}
+.poster header small{font-size:22px;font-weight:500;letter-spacing:0;color:var(--muted)}
+.poster h2{position:absolute;left:72px;top:210px;margin:0;font-size:94px;font-weight:650;line-height:.98;letter-spacing:-.055em}
+.poster p{margin:0}
+.result,.accountAmounts b,.shortfall span{font-family:var(--font-jbmono),"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;letter-spacing:-.065em}
+.result{position:absolute;top:421px;left:64px;font-size:130px;line-height:1;font-weight:700}
+.resultLabel{position:absolute;left:72px;top:565px;font-size:27px;line-height:1.2;color:var(--muted)}
+.poster figure{position:absolute;left:72px;width:810px;margin:0;overflow:hidden}
+.poster figure img{display:block;width:100%;height:auto}
+.amount figure{top:625px;height:440px;border-radius:28px 28px 0 0}
+.amount figure:after{content:"";position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--rule)}
+.poster footer{position:absolute;left:72px;top:1100px;font-size:21px;line-height:1.3;color:var(--muted)}
+.account h2{font-size:84px}
+.accountAmounts{position:absolute;left:72px;top:438px;display:grid;grid-template-columns:1fr 1fr;width:810px;gap:48px;padding-top:25px;border-top:1px solid var(--rule)}
+.accountAmounts div{display:flex;flex-direction:column;gap:8px}
+.accountAmounts span{font-size:25px;color:var(--muted)}
+.accountAmounts b{font-size:86px;line-height:1.1;font-weight:650}
+.shortfall{position:absolute;top:638px;left:72px;font-size:29px}
+.shortfall i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#e11d48;vertical-align:middle;margin-right:12px}
+.shortfall span{font-weight:650}
+.account figure{top:730px;border-radius:28px}
+.account footer{top:1145px}
+.working h2{font-size:102px;top:200px}
+.workingLabel{position:absolute;top:425px;left:72px;font-size:27px;color:var(--muted)}
+.working figure{top:500px;width:710px;padding:28px;background:#fff;border-radius:2px;box-sizing:content-box}
+.dark.working figure{background:#1e293b}
+.working footer{top:1165px}
+.story header{top:150px}
+.story h2{top:260px;font-size:100px}
+.story .result{top:495px;font-size:160px}
+.story .resultLabel{top:690px;font-size:27px}
+.story.amount figure{top:750px;height:auto;border-radius:28px}
+.story.account h2{font-size:96px}
+.story .accountAmounts{top:595px}
+.story .accountAmounts b{font-size:116px}
+.story .shortfall{top:845px;font-size:34px}
+.story.account figure{top:1040px}
+.story.working h2{top:300px;font-size:124px}
+.story .workingLabel{top:600px;font-size:31px}
+.story.working figure{top:730px;width:754px}
+.story footer,.story.account footer,.story.working footer{top:1600px}
