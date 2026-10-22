@@ -45,7 +45,7 @@ from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORI
 from app.services import data_version
 
 from app.routers import (
-    auth, truelayer, yapily, accounts as accounts_router,
+    auth, truelayer, accounts as accounts_router,
     transactions as transactions_router, preferences, push, categories,
     analytics, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
@@ -93,7 +93,7 @@ def _routers(
     rather than inherit whatever APP_URL the process happens to have (see
     tests/test_truelayer_uat_only.py)."""
     routers = [
-        auth.router, yapily.router,
+        auth.router,
         accounts_router.router, transactions_router.router, preferences.router,
         push.router, categories.router, analytics.router,
         chat.router, statements.router, investments.router,
@@ -674,7 +674,6 @@ async def _migrate():
         upsert=False,
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
-    asyncio.create_task(_encrypt_plaintext_yapily_consents())
     asyncio.create_task(_migrate_category_kinds())
     asyncio.create_task(_migrate_mortgage_car_finance_categories())
     asyncio.create_task(_fix_all_users_categories())
@@ -734,19 +733,6 @@ async def _encrypt_plaintext_tokens():
             count += 1
     if count:
         print(f"[startup] encrypted tokens on {count} connections")
-
-
-async def _encrypt_plaintext_yapily_consents():
-    """One-time (A30): upgrade any Yapily consent rows still on the pre-A30
-    shape (raw consent token stored as `_id`, no encrypted `token` field)
-    to the fingerprinted-id + encrypted-token shape. See
-    app.services.yapily_sync.migrate_legacy_yapily_consents / upgrade_legacy_consent
-    — the same upgrade also happens lazily on next sync, this just closes
-    the gap for rows that never sync again (e.g. status EXPIRED)."""
-    from app.services.yapily_sync import migrate_legacy_yapily_consents
-    count = await migrate_legacy_yapily_consents()
-    if count:
-        print(f"[startup] upgraded {count} legacy yapily consent rows")
 
 
 async def _migrate_category_kinds():

@@ -406,3 +406,15 @@ def test_main_never_prints_secret_values(tmp_path, capsys):
     import re
 
     assert re.search(r"[A-Z_]+=\S", out) is None
+
+
+def test_a171_removed_credentials_are_flagged_removable_in_the_real_manifest():
+    """A171: names with no remaining reader must be expected `absent` everywhere,
+    so env_drift reports them `unexpected` while they still sit in an env."""
+    text = (Path(__file__).resolve().parents[2] / "docs" / "ops" / "ENV.md").read_text()
+    by_name = {v.name: v for v in env_drift.parse_manifest_text(text)["backend"]}
+    for name in ("YAPILY_APP_UUID", "YAPILY_SECRET", "YAPILY_BASE_URL",
+                 "MONO_SECRET_KEY", "MONO_PUBLIC_KEY", "BOT_SECRET", "TOKEN_KEY"):
+        assert by_name[name].uat_expected == "absent", name
+        assert by_name[name].prod_expected == "absent", name
+    assert by_name["FINEXER_WEBHOOK_SECRET"].prod_expected == "present"

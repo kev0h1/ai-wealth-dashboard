@@ -394,6 +394,10 @@ async def webhook_health(now: Optional[datetime] = None) -> dict:
         line = f"webhooks: last received {minutes_ago} min ago, consents without webhook in {stale_hours:g}h: {without}"
     return {
         "signing_configured": bool(cfg.FINEXER_WEBHOOK_SIGNING_SECRET),
+        # A171: false in production means FINEXER_WEBHOOK_SECRET is unset and
+        # the webhook route is disabled. Source is a label, never the value.
+        "path_secret_configured": bool(cfg.FINEXER_WEBHOOK_SECRET),
+        "path_secret_source": cfg.FINEXER_WEBHOOK_SECRET_SOURCE,
         "last_received_at": last_at.isoformat() if last_at else None,
         "minutes_ago": minutes_ago,
         "authorized_consents": authorised,
