@@ -547,10 +547,9 @@ if FCM_SERVICE_ACCOUNT_JSON:
 
 FCM_CONFIGURED: bool = bool(FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_JSON and _FCM_SA_PARSEABLE)
 
-# ── Yapily ────────────────────────────────────────────────────────────────────
-YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")
-YAPILY_SECRET   = os.getenv("YAPILY_SECRET", "")
-YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
+# Yapily was removed by A171 (no YAPILY_* variable is read any more; the
+# yapily_* collections are kept as data only). MONO_* went with Kenya (A98) and
+# BOT_SECRET with A28: none of them is read anywhere.
 
 # ── Finexer ───────────────────────────────────────────────────────────────────
 FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
