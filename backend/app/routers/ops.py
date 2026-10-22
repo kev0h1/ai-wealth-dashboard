@@ -394,16 +394,6 @@ class SettingWrite(BaseModel):
     confirm: bool = False
 
 
-def _setting_http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, runtime_settings.UnknownSetting):
-        return HTTPException(404, "Unknown setting")
-    if isinstance(exc, runtime_settings.SettingError):
-        return HTTPException(422, str(exc))
-    if isinstance(exc, runtime_settings.ConfirmRequired):
-        return HTTPException(409, {"code": "confirm_required", "message": "Turning this on needs confirm: true."})
-    return HTTPException(503, "Settings store unavailable")
-
-
 @router.get("/settings")
 async def ops_settings(user: dict = Depends(current_user)):
     _require_owner_session(user)
@@ -415,9 +405,15 @@ async def ops_settings_put(key: str, body: SettingWrite, user: dict = Depends(cu
     actor = _require_owner_session(user)
     try:
         return await runtime_settings.set_value(key, body.value, actor, confirm=body.confirm)
-    except (runtime_settings.UnknownSetting, runtime_settings.SettingError,
-            runtime_settings.ConfirmRequired, runtime_settings.SettingsUnavailable) as exc:
-        raise _setting_http_error(exc)
+    except runtime_settings.UnknownSetting:
+        raise HTTPException(404, "Unknown setting")
+    except runtime_settings.ConfirmRequired:
+        raise HTTPException(409, {"code": "confirm_required", "message": "Turning this on needs confirm: true."})
+    except runtime_settings.SettingsUnavailable:
+        raise HTTPException(503, "Settings store unavailable")
+    except runtime_settings.SettingError as exc:
+        # Authored by runtime_settings.validate ("Must be at most 40." etc.).
+        raise HTTPException(422, exc.args[0])
 
 
 @router.delete("/settings/{key}")
@@ -426,5 +422,7 @@ async def ops_settings_delete(key: str, user: dict = Depends(current_user)):
     actor = _require_owner_session(user)
     try:
         return await runtime_settings.clear_value(key, actor)
-    except (runtime_settings.UnknownSetting, runtime_settings.SettingsUnavailable) as exc:
-        raise _setting_http_error(exc)
+    except runtime_settings.UnknownSetting:
+        raise HTTPException(404, "Unknown setting")
+    except runtime_settings.SettingsUnavailable:
+        raise HTTPException(503, "Settings store unavailable")
