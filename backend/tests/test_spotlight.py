@@ -81,7 +81,7 @@ def test_approaching_deadline_overrides_dismissal():
             deadline_at=NOW + timedelta(days=30),
             savings_estimate="£40/mo", estimate_at_dismissal=40.0)
     cands = _spotlight_candidates([d])
-    assert cands and "deal ends" in cands[0]["_return_reason"].lower()
+    assert cands and "fixed term ends" in cands[0]["_return_reason"].lower()
 
 
 def test_deadline_parser_formats():

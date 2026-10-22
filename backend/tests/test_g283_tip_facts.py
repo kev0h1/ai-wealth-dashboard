@@ -17,7 +17,7 @@ import app.services.penny_tools as penny_tools
 from app.services import tip_copy
 
 TODAY = datetime(2026, 10, 17).date()
-SNIPPET = ("SIM-only deals cost between £8 and £25 a month. Giffgaff offers 20GB for £10, "
+SNIPPET = ("Page uswitch.com: SIM-only deals cost between £8 and £25 a month. Giffgaff offers 20GB for £10, "
            "Lebara 30GB for £12. Offer ends 2099-03-31.")
 
 
@@ -55,10 +55,14 @@ def test_banned_phrase_inside_the_allowed_phrase_still_fails():
 
 # ── shared findings builder ────────────────────────────────────────────────
 
+def _alt(name, price, note=None):
+    return {"name": name, "price": price, "note": note, "product_type": "sim_only", "basis": "month",
+            "source_url": "uswitch.com"}
+
+
 def _parsed(**over):
     p = {"typical_low": 8, "typical_high": 25,
-         "alternatives": [{"name": "Giffgaff", "price": 10, "note": None},
-                          {"name": "Lebara", "price": 12, "note": None}],
+         "alternatives": [_alt("Giffgaff", 10), _alt("Lebara", 12)],
          "deal": {"text": "A switching offer is running", "valid_until": "2099-03-31"}}
     p.update(over)
     return p
@@ -78,9 +82,8 @@ def test_deal_text_with_promo_wording_is_dropped():
 
 def test_alternative_note_and_name_with_banned_words_are_dropped():
     f, _, _ = si._build_findings(_parsed(alternatives=[
-        {"name": "Giffgaff", "price": 10, "note": "best value plan"},
-        {"name": "Best Mobile", "price": 12, "note": None},
-    ]), SNIPPET, [], "mobile", TODAY)
+        _alt("Giffgaff", 10, "best value plan"), _alt("Best Mobile", 12),
+    ]), SNIPPET, ["https://www.uswitch.com/mobiles/"], "mobile", TODAY)
     assert [a["name"] for a in f["alternatives"]] == ["Giffgaff"]
     assert f["alternatives"][0]["note"] is None
 
@@ -89,8 +92,11 @@ def test_alternative_note_and_name_with_banned_words_are_dropped():
 
 def _doc(**findings):
     base = {"typical_low": 5, "typical_high": 14, "headline": "Could be cheaper", "deal": None,
-            "alternatives": [{"name": "Asda Mobile", "price": 5, "note": None},
-                             {"name": "Lebara", "price": 6, "note": None}],
+            "findings_schema": "g315-2",
+            "alternatives": [{"name": "Asda Mobile", "price": 5, "note": None, "product_type": "sim_only",
+                              "basis": "month", "source_host": "uswitch.com"},
+                             {"name": "Lebara", "price": 6, "note": None, "product_type": "sim_only",
+                              "basis": "month", "source_host": "uswitch.com"}],
             "sources": ["https://www.uswitch.com/mobiles/sim-only/"]}
     base.update(findings)
     return {"as_of": "2026-10-14", "fetched_at": datetime(2026, 10, 14),
@@ -103,6 +109,7 @@ CASES = {
     "broadband": [{"merchant_key": "bt", "display_name": "Bt", "monthly_amount": 38.0, "occurrences": 3, "is_recurring": True}],
     "car_insurance": [{"merchant_key": "admiral", "display_name": "Admiral", "monthly_amount": 70.0, "occurrences": 3, "is_recurring": True}],
     "groceries": [{"merchant_key": "tesco", "display_name": "Tesco", "monthly_amount": 400.0, "occurrences": 12, "is_recurring": False}],
+    "gym": [{"merchant_key": "david lloyd", "display_name": "David Lloyd", "monthly_amount": 61.0, "occurrences": 3, "is_recurring": True}],
     "eating_out": [{"merchant_key": "nandos", "display_name": "Nandos", "monthly_amount": 60.0, "occurrences": 5, "is_recurring": False}],
 }
 
@@ -114,30 +121,29 @@ def test_composed_tip_reads_as_facts_with_source_and_date(category):
     text = c["title"] + " " + c["body"]
     assert tip_copy.find_banned(text) is None, text
     assert "savings_estimate" not in c
-    assert "Checked 14 Oct, source uswitch.com." in c["body"]
-    assert "Also listed: Asda Mobile £5 a month, Lebara £6 a month." in c["body"]
+    assert "Checked 14 Oct" in c["body"]
+    # G315: market lines only when like for like (see test_g315_tip_rules.py), so a mobile
+    # bill, groceries and the like carry the user's own fact and one freshness line.
+    assert "Also listed" not in c["body"]
     assert "—" not in text and "–" not in text and "!" not in text
 
 
 def test_mobile_tip_wording():
     c = si._compose_tip_content("mobile", _doc(), CASES["mobile"], None, TODAY)
     assert c["title"] == "You pay EE £56 a month"
-    assert c["body"] == (
-        "SIM-only plans are listed at £5 to £14 a month. "
-        "Also listed: Asda Mobile £5 a month, Lebara £6 a month. "
-        "Checked 14 Oct, source uswitch.com."
-    )
+    assert c["body"] == "That is based on 3 payments in the last 90 days. Checked 14 Oct."
 
 
 def test_deal_line_is_a_dated_fact_not_a_call_to_action():
     doc = _doc(deal={"text": "Octopus lists a 12 month fixed tariff", "valid_until": "2026-10-31"})
-    c = si._compose_tip_content("energy", doc, CASES["energy"], None, TODAY)
+    c = si._compose_tip_content("gym", doc, CASES["gym"], None, TODAY)
     assert "Octopus lists a 12 month fixed tariff. Offer listed until 31 Oct." in c["body"]
 
 
 def test_no_trigger_tip_title_is_a_listing_not_a_pitch():
-    c = si._compose_tip_content("energy", _doc(), [], None, TODAY)
-    assert c["title"] == "Listed prices for energy"
+    c = si._compose_tip_content("gym", _doc(), [], None, TODAY)
+    assert c["title"] == "Listed prices for gym"
+    assert c["body"] == "Gym memberships are listed at £5 to £14 a month. Checked 14 Oct, source Uswitch."
 
 
 # ── gate in the content path: a tip tripping the list is dropped ───────────
@@ -177,7 +183,7 @@ def test_deal_text_stored_in_findings_with_a_banned_phrase_never_reaches_a_tip(m
     outcome: dict = {}
     tok = si._RESEARCH_OUTCOME.set(outcome)
     try:
-        out = run(si._tip_content_for("mobile", "u@example.com", None, CASES["mobile"]))
+        out = run(si._tip_content_for("gym", "u@example.com", None, CASES["gym"]))
     finally:
         si._RESEARCH_OUTCOME.reset(tok)
     assert out is None and outcome["copy_rejected"] == "banned_phrase"
@@ -223,6 +229,7 @@ NOW = datetime.utcnow()
 def _stored(**over):
     d = {"_id": "x", "insight_id": "mobile-x", "category": "mobile", "pinned": False,
          "is_new": False, "refreshed_at": NOW, "researched_at": NOW - timedelta(days=1),
+         "prompt_version": si.PROMPT_VERSION,
          "content_valid_until": NOW + timedelta(days=5), "triggered_by": [],
          "title": "You pay EE £56 a month", "body": "SIM-only plans are listed at £5 to £14 a month. Checked 14 Oct."}
     d.update(over)

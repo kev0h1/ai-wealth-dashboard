@@ -77,7 +77,7 @@ const insight = {
   expiry_line: "", researched_at: null, state: "fresh", user_context: null, has_workflow: false, app_route: null,
   triggered_by: [{ merchant_key: "dl", display_name: "David Lloyd", monthly_amount: 117, occurrences: 6 }],
 };
-both("CompactInsightRow", () => h(CompactInsightRow, { insight, onExpand: noop }), { visible: /~£117\/mo/ });
+both("CompactInsightRow", () => h(CompactInsightRow, { insight, onExpand: noop }), { visible: /about £117 a month/ });
 
 // Home estate balances.
 for (const c of ["4", "20"]) {

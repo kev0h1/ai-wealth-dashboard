@@ -3,6 +3,12 @@ whom and how often, and what comparable options are listed at, with a source
 and a date. They never claim or estimate a saving, never recommend, and never
 call anything the best option (Kevin, 2026-10-17; feeds A165).
 
+G315 (Kevin, 2026-10-21) widened the list to the whole rendered card and its
+"Also listed" lines: bare "switch", "deal" and "worth" are banned too. The
+structural rules (regulated categories, like for like, one figure, sources,
+one freshness line) live in app.services.tip_facts and run through
+`tip_facts.card_violations` on every serialized card.
+
 `find_banned` is the single banned-phrase list. Every tip output path runs
 it and fails closed: a composed tip, shared finding, deal text, Penny tool
 output or stored tip that matches is dropped, never edited into shape.
@@ -30,8 +36,9 @@ _BANNED_RE = re.compile(
     r"|could|should"
     r"|recommend|recommends|recommended|recommending|recommendation|recommendations"
     r"|best"
-    r"|worth\s+switching"
-    r"|switch(?:ing)?\s+to"
+    r"|worth"
+    r"|switch|switches|switched|switching"
+    r"|deal|deals"
     r")\b",
     re.IGNORECASE,
 )
