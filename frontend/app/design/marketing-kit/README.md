@@ -1,6 +1,6 @@
 # C22 marketing kit
 
-The current round (22 October 2026) is the crafted campaign at `/design/marketing-kit`: an original Blender receipt, Friday typography and an October payment calendar, each with light/dark feed and story stills and a 12-second film. Source, research, reproduction commands and review boundaries are in [`marketing/c22-crafted/README.md`](../../../../../marketing/c22-crafted/README.md). The gallery, assets and film entry point live in `crafted/`, `public/design-media/c22/crafted/` and `remotion/c22-crafted/` respectively.
+The current round (22 October 2026) is the crafted campaign at `/design/marketing-kit`: an original Blender receipt, Friday typography and an October payment calendar, each with light/dark feed and story stills and a 12-second film. Source, research, reproduction commands and review boundaries are in [`marketing/c22-crafted/README.md`](../../../../marketing/c22-crafted/README.md). The gallery, assets and film entry point live in `crafted/`, `public/design-media/c22/crafted/` and `remotion/c22-crafted/` respectively.
 
 The following documents the earlier C/D/E round, now archived at `/design/marketing-kit?round=worlds`. Its claims and verification refer to that round only.
 
