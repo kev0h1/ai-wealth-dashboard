@@ -88,7 +88,7 @@ def col(monkeypatch):
 def test_migration_dry_run_writes_nothing(col):
     emails = ["a@example.com", "b@example.com"]
     counts = _run(migrate_mod.migrate(col, emails, apply=False))
-    assert counts == {"env_entries": 2, "already_present": 0, "inserted": 2}
+    assert counts == {"env_entries": 2, "already_present": 0, "inserted": 2, "owner_skipped": 0}
     assert col.docs == []
 
 
@@ -96,12 +96,12 @@ def test_migration_apply_is_idempotent_and_skips_existing(col):
     col.docs.append({"key": "a@example.com", "email": "a@example.com", "status": "invited"})
     emails = ["A@Example.com", "b@example.com", "c.d@gmail.com"]
     first = _run(migrate_mod.migrate(col, emails, apply=True))
-    assert first == {"env_entries": 3, "already_present": 1, "inserted": 2}
+    assert first == {"env_entries": 3, "already_present": 1, "inserted": 2, "owner_skipped": 0}
     assert len(col.docs) == 3
     migrated = [d for d in col.docs if d.get("source") == "env_migration"]
     assert len(migrated) == 2 and all(d["status"] == "invited" for d in migrated)
     second = _run(migrate_mod.migrate(col, emails, apply=True))
-    assert second == {"env_entries": 3, "already_present": 3, "inserted": 0}
+    assert second == {"env_entries": 3, "already_present": 3, "inserted": 0, "owner_skipped": 0}
     assert len(col.docs) == 3
 
 
@@ -160,3 +160,41 @@ def test_no_app_code_reads_allowed_emails():
                     continue
                 offenders.append(f"{rel}:{n}")
     assert offenders == []
+
+
+def test_migration_skips_owner(col):
+    counts = _run(migrate_mod.migrate(col, [OWNER, "o.wnerperson@gmail.com", "t@example.com"], apply=True))
+    assert counts["owner_skipped"] == 2 and counts["inserted"] == 1
+    assert [d["key"] for d in col.docs] == ["t@example.com"]
+
+
+def test_add_route_skips_owner(col):
+    res = _run(admin_allowlist.add_allowlist(
+        admin_allowlist.InviteRequest(email=OWNER), {"email": OWNER, "name": "O"}))
+    assert col.docs == [] and res["invited"] == []
+
+
+def test_seed_subscriptions_falls_back_to_owner_when_read_fails(monkeypatch):
+    import app.main as main_mod
+    import app.db.collections as colls
+
+    class _Boom:
+        def find(self, *a, **k):
+            raise RuntimeError("down")
+
+    class _Subs:
+        def __init__(self):
+            self.inserted = []
+
+        async def find_one(self, q):
+            return None
+
+        async def insert_one(self, d):
+            self.inserted.append(d["user_id"])
+
+    subs = _Subs()
+    monkeypatch.setattr(colls, "allowed_signups_col", _Boom())
+    monkeypatch.setattr(main_mod, "subscriptions_col", subs)
+    monkeypatch.setattr(config, "PRIMARY_EMAIL", OWNER)
+    _run(main_mod._seed_subscriptions())
+    assert subs.inserted == [OWNER]

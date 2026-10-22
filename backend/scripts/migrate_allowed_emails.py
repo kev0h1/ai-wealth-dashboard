@@ -36,12 +36,15 @@ def parse_env_list(raw: str) -> list[str]:
 
 
 async def migrate(allowed_signups_col, emails: list[str], apply: bool) -> dict:
-    from app.core.config import _gmail_key
+    from app.core.config import PRIMARY_EMAIL, _gmail_key
 
-    counts = {"env_entries": len(emails), "already_present": 0, "inserted": 0}
+    counts = {"env_entries": len(emails), "already_present": 0, "inserted": 0, "owner_skipped": 0}
     done_keys: set[str] = set()
     for email in emails:
         key = _gmail_key(email)
+        if key == _gmail_key(PRIMARY_EMAIL):
+            counts["owner_skipped"] += 1
+            continue
         if key in done_keys:
             counts["already_present"] += 1
             continue

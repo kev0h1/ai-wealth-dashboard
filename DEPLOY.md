@@ -543,8 +543,8 @@ page's Allowlist section (bot-or-owner-only `GET`/`POST`/`DELETE
 /admin/allowlist`, `app/routers/admin_allowlist.py`) adds and revokes
 addresses, consulted by `app/core/allowlist.py` on every sign-in with
 Gmail dot-insensitive matching. The owner (`PRIMARY_EMAIL`) is always
-allowed in and cannot be revoked. One-off import of the old env list:
-`backend/scripts/migrate_allowed_emails.py` (see `docs/ops/ENV.md`).
+allowed in and cannot be revoked. One-off import of the old env list: `backend/scripts/migrate_allowed_emails.py`.
+Order: (0) if the first `ALLOWED_EMAILS` entry differs from the `PRIMARY_EMAIL` default, set `PRIMARY_EMAIL` on Railway (both services); (1) run the migration against the target BEFORE releasing (needs only its `MONGO_URI`/`MONGO_DB` and the old variable exported; dry run, then `--apply`); (2) release; (3) verify on `/ops/go-live`; (4) delete `ALLOWED_EMAILS` on Railway, Vercel and UAT `.env`. Same order for UAT. See `docs/ops/ENV.md`.
 
 ### Stripe setup checklist
 

@@ -966,7 +966,11 @@ async def _seed_subscriptions():
 
     FREE_USERS = {"mbithi.maingi12@gmail.com"}
 
-    docs = await allowed_signups_col.find({"status": "invited"}).to_list(None)
+    try:
+        docs = await allowed_signups_col.find({"status": "invited"}).to_list(None)
+    except Exception:
+        logging.getLogger(__name__).warning("_seed_subscriptions: allow-list read failed; seeding the owner only")
+        docs = []
     emails = {PRIMARY_EMAIL} | {(d.get("email") or "").strip().lower() for d in docs if d.get("email")}
 
     for email in sorted(emails):

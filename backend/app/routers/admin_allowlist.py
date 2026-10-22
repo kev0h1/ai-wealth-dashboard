@@ -82,6 +82,9 @@ async def list_allowlist(user: dict = Depends(current_user)):
 async def add_allowlist(body: InviteRequest, user: dict = Depends(current_user)):
     _require_admin(user)
     key = _gmail_key(body.email)
+    if key == _gmail_key(PRIMARY_EMAIL):
+        # The owner is always allowed via PRIMARY_EMAIL; no redundant row.
+        return await _payload()
     now = datetime.now(timezone.utc)
     # Idempotent: inviting an address that's already invited is a no-op
     # (besides refreshing note/invited_by); inviting a REVOKED address
