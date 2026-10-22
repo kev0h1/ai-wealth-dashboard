@@ -13,9 +13,9 @@ Generated 2026-10-22 by `backend/scripts/vendor_directory_report.py`. Read-only:
 - Open debit rows (no hand correction): **777** across **267** merchants.
 - Left alone because the owner already corrected the merchant: **21** merchants.
 - Left alone because a user rule covers them: **0** merchants.
-- Never sent anywhere (privacy exclusions, not named here): 15 account digits, 1 contact detail, 3 own name, 106 person payment.
-- Merchants that would need a directory lookup in a real run: **121**; looked up for this report: **5**.
-- Lookups not made, by reason: 116 no simulated entry.
+- Never sent anywhere (privacy exclusions, not named here): 15 account digits, 1 contact detail, 3 own name, 101 person payment.
+- Merchants that would need a directory lookup in a real run: **126**; looked up for this report: **5**.
+- Lookups not made, by reason: 121 no simulated entry.
 - Rows the proposals below would move: **2**.
 
 ## Before and after, by category (open debit rows)
@@ -26,8 +26,8 @@ Generated 2026-10-22 by `backend/scripts/vendor_directory_report.py`. Read-only:
 | Bills | 136 | 136 |
 | Transport | 85 | 85 |
 | Groceries | 79 | 79 |
-| Subscriptions | 67 | 67 |
 | Shopping | 67 | 67 |
+| Subscriptions | 67 | 67 |
 | Entertainment | 52 | 52 |
 | Uncategorised | 31 | 31 |
 | Health | 28 | 26 (changed) |

@@ -126,6 +126,7 @@ pay payments play app apps tv radio media digital software cloud hosting mobile 
 fitness yoga pilates padel tennis squash badminton swimming pool course links estate lettings
 properties property rentals rent builders building plumbing electrical joinery roofing decorating
 cleaning laundry dry florist flowers gifts cards toys kids baby pets pet feed farm nursery
+pret local express metro autocentre superstore outlet wholesale gb uk cinemas
 church trust charity foundation society association union fund pension isa invest investments
 """.split())
 
@@ -138,8 +139,11 @@ def looks_like_a_person(key: str, *, has_merchant_name: bool = False) -> bool:
     words = key.lower().split()
     if not words:
         return False
-    if any(len(w) == 1 and w.isalpha() for w in words):
-        return True                      # a standalone initial: "j smith", "c c gondwe"
+    # A standalone initial marks a person ("j smith", "c c gondwe"). With three or
+    # more words, "a" and "the" are ordinary words ("pret a manger").
+    skip = {"a", "the"} if len(words) >= 3 else set()
+    if any(len(w) == 1 and w.isalpha() and w not in skip for w in words):
+        return True
     if not all(_WORD_RE.fullmatch(w) for w in words):
         return False
     if any(w in BUSINESS_TOKENS for w in words):
@@ -860,6 +864,8 @@ async def apply_decisions_for_user(uid: str) -> int:
     decisions = {k: d for k, d in decisions.items() if d.get("categories_hash") == chash}
     if not decisions:
         return 0
+    if not await transactions_col.find_one({"user_id": uid, "custom_category": None, "transaction_type": "debit"}, {"_id": 1}):
+        return 0   # cheap check before the full scan: no open debit rows at all
     allowed, _kinds, _identity, groups = await _gather(uid)
     if not groups:
         return 0

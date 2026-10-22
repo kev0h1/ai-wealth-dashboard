@@ -181,9 +181,15 @@ def test_bare_payee_names_are_refused(key, text):
     assert vd.privacy_exclusion(key, [text], category="Shopping", identity=NO_IDENTITY) == "person_payment"
 
 
-@pytest.mark.parametrize("key", ["widney manor golf", "charles waite golf", "playtomic", "tesco stores", "the gym ltd"])
+@pytest.mark.parametrize("key", ["pret a manger", "sainsburys local", "lidl gb", "halfords autocentre", "widney manor golf", "charles waite golf", "playtomic", "tesco stores", "the gym ltd"])
 def test_business_shaped_keys_stay_allowed(key):
     assert vd.privacy_exclusion(key, [key.upper()], category="Health", identity=NO_IDENTITY) is None
+
+
+@pytest.mark.parametrize("key", ["j smith", "c c gondwe", "daniel gondwe"])
+def test_person_names_without_merchant_name_stay_refused(key):
+    assert vd.privacy_exclusion(key, [key.upper()], category="Shopping", identity=NO_IDENTITY,
+                                has_merchant_name=False) == "person_payment"
 
 
 def test_a_named_provider_merchant_may_have_two_plain_words():
