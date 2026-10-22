@@ -4,7 +4,7 @@ Apple's Hide My Email relay address is a stable, per-app, *verified* email
 that is nonetheless NOT the user's real email — so a Google user who later
 signs in with Apple using a relay address looks like a stranger to the
 plain email-allow-list check (either a brand-new second account, or on this
-codebase's restricted ALLOWED_EMAILS list, a flat 403). This suite covers
+codebase's restricted allow list, a flat 403). This suite covers
 the fix: an authenticated user can link their Apple identity (keyed on the
 token's stable `sub` claim) to their existing account via POST
 /auth/identities/apple, and apple_native() then resolves through that link

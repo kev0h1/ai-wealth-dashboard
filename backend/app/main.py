@@ -18,6 +18,7 @@ from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
     instrument_prices_col, investment_holdings_col, investment_valuations_col, tip_research_col,
+    vendors_col, user_vendor_categories_col, vendor_claims_col,
     connections_col, accounts_col, transactions_col, preferences_col,
     chat_sessions_col, episodic_memory_col, user_categories_col,
     budgets_col,
@@ -44,7 +45,7 @@ from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORI
 from app.services import data_version
 
 from app.routers import (
-    auth, truelayer, yapily, accounts as accounts_router,
+    auth, truelayer, accounts as accounts_router,
     transactions as transactions_router, preferences, push, categories,
     analytics, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
@@ -92,7 +93,7 @@ def _routers(
     rather than inherit whatever APP_URL the process happens to have (see
     tests/test_truelayer_uat_only.py)."""
     routers = [
-        auth.router, yapily.router,
+        auth.router,
         accounts_router.router, transactions_router.router, preferences.router,
         push.router, categories.router, analytics.router,
         chat.router, statements.router, investments.router,
@@ -417,6 +418,13 @@ async def _create_indexes():
     await _ensure_index(instrument_prices_col, "fetched_at", name="instrument_fetched_at")
     # B48: shared savings-tip research. _id is the key; fetched_at orders reads.
     await _ensure_index(tip_research_col, "fetched_at", name="tip_research_fetched_at")
+    # G316: shared vendor directory (one row per shared merchant_key), the
+    # per-user match results, and the TTL'd in-flight lookup claims.
+    await _ensure_index(vendors_col, "merchant_key", unique=True, name="vendors_merchant_key_unique")
+    await _ensure_index(vendors_col, "looked_up_at", name="vendors_looked_up_at")
+    await _ensure_index(user_vendor_categories_col, [("user_id", 1), ("merchant_key", 1)],
+                        unique=True, name="user_vendor_categories_user_key_unique")
+    await _ensure_index(vendor_claims_col, "expires_at", expireAfterSeconds=0, name="vendor_claims_expires_at")
     await _ensure_index(investment_holdings_col, "instrument_key", name="holding_instrument_key")
     await _ensure_index(investment_holdings_col, "account_id", name="holding_account_id")
     # G271: daily valuation snapshots, read per account in date order
@@ -666,7 +674,6 @@ async def _migrate():
         upsert=False,
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
-    asyncio.create_task(_encrypt_plaintext_yapily_consents())
     asyncio.create_task(_migrate_category_kinds())
     asyncio.create_task(_migrate_mortgage_car_finance_categories())
     asyncio.create_task(_fix_all_users_categories())
@@ -726,19 +733,6 @@ async def _encrypt_plaintext_tokens():
             count += 1
     if count:
         print(f"[startup] encrypted tokens on {count} connections")
-
-
-async def _encrypt_plaintext_yapily_consents():
-    """One-time (A30): upgrade any Yapily consent rows still on the pre-A30
-    shape (raw consent token stored as `_id`, no encrypted `token` field)
-    to the fingerprinted-id + encrypted-token shape. See
-    app.services.yapily_sync.migrate_legacy_yapily_consents / upgrade_legacy_consent
-    — the same upgrade also happens lazily on next sync, this just closes
-    the gap for rows that never sync again (e.g. status EXPIRED)."""
-    from app.services.yapily_sync import migrate_legacy_yapily_consents
-    count = await migrate_legacy_yapily_consents()
-    if count:
-        print(f"[startup] upgraded {count} legacy yapily consent rows")
 
 
 async def _migrate_category_kinds():
@@ -953,11 +947,19 @@ async def _migrate_bot_credential_expiry():
 async def _seed_subscriptions():
     """Seed subscription tiers for all known users. Idempotent — skips existing docs."""
     from datetime import datetime, timezone
-    from app.core.config import ALLOWED_EMAILS
+    from app.core.config import PRIMARY_EMAIL
+    from app.db.collections import allowed_signups_col
 
     FREE_USERS = {"mbithi.maingi12@gmail.com"}
 
-    for email in ALLOWED_EMAILS:
+    try:
+        docs = await allowed_signups_col.find({"status": "invited"}).to_list(None)
+    except Exception:
+        logging.getLogger(__name__).warning("_seed_subscriptions: allow-list read failed; seeding the owner only")
+        docs = []
+    emails = {PRIMARY_EMAIL} | {(d.get("email") or "").strip().lower() for d in docs if d.get("email")}
+
+    for email in sorted(emails):
         existing = await subscriptions_col.find_one({"user_id": email})
         if existing:
             continue

@@ -3,8 +3,8 @@
 Two collaborating pieces:
   - app.core.allowlist.resolve_allowed_signup() — the read side every
     sign-in goes through (via app.core.identity.resolve_signin_email),
-    consulting ALLOWED_EMAILS first and then the `allowed_signups`
-    collection.
+    consulting the owner (PRIMARY_EMAIL) first and then the
+    `allowed_signups` collection (the only allow list, A174).
   - app.routers.admin_allowlist — the bot-or-owner-only GET/POST/DELETE
     endpoints the /ops/go-live page's Allowlist section uses to manage
     that collection.
@@ -134,20 +134,10 @@ def fake_linked_identities(monkeypatch):
 
 
 def _set_allow_list(monkeypatch, emails: list[str]) -> None:
+    """A174: the env list is gone; the only env-level identity is the owner
+    (PRIMARY_EMAIL). Pin it to the first entry."""
     lowered = [e.strip().lower() for e in emails]
-    by_key: dict[str, str] = {}
-    for e in lowered:
-        k = config._gmail_key(e)
-        if k not in by_key:
-            by_key[k] = e
-    monkeypatch.setattr(config, "ALLOWED_EMAILS", set(lowered))
-    monkeypatch.setattr(config, "_ALLOWED_BY_KEY", by_key)
-    monkeypatch.setattr(admin_allowlist, "ALLOWED_EMAILS", set(lowered))
-    # admin_allowlist imports PRIMARY_EMAIL by value at module load (same
-    # idiom test_ops.py's own fixtures document) — pin it to the first
-    # (owner) entry so _owner()/_require_admin agree regardless of the
-    # real deployed env var.
-    monkeypatch.setattr(admin_allowlist, "PRIMARY_EMAIL", lowered[0])
+    monkeypatch.setattr(config, "PRIMARY_EMAIL", lowered[0])
 
 
 def _closed(monkeypatch) -> None:
@@ -190,10 +180,10 @@ def test_revoked_entry_refuses_signin(fake_allowlist, fake_linked_identities, mo
     assert result is None
 
 
-def test_env_var_entry_still_works_without_collection_hit(fake_allowlist, fake_linked_identities, monkeypatch):
+def test_owner_allowed_with_empty_collection(fake_allowlist, fake_linked_identities, monkeypatch):
     _closed(monkeypatch)
     _set_allow_list(monkeypatch, ["kevin.maingi12@gmail.com"])
-    # Collection is empty — the env-var seed list alone must still resolve.
+    # Collection is empty: the owner (PRIMARY_EMAIL) must still resolve.
     result = _run(identity_module.resolve_signin_email("google-native", "kevin.maingi12@gmail.com"))
     assert result == "kevin.maingi12@gmail.com"
     assert fake_allowlist.docs == []
@@ -221,8 +211,7 @@ def test_mongo_failure_fails_closed(monkeypatch):
             raise RuntimeError("Mongo unreachable")
 
     monkeypatch.setattr(allowlist_module, "allowed_signups_col", _BoomCol())
-    monkeypatch.setattr(config, "ALLOWED_EMAILS", {"kevin.maingi12@gmail.com"})
-    monkeypatch.setattr(config, "_ALLOWED_BY_KEY", {"kevinmaingi12@gmail.com": "kevin.maingi12@gmail.com"})
+    monkeypatch.setattr(config, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
     result = _run(allowlist_module.resolve_allowed_signup("someone@example.com"))
     assert result is None
 
@@ -241,7 +230,8 @@ def test_bot_can_list_and_owner_can_list(fake_allowlist, monkeypatch):
     res_bot = _run(admin_allowlist.list_allowlist(_bot()))
     res_owner = _run(admin_allowlist.list_allowlist(_owner()))
     assert res_bot["invited"] == []
-    assert res_owner["env_seeded"] == ["kevin.maingi12@gmail.com"]
+    assert res_owner["invited"] == []
+    assert "env_seeded" not in res_owner
 
 
 def test_add_then_list_then_revoke(fake_allowlist, monkeypatch):
@@ -286,11 +276,27 @@ def test_owner_cannot_be_revoked(fake_allowlist, monkeypatch):
     assert exc.value.status_code == 400
 
 
-def test_env_address_cannot_be_revoked(fake_allowlist, monkeypatch):
-    _set_allow_list(monkeypatch, ["kevin.maingi12@gmail.com", "second@example.com"])
-    with pytest.raises(HTTPException) as exc:
-        _run(admin_allowlist.revoke_allowlist("second@example.com", _owner()))
-    assert exc.value.status_code == 400
+def test_migrated_entry_is_revocable_and_then_refused(fake_allowlist, fake_linked_identities, monkeypatch):
+    _closed(monkeypatch)
+    _set_allow_list(monkeypatch, ["kevin.maingi12@gmail.com"])
+    fake_allowlist.docs.append({
+        "key": "second@example.com", "email": "second@example.com",
+        "status": "invited", "source": "env_migration",
+    })
+    assert _run(identity_module.resolve_signin_email("google-native", "second@example.com")) == "second@example.com"
+    _run(admin_allowlist.revoke_allowlist("second@example.com", _owner()))
+    assert _run(identity_module.resolve_signin_email("google-native", "second@example.com")) is None
+
+
+def test_owner_allowed_with_empty_list_and_when_mongo_down(fake_linked_identities, monkeypatch):
+    class _BoomCol:
+        async def find_one(self, *a, **k):
+            raise RuntimeError("Mongo unreachable")
+
+    monkeypatch.setattr(allowlist_module, "allowed_signups_col", _BoomCol())
+    monkeypatch.setattr(config, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    assert _run(allowlist_module.resolve_allowed_signup("Kevin.Maingi12@gmail.com")) == "kevin.maingi12@gmail.com"
+    assert _run(allowlist_module.resolve_allowed_signup("kevinmaingi12@gmail.com")) == "kevin.maingi12@gmail.com"
 
 
 def test_invalid_email_rejected():

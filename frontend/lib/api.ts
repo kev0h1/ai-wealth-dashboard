@@ -1935,6 +1935,12 @@ export type OpsHealth = {
     poll_syncs_today: number;
   } | null;
 };
+// E9: GET /ops/webhooks/recent (owner-only, allowlist projection).
+export type OpsRecentWebhooks = {
+  recent_webhooks: { received_at: string; provider: string; event_type: string; outcome: string; reason?: string }[];
+  webhook_counts_24h: Record<string, Record<string, number>>;
+  counts_truncated: boolean;
+};
 export type OpsCollector = {
   name: string;
   title: string;
@@ -2015,8 +2021,6 @@ export type AllowlistEntry = {
 };
 export type AllowlistResponse = {
   invited: AllowlistEntry[];
-  /** ALLOWED_EMAILS env var — read-only reference, never editable here. */
-  env_seeded: string[];
 };
 // B20: admin-composed offer broadcasts — owner-only compose/preview/send
 // surface (backend/app/routers/broadcast.py) plus the in-app-card half any
@@ -4102,6 +4106,7 @@ export const api = {
   // page re-renders from truth instead of guessing at the new state.
   getGoLive: () => get<GoLiveResponse>("/ops/go-live"),
   getOpsHealth: () => get<OpsHealth>("/ops/health"),
+  getOpsRecentWebhooks: () => get<OpsRecentWebhooks>("/ops/webhooks/recent"),
   getOpsCollector: (name: string) => get<OpsCollector>(`/ops/health/collectors/${encodeURIComponent(name)}`),
   getOpsTrends: () => get<OpsTrends>("/ops/health/trends"),
   getOpsAlerts: () => get<OpsAlerts>("/ops/health/alerts"),

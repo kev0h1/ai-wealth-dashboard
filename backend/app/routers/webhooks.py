@@ -7,7 +7,7 @@ generated once and persisted to .webhook_secret.
 Flow: TrueLayer POST → verify secret token → log to webhook_events → enqueue arq job → 200.
 
 Finexer follows the same secret-in-URL pattern (token persisted to
-.finexer_webhook_secret), but see the finexer_webhook() docstring below for why
+.finexer_webhook_secret on UAT only; production requires the env var, A171), but see the finexer_webhook() docstring below for why
 its dispatch logic is deliberately event-type-agnostic.
 """
 from __future__ import annotations
@@ -325,6 +325,10 @@ async def finexer_webhook(secret: str, request: Request):
     so every authentic delivery gets a 200 except a genuine enqueue failure,
     which releases its event id (so the retry is processed) and returns 503.
     """
+    if not FINEXER_WEBHOOK_SECRET:
+        # A171: production with no FINEXER_WEBHOOK_SECRET configured. The route
+        # is disabled rather than guessing a path secret.
+        raise HTTPException(status_code=503, detail="Webhook not configured")
     if not hmac.compare_digest(secret.encode("utf-8"), FINEXER_WEBHOOK_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid token")
 

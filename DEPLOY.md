@@ -508,7 +508,7 @@ scripts/env_drift.py` to check the two against what Railway actually has.
 | `OPENROUTER_API_KEY` | from `backend/.env` | Penny + categorisation |
 | `TAVILY_API_KEY` | from `backend/.env` | savings insights |
 | `LOGODEV_TOKEN` | from `backend/.env` | merchant logos |
-| `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist, the seed list; see "Sign-up mode" below for day-to-day invites |
+| `PRIMARY_EMAIL` | optional, defaults to the owner's address | the account owner, always allowed in; the sign-up allow list itself lives in Mongo (A174, `ALLOWED_EMAILS` is removed), see "Sign-up mode" below |
 | `OPEN_SIGNUP` | unset (defaults false) | see "Sign-up mode" below |
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
 | `YAPILY_*` | from `backend/.env` | only if using the dormant Yapily provider |
@@ -524,7 +524,7 @@ env vars take precedence and the files are excluded from the image.
 ### Sign-up mode
 
 `OPEN_SIGNUP` controls whether new accounts can be created at all. Default
-`false` (unset) keeps registration restricted to `ALLOWED_EMAILS` plus the
+`false` (unset) keeps registration restricted to the owner plus the
 in-app allow list (see below), unchanged behaviour, the safe default until
 public launch. Set `true` to let any
 verified Google or Apple identity create an account. Either way, sign-in
@@ -537,13 +537,14 @@ New accounts and auto-links created this way are recorded as alias/link
 documents in the `linked_identities` Mongo collection, same collection
 Phase 1's explicit Apple linking already used.
 
-Day-to-day invites (adding or removing a tester) don't need an
-`ALLOWED_EMAILS` edit and a redeploy: the `/ops/go-live` page's Allowlist
-section (bot-or-owner-only `GET`/`POST`/`DELETE /admin/allowlist`,
-`app/routers/admin_allowlist.py`) manages an `allowed_signups` Mongo
-collection that `app/core/allowlist.py` consults after `ALLOWED_EMAILS` on
-every sign-in, same Gmail dot-insensitive matching. `ALLOWED_EMAILS` itself
-is still only ever changed by editing the env var and redeploying.
+The sign-up allow list lives only in the `allowed_signups` Mongo collection
+(A174; the old `ALLOWED_EMAILS` env var is no longer read). The `/ops/go-live`
+page's Allowlist section (bot-or-owner-only `GET`/`POST`/`DELETE
+/admin/allowlist`, `app/routers/admin_allowlist.py`) adds and revokes
+addresses, consulted by `app/core/allowlist.py` on every sign-in with
+Gmail dot-insensitive matching. The owner (`PRIMARY_EMAIL`) is always
+allowed in and cannot be revoked. One-off import of the old env list: `backend/scripts/migrate_allowed_emails.py`.
+Order: (0) if the first `ALLOWED_EMAILS` entry differs from the `PRIMARY_EMAIL` default, set `PRIMARY_EMAIL` on Railway (both services); (1) run the migration against the target BEFORE releasing (needs only its `MONGO_URI`/`MONGO_DB` and the old variable exported; dry run, then `--apply`); (2) release; (3) verify on `/ops/go-live`; (4) delete `ALLOWED_EMAILS` on Railway, Vercel and UAT `.env`. Same order for UAT. See `docs/ops/ENV.md`.
 
 ### Stripe setup checklist
 

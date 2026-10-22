@@ -9,6 +9,7 @@
     "build:mobile:prod": "MOBILE_API_BASE=https://wealth.auriqltd.co.uk/api bash scripts/build-mobile.sh",
     "start": "next start",
     "lint": "eslint",
+    "check:e9-recent-webhooks": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e9-recent-webhooks.test.mjs",
     "check:e7-health-page": "node --no-warnings --experimental-strip-types scripts/e7-health-page.test.mjs",
     "check:calendar": "node --no-warnings --experimental-strip-types scripts/calendar.test.mjs",
     "check:date-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/date-picker.test.mjs",

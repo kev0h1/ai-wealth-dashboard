@@ -4,7 +4,7 @@ Apple's native Sign in with Apple flow hands the client a self-contained
 RS256 JWT (no tokeninfo-style verification endpoint like Google's), so the
 route verifies it itself against Apple's JWKS: signature, `iss`, `aud`
 (APPLE_BUNDLE_ID / APPLE_SERVICES_ID), and `exp`, then applies the same
-ALLOWED_EMAILS gate as google_native().
+allow-list gate as google_native().
 
 No TestClient/HTTP layer here — following the convention already
 established in test_finexer_webhook.py, the route coroutine is awaited

@@ -303,7 +303,7 @@ def test_rent_credit_is_income_and_debit_is_rent_through_the_shared_helper():
 def test_every_ingest_path_and_bulk_rerun_use_the_directed_helper():
     root = Path(__file__).resolve().parents[1] / "app"
     for rel in ("services/truelayer_sync.py", "services/finexer_sync.py",
-                "services/yapily_sync.py", "routers/statements.py"):
+                "routers/statements.py"):
         src = (root / rel).read_text()
         assert "rule_categorise_directed(" in src or "credit_guard(" in src, rel
         # no direct credit-path call left behind

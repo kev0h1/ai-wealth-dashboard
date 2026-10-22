@@ -147,7 +147,7 @@ def test_apple_relay_claim_with_no_name_leaves_session_name_empty(monkeypatch):
     # "jjdk4" (the relay address's local part) — that string becoming the
     # greeting is the whole bug.
     #
-    # The allow-list gate (ALLOWED_EMAILS / OPEN_SIGNUP) is a separate
+    # The allow-list gate (DB allow list / OPEN_SIGNUP) is a separate
     # concern from the name fallback under test here, and a relay address
     # is not on the test environment's default allow list — so
     # resolve_signin_email is stubbed to admit it, the same separation of

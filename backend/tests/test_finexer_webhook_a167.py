@@ -598,3 +598,59 @@ def test_bad_signature_header_with_empty_object_still_401(env, monkeypatch):
 
 def test_empty_object_with_signing_secret_unset_unchanged(env):
     assert _post(_Req(raw=b"{}")) == {"ok": True}
+
+
+# ── A171: production never mints a path secret ──────────────────────────────
+
+def test_route_disabled_when_path_secret_unset(monkeypatch):
+    monkeypatch.setattr(wh, "FINEXER_WEBHOOK_SECRET", "")
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(wh.finexer_webhook("", object()))
+    assert ei.value.status_code == 503
+
+
+def _reload_config(monkeypatch, tmp_path, app_url, env_secret=None):
+    import importlib
+    import app.core.config as config
+    monkeypatch.setenv("APP_URL", app_url)
+    if env_secret is None:
+        monkeypatch.delenv("FINEXER_WEBHOOK_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("FINEXER_WEBHOOK_SECRET", env_secret)
+    monkeypatch.setattr(config, "_BACKEND_DIR", tmp_path, raising=False)
+    return config
+
+
+def test_production_unset_secret_is_empty_and_writes_no_file(monkeypatch, tmp_path):
+    import importlib
+    config = _reload_config(monkeypatch, tmp_path, "https://wealth.auriqltd.co.uk")
+    # config derives paths from __file__, so run the same branch on a copy of
+    # the module namespace pointed at tmp_path instead of re-importing the app.
+    src = open(config.__file__).read()
+    start = src.index("_finexer_webhook_secret_file = ")
+    end = src.index("# Signing secret Finexer issues")
+    ns = {"_BACKEND_DIR": tmp_path, "os": __import__("os"), "secrets": __import__("secrets"),
+          "logging": __import__("logging"), "APP_URL": "https://wealth.auriqltd.co.uk",
+          "_is_non_production": config._is_non_production}
+    exec(src[start:end], ns)
+    assert ns["FINEXER_WEBHOOK_SECRET"] == ""
+    assert ns["FINEXER_WEBHOOK_SECRET_SOURCE"] == "missing"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_uat_keeps_file_fallback_and_env_wins(monkeypatch, tmp_path):
+    config = _reload_config(monkeypatch, tmp_path, "https://uat.wealth.auriqltd.co.uk")
+    src = open(config.__file__).read()
+    block = src[src.index("_finexer_webhook_secret_file = "):src.index("# Signing secret Finexer issues")]
+    base = {"_BACKEND_DIR": tmp_path, "os": __import__("os"), "secrets": __import__("secrets"),
+            "logging": __import__("logging"), "APP_URL": "https://uat.wealth.auriqltd.co.uk",
+            "_is_non_production": config._is_non_production}
+    ns = dict(base)
+    exec(block, ns)
+    assert ns["FINEXER_WEBHOOK_SECRET"] and ns["FINEXER_WEBHOOK_SECRET_SOURCE"] == "file"
+    assert (tmp_path / ".finexer_webhook_secret").exists()
+    monkeypatch.setenv("FINEXER_WEBHOOK_SECRET", "from-env")
+    ns2 = dict(base)
+    exec(block, ns2)
+    assert ns2["FINEXER_WEBHOOK_SECRET"] == "from-env"
+    assert ns2["FINEXER_WEBHOOK_SECRET_SOURCE"] == "env"

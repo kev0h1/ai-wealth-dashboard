@@ -2,10 +2,11 @@
 import logging
 import os
 import secrets
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
-from itsdangerous import URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from py_vapid import Vapid
 from cryptography.hazmat.primitives.serialization import (
     Encoding, PublicFormat, PrivateFormat, NoEncryption,
@@ -73,9 +74,12 @@ def _origin_of(url: str) -> str:
 # points at a dedicated host. Derived once here so app.core.auth and
 # app.main don't each re-parse MCP_PUBLIC_URL themselves.
 MCP_ORIGIN           = _origin_of(MCP_PUBLIC_URL)
-_raw_allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",") if e.strip()]
-ALLOWED_EMAILS      = set(_raw_allowed_emails)
-PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"
+# A174: the sign-up allow list lives in the `allowed_signups` Mongo
+# collection only (app.core.allowlist); no email list is read from env.
+# The account owner is identified by PRIMARY_EMAIL alone.
+if os.getenv("ALLOWED_EMAILS") is not None:
+    logging.getLogger(__name__).warning("ALLOWED_EMAILS is no longer read; delete it from the environment")
+PRIMARY_EMAIL       = (os.getenv("PRIMARY_EMAIL") or "kevin.maingi12@gmail.com").strip().lower()
 SESSION_MAX_AGE     = 7 * 24 * 3600
 
 # Subscription tier a user gets when they have no subscription doc (or an
@@ -94,27 +98,15 @@ def _gmail_key(email: str) -> str:
     return email.lower()
 
 
-# Earlier entries win if two allow-list emails collapse to the same Gmail key
-# (build in list order, only filling keys not already present).
-_ALLOWED_BY_KEY: dict[str, str] = {}
-for _e in _raw_allowed_emails:
-    _k = _gmail_key(_e)
-    if _k not in _ALLOWED_BY_KEY:
-        _ALLOWED_BY_KEY[_k] = _e
-
-
-def resolve_allowed_email(email: str) -> str | None:
-    """Return the allow-list spelling for `email`, or None if it is not allowed.
-
-    Exact (case-insensitive) matches win. Gmail/googlemail addresses also match
-    dot-insensitively, and the returned value is the allow-list spelling so the
-    same person always lands in the same account regardless of provider."""
+def resolve_owner_email(email: str) -> str | None:
+    """Return PRIMARY_EMAIL if `email` is the account owner (Gmail
+    dot-insensitive), else None. The owner is always allowed in, whatever
+    the DB allow list holds."""
     if not email:
         return None
-    e = email.strip().lower()
-    if e in ALLOWED_EMAILS:
-        return e
-    return _ALLOWED_BY_KEY.get(_gmail_key(e))
+    if _gmail_key(email.strip().lower()) == _gmail_key(PRIMARY_EMAIL):
+        return PRIMARY_EMAIL
+    return None
 
 
 def mask_email(email: str) -> str:
@@ -199,7 +191,7 @@ APPLE_BUNDLE_ID     = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.sorted")
 APPLE_SERVICES_ID   = os.getenv("APPLE_SERVICES_ID", "")
 
 # Phase 2 of the allow-list work (see app/core/identity.py): default false
-# keeps registration restricted to ALLOWED_EMAILS (today's behaviour,
+# keeps registration restricted to the DB allow list (today's behaviour,
 # unchanged). Set true to let any verified Google/Apple identity create an
 # account — the identity resolver still runs first (Gmail dot-insensitive
 # aliasing, Apple relay auto-linking) so the same person always lands in the
@@ -246,6 +238,39 @@ TIP_LLM_PHRASING = _parse_flag(os.getenv("TIP_LLM_PHRASING"))
 # `profile_general` key and no portrait is read. Turn on once there are enough
 # users for a profile key to be a crowd rather than a person.
 TIP_RESEARCH_PROFILE_KEYS = _parse_flag(os.getenv("TIP_RESEARCH_PROFILE_KEYS"))
+
+# G316: shared vendor directory and the sync-time categorisation ladder.
+# Every cost guard is a constant with an env override (docs/ops/ENV.md).
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+# Master switch. Ships OFF: when false the ladder never runs and categorisation
+# is exactly as before G316. Kevin enables it per host after signing off a real
+# vendor-directory report.
+VENDOR_LADDER_ENABLED = os.getenv("VENDOR_LADDER_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+# New web lookups (Tavily search plus one reasoning-model write-up) one sync
+# may start, and the whole service may start per UTC day.
+VENDOR_LOOKUP_CAP_PER_SYNC = _env_int("VENDOR_LOOKUP_CAP_PER_SYNC", 5)
+VENDOR_LOOKUP_CAP_PER_DAY = _env_int("VENDOR_LOOKUP_CAP_PER_DAY", 100)
+# Merchants one user's sync may match to that user's categories (cheap model).
+VENDOR_MATCH_CAP_PER_SYNC = _env_int("VENDOR_MATCH_CAP_PER_SYNC", 40)
+# A directory entry (found, not_found or not_a_business) is looked up again
+# after this many days.
+VENDOR_REFRESH_DAYS = _env_int("VENDOR_REFRESH_DAYS", 365)
+# How long one process may hold the in-flight claim on a merchant, and how long
+# a merchant rests after a write-up failure before it is tried again.
+VENDOR_CLAIM_TTL_SECONDS = _env_int("VENDOR_CLAIM_TTL_SECONDS", 120)
+VENDOR_FAILURE_COOLDOWN_SECONDS = _env_int("VENDOR_FAILURE_COOLDOWN_SECONDS", 3600)
+# Tavily quota (HTTP 432), auth and rate failures stop lookups for this long.
+VENDOR_BACKOFF_HOURS = _env_int("VENDOR_BACKOFF_HOURS", 24)
+# Model tiering (ENGINE.md): the reasoning model writes the directory
+# description once; the cheap model matches a description to a user's categories.
+VENDOR_REASONING_MODEL = os.getenv("VENDOR_REASONING_MODEL", "anthropic/claude-sonnet-4-5")
+VENDOR_MATCH_MODEL = os.getenv("VENDOR_MATCH_MODEL", "anthropic/claude-haiku-4-5")
 
 # F10: MCP-only service mode. The same backend image can run as a second
 # Railway service on a dedicated `mcp` hostname, mounting only the
@@ -330,7 +355,65 @@ else:
     SESSION_SECRET = secrets.token_hex(32)
     _secrets_file.write_text(SESSION_SECRET)
 
-serializer = URLSafeTimedSerializer(SESSION_SECRET)
+
+
+class RotatingSessionSerializer:
+    """Session token signer with a bounded dual-key window (A171).
+
+    Signs with the current key only, always. Verifies with the current key and,
+    only while today (UTC) is on or before `previous_until` (an ISO date, the
+    last day it is accepted), with `previous` as well. Past that date, or when
+    no valid date is configured, the previous key is ignored even if set, so a
+    forgotten SESSION_SECRET_PREVIOUS cannot keep a leaked key alive."""
+
+    def __init__(self, current: str, previous: str = "", previous_until: str = "", clock=None):
+        self._current = URLSafeTimedSerializer(current)
+        self._previous = URLSafeTimedSerializer(previous) if previous else None
+        self._until = None
+        if previous_until:
+            try:
+                self._until = date.fromisoformat(previous_until.strip())
+            except ValueError:
+                self._until = None
+        self._clock = clock or (lambda: datetime.now(timezone.utc))  # naive-ok: aware UTC key-expiry date, not user-facing
+        if self._until is not None:
+            # Clamp to today + SESSION_MAX_AGE: a previous key can never be
+            # trusted for longer than a session lives, whatever the variable says.
+            limit = self._clock().date() + timedelta(seconds=SESSION_MAX_AGE)
+            if self._until > limit:
+                logging.getLogger(__name__).warning(
+                    "SESSION_SECRET_PREVIOUS_UNTIL is more than %d days away; "
+                    "clamped to %s.", SESSION_MAX_AGE // 86400, limit.isoformat(),
+                )
+                self._until = limit
+
+    def previous_active(self) -> bool:
+        return (
+            self._previous is not None
+            and self._until is not None
+            and self._clock().date() <= self._until
+        )
+
+    def dumps(self, obj, *args, **kwargs):
+        return self._current.dumps(obj, *args, **kwargs)
+
+    def loads(self, token, *args, **kwargs):
+        try:
+            return self._current.loads(token, *args, **kwargs)
+        except SignatureExpired:
+            # The current key DID verify (token merely too old): never retry.
+            raise
+        except BadSignature:
+            if not self.previous_active():
+                raise
+            return self._previous.loads(token, *args, **kwargs)
+
+
+SESSION_SECRET_PREVIOUS = os.getenv("SESSION_SECRET_PREVIOUS", "")
+SESSION_SECRET_PREVIOUS_UNTIL = os.getenv("SESSION_SECRET_PREVIOUS_UNTIL", "")
+serializer = RotatingSessionSerializer(
+    SESSION_SECRET, SESSION_SECRET_PREVIOUS, SESSION_SECRET_PREVIOUS_UNTIL
+)
 
 # ── TrueLayer ─────────────────────────────────────────────────────────────────
 TRUELAYER_CLIENT_ID      = os.getenv("TRUELAYER_CLIENT_ID")
@@ -465,10 +548,9 @@ if FCM_SERVICE_ACCOUNT_JSON:
 
 FCM_CONFIGURED: bool = bool(FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_JSON and _FCM_SA_PARSEABLE)
 
-# ── Yapily ────────────────────────────────────────────────────────────────────
-YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")
-YAPILY_SECRET   = os.getenv("YAPILY_SECRET", "")
-YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
+# Yapily was removed by A171 (no YAPILY_* variable is read any more; the
+# yapily_* collections are kept as data only). MONO_* went with Kenya (A98) and
+# BOT_SECRET with A28: none of them is read anywhere.
 
 # ── Finexer ───────────────────────────────────────────────────────────────────
 FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
@@ -486,15 +568,32 @@ FINEXER_TEMPLATE_DARK   = os.getenv("FINEXER_TEMPLATE_DARK", "")
 # changes, so this is deliberately long.
 FINEXER_PROVIDERS_TTL_HOURS = int(os.getenv("FINEXER_PROVIDERS_TTL_HOURS", "24"))
 
-# URL secret embedded in the webhook path (same scheme as TRUELAYER_WEBHOOK_SECRET
-# above: env wins, else a persisted file, else generate one on first boot).
+# URL secret embedded in the webhook path. Env always wins. On UAT/local
+# (non-production APP_URL) it falls back to a persisted file, generated on first
+# boot, same as TRUELAYER_WEBHOOK_SECRET. In PRODUCTION (A171) there is no file
+# fallback and nothing is ever generated: Railway's filesystem does not persist,
+# so a generated secret would change every deploy and silently break the
+# registered webhook URL. With the variable unset in production the webhook
+# route is disabled (503) and the startup error below is logged; /ops/health
+# reports `path_secret_configured: false`.
 _finexer_webhook_secret_file = _BACKEND_DIR / ".finexer_webhook_secret"
+FINEXER_WEBHOOK_SECRET_SOURCE = "env"
 if _fws := os.getenv("FINEXER_WEBHOOK_SECRET"):
     FINEXER_WEBHOOK_SECRET = _fws
+elif not _is_non_production(APP_URL):
+    FINEXER_WEBHOOK_SECRET = ""
+    FINEXER_WEBHOOK_SECRET_SOURCE = "missing"
+    logging.getLogger(__name__).error(
+        "FINEXER_WEBHOOK_SECRET is not set in production: the Finexer webhook "
+        "route is disabled until it is. Set it on Railway (both services) and "
+        "register the matching URL in Finexer. See docs/ops/ENV.md."
+    )
 elif _finexer_webhook_secret_file.exists():
     FINEXER_WEBHOOK_SECRET = _finexer_webhook_secret_file.read_text().strip()
+    FINEXER_WEBHOOK_SECRET_SOURCE = "file"
 else:
     FINEXER_WEBHOOK_SECRET = secrets.token_urlsafe(32)
+    FINEXER_WEBHOOK_SECRET_SOURCE = "file"
     _finexer_webhook_secret_file.write_text(FINEXER_WEBHOOK_SECRET)
 
 # Signing secret Finexer issues after the webhook is registered in their
