@@ -15,7 +15,7 @@ One-off pass of the sync ladder over existing transactions.
 
 - **Dry run** reads only. No lookups, no model calls, no writes. It reports, across users who have custom categories: merchants and rows seen, merchants skipped because the user corrected them or a rule covers them, merchants never sent anywhere (privacy exclusions by reason), merchants already decided, merchants that would need a lookup or a match, rows stored decisions would move, and duplicate user rules.
 - **Never touches** a row the user corrected (source user or `custom_category` set), a merchant the user has corrected anywhere, or a merchant covered by a user rule.
-- **Duplicate user rules** (same user, pattern and category, for example the MIDLANDS GOLF Meriden rule stored twice): the dry run counts them. `--apply` keeps the oldest of each set and deletes the extras.
+- **Duplicate user rules** (same user, pattern and category, for example the MIDLANDS GOLF Meriden rule stored twice): the dry run counts them. `--apply` keeps the oldest of each set and deletes the extras. The dedupe is global across users (it walks every user's rules, not just the owner's) and always keeps the oldest rule of each (user, pattern, category) set.
 - `--apply` uses the real caps (`VENDOR_LOOKUP_CAP_PER_SYNC`, `VENDOR_LOOKUP_CAP_PER_DAY`) and honours the Tavily quota backoff, so a large backlog needs the script re-run until `deferred` reads zero. On UAT only the dry run has been run; `--apply` waits for Kevin's sign-off on the report.
 
 ## `scripts/vendor_directory_report.py`

@@ -5,7 +5,7 @@ Generated 2026-10-22 by `backend/scripts/vendor_directory_report.py`. Read-only:
 ## How this was produced
 
 - **Simulation. No web search and no model call was made.** The Tavily quota has been exhausted since 16 Oct (HTTP 432, the B44 backoff was live) and the OpenRouter key on this host is currently rejected (HTTP 401, the account is not found), so neither the live lookup nor the model could run. A fixed word list stands in for the directory description (a name with golf in it is described as a golf club, and so on) and a word match stands in for the matcher (it picks your category named in the description). This shows the plumbing only: which rows the ladder is allowed to touch, and which would move IF the directory describes the merchant that way. It says nothing about how well the real reasoning model or matcher will do.
-- Merchants given a stand-in description: **7**.
+- Merchants given a stand-in description: **5**.
 - The owner's custom categories offered to the matcher: Golf, Padel, Business, Family.
 
 ## What the ladder looked at
@@ -13,9 +13,9 @@ Generated 2026-10-22 by `backend/scripts/vendor_directory_report.py`. Read-only:
 - Open debit rows (no hand correction): **777** across **267** merchants.
 - Left alone because the owner already corrected the merchant: **21** merchants.
 - Left alone because a user rule covers them: **0** merchants.
-- Never sent anywhere (privacy exclusions, not named here): 15 account digits, 1 contact detail, 3 own name, 4 person payment.
-- Merchants that would need a directory lookup in a real run: **223**; looked up for this report: **7**.
-- Lookups not made, by reason: 216 no simulated entry.
+- Never sent anywhere (privacy exclusions, not named here): 15 account digits, 1 contact detail, 3 own name, 106 person payment.
+- Merchants that would need a directory lookup in a real run: **121**; looked up for this report: **5**.
+- Lookups not made, by reason: 116 no simulated entry.
 - Rows the proposals below would move: **2**.
 
 ## Before and after, by category (open debit rows)
@@ -26,8 +26,8 @@ Generated 2026-10-22 by `backend/scripts/vendor_directory_report.py`. Read-only:
 | Bills | 136 | 136 |
 | Transport | 85 | 85 |
 | Groceries | 79 | 79 |
-| Shopping | 67 | 67 |
 | Subscriptions | 67 | 67 |
+| Shopping | 67 | 67 |
 | Entertainment | 52 | 52 |
 | Uncategorised | 31 | 31 |
 | Health | 28 | 26 (changed) |
@@ -77,8 +77,6 @@ Every golf, sport and leisure merchant, hand-corrected rows included. A correcte
 
 | Merchant | Directory result |
 |---|---|
-| David Lloyd | found: Gym, leisure or sports centre. |
-| David Lloyd Leisur | found: Gym, leisure or sports centre. |
 | Rocky Sporting Club Lt | found: Gym, leisure or sports centre. |
 | Sport Centre Ecomm | found: Gym, leisure or sports centre. |
 | The Gym Ltd | found: Gym, leisure or sports centre. |
@@ -88,8 +86,6 @@ Every golf, sport and leisure merchant, hand-corrected rows included. A correcte
 
 | Merchant | Description | Tags | Confidence |
 |---|---|---|---|
-| David Lloyd | Gym, leisure or sports centre. |  | low |
-| David Lloyd Leisur | Gym, leisure or sports centre. |  | low |
 | Rocky Sporting Club Lt | Gym, leisure or sports centre. |  | low |
 | Sport Centre Ecomm | Gym, leisure or sports centre. |  | low |
 | The Gym Ltd | Gym, leisure or sports centre. |  | low |
