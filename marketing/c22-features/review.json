@@ -1,0 +1,238 @@
+{
+  "item": "C22",
+  "round": "features",
+  "date": "2026-10-22",
+  "status": "creative-review-only",
+  "deliverables": {
+    "newImages": 24,
+    "newFilms": 12,
+    "newUIProofs": 30,
+    "preservedImages": 12,
+    "preservedFilms": 4
+  },
+  "checks": {
+    "productionBuild": "pass",
+    "typescript": "pass",
+    "scopedESLint": "pass",
+    "assetHashesAndSourceFreshness": "pass",
+    "fullFilmDecoding": "12 of 12 pass, 450 frames at 30 fps, 1080x1920 H.264",
+    "audio": "12 AAC tracks with non-silent measured levels",
+    "nativeBrowserPlayback": {
+      "errors": [],
+      "playback": [
+        {
+          "story": "movement",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.017504,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 230
+        },
+        {
+          "story": "month",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.118984,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 243
+        },
+        {
+          "story": "spend",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.132532,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 221
+        },
+        {
+          "story": "split",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.093787,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 215.66666666666666
+        },
+        {
+          "story": "penny",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.126631,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 210.33333333333334
+        },
+        {
+          "story": "aside",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.076959,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 220
+        },
+        {
+          "story": "balance",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.079735,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 219.33333333333334
+        },
+        {
+          "story": "account",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.153035,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 230.66666666666666
+        },
+        {
+          "story": "movement",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.096171,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 235.33333333333334
+        },
+        {
+          "story": "month",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.124544,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 229.66666666666669
+        },
+        {
+          "story": "spend",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.133509,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 221
+        },
+        {
+          "story": "split",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.159984,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 216.33333333333334
+        },
+        {
+          "story": "penny",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.146803,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 210.33333333333334
+        },
+        {
+          "story": "aside",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.116903,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 220
+        },
+        {
+          "story": "balance",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.156216,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 238.66666666666666
+        },
+        {
+          "story": "account",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.147148,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 231.33333333333334
+        }
+      ],
+      "widths": [
+        320,
+        390,
+        1440
+      ],
+      "filters": "pass",
+      "archives": "pass",
+      "rapidControls": "pass"
+    },
+    "productionBoundaryReview": "Existing leaf exports only. Fixture callbacks do not write to bank or API.",
+    "independentVisualReview": "All six stories, both themes; stills and decoded held shots pass. Continuous playback was not watched by the independent reviewer.",
+    "webInterfaceGuidelines": "Gallery URL state, keyboard controls and focus, skip link, captions, manual playback, image dimensions and deferred loading checked.",
+    "nativeBrowserPicture": "All16 actual decoded frames have contrast above80 levels; playback checks scroll each video into view."
+  },
+  "financialChecks": {
+    "movement": "188 - 68 = 120; any bank transfer remains with the user",
+    "month": "2400 - 1800 - 400 = 200; shown categories1600 + other200 = spent1800",
+    "split": "Actual1200 fixed +600 free +400 moved +200 left =2400. Adapted reference1200/720/480 shown separately.",
+    "spend": "860 spent is separate from400 moved. Shares use the production largest-remainder convention.",
+    "actions": "200 each pay period creates a plan after confirmation, not a bank transfer"
+  },
+  "publication": "Not published. C22 requires coordinator integration and Kevin UAT review."
+}

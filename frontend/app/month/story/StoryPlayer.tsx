@@ -120,7 +120,7 @@ function buildSlides(story: CycleStory, preview: boolean, persona: string | null
 
 // ── Individual slide renderers ────────────────────────────────────────────────
 
-function TitleSlide({
+export function TitleSlide({
   slide,
   focalRef,
 }: {
@@ -151,7 +151,7 @@ function TitleSlide({
   );
 }
 
-function SpendingSlide({
+export function SpendingSlide({
   slide,
   fmt,
   focalRef,
@@ -175,7 +175,7 @@ function SpendingSlide({
   );
 }
 
-function WhereItWentSlide({
+export function WhereItWentSlide({
   slide,
   fmt,
   focalRef,

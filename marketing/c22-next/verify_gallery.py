@@ -39,7 +39,7 @@ def main():
             page.evaluate("Promise.all([...document.images].map(i=>i.decode()))")
             page.add_style_tag(content="nextjs-portal{display:none!important}")
         for theme in ("light", "dark"):
-            visit("?mode=" + theme)
+            visit("?topic=original&mode=" + theme)
             assert page.get_by_role("heading", name="Images", exact=True).count() == 1
             assert page.get_by_role("heading", name="Videos", exact=True).count() == 1
             assert page.locator("video").count() == 2

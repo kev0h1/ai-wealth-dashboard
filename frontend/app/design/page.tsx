@@ -73,9 +73,19 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
-    description: "C22 replacement round: three separately designed images and two edited 15-second product films with sound, in light and dark. Uses the latest fully loaded product components with fictional data. Feed and story image downloads, MP4 downloads and previous rounds are in the gallery. Creative review only.",
+    description: "C22 extension: six new story directions (Movement, Month, Spend, Split, Penny and Aside) with 24 new PNGs and 12 new edited 15-second MP4s, preserving the earlier 12 PNGs and 4 MP4s. Uses fully loaded production leaf components with fictional fixture data, sound and captions. Creative review only; UAT approval pending.",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
-    variants: [{ label: "What is yours?", value: "amount" }, { label: "By account", value: "account" }, { label: "The working", value: "working" }],
+    variants: [
+      { label: "Movement", value: "movement" },
+      { label: "Month", value: "month" },
+      { label: "Spend", value: "spend" },
+      { label: "Split", value: "split" },
+      { label: "Penny", value: "penny" },
+      { label: "Aside", value: "aside" },
+      { label: "What is yours?", value: "amount" },
+      { label: "By account", value: "account" },
+      { label: "The working", value: "working" },
+    ],
     group: "current",
   },
   {
