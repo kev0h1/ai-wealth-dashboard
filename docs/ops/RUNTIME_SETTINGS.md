@@ -12,7 +12,7 @@ All owner session only; a bot credential gets 403.
 database value, then environment value, then code default. Nothing changes
 until a database row exists. The API and the worker both read through one
 accessor with a cache of about 60 seconds, so a change applies to both within
-about a minute. If the database cannot be reached the last known values are
+about a minute. Delete a variable from Railway only once its value has been set in /ops/health, or when the default is the value you want. Deleting an env var that has no database value returns the key to its code default. If the database cannot be reached the last known values are
 kept for 15 minutes (so an emergency off switch does not flip back on during a
 blip), then readers fall back to env or default. The first failure is logged.
 

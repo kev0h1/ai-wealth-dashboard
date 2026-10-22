@@ -109,11 +109,15 @@ class Spec:
     confirm_on: bool = False       # turning a bool ON needs confirm
     env_off: Any = _MISSING        # an env value that is legitimate but outside the bounds
     validator: Optional[Callable[[Any], Any]] = None
+    # Bool keys only: the exact env strings the real constant treats as true
+    # (core/config.py), so the settings page never shows On for a value the
+    # feature itself reads as off.
+    env_truthy: tuple = ("1", "true", "yes", "on")
     help: str = ""
 
 
 REGISTRY: dict[str, Spec] = {s.key: s for s in [
-    Spec("OPEN_SIGNUP", "bool", False, "Open sign-up", "Access",
+    Spec("OPEN_SIGNUP", "bool", False, "Open sign-up", "Access", env_truthy=("1", "true", "yes"),
          help="Any verified Google or Apple identity can create an account. Off keeps registration allow-list only."),
     Spec("LLM_GLOBAL_MONTHLY_CALL_CEILING", "int", 0, "LLM monthly call ceiling", "Cost controls",
          min=1, max=10_000_000, env_off=0,
@@ -125,9 +129,9 @@ REGISTRY: dict[str, Spec] = {s.key: s for s in [
     Spec("FINEXER_TEMPLATE_DARK", "str", "", "Finexer dark consent template id", "Bank connection",
          validator=_validate_template_id,
          help="The 12-character id of the dark consent template, or empty for the default template."),
-    Spec("APPLE_IAP_ENABLED", "bool", False, "Apple in-app purchase", "Purchases", confirm_on=True,
+    Spec("APPLE_IAP_ENABLED", "bool", False, "Apple in-app purchase", "Purchases", confirm_on=True, env_truthy=("1", "true", "on"),
          help="Master switch for iOS purchases. Turning it off is the emergency stop."),
-    Spec("PLAY_IAP_ENABLED", "bool", False, "Google Play purchase", "Purchases", confirm_on=True,
+    Spec("PLAY_IAP_ENABLED", "bool", False, "Google Play purchase", "Purchases", confirm_on=True, env_truthy=("1", "true", "on"),
          help="Master switch for Android purchases. Turning it off is the emergency stop."),
     Spec("ALERTS_ENABLED", "bool", False, "Push alerts", "Alerts",
          help="Master switch for health alerts to the owner."),
@@ -203,7 +207,7 @@ def _env_value(spec: Spec) -> Any:
         return _MISSING
     try:
         if spec.type == "bool":
-            return raw.lower() in ("1", "true", "yes", "on")
+            return raw.lower() in spec.env_truthy
         num = float(raw)
         if spec.env_off is not _MISSING and num == spec.env_off:
             return spec.env_off

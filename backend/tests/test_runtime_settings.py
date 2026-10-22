@@ -481,3 +481,22 @@ def test_health_collectors_read_budget_and_limit_through_the_accessor():
     from app.services.health import llm as health_llm, mongo as health_mongo
     assert 'asetting("LLM_MONTHLY_BUDGET_USD")' in inspect.getsource(health_llm)
     assert 'asetting("MONGO_STORAGE_LIMIT_MB")' in inspect.getsource(health_mongo)
+
+
+@pytest.mark.parametrize("key,truthy", [
+    ("OPEN_SIGNUP", {"1", "true", "yes"}),
+    ("APPLE_IAP_ENABLED", {"1", "true", "on"}),
+    ("PLAY_IAP_ENABLED", {"1", "true", "on"}),
+    ("ALERTS_ENABLED", {"1", "true", "yes", "on"}),
+])
+def test_env_layer_uses_the_real_constants_truthy_set(monkeypatch, key, truthy):
+    """resolve() must agree with the real constant's parser, never show On for a feature that is off."""
+    from app.core import config
+
+    for word in ("1", "true", "yes", "on", "off", "no", "0"):
+        monkeypatch.setenv(key, word)
+        shown, _ = rs.resolve(key)
+        assert shown is (word in truthy), (key, word)
+    if key in ("APPLE_IAP_ENABLED", "PLAY_IAP_ENABLED"):
+        for word in ("yes", "on", "true", "1", "off"):
+            assert config._parse_flag(word) is (word in truthy)
