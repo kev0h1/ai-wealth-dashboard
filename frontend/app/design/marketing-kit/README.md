@@ -1,8 +1,14 @@
-# C22 marketing-kit campaign worlds
+# C22 marketing kit
+
+The current round (22 October 2026) is the crafted campaign at `/design/marketing-kit`: an original Blender receipt, Friday typography and an October payment calendar, each with light/dark feed and story stills and a 12-second film. Source, research, reproduction commands and review boundaries are in [`marketing/c22-crafted/README.md`](../../../../marketing/c22-crafted/README.md). The gallery, assets and film entry point live in `crafted/`, `public/design-media/c22/crafted/` and `remotion/c22-crafted/` respectively.
+
+The following documents the earlier C/D/E round, now archived at `/design/marketing-kit?round=worlds`. Its claims and verification refer to that round only.
+
+## Earlier campaign worlds
 
 This private review surface contains the current C22 creative-direction round. Kevin rejected the earlier gallery-led campaign treatment and asked for advertising that makes the money question tangible: 3D-style phones, physical objects and app elements appearing to come out of the screen. This is an ordinary campaign extension, not an app-identity change: `DESIGN.md` remains governing.
 
-The default route, `/design/marketing-kit`, presents three still concepts:
+The earlier round presents three still concepts:
 
 - **C · Real life**: coffee, groceries and plans around Safe to Spend.
 - **D · Payday path**: actual upcoming payments from different banks gathered outside a forecast phone screen.
