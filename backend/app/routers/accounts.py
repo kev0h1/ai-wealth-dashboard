@@ -16,7 +16,6 @@ from app.db.collections import (
     excluded_accounts_col,
 )
 from app.services.truelayer_sync import sync_connection
-from app.services.yapily_sync import sync_yapily_consent
 from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
@@ -221,9 +220,6 @@ async def sync_all(user: dict = Depends(current_user)):
         ids, new_count = await sync_connection(conn["_id"], uid)
         total += len(ids)
         total_new_txns += new_count
-    yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
-    for yc in yapily_conns:
-        asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
     finexer_conns = await _finexer_consents_col.find({"user_id": uid, "status": "authorized"}).to_list(None)
     # The Finexer pulls run alongside the response, but the recompute below
@@ -290,9 +286,6 @@ async def sync_history(user: dict = Depends(current_user)):
         ids, new_count = await sync_connection(conn["_id"], uid, from_date=from_dt)
         total += len(ids)
         total_new_txns += new_count
-    yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
-    for yc in yapily_conns:
-        asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
     async def _post_sync(u, new_count: int):
         await apply_rules_bulk(u, structural=True)

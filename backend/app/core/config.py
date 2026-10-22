@@ -2,10 +2,11 @@
 import logging
 import os
 import secrets
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
-from itsdangerous import URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from py_vapid import Vapid
 from cryptography.hazmat.primitives.serialization import (
     Encoding, PublicFormat, PrivateFormat, NoEncryption,
@@ -354,7 +355,65 @@ else:
     SESSION_SECRET = secrets.token_hex(32)
     _secrets_file.write_text(SESSION_SECRET)
 
-serializer = URLSafeTimedSerializer(SESSION_SECRET)
+
+
+class RotatingSessionSerializer:
+    """Session token signer with a bounded dual-key window (A171).
+
+    Signs with the current key only, always. Verifies with the current key and,
+    only while today (UTC) is on or before `previous_until` (an ISO date, the
+    last day it is accepted), with `previous` as well. Past that date, or when
+    no valid date is configured, the previous key is ignored even if set, so a
+    forgotten SESSION_SECRET_PREVIOUS cannot keep a leaked key alive."""
+
+    def __init__(self, current: str, previous: str = "", previous_until: str = "", clock=None):
+        self._current = URLSafeTimedSerializer(current)
+        self._previous = URLSafeTimedSerializer(previous) if previous else None
+        self._until = None
+        if previous_until:
+            try:
+                self._until = date.fromisoformat(previous_until.strip())
+            except ValueError:
+                self._until = None
+        self._clock = clock or (lambda: datetime.now(timezone.utc))  # naive-ok: aware UTC key-expiry date, not user-facing
+        if self._until is not None:
+            # Clamp to today + SESSION_MAX_AGE: a previous key can never be
+            # trusted for longer than a session lives, whatever the variable says.
+            limit = self._clock().date() + timedelta(seconds=SESSION_MAX_AGE)
+            if self._until > limit:
+                logging.getLogger(__name__).warning(
+                    "SESSION_SECRET_PREVIOUS_UNTIL is more than %d days away; "
+                    "clamped to %s.", SESSION_MAX_AGE // 86400, limit.isoformat(),
+                )
+                self._until = limit
+
+    def previous_active(self) -> bool:
+        return (
+            self._previous is not None
+            and self._until is not None
+            and self._clock().date() <= self._until
+        )
+
+    def dumps(self, obj, *args, **kwargs):
+        return self._current.dumps(obj, *args, **kwargs)
+
+    def loads(self, token, *args, **kwargs):
+        try:
+            return self._current.loads(token, *args, **kwargs)
+        except SignatureExpired:
+            # The current key DID verify (token merely too old): never retry.
+            raise
+        except BadSignature:
+            if not self.previous_active():
+                raise
+            return self._previous.loads(token, *args, **kwargs)
+
+
+SESSION_SECRET_PREVIOUS = os.getenv("SESSION_SECRET_PREVIOUS", "")
+SESSION_SECRET_PREVIOUS_UNTIL = os.getenv("SESSION_SECRET_PREVIOUS_UNTIL", "")
+serializer = RotatingSessionSerializer(
+    SESSION_SECRET, SESSION_SECRET_PREVIOUS, SESSION_SECRET_PREVIOUS_UNTIL
+)
 
 # ── TrueLayer ─────────────────────────────────────────────────────────────────
 TRUELAYER_CLIENT_ID      = os.getenv("TRUELAYER_CLIENT_ID")
@@ -489,10 +548,9 @@ if FCM_SERVICE_ACCOUNT_JSON:
 
 FCM_CONFIGURED: bool = bool(FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_JSON and _FCM_SA_PARSEABLE)
 
-# ── Yapily ────────────────────────────────────────────────────────────────────
-YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")
-YAPILY_SECRET   = os.getenv("YAPILY_SECRET", "")
-YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
+# Yapily was removed by A171 (no YAPILY_* variable is read any more; the
+# yapily_* collections are kept as data only). MONO_* went with Kenya (A98) and
+# BOT_SECRET with A28: none of them is read anywhere.
 
 # ── Finexer ───────────────────────────────────────────────────────────────────
 FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
@@ -510,15 +568,32 @@ FINEXER_TEMPLATE_DARK   = os.getenv("FINEXER_TEMPLATE_DARK", "")
 # changes, so this is deliberately long.
 FINEXER_PROVIDERS_TTL_HOURS = int(os.getenv("FINEXER_PROVIDERS_TTL_HOURS", "24"))
 
-# URL secret embedded in the webhook path (same scheme as TRUELAYER_WEBHOOK_SECRET
-# above: env wins, else a persisted file, else generate one on first boot).
+# URL secret embedded in the webhook path. Env always wins. On UAT/local
+# (non-production APP_URL) it falls back to a persisted file, generated on first
+# boot, same as TRUELAYER_WEBHOOK_SECRET. In PRODUCTION (A171) there is no file
+# fallback and nothing is ever generated: Railway's filesystem does not persist,
+# so a generated secret would change every deploy and silently break the
+# registered webhook URL. With the variable unset in production the webhook
+# route is disabled (503) and the startup error below is logged; /ops/health
+# reports `path_secret_configured: false`.
 _finexer_webhook_secret_file = _BACKEND_DIR / ".finexer_webhook_secret"
+FINEXER_WEBHOOK_SECRET_SOURCE = "env"
 if _fws := os.getenv("FINEXER_WEBHOOK_SECRET"):
     FINEXER_WEBHOOK_SECRET = _fws
+elif not _is_non_production(APP_URL):
+    FINEXER_WEBHOOK_SECRET = ""
+    FINEXER_WEBHOOK_SECRET_SOURCE = "missing"
+    logging.getLogger(__name__).error(
+        "FINEXER_WEBHOOK_SECRET is not set in production: the Finexer webhook "
+        "route is disabled until it is. Set it on Railway (both services) and "
+        "register the matching URL in Finexer. See docs/ops/ENV.md."
+    )
 elif _finexer_webhook_secret_file.exists():
     FINEXER_WEBHOOK_SECRET = _finexer_webhook_secret_file.read_text().strip()
+    FINEXER_WEBHOOK_SECRET_SOURCE = "file"
 else:
     FINEXER_WEBHOOK_SECRET = secrets.token_urlsafe(32)
+    FINEXER_WEBHOOK_SECRET_SOURCE = "file"
     _finexer_webhook_secret_file.write_text(FINEXER_WEBHOOK_SECRET)
 
 # Signing secret Finexer issues after the webhook is registered in their
