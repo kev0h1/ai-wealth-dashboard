@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 
 from app.core.auth import current_user
+from app.services import runtime_settings
 from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
 from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
@@ -85,8 +86,14 @@ _TEMPLATE_RETRY_AFTER = 600.0  # seconds
 _template_check: dict = {"id": None, "ok": False, "at": 0.0, "warned": False}
 
 
+async def _template_setting() -> str:
+    """E10: the dark template id, database value first (owner-editable on
+    /ops/health), then the FINEXER_TEMPLATE_DARK env constant."""
+    return str(await runtime_settings.asetting("FINEXER_TEMPLATE_DARK", env=FINEXER_TEMPLATE_DARK) or "")
+
+
 async def _dark_template_id() -> Optional[str]:
-    tid = (FINEXER_TEMPLATE_DARK or "").strip()
+    tid = (await _template_setting()).strip()
     if not tid:
         return None
     if not (FINEXER_APP_ID and _TEMPLATE_ID_RE.match(tid)):
@@ -167,7 +174,7 @@ async def finexer_link(
     )
 
     consent_url = consent["redirect"]["consent_url"]
-    if FINEXER_TEMPLATE_DARK and await _user_prefers_dark(user["email"]):
+    if await _template_setting() and await _user_prefers_dark(user["email"]):
         dark_id = await _dark_template_id()
         if dark_id:
             consent_url = _with_template(consent_url, dark_id)

@@ -52,7 +52,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core import config
 from app.core.store_catalogue import StoreProduct, build_catalogue, product_ids_by_key
-from app.services import apple_jws, store_subscriptions as seam
+from app.services import apple_jws, runtime_settings, store_subscriptions as seam
 from app.services.apple_jws import AppleVerificationError
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,7 @@ async def handle_notification(signed_payload: str, *, now: datetime | None = Non
     {"ok": True, "idempotent": bool, "result": dict}. Every payload is
     verified BEFORE the ledger claim, so a forged one can never consume a
     notificationUUID."""
-    if not config.APPLE_IAP_ENABLED:
+    if not await runtime_settings.asetting("APPLE_IAP_ENABLED", env=config.APPLE_IAP_ENABLED):
         raise AppleNotConfigured("in-app purchase is not enabled")
     roots = _roots()
     now = now or datetime.now(timezone.utc)  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
@@ -397,7 +397,7 @@ async def verify_signed_transaction(uid: str, signed_transaction: str, *, now: d
     a restore on a device signed in as someone else cannot attach another
     account's purchase to this one. A completed purchase is granted even if a
     Stripe subscription is live (the money has been taken), and flagged."""
-    if not config.APPLE_IAP_ENABLED:
+    if not await runtime_settings.asetting("APPLE_IAP_ENABLED", env=config.APPLE_IAP_ENABLED):
         raise AppleNotConfigured("in-app purchase is not enabled")
     roots = _roots()
     now = now or datetime.now(timezone.utc)  # naive-ok: aware instant, persisted audit or compared with as_utc stamps

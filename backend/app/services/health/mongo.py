@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from app.services.health.base import Collector, env_float, level, naive_utc_now, result, worst
+from app.services import runtime_settings
+from app.services.health.base import Collector, level, naive_utc_now, result, worst
 
 SIZE_WARN, SIZE_CRIT = 0.75, 0.90
 SLOW_WARN, SLOW_CRIT = 20, 200
@@ -38,7 +39,7 @@ class MongoCollector(Collector):
             "objects": int(stats.get("objects") or 0),
         }
         status = "ok"
-        limit = env_float("MONGO_STORAGE_LIMIT_MB")
+        limit = await runtime_settings.asetting("MONGO_STORAGE_LIMIT_MB")   # E10: database, then env
         values["limit_mb"] = limit
         if limit and limit > 0:
             status = level(storage / MB / limit, SIZE_WARN, SIZE_CRIT)

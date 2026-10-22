@@ -17,6 +17,7 @@ from app.core.config import (
 from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
+    settings_audit_col,
     instrument_prices_col, investment_holdings_col, investment_valuations_col, tip_research_col,
     vendors_col, user_vendor_categories_col, vendor_claims_col,
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -430,6 +431,8 @@ async def _create_indexes():
     # G271: daily valuation snapshots, read per account in date order
     await _ensure_index(investment_valuations_col, [("account_id", 1), ("date", 1)], name="valuation_account_date")
     await _ensure_index(investment_valuations_col, "user_id", name="valuation_user_id")
+    # E10: runtime settings audit trail, read per key newest first.
+    await _ensure_index(settings_audit_col, [("key", 1), ("at", -1)], name="settings_audit_key_at")
     await _ensure_index(accounts_col, "connection_id")
     await _ensure_index(accounts_col, "user_id")
     await _ensure_index(connections_col, "user_id")
