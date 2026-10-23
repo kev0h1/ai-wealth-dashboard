@@ -63,6 +63,14 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
+    slug: "sorted-website",
+    name: "Sorted marketing website · C35",
+    description: "Three independent static homepages: A Product first, B Everyday money, C Clear perspective. Real app imagery, source-checked prices and disclosures, no forms or tracking. Open the full static page from the review gallery. Public pages and Vercel deployment follow the chosen direction and verified store links.",
+    variants: [{ label: "A · Product first", value: "a" }, { label: "B · Everyday money", value: "b" }, { label: "C · Clear perspective", value: "c" }],
+    states: [{ label: "Homepage", value: "home" }],
+    group: "current",
+  },
+  {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
     description: "C22 extension: six new story directions (Movement, Month, Spend, Split, Penny and Aside) with 24 new PNGs and 12 new edited 15-second MP4s, preserving the earlier 12 PNGs and 4 MP4s. Uses fully loaded production leaf components with fictional fixture data, sound and captions. Creative review only; UAT approval pending.",

@@ -166,7 +166,8 @@
     "check:onboarding-gate": "node --no-warnings --experimental-strip-types scripts/onboarding-gate.test.mjs",
     "check:privacy-cover": "node --no-warnings --experimental-strip-types scripts/privacy-cover.test.mjs",
     "reel:render": "remotion render remotion/index.ts SortedReel out/sorted-reel.mp4 --codec=h264 --concurrency=2",
-    "reel:studio": "remotion studio remotion/index.ts"
+    "reel:studio": "remotion studio remotion/index.ts",
+    "check:c35-marketing-sources": "python3 ../website/scripts/check-sources.py && node ../website/scripts/check-preview.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
