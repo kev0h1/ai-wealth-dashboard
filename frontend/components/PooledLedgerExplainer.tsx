@@ -11,7 +11,7 @@ import MoneyText from "@/components/MoneyText";
 export const ENVELOPE_EDIT_HREF = "/upcoming#pay-period-plans";
 export const PLAN_EDIT_HREF = "/planning#commitments";
 
-export const POOLED_SENTENCE = "This figure is shared by all your accounts. Spend it from one of them, not from each.";
+export const POOLED_SENTENCE = "This figure is shared by all your accounts. It is not a separate amount for each one.";
 export const POOLED_PROJECTION_SENTENCE = "This is the total across all your accounts together, not a figure for each one.";
 
 export type LedgerReservation = { amount: number; count?: number };
@@ -44,15 +44,15 @@ export default function PooledLedgerExplainer({
       {showEnvelope && (
         <p data-g304-envelope>
           <MoneyText text={`${many(envelope) ? "Your envelopes hold" : "Your envelope holds"} back ${format(envelope!.amount)} until payday.`} />{" "}
-          <Link href={ENVELOPE_EDIT_HREF} className={linkClass}>{many(envelope) ? "Edit them" : "Edit it"}</Link>
-          {` on Upcoming if you need some of that now.`}
+          <Link href={ENVELOPE_EDIT_HREF} className={linkClass}>{many(envelope) ? "You can edit them" : "You can edit it"}</Link>
+          {` on Upcoming.`}
         </p>
       )}
       {showPlan && (
         <p data-g304-plan>
           <MoneyText text={`${many(plan) ? "Your plans hold" : "Your plan holds"} back ${format(plan!.amount)}.`} />{" "}
-          <Link href={PLAN_EDIT_HREF} className={linkClass}>{many(plan) ? "Edit them" : "Edit it"}</Link>
-          {` on Planning if ${many(plan) ? "they" : "it"} can wait.`}
+          <Link href={PLAN_EDIT_HREF} className={linkClass}>{many(plan) ? "You can edit them" : "You can edit it"}</Link>
+          {` on Planning.`}
         </p>
       )}
     </div>

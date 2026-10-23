@@ -54,9 +54,9 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         iconName: "Wallet",
         color: "#4f46e5",
         bg: "#ede9fe",
-        title: "What is safe to spend",
+        title: "What is left to spend",
         description:
-          "Home leads with one number: what is genuinely yours to spend, after the bills still to leave and what is sitting on your cards.",
+          "Home leads with one estimate: what is left after the bills Sorted knows about, your plans and your buffer.",
       },
       {
         id: "home-connect",

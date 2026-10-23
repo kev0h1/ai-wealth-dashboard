@@ -1,6 +1,6 @@
 "use client";
 
-// G231: the account sheet's "Count towards Safe to Spend" row. A switch (default
+// G231: the account sheet's "Count towards Left to spend" row. A switch (default
 // on), one helper line, and, when the server refuses because the account pays
 // something this pay period, the reason inline under the helper. Presentational
 // only: the page owns the request, so /design previews can render it with
@@ -8,7 +8,7 @@
 
 import Toggle from "@/components/Toggle";
 
-export const COUNT_TOWARDS_LABEL = "Count towards Safe to Spend";
+export const COUNT_TOWARDS_LABEL = "Count towards Left to spend";
 export const COUNT_TOWARDS_HELPER = "Turn off for accounts you do not spend from, like a joint bills account.";
 
 export interface CountTowardsSafeToSpendRowProps {

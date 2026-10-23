@@ -83,7 +83,7 @@ The disclaimer in Section 6 (information, not financial advice) applies equally 
 
 Sorted provides **information and general guidance only**. It does **not** provide regulated financial advice, investment advice, tax advice, or debt counselling, and nothing in the app should be treated as a personal recommendation.
 
-Figures shown in the app (including forecasts, "safe to spend" amounts, budget projections, and any other calculated figures) are **estimates** based on the transaction data available to us at the time. This data may be incomplete, delayed, or inaccurate (for example, due to a delay in your bank reporting a transaction, or a gap in your connected accounts), and these estimates may therefore be wrong.
+Figures shown in the app (including forecasts, "left to spend" amounts, budget projections, and any other calculated figures) are **estimates** based on the transaction data available to us at the time. This data may be incomplete, delayed, or inaccurate (for example, due to a delay in your bank reporting a transaction, or a gap in your connected accounts), and these estimates may therefore be wrong.
 
 Categorisation of your transactions is partly automated, including through the use of AI-based tools, and may be incorrect. You can review and correct categorisation within the app.
 

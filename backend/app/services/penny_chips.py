@@ -247,19 +247,33 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     days_text = _plural(days, "day") if isinstance(days, int) else "some days"
     when = f", with {days_text} to payday" + (f" on {payday_label}" if payday_label else "") if days is not None else ""
 
-    # Wording matches the Home Safe-to-Spend card's own framing exactly
+    # Wording matches the Home left-to-spend card's own framing exactly
     # (SafeToSpendCard.tsx): a genuine shortfall is never phrased as a
-    # negative "safe to spend" figure, it is "short of covering this pay
+    # negative "left to spend" figure, it is "short of covering this pay
     # period" against the positive gap amount — the card itself relabels
-    # this figure "Final safety position", never "Safe to spend", for the
+    # this figure "Final safety position", never "Left to spend", for the
     # same reason.
     #
-    # Safe to Spend is cash-led. Card balance growth is a separate fact, and
+    # G322 (G321 option B): the figure is called "left to spend", always an
+    # estimate, and the counts caveat rides with it.
+    #
+    # Left to spend is cash-led. Card balance growth is a separate fact, and
     # only an unconfirmed repayment can create the fallback short state.
+    until = f" until payday on {payday_label}" if payday_label else " until payday"
+    to_go = f", with {days_text} to go" if days is not None else ""
+    counts_caveat = (
+        "It does not count unconnected accounts, pending payments or bills I have not spotted."
+    )
     if state == "comfortable":
-        sentence1 = f"You're on track: about {_fmt_gbp(free_amount)} safe to spend{when}."
+        sentence1 = (
+            f"It looks on track: you have an estimated {_fmt_gbp(free_amount)} left to spend{until}{to_go}. "
+            + counts_caveat
+        )
     elif state == "tight":
-        sentence1 = f"You're tight: about {_fmt_gbp(free_amount)} safe to spend{when}."
+        sentence1 = (
+            f"It looks tight: you have an estimated {_fmt_gbp(free_amount)} left to spend{until}{to_go}. "
+            + counts_caveat
+        )
     elif is_cards_unconfirmed:
         sentence1 = f"Bills are covered, but a card repayment still needs confirming{when}."
     else:

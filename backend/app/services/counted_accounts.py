@@ -145,7 +145,7 @@ async def set_included(uid: str, account_id: str, include: bool) -> dict:
     if not include:
         from app.services.account_kinds import is_credit_card_account
         if is_credit_card_account(doc) or doc.get("account_type") == "credit_card":
-            raise HTTPException(422, "Cards do not count towards Safe to Spend.")
+            raise HTTPException(422, "Cards do not count towards Left to spend.")
         n = await items_paid_from(uid, account_id)
         if n:
             noun = "item" if n == 1 else "items"
