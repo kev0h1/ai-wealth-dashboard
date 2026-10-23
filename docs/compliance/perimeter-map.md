@@ -181,12 +181,13 @@ Status: DRAFT fact map for a qualified reviewer (board item A165, feeds A166). W
 - Safeguards: BEHAVIOURS.md named rules (lines 98-110): Consent Rule (no coaching on a trait not marked "change"), Redirect Rule, Verified Checkpoint Rule, One Paradox Rule, Facts/Voice Split, "The Mirror Is Not A Score"; keep-choice honoured (MirrorPage.tsx:42); paradox needs the "change" consent flag (PaySplitBeyond.tsx:78); an aim "is a pace check, not a budget: it never blocks and never judges" (`checkpoints.py:69-72`); traits suppressed when data is thin (BEHAVIOURS.md:144); doc-versus-code note: BEHAVIOURS.md:45 says "AI narrates the portrait from computed facts", but the narrative in code is a fixed template string (`behaviour.py:263`, `:295`) and no model call was found in `behaviour.py` or `routers/behaviour.py`. `ChallengesPanel.tsx` (weekly "cut back" challenges, `backend/app/routers/challenges.py:18`) is defined but not imported anywhere in production code (grep), so its wording is not reachable by users from the frontend; the API routes are still mounted (`backend/app/main.py:48,98`).
 - Open questions: the Mirror portrait can display a gambling evidence line (behaviour.py:485); see DPIA section on sensitive inferences. Hygiene wording "without judgement" sits beside a count of gambling transactions.
 
-### 12. Safe to Spend (verdict and calculation)
+### 12. Left to spend (formerly Safe to Spend; verdict and calculation)
 
 - Surface and route: Home hero `frontend/components/SafeToSpendCard.tsx`, backend `backend/app/routers/analytics.py` (state "comfortable", "tight" or "short", analytics.py:5274-5276 region).
 - Wording samples:
-  - `SafeToSpendCard.tsx:822`: "An estimate from your bank data, not financial advice." (element `data-sts-disclaimer`).
-  - `SafeToSpendCard.tsx:632-639` captions: "available in cash until {payday}", "short before payday", "short after plans and envelopes", "last known cash figure until {payday}".
+  - `SafeToSpendCard.tsx` (`data-sts-disclaimer`): "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice." Renamed from "Safe to Spend" by G322 (G321 option B, Kevin 2026-10-23): label "Estimated left to spend", status word "Looks on track".
+  - `SafeToSpendCard.tsx` (`data-sts-counts`, always visible under the hero): "Counts the current accounts you have connected and the bills Sorted has learned. Does not count other accounts, pending payments or bills it has not spotted."
+  - `SafeToSpendCard.tsx` captions: "Estimated cash left until {payday}", "short before payday", "short after plans and envelopes", "last known cash figure until {payday}".
   - `SafeToSpendCard.tsx:463`: "Purchases only. Balance transfers and repayments are not counted here."
   - `SafeToSpendCard.tsx:676-677`: "How we got {amount}" and "How we got {amount} short".
 - What it does: informs (a cash figure with a status word); fails closed to at most zero when a reserve lookup fails (CLAUDE.md surface map, `analytics.py`). Executes nothing.
