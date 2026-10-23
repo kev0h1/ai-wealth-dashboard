@@ -36,7 +36,7 @@
 // stale/malformed payload either).
 
 import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, spendFromCombinedLine, spendFromCombinedParts, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
-import { hasFundedCoverMove } from "../lib/companionItems";
+import { hasFundedCoverMove, visibleCoverMoveReserves } from "../lib/companionItems";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -304,6 +304,18 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   const eligibility = { hsbc: { short: false, headroom: 38 } };
   const result = bestSpendAccount(eligibility, accounts);
   check("G114: a pre-G114 payload with no spend_from_headroom field falls back to headroom", result.best?.headroom, 38);
+}
+
+// G320 B: disclosure of visible funded sources, never a second deduction.
+{
+  const leg = (id, amount) => ({ amount, move_map: { from: { account_id: id } } });
+  const funded = { id: "move:funded", type: "move", moves: [leg("natwest", 25), leg("natwest", 15), leg("hsbc", 9)] };
+  const invalid = { id: "move:invalid", type: "move", moves: [leg("natwest", -20), leg("natwest", NaN), leg("natwest", Infinity), { amount: 20, move_map: {} }] };
+  check("G320: split legs stay attached to their source accounts", visibleCoverMoveReserves([funded]), { natwest: 40, hsbc: 9 });
+  check("G320: malformed or non-positive legs do not invent reserves", visibleCoverMoveReserves([invalid]), {});
+  check("G320: non-move and no-source cards disclose no reserve", visibleCoverMoveReserves([{ ...funded, type: "unfunded_move" }, { type: "move" }]), {});
+  check("G320: hiding the funded card removes source reserve disclosures", visibleCoverMoveReserves([funded].filter(item => item.id !== funded.id)), {});
+  check("G320: updated legs replace rather than accumulate the old reserve", visibleCoverMoveReserves([{ ...funded, moves: [leg("hsbc", 11)] }]), { hsbc: 11 });
 }
 
 // G115: the reconciliation line says a visible move is already held back

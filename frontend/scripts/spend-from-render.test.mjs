@@ -54,10 +54,11 @@
 // something is EMITTED, not proof that it is SEEN.
 
 import React from "react";
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { bestSpendAccount, spendFromTreatmentPlan } from "../lib/spendFromAccount.ts";
 import { approvedSpendFromTreatment } from "../components/SafeToSpendCard.tsx";
+import SpendFromAccountList from "../components/SpendFromAccountList.tsx";
+import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
 
 let failures = 0;
 
@@ -156,23 +157,17 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("the no-room line does carry its amber dot", renderTreatment(PLANS["no-current"]).markup.includes("amber"));
 }
 
-// ── The healthy states still render their real content ─────────────────────
+// ── The healthy states use the approved B account list ─────────────────────
 {
   const rail = renderTreatment(PLANS["bank-rail"]).markup;
-  check("the bank rail renders its 'Held in' label", rail.includes("Held in"));
-  check("the bank rail renders both account amounts", rail.includes("£75") && rail.includes("£70"));
-  // G171 re-review: `display: contents` on a real `ul`/`li` is a repeatedly
-  // regressed WebKit bug class (including the Capacitor WebView) that can
-  // drop the element from the accessibility tree, taking the `ul`'s
-  // `aria-label` and the `li`'s list-item semantics with it. The rail must
-  // keep real list markup (CSS subgrid instead of `contents`), so assert
-  // the `aria-label` survives on a genuine `<ul` and no `<li` carries the
-  // `contents` class.
-  check("the bank rail's <ul> keeps a real aria-label (not dropped by display:contents)", /<ul[^>]*\baria-label="Accounts holding part of this estimate"/.test(rail));
+  check("the account list renders its 'Held in' label", rail.includes("Held in"));
+  check("the account list replaces the obsolete footnote with its approved scope caption", rail.includes("One estimate across these accounts.") && !rail.includes("Each figure is how much of your estimate"));
+  check("the account list identifies its approved layout", rail.includes('data-spend-from-layout="account-list"'));
+  check("the account list has a semantic list", /<ul[^>]*\baria-label="Accounts holding part of this estimate"/.test(rail));
   const railLiTags = rail.match(/<li\b[^>]*>/g) ?? [];
-  check("the bank rail renders real <li> rows, none carrying the display:contents class", railLiTags.length > 0 && railLiTags.every((tag) => !/\bclass="[^"]*\bcontents\b[^"]*"/.test(tag)));
+  check("the account list renders real list rows, never display:contents", railLiTags.length === 2 && railLiTags.every((tag) => !/\bclass="[^"]*\bcontents\b[^"]*"/.test(tag)));
   const rows = renderTreatment(PLANS["name-fallback"]).markup;
-  check("the named-rows fallback renders both account names", rows.includes("Everyday") && rows.includes("Flex current"));
+  check("the no-logo treatment uses the same account-list layout", rows.includes('data-g115-treatment="name-fallback"') && rows.includes('data-spend-from-layout="account-list"'));
 }
 
 // ── G234: a capped figure renders, and the rail never exceeds the hero ────
@@ -185,82 +180,56 @@ for (const [kind, plan] of Object.entries(PLANS)) {
       check(`G234: '${kind}' rail entry ${entry.name} does not exceed the hero figure`, kind === "capped" ? entry.headroom <= HERO : true);
     }
   }
-  const footnote = renderTreatment(PLANS["bank-rail"]).markup;
-  check("G234: the footnote no longer calls the figure separate from Safe to Spend", !footnote.includes("not your full Safe to Spend"));
-  check("G234: the footnote ties the figure to the estimate", footnote.includes("never more than the estimate"));
+  check("G234: a lower account amount is marked as a limit", capped.includes('data-spend-from-limit'));
 }
 
-// ── G300 + G303: a binding pool renders ONE combined line, bank names, no column ──
+// ── G320 B: account limits share one total, with named account identity ───
 {
-  const E = (v) => ({ short: false, headroom: v, spend_from_headroom: v, spend_from_capped: true });
-  const ACCTS = [
-    account({ id: "barclays", name: "Premier Current Account", provider: "Barclays", provider_id: "barclays_personal" }),
-    account({ id: "hsbc", name: "MAINGI K M", provider: "HSBC", provider_id: "hsbc_personal" }),
+  const entries = [
+    { accountId: "b1", name: "PREMIER CURRENT ACCOUNT", headroom: 120, capped: true, provider: "Barclays", account: account({ id: "b1", name: "PREMIER CURRENT ACCOUNT", provider: "Barclays", provider_id: "barclays_personal" }) },
+    { accountId: "b2", name: "MAINGI K M", headroom: 30, capped: false, provider: "Barclays", account: account({ id: "b2", name: "MAINGI K M", provider: "Barclays", provider_id: "barclays_personal" }) },
   ];
-  const combinedPlan = (markBank, elig = { barclays: E(9), hsbc: E(9) }, accts = ACCTS) =>
-    spendFromTreatmentPlan(bestSpendAccount(elig, accts), () => markBank, 9);
-  const textOf = (markup) => markup.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-  for (const [label, markBank] of [["bank rail", true], ["name fallback", false]]) {
-    const plan = combinedPlan(markBank);
-    check(`G303: ${label} plan is combined`, plan.combined === true);
-    const t = approvedSpendFromTreatment(plan, amount, false, noop, noop);
-    check(`G303: ${label} has no hero aside (no right-hand column)`, t.heroAside == null);
-    const markup = renderToStaticMarkup(React.createElement(React.Fragment, null, t.body));
-    check(`G303: ${label} has no amountless icon column`, !markup.includes('data-g115-treatment="bank-rail"'));
-    check(`G303: ${label} has no "Held in" label`, !markup.includes("Held in</p>") && !/>Held in</.test(markup));
-    check(`G303: ${label} is one line reading with bank names`, textOf(markup) === "Up to £9 of this is in Barclays or HSBC.");
-    check(`G303: ${label} names no holder or product`, !/maingi/i.test(markup) && !markup.includes("Premier Current Account"));
-    check(`G303: ${label} shows the figure once`, (markup.match(/£9/g) ?? []).length === 1);
-    check(`G303: ${label} drops the per-account footnote`, !markup.includes("Each figure is how much of your estimate sits in that account"));
-    check(`G303: ${label} uses the agreed combined text style`, /text-\[12px\][^"]*font-semibold/.test(markup) && markup.includes("dark:text-slate-200"));
-    check(`G303: exactly one paragraph`, (markup.match(/<p /g) ?? []).length === 1);
-    const badges = (markup.match(/<img /g) ?? []).length;
-    check(`G303: ${label} badges inline before each name only when marks exist`, markBank ? badges === 2 : true);
-  }
-  // Bank without a bundled mark falls back to its name alone.
-  const unmarked = renderToStaticMarkup(React.createElement(React.Fragment, null,
-    approvedSpendFromTreatment(combinedPlan(false, { barclays: E(9), x: E(9) }, [
-      ACCTS[0], account({ id: "x", name: "Everyday", provider: "Zzyzx Bank", provider_id: "zzyzx" }),
-    ]), amount, false, noop, noop).body));
-  check("G303: a bank with no mark falls back to its name alone", !unmarked.includes("/banks/zzyzx") && textOf(unmarked).startsWith("Up to £9 of this is in Barclays or"), textOf(unmarked));
-  // Cover move clause.
-  for (const markBank of [true, false]) {
-    const withMove = renderToStaticMarkup(React.createElement(React.Fragment, null,
-      approvedSpendFromTreatment(combinedPlan(markBank), amount, true, noop, noop).body));
-    check(`G303: cover-move clause is appended (${markBank ? "rail" : "names"})`,
-      textOf(withMove) === "Up to £9 of this is in Barclays or HSBC. The move above is already held back.");
-  }
-  // Same bank twice reads "from Barclays" once.
-  const same = [
-    account({ id: "b1", name: "Premier Current Account", provider: "Barclays", provider_id: "barclays_personal" }),
-    account({ id: "b2", name: "MAINGI K M", provider: "Barclays", provider_id: "barclays_personal" }),
-  ];
-  const sameMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null,
-    approvedSpendFromTreatment(combinedPlan(true, { b1: E(9), b2: E(9) }, same), amount, false, noop, noop).body));
-  check("G303: same bank twice reads from Barclays once", textOf(sameMarkup) === "Up to £9 of this is in Barclays.", textOf(sameMarkup));
-  check("G303: same bank twice shows one badge", (sameMarkup.match(/<img /g) ?? []).length === 1);
-  const unknown = spendFromTreatmentPlan(bestSpendAccount({ barclays: E(9), hsbc: E(9) }, ACCTS), () => true);
-  check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is how much of your estimate sits in that account"));
-}
+  const renderList = (props = {}) => renderToStaticMarkup(React.createElement(SpendFromAccountList, {
+    entries, pool: 120, amount, coverMoveVisible: false, onLogoError: noop, kind: "bank-rail", ...props,
+  }));
+  const textOf = (html) => html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const markup = renderList();
+  check("G320: pool-sized account figure is not repeated", !markup.includes("£120 held"));
+  check("G320: lower account limit remains visible", markup.includes("£30") && markup.includes('data-spend-from-limit'));
+  check("G320: lower limits explicitly share the one total", markup.includes("Account limits share the total above."));
+  check("G320: duplicate bank accounts show their display names", markup.includes("Premier Current Account") && markup.includes("Maingi K M"));
+  check("G320: rows are semantic list items with account markers", (markup.match(/data-spend-from-account=/g) ?? []).length === 2 && (markup.match(/<li /g) ?? []).length === 2);
 
-// ── G303: the per-account case is byte-identical to main ───────────────────
-{
-  const baseline = JSON.parse(readFileSync(new URL("./fixtures/g303-per-account-baseline.json", import.meta.url), "utf8"));
-  for (const [k, mark] of [["rail", true], ["names", false]]) {
-    for (const cm of [false, true]) {
-      const plan = spendFromTreatmentPlan(
-        bestSpendAccount({ monzo: { short: false, headroom: 40, spend_from_headroom: 40 }, chase: { short: false, headroom: 30, spend_from_headroom: 30 } }, ACCOUNTS),
-        () => mark, 120,
-      );
-      const t = approvedSpendFromTreatment(plan, amount, cm, noop, noop);
-      const markup = renderToStaticMarkup(React.createElement(React.Fragment, null, t.heroAside ?? null, t.body));
-      check(`G303: per-account ${k} (cover move ${cm}) unchanged from main`, markup === baseline[`${k}-${cm}`]);
-    }
-  }
-  const railMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null, approvedSpendFromTreatment(
+  const unknownPool = renderList({ pool: null });
+  check("G320: an unknown pool keeps an account figure", unknownPool.includes("£120") && unknownPool.includes("£30"));
+
+  const noLogo = renderToStaticMarkup(React.createElement(SpendFromAccountList, {
+    entries: [{ accountId: "unknown", name: "Everyday", headroom: 15, capped: false, provider: "Zzyzx Bank", account: account({ id: "unknown", provider: "Zzyzx Bank", provider_id: "zzyzx" }) }],
+    pool: 20, amount, coverMoveVisible: false, onLogoError: noop, kind: "name-fallback",
+  }));
+  check("G320: unknown banks use the existing badge fallback", noLogo.includes("Zzyzx Bank") && !noLogo.includes("/banks/zzyzx"));
+
+  const withReserve = renderList({ coverMoveVisible: true, reserveByAccount: { b2: 12 } });
+  check("G320: a visible move names its source reserve", textOf(withReserve).includes("£12 held back for the move") && !withReserve.includes("The move above is already held back."));
+  check("G320: reserve metadata does not deduct from the account limit", textOf(withReserve).includes("£30 held") && (withReserve.match(/held back for the move/g) ?? []).length === 1);
+  const withoutReserve = renderList({ coverMoveVisible: true });
+  check("G320: a visible move without source metadata keeps the neutral reconciliation", withoutReserve.includes("The move above is already held back."));
+  check("G320: no move renders neither reserve note", !markup.includes("held back for the move") && !markup.includes("The move above is already held back."));
+  check("G320: hiding a move suppresses stale reserve metadata", !renderList({ coverMoveVisible: false, reserveByAccount: { b2: 12 } }).includes("held back for the move"));
+
+  const masked = renderToStaticMarkup(React.createElement(BalancesHiddenContext.Provider, { value: true }, React.createElement(SpendFromAccountList, {
+    entries, pool: 120, amount, coverMoveVisible: true, reserveByAccount: { b2: 12 }, onLogoError: noop, kind: "bank-rail",
+  })));
+  check("G320: hidden amounts are masked in the DOM", !masked.includes("£30") && !masked.includes("£12") && masked.includes("£••••"));
+  check("G320: hidden amounts are not exposed through ARIA", !masked.includes("aria-label=\"£") && masked.includes('aria-label="Amount hidden"'));
+
+  const treatment = approvedSpendFromTreatment(
     spendFromTreatmentPlan(bestSpendAccount({ monzo: { short: false, headroom: 40 }, chase: { short: false, headroom: 30 } }, ACCOUNTS), () => true, 120),
-    amount, false, noop, noop).heroAside));
-  check("G303: per-account keeps the HELD IN column", railMarkup.includes('data-g115-treatment="bank-rail"') && railMarkup.includes(">Held in<"));
+    amount, true, noop, noop, { chase: 12 },
+  );
+  const treatmentMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null, treatment?.heroAside ?? null, treatment?.body ?? null));
+  check("G320: healthy treatment returns the list as its body, not a hero aside", treatment?.heroAside == null && treatmentMarkup.includes('data-spend-from-layout="account-list"'));
+  check("G320: the renderer forwards reserve metadata after onRetry", textOf(treatmentMarkup).includes("£12 held back for the move"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

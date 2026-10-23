@@ -13,6 +13,22 @@ export function hasFundedCoverMove(items: CompanionItem[]): boolean {
   return items.some((item) => item.type === "move" && (item.moves?.length ?? 0) > 0);
 }
 
+/** G320: disclosure of visible funded legs, never another cash deduction. */
+export function visibleCoverMoveReserves(items: CompanionItem[]): Record<string, number> {
+  const reserves = new Map<string, number>();
+  for (const item of items) {
+    if (item.type !== "move") continue;
+    for (const move of item.moves ?? []) {
+      const source = move.move_map?.from?.account_id;
+      const amount = move.amount;
+      if (source && typeof amount === "number" && Number.isFinite(amount) && amount > 0) {
+        reserves.set(source, (reserves.get(source) ?? 0) + amount);
+      }
+    }
+  }
+  return Object.fromEntries(reserves);
+}
+
 /**
  * Actionable vs informational classification for every CompanionItem the
  * companion spine (backend/app/services/companion.py) emits. Shared by

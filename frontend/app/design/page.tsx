@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "spend-from-line",
-    name: "Cash and cards · taste round · G320",
-    description: "Taste-led round three changes the full instrument: G pairs cash and a smaller card readout, H uses a compact statement with card details on tap, I separates cash and card activity into sibling surfaces. Approved estimate/counts/disclaimer, lower non-additive account limits, visible reserve warnings, signs, calculations, masking and routes retained. Fixed purchase, repayment, reserve, payment-risk, move and large-figure cases; A-F and current retained for comparison. No production component change.",
-    variants: [{ label: "G · Cash and cards", value: "g" }, { label: "H · Compact statement", value: "h" }, { label: "I · Separate instruments", value: "i" }, { label: "D · Named rail", value: "d" }, { label: "E · Bank columns", value: "e" }, { label: "F · Lead account", value: "f" }, { label: "A · Bank row", value: "a" }, { label: "B · Account list", value: "b" }, { label: "C · Folded accounts", value: "c" }],
-    states: [{ label: "Card purchases", value: "cards-purchases" }, { label: "Confirmed card bill", value: "cards-monthly" }, { label: "Unconfirmed card bill", value: "cards-reserve" }, { label: "Payments genuinely short", value: "payments-short" }, { label: "Cards and pending move", value: "cards-move" }, { label: "Cards and three accounts", value: "cards-shared" }, { label: "Larger cash figure", value: "cards-large" }, { label: "No card activity", value: "cards-none" }, { label: "One account", value: "one" }, { label: "Two accounts", value: "shared-two" }, { label: "Three accounts", value: "shared-three" }, { label: "Different limits", value: "different" }, { label: "One lower limit", value: "mixed" }, { label: "Overlapping limits", value: "overlap" }, { label: "Move held back", value: "move" }, { label: "Same bank", value: "same-bank" }, { label: "No bank logo", value: "unknown" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
