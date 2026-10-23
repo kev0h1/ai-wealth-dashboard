@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "left-to-spend-declutter",
+    name: "Left to spend · less to read · G324",
+    description: "A keeps the full approved scope visible, B keeps its first sentence visible, C puts all counts and accuracy detail on tap. One clear verdict and next action, with account ceilings, named moves, labelled expected pay and separate card facts one tap away. Fixed fixtures; no production change. Disclosure prominence is a review choice, not legal approval.",
+    variants: [{ label: "A · Visible scope", value: "a" }, { label: "B · Short scope", value: "b" }, { label: "C · Verdict first", value: "c" }],
+    states: [{ label: "Tight with a move", value: "tight" }, { label: "Looks on track", value: "comfortable" }, { label: "Payments short", value: "payments-short" }, { label: "Plans gap", value: "plans-only" }, { label: "Card purchases", value: "card-purchases" }, { label: "Confirmed card bill", value: "card-monthly" }, { label: "Unconfirmed card bill", value: "card-reserve" }, { label: "No account headroom", value: "no-account" }, { label: "Loading", value: "loading" }, { label: "First sync", value: "cold-sync" }, { label: "Updating saved figure", value: "warm-sync" }, { label: "Incomplete calculation", value: "degraded" }, { label: "Request failed", value: "error" }, { label: "No supported forecast", value: "unsupported" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:

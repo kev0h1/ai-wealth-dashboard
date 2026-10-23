@@ -1,0 +1,5 @@
+/* The design-route shell hides navigation asides, including this real
+   financial fact in the unchanged warm-sync baseline. Keep its pixels. */
+.preview :global(aside[aria-label="Card balance activity"]) {
+  display: block !important;
+}
