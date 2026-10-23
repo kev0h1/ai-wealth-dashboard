@@ -88,7 +88,7 @@ try {
   assert.ok(controlLinks.every(href => href?.includes("variant=") && href.includes("scenario=") && href.includes("mode=") && href.includes("hide=")), "preview links retain the full query state");
   await b.evaluate("document.querySelector('nav[aria-label=\"Design preview controls\"] a').focus()");
   await b.key("Enter", "Enter", 13);
-  await b.waitFor(`new URLSearchParams(location.search).get('variant')==='d' && ${body}?.dataset.g320SpendFrom==='d'`);
+  await b.waitFor(`new URLSearchParams(location.search).get('variant')==='g' && document.querySelector('[data-g320-taste]')?.dataset.g320Taste==='g'`);
   await b.evaluate("history.back()");
   await b.waitFor(`new URLSearchParams(location.search).get('variant')==='b' && ${body}?.dataset.g320SpendFrom==='b'`);
   assert.equal(await b.evaluate("new URLSearchParams(location.search).get('hide')"), "1");
