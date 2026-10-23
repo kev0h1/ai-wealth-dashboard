@@ -60,7 +60,7 @@ const comfortableSts = {
 
 {
   const headline = deriveSafeToSpendHeadline(comfortableSts);
-  check("comfortable state maps to On track", headline.stateLabel, "On track");
+  check("comfortable state maps to Looks on track", headline.stateLabel, "Looks on track");
   // zeroSafe only snaps a NEAR-ZERO value to 0 (< £1) — 83.4 is untouched,
   // the rounding to a whole £ happens only in the DISPLAY formatter
   // (fmt/fmtGbp), checked separately just below via the published view.
@@ -72,7 +72,7 @@ const comfortableSts = {
   // though the underlying raw number carries decimals.
   check("published figure matches the rendered, rounded £ string", view.figures[0].value, "£83");
   check("published verdict matches rendered stateLabel exactly", view.verdict, headline.stateLabel);
-  check("published label is 'Safe to spend' when not short", view.figures[0].label, "Safe to spend");
+  check("published label is 'Estimated left to spend' when not short", view.figures[0].label, "Estimated left to spend");
   check("asOf uses the payload's own last_synced, not 'now'", view.asOf, "2026-09-14T08:00:00.000Z");
 }
 
@@ -83,7 +83,7 @@ const comfortableSts = {
 {
   const view = buildSafeToSpendView(comfortableSts, { hidden: true });
   check("hidden balances publish zero figures", view.figures, []);
-  check("hidden balances still publish the verdict word", view.verdict, "On track");
+  check("hidden balances still publish the verdict word", view.verdict, "Looks on track");
 }
 
 // Short (genuine shortfall, not the cards-unconfirmed carve-out): label
@@ -109,7 +109,7 @@ const shortSts = {
 
 // cards_unconfirmed short carve-out — never treated as a genuine shortfall
 // for the figure/label (SafeToSpendCard.tsx's own isCardsUnconfirmedShort
-// branch keeps the ordinary "Safe to spend" framing at £0, not a red
+// branch keeps the ordinary "Estimated left to spend" framing at £0, not a red
 // "short" figure — a repayment that hasn't been matched yet is not the
 // same as the user actually running out of cash).
 const cardsUnconfirmedSts = {

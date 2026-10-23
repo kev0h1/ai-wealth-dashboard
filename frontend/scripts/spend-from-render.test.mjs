@@ -159,7 +159,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
 // ── The healthy states still render their real content ─────────────────────
 {
   const rail = renderTreatment(PLANS["bank-rail"]).markup;
-  check("the bank rail renders its 'Spend from' label", rail.includes("Spend from"));
+  check("the bank rail renders its 'Held in' label", rail.includes("Held in"));
   check("the bank rail renders both account amounts", rail.includes("£75") && rail.includes("£70"));
   // G171 re-review: `display: contents` on a real `ul`/`li` is a repeatedly
   // regressed WebKit bug class (including the Capacitor WebView) that can
@@ -168,7 +168,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   // keep real list markup (CSS subgrid instead of `contents`), so assert
   // the `aria-label` survives on a genuine `<ul` and no `<li` carries the
   // `contents` class.
-  check("the bank rail's <ul> keeps a real aria-label (not dropped by display:contents)", /<ul[^>]*\baria-label="Accounts with room to spend from"/.test(rail));
+  check("the bank rail's <ul> keeps a real aria-label (not dropped by display:contents)", /<ul[^>]*\baria-label="Accounts holding part of this estimate"/.test(rail));
   const railLiTags = rail.match(/<li\b[^>]*>/g) ?? [];
   check("the bank rail renders real <li> rows, none carrying the display:contents class", railLiTags.length > 0 && railLiTags.every((tag) => !/\bclass="[^"]*\bcontents\b[^"]*"/.test(tag)));
   const rows = renderTreatment(PLANS["name-fallback"]).markup;
@@ -187,7 +187,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   }
   const footnote = renderTreatment(PLANS["bank-rail"]).markup;
   check("G234: the footnote no longer calls the figure separate from Safe to Spend", !footnote.includes("not your full Safe to Spend"));
-  check("G234: the footnote ties the figure to Safe to Spend", footnote.includes("never more than your Safe to Spend"));
+  check("G234: the footnote ties the figure to the estimated left to spend", footnote.includes("never more than your estimated left to spend"));
 }
 
 // ── G300 + G303: a binding pool renders ONE combined line, bank names, no column ──
@@ -207,8 +207,8 @@ for (const [kind, plan] of Object.entries(PLANS)) {
     check(`G303: ${label} has no hero aside (no right-hand column)`, t.heroAside == null);
     const markup = renderToStaticMarkup(React.createElement(React.Fragment, null, t.body));
     check(`G303: ${label} has no amountless icon column`, !markup.includes('data-g115-treatment="bank-rail"'));
-    check(`G303: ${label} has no "Spend from" label`, !markup.includes("Spend from</p>") && !/>Spend from</.test(markup));
-    check(`G303: ${label} is one line reading with bank names`, textOf(markup) === "Spend up to £9 from Barclays or HSBC.");
+    check(`G303: ${label} has no "Held in" label`, !markup.includes("Held in</p>") && !/>Held in</.test(markup));
+    check(`G303: ${label} is one line reading with bank names`, textOf(markup) === "Up to £9 of this is in Barclays or HSBC.");
     check(`G303: ${label} names no holder or product`, !/maingi/i.test(markup) && !markup.includes("Premier Current Account"));
     check(`G303: ${label} shows the figure once`, (markup.match(/£9/g) ?? []).length === 1);
     check(`G303: ${label} drops the per-account footnote`, !markup.includes("Each figure is what that account can cover"));
@@ -222,13 +222,13 @@ for (const [kind, plan] of Object.entries(PLANS)) {
     approvedSpendFromTreatment(combinedPlan(false, { barclays: E(9), x: E(9) }, [
       ACCTS[0], account({ id: "x", name: "Everyday", provider: "Zzyzx Bank", provider_id: "zzyzx" }),
     ]), amount, false, noop, noop).body));
-  check("G303: a bank with no mark falls back to its name alone", !unmarked.includes("/banks/zzyzx") && textOf(unmarked).startsWith("Spend up to £9 from Barclays or"), textOf(unmarked));
+  check("G303: a bank with no mark falls back to its name alone", !unmarked.includes("/banks/zzyzx") && textOf(unmarked).startsWith("Up to £9 of this is in Barclays or"), textOf(unmarked));
   // Cover move clause.
   for (const markBank of [true, false]) {
     const withMove = renderToStaticMarkup(React.createElement(React.Fragment, null,
       approvedSpendFromTreatment(combinedPlan(markBank), amount, true, noop, noop).body));
     check(`G303: cover-move clause is appended (${markBank ? "rail" : "names"})`,
-      textOf(withMove) === "Spend up to £9 from Barclays or HSBC. The move above is already held back.");
+      textOf(withMove) === "Up to £9 of this is in Barclays or HSBC. The move above is already held back.");
   }
   // Same bank twice reads "from Barclays" once.
   const same = [
@@ -237,7 +237,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   ];
   const sameMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null,
     approvedSpendFromTreatment(combinedPlan(true, { b1: E(9), b2: E(9) }, same), amount, false, noop, noop).body));
-  check("G303: same bank twice reads from Barclays once", textOf(sameMarkup) === "Spend up to £9 from Barclays.", textOf(sameMarkup));
+  check("G303: same bank twice reads from Barclays once", textOf(sameMarkup) === "Up to £9 of this is in Barclays.", textOf(sameMarkup));
   check("G303: same bank twice shows one badge", (sameMarkup.match(/<img /g) ?? []).length === 1);
   const unknown = spendFromTreatmentPlan(bestSpendAccount({ barclays: E(9), hsbc: E(9) }, ACCTS), () => true);
   check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is what that account can cover"));
@@ -260,7 +260,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const railMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null, approvedSpendFromTreatment(
     spendFromTreatmentPlan(bestSpendAccount({ monzo: { short: false, headroom: 40 }, chase: { short: false, headroom: 30 } }, ACCOUNTS), () => true, 120),
     amount, false, noop, noop).heroAside));
-  check("G303: per-account keeps the SPEND FROM column", railMarkup.includes('data-g115-treatment="bank-rail"') && railMarkup.includes(">Spend from<"));
+  check("G303: per-account keeps the HELD IN column", railMarkup.includes('data-g115-treatment="bank-rail"') && railMarkup.includes(">Held in<"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

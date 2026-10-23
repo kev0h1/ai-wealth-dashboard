@@ -930,7 +930,7 @@ def test_explain_all_registered_keys_are_non_empty_and_dash_free():
 
 def test_explain_page_and_topic_copy_still_reachable_after_rename():
     home = asyncio.run(execute_tool("kevin", "explain", {"topic": "home"}))
-    assert "Safe to Spend" in home["text"]
+    assert "estimated left to spend" in home["text"]
     isa = asyncio.run(execute_tool("kevin", "explain", {"topic": "isa_capability"}))
     assert "ISA" in isa["text"]
 

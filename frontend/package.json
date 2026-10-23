@@ -40,6 +40,7 @@
     "check:g189-show-tips": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g189-show-tips.test.mjs",
     "check:g201-settings-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g201-settings-directory.test.mjs",
     "check:g304-ledger-explainer": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g304-ledger-explainer.test.mjs",
+    "check:g322-left-to-spend-copy": "node scripts/g322-left-to-spend-copy.test.mjs",
     "check:g296-settings": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g296-settings.test.mjs",
     "check:g309-settings-spacing": "node scripts/g309-settings-spacing.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",

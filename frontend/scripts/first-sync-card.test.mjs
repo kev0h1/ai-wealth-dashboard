@@ -20,7 +20,7 @@ assert.doesNotMatch(syncing, /Try again/, "syncing offers no retry");
 assert.match(syncing, /data-sync-chip="syncing"/);
 assert.match(syncing, />Updating</);
 assert.match(syncing, /No figure yet/);
-assert.match(syncing, /We will show your Safe to Spend once Barclays has synced/);
+assert.match(syncing, /We will show your estimated left to spend once Barclays has synced/);
 assert.doesNotMatch(syncing, /£\d|£••/, "no amount, no verdict");
 assert.match(syncing, /text-slate-500 dark:text-slate-400">No figure yet/, "placeholder in secondary ink");
 assert.match(render("syncing", { connections: [] }), /once your bank has synced/);
@@ -61,7 +61,7 @@ assert.match(block, /aria-busy="true"/);
 
 const brief = readFileSync(new URL("../components/HomeBrief.tsx", import.meta.url), "utf8");
 const iBriefSync = brief.indexOf('safeToSpend.calculation_status === "syncing"');
-const iHeadroom = brief.indexOf("You've got headroom");
+const iHeadroom = brief.indexOf("Your estimate has headroom");
 assert.ok(iBriefSync > 0 && iHeadroom > iBriefSync, "HomeBrief handles syncing before the headroom fallback");
 assert.match(brief.slice(iBriefSync, iBriefSync + 300), /first sync is still running/);
 const views = readFileSync(new URL("../lib/pennyScreenViews.ts", import.meta.url), "utf8");

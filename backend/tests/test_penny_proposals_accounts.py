@@ -659,7 +659,7 @@ def test_propose_disconnect_bank_resolves_by_truelayer_connection_id(monkeypatch
     assert result["params"] == {"connection_id": "conn1"}
     assert result["destructive"] is True
     assert result["summary"] == "Disconnect Monzo (2 accounts)"
-    assert "Safe-to-Spend" in result["consequence"] and "may" in result["consequence"]
+    assert "left to spend" in result["consequence"] and "may" in result["consequence"]
 
 
 def test_propose_disconnect_bank_resolves_by_finexer_consent_id(monkeypatch):

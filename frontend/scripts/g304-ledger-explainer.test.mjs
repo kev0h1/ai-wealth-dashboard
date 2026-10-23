@@ -1,4 +1,4 @@
-// G304: the pooled Safe to Spend explainer inside both "Full calculation" ledgers.
+// G304: the pooled left to spend explainer inside both "Full calculation" ledgers.
 // Run: npm run -s check:g304-ledger-explainer
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -18,9 +18,9 @@ const text = (html) => html.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'");
 // Both reservations, multi-account (Kevin's live numbers).
 const both = render({ pooled: true, envelope: { amount: 101.52, count: 1 }, plan: { amount: 100, count: 1 } });
 const t = text(both);
-assert.match(t, /This figure is shared by all your accounts\. Spend it from one of them, not from each\./);
-assert.match(t, /Your envelope holds back £101\.52 until payday\. Edit it on Upcoming if you need some of that now\./);
-assert.match(t, /Your plan holds back £100\.00\. Edit it on Planning if it can wait\./);
+assert.match(t, /This figure is shared by all your accounts\. It is not a separate amount for each one\./);
+assert.match(t, /Your envelope holds back £101\.52 until payday\. You can edit it on Upcoming\./);
+assert.match(t, /Your plan holds back £100\.00\. You can edit it on Planning\./);
 assert.ok(both.includes(`href="${ENVELOPE_EDIT_HREF}"`) && both.includes(`href="${PLAN_EDIT_HREF}"`), "both edit links present");
 assert.equal(ENVELOPE_EDIT_HREF, "/upcoming#pay-period-plans");
 assert.equal(PLAN_EDIT_HREF, "/planning#commitments");
@@ -41,8 +41,8 @@ assert.equal(render({ pooled: false }), "");
 
 // Plurals.
 const many = text(render({ pooled: false, envelope: { amount: 50, count: 2 }, plan: { amount: 60, count: 3 } }));
-assert.match(many, /Your envelopes hold back £50\.00 until payday\. Edit them on Upcoming/);
-assert.match(many, /Your plans hold back £60\.00\. Edit them on Planning if they can wait\./);
+assert.match(many, /Your envelopes hold back £50\.00 until payday\. You can edit them on Upcoming/);
+assert.match(many, /Your plans hold back £60\.00\. You can edit them on Planning\./);
 
 // Hidden balances stay hidden.
 assert.match(text(render({ pooled: false, envelope: { amount: 9 }, format: () => "£••••" })), /holds back £••••/);

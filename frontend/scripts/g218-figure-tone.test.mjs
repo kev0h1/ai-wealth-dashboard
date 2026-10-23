@@ -42,7 +42,7 @@ assert.match(src, /!previewBalancesVisible && \(hideNetWorth \|\| !preferencesRe
 assert.doesNotMatch(readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8"), /previewBalancesVisible/, "Home must not opt in");
 
 // 7. Hero disclaimer (Kevin 2026-10-06): one quiet line wherever a figure renders.
-const DISCLAIMER = "An estimate from your bank data, not financial advice.";
+const DISCLAIMER = "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.";
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
 const render = (props) => renderToStaticMarkup(React.createElement(AppRouterContext.Provider, { value: router }, React.createElement(SafeToSpendCard, { loading: false, onRetry: noop, previewBalancesVisible: true, ...props })));

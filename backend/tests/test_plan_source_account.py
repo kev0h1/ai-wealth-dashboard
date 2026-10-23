@@ -174,7 +174,7 @@ def test_validation_refuses_a_card_and_an_excluded_account_with_static_422s():
         sources.validate_source_account("current", accts, {"saving"})
     assert excl.value.status_code == 422
     assert "current" not in excl.value.detail
-    assert "Safe to Spend" in excl.value.detail
+    assert "Left to spend" in excl.value.detail
 
 
 def test_create_writes_the_unset_marker_only_for_not_set(monkeypatch):

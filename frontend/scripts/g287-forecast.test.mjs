@@ -28,7 +28,7 @@ for (const key of G287_ORDER) {
     continue;
   }
   assert.match(home, /data-g219-accounts-link/, `${key}: accounts route survives`);
-  assert.match(home, /An estimate from your bank data, not financial advice\./, `${key}: safety disclaimer survives`);
+  assert.match(home, /An estimate from your bank data\. It can be wrong, so check your bank for your latest balance\. Not financial advice\./, `${key}: safety disclaimer survives`);
   const cash = data.lowest_projected_balance - data.buffer - (data.commitments_reserved ?? 0) - (data.allocations_reserved ?? 0);
   assert.equal(cash, data.safe_to_spend_cash, `${key}: Home cash reconciles with reserves`);
   assert.equal(cash - (data.card_growth_reserved ?? 0), data.safe_to_spend, `${key}: card reserve stays separate`);
@@ -40,7 +40,7 @@ const homeStatus = key => {
 };
 for (const [key, tone, label] of [
   ["habitual", "risk", "Short"], ["plans", "watch", "Plans gap"], ["buffer", "watch", "Below buffer"],
-  ["tight", "watch", "Tight"], ["even", "watch", "No headroom"], ["card-check", "watch", "Check card bill"], ["comfortable", "good", "On track"],
+  ["tight", "watch", "Tight"], ["even", "watch", "No headroom"], ["card-check", "watch", "Check card bill"], ["comfortable", "good", "Looks on track"],
 ]) {
   const status = homeStatus(key);
   assert.equal(status.status.tone, tone, `${key}: semantic tone`);
@@ -60,7 +60,7 @@ const upcoming = (key, patch = {}) => {
 assert.deepEqual(upcoming("habitual"), { status: { tone: "risk", label: "Short" }, qualifierTone: "risk" });
 assert.deepEqual(upcoming("chronology"), { status: { tone: "risk", label: "Earlier gap" }, qualifierTone: "neutral" }, "positive endpoint cannot hide an earlier payment gap");
 assert.deepEqual(upcoming("plans"), { status: { tone: "watch", label: "Plans gap" }, qualifierTone: "watch" });
-assert.deepEqual(upcoming("comfortable"), { status: { tone: "good", label: "On track" }, qualifierTone: "good" });
+assert.deepEqual(upcoming("comfortable"), { status: { tone: "good", label: "Looks on track" }, qualifierTone: "good" });
 for (const patch of [
   { evidenceCurrent: false }, { lowestCash: NaN }, { nextPayday: Date.parse("2031-01-01") }, { isCalendarMonth: true },
   { metadata: null }, { headline: null }, { plansAvailable: false }, { metadata: { ...ok("comfortable"), calculation_status: "syncing" } },

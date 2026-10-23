@@ -61,10 +61,12 @@ def test_home_payday_status_comfortable(monkeypatch):
     result = _run(answer_chip(UID, "home_payday_status", None))
     assert result["chip_id"] == "home_payday_status"
     assert result["kind"] == "engine"
-    assert "You're on track" in result["answer"]
+    assert "It looks on track" in result["answer"]
     assert "£200" in result["answer"]
     assert "projected to dip to about £90" in result["answer"]
-    assert "safe to spend" not in result["answer"] or "on track" in result["answer"]
+    assert "safe to spend" not in result["answer"]
+    assert "left to spend" in result["answer"]
+    assert "It does not count unconnected accounts, pending payments or bills I have not spotted." in result["answer"]
     _assert_house_style(result["answer"])
 
 
@@ -78,7 +80,7 @@ def test_home_payday_status_tight(monkeypatch):
     monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
 
     result = _run(answer_chip(UID, "home_payday_status", None))
-    assert "You're tight" in result["answer"]
+    assert "It looks tight" in result["answer"]
     assert "£42" in result["answer"]
     assert "£15" in result["answer"]
     _assert_house_style(result["answer"])
@@ -101,9 +103,9 @@ def test_home_payday_status_short_bills_never_says_negative_safe_to_spend(monkey
     assert "£749" in answer
     assert "with 19 days to payday" in answer
     assert "projected to dip to about £54" in answer
-    # The hardened requirement: never a bare negative "safe to spend" phrase.
-    assert "−£749 safe to spend" not in answer and "-£749 safe to spend" not in answer
-    assert "safe to spend" not in answer
+    # The hardened requirement: never a bare negative "left to spend" phrase.
+    assert "−£749 left to spend" not in answer and "-£749 left to spend" not in answer
+    assert "left to spend" not in answer
     _assert_house_style(answer)
 
 
@@ -201,7 +203,7 @@ def test_home_payday_status_positive_cash_mentions_clear_monthly_card_due_date(m
     monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
 
     answer = _run(answer_chip(UID, "home_payday_status", None))["answer"]
-    assert "£38 safe to spend" in answer
+    assert "an estimated £38 left to spend" in answer
     assert "£761 is on cards and is due around Fri 18 Sep" in answer
     _assert_house_style(answer)
 

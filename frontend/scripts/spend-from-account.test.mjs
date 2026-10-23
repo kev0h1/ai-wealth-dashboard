@@ -86,17 +86,17 @@ function account(overrides) {
   check(
     "hero line names the account and its own headroom, distinct from any pooled figure (no bank label passed)",
     spendFromHeroLine(result, amount),
-    "In Barclays Current: £142 spare right now, within your Safe to Spend.",
+    "In Barclays Current: £142 of your estimate is in this account right now.",
   );
   check(
     "hero line folds a caller-resolved bank label into the same sentence, variant A's shape",
     spendFromHeroLine(result, amount, "Barclays"),
-    "In Barclays Current (Barclays): £142 spare right now, within your Safe to Spend.",
+    "In Barclays Current (Barclays): £142 of your estimate is in this account right now.",
   );
   check(
     "alternative line names the second account",
     spendFromAlternativeLine(result, amount),
-    "Next best: HSBC Current, £38 spare in that account.",
+    "Also in HSBC Current: £38.",
   );
 }
 
@@ -122,7 +122,7 @@ function account(overrides) {
   check(
     "the copy names the current account only, no mention of the savings pot",
     spendFromHeroLine(resultWithCurrent, amount),
-    "In Barclays Current: £25 spare right now, within your Safe to Spend.",
+    "In Barclays Current: £25 of your estimate is in this account right now.",
   );
 
   // 2b. No current account qualifies at all, but the savings pot has plenty:
@@ -140,7 +140,7 @@ function account(overrides) {
   check(
     "the copy says nothing has spare, it does not name the savings pot or suggest moving it",
     spendFromHeroLine(resultNoCurrent, amount),
-    "No single account has spare to spend from right now.",
+    "No single account has spare cash towards this estimate right now.",
   );
 }
 
@@ -159,7 +159,7 @@ function account(overrides) {
   check(
     "the copy is honest that nothing is currently reachable",
     spendFromHeroLine(result, amount),
-    "No single account has spare to spend from right now.",
+    "No single account has spare cash towards this estimate right now.",
   );
 }
 
@@ -218,7 +218,7 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
     // itself to the headline instead of disclaiming it.
     check(
       `${label}: hero line never disclaims the headline as a separate scope`,
-      /not (your full|against your full) Safe to Spend/.test(line ?? ""),
+      /not (your full|against your full) (Safe to Spend|estimated left to spend)/.test(line ?? ""),
       false,
     );
     check(`${label}: hero line uses no em dash (DESIGN.md)`, (line ?? "").includes("—"), false);
@@ -231,8 +231,8 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
     amount,
     "Chase",
   );
-  check("bank-qualified account line ties itself to Safe to Spend", /within your Safe to Spend/.test(withBank ?? ""), true);
-  check("bank-qualified account line names the bank in parentheses", withBank, "In A (Chase): £120 spare right now, within your Safe to Spend.");
+  check("bank-qualified account line ties itself to the estimate", /of your estimate is in this account/.test(withBank ?? ""), true);
+  check("bank-qualified account line names the bank in parentheses", withBank, "In A (Chase): £120 of your estimate is in this account right now.");
   check("bank-qualified account line uses no em dash (DESIGN.md)", (withBank ?? "").includes("—"), false);
 
   const alt = spendFromAlternativeLine(
@@ -241,7 +241,7 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   );
   check(
     "the disclosure's alternative line scopes its figure to one account too",
-    /spare in that account/.test(alt ?? ""),
+    /^Also in /.test(alt ?? ""),
     true,
   );
 }
@@ -271,7 +271,7 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   check(
     "G114: the honest 'nothing spare' line is shown rather than naming Monzo off its standing £23.74",
     spendFromHeroLine(result, amount),
-    "No single account has spare to spend from right now.",
+    "No single account has spare cash towards this estimate right now.",
   );
 }
 
@@ -602,16 +602,16 @@ const NEVER_BRANDED = () => false;
   check("G234: an uncapped alternative is not flagged", result.alternative?.capped, false);
   check("G234: no shown figure exceeds the pooled Safe to Spend", [result.best, result.alternative].every((e) => e.headroom <= POOL), true);
   check(
-    "G234: the capped hero line says the figure is the most Safe to Spend allows",
+    "G234: the capped hero line says it is part of the estimate",
     spendFromHeroLine(result, amount, "Barclays"),
-    "In Barclays Current (Barclays): up to £110 right now, the most your Safe to Spend allows.",
+    "In Barclays Current (Barclays): up to £110 of your estimate is in this account right now.",
   );
   check(
     "G234: the capped hero line no longer carries the old 'not your full Safe to Spend' disclaimer",
     /not your full Safe to Spend/.test(spendFromHeroLine(result, amount) ?? ""),
     false,
   );
-  check("G234: an uncapped alternative keeps the plain wording", spendFromAlternativeLine(result, amount), "Next best: HSBC Current, £60 spare in that account.");
+  check("G234: an uncapped alternative keeps the plain wording", spendFromAlternativeLine(result, amount), "Also in HSBC Current: £60.");
 
   // Pool at or below zero: the backend sends 0 for every account, so the
   // client lands on the existing no-room line, never an empty rail.
@@ -621,7 +621,7 @@ const NEVER_BRANDED = () => false;
   };
   const none = bestSpendAccount(zeroPool, accounts);
   check("G234: a zero pool gives the no-room result, not a rail", none.kind, "none");
-  check("G234: the no-room line is rendered text", spendFromHeroLine(none, amount), "No single account has spare to spend from right now.");
+  check("G234: the no-room line is rendered text", spendFromHeroLine(none, amount), "No single account has spare cash towards this estimate right now.");
   check("G234: a null account_eligibility (pool unknown) is unavailable, not an uncapped rail", bestSpendAccount(null, accounts).kind, "unavailable");
 }
 
@@ -642,7 +642,7 @@ const NEVER_BRANDED = () => false;
   // Pool binds for both: £9 each against a £9 pool.
   const both = { barclays: E(9, true), hsbc: E(9, true) };
   check("G300: pool binding for two accounts is combined", plan(both, 9).combined, true);
-  check("G300: combined hero line", hero(both, 9), "Spend up to £9 from Barclays or HSBC.");
+  check("G300: combined hero line", hero(both, 9), "Up to £9 of this is in Barclays or HSBC.");
   check("G300: combined alternative line is null", alt(both, 9), null);
   check("G300: combined line never carries a per-account figure twice", (hero(both, 9).match(/£9/g) ?? []).length, 1);
   check("G300: plan carries the pool", plan(both, 9).pool, 9);
@@ -653,7 +653,7 @@ const NEVER_BRANDED = () => false;
   check(
     "G300: mixed hero line adds a clause for the account below the pool",
     hero(mixed, 9),
-    "Spend up to £9 in total from HSBC or Barclays. Barclays can cover up to £6.",
+    "Up to £9 of this is in HSBC or Barclays. Barclays holds up to £6 of it.",
   );
   check("G300: mixed alternative line is null", alt(mixed, 9), null);
 
@@ -662,28 +662,28 @@ const NEVER_BRANDED = () => false;
   check("G300: pool 19.4 with 9.6 + 9.6 (shown £10 + £10 against £19) is combined", plan(rounded, 19.4).combined, true);
   const edge = { barclays: E(9, true), hsbc: E(8.6, false) };
   check("G300: pool 9.0 with 9.0 and 8.6 is combined", plan(edge, 9).combined, true);
-  check("G300: 8.6 displays as £9 so no below-pool clause", hero(edge, 9), "Spend up to £9 from Barclays or HSBC.");
+  check("G300: 8.6 displays as £9 so no below-pool clause", hero(edge, 9), "Up to £9 of this is in Barclays or HSBC.");
 
   // Two below the pool whose sum fits: unchanged.
   const fits = { barclays: E(40, false), hsbc: E(30, false) };
   check("G300: figures that fit inside the pool are not combined", plan(fits, 100).combined, false);
-  check("G300: fitting figures keep today's hero line", hero(fits, 100), "In Barclays: £40 spare right now, within your Safe to Spend.");
-  check("G300: fitting figures keep today's alternative line", alt(fits, 100), "Next best: HSBC, £30 spare in that account.");
+  check("G300: fitting figures keep today's hero line", hero(fits, 100), "In Barclays: £40 of your estimate is in this account right now.");
+  check("G300: fitting figures keep today's alternative line", alt(fits, 100), "Also in HSBC: £30.");
 
   // Single account: unchanged even when capped.
   const single = { barclays: E(9, true) };
   check("G300: a single account is never combined", plan(single, 9).combined, false);
-  check("G300: a single capped account keeps today's line", hero(single, 9), "In Barclays: up to £9 right now, the most your Safe to Spend allows.");
+  check("G300: a single capped account keeps today's line", hero(single, 9), "In Barclays: up to £9 of your estimate is in this account right now.");
 
   // No account with room: unchanged.
   const noRoom = { barclays: { short: true, headroom: 0 }, hsbc: { short: true, headroom: 1 } };
-  check("G300: no room keeps the no-single-account line", hero(noRoom, 9), "No single account has spare to spend from right now.");
+  check("G300: no room keeps the no-single-account line", hero(noRoom, 9), "No single account has spare cash towards this estimate right now.");
   check("G300: no room plan is not combined", plan(noRoom, 9).combined, false);
 
   // Pool unknown: today's behaviour.
   check("G300: unknown pool is not combined", plan(both, null).combined, false);
-  check("G300: undefined pool keeps today's capped hero line", hero(both, undefined), "In Barclays: up to £9 right now, the most your Safe to Spend allows.");
-  check("G300: unknown pool keeps today's alternative line", alt(both, null), "Next best: HSBC, up to £9, the most your Safe to Spend allows.");
+  check("G300: undefined pool keeps today's capped hero line", hero(both, undefined), "In Barclays: up to £9 of your estimate is in this account right now.");
+  check("G300: unknown pool keeps today's alternative line", alt(both, null), "Also in HSBC: up to £9.");
 }
 
 // G303: the combined line names banks (injected labelFor), never accounts.
@@ -696,15 +696,15 @@ const NEVER_BRANDED = () => false;
   const entries = (elig) => { const r = bestSpendAccount(elig, accounts); return [r.best, r.alternative]; };
   const bank = (entry) => entry.account.provider;
   const both = entries({ p: E(9), h: E(9) });
-  check("G303: bank labels in the combined line", spendFromCombinedLine(both, 9, amount, bank), "Spend up to £9 from Barclays or HSBC.");
+  check("G303: bank labels in the combined line", spendFromCombinedLine(both, 9, amount, bank), "Up to £9 of this is in Barclays or HSBC.");
   check("G303: default labels stay the display names", spendFromCombinedLine(both, 9, amount).includes("Premier Current Account"), true);
   const mixed = entries({ p: E(9), h: E(6) });
   check("G303: below-pool clause uses the bank label", spendFromCombinedLine(mixed, 9, amount, bank),
-    "Spend up to £9 in total from Barclays or HSBC. HSBC can cover up to £6.");
+    "Up to £9 of this is in Barclays or HSBC. HSBC holds up to £6 of it.");
   const same = spendFromCombinedParts(both, 9, amount, () => "Barclays");
   check("G303: same bank collapses to one group", same.groups.length, 1);
   check("G303: same bank drops ambiguous clauses", spendFromCombinedParts(mixed, 9, amount, () => "Barclays").clauses.length, 0);
-  check("G303: same bank reads once", spendFromCombinedLine(both, 9, amount, () => "Barclays"), "Spend up to £9 from Barclays.");
+  check("G303: same bank reads once", spendFromCombinedLine(both, 9, amount, () => "Barclays"), "Up to £9 of this is in Barclays.");
 }
 
 if (failures > 0) {
