@@ -63,14 +63,6 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
-    slug: "keep-money-here",
-    name: "Earlier keep-money-here round · G274 · superseded by G291",
-    description: "Earlier alternatives, not shipping separately: Kevin folded this round into G291, whose approved A is implemented in the production plan sheets. Original A Reserve here and B Details then review remain for context, using synthetic drafts only. ?variant=a|b&scenario=one|many|global|none&mode=light|dark&state=ready|load-error|save-error&edit=0|1",
-    variants: [{ label: "A · Reserve here", value: "a" }, { label: "B · Details then review", value: "b" }],
-    states: [{ label: "Ready", value: "ready" }, { label: "Load failure", value: "load-error" }, { label: "Save failure", value: "save-error" }],
-    group: "earlier",
-  },
-  {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
     description: "C22 extension: six new story directions (Movement, Month, Spend, Split, Penny and Aside) with 24 new PNGs and 12 new edited 15-second MP4s, preserving the earlier 12 PNGs and 4 MP4s. Uses fully loaded production leaf components with fictional fixture data, sound and captions. Creative review only; UAT approval pending.",
