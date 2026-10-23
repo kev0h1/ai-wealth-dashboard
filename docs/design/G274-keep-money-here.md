@@ -1,5 +1,7 @@
 # G274: keep money where it is
 
+Archived: Kevin cancelled G274 on 19 October 2026 after folding it into G291. The temporary preview was retired under H130; the notes below preserve the earlier design round, not a pending choice.
+
 Mode: Operate. Design round only, extending the shipped G267 editor. No production editor, reservation calculation or fulfilment rule changes before Kevin chooses.
 
 The user knows what the money is for and how much, not a receiving account. An account-context entry supplies the current account; a global entry may suggest the paying account, visibly confirmed on the final action. With one eligible current account there is no source picker. A reserve in that account has no receiving account, target, progress bar or transfer matcher. Existing transfer-linked edits retain their destination and rule until the user explicitly changes them.
