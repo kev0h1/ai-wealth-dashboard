@@ -1,0 +1,29 @@
+{
+  "generated": {
+    "file": "editorial-morning.webp",
+    "tool": "built-in image_gen",
+    "original": "/root/.codex/generated_images/01a15ee5-75e6-78c0-b4dd-fda1ce31cd95/exec-cebbdc19-2463-40aa-a488-c2b9a44505a4.png",
+    "prompt": "photorealistic-natural; candid adult checking phone at a British kitchen table beside tea and notebook, cool daylight, subject right, no readable interface, words, logos or outcome claim",
+    "role": "Editorial image, not a customer testimonial"
+  },
+  "product": {
+    "files": [
+      "left-to-spend-light.webp",
+      "left-to-spend-dark.webp"
+    ],
+    "origin": "Actual production SafeToSpendCard SSR and compiled CSS, G320 approvedB commit3d3fe15b, fixed fictional242cash/1947cardpurchases snapshots; evidence in G320 board note. Format optimisation only."
+  },
+  "c22": {
+    "files": [
+      "upcoming-light.webp",
+      "upcoming-dark.webp"
+    ],
+    "origin": "frontend/public/design-media/c22/proof-upcoming-light.png and proof-upcoming-dark.png, existing real component proof using fictional Alex Taylor snapshots; no old Safe to Spend wording visible"
+  },
+  "brand": {
+    "origin": "frontend/public/brand Sorted masters, unchangedSVG andPNG"
+  },
+  "fonts": {
+    "origin": "Current app next/font Google fonts latin subsets, Figtree and JetBrainsMono, copied from compiled static media. OFL licences accompany files."
+  }
+}
