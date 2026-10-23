@@ -40,3 +40,16 @@ node marketing/c22-next/validate_assets.mjs
 The implementation's source dependency hash and manifest files are the record of which production captures, fonts, sound assets and renders were used. Before publication, Kevin must review the final placement and copy, and the normal compliance and C22/C5 store checks still apply. The coordinator must integrate the branch before any UAT route can show this round.
 
 The independent review inspected the final stills, film contact sheets and frame timings, and found no clipping, readability or financial-truth blocker. It did not watch continuous playback. The separate browser check plays, pauses and seeks all four actual MP4s, loads all five caption cues, checks the gallery at 320, 390 and 1440 pixels, and checks the preserved archive routes. It makes no judgement about campaign performance. The gallery also passed a review against the [Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines/blob/main/command.md), after URL state, focus states and tap targets were addressed.
+
+## Balance film revision, 23 October 2026
+
+Kevin requested a softer calculation panel and a prelaunch closing frame. Both light and dark `Balance, in view` films now use the following treatment:
+
+| Before | After | Why |
+| --- | --- | --- |
+| Calculation capture against a square edge | 36 pixels of internal space, 32 pixel corners and a subtle border | Keep the full capture, operators and figures away from the panel edge. |
+| Explore Sorted and an outbound arrow | Coming soon, with the matching final caption | Describe the product as coming soon rather than inviting immediate use. |
+
+The five-shot edit, 15 second duration, sound, financial figures and production UI capture are retained. Re-export just these two films with `node marketing/c22-next/render_films.mjs balance-light balance-dark`, then refresh the manifest with `node marketing/c22-next/render_films.mjs --index-only`. The browser verifier captures the calculation and closing frames at phone size in both themes, and checks actual picture content, playback and the new closing caption. Other campaign films and image designs are outside this revision.
+
+Revision verification passed: TypeScript, scoped ESLint, source/asset hashes, full decoding of the four original films, and real browser playback/seek/non-blank-picture/caption checks. The new final caption says Coming soon. Calculation and closing frames were inspected at phone size in both themes, with gallery layouts checked at 320, 390 and 1440 pixels. All other campaign media and all production components remain unchanged. The repository delivery gate runs separately through `scripts/session.sh finish`.

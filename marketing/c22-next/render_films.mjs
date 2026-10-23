@@ -9,7 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const frontend = path.join(root, "frontend");
 const out = path.join(frontend, "public/design-media/c22/next");
 const text = {
-  balance: ["£610 in the bank. But what is yours to spend?", "£610 cash, less £188 expected bills, less £110 buffer. £312 estimated.", "The calculation is shown in the app.", "Estimated Safe to Spend, until 30 October 2026.", "Sorted. See what is yours to spend. Explore Sorted."],
+  balance: ["£610 in the bank. But what is yours to spend?", "£610 cash, less £188 expected bills, less £110 buffer. £312 estimated.", "The calculation is shown in the app.", "Estimated Safe to Spend, until 30 October 2026.", "Sorted. See what is yours to spend. Coming soon."],
   account: ["£610 across two current accounts. Bills leave one account.", "Everyday £542. Bills account £68. Expected energy payment £188.", "£188 minus £68 leaves a £120 shortfall. Expected 18 October 2026.", "Sorted shows the account that needs attention. No money is moved.", "Sorted. Before the next bill. Explore Sorted."],
 };
 const times = ["00:00.000", "00:02.167", "00:04.667", "00:07.500", "00:11.833", "00:15.000"];

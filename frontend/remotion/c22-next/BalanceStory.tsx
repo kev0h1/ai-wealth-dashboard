@@ -35,7 +35,10 @@ export function BalanceStory({ theme }: { theme: "light" | "dark" }) {
     {shot(140, 225, <>
       <div style={{ ...title, fontSize: 72 }}>The working.<br />In plain view.</div>
       <div style={{ position: "absolute", left: 72, top: 625, width: 810, borderTop: `1px solid ${line}`, paddingTop: 35, transform: `translateY(${move(f, 140, 152, 35, 0)}px)` }}>
-        <Img src={file("working")} style={{ width: 810, display: "block" }} />
+        {/* Match the frozen production capture matte so its edge disappears into the padding. */}
+        <div style={{ padding: 36, borderRadius: 32, overflow: "hidden", background: dark ? "#1c2537" : "#ffffff", border: `1px solid ${line}` }}>
+          <Img src={file("working")} style={{ width: "100%", display: "block" }} />
+        </div>
       </div>
     </>)}
     {shot(225, 355, <>
@@ -47,7 +50,7 @@ export function BalanceStory({ theme }: { theme: "light" | "dark" }) {
       <div style={{ position: "absolute", left: 72, top: move(f, 355, 369, 450, 420), fontSize: 184, fontWeight: 750, letterSpacing: "-.075em" }}>Sorted</div>
       <div style={{ position: "absolute", left: 72, top: 700, width: 800, fontSize: 76, fontWeight: 600, lineHeight: 1.02, letterSpacing: "-.05em" }}>See what is<br />yours to spend.</div>
       <div style={{ position: "absolute", left: 72, top: 1080, width: 810, height: 4, background: ink }} />
-      <div style={{ position: "absolute", left: 72, top: 1160, fontSize: 36, fontWeight: 600 }}>Explore Sorted <span style={{ marginLeft: 36 }}>↗</span></div>
+      <div style={{ position: "absolute", left: 72, top: 1160, fontSize: 36, fontWeight: 600 }}>Coming soon</div>
     </>)}
     <div style={{ position: "absolute", top: 1500, left: 72, color: muted, fontSize: 22 }}>Fictional example · Estimated until 30 Oct 2026</div>
   </AbsoluteFill>;

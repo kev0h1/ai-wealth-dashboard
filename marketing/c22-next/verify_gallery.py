@@ -45,18 +45,26 @@ def main():
             assert page.locator("video").count() == 2
             for index, story in enumerate(("balance", "account")):
                 video = page.locator("video").nth(index)
+                video.scroll_into_view_if_needed()
                 result = video.evaluate("""async v => {
-                    const ready = () => new Promise((resolve,reject)=>{v.addEventListener('loadeddata',resolve,{once:true});v.addEventListener('error',()=>reject(Error('load error')),{once:true});});
-                    if(v.readyState<2){const loading=ready();v.load();await loading;}
-                    await v.play();
-                    await new Promise(resolve=>v.addEventListener('timeupdate',resolve,{once:true}));
+                    const event = type => new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error(type+' timed out')),15000);v.addEventListener(type,()=>{clearTimeout(timeout);resolve()},{once:true});});
+                    const bounded = promise => new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('play timed out')),15000);promise.then(value=>{clearTimeout(timeout);resolve(value)},error=>{clearTimeout(timeout);reject(error)});});
+                    v.preload='auto';v.load();await bounded(v.play());
+                    await event('timeupdate');
                     v.pause();
                     const elapsed=v.currentTime;
-                    const seek=new Promise(resolve=>v.addEventListener('seeked',resolve,{once:true}));v.currentTime=9;await seek;
+                    const seek=event('seeked');v.currentTime=9;await seek;
+                    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+                    const canvas=document.createElement('canvas');canvas.width=108;canvas.height=192;
+                    const drawing=canvas.getContext('2d');drawing.drawImage(v,0,0,108,192);
+                    const pixels=drawing.getImageData(0,0,108,192).data;let low=255,high=0;
+                    for(let i=0;i<pixels.length;i+=4){const value=(pixels[i]+pixels[i+1]+pixels[i+2])/3;low=Math.min(low,value);high=Math.max(high,value);}
                     for(const t of v.textTracks)t.mode='hidden';
-                    return {width:v.videoWidth,height:v.videoHeight,duration:v.duration,elapsed,seek:v.currentTime,tracks:v.textTracks.length,cues:v.textTracks[0]?.cues?.length,muted:v.muted};
+                    return {width:v.videoWidth,height:v.videoHeight,duration:v.duration,elapsed,seek:v.currentTime,tracks:v.textTracks.length,cues:v.textTracks[0]?.cues?.length,muted:v.muted,frameContrast:high-low,lastCaption:[...(v.textTracks[0]?.cues??[])].at(-1)?.text};
                 }""")
                 assert result["width"] == 1080 and result["height"] == 1920 and abs(result["duration"] - 15) < .06 and result["elapsed"] > 0 and result["seek"] == 9 and result["tracks"] == 1 and result["cues"] == 5, result
+                assert result["frameContrast"] > 80, result
+                if story == "balance": assert "Coming soon" in result["lastCaption"], result
                 playback.append({"story": story, "theme": theme, **result})
             for width in (1440, 390, 320):
                 page.set_viewport_size({"width": width, "height": 900})
@@ -64,6 +72,12 @@ def main():
                 small = page.locator("button, a").evaluate_all("""els=>els.filter(e=>{const r=e.getBoundingClientRect();return r.width&&r.height&&r.height<43.5;}).map(e=>({text:e.textContent,height:e.getBoundingClientRect().height}))""")
                 assert not small, (width, small)
                 page.screenshot(path=str(REVIEW / f"gallery-{theme}-{width}.png"), full_page=True)
+            page.set_viewport_size({"width": 390, "height": 900})
+            video = page.locator("video").first
+            video.scroll_into_view_if_needed()
+            for scene, seconds in (("working", 6), ("closing", 13)):
+                video.evaluate("""async (v,time)=>{const seek=new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('seek timed out')),15000);v.addEventListener('seeked',()=>{clearTimeout(timeout);resolve()},{once:true});});v.currentTime=time;await seek;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));for(const track of v.textTracks)track.mode='showing';}""", seconds)
+                video.screenshot(path=str(REVIEW / f"balance-{theme}-{scene}-phone.png"))
         page.get_by_role("button", name="Light", exact=True).click()
         page.get_by_role("button", name="Story", exact=True).click()
         assert "mode=light" in page.url and "format=story" in page.url, page.url
