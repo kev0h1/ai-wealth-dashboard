@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-from-line",
+    name: "Spend from accounts · G320",
+    description: "Three layouts inside the real Safe to Spend card: A compact bank row, B aligned account list, C folded alternatives. One shared total, genuinely lower account limits and a separate held-back move context. Fictional one/two/three-account, same-bank and missing-logo examples, light/dark and Hide balances. The hero label and production layout are unchanged pending Kevin's choice.",
+    variants: [{ label: "A · Bank row", value: "a" }, { label: "B · Account list", value: "b" }, { label: "C · Folded accounts", value: "c" }],
+    states: [{ label: "One account", value: "one" }, { label: "Two accounts", value: "shared-two" }, { label: "Three accounts", value: "shared-three" }, { label: "Different limits", value: "different" }, { label: "One lower limit", value: "mixed" }, { label: "Overlapping limits", value: "overlap" }, { label: "Move held back", value: "move" }, { label: "Same bank", value: "same-bank" }, { label: "No bank logo", value: "unknown" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:

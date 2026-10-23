@@ -26,6 +26,8 @@ import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase
 type SpendFromTreatment = {
   heroAside?: ReactNode;
   body: ReactNode;
+  /** Preview-only redaction. Never reveals a figure or changes preferences. */
+  hideBalances?: boolean;
 };
 
 /** G231: "Not counting 2 accounts" (singular "1 account"). */
@@ -520,7 +522,7 @@ function CardBalanceFact({
 export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
-  const hidden = !previewBalancesVisible && (hideNetWorth || !preferencesReady);
+  const hidden = spendFromPreview?.hideBalances === true || (!previewBalancesVisible && (hideNetWorth || !preferencesReady));
   const [failedSpendFromLogos, setFailedSpendFromLogos] = useState<Set<string>>(() => new Set());
   const handleSpendFromLogoError = useCallback((logoSrc: string) => {
     setFailedSpendFromLogos((current) => {
