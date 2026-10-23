@@ -160,7 +160,7 @@ export default function HomeCleanupClient() {
             </div>
           ) : (
             <>
-              {/* Safe to Spend hero with its extras */}
+              {/* Left to spend hero with its extras */}
               <div className={`px-4 ${R.section}`}>
                 <SafeToSpendCard data={stsData} loading={false} onRetry={noop} spendFrom={SPEND_FROM_RAIL} previewBalancesVisible />
                 <HomeBriefClearedRow cleared={CLEARED_ADVICE} router={router as never} />

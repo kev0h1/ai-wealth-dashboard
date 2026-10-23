@@ -54,7 +54,7 @@ export default function SafeToSpendFigureClient() {
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <main className={`min-h-screen px-4 pb-16 pt-6 ${mode === "dark" ? "bg-slate-950" : "bg-slate-100"}`}>
         <div className="mx-auto max-w-md sm:max-w-5xl">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">G218 · Safe to Spend figure colour · approved B, folded in</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">G218 · Left to spend figure colour · approved B, folded in</p>
           <p className="mt-1 text-[13px] leading-snug text-slate-600 dark:text-slate-300">
             {view === "compare"
               ? "A cash shortfall stays red. A shortfall that exists only because of plans and envelopes is amber in the figure, chip and caption."

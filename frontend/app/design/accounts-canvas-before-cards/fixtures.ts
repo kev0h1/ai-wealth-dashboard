@@ -178,7 +178,7 @@ const pinnedIds = ["marcus-saver", "vanguard-sipp"];
 export const ESTATE_FIXTURE = buildEstate([...bankAccounts, manualAccount], investmentAccounts, pinnedIds);
 export const ATTENTION_ESTATE_FIXTURE = buildEstate([...bankAccounts, expiredAccount, manualAccount], investmentAccounts, pinnedIds);
 export const EMPTY_ESTATE_FIXTURE = buildEstate([], [], []);
-// G231: the same estate with one current account left out of Safe to Spend.
+// G231: the same estate with one current account left out of Left to spend.
 export const EXCLUDED_ESTATE_FIXTURE = buildEstate(
   [...bankAccounts, manualAccount].map((a) => (a.id === "barclays-current" ? { ...a, include_in_safe_to_spend: false } : a)),
   investmentAccounts,

@@ -1,4 +1,4 @@
-// Fixtures for the G14 cash-led Safe-to-Spend hero proposal.
+// Fixtures for the G14 cash-led Left to spend hero proposal.
 // Shaped exactly like frontend/lib/api.ts's SafeToSpend "ok" variant so the
 // Today and Proposed hero renderers can read the SAME underlying data per
 // state — only the rendering rules differ between treatments, never the

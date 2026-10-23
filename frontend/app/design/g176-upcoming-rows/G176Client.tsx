@@ -136,7 +136,7 @@ function AccountDetail({ account, optionalMoves, onPayment }: { account: Account
         <span className={`${mono} shrink-0 text-sm text-slate-900 dark:text-slate-100`}>{money(-payment.pence)}</span>
       </button>)}</div>
     </div>
-    <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">This example assumes only the {optionalMoves ? "moves" : "payments"} shown, in listed order, with no incoming money or overdraft. It does not identify money that is safe to spend.</p>
+    <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">This example assumes only the {optionalMoves ? "moves" : "payments"} shown, in listed order, with no incoming money or overdraft. It does not identify money that is left to spend.</p>
   </div>;
 }
 

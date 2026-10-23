@@ -287,7 +287,7 @@ export default function StatementsHouseAdsClient() {
           <Link href={href({ risk: risk ? null : "1" })} className={`${pill} ${off}`}>{risk ? "Hero: short (red)" : "Hero: on track"}</Link>
         </div>
       </nav>
-      <p className="mt-3 text-xs text-slate-700 dark:text-slate-200">Preview: the Statements Home shell, the upload result and the limit state are hand-authored mocks. Only the Safe to Spend hero and the dismiss chip are production components. £5.99 and 1 November are fixture values; production uses the server price and the real reset date.</p>
+      <p className="mt-3 text-xs text-slate-700 dark:text-slate-200">Preview: the Statements Home shell, the upload result and the limit state are hand-authored mocks. Only the Left to spend hero and the dismiss chip are production components. £5.99 and 1 November are fixture values; production uses the server price and the real reset date.</p>
       <p className="mt-2 text-xs text-slate-700 dark:text-slate-200">{account.note}</p>
       <HomeScreen {...props} />
       <UploadScreen {...props} />

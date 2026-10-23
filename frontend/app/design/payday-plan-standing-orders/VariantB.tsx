@@ -7,7 +7,7 @@ import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolve
 import { BankBadge } from "@/components/AccountMiniCard";
 
 // VARIANT B — "Adjustment list". Leads with the verdict figure as the
-// card's own hero (the way Safe to Spend leads with its hero cash figure),
+// card's own hero (the way Left to spend leads with its hero cash figure),
 // then lists ONLY the destinations that need a change, each as one
 // Numbers-Lead sentence. Everything already right folds into a single "N
 // standing orders are about right" row, expandable for anyone who wants to

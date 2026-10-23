@@ -39,7 +39,7 @@ export default function StsAccountsRouteClient() {
     <div className={mode === "dark" ? "dark" : ""} style={{ colorScheme: mode }}>
       <main className={`min-h-screen px-4 pb-16 pt-6 ${mode === "dark" ? "bg-slate-950" : "bg-slate-100"}`}>
         <div className="mx-auto max-w-md">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">G219 · Safe to Spend, route to Accounts</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">G219 · Left to spend, route to Accounts</p>
           <p className="mt-1 text-[13px] leading-snug text-slate-600 dark:text-slate-300">
             Approved B, folded in. The quiet Your accounts link sits in the action row below the disclaimer, beside the primary action or alone. It complements Home&apos;s Your estate Manage link, which stays.
           </p>

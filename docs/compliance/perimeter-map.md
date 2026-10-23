@@ -112,9 +112,9 @@ Status: DRAFT fact map for a qualified reviewer (board item A165, feeds A166). W
   - `affordability.py:202-208` `_multimonth_fit_headline`: "That fits" or "That doesn't fit".
   - Design record, `affordability.py:185-194`: owner decision 2026-08-25 that "Yes" / "Yes, but it'll be tight" / "Not this one" read as a recommendation, so "the delta arithmetic below IS the verdict shown to the user, never a translated verdict word."
 - Example output: "£120 leaves £84 free" (template at affordability.py:195).
-- What it does: informs and compares the amount asked with Safe to Spend; the internal `verdict_word` ("yes", "tight", "no") is kept for the model and is never shown as the headline (affordability.py:189-193). On "no" the tool adds `nearest_yes_amount` (affordability.py:332-335), a largest round-£5 amount that fits.
+- What it does: informs and compares the amount asked with Left to spend; the internal `verdict_word` ("yes", "tight", "no") is kept for the model and is never shown as the headline (affordability.py:189-193). On "no" the tool adds `nearest_yes_amount` (affordability.py:332-335), a largest round-£5 amount that fits.
 - Regime questions: Does `nearest_yes_amount` (a suggested alternative spend) or the "That fits / doesn't fit" line read as a recommendation about spending, and is that relevant to any RAO activity? Are consumer-credit affordability questions (for example "can I afford this loan") in scope, and does Penny's answer to one raise a credit-broking or advice question?
-- Safeguards: verdict word hidden from the headline (above); facts-only rules 3 and 8; hedged future events (rule 4, penny_agent.py:384); Safe to Spend itself fails closed when degraded (CLAUDE.md surface map, `backend/app/routers/analytics.py`).
+- Safeguards: verdict word hidden from the headline (above); facts-only rules 3 and 8; hedged future events (rule 4, penny_agent.py:384); Left to spend itself fails closed when degraded (CLAUDE.md surface map, `backend/app/routers/analytics.py`).
 - Open questions: none beyond those above.
 
 ### 8. Penny: explain tool and money-basics explainers (including tax mechanics)

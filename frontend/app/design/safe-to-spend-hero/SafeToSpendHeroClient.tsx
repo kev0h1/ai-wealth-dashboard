@@ -7,7 +7,7 @@
 // proposed cash-led hero, side by side, before anything is built for real.
 //
 // What G14 changes versus G6: G6 (shipped earlier) made the cards-short
-// hero show the NET safe-to-spend figure. Kevin has now reversed that after
+// hero show the NET left-to-spend figure. Kevin has now reversed that after
 // living with it — the asymmetry he flagged is that bills-short shows a NET
 // figure (cash gap + unpaid card growth added in, e.g. his own screen: £42
 // cash gap + £761 card growth rendered as £803 red) while cards-short
@@ -307,7 +307,7 @@ function ReplicaCard({ label, treatment, data, hidden }: { label: string; treatm
                   {data.income_before_payday > 0 && <BreakdownRow label="Income before payday" value={`+${exactAmount(data.income_before_payday)}`} />}
                   {exactLowestProjected != null && (
                     <BreakdownRow
-                      label={!hasSetAsides && !hasCardReserve ? (state === "short" ? "Final safety position" : "Safe to spend") : "Lowest balance reached"}
+                      label={!hasSetAsides && !hasCardReserve ? (state === "short" ? "Final safety position" : "Left to spend") : "Lowest balance reached"}
                       value={signedExactAmount(exactLowestProjected)}
                       derived
                       operator="→"
@@ -325,7 +325,7 @@ function ReplicaCard({ label, treatment, data, hidden }: { label: string; treatm
                     {exactLowestProjected != null && <BreakdownRow label="From cash forecast" value={signedExactAmount(exactLowestProjected)} />}
                     {calculationItems.map((item) => <BreakdownRow key={item.label} label={item.label} value={debitExactAmount(item.value)} />)}
                     <BreakdownRow
-                      label={!hasCardReserve ? (state === "short" ? "Final safety position" : "Safe to spend") : cashPositionLabel}
+                      label={!hasCardReserve ? (state === "short" ? "Final safety position" : "Left to spend") : cashPositionLabel}
                       value={signedExactAmount(exactCashRunway)}
                       derived
                       tone={!hasCardReserve && state === "short" && !isCardsShort ? "risk" : "default"}
@@ -340,7 +340,7 @@ function ReplicaCard({ label, treatment, data, hidden }: { label: string; treatm
                   <dl className="mt-1.5">
                     <BreakdownRow label="Cash brought forward" value={signedExactAmount(exactCashRunway)} />
                     <BreakdownRow label="Unpaid card growth" value={debitExactAmount(exactCardReserve!)} detail="Net balance increase this pay period; not total card purchases." />
-                    <BreakdownRow label={state === "short" ? "Final safety position" : "Safe to spend"} value={signedExactAmount(data.safe_to_spend)} derived tone={state === "short" && !isCardsShort ? "risk" : "default"} />
+                    <BreakdownRow label={state === "short" ? "Final safety position" : "Left to spend"} value={signedExactAmount(data.safe_to_spend)} derived tone={state === "short" && !isCardsShort ? "risk" : "default"} />
                   </dl>
                 </section>
               )}
@@ -433,7 +433,7 @@ export default function SafeToSpendHeroClient() {
 
         <header className="mb-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">G14 proposal</p>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Cash-led Safe to Spend hero</h1>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Cash-led Left to spend hero</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 text-pretty">{HERO_STATE_LABEL[stateSlug]} state. The hero figure changes between treatments; the collapsible ledger below it does not.</p>
         </header>
 
@@ -441,13 +441,13 @@ export default function SafeToSpendHeroClient() {
           {(treatment === "both" || treatment === "today") && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Today</p>
-              <ReplicaCard label="Safe to Spend" treatment="today" data={data} hidden={false} />
+              <ReplicaCard label="Left to spend" treatment="today" data={data} hidden={false} />
             </div>
           )}
           {(treatment === "both" || treatment === "proposed") && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Proposed</p>
-              <ReplicaCard label="Safe to Spend" treatment="proposed" data={data} hidden={false} />
+              <ReplicaCard label="Left to spend" treatment="proposed" data={data} hidden={false} />
             </div>
           )}
         </div>

@@ -58,7 +58,7 @@ export const FIGURE_DATA: Record<FigureState, Ok | null> = {
 
 // ── Spend from rail, as the backend delivers it (G234) ─────────────────────
 // The backend (cap_spend_from_to_pool) sends `spend_from_headroom` already
-// capped at the pooled Safe to Spend and floored at 0. These fixtures model
+// capped at the pooled Left to spend and floored at 0. These fixtures model
 // that OUTPUT by hand so the production card renders exactly what it would be
 // served; the client never caps anything itself.
 const RAIL_ACCOUNTS: Account[] = [
