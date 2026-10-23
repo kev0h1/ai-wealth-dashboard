@@ -93,7 +93,7 @@ any deletion, each with its deterministic tool path and an inline answer shape:
 | Question | Path | Inline answer |
 | --- | --- | --- |
 | "if I move £825 from Monzo, how much will be left" | `get_accounts` then `calculate` (balance minus 825) | the remaining balance with the working, no card |
-| "if I spend £40 today what is left" | `get_safe_to_spend` then `calculate` | what is left of Safe to Spend, working shown |
+| "if I spend £40 today what is left" | `get_safe_to_spend` then `calculate` | what is left of the Left to spend figure, working shown |
 | "what if my rent goes up by £100" | `get_upcoming_bills` then `calculate` (rent plus 100) | the new monthly figure, hedged as an estimate |
 | "what would happen if I contribute £300 a month at an interest of 6.5%" | `calculate` with `growth` (G245) | future value, paid in, growth, hedged, longer periods offered |
 | "if I save £200 a month, how much will my savings be in 6 months" | `get_accounts` then `calculate` with `growth` and `starting_balance` | balance plus contributions |

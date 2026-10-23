@@ -199,5 +199,5 @@ I have not scored likelihood or severity; that belongs to the assessor.
 6. Whether sending the user's name and full statement text (up to 15,000 characters) to a model provider is necessary and proportionate, and whether a transfer risk assessment for US processing is needed.
 7. Retention periods for portraits, aims, investment valuations, Sentry events and billing records, and which of SECURITY.md section 6 (DRAFT) or PRIVACY.md section 9 is authoritative.
 8. Whether a vulnerable-customer approach is needed for hygiene and debt content.
-9. Whether Art 22 is engaged by any status word or verdict (Safe to Spend, aims, Mirror) and what to record.
+9. Whether Art 22 is engaged by any status word or verdict (Left to spend, aims, Mirror) and what to record.
 10. Whether to publish or retain this DPIA and who signs it.
