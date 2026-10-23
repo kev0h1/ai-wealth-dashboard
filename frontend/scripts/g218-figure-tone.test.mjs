@@ -46,6 +46,11 @@ const DISCLAIMER = "An estimate from your bank data, not financial advice.";
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
 const render = (props) => renderToStaticMarkup(React.createElement(AppRouterContext.Provider, { value: router }, React.createElement(SafeToSpendCard, { loading: false, onRetry: noop, previewBalancesVisible: true, ...props })));
+// G320: a preview can force redaction without mutating a signed-in user's
+// saved preference. The existing visible fixture seam still works as before.
+const redactedPreview = render({ data: FIGURE_DATA["on-track"], spendFromPreview: { body: null, hideBalances: true } });
+assert.match(redactedPreview, /£••••/);
+assert.doesNotMatch(redactedPreview, /£\d/, "forced-hidden fixture must not expose money in text or ARIA");
 const hasLine = (html) => html.includes("data-sts-disclaimer") && html.includes(DISCLAIMER);
 const fx = FIGURE_DATA;
 assert.ok(hasLine(render({ data: fx["on-track"] })), "complete state shows the disclaimer");
