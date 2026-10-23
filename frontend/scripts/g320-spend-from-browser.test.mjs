@@ -37,7 +37,7 @@ async function assertCard(variant, scenario, mode, hide) {
   else assert.deepEqual(actual.limits, expected[scenario].limits, `${variant}/${scenario}: lower account limits`);
   if (["shared-two", "shared-three", "move"].includes(scenario) && !hide) {
     const pool = scenario === "shared-three" ? "£240" : "£7";
-    assert.equal(actual.body.split(pool).length - 1, 1, `${variant}/${scenario}: pooled value appears once in the body`);
+    assert.equal(actual.body.split(pool).length - 1, 0, `${variant}/${scenario}: pooled value stays in the hero, not repeated beside accounts`);
   }
   assert.equal(actual.move, scenario === "move", `${variant}/${scenario}: move block state`);
   if (scenario === "overlap") assert.match(actual.body, /Account limits share the total above\./, `${variant}: overlapping limits cannot be added together`);
@@ -88,7 +88,7 @@ try {
   assert.ok(controlLinks.every(href => href?.includes("variant=") && href.includes("scenario=") && href.includes("mode=") && href.includes("hide=")), "preview links retain the full query state");
   await b.evaluate("document.querySelector('nav[aria-label=\"Design preview controls\"] a').focus()");
   await b.key("Enter", "Enter", 13);
-  await b.waitFor(`new URLSearchParams(location.search).get('variant')==='a' && ${body}?.dataset.g320SpendFrom==='a'`);
+  await b.waitFor(`new URLSearchParams(location.search).get('variant')==='d' && ${body}?.dataset.g320SpendFrom==='d'`);
   await b.evaluate("history.back()");
   await b.waitFor(`new URLSearchParams(location.search).get('variant')==='b' && ${body}?.dataset.g320SpendFrom==='b'`);
   assert.equal(await b.evaluate("new URLSearchParams(location.search).get('hide')"), "1");

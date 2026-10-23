@@ -11,8 +11,8 @@ export function SpendFromVariant({ variant, model }: { variant: "a" | "b" | "c";
 
 function SharedCap({ model }: { model: SpendFromModel }) {
   return <>
-    <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Spend from</p>
-    <p className="mt-1 text-[13px] font-normal leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={`Up to ${fixtureMoney(model.pool)} in total`} /></p>
+    <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Held in</p>
+    <p className="mt-1 text-[13px] font-normal leading-5 text-slate-600 dark:text-slate-300">{model.accounts.length === 1 ? "Within the estimate above." : "One estimate across these accounts."}</p>
   </>;
 }
 function ScopeNote({ model }: { model: SpendFromModel }) {
@@ -31,7 +31,7 @@ function AccountIdentity({ account }: { account: DisplayAccount }) {
 }
 function LowerLimit({ account }: { account: DisplayAccount }) {
   if (account.limit === null) return null;
-  return <span className="shrink-0 text-right text-[12px] leading-5 text-slate-600 dark:text-slate-300">Up to <span data-g320-limit><MoneyText text={fixtureMoney(account.limit)} /></span></span>;
+  return <span className="shrink-0 text-right text-[12px] leading-5 text-slate-600 dark:text-slate-300"><span data-g320-limit><MoneyText text={fixtureMoney(account.limit)} /></span> held</span>;
 }
 function MoveReserve({ account }: { account: DisplayAccount }) {
   if (account.moveAmount === null) return null;
@@ -43,7 +43,7 @@ function BankRow({ model }: { model: SpendFromModel }) {
     <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-3">
       {model.accounts.map(account => <li data-g320-account={account.id} key={account.id} className="grid min-w-0 max-w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-x-2">
         <AccountIdentity account={account} />
-        {account.limit !== null && <p className="col-start-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300">Up to <span data-g320-limit><MoneyText text={fixtureMoney(account.limit)} /></span></p>}
+        {account.limit !== null && <p className="col-start-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300"><span data-g320-limit><MoneyText text={fixtureMoney(account.limit)} /></span> held</p>}
       </li>)}
     </ul>
     {model.move && <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={`${fixtureMoney(model.move.amount)} is already held back in ${model.move.source} for the move above.`} /></p>}

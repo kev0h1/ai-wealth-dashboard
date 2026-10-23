@@ -33,10 +33,10 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
   {
     slug: "spend-from-line",
-    name: "Spend from accounts · G320",
-    description: "Three layouts inside the real Safe to Spend card: A compact bank row, B aligned account list, C folded alternatives. One shared total, genuinely lower account limits and a separate held-back move context. Fictional one/two/three-account, same-bank and missing-logo examples, light/dark and Hide balances. The hero label and production layout are unchanged pending Kevin's choice.",
-    variants: [{ label: "A · Bank row", value: "a" }, { label: "B · Account list", value: "b" }, { label: "C · Folded accounts", value: "c" }],
-    states: [{ label: "One account", value: "one" }, { label: "Two accounts", value: "shared-two" }, { label: "Three accounts", value: "shared-three" }, { label: "Different limits", value: "different" }, { label: "One lower limit", value: "mixed" }, { label: "Overlapping limits", value: "overlap" }, { label: "Move held back", value: "move" }, { label: "Same bank", value: "same-bank" }, { label: "No bank logo", value: "unknown" }],
+    name: "Cash, cards and account layouts · G320",
+    description: "Round two uses the space beside the cash figure: D named account rail, E paired bank columns, F lead account with alternatives folded. Full production card includes purchases, confirmed card bill, unconfirmed reserve and safety-shortfall examples. One shared estimate, lower account limits, pending moves, masking and both themes; larger amounts get the full width. A/B/C remain for comparison. Inherits approved G322 wording; no production layout change.",
+    variants: [{ label: "D · Named rail", value: "d" }, { label: "E · Bank columns", value: "e" }, { label: "F · Lead account", value: "f" }, { label: "A · Bank row", value: "a" }, { label: "B · Account list", value: "b" }, { label: "C · Folded accounts", value: "c" }],
+    states: [{ label: "Card purchases", value: "cards-purchases" }, { label: "Confirmed card bill", value: "cards-monthly" }, { label: "Unconfirmed card bill", value: "cards-reserve" }, { label: "Cards and pending move", value: "cards-move" }, { label: "Cards and three accounts", value: "cards-shared" }, { label: "Larger cash figure", value: "cards-large" }, { label: "No card activity", value: "cards-none" }, { label: "One account", value: "one" }, { label: "Two accounts", value: "shared-two" }, { label: "Three accounts", value: "shared-three" }, { label: "Different limits", value: "different" }, { label: "One lower limit", value: "mixed" }, { label: "Overlapping limits", value: "overlap" }, { label: "Move held back", value: "move" }, { label: "Same bank", value: "same-bank" }, { label: "No bank logo", value: "unknown" }],
     group: "current",
   },
   {
