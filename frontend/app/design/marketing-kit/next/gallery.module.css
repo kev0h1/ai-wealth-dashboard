@@ -43,3 +43,5 @@
 .controls button:hover{border-color:#0f172a}
 .controls button:not([aria-pressed=true]):hover{background:#e2e8f0}
 .gallery a{-webkit-tap-highlight-color:rgba(79,70,229,.15);touch-action:manipulation}
+.topics{max-width:1400px;display:flex;flex-wrap:wrap;gap:8px;margin:0 auto 20px;padding:0;border:0}.topics legend{margin-bottom:10px;font-size:13px;font-weight:650;color:#475569}.topics button{min-height:44px;padding:0 15px;border:1px solid #94a3b8;border-radius:4px;background:transparent;color:#0f172a;font:inherit;font-size:14px;touch-action:manipulation}.topics button[aria-pressed=true]{background:#0f172a;color:#fff;border-color:#0f172a}.topics button:hover{border-color:#0f172a}.topics button:not([aria-pressed=true]):hover{background:#e2e8f0}
+.skip{position:absolute;left:20px;top:-100px;padding:12px;background:#fff;z-index:20}.skip:focus-visible{top:12px}

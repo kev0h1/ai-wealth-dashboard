@@ -314,7 +314,7 @@ function reducedMotion(): boolean {
  * wider, they are not symmetric in importance. White-on-indigo-600 measures
  * ~6.29:1 contrast, clears WCAG AA (4.5:1) with more room than the old
  * violet-600 fill (~5.70:1). */
-function UserBubble({ text }: { text: string }) {
+export function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5">
