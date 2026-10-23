@@ -277,6 +277,11 @@ export default function HomePage() {
   // the reconciliation sentence accurate after "Hide on Home" as well as on
   // first paint.
   const [coverMoveVisible, setCoverMoveVisible] = useState(false);
+  const [coverMoveReserves, setCoverMoveReserves] = useState<Record<string, number>>({});
+  const onCoverMoveVisibleChange = useCallback((visible: boolean, reserves: Record<string, number> = {}) => {
+    setCoverMoveVisible(visible);
+    setCoverMoveReserves(reserves);
+  }, []);
   // A manual sync can overlap the mount fetch. Only the most recently started
   // request may commit values, so an older calculation can never overwrite a
   // newer post-sync verdict.
@@ -1001,7 +1006,7 @@ export default function HomePage() {
               dismissible
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
-              onCoverMoveVisibleChange={setCoverMoveVisible}
+              onCoverMoveVisibleChange={onCoverMoveVisibleChange}
               banner={reauthBanner}
             />
           </div>
@@ -1070,6 +1075,7 @@ export default function HomePage() {
                   onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
                   spendFrom={spendFrom}
                   coverMoveVisible={coverMoveVisible}
+                  coverMoveReserves={coverMoveReserves}
                   syncing={heroSync ?? undefined}
                   onSyncRetry={() => { void (refreshFailed ? handleSync() : handleSyncRetry()); }}
                 />

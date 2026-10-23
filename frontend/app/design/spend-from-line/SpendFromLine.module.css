@@ -1,5 +1,0 @@
-/* Design routes hide the app's sidebar with a broad aside selector. Keep
-   the real card's financial context visible in this preview only. */
-.card aside[aria-label="Card balance activity"] {
-  display: block;
-}

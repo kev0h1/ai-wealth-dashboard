@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertCircle, ArrowRight, ChevronDown, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,16 +11,16 @@ import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib
 import { homeForecastPresentation, FORECAST_INK } from "@/lib/cashForecastStatus";
 import ForecastStatusBadge from "@/components/ForecastStatusBadge";
 import {
-  spendFromCombinedParts,
   spendFromTreatmentPlan,
   type SpendFromAccount,
   type SpendFromResult,
   type SpendFromTreatmentKind,
   type SpendFromTreatmentPlan,
 } from "@/lib/spendFromAccount";
-import { BankBadge, BANK_META, accountBrand, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
+import { BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
+import SpendFromAccountList from "@/components/SpendFromAccountList";
 import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
 
 type SpendFromTreatment = {
@@ -53,10 +53,11 @@ interface SafeToSpendCardProps {
    * claiming there is a card above after the user hides it.
    */
   coverMoveVisible?: boolean;
+  /** Visible funded transfer legs, for disclosure only. Already in headroom. */
+  coverMoveReserves?: Record<string, number>;
   /**
-   * G115 design-history seam. Production renders approved variant A when
-   * this is absent; /design can still inject rejected B/C treatments while
-   * keeping this component as the source of truth for every other detail.
+   * Design-history seam. Production renders G320 approved B account rows
+   * when absent. Other open design rounds may inject their own treatment.
    */
   spendFromPreview?: SpendFromTreatment;
   /**
@@ -103,150 +104,6 @@ function localBank(account: SpendFromAccount["account"]) {
 
 // G322 (G321 option B): the always-visible "what this counts" line under the hero.
 export const COUNTS_LINE = "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet.";
-
-function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
-  return (
-    <p className="mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty">
-      Each figure is how much of your estimate sits in that account, never more than the estimate.
-      {coverMoveVisible ? " The move above is already held back." : ""}
-    </p>
-  );
-}
-
-// G303 (Kevin 2026-10-20): when the per-account figures would add up to more
-// than Safe to Spend (`plan.combined`) the card shows ONE element, this line,
-// under the hero: no right-hand column, no repeated information. Banks are
-// named, never accounts (an account can be named after its holder), each with
-// a small badge when a bundled mark exists, else the name alone. Composed
-// from `spendFromCombinedParts`, the same parts the plain-text line uses.
-function SpendFromCombined({ entries, pool, amount, coverMoveVisible, onLogoError }: {
-  entries: SpendFromAccount[];
-  pool: number;
-  amount: (value: number) => string;
-  coverMoveVisible: boolean;
-  onLogoError: (logoSrc: string) => void;
-}) {
-  const parts = spendFromCombinedParts(entries, pool, amount, (entry) => accountBrand(entry.account).label);
-  return (
-    <p
-      data-g115-treatment="combined"
-      data-g300-combined="true"
-      className="mt-2 text-[12px] font-semibold leading-[1.45] text-slate-700 dark:text-slate-200 text-pretty"
-    >
-      <MoneyText text={parts.lead} />{" "}
-      {parts.groups.map((group, index) => {
-        const bank = localBank(group.entry.account);
-        const showMark = bank != null;
-        const last = index === parts.groups.length - 1;
-        return (
-          <Fragment key={group.label}>
-            <span className="whitespace-nowrap">
-              {showMark ? (
-                <span className="mr-1 inline-block size-4 align-[-3px]">
-                  <BankBadge
-                    logoSrc={bank.logoSrc}
-                    initials={bank.initials}
-                    initialsSize={bank.initialsSize}
-                    altText=""
-                    brandBg={bank.background}
-                    size={16}
-                    onLogoError={() => onLogoError(bank.logoSrc)}
-                  />
-                </span>
-              ) : null}
-              {group.label}
-            </span>
-            {last ? "." : index === parts.groups.length - 2 ? " or " : ", "}
-          </Fragment>
-        );
-      })}
-      {parts.clauses.length > 0 ? <MoneyText text={` ${parts.clauses.join(" ")}`} /> : null}
-      {coverMoveVisible ? " The move above is already held back." : ""}
-    </p>
-  );
-}
-
-function SpendFromBankRail({ entries, amount, onLogoError }: {
-  entries: SpendFromAccount[];
-  amount: (value: number) => string;
-  onLogoError: (logoSrc: string) => void;
-}) {
-  return (
-    // G171 (re-review: no `display: contents` on real list semantics —
-    // WebKit, including the Capacitor WebView, has a repeatedly regressed
-    // bug class where `contents` drops the element from the accessibility
-    // tree, taking its `aria-label`/list role with it). One grid for the
-    // whole rail, label included: the label is a row spanning both
-    // columns, left-aligned, so its left edge sits at the same x as the
-    // icon column by construction. `ul` and `li` stay real boxes and adopt
-    // the parent's two columns via CSS subgrid instead of `contents`, so
-    // the badge (column one) and the right-aligned amount (column two)
-    // still land in the same tracks as the label, and the `ul`'s
-    // `aria-label` and the `li`'s list-item semantics survive in every
-    // engine. A fixed 22px icon column plus a 1fr right-aligned figure
-    // column (G165) keeps the badge in one vertical line whatever the
-    // figure's own width is (£22 vs £275 no longer nudge it sideways); the
-    // icon size below must stay 22 to match it.
-    <div
-      data-g115-treatment="bank-rail"
-      className="grid min-w-[76px] grid-cols-[22px_1fr] items-center gap-x-1.5 gap-y-1.5"
-    >
-      <p className="col-span-2 text-left text-[9px] font-bold uppercase tracking-[0.07em] text-slate-400 dark:text-slate-500">Held in</p>
-      <ul aria-label="Accounts holding part of this estimate" className="col-span-2 grid grid-cols-subgrid gap-y-1.5">
-        {entries.map((entry) => {
-          const bank = localBank(entry.account)!;
-          const spare = amount(entry.headroom);
-          return (
-            <li key={entry.accountId} className="col-span-2 grid grid-cols-subgrid items-center">
-              <span className="sr-only">
-                {`${entry.name} at ${bank.label}, ${spare} held`}
-              </span>
-              <BankBadge
-                logoSrc={bank.logoSrc}
-                initials={bank.initials}
-                initialsSize={bank.initialsSize}
-                altText=""
-                brandBg={bank.background}
-                size={22}
-                onLogoError={() => onLogoError(bank.logoSrc)}
-              />
-              <span aria-hidden="true" className="money text-right text-[11px] font-semibold text-slate-700 dark:text-slate-200">{spare}</span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-function SpendFromNameRows({ entries, amount, coverMoveVisible }: {
-  entries: SpendFromAccount[];
-  amount: (value: number) => string;
-  coverMoveVisible: boolean;
-}) {
-  return (
-    <div data-g115-treatment="name-fallback" className="mt-2">
-      <p className="sr-only">Accounts holding part of this estimate</p>
-      <dl>
-        {entries.map((entry, index) => {
-          const bank = accountBrand(entry.account);
-          return (
-            <div key={entry.accountId} className={`flex items-center justify-between gap-3 py-1 ${index > 0 ? "border-t border-slate-100 dark:border-white/[0.07]" : ""}`}>
-              <dt className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
-                <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">{bank.label}</span>
-              </dt>
-              <dd className="money shrink-0 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-                {amount(entry.headroom)} <span className="font-sans font-normal text-slate-500 dark:text-slate-400">held</span>
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
-      <SpendFromScope coverMoveVisible={coverMoveVisible} />
-    </div>
-  );
-}
 
 /**
  * G148 (2026-09-23): the quiet placeholder for a rail that is absent rather
@@ -309,22 +166,8 @@ export function approvedSpendFromTreatment(
   coverMoveVisible: boolean,
   onLogoError: (logoSrc: string) => void,
   onRetry?: () => void,
+  reserveByAccount?: Record<string, number>,
 ): SpendFromTreatment | null {
-  // G303: the combined case is ONE line under the hero for both the rail and
-  // the named-rows kinds, never a right-hand column.
-  if ((plan.kind === "bank-rail" || plan.kind === "name-fallback") && plan.combined && plan.pool != null) {
-    return {
-      body: (
-        <SpendFromCombined
-          entries={plan.entries}
-          pool={plan.pool}
-          amount={amount}
-          coverMoveVisible={coverMoveVisible}
-          onLogoError={onLogoError}
-        />
-      ),
-    };
-  }
   switch (plan.kind) {
     // The one branch that still renders nothing. `pending` means the
     // request carrying this data has not settled, so there is nothing true
@@ -362,13 +205,10 @@ export function approvedSpendFromTreatment(
       };
 
     case "name-fallback":
-      return { body: <SpendFromNameRows entries={plan.entries} amount={amount} coverMoveVisible={coverMoveVisible} /> };
-
     case "bank-rail":
     default:
       return {
-        heroAside: <SpendFromBankRail entries={plan.entries} amount={amount} onLogoError={onLogoError} />,
-        body: <SpendFromScope coverMoveVisible={coverMoveVisible} />,
+        body: <SpendFromAccountList entries={plan.entries} pool={plan.pool} amount={amount} coverMoveVisible={coverMoveVisible} reserveByAccount={reserveByAccount} onLogoError={onLogoError} kind={plan.kind === "name-fallback" ? "name-fallback" : "bank-rail"} />,
       };
   }
 }
@@ -519,7 +359,7 @@ function CardBalanceFact({
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = spendFromPreview?.hideBalances === true || (!previewBalancesVisible && (hideNetWorth || !preferencesReady));
@@ -725,6 +565,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     coverMoveVisible,
     handleSpendFromLogoError,
     onRetry,
+    coverMoveReserves,
   );
   const spendFromTreatment = spendFromPreview ?? approvedSpendFrom;
 
