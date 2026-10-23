@@ -147,7 +147,7 @@ assert.match(acc, /PausedBanksStrip/);
 // ── First sign-up: same grammar, no figure, no verdict.
 const first = renderToStaticMarkup(React.createElement(FirstSyncCard, { state: "syncing", connections: [{ provider: "finexer", bank: "ob-monzo" }] }));
 assert.match(first, /No figure yet/);
-assert.match(first, /We will show your Safe to Spend once Monzo has synced/);
+assert.match(first, /We will show your estimated left to spend once Monzo has synced/);
 assert.match(first, /data-sync-chip="syncing"/);
 assert.doesNotMatch(first, /\b(red|rose)-\d|£/);
 

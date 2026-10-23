@@ -312,11 +312,9 @@ export function spendFromCombinedParts(
   const sameBank = groups.length < entries.length;
   const below = sameBank ? [] : entries.filter((entry) => Math.round(entry.headroom) < Math.round(limit));
   return {
-    lead: below.length === 0
-      ? `Spend up to ${amount(limit)} from`
-      : `Spend up to ${amount(limit)} in total from`,
+    lead: `Up to ${amount(limit)} of this is in`,
     groups,
-    clauses: below.map((entry) => `${labelFor(entry)} can cover up to ${amount(entry.headroom)}.`),
+    clauses: below.map((entry) => `${labelFor(entry)} holds up to ${amount(entry.headroom)} of it.`),
   };
 }
 
@@ -372,7 +370,7 @@ export function spendFromHeroLine(
       // question was asked rather than leaving the two to collide. This is
       // also, as of G111, what the line says when the only spare money
       // sits in a savings pot: deliberate, see this file's header comment.
-      return "No single account has spare to spend from right now.";
+      return "No single account has spare cash towards this estimate right now.";
     case "account": {
       const entries = [result.best, result.alternative].filter((e): e is SpendFromAccount => e != null);
       if (spendFromIsCombined(entries, pool)) return spendFromCombinedLine(entries, pool as number, amount);
@@ -381,8 +379,8 @@ export function spendFromHeroLine(
       // backend, so it can never read higher than the headline. When the
       // cap is what set it, say so; otherwise it is the account's own spare.
       return result.best.capped
-        ? `In ${result.best.name}${bank}: up to ${amount(result.best.headroom)} right now, the most your Safe to Spend allows.`
-        : `In ${result.best.name}${bank}: ${amount(result.best.headroom)} spare right now, within your Safe to Spend.`;
+        ? `In ${result.best.name}${bank}: up to ${amount(result.best.headroom)} of your estimate is in this account right now.`
+        : `In ${result.best.name}${bank}: ${amount(result.best.headroom)} of your estimate is in this account right now.`;
     }
   }
 }
@@ -404,8 +402,8 @@ export function spendFromAlternativeLine(
   // POOLED calculation, so an unqualified "£38 spare" reads as one of that
   // ledger's own rows.
   return result.alternative.capped
-    ? `Next best: ${result.alternative.name}, up to ${amount(result.alternative.headroom)}, the most your Safe to Spend allows.`
-    : `Next best: ${result.alternative.name}, ${amount(result.alternative.headroom)} spare in that account.`;
+    ? `Also in ${result.alternative.name}: up to ${amount(result.alternative.headroom)}.`
+    : `Also in ${result.alternative.name}: ${amount(result.alternative.headroom)}.`;
 }
 
 // ── Which treatment the card renders (G148, 2026-09-23) ─────────────────────
@@ -487,7 +485,7 @@ export function spendFromTreatmentPlan(
           entries: [],
           pool: null,
           combined: false,
-          message: "Spend from: we could not check your accounts just now.",
+          message: "We could not check your accounts just now.",
           retryable: true,
           diagnostic:
             "spend-from rail hidden: the GET /today request failed, so no account_eligibility was received.",
@@ -503,7 +501,7 @@ export function spendFromTreatmentPlan(
           // statement is that the account by account answer is not here;
           // anything more specific would be a claim about the user's banks
           // that the client has no evidence for.
-          message: "Spend from: not available right now.",
+          message: "The account breakdown is not available right now.",
           retryable: false,
           diagnostic:
             "spend-from rail hidden: GET /today succeeded but carried no account_eligibility field. "

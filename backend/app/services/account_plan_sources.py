@@ -137,7 +137,7 @@ def validate_source_account(
         raise HTTPException(422, "A card cannot pay a plan.")
     if doc is not None and doc.get("include_in_safe_to_spend") is False:
         raise HTTPException(
-            422, "This account is not counted towards Safe to Spend, so it cannot pay a plan.",
+            422, "This account is not counted towards Left to spend, so it cannot pay a plan.",
         )
     if aid in destination_ids or doc is None or not _is_eligible(
         doc, manual=bool(doc.get("_account_plan_manual")),

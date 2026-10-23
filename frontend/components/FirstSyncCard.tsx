@@ -86,7 +86,7 @@ export default function FirstSyncCard({
     >
       <div>
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Safe to Spend</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Estimated left to spend</p>
           <span data-sync-chip={state} className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${syncChipClass}`}>
             {state === "syncing" ? <Ring /> : <Hollow />}
             {chipLabel[state]}
@@ -94,7 +94,7 @@ export default function FirstSyncCard({
         </div>
         <p data-first-sync-slot className="mt-5 text-[38px] font-bold leading-none tracking-[-0.05em] text-slate-500 dark:text-slate-400">No figure yet</p>
         <p className="mt-2 text-[15px] font-semibold text-slate-700 dark:text-slate-200">
-          {`We will show your Safe to Spend once ${bank === "Your bank" ? "your bank" : bank} has synced`}
+          {`We will show your estimated left to spend once ${bank === "Your bank" ? "your bank" : bank} has synced`}
         </p>
       </div>
       <Status title={c.title} line={c.line} />

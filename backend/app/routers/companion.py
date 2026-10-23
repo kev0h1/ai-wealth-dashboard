@@ -62,7 +62,7 @@ async def build_today_payload(uid: str, *, payday_preview: bool = False) -> dict
     # uncapped figures that may exceed the headline.
     pool = await _pooled_safe_to_spend(uid)
     if pool is None:
-        log.warning("spend-from cap: pooled Safe to Spend unavailable for %s", uid)
+        log.warning("spend-from cap: pooled left to spend unavailable for %s", uid)
         return {"status": "ok", "items": items, "account_eligibility": None}
     cap_spend_from_to_pool(account_eligibility, pool)
     return {"status": "ok", "items": items, "account_eligibility": account_eligibility}

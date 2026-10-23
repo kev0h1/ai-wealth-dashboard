@@ -56,7 +56,7 @@ const acct = { id: "a1", name: "Joint bills", type: "Current", subtype: "CURRENT
   const tagged = renderToStaticMarkup(React.createElement(AccountLedgerRow, { row: bankToRow({ ...acct, include_in_safe_to_spend: false }, []), onClick: noop }));
   assert.match(tagged, /data-g231-not-counted/);
   assert.match(tagged, /Not counted/);
-  assert.match(tagged, /not counted towards Safe to Spend/, "spoken state");
+  assert.match(tagged, /not counted towards Left to spend/, "spoken state");
   assert.match(tagged, /£420/, "balance still shows");
   assert.match(tagged, /text-slate-500/);
   clean("tagged row", tagged);
@@ -69,7 +69,7 @@ const acct = { id: "a1", name: "Joint bills", type: "Current", subtype: "CURRENT
 // 3. Account sheet row.
 {
   const on = renderToStaticMarkup(React.createElement(CountTowardsSafeToSpendRow, { counted: true, onChange: noop }));
-  assert.ok(on.includes(COUNT_TOWARDS_LABEL) && COUNT_TOWARDS_LABEL === "Count towards Safe to Spend");
+  assert.ok(on.includes(COUNT_TOWARDS_LABEL) && COUNT_TOWARDS_LABEL === "Count towards Left to spend");
   assert.equal(COUNT_TOWARDS_HELPER, "Turn off for accounts you do not spend from, like a joint bills account.");
   assert.ok(on.includes(COUNT_TOWARDS_HELPER));
   assert.match(on, /role="switch"[^>]*aria-checked="true"|aria-checked="true"[^>]*role="switch"/);

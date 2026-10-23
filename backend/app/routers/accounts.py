@@ -419,7 +419,7 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
 
 @router.patch("/accounts/{account_id}")
 async def update_account(account_id: str, body: dict, user: dict = Depends(current_user)):
-    """G231: set whether an account counts towards Safe to Spend.
+    """G231: set whether an account counts towards Left to spend.
 
     Owner-scoped. Refused with 422 (and a static reason) when the account
     pays an upcoming item this pay period. Invalidates the response cache

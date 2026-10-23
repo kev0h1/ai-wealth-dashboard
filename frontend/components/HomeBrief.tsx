@@ -2252,9 +2252,9 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
       // G210: no verdict while a first sync runs, so no headroom claim.
       fallbackText = "Your first sync is still running. I will have a read on your money once it lands.";
     } else if (!safeToSpend || safeToSpend.status === "insufficient_data") {
-      fallbackText = "Your Safe to Spend figure isn't ready yet. I'm still mapping the bills, so check back later.";
+      fallbackText = "Your estimated left to spend isn't ready yet. I'm still mapping the bills, so check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
-      fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";
+      fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped.";
     } else if (safeToSpend.state === "tight") {
       fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills are mapped. I'll flag anything that needs you.";
     } else if (safeToSpend.state === "short" && safeToSpend.safe_to_spend <= -1) {
@@ -2267,12 +2267,12 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
       // bills gap, mirroring SafeToSpendCard's own short_reason branch)
       // instead of sending the user hunting for a card that doesn't exist.
       fallbackText = safeToSpend.short_reason === "cards_unconfirmed"
-        ? "Nothing new needs you. A card repayment still needs confirming in Safe to Spend below."
+        ? "Nothing new needs you. A card repayment still needs confirming in the left to spend card below."
         : isPlansOnlyShort(safeToSpend)
-        ? "Nothing new needs you. Your bills are covered, you're only short after the plans and envelopes you set aside, shown in Safe to Spend below."
-        : "Nothing new needs you. You're short this pay period, the gap is shown in Safe to Spend below.";
+        ? "Nothing new needs you. Your bills are covered, you're only short after the plans and envelopes you set aside, shown in the left to spend card below."
+        : "Nothing new needs you. You're short this pay period, the gap is shown in the left to spend card below.";
     } else {
-      fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills, enjoy it.";
+      fallbackText = "Nothing needs you today. Your estimate has headroom, and I am keeping an eye on the bills I know about.";
     }
     return (
       <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed"><MoneyText text={fallbackText} /></p>

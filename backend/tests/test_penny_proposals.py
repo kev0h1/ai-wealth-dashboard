@@ -237,7 +237,7 @@ def test_propose_create_allocation_happy_path(monkeypatch):
     assert result["kind"] == "create_allocation"
     assert result["params"]["fill_account_id"] == "a1"
     assert result["params"]["name"] == "Saving Challenge"
-    assert "Reduces safe to spend" in result["consequence"]
+    assert "Reduces left to spend" in result["consequence"]
     assert "£9" in result["consequence"]
 
 
@@ -906,7 +906,7 @@ def test_can_i_seam_proposal_branch(monkeypatch):
     proposal = {
         "proposal": True, "proposal_id": "abc123", "kind": "create_allocation",
         "summary": "Create allocation 'Saving Challenge'",
-        "consequence": "Reduces safe to spend by about £9 this period, less anything already paid in.",
+        "consequence": "Reduces left to spend by about £9 this period, less anything already paid in.",
         "params": {"name": "Saving Challenge"},
     }
 

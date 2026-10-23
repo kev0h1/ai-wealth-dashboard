@@ -98,7 +98,7 @@ MCP_SERVER_INSTRUCTIONS = (
     "result's pre-formatted string): never recompute, derive, sum, or "
     "round one yourself, even from two real figures you already have; "
     "call the calculate tool for any multi-step maths instead. Any verdict, state, "
-    "or classification string in a result (for example a safe-to-spend "
+    "or classification string in a result (for example a left-to-spend "
     "state, a spend verdict's reading sentence, an aim's on-track status) "
     "was already decided by the server from the user's live numbers: "
     "reproduce it exactly, never paraphrase, soften, or substitute a "

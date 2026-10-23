@@ -184,7 +184,7 @@ export function formatDateTime(iso: string): string {
 // added to MCP before this map is updated) still falls back to the old
 // underscore-strip rather than showing nothing.
 const TOOL_LABELS: Record<string, string> = {
-  get_safe_to_spend: "safe to spend figure",
+  get_safe_to_spend: "left to spend figure",
   get_upcoming_bills: "upcoming bills",
   get_accounts: "connected accounts",
   get_spend_verdict: "spend verdict",

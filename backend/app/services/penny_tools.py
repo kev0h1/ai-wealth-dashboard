@@ -297,9 +297,9 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "get_safe_to_spend",
             "description": (
-                "The user's current safe-to-spend figure: the money that is genuinely "
-                "free to spend before their next payday, already net of upcoming bills "
-                "and set-asides. Card balance growth is returned as a separate fact, "
+                "The user's current estimated left-to-spend figure (shown in the app as "
+                "Left to spend): the estimated cash left before their next payday, "
+                "already net of upcoming bills and set-asides. Card balance growth is returned as a separate fact, "
                 "never add or subtract it from the cash figure yourself. Use this for "
                 "ANY question about how much the user can afford, has spare, or has "
                 "left until payday. Figures are authoritative: quote them verbatim, "
@@ -982,7 +982,7 @@ PROPOSE_TOOL_SCHEMAS = [
             "name": "propose_create_allocation",
             "description": (
                 "Propose a new per-pay-period allocation (envelope): a "
-                "fixed amount reserved from safe-to-spend each period, "
+                "fixed amount reserved from left to spend each period, "
                 "filled by a specific recurring credit payment landing in "
                 "one account. Call get_fill_candidates first to find the "
                 "real payment name for `match_value` rather than guessing "
@@ -1419,7 +1419,7 @@ PROPOSE_TOOL_SCHEMAS = [
             "description": (
                 "Propose changing how the user's pay period is worked "
                 "out, the same thing the Pay Period sheet in Settings "
-                "does. This changes the period window Safe-to-Spend, "
+                "does. This changes the period window left to spend, "
                 "Upcoming and Planning all use, so only call it when the "
                 "user has clearly asked to change their pay period or "
                 "payday pattern, not merely mentioned a date.\n\n"
@@ -2137,7 +2137,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         sts = await compute_safe_to_spend(uid)
     except Exception:
         logger.exception("penny_tools: get_safe_to_spend failed for %s", uid)
-        return _tool_error("safe-to-spend lookup failed")
+        return _tool_error("left-to-spend lookup failed")
     if sts.get("status") != "ok":
         return {"insufficient_data": True, "reason": "no account data connected yet"}
     return {
@@ -4555,10 +4555,10 @@ async def _exec_get_mirror(uid: str) -> dict:
 # user's own numbers already live).
 _PAGE_EXPLAINER_COPY: dict[str, str] = {
     "home": (
-        "This is your Home brief. It leads with your Safe to Spend verdict, "
-        "worked out from your live account balances and what's still due "
-        "before payday. The figure updates as new transactions come in, so "
-        "it reflects where things stand right now, not a forecast."
+        "This is your Home brief. It leads with your estimated left to spend, "
+        "worked out from your account balances and the bills and income "
+        "Sorted expects before payday, so it can be wrong. It updates as "
+        "new transactions come in."
     ),
     "spend": (
         "This is Spend. It shows what you've spent this pay period, broken "
@@ -4684,8 +4684,8 @@ _TOPIC_COPY: dict[str, str] = {
 # the topic's very EXISTENCE on the flag rather than branching its copy.
 _MCP_CONNECTOR_REPLY = (
     "Sorted can connect to an AI assistant such as Claude over MCP. It's "
-    "read-only, so the assistant can only see summaries like your Safe to "
-    "Spend verdict and account balances, never your raw transaction list. "
+    "read-only, so the assistant can only see summaries like your left to "
+    "spend estimate and account balances, never your raw transaction list. "
     "To connect one, sign in to Sorted first, then in Settings open "
     "Connected assistants and paste the address shown there into your "
     "assistant. It's included on the Plus plan."
@@ -4737,7 +4737,7 @@ _TERMS_COPY: dict[str, str] = {
     ),
     "reserved": (
         "Reserved money is notional, not physically moved. Two things get "
-        "reserved before your Safe to Spend figure is worked out for any "
+        "reserved before your left to spend figure is worked out for any "
         "active commitment or envelope you've set up. Card balance growth "
         "is shown separately because the purchase has not left cash yet. "
         "Only growth on a card whose repayment has not been identified is "
@@ -4795,7 +4795,7 @@ _TERMS_COPY: dict[str, str] = {
         "A buffer is a cash safety-net target, normally three months of "
         "your typical spending unless you've set a fixed amount "
         "yourself. It's separate from the smaller day-to-day buffer used "
-        "inside Safe to Spend, which is a flat number you set yourself "
+        "inside left to spend, which is a flat number you set yourself "
         "rather than a savings target, so the word means slightly "
         "different things depending which screen you're on."
     ),
@@ -4850,8 +4850,8 @@ _TERMS_COPY["checkpoint"] = _TERMS_COPY["aim"]
 # (Over Time's Transfer-only exclusion).
 _NUMBERS_COPY: dict[str, str] = {
     "safe_to_spend_free": (
-        "Safe to Spend's FREE figure is the money that's genuinely yours "
-        "to spend before payday. It starts from the lowest point your "
+        "Left to spend's FREE figure is the estimate of what is left "
+        "before payday. It starts from the lowest point your "
         "spendable balance is projected to hit between now and payday "
         "(after bills and expected income), then subtracts your buffer, "
         "your goal plans for the period, and envelopes. Card balance growth "
@@ -4867,7 +4867,7 @@ _NUMBERS_COPY: dict[str, str] = {
         "before payday, minus bills still due, what you still have to set aside "
         "and your goal plans for the period. It excludes pooled no-op transfers, "
         "money moving between two of your own spendable accounts nets to nothing "
-        "for this total. It differs from Safe to Spend's FREE figure only in that "
+        "for this total. It differs from left to spend's FREE figure only in that "
         "it ends at payday rather than using the walk's lowest point, and it "
         "doesn't subtract your safety buffer, which only applies to FREE. If goal "
         "plans could not be loaded, the runway may read higher than it should."
@@ -5833,7 +5833,7 @@ async def _exec_propose_create_allocation(
     amount_fmt = _money(amount)["formatted"]
     summary = f"Create allocation '{name}' for {amount_fmt} per period from {account.name}"
     consequence = (
-        f"Reduces safe to spend by about {amount_fmt} this period, "
+        f"Reduces left to spend by about {amount_fmt} this period, "
         "less anything already paid in."
     )
     params = {
@@ -6070,10 +6070,10 @@ async def _exec_propose_update_allocation(
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
     if paused is True:
         summary = f"Pause the {label} allocation ({amount_fmt} per period{_alloc_period_note(doc)})"
-        consequence = "Frees up its unfilled remainder in safe to spend until you resume it."
+        consequence = "Frees up its unfilled remainder in left to spend until you resume it."
     elif paused is False:
         summary = f"Resume the {label} allocation ({amount_fmt} per period{_alloc_period_note(doc)})"
-        consequence = "Reserves its unfilled remainder from safe to spend again."
+        consequence = "Reserves its unfilled remainder from left to spend again."
     else:
         bits = []
         if "amount_per_period" in updates:
@@ -6083,7 +6083,7 @@ async def _exec_propose_update_allocation(
         if "recurrence" in updates:
             bits.append("to a one-off this period" if updates["recurrence"] == "once" else "to repeat every period")
         summary = f"Change the {label} allocation " + ", ".join(bits) if bits else f"Update the {label} allocation"
-        consequence = "Changes how much this allocation reserves from safe to spend."
+        consequence = "Changes how much this allocation reserves from left to spend."
     params = {"allocation_id": doc["id"], **updates}
     return await _create_proposal(uid, "update_allocation", params, summary, consequence)
 
@@ -6111,7 +6111,7 @@ async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
 
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
     summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period{_alloc_period_note(doc)})"
-    consequence = "Its unfilled remainder stops being reserved from safe to spend."
+    consequence = "Its unfilled remainder stops being reserved from left to spend."
     params = {"allocation_id": doc["id"]}
     return await _create_proposal(uid, "delete_allocation", params, summary, consequence)
 
@@ -6180,7 +6180,7 @@ async def _exec_propose_delete_commitment(uid: str, commitment_ref) -> dict:
     target = doc.get("target_date")
     label = doc["name"]
     summary = f"Cancel the {label} plan ({amount_fmt} by {target})" if target else f"Cancel the {label} plan ({amount_fmt})"
-    consequence = "Its per-period slice stops being reserved from safe to spend."
+    consequence = "Its per-period slice stops being reserved from left to spend."
     params = {"commitment_id": doc["id"]}
     return await _create_proposal(uid, "delete_commitment", params, summary, consequence)
 
@@ -6739,7 +6739,7 @@ async def _exec_propose_set_pay_period(uid: str, config) -> dict:
     else:
         summary = f"Set your pay period to {new_label}"
     consequence = (
-        "Resets your current pay period window, Safe-to-Spend recalculates "
+        "Resets your current pay period window, left to spend recalculates "
         "against it, this can change what Home, Upcoming and Planning show."
     )
     params = {"pay_period_config": clean}
@@ -7582,7 +7582,7 @@ async def _exec_propose_disconnect_bank(uid: str, connection_or_account_ref=None
     plural = "account" if count == 1 else "accounts"
     summary = f"Disconnect {bank_name} ({count} {plural})"
     consequence = (
-        "Removes every account and transaction from this connection. Your Safe-to-Spend and "
+        "Removes every account and transaction from this connection. Your left to spend estimate and "
         "spending history may change once they're gone, and any bill or income prediction built "
         "from this bank stops working. This cannot be undone from Penny, you would need to "
         "reconnect the bank."
