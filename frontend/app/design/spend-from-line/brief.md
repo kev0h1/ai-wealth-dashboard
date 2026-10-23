@@ -1,39 +1,45 @@
-# G320 direction contract
+# G320: taste-led third round
+
+## Design read and audit
+
+Reading this as: a mobile money-card redesign for UK consumers, with a calm, trust-first language, using Sorted's existing design system.
+
+Skill: `.claude/skills/design-taste-frontend/SKILL.md`, requested by Kevin and loaded from the shared checkout (the skill directory is not tracked into worktrees). Mode: redesign, preserve. DESIGN_VARIANCE 4, MOTION_INTENSITY 2, VISUAL_DENSITY 5: distinct information structures, quiet native interactions and a compact financial instrument. The skill is chiefly for site/marketing redesigns; its contextual audit, composition, density and pre-flight principles apply here. PRODUCT.md and DESIGN.md control product truth, accessible type, colours and legal copy. No marketing images, scroll effects, new fonts or design-system packages belong in this money card.
+
+Audit: A-F change account placement inside the same long production card. The cash figure has space beside it, while the separate card panel, repeated contextual copy and footer still make the card tall. The first two rounds did not explore the relationship between the cash instrument and card activity. Preserve the 30px ink cash figure, current status semantics, G322 counts/disclaimer, lower account limits, signed calculations, card reserves, real routes, masking and keyboard controls. Retire the single fixed anatomy as a constraint on this proposal round.
+
+The existing palette is slate-50/900 canvas, white/slate-800 surfaces, restrained indigo controls and semantic status badges. Figtree and JetBrains Mono, 16px corners and the existing page rhythm remain. No Penny gradient, new red, decorative images or motion. Route and navigation remain unchanged; previews are noindex and nofollow.
 
 ## Direction contract
 
-THESIS: Use the space beside the cash figure for readable account choices while retaining the complete card-activity story. Mode: Operate, a local extension to the existing card. Round two responds to Kevin's UAT screenshot and omitted card fixtures in round one.
+THESIS: Give cash, account limits and card activity deliberate relationships, rather than another arrangement of bank icons.
 
-OWN-WORLD: Inherit Sorted's Calm Cockpit, slate-50 light ground and slate-900 dark ground, white/slate-800 card surfaces, restrained indigo controls, existing sans UI face and Mono figures. Preserve G314's 11px label, 30px hero, 13px supporting copy and 12px metadata. No new visual identity or material treatment.
+OWN-WORLD: Sorted's Calm Cockpit and its named type, money, colour and accessibility rules. The 30px cash figure leads; a secondary card figure is 19px or smaller. Legal counts and disclaimer remain verbatim.
 
-STORY: Read the cash estimate, identify an account beside it, then distinguish purchases on cards, a confirmed repayment and an unconfirmed reserve. Compare the same full-card fictional data across three new layouts.
+STORY: Read the cash estimate, identify where it can be held, distinguish purchases from cash and understand any unconfirmed reserve before taking the existing next action.
 
-FIRST VIEWPORT: On a 390px phone, compact comparison controls precede one production card. On desktop, controls sit to its left. D/E/F place account identities beside the 30px cash figure through the existing heroAside preview slot. The approved G322 scope, counts line and disclaimer, the actual card-activity panel, calculation and footer actions remain. Large amounts use a full-width account layout to protect the hero's readability.
+FIRST VIEWPORT: G pairs the main cash figure with a smaller card readout, H uses period context beside cash and a compact expandable card-activity row, I separates the cash instrument and card activity into sibling surfaces. Controls are compact and the same fictional case is compared across all proposals.
 
-FORM: D named account rail, E paired bank columns, F lead account with alternatives folded beside the figure. A/B/C remain available as the previous round. No concept seed applies: new-work.md excludes local extensions from the roll. The signature interaction is F's native keyboard disclosure; no new animation.
+FORM: G Cash and card summary; H Compact statement; I Separate instruments. These are new preview components, not production patches. Existing A-F and current remain available for comparison. Native disclosures carry secondary detail; a repayment warning and safety shortfall are always visible. Long figures stack safely on a 320px phone.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+FINISH: screenshot and inspect mobile and desktop in both themes; run the taste pre-flight and web guidelines, independent financial/UX review, required repository checks, then publish with `session.sh finish G320 --uat-review`. The user chooses on UAT before a production fold-in.
 
-This extends the existing system; DESIGN.md remains the authority and no new raster assets are introduced. The incumbent SafeToSpendCard is the quality reference, not a new world or an approved image comp.
+## Financial and implementation boundaries
 
-The problem is the account guidance, not the hero's name. Bank marks should identify an account group rather than interrupt a sentence. One shared spending limit must never look like a separate allowance at every bank.
+The new renderers use the same fixed `fixtureHero` and `displayModel` snapshots as A-F. Reuse `deriveSafeToSpendHeadline`, `homeForecastPresentation` and `ForecastStatusBadge`; do not invent another verdict or cap calculation. No production component, API or saved preference changes. Custom markup is a coded proposal for a new anatomy, not evidence that production has shipped it.
 
-A, Bank row: the smallest open treatment. A separate shared limit precedes a wrapping row of bank identities. Genuinely lower limits sit with their bank; a move note is its own sentence below the row.
+One pooled cash estimate, never repeated as a separate allowance at each bank. Retain genuinely lower named account limits with held wording and an explicit non-additive caption. The three-account renderer example is a fixed array; Home currently selects two entries. A fold-in needs an explicit source-data decision.
 
-B, Account list: account identities form a single aligned list below the shared limit. Lower amounts align right. A held-back move amount sits under its actual source account.
+Card purchases are a separate flow, not another deduction from cash. A learned repayment is already in dated bills. The £252 cash and £325 unconfirmed fallback leave a signed −£73 safety position, while the available headline stays £0. Keep that warning visible without requiring disclosure. Genuine dated payment risk alone is red. A pending move is already reflected in both cash and account snapshots, never subtracted again.
 
-C, Folded accounts: one account stays visible with other options behind a native, keyboard-accessible disclosure. The shared limit stays visible even while alternatives are closed. The move context remains on the example move above the hero. This saves space but makes the alternatives less immediately visible.
+The new layouts preserve exact G322 counts/disclaimer and the substance of every card explanation. They may move approved sentences into progressively disclosed detail, but cash/card separation, confirmed due date and any unconfirmed reserve/shortfall stay visible. The native calculation retains distinct cash and card-safety arithmetic.
 
-All six proposals use the production SafeToSpendCard through its existing preview slots. This round changes no production component. It inherits the previous preview force-hide flag without changing saved preferences. No source model, cap, reservation or API is changed. G300/G303's invariant remains: one shared pool, with genuinely lower named account limits retained and explicitly non-additive. The current-layout comparison reuses the existing combined rule. The pooled limit is never repeated at every bank.
+Previous A-F still render the real SafeToSpendCard. Their CSS-module exception restores CardBalanceFact on design routes where the global nav-exempt aside rule otherwise hides it. No global CSS changes. URL-selected theme restores the previous document state, and every dynamic amount, including case captions and ARIA, masks without changing saved preferences. The fixed £0 floor in explanatory copy is not a private balance.
 
-Fixtures are fixed, fictional snapshots shaped like already-capped SpendFromAccount records. They cover one account, two or three accounts sharing a cap, differing limits that fit inside the pool, a lower account within a shared cap, two lower limits that overlap, a pending cover move from a spend-from account, same-bank disambiguation and a missing bank logo. Three-account examples exercise the renderer with an explicit array; the current Home selector normally surfaces two ranked entries. A fold-in must deliberately connect any chosen three-account presentation to the source data rather than invent another limit calculation. The pending-move context above the card is illustrative and has no action or server operation.
+## Review and lifecycle
 
-Round two adds seven full-card fixtures: the £242 / £96 / £54 example with £1,947 purchases, a confirmed clear-monthly bill, an unconfirmed £325 reserve against £252 cash leaving −£73, card activity alongside a pending move, three shared accounts, a long cash figure and zero activity. Cash steps reconcile before the separate fallback reserve. Confirmed card repayments are inside dated bills; ordinary card purchases are not subtracted again. The reserve state offers no spend-from account. New proposals inherit the real CardBalanceFact rather than replacing or hiding it. In the right-side rail full-cap account amounts are omitted, so a shared estimate cannot appear as a separate allowance at every bank.
+Use fictional purchase, learned repayment, unconfirmed reserve, payment-risk, move, shared-cap, lower-limit, same-bank, missing-logo, no-activity and large-figure examples. Check 320/390/1280px, keyboard disclosures, actual rendered visibility, signs, footer actions, no API requests and no private figures under Hide balances.
 
-The route's CSS module restores the real CardBalanceFact's display inside this preview only: the shared nav-exempt rule otherwise hides every aside on design routes. Browser verification checks actual panel visibility as well as its DOM content. No global CSS or production component is changed.
+Keep DESIGN.md unchanged: this round proposes layouts, not a durable system decision. When Kevin chooses and the winner is folded in, delete this preview directory, its registry entry and the optional G320 browser scripts unless another open item, compliance pack or marketing use needs them. A preview is evidence of itself only.
 
-G322 has now implemented Kevin's G321 wording choice. All six proposals inherit Estimated left to spend, Held in, the counts line and the revised disclaimer. Earlier A/B/C account captions now also use held wording. This layout round makes no further wording/legal decision. Currency in the example captions masks with the card.
-
-The preview temporarily applies its URL-selected theme to the document and restores the previous class and colour scheme on unmount. It does not write the user's saved theme or balance preference.
-
-Verification: true 390px light/dark captures, narrower and desktop checks, shared-cap and lower-limit checks, same-bank naming, all amounts masked under Hide balances, native disclosure, restored URL state, no live API requests, Web Interface Guidelines audit and independent review. Production layout remains unchanged pending Kevin's choice. Publish with session.sh finish G320 --uat-review, then retire this directory and both optional G320 browser scripts when the chosen layout is folded in, unless another open item or approval pack still needs them.
+The fixture preview is rendered at request time so its initial content does not wait for client hydration. Only its query-selected fixed data is used. Comparison controls do not prefetch every variant/scenario. This affects the preview route only; no production service or dependency changes. Lighthouse is run from a temporary cache outside project dependencies.
