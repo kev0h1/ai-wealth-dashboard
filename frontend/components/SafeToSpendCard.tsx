@@ -105,7 +105,7 @@ export const COUNTS_LINE = "Counts the current accounts you have connected and t
 function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
   return (
     <p className="mt-2 text-[11px] leading-[1.45] text-slate-500 dark:text-slate-400 text-pretty">
-      Each figure is what that account can cover, never more than your estimated left to spend.
+      Each figure is how much of your estimate sits in that account, never more than the estimate.
       {coverMoveVisible ? " The move above is already held back." : ""}
     </p>
   );
@@ -197,7 +197,7 @@ function SpendFromBankRail({ entries, amount, onLogoError }: {
           return (
             <li key={entry.accountId} className="col-span-2 grid grid-cols-subgrid items-center">
               <span className="sr-only">
-                {`${entry.name} at ${bank.label}, ${spare} spare`}
+                {`${entry.name} at ${bank.label}, ${spare} held`}
               </span>
               <BankBadge
                 logoSrc={bank.logoSrc}
@@ -235,7 +235,7 @@ function SpendFromNameRows({ entries, amount, coverMoveVisible }: {
                 <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">{bank.label}</span>
               </dt>
               <dd className="money shrink-0 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-                {amount(entry.headroom)} <span className="font-sans font-normal text-slate-500 dark:text-slate-400">spare</span>
+                {amount(entry.headroom)} <span className="font-sans font-normal text-slate-500 dark:text-slate-400">held</span>
               </dd>
             </div>
           );

@@ -187,7 +187,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   }
   const footnote = renderTreatment(PLANS["bank-rail"]).markup;
   check("G234: the footnote no longer calls the figure separate from Safe to Spend", !footnote.includes("not your full Safe to Spend"));
-  check("G234: the footnote ties the figure to the estimated left to spend", footnote.includes("never more than your estimated left to spend"));
+  check("G234: the footnote ties the figure to the estimate", footnote.includes("never more than the estimate"));
 }
 
 // ── G300 + G303: a binding pool renders ONE combined line, bank names, no column ──
@@ -211,7 +211,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
     check(`G303: ${label} is one line reading with bank names`, textOf(markup) === "Up to £9 of this is in Barclays or HSBC.");
     check(`G303: ${label} names no holder or product`, !/maingi/i.test(markup) && !markup.includes("Premier Current Account"));
     check(`G303: ${label} shows the figure once`, (markup.match(/£9/g) ?? []).length === 1);
-    check(`G303: ${label} drops the per-account footnote`, !markup.includes("Each figure is what that account can cover"));
+    check(`G303: ${label} drops the per-account footnote`, !markup.includes("Each figure is how much of your estimate sits in that account"));
     check(`G303: ${label} uses the agreed combined text style`, /text-\[12px\][^"]*font-semibold/.test(markup) && markup.includes("dark:text-slate-200"));
     check(`G303: exactly one paragraph`, (markup.match(/<p /g) ?? []).length === 1);
     const badges = (markup.match(/<img /g) ?? []).length;
@@ -240,7 +240,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("G303: same bank twice reads from Barclays once", textOf(sameMarkup) === "Up to £9 of this is in Barclays.", textOf(sameMarkup));
   check("G303: same bank twice shows one badge", (sameMarkup.match(/<img /g) ?? []).length === 1);
   const unknown = spendFromTreatmentPlan(bestSpendAccount({ barclays: E(9), hsbc: E(9) }, ACCTS), () => true);
-  check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is what that account can cover"));
+  check("G300: unknown pool keeps the per-account footnote", renderTreatment(unknown).markup.includes("Each figure is how much of your estimate sits in that account"));
 }
 
 // ── G303: the per-account case is byte-identical to main ───────────────────

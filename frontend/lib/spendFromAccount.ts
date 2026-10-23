@@ -312,9 +312,7 @@ export function spendFromCombinedParts(
   const sameBank = groups.length < entries.length;
   const below = sameBank ? [] : entries.filter((entry) => Math.round(entry.headroom) < Math.round(limit));
   return {
-    lead: below.length === 0
-      ? `Up to ${amount(limit)} of this is in`
-      : `Up to ${amount(limit)} of this is in`,
+    lead: `Up to ${amount(limit)} of this is in`,
     groups,
     clauses: below.map((entry) => `${labelFor(entry)} holds up to ${amount(entry.headroom)} of it.`),
   };
