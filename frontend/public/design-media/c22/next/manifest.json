@@ -3,7 +3,7 @@
   "round": "next",
   "date": "2026-10-22",
   "status": "creative-review-only",
-  "productionUIRevision": "781089bd4749315d95903bebd8da3f4f0092fca3",
+  "productionUIRevision": "6a85373d15ed04945ac38209aa8cdee096af6128",
   "sourceDependencies": {
     "frontend/components/SafeToSpendCard.tsx": "295feadde592ec1681cdb081627867f78a9b2e511245efaabebca6fdb90b8147",
     "frontend/components/ForecastStatusBadge.tsx": "e97c5a1fe82a2882b1bd3782d8e28ddd97dd447440bfca4b2419c819cf21117b",
@@ -609,8 +609,8 @@
     },
     {
       "file": "balance-light.mp4",
-      "bytes": 1189620,
-      "sha256": "82c70e5f1bac8ceb327b2062e6c21d8ae2d1c54485f732654bae4324b4db3a58",
+      "bytes": 1188388,
+      "sha256": "77624216f07d2d23b6744a3fe1bc1233daaf63f9dc2953d8fea417cde3769cc4",
       "kind": "film",
       "story": "balance",
       "theme": "light",
@@ -625,8 +625,8 @@
     },
     {
       "file": "balance-dark.mp4",
-      "bytes": 1195321,
-      "sha256": "b1739e43542d0ecadc4dca23c62419b150e6863bd263b121a45f8dabb9b304cc",
+      "bytes": 1195373,
+      "sha256": "24fa42c939119b1ba8cef410b9af91369137cc14ba7f4862ba4e06c245aaaac0",
       "kind": "film",
       "story": "balance",
       "theme": "dark",
@@ -679,8 +679,8 @@
     },
     {
       "file": "balance-dark-poster.jpg",
-      "bytes": 84958,
-      "sha256": "547937fe1583ea521820a1c9e65fa755e5f06f63189263f834d40a4ec619c211",
+      "bytes": 84504,
+      "sha256": "39676b362d0243c1e23695a3b58344cc96b0530f69ab403e5d162a6ed7924250",
       "kind": "video-poster"
     },
     {
@@ -697,8 +697,8 @@
     },
     {
       "file": "balance.vtt",
-      "bytes": 481,
-      "sha256": "d318283ccb18b81efab8c9ea64373970ad759b07f15a2da77d12d341c8b41e5d",
+      "bytes": 478,
+      "sha256": "2240e22954076897d5faf7b86cbd927b050c1ab5fc1389511179e37f490829ad",
       "kind": "captions"
     },
     {
