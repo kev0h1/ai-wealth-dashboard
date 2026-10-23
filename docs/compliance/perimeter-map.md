@@ -186,7 +186,7 @@ Status: DRAFT fact map for a qualified reviewer (board item A165, feeds A166). W
 - Surface and route: Home hero `frontend/components/SafeToSpendCard.tsx`, backend `backend/app/routers/analytics.py` (state "comfortable", "tight" or "short", analytics.py:5274-5276 region).
 - Wording samples:
   - `SafeToSpendCard.tsx` (`data-sts-disclaimer`): "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice." Renamed from "Safe to Spend" by G322 (G321 option B, Kevin 2026-10-23): label "Estimated left to spend", status word "Looks on track".
-  - `SafeToSpendCard.tsx` (`data-sts-counts`, always visible under the hero): "Counts the current accounts you have connected and the bills Sorted has learned. Does not count other accounts, pending payments or bills it has not spotted."
+  - `SafeToSpendCard.tsx` (`data-sts-counts`, always visible under the hero): "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet."
   - `SafeToSpendCard.tsx` captions: "Estimated cash left until {payday}", "short before payday", "short after plans and envelopes", "last known cash figure until {payday}".
   - `SafeToSpendCard.tsx:463`: "Purchases only. Balance transfers and repayments are not counted here."
   - `SafeToSpendCard.tsx:676-677`: "How we got {amount}" and "How we got {amount} short".

@@ -100,7 +100,7 @@ function localBank(account: SpendFromAccount["account"]) {
 }
 
 // G322 (G321 option B): the always-visible "what this counts" line under the hero.
-export const COUNTS_LINE = "Counts the current accounts you have connected and the bills Sorted has learned. Does not count other accounts, pending payments or bills it has not spotted.";
+export const COUNTS_LINE = "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet.";
 
 function SpendFromScope({ coverMoveVisible }: { coverMoveVisible: boolean }) {
   return (

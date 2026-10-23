@@ -307,7 +307,7 @@ Trade-offs. Keeps the brand term, the C22 assets and listing (which already say 
 | Status word "On track" (S2) | "Looks on track" |
 | Caption (S3) | "About {£X} left until {payday}" |
 | Hero sentence (S4) | "Estimated cash left until {payday}, after upcoming bills, plans and your {£110} buffer." |
-| What this counts (new) | "Counts the current accounts you have connected and the bills Sorted has learned. Does not count other accounts, pending payments or bills it has not spotted." |
+| What this counts (new) | "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet." |
 | Disclaimer (S6) | "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice." |
 | Pooled sentence (S9) | "This figure is shared by all your accounts. It is not a separate amount for each one." |
 | Spend-from lead (F1) | "Up to {£X} of this is in {bank}." |
