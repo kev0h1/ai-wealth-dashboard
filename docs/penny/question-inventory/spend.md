@@ -122,7 +122,7 @@ Backend semantics referenced below: `/root/ai-wealth-dashboard/backend/app/servi
 
 ### 2.5 Notable card — consequence line (SpendVerdictView:361-365)
 - **Shows**: `notable.consequence_line.text` — server-priced consequence (from `spend_impact`), deliberately un-alarmed styling. Absent when unpriced.
-- **Questions**: WHY this consequence — what assumption (rest of period at usual pace?) produced it? WHAT — is it a prediction or a fact? WHERE — what does it hit: bills, savings, safe-to-spend? HOW — what would make it go away? WHY does one card have it and another doesn't?
+- **Questions**: WHY this consequence — what assumption (rest of period at usual pace?) produced it? WHAT — is it a prediction or a fact? WHERE — what does it hit: bills, savings, left to spend? HOW — what would make it go away? WHY does one card have it and another doesn't?
 
 ### 2.6 Notable card — "Biggest:" cause line (`causeLine`, SpendVerdictView:64-67)
 - **Shows**: `Biggest: {name} £{amount} · {name} £{amount}.` from `notable.cause[]` (backend `_top_causes` over the category's debit transactions), clamped to 2 lines.
@@ -135,7 +135,7 @@ Backend semantics referenced below: `/root/ai-wealth-dashboard/backend/app/servi
 ### 2.8 Intent pair — question + "One-off" / "New normal" (SpendVerdictView:393-427)
 - **Shows**: `notable.prior_intent?.question` (softened repeat-ask when this category was already filed new-normal before) else "Was this a one-off, or the new normal?".
 - **Do**: "One-off" → `POST /trends/intent {answer:"one_off"}` (awaited, real error surface: "Couldn't save that, try again."), then card collapses + `ResolveToast`. "New normal" → never posts; opens `IntentConsentSheet` (§4.1).
-- **Questions**: WHAT happens if I say one-off — does it hide the card, silence future alerts, or change my baseline? WHAT does "new normal" change (that's exactly what the consent sheet answers)? WHY is it asking again — I said this last month (that's `prior_intent`). HOW do I undo (toast Undo → `DELETE /spend/intent/{category}`)? WHEN — does an answer apply to this period only or forever? WHERE does the answer show up elsewhere (Home, aims, safe-to-spend)?
+- **Questions**: WHAT happens if I say one-off — does it hide the card, silence future alerts, or change my baseline? WHAT does "new normal" change (that's exactly what the consent sheet answers)? WHY is it asking again — I said this last month (that's `prior_intent`). HOW do I undo (toast Undo → `DELETE /spend/intent/{category}`)? WHEN — does an answer apply to this period only or forever? WHERE does the answer show up elsewhere (Home, aims, left to spend)?
 
 ### 2.9 AimBlock — three states (SpendVerdictView:116-247)
 - **State C (offer)**: quiet "Set an aim" link; eligibility `multiple >= 1.5 && suggested_aim != null` from `category-signals`.
@@ -178,7 +178,7 @@ Backend semantics referenced below: `/root/ai-wealth-dashboard/backend/app/servi
 - **Header**: `Money you moved · £{sum of moved[]}, not counted in spending` + chevron (collapsed by default). Note: this sums client-side, while the header's Moved cell uses server `moved_total` — two paths to the same figure.
 - **Rows** (per `moved[]` entry, fixed order): icon by `kind` (`pots` PiggyBank, `credit_cards` CreditCard, `investments` TrendingUp, `own_accounts` ArrowLeftRight), `m.label` ("To your pots" / "To your credit cards" / "To your investments" / "Between your accounts"), sub-line `goal_names.join(" · ") · N payments`, amount.
 - **Do**: rows with `m.categories` route to `/transactions?categories=…&txn_type=debit&from&to&label=…` (SpendPage:766-781); rows without are inert divs.
-- **Questions**: WHAT is the difference between "To your pots" and "Between your accounts" (backend: `Transfer` that survived transfer-target refinement = plain shuffling)? WHY is my credit-card payment not spending — I *did* spend it? WHERE did "Between your accounts" actually go? WHY do goal names appear on pots but nowhere else? WHY is one row tappable and another not? HOW do I make a custom category count as moved? WHEN — does moving money to savings still count against my safe-to-spend?
+- **Questions**: WHAT is the difference between "To your pots" and "Between your accounts" (backend: `Transfer` that survived transfer-target refinement = plain shuffling)? WHY is my credit-card payment not spending — I *did* spend it? WHERE did "Between your accounts" actually go? WHY do goal names appear on pots but nowhere else? WHY is one row tappable and another not? HOW do I make a custom category count as moved? WHEN — does moving money to savings still count against my left to spend?
 
 ---
 
@@ -198,7 +198,7 @@ Backend semantics referenced below: `/root/ai-wealth-dashboard/backend/app/servi
 ### 4.1 `IntentConsentSheet` — "New normal" consent
 - **Shows**: title `previewTitle ?? "File {category} as your new normal?"`; "Here's what that changes:" + `lines[]` from `POST /spend/intent-preview {category}` (skeleton while loading; generic fallback "This updates what counts as usual for {category}." on failure).
 - **Do**: **File it** → `POST /trends/intent {new_normal}` owned by SpendPage (`handleFileNewNormal`, refetches signals + verdict, resolves card, toast); **Keep as one-off for now** / X → dismiss without writing; inline "Couldn't save that, try again."
-- **Questions**: WHAT does it change — my baseline, my aims, my safe-to-spend, future alerts? WHEN does the new usual take effect — this period or next? WHY is it priced (what are these lines derived from)? HOW do I reverse it (Undo toast only; no visible "manage my intents" surface)? WHAT — "keep as one-off for now" — did that just record a one-off (no, it records nothing)?
+- **Questions**: WHAT does it change — my baseline, my aims, my left to spend, future alerts? WHEN does the new usual take effect — this period or next? WHY is it priced (what are these lines derived from)? HOW do I reverse it (Undo toast only; no visible "manage my intents" surface)? WHAT — "keep as one-off for now" — did that just record a one-off (no, it records nothing)?
 
 ### 4.2 `MiscategorisedReviewSheet` — "Review these transfers"
 - **Penny explainer** (601-620): Transfer / Savings (savings account) / Debt (card payment) rules + "these look like your own transfers but landed in a spending category, which overstates your spending."

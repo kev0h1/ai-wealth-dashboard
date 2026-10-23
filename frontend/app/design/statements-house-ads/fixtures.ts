@@ -51,7 +51,7 @@ export function trialStateFor(account: HouseAdAccount): TrialState | null {
 
 export type EligibilityInput = {
   account: HouseAdAccount;
-  /** Safe to Spend hero is in a genuine risk state (red). Hides every house ad. */
+  /** Left to spend hero is in a genuine risk state (red). Hides every house ad. */
   riskState: boolean;
   /** ISO time until which this placement is snoozed, or null. */
   snoozedUntil: string | null;
@@ -77,18 +77,18 @@ const FINE_USED = `${money(LITE_MONTHLY_GBP)} every month, cancel any time.`;
 
 // One headline per placement, two bodies (one per trial state). British
 // English, no em dashes, no exclamation marks, no savings or money-saved
-// claims. "Safe to Spend" is the product's own term.
+// claims. "Left to spend" is the product's own term.
 export const COPY: Record<Placement, Record<TrialState, AdCopy>> = {
   home: {
     available: {
-      title: "See your real Safe to Spend",
+      title: "See your real Left to spend",
       body: "Connect your banks and Lite keeps it live. Try Lite free for 14 days.",
       cta: "Try Lite free for 14 days",
       fine: FINE_AVAILABLE,
       compare: { upload: "As of your last statement", live: "Refreshed from your banks" },
     },
     used: {
-      title: "See your real Safe to Spend",
+      title: "See your real Left to spend",
       body: "Subscribe and Lite keeps it live on your connected banks.",
       cta: "See plans",
       fine: FINE_USED,

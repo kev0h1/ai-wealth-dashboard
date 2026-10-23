@@ -67,7 +67,7 @@ Attached: screen recording "sorted-finexer-journey.mp4" and numbered screenshots
 04 Finexer hosted consent page (AIS consent, scope and duration shown to the customer).
 05 Bank's own authentication and account selection (customer authorises directly with the bank; Sorted never sees credentials).
 06 Return to Sorted: "Bank connected" confirmation, transactions syncing.
-07 Accounts and transactions as displayed in Sorted (Home safe-to-spend figure, Accounts list, Transactions list with categories).
+07 Accounts and transactions as displayed in Sorted (Home left-to-spend figure, Accounts list, Transactions list with categories).
 08 Settings: Disconnect a bank. Disconnecting revokes the consent with Finexer via the API and deletes that connection's accounts and transactions.
 09 Settings: Delete account and all data, with the confirmation dialog, which erases all records and revokes all consents.
 

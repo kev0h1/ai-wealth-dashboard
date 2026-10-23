@@ -677,7 +677,7 @@ Shared loader `loadAccounts()` (`AccountsPage.tsx:466-533`) fires five in parall
 **Questions**
 - WHEN: **when was this balance last right?** (`ManualAccount.updated_at` exists on the type and is **never rendered**.)
 - HOW: how do I keep it up to date — do I have to remember?
-- WHAT: does this count toward net worth? Toward Safe to Spend?
+- WHAT: does this count toward net worth? Toward Left to spend?
 - WHERE: my Cash ISA is "offline" — is it the same thing as the ISA on the Tax page?
 
 ---
@@ -822,7 +822,7 @@ Contract-notes list (last 6, "Show all N"), sale rows marked "sold" and rose-sig
 **Questions**
 - WHEN: **stopped syncing when?** What am I missing?
 - WHY: this happened last month too — why does it keep happening?
-- WHAT: are my Safe to Spend / bills wrong right now because of this?
+- WHAT: are my Left to spend / bills wrong right now because of this?
 - HOW: how long does reconnecting take, and do I have to do all my banks?
 
 ---
@@ -837,7 +837,7 @@ Contract-notes list (last 6, "Show all N"), sale rows marked "sold" and rose-sig
 - WHAT: **"move from" — does the app actually move my money?** (It suggests; the toggle wording implies more.)
 - WHERE: which accounts are excluded right now, and what did that change?
 - WHY: is my savings account suggested for bills?
-- HOW: does turning one off change my Safe to Spend?
+- HOW: does turning one off change my Left to spend?
 
 ---
 
@@ -906,7 +906,7 @@ Files:
 - WHY: **why did you decide this about me?** The evidence lines are prose, not linked figures.
 - WHERE: which transactions is this based on? (No drill-through from evidence to transactions.)
 - WHY: this was true in January but not now — is it stale?
-- WHAT: does this affect anything — my Safe to Spend, my insights, what Penny says?
+- WHAT: does this affect anything — my Left to spend, my insights, what Penny says?
 
 ---
 

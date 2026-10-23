@@ -20,7 +20,7 @@ const STATES: { id: StateId; label: string; note: string }[] = [
   { id: "stalled", label: "Stalled", note: "Authorised more than 10 minutes ago with no result." },
   { id: "failed", label: "Failed", note: "The first sync raised an error. The raw error is never shown." },
   { id: "second-bank", label: "Second bank", note: "An established user adds another bank: the ledger sits ABOVE a normal verdict, which is never zeroed or hidden." },
-  { id: "sts-syncing", label: "Safe to Spend, syncing", note: "The verdict slot while accounts exist but the first sync is still running." },
+  { id: "sts-syncing", label: "Left to spend, syncing", note: "The verdict slot while accounts exist but the first sync is still running." },
 ];
 
 const CONNECTIONS: FirstSyncConnection[] = [

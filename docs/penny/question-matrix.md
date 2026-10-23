@@ -54,8 +54,8 @@ row 68 (see the audit, "Residual").
 | 6 | home | What is 1,250 minus 380? | calculate | arithmetic | R (L) | A | A | (Kevin 2026-10-08) |
 | 7 | home | What is 15% of £2,400? | calculate | arithmetic | R (L) | A | A | (Kevin 2026-10-08) |
 | 8 | home | Take £1,250.00 away from £4,310.50 | calculate | arithmetic | A (L) | A | A | (Kevin 2026-10-08) |
-| 9 | home | Why is Safe to Spend lower than my balance? | explain, get_safe_to_spend | explanation | A (C) | A | A | home A7.3 |
-| 10 | home | What does Safe to Spend include and leave out? | explain | explanation | A (C) | A | A | home A7 |
+| 9 | home | Why is Left to spend lower than my balance? | explain, get_safe_to_spend | explanation | A (C) | A | A | home A7.3 |
+| 10 | home | What does Left to spend include and leave out? | explain | explanation | A (C) | A | A | home A7 |
 | 11 | home | How do I hide my balances? | explain | how-do-I | A (C) | A | A | home A0 |
 | 12 | home | How fresh is my bank data? | get_accounts | lookup | A (C) | A | A | home A7.7 |
 | 13 | home | How much could I save from the insights? | get_insights | lookup | A (C) | A | A | home A8 |

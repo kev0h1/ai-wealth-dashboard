@@ -149,9 +149,9 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "sts-accounts-route",
-    name: "Safe to Spend route to Accounts · G219 · approved B, folded in",
+    name: "Left to spend route to Accounts · G219 · approved B, folded in",
     description:
-      "G219: approved B, folded in. The quiet Your accounts link ships by default in the Safe to Spend action row below the disclaimer, beside the primary action or alone, in every state that renders a figure including syncing, never on loading, error or the first-sync shell · renders only the production SafeToSpendCard through props with fixture data, no variant switcher · ?state=on-track|tight|card|short-cash|short-plans|syncing&logos=on|missing&mode=light|dark",
+      "G219: approved B, folded in. The quiet Your accounts link ships by default in the Left to spend action row below the disclaimer, beside the primary action or alone, in every state that renders a figure including syncing, never on loading, error or the first-sync shell · renders only the production SafeToSpendCard through props with fixture data, no variant switcher · ?state=on-track|tight|card|short-cash|short-plans|syncing&logos=on|missing&mode=light|dark",
     states: [
       { label: "On track", value: "on-track" },
       { label: "Tight", value: "tight" },
@@ -172,12 +172,12 @@ const ROUTES: PreviewRoute[] = [
     slug: "sync-loading",
     name: "Sync loading state · G214 · approved B, folded in",
     description:
-      "G214, Kevin's pick B (stale-marked figure), now shipped: while a bank sync runs the Safe to Spend figure steps down to secondary ink with Last known amount and an as-of time, the chip carries the ring, and Accounts shows a ring beside the balance, Pending for a never-synced bank and a banner with Try again once a sync stalls or fails · the first sign-up has no hero yet, so the same grammar shows No figure yet above the sign-in ledger · renders the production SafeToSpendCard, FirstSyncCard, AccountLedgerRow and SyncNote with fixture props, nothing syncs · ?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark",
+      "G214, Kevin's pick B (stale-marked figure), now shipped: while a bank sync runs the Left to spend figure steps down to secondary ink with Last known amount and an as-of time, the chip carries the ring, and Accounts shows a ring beside the balance, Pending for a never-synced bank and a banner with Try again once a sync stalls or fails · the first sign-up has no hero yet, so the same grammar shows No figure yet above the sign-in ledger · renders the production SafeToSpendCard, FirstSyncCard, AccountLedgerRow and SyncNote with fixture props, nothing syncs · ?surface=hero|accounts&state=refresh|new-bank|background|stalled|failed|first-sync&mode=light|dark",
     states: [{ label: "Refresh", value: "refresh" }, { label: "New bank", value: "new-bank" }, { label: "Background", value: "background" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "First sign-up", value: "first-sync" }],
   },
   {
     slug: "safe-to-spend-figure",
-    name: "Safe to Spend figure colour · G218 · approved B, folded in",
+    name: "Left to spend figure colour · G218 · approved B, folded in",
     description:
       "Historic G218 comparison, superseded by Kevin’s G287 E approval on 21 October 2026. The production card now uses ink figures with compact semantic status indicators. This older fixture surface remains because the G218 regression gate imports its data; its historical tint alternatives are no longer the current production choice.",
     states: [
@@ -196,8 +196,8 @@ const ROUTES: PreviewRoute[] = [
     slug: "first-sync",
     name: "First bank sync state · G210",
     description:
-      "G210: what Home shows while a first bank sync is running, stuck or failed, instead of the connect hero and a red verdict computed from partial data · a calm ledger (bank connected, fetching transactions, working out your figures) reusing the G202 sign-in ledger, a stalled state after 10 minutes with Try again, a failed state with Try again and Connect a different bank, and Safe to Spend's own syncing branch with no figure and no verdict · no red, no gradient · renders the production FirstSyncCard and SafeToSpendCard with fixture props, an established user adding a second bank sees the ledger above a normal verdict · nothing syncs · ?state=syncing|stalled|failed|second-bank|sts-syncing&mode=light|dark",
-    states: [{ label: "Syncing", value: "syncing" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "Second bank", value: "second-bank" }, { label: "Safe to Spend, syncing", value: "sts-syncing" }],
+      "G210: what Home shows while a first bank sync is running, stuck or failed, instead of the connect hero and a red verdict computed from partial data · a calm ledger (bank connected, fetching transactions, working out your figures) reusing the G202 sign-in ledger, a stalled state after 10 minutes with Try again, a failed state with Try again and Connect a different bank, and Left to spend's own syncing branch with no figure and no verdict · no red, no gradient · renders the production FirstSyncCard and SafeToSpendCard with fixture props, an established user adding a second bank sees the ledger above a normal verdict · nothing syncs · ?state=syncing|stalled|failed|second-bank|sts-syncing&mode=light|dark",
+    states: [{ label: "Syncing", value: "syncing" }, { label: "Stalled", value: "stalled" }, { label: "Failed", value: "failed" }, { label: "Second bank", value: "second-bank" }, { label: "Left to spend, syncing", value: "sts-syncing" }],
   },
   {
     slug: "app-lock",
@@ -708,7 +708,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "g303-spend-from",
     name: "Spend from, combined line · G303",
     description:
-      "G303 preview, delete on fold-in. Kevin's fix for G300: when the pooled Safe to Spend binds for two accounts the right-hand SPEND FROM column is gone and ONE line sits under the hero, \"Spend up to £9 from Barclays or HSBC.\", with a small bank badge before each bank name and bank names (never account names) · the same bank twice is named once · figures that fit inside the pool keep the SPEND FROM column and footnote exactly as before · renders the production SafeToSpendCard with synthetic props · ?case=combined|same-bank|per-account&mode=light|dark&move=0|1",
+      "G303 preview, delete on fold-in. Kevin's fix for G300: when the pooled Left to spend binds for two accounts the right-hand SPEND FROM column is gone and ONE line sits under the hero, \"Spend up to £9 from Barclays or HSBC.\", with a small bank badge before each bank name and bank names (never account names) · the same bank twice is named once · figures that fit inside the pool keep the SPEND FROM column and footnote exactly as before · renders the production SafeToSpendCard with synthetic props · ?case=combined|same-bank|per-account&mode=light|dark&move=0|1",
     states: [{ label: "Combined", value: "combined" }, { label: "Same bank", value: "same-bank" }, { label: "Per account", value: "per-account" }],
   },
 ];

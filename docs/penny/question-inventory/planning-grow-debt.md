@@ -194,7 +194,7 @@ Single glass surface, two rows, skeletons while loading (`PlansDock`, `:231-272`
 ## D3. `PlanOneOffSheet` — "+ Plan a one-off / A payment you know is coming"
 `components/PlanOneOffSheet.tsx`. Fields name / amount / date (min today) / "Which account will it leave from?" (with "Not sure yet" + helper "Pick one so I can plan the cover if it's short."). Save → `POST /planned` (`api.addPlanned`, `lib/api.ts:2441`).
 - **Confirmation copy** driven by `PlannedImpact` (`lib/api.ts:126`): "Planned. You're still okay, £X in hand after this." / "Planned. This tips your window £X short, a cover plan will appear on Home." / "Planned. It's now in your upcoming bills."
-- **Questions** — WHAT is "your window" and where's the "cover plan on Home"? WHAT is "£X in hand" (Safe to Spend, not the runway shown on this very page)? WHY do the two figures differ? HOW do I make it recurring? WHERE did it go after saving?
+- **Questions** — WHAT is "your window" and where's the "cover plan on Home"? WHAT is "£X in hand" (Left to spend, not the runway shown on this very page)? WHY do the two figures differ? HOW do I make it recurring? WHERE did it go after saving?
 
 ## D4. `CommitmentSheet` — plan a big expense / edit a plan
 `components/CommitmentSheet.tsx`. Header sub: "A goal you set money aside for, separate from single bills."
@@ -414,7 +414,7 @@ The slot-confirm card, the `/scenario` page and `POST /scenario/run` are deleted
 
 # I. Cross-surface question clusters (the ones no single element answers)
 
-1. **Three different "how much is free" numbers**: Planning runway (`spendable − bills to payday`), Grow `surplus_monthly` (monthly income vs spending, post-debt), `PlanOneOffSheet`'s Safe-to-Spend "in hand" figure, plus Scenario "Month-end cash". No surface reconciles them. → *WHY don't these agree? WHICH one should I trust?*
+1. **Three different "how much is free" numbers**: Planning runway (`spendable − bills to payday`), Grow `surplus_monthly` (monthly income vs spending, post-debt), `PlanOneOffSheet`'s Left to spend "in hand" figure, plus Scenario "Month-end cash". No surface reconciles them. → *WHY don't these agree? WHICH one should I trust?*
 2. **"Demonstrated movement"** underpins the card payoff dates, "£X/mo at your pace", the dearest-card-first pool and the scenario debt block (`DebtPlanMovement.basis`, `periods_used` — both in the payload, **never rendered**). → *WHAT is "my pace", over how many periods, and does it include the payment that's in my upcoming bills?*
 3. **0% promo dates** appear as month-only in three places with three formats: Plans dock "Next 0% ends Sep 2026", rate pill "0% until Sep", Grow "at 0% until 30 Sep 2026" (`formatPromoCliff` is the only one that shows a day). → *WHEN exactly, and what changes that day?*
 4. **No action ever attaches to advice**: transfer routes, dearest-card-first, "£X more a month", ladder rungs, absorb candidates — all read-only. → *HOW do I do the thing you just told me about, and how do I tell you I did it?*

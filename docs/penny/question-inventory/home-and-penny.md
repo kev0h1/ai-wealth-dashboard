@@ -17,7 +17,7 @@ Source files traced: `app/components/HomePage.tsx`, `components/HomeBrief.tsx`, 
 |---|---|---|
 | `api.accounts()` | `GET /accounts` | Your estate rows, reauth banners, fresh-user detection |
 | `api.getInvestmentAccounts()` | `GET /investment/accounts` | Estate investment row, +N more count |
-| `api.safeToSpend()` | `GET /safe-to-spend` | Safe-to-Spend card, brief fallback copy, payday window |
+| `api.safeToSpend()` | `GET /safe-to-spend` | Left to spend card, brief fallback copy, payday window |
 | `api.getToday()` | `GET /today` | The Brief (companion items), payday plan card |
 | `api.getNeedleSummary()` | `GET /needle/summary` | Last-month strip, `card_delta_so_far` fallback |
 | `api.transactionsSearch({page:1,page_size:12})` | `GET /transactions/search` | Recent Transactions (over-fetch 12, show 6) |
@@ -71,8 +71,8 @@ Items are bucketed by `type` and rendered by distinct card components. Every car
 - "Nothing needs you today. I'm keeping an eye on the bills, just check back later." (insufficient data)
 - "…Your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise." (tight, ≤3 days)
 - "…Cash is tight for the rest of this pay period, but the bills are mapped. I'll flag anything that needs you." (tight)
-- "Nothing new needs you. The one thing worth a look is the card spending this period, shown in Safe to Spend below." (short/cards)
-- "Nothing new needs you. You're short this pay period, the gap is shown in Safe to Spend below." (short/bills)
+- "Nothing new needs you. The one thing worth a look is the card spending this period, shown in Left to spend below." (short/cards)
+- "Nothing new needs you. You're short this pay period, the gap is shown in Left to spend below." (short/bills)
 - "…You've got headroom, and I'm watching the bills, enjoy it." (comfortable)
 
 | Bucket | Questions |
@@ -183,7 +183,7 @@ Fallback variant (no `plan_dest`): headline + body only.
 | HOW | How do I do the transfer? Can I do part of it? How do I mark it done so it stops asking? How do I tell it to ignore an account (e.g. joint/kids' savings)? |
 | WHEN | When must the money be there by (`needs_by`)? What's the deadline before an overdraft fee / failed DD? When does "before period end" fall? |
 
-### A3.9 "Cleared from Home" pointer row (`HomeBriefClearedRow`, `HomeBrief.tsx:1251-1285`) — rendered by HomePage **below** Safe-to-Spend
+### A3.9 "Cleared from Home" pointer row (`HomeBriefClearedRow`, `HomeBrief.tsx:1251-1285`) — rendered by HomePage **below** Left to spend
 **Shows** — Penny gradient square + one sentence: `"{A money move|An upcoming bill|A spending change|A pace note|A win|A question|Last month's review|Your payday plan} is still on Penny."` or `"… and {N-1} more are still on Penny."` + chevron. Only when everything in the brief was hidden.
 **Endpoint** — derived from the same `/today` feed + local dismiss store.
 
@@ -258,19 +258,19 @@ Gated on Home to the payday window (`lib/paydayWindow.ts`: live plan exists, OR 
 | HOW | How do I use the app offline / see cached figures? |
 | WHEN | When will it be back? |
 
-## A7. SAFE TO SPEND card (`components/SafeToSpendCard.tsx`) — `GET /safe-to-spend`
+## A7. LEFT TO SPEND card (`components/SafeToSpendCard.tsx`) — `GET /safe-to-spend`
 
 The single densest surface on Home. Every sub-element below is its own question generator.
 
 ### A7.1 Whisper label + state icon
-**Shows:** "SAFE TO SPEND" + ShieldCheck (comfortable) / AlertCircle (tight, or an unconfirmed card repayment) / AlertTriangle (cash shortfall). Colour is confined to the small signifier except for a genuine cash shortfall, where the hero figure is red too.
+**Shows:** "LEFT TO SPEND" + ShieldCheck (comfortable) / AlertCircle (tight, or an unconfirmed card repayment) / AlertTriangle (cash shortfall). Colour is confined to the small signifier except for a genuine cash shortfall, where the hero figure is red too.
 
 | Bucket | Questions |
 |---|---|
-| WHAT | What is "safe to spend" — is it my balance? Safe by whose definition? What does the shield/triangle mean? |
+| WHAT | What is "left to spend" — is it my balance? Safe by whose definition? What does the shield/triangle mean? |
 | WHY | Why amber and not red? Why did the icon change since yesterday? |
 | HOW | How do I get back to green? |
-| WHEN | Safe to spend between now and when? |
+| WHEN | Left to spend between now and when? |
 
 ### A7.2 Verdict headline
 **Shows** one cash figure plus its period boundary (+ " · estimated" when `estimated`):
@@ -375,7 +375,7 @@ Note the client-side tolerance: a backend `short` within one penny of zero and w
 | WHAT | What expired — a consent, a token? Did I do something wrong? Will I lose history? |
 | WHY | Why do connections expire? Why this bank and not the others? |
 | HOW | How long does reconnecting take? Do I need my bank app/card reader? |
-| WHEN | When did it stop syncing? How stale is my Safe to Spend because of this? How often will this happen (90 days)? |
+| WHEN | When did it stop syncing? How stale is my Left to spend because of this? How often will this happen (90 days)? |
 
 ## A10. "YOUR MONEY" — Coming up · 14 days (`components/UpcomingBillsStrip.tsx`) — `GET /cashflow`
 
@@ -393,7 +393,7 @@ Tap → `/planning?day={heaviest or today ISO}`. States: skeleton, "Couldn't loa
 |---|---|
 | WHERE | Which bills are these — name them. Which account will each come out of? Where's my rent/mortgage — why isn't it here? Where did the "moving between your accounts" money go? |
 | WHAT | What counts as a "bill" here — is a transfer a bill? What is "movement" vs spend? What does "% of this fortnight" mean? What is a "heaviest day"? Why do bill names look like bank gibberish (or get renamed)? |
-| WHY | Why 14 days and not until payday? Why is this total different from Safe to Spend's BILLS? Why is one day carrying everything? Why is a bill I cancelled still listed? Why is an amount an estimate? |
+| WHY | Why 14 days and not until payday? Why is this total different from Left to spend's BILLS? Why is one day carrying everything? Why is a bill I cancelled still listed? Why is an amount an estimate? |
 | HOW | How do I move/skip/delete a bill? How do I mark one as paid? How do I add a bill you missed? How do I stop counting a transfer as an outgoing? |
 | WHEN | Exactly which dates? What happens when a due date falls on a weekend? Does "today" mean it's already gone or still to come? |
 
@@ -574,7 +574,7 @@ Degraded path (no `headline`): the whole `reply` renders as plain body text. Out
 |---|---|
 | WHERE | Where did that figure come from — which accounts/bills? Show me the transactions behind it. |
 | WHAT | What does "yes" actually leave me with? What is a "period" in "£X/period"? Is this advice or information? Does it account for my card bill? What does "out of scope" mean — why won't she answer? |
-| WHY | Why no? Why that number and not another? Why is her answer different from what Safe to Spend says? Why did she say yes yesterday and no today? What did she assume? |
+| WHY | Why no? Why that number and not another? Why is her answer different from what Left to spend says? Why did she say yes yesterday and no today? What did she assume? |
 | HOW | How do I make the answer "yes" — what would I have to change? How do I set this up (offer chip)? How do I correct a wrong assumption? |
 | WHEN | Until when does this answer hold? When would it change? When would the commitment complete (`target_date`)? |
 
@@ -619,7 +619,7 @@ The "Here's what I understood" slot-confirm card and its "Run it" button no long
 | Bucket | Questions |
 |---|---|
 | WHERE | Which pot/account will fund it? Where is the money actually held? |
-| WHAT | What is "reserved" — is it moved or just earmarked? Does this reduce my Safe to Spend? What is a "pay period slice"? |
+| WHAT | What is "reserved" — is it moved or just earmarked? Does this reduce my Left to spend? What is a "pay period slice"? |
 | WHY | Why that per-period amount? Why that target date? Is it feasible (`feasibility`, `feasibility_note`)? |
 | HOW | How do I change/cancel it later? How do I fund it from multiple pots? How do I skip a period? |
 | WHEN | When will it be fully funded? When does the first slice come out? |
@@ -636,5 +636,5 @@ The "Here's what I understood" slot-confirm card and its "Run it" button no long
 6. **Attention glow (`needs-you`)** — at most one card glows: reconnect > sync error > live payday plan; nothing glows otherwise. → *"Why is this card glowing? Why is nothing glowing when I'm short?"*
 7. **Dismissal semantics** — three different mechanics live on Home: server dismiss (`POST /today/dismiss`), Home-only localStorage hide (7-day expiry), and window-scoped payday-entry hide (keyed to `next_payday`). All look like the same ✕. → *"Is it gone forever? Why did it come back? Where did it go?"*
 8. **Estimated / "~" markers** — `estimated` suffix on the verdict, `~£X expected` salary, `~£X spending` in payday dests. → *"What's estimated vs known? How confident are you? How do I correct it?"*
-9. **Two "how much can I spend" answers** — Safe to Spend's FREE tile vs Penny's verdict vs the pace `£X/day`. → *"Which number do I actually trust?"*
+9. **Two "how much can I spend" answers** — Left to spend's FREE tile vs Penny's verdict vs the pace `£X/day`. → *"Which number do I actually trust?"*
 10. **Missing "why" drill-downs** — no element on Home exposes the underlying bill list, transaction list, or arithmetic for its own figure; every tap routes to a different page (`/planning`, `/cards`, `/spend`, `/insights`, `/month`, `/accounts`). → *"Show me the maths" is unanswerable in place on nearly every card.*

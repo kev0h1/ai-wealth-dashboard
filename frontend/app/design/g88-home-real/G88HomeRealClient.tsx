@@ -352,7 +352,7 @@ export default function G88HomeRealClient() {
           </a>
           <h1 className="mt-4 text-balance text-[30px] font-bold tracking-[-.04em] text-slate-950 dark:text-white">Home, on the canvas: Kevin&apos;s real numbers</h1>
           <p className="mt-2 max-w-[65ch] text-sm leading-6 text-slate-600 dark:text-slate-400">
-            {variants[variant].summary} The hero and every card below are the real production components, rendered with Kevin&apos;s real Safe to Spend payload and today&apos;s brief items from {REAL_DATA_DATE_LABEL}, not invented figures.
+            {variants[variant].summary} The hero and every card below are the real production components, rendered with Kevin&apos;s real Left to spend payload and today&apos;s brief items from {REAL_DATA_DATE_LABEL}, not invented figures.
           </p>
         </header>
         {layout}
