@@ -179,7 +179,7 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
               <Stat label="Signing" value={fxw.signing_configured ? "Enforced" : "Not set"} tone={fxw.signing_configured ? OK : WARN} />
               <Stat label="Without webhook" value={`${fxw.consents_without_webhook}`} hint={`of ${fxw.authorized_consents} connected`} />
               <Stat label="API calls today" value={`${fxw.api_calls_today}`} hint={`yesterday ${fxw.api_calls_yesterday}`} />
-              <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook`} hint={`${fxw.poll_syncs_today} polled`} />
+              <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook, ${fxw.poll_syncs_today} polled, ${fxw.user_syncs_today} user, ${fxw.history_syncs_today} history`} hint={`yesterday ${fxw.user_syncs_yesterday} user, ${fxw.history_syncs_yesterday} history`} />
             </div>
           </div>
         </Block>

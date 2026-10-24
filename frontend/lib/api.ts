@@ -1987,6 +1987,10 @@ export type OpsHealth = {
     api_calls_yesterday: number;
     webhook_syncs_today: number;
     poll_syncs_today: number;
+    user_syncs_today: number;
+    user_syncs_yesterday: number;
+    history_syncs_today: number;
+    history_syncs_yesterday: number;
   } | null;
 };
 // E9: GET /ops/webhooks/recent (owner-only, allowlist projection).

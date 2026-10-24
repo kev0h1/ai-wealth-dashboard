@@ -310,6 +310,7 @@ def finexer_poll_due(
     *,
     poll_hours: Optional[float] = None,
     stale_hours: Optional[float] = None,
+    safety_net_hours: float = 0,
 ) -> bool:
     """Is this authorised consent due a reconcile sync (naive-UTC `now`)?
 
@@ -320,6 +321,10 @@ def finexer_poll_due(
     - No webhook within `stale_hours` (or ever): fall back to the tier's own
       cadence, exactly the pre-A167 behaviour.
     - poll_hours <= 0 disables the safety-net gating entirely (legacy).
+    - E11 `safety_net_hours` > 0 (runtime setting SYNC_WEBHOOK_SAFETY_NET_HOURS,
+      0 is off): on top of the above, a consent is only polled when it has had
+      neither a webhook nor a sync in that many hours. Never-synced consents
+      are still always due.
     """
     if tier_window is None:
         return False
@@ -332,7 +337,24 @@ def finexer_poll_due(
     last_webhook = fx.get("last_webhook_at")
     if poll_hours > 0 and last_webhook is not None and last_webhook >= now - timedelta(hours=stale_hours):
         window = max(timedelta(hours=poll_hours) - timedelta(minutes=30), tier_window)
-    return last_synced < now - window
+    if not last_synced < now - window:
+        return False
+    if safety_net_hours and safety_net_hours > 0:
+        latest = last_synced
+        if last_webhook is not None and last_webhook > latest:
+            latest = last_webhook
+        return latest < now - timedelta(hours=safety_net_hours)
+    return True
+
+
+def effective_poll_window(tier_window: Optional[timedelta], sync_poll_hours: float) -> Optional[timedelta]:
+    """E11: apply SYNC_POLL_HOURS to a tier's staleness window. Half an hour is
+    taken off so a cron tick never drifts a whole cycle late, and a tier is
+    never polled more often than its own window, so the default of 4 (3 h 30)
+    changes nothing and Lite's daily window is kept."""
+    if tier_window is None:
+        return None
+    return max(tier_window, timedelta(hours=sync_poll_hours) - timedelta(minutes=30))
 
 
 # ── Per-day Finexer API-call counters ─────────────────────────────────────
@@ -343,7 +365,8 @@ def _day_key(now: Optional[datetime] = None) -> str:
 async def bump_daily_counters(now: Optional[datetime] = None, **increments: int) -> None:
     """$inc counters on one worker_runs_col doc per UTC day (`requests`,
     `rate_limited`, `webhook_events`, `webhook_syncs_enqueued`,
-    `webhook_events_coalesced`, `poll_syncs_enqueued`). Best effort: metrics
+    `webhook_events_coalesced`, `poll_syncs_enqueued`, and E11's `user_syncs` and
+    `history_syncs`). Best effort: metrics
     must never break a sync or a webhook."""
     incs = {k: int(v) for k, v in increments.items() if v}
     if not incs:
@@ -408,4 +431,9 @@ async def webhook_health(now: Optional[datetime] = None) -> dict:
         "api_calls_yesterday": int(yesterday.get("requests", 0)),
         "webhook_syncs_today": int(today.get("webhook_syncs_enqueued", 0)),
         "poll_syncs_today": int(today.get("poll_syncs_enqueued", 0)),
+        # E11: user-present refreshes and Settings history refreshes.
+        "user_syncs_today": int(today.get("user_syncs", 0)),
+        "user_syncs_yesterday": int(yesterday.get("user_syncs", 0)),
+        "history_syncs_today": int(today.get("history_syncs", 0)),
+        "history_syncs_yesterday": int(yesterday.get("history_syncs", 0)),
     }

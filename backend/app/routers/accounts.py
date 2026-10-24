@@ -31,6 +31,8 @@ from app.services.derived_caches import recompute_derived_caches
 from app.services.planned import settle_planned_expenses
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 from app.services.retention import disconnect_connection as _disconnect_connection
+from app.services.finexer_webhooks import bump_daily_counters
+from app.services import sync_throttle
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -206,6 +208,15 @@ async def sync_all(user: dict = Depends(current_user)):
         return {"message": "Bank sync is paused on your plan", "paused": True,
                 "connections": 0, "total_accounts": 0}
 
+    # E11: one user-present refresh a minute. The first sync after connect and
+    # its retry are exempt (see services/sync_throttle.py). Plain message and
+    # Retry-After; the app shows it as a neutral note, not an error.
+    retry_after = await sync_throttle.check_user_sync(uid)
+    if retry_after:
+        raise HTTPException(status_code=429, detail=sync_throttle.MESSAGE,
+                            headers={"Retry-After": str(retry_after)})
+    await bump_daily_counters(user_syncs=1)
+
     # G210: a retry clears a first sync's recorded error so Home reads as
     # syncing again; a fresh failure re-stamps it.
     _never_synced = {"user_id": uid, "last_synced": {"$exists": False}}
@@ -279,6 +290,14 @@ async def sync_history(user: dict = Depends(current_user)):
                 "connections": 0, "total_accounts": 0}
 
     conns   = await connections_col.find({"user_id": uid}).to_list(None)
+    # E11: this route used to loop TrueLayer connections only, so for a
+    # Finexer-only user it fetched nothing and still answered "Full sync
+    # complete". Finexer's transactions fetch (finexer_sync.py) sends no date
+    # range and walks every page Finexer returns on every sync, so a separate
+    # 90-day backfill would add nothing; whether Finexer accepts a from-date is
+    # unverified (docs/ops/SYNC-STRATEGY.md, section 3). Count the consents so
+    # the answer says what actually happened, and recompute below.
+    finexer_count = await _finexer_consents_col.count_documents({"user_id": uid, "status": "authorized"})
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
     total   = 0
     total_new_txns = 0
@@ -310,7 +329,20 @@ async def sync_history(user: dict = Depends(current_user)):
     # Balances were refreshed above — the immediate post-sync reload must not
     # be served a pre-sync cached response
     await response_cache.ainvalidate(uid)
-    return {"message": "Full sync complete", "connections": len(conns), "total_accounts": total}
+    await bump_daily_counters(history_syncs=1)
+    if conns:
+        message = "Full sync complete"
+    elif finexer_count:
+        message = "Your figures have been refreshed from the history your bank has shared."
+    else:
+        message = "No bank connections to sync. Your figures have been refreshed."
+    return {
+        "message": message,
+        "connections": len(conns),
+        "total_accounts": total,
+        "finexer_consents": finexer_count,
+        "history_fetched": bool(conns),
+    }
 
 
 @router.delete("/connections/{connection_id}")

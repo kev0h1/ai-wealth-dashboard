@@ -40,6 +40,8 @@ Collections: `settings` (one document per key, `_id` is the key: `key`, `value`,
 | `RECONCILE_SPREAD_MINUTES` | int | 1 to 210 (the 3 h 30 staleness window) | 210 |
 | `RECONCILE_MAX_PER_MINUTE` | int | 1 to 40 (the Finexer-safe ceiling) | 40 |
 | `RECONCILE_MIN_GAP_SECONDS` | int | 1 to 60 | 2 |
+| `SYNC_POLL_HOURS` | int | 1 to 24 | 4 (the current 3 h 30 window; the cron ticks every 4 hours, so lower values behave as 4) |
+| `SYNC_WEBHOOK_SAFETY_NET_HOURS` | int | 0 to 48 | 0 (off). Above 0, Finexer polling only syncs a consent with no webhook and no sync in that many hours (E11, see SYNC-STRATEGY.md) |
 
 Going above 40 reconcile jobs a minute, or a zero LLM ceiling, stays a code or
 env decision on purpose.

@@ -154,6 +154,17 @@ def _patch_sync_all(monkeypatch, cashflow_col: FakeCol, *, truelayer_new: int):
     monkeypatch.setattr(accounts_router, "yapily_consents_col", FakeCol())
     monkeypatch.setattr(accounts_router, "_finexer_consents_col", FakeCol())
     monkeypatch.setattr(accounts_router, "sync_connection", fake_sync_connection)
+
+    async def _allow_refresh(*_a, **_k):
+        return 0
+
+    async def _no_counters(**_k):
+        return None
+
+    # E11: these tests tap refresh twice back to back; the once-a-minute
+    # throttle has its own tests (test_e11_sync_throttle.py).
+    monkeypatch.setattr(accounts_router.sync_throttle, "check_user_sync", _allow_refresh)
+    monkeypatch.setattr(accounts_router, "bump_daily_counters", _no_counters)
     monkeypatch.setattr(accounts_router, "apply_rules_bulk", _noop)
     monkeypatch.setattr(accounts_router, "categorise_others_bg", _noop)
     monkeypatch.setattr(accounts_router, "apply_mirror_rules", _noop)

@@ -229,6 +229,10 @@ export default function HomePage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncRetrying, setSyncRetrying] = useState(false);
   const [syncError, setSyncError] = useState(false);
+  // E11: a refresh inside a minute of the last one is answered 429. That is not
+  // a failure, so it shows as a neutral note and never reaches the error state.
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
+  const refreshNoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // G214: a manual refresh that failed stays marked on the hero (the 6s
   // `syncError` flag above only drives the brief's own line), and the figure
   // time we dim to is captured when the refresh starts, before it moves.
@@ -624,17 +628,26 @@ export default function HomePage() {
       // visit straight after a sync could still read the pre-sync verdict.
       invalidateAllAccountData();
       await loadData();
-    } catch {
-      setRefreshFailed(true);
-      setSyncError(true);
-      syncErrorTimerRef.current = setTimeout(() => setSyncError(false), 6000);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 429) {
+        setRefreshNote("Refreshed less than a minute ago");
+        if (refreshNoteTimerRef.current) clearTimeout(refreshNoteTimerRef.current);
+        refreshNoteTimerRef.current = setTimeout(() => setRefreshNote(null), 4000);
+      } else {
+        setRefreshFailed(true);
+        setSyncError(true);
+        syncErrorTimerRef.current = setTimeout(() => setSyncError(false), 6000);
+      }
     } finally {
       setSyncing(false);
     }
   }
 
   useEffect(() => {
-    return () => { if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current); };
+    return () => {
+      if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
+      if (refreshNoteTimerRef.current) clearTimeout(refreshNoteTimerRef.current);
+    };
   }, []);
 
   // G210/G214: one poll for every sync Home can show. While the server says a
@@ -993,6 +1006,9 @@ export default function HomePage() {
 
           {/* ── THE BRIEF ── */}
           <div className="px-4 pt-5 lg:px-0 lg:pt-0" ref={greetingRef}>
+            {refreshNote && (
+              <p role="status" className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{refreshNote}</p>
+            )}
             <HomeBrief
               items={hasNoAccounts ? [] : companionItems}
               firstName={firstName}
