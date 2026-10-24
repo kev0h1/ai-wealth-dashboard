@@ -12,6 +12,7 @@ and never say "you should".
 """
 import asyncio
 import logging
+import math
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -204,10 +205,24 @@ def _period_gate(sts: dict) -> dict:
     """
     if sts.get("status") != "ok":
         return {"short": False, "to_cover": 0.0, "period_end": None}
-    short = sts.get("state") == "short"
+    # `safe_to_spend` is already the authoritative server calculation. Its
+    # broader `state == short` classification includes an exactly-zero
+    # runway, which is useful to Home's neutral zero treatment but must not
+    # turn into a red Planning alarm reading "£0.00 to cover". A stale
+    # `state` value must not turn a positive figure into a deficit either.
+    # Gate on the same two-decimal amount Planning renders, and only when it
+    # is a finite, negative complete calculation.
+    if sts.get("calculation_status") in {"degraded", "syncing"}:
+        return {"short": False, "to_cover": 0.0, "period_end": sts.get("next_payday")}
+    try:
+        safe_to_spend = float(sts.get("safe_to_spend") or 0.0)
+    except (TypeError, ValueError):
+        safe_to_spend = 0.0
+    to_cover = round(abs(safe_to_spend), 2) if math.isfinite(safe_to_spend) and safe_to_spend < 0 else 0.0
+    short = sts.get("state") == "short" and to_cover > 0
     return {
         "short": short,
-        "to_cover": round(abs(float(sts.get("safe_to_spend") or 0.0)), 2) if short else 0.0,
+        "to_cover": to_cover if short else 0.0,
         "period_end": sts.get("next_payday"),
     }
 
