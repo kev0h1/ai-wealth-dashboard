@@ -22,6 +22,18 @@ export type HomeForecastPresentation = {
 };
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
+/**
+ * Cashflow inputs are already penny-denominated. Normalise only after the
+ * client-side walk has combined them, so binary floating-point residue cannot
+ * turn an exactly-covered forecast into a microscopic red shortage. Non-finite
+ * values remain untouched for the existing neutral availability guard.
+ */
+export function forecastPence(value: number): number {
+  if (!finite(value)) return value;
+  const rounded = Math.round(value * 100) / 100;
+  return rounded === 0 ? 0 : rounded;
+}
+
 /** Compare UK calendar days, including ISO timestamps with an offset. */
 function ukDay(value: string | number): string | null {
   const date = new Date(value);

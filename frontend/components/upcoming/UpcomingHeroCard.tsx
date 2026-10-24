@@ -2,6 +2,8 @@
 
 import { ChevronDown } from "lucide-react";
 import { BALANCE_MASK, useBalancesHidden } from "@/lib/balancesHidden";
+import { formatUpcomingRunwayAmount } from "@/lib/pennyScreenViews";
+import { formatCurrency } from "@/lib/currency";
 import PooledLedgerExplainer, { POOLED_PROJECTION_SENTENCE } from "@/components/PooledLedgerExplainer";
 import ForecastStatusBadge from "@/components/ForecastStatusBadge";
 import { FORECAST_INK, FORECAST_QUALIFIER, type UpcomingForecastPresentation } from "@/lib/cashForecastStatus";
@@ -59,8 +61,14 @@ export default function UpcomingHeroCard({
 }: UpcomingHeroCardProps) {
   const contextHidden = useBalancesHidden();
   const hidden = balancesHidden ?? contextHidden;
-  // Whole-pound amount, masked when balances are hidden. Sign is kept by callers.
+  // Most forecast amounts stay whole pounds, while a real sub-pound runway
+  // remains visible rather than reading as a misleading £0. Sign is kept by
+  // callers and masking remains the shared preference treatment.
   const pounds = (v: number) => (hidden ? BALANCE_MASK : `${sym}${v.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`);
+  // The disclosed working keeps exact pennies so its rows reconcile.
+  const calculationAmount = (value: number) => hidden ? BALANCE_MASK : `${value < 0 ? "−" : ""}${formatCurrency(value)}`;
+  const runwayAmount = hidden ? BALANCE_MASK : formatUpcomingRunwayAmount(runway);
+  const runwayAriaAmount = formatUpcomingRunwayAmount(runway).slice(sym.length);
   const runwayNegative = runwayStatus === "short";
   // Do not derive reassurance from the end-of-period balance here. The parent
   // has the dated forecast evidence needed to decide the semantic status.
@@ -88,12 +96,12 @@ export default function UpcomingHeroCard({
       <div className="mt-5 min-w-0">
         <div className="flex flex-wrap items-baseline gap-2">
           <p
-            aria-label={hidden ? `Amount hidden, ${runwayStatus}` : `${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${runwayStatus}`}
+            aria-label={hidden ? `Amount hidden, ${runwayStatus}` : `${runwayAriaAmount} pounds ${runwayStatus}`}
             className={`font-mono text-[30px] font-bold leading-[1.2] tracking-[-0.025em] tabular-nums ${FORECAST_INK}`}
           >
             <span aria-hidden="true">
               {runwayNegative ? "−" : ""}
-              {pounds(Math.abs(runway))}
+              {runwayAmount}
             </span>
           </p>
           <span className={`text-[13px] ${FORECAST_QUALIFIER[forecastPresentation.qualifierTone]}`}>
@@ -124,28 +132,28 @@ export default function UpcomingHeroCard({
           <div className="flex items-center justify-between gap-4 py-1.5">
             <dt>Available now</dt>
             <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-              {pounds(spendableNow)}
+              {calculationAmount(spendableNow)}
             </dd>
           </div>
           {runwayIncomeTotal > 0 && (
             <div className="flex items-center justify-between gap-4 py-1.5">
               <dt>{isCalendarMonth ? "Income before month end" : "Income before payday"}</dt>
               <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                +{pounds(runwayIncomeTotal)}
+                +{calculationAmount(runwayIncomeTotal)}
               </dd>
             </div>
           )}
           <div className="flex items-center justify-between gap-4 py-1.5">
             <dt>{isCalendarMonth ? "Bills before month end" : "Bills before payday"}</dt>
             <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-              −{pounds(runwayBillsTotal)}
+              −{calculationAmount(runwayBillsTotal)}
             </dd>
           </div>
           {allocationsRemainingTotal > 0 && (
             <div className="flex items-center justify-between gap-4 py-1.5">
               <dt>Still to set aside</dt>
               <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                −{pounds(allocationsRemainingTotal)}
+                −{calculationAmount(allocationsRemainingTotal)}
               </dd>
             </div>
           )}
@@ -162,7 +170,7 @@ export default function UpcomingHeroCard({
               <dd className="shrink-0 whitespace-nowrap font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 {plansUnavailable ? "Unavailable" : (
                   <>
-                    −{pounds(plansReservedTotal)}
+                    −{calculationAmount(plansReservedTotal)}
                   </>
                 )}
               </dd>
@@ -172,7 +180,7 @@ export default function UpcomingHeroCard({
             <dt>Projected balance</dt>
             <dd className={`font-mono tabular-nums ${FORECAST_INK}`}>
               {runwayNegative ? "−" : ""}
-              {pounds(Math.abs(runway))}
+              {calculationAmount(Math.abs(runway))}
             </dd>
           </div>
         </dl>
@@ -182,7 +190,7 @@ export default function UpcomingHeroCard({
             poolingSentence={POOLED_PROJECTION_SENTENCE}
             envelope={{ amount: allocationsRemainingTotal, count: allocationsCount }}
             plan={plansUnavailable ? null : { amount: plansReservedTotal, count: plansCount }}
-            format={pounds}
+            format={calculationAmount}
           />
         </div>
       </details>
