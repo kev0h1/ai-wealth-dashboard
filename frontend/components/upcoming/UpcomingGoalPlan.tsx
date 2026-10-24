@@ -23,6 +23,8 @@ type Props = {
   commitment?: Commitment;
   services?: UpcomingGoalServices;
   navigation: UpcomingFlowNavigation<UpcomingDetailView>;
+  /** G329: cashflow.period from Upcoming, passed through to the sheet. */
+  serverPeriod?: { start: string; end: string } | null;
   onLoaded(commitment: Commitment): void;
   onRefresh(): Promise<void>;
 };
@@ -43,6 +45,7 @@ export default function UpcomingGoalPlan({
   commitment: cachedCommitment,
   services,
   navigation,
+  serverPeriod,
   onLoaded,
   onRefresh,
 }: Props) {
@@ -125,6 +128,7 @@ export default function UpcomingGoalPlan({
     initialMode={mode}
     initialStep={editStep}
     operations={services}
+    serverPeriod={serverPeriod}
     onSaved={saved}
     onCancelled={cancelled}
     onClose={close}

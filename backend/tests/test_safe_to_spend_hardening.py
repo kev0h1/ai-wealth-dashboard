@@ -268,6 +268,11 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     assert result["pooled_transfers_excluded"] == 40.0
     assert result["calculation_status"] == "complete"
     assert result["unavailable_components"] == []
+    # G329: the one period definition, the same builder as cashflow.period.
+    from app.services.pay_period import current_period_facts
+    assert result["period"] == current_period_facts(
+        today, {"type": "calendar_month"}, today + timedelta(days=14)
+    )
 
 
 def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypatch):
@@ -684,3 +689,4 @@ def test_plans_only_short_false_while_syncing(monkeypatch):
     )
     assert result["calculation_status"] == "syncing"
     assert result["plans_only_short"] is False
+

@@ -13,6 +13,8 @@ export interface UpcomingHeroCardProps {
   isCalendarMonth: boolean;
   daysToPayday: number;
   paydayLabel: string;
+  /** G329: "Pay expected Wed 28 Oct." when a confirmed salary date differs from the period's payday; absent otherwise. */
+  payExpectedLabel?: string | null;
   spendableNow: number;
   runwayIncomeTotal: number;
   runwayBillsTotal: number;
@@ -40,6 +42,7 @@ export default function UpcomingHeroCard({
   isCalendarMonth,
   daysToPayday,
   paydayLabel,
+  payExpectedLabel,
   spendableNow,
   runwayIncomeTotal,
   runwayBillsTotal,
@@ -105,6 +108,11 @@ export default function UpcomingHeroCard({
             ? `${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
             : `${paydayLabel} · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"}`}
         </p>
+        {payExpectedLabel && (
+          <p data-pay-expected className="mt-1 text-xs leading-snug text-slate-500 dark:text-slate-400">
+            {payExpectedLabel}
+          </p>
+        )}
       </div>
 
       <details className="group mt-4 border-t border-slate-200/80 dark:border-white/10">

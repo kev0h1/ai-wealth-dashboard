@@ -69,6 +69,7 @@
     "check:g176-account-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-plans.test.mjs",
     "check:g176-account-status": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-status.test.mjs",
     "check:g176-attention": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-attention.test.mjs",
+    "check:g329-client-period-leftovers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g329-client-period-leftovers.test.mjs",
     "check:g327-upcoming-period": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g327-upcoming-period.test.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
     "check:build-mobile-mirror": "bash scripts/build-mobile-mirror.test.sh",

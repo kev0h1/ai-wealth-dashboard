@@ -13,7 +13,7 @@ import TeachingSheet from "@/components/TeachingSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
-import { getPayPeriodWithConfig } from "@/lib/payPeriod";
+import { resolveHomeChartWindow } from "@/lib/serverPeriodWindow";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import OfferCard from "@/components/OfferCard";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
@@ -30,7 +30,7 @@ import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { APP_LOCK_UNLOCKED_EVENT } from "@/components/BiometricLock";
-import { fetchVerdictData } from "@/lib/verdictCache";
+import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
@@ -1121,7 +1121,13 @@ export default function HomePage() {
                     {pinnedCards.includes("fuel") && <FuelSavingsCard />}
                     {pinnedCards.includes("groceries") && <GroceryBasketCard />}
                     {homePinnedWidget && homeTxns.length > 0 && (() => {
-                      const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+                      // G329: the server's period (Safe to Spend payload, else the
+                      // cached Spend verdict); the client config is fallback only.
+                      const { start: ps, end: pe } = resolveHomeChartWindow({
+                        safeToSpendPeriod: safeToSpend?.status === "ok" ? safeToSpend.period : null,
+                        verdictPeriod: cachedVerdict(0)?.period,
+                        fallback: { config: payPeriodConfig, now: new Date() },
+                      });
                       return (
                         <PinnedWidgetCard
                           id={homePinnedWidget}

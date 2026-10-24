@@ -802,14 +802,19 @@ export default function SpendPage() {
     const pending = pendingCategoryRef.current;
     if (!pending) return;
     pendingCategoryRef.current = null;
-    const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+    // G329: the server's current period when the verdict is here; the client
+    // config is the fallback seed only.
+    const currentServer = verdict && verdict.period.offset === 0 && verdict.period.label != null ? verdict.period : null;
+    const [s, e] = currentServer
+      ? [new Date(dateToUTCDay(currentServer.start)), new Date(dateToUTCDay(currentServer.end))]
+      : getPayPeriodWithConfig(new Date(), payPeriodConfig);
     const params = new URLSearchParams();
     params.set("category", pending.cat);
     if (pending.merchants) params.set("merchants", pending.merchants);
     params.set("from", isoDate(s));
     params.set("to", isoDate(e));
     router.replace(`/transactions?${params.toString()}`);
-  }, [categoryRedirectReady, payPeriodConfig, router]);
+  }, [categoryRedirectReady, payPeriodConfig, router, verdict]);
 
   // Breakdown is verdict-led and does not need a year of transactions or an
   // accounts response to become useful. Transaction history is requested only

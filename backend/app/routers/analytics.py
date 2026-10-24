@@ -5350,6 +5350,12 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "safe_to_spend_cash":  safe_to_spend_cash,
         "next_payday":         next_payday.isoformat(),
         "days_until_payday":   days_until_payday,
+        # G329: the same one-period builder as cashflow.period and the Spend
+        # verdict's period, so Home's pinned-chart window never derives its
+        # own dates from the client config.
+        "period":              current_period_facts(
+            _today_d, _pay_cfg, _confirmed[0] if _confirmed else None
+        ),
         "bills_total":         bills_total,
         # B18: the bill-list IDENTITY behind bills_total (name/amount/
         # days_away only, no transaction detail) — sums to bills_total

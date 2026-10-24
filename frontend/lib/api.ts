@@ -748,6 +748,10 @@ export type SafeToSpend =
       calculation_version?: number;
       next_payday: string;
       days_until_payday: number;
+      /** G329: the server's one pay-period definition (same builder as
+       * cashflow.period). Optional so a payload cached before it existed
+       * degrades to the client seed until the next recompute. */
+      period?: CashflowPeriod;
       bills_total: number;
       /** Own-account movements excluded because both accounts are already in
        * the spendable pool; exposed so the calculation can say this plainly. */

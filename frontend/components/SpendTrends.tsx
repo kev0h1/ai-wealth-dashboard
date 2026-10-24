@@ -1059,6 +1059,12 @@ function MenuItem({ icon, label, onClick, destructive, disabled = false }: {
 
 /* ── The Trends tab ───────────────────────────────────────────────── */
 
+// G329: `periodStart`/`periodEnd` are the Spend verdict's period (SpendPage
+// builds them from verdict.period once it has arrived, see its `serverPeriod`),
+// so the chart windows never recompute the current period from the client
+// config. `payPeriodConfig` only steps BACK from that server anchor for the
+// "previous periods" comparison, because the server ships no list of past
+// periods; it is the user's real setting, not a derived date.
 export default function SpendTrends(props: {
   periodTxns: Transaction[];
   allTxns: Transaction[];
@@ -1397,8 +1403,8 @@ export function PinnedWidgetCard({
   // the transactions already loaded for Home, so unlike every other widget
   // here it fetches its own slice on the side. Offset 0 is correct — Home
   // always shows the CURRENT pay period (see periodStart/periodEnd above,
-  // derived from getPayPeriodWithConfig(new Date(), ...) at the HomePage
-  // callsite), and offset 0 is /spend/verdict's current-period request,
+  // resolved by resolveHomeChartWindow at the HomePage callsite: the server
+  // period, the client config only as a fallback, G329), and offset 0 is /spend/verdict's current-period request,
   // the same convention SpendPage.tsx uses for its own current period.
   const [paceStatus, setPaceStatus] = useState<"idle" | "loading" | "error" | "ok">(
     id === "pace_curve" ? "loading" : "idle",

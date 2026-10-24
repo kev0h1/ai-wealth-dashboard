@@ -8,7 +8,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
-import { resolveUpcomingPeriod } from "@/lib/upcomingPeriod";
+import { payExpectedLabel, resolveUpcomingPeriod } from "@/lib/upcomingPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -1026,6 +1026,7 @@ export default function PlanningPage() {
                 isCalendarMonth={isCalendarMonth}
                 daysToPayday={daysToPayday}
                 paydayLabel={paydayLabel}
+                payExpectedLabel={payExpectedLabel(cashflow.period)}
                 spendableNow={spendableNow}
                 runwayIncomeTotal={runwayIncomeTotal}
                 runwayBillsTotal={runwayBillsTotal}
@@ -1149,7 +1150,7 @@ export default function PlanningPage() {
         </div>
       )}
 
-      {flowView && <UpcomingDetailFlow initialView={flowView} onClose={() => setFlowView(null)} accounts={accounts} summaries={accountSummaries} plans={plans} plansStatus={plansStatus} allocations={allocations ?? []} payments={paymentDetails} periodLabel={accountPeriodLabel} periodStart={periodStart} onRefresh={refreshAccountFlow} onDismiss={(payment) => dismissUpcoming(payment.editor.name)} onDeletePlanned={deletePlannedWithUndo} />}
+      {flowView && <UpcomingDetailFlow initialView={flowView} onClose={() => setFlowView(null)} accounts={accounts} summaries={accountSummaries} plans={plans} plansStatus={plansStatus} allocations={allocations ?? []} payments={paymentDetails} periodLabel={accountPeriodLabel} periodStart={periodStart} serverPeriod={cashflow?.period} onRefresh={refreshAccountFlow} onDismiss={(payment) => dismissUpcoming(payment.editor.name)} onDeletePlanned={deletePlannedWithUndo} />}
 
       {/* PlanOneOffSheet */}
       {planSheetOpen && (
