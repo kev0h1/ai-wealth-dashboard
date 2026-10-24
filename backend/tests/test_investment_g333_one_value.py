@@ -119,3 +119,35 @@ def test_reconciliation_against_the_provider_names_the_provider(monkeypatch):
     rc = g["lifetime"]["reconciliation"]
     assert rc is not None and abs(abs(rc["difference"]) - 182.47) < 1.0
     assert "Vanguard" in rc["text"]
+
+
+# ── chart: gaps stay gaps, money paid in is marked ───────────────────────
+
+def _pos():
+    return ig.build_positions(STMT, kevin_holdings(), notes(), insts(), ia.all_fee_lines([kevin_period()]))
+
+
+def test_a_long_gap_is_not_forward_filled_and_contributions_are_marked():
+    snaps = [{"date": "2026-09-04", "value": 14835.65}]
+    pts = ig.build_series(snaps, _pos(), insts(), "all", TODAY, notes(), ia.all_fee_lines([kevin_period()]))
+    assert [p["date"] for p in pts] == ["2026-09-04", "2026-10-15", "2026-10-16", "2026-10-24"]
+    assert [p["gap_before"] for p in pts] == [False, True, False, True]
+    assert pts[0]["contribution"] == 0
+    assert pts[1]["contribution"] == 5308.98  # paid in across the gap lands on the next point, not as growth
+    assert sum(p["contribution"] for p in pts) == 5308.98
+    assert pts[-1]["value"] == pos_value()
+
+
+def pos_value():
+    return _pos()["value"]
+
+
+def test_short_gaps_are_bridged_flat_and_a_note_day_carries_its_contribution():
+    n = [_note("n5", 4908.98, date(2026, 10, 13), SP, units=43.0)]
+    i = {SP_KEY: {"_id": SP_KEY, "price": 114.02, "price_date": "2026-10-16", "history": [
+        {"price_date": "2026-10-13", "price": 114.0}, {"price_date": "2026-10-16", "price": 114.02}]}}
+    pos = ig.build_positions(STMT, [], n, i)
+    pts = ig.build_series([], pos, i, "all", date(2026, 10, 16), n, [])
+    assert [p["date"] for p in pts] == ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"]
+    assert not any(p["gap_before"] for p in pts)
+    assert [p["contribution"] for p in pts] == [4908.98, 0, 0, 0]

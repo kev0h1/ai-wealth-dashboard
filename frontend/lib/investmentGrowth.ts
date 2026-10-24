@@ -13,7 +13,15 @@ export const GROWTH_RANGES: { value: GrowthRange; label: string }[] = [
 ];
 
 /** paid_in is null when only some holdings have a known cost (no paid-in line is drawn). */
-export interface GrowthPoint { date: string; value: number; paid_in: number | null }
+export interface GrowthPoint {
+  date: string;
+  value: number;
+  paid_in: number | null;
+  /** G333: signed net of contract notes paid in (or taken out) since the previous point. */
+  contribution?: number;
+  /** G333: more than three days separate this point from the previous one; the line is broken here. */
+  gap_before?: boolean;
+}
 
 export interface GrowthHolding {
   id: string;
@@ -233,6 +241,12 @@ export function samplePoints<T>(points: T[], max: number): T[] {
   return out;
 }
 
+/** Whole days since the epoch for a YYYY-MM-DD string (UTC, so no clock-change drift). */
+export function dayNumber(iso: string): number {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return Math.round(Date.UTC(y, (m || 1) - 1, d || 1) / 86_400_000);
+}
+
 export interface ChartGeometry {
   xs: number[];
   ys: number[];
@@ -254,12 +268,38 @@ export function chartGeometry(points: GrowthPoint[], width: number, height: numb
   const innerH = height - pad * 2;
   const y = (v: number) => pad + (1 - (v - lo) / (hi - lo)) * innerH;
   const n = points.length;
-  const xs = points.map((_, i) => (n === 1 ? width / 2 : (i / (n - 1)) * width));
+  // G333: x is proportional to the DATE, so a sparse series is not evenly spread.
+  const days = points.map((p) => dayNumber(p.date));
+  const daySpan = n > 0 ? days[n - 1] - days[0] : 0;
+  const xs = points.map((_, i) => (n === 1 ? width / 2 : daySpan > 0 ? ((days[i] - days[0]) / daySpan) * width : (i / (n - 1)) * width));
   return { xs, ys: points.map((p) => y(p.value)), paidYs: points.map((p) => y(p.paid_in ?? p.value)), width, height };
 }
 
 export function linePath(xs: number[], ys: number[]): string {
   return xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(" ");
+}
+
+/** A step line: horizontal to the next x, then vertical, so a contribution reads as a vertical step. */
+export function stepPath(xs: number[], ys: number[]): string {
+  return xs.map((x, i) => (i === 0 ? `M${x.toFixed(1)} ${ys[i].toFixed(1)}` : `H${x.toFixed(1)} V${ys[i].toFixed(1)}`)).join(" ");
+}
+
+/** Index runs of the value line, broken wherever a point has `gap_before`. */
+export function valueSegments(points: GrowthPoint[]): number[][] {
+  const out: number[][] = [];
+  points.forEach((p, i) => {
+    if (i === 0 || p.gap_before) out.push([i]);
+    else out[out.length - 1].push(i);
+  });
+  return out;
+}
+
+/** " · +£4,908.98 paid in" or " · −£X taken out" for a picked day, "" when nothing moved. */
+export function contributionText(contribution: number | undefined, hidden?: boolean): string {
+  if (!contribution || Math.abs(contribution) < 0.005) return "";
+  return contribution > 0
+    ? ` · ${money(contribution, { sign: true, hidden })} paid in`
+    : ` · ${money(contribution, { hidden })} taken out`;
 }
 
 /** "£20,313.61", "20313.61" or "−1,341.92" to a number; null when it is not one. */

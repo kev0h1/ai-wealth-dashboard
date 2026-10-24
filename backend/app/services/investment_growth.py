@@ -370,11 +370,37 @@ def backfill_values(rows: list[dict], insts: dict, start: date, end: date) -> di
     return out
 
 
-def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date) -> list[dict]:
-    """Chart points: stored daily snapshots, backfilled from shared price
-    history where it covers the holdings, filled forward daily otherwise, and
-    ending on the current value. paid_in is null when only some holdings have
-    a known cost (a paid-in line over part of the value would mislead)."""
+GAP_BRIDGE_DAYS = 3  # weekends and bank holidays are bridged flat; anything longer stays a gap
+
+
+def _contribution_between(notes: list[dict], fee_lines: list[dict] | None, stmt_date: date | None,
+                          after: date, upto: date) -> float:
+    """G333: signed money paid in (or taken out) by contract notes dated in
+    (after, upto], fees excluded, notes inside the statement excluded (the same
+    notes the paid-in line counts)."""
+    total = 0.0
+    for n in notes or []:
+        d = _as_date(n.get("trade_date"))
+        if d is None or d <= after or d > upto:
+            continue
+        if stmt_date is not None and d <= stmt_date:
+            continue
+        if ia.is_fee_note(n, fee_lines):
+            continue
+        total += n.get("amount") or 0.0
+    return round(total, 2)
+
+
+def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date,
+                 notes: list[dict] | None = None, fee_lines: list[dict] | None = None) -> list[dict]:
+    """Chart points (G333): one per date that has data (stored daily snapshots,
+    shared price history where it covers the holdings, and today's live value).
+    A gap of up to three days is bridged flat; a longer gap stays a gap and the
+    point after it carries gap_before, so the chart never invents a line across
+    weeks we know nothing about. Each point carries `contribution`, the signed
+    net of contract notes since the previous point, so money paid in is never
+    mistaken for growth. paid_in is null when only some holdings have a known
+    cost (a paid-in line over part of the value would mislead)."""
     rows = pos["rows"]
     by_date = {p["date"]: p["value"] for p in snapshots}
     cost_dates = [r["_cost_date"] for r in rows if r["_cost_date"]]
@@ -389,15 +415,28 @@ def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
         by_date.setdefault(iso, v)
     by_date[today.isoformat()] = pos["value"]  # today is always the live figure
     complete = pos["holdings_total"] > 0 and pos["holdings_with_cost"] == pos["holdings_total"]
-    pts, last = [], None
-    cur = date.fromisoformat(min(by_date))
-    while cur <= today:
-        iso = cur.isoformat()
-        last = by_date.get(iso, last)
-        if last is not None:
-            pts.append({"date": iso, "value": last,
-                        "paid_in": _paid_in_at(rows, pos["adj"], cur) if complete else None})
-        cur += timedelta(days=1)
+    stmt = pos.get("stmt_date")
+
+    def point(d: date, value: float, prev: date | None) -> dict:
+        after = prev if prev is not None else d - timedelta(days=1)
+        return {"date": d.isoformat(), "value": value,
+                "paid_in": _paid_in_at(rows, pos["adj"], d) if complete else None,
+                "contribution": _contribution_between(notes, fee_lines, stmt, after, d),
+                "gap_before": prev is not None and (d - prev).days > GAP_BRIDGE_DAYS}
+
+    pts: list[dict] = []
+    prev: date | None = None
+    last_val = None
+    for iso in sorted(by_date):
+        d = date.fromisoformat(iso)
+        if prev is not None and 1 < (d - prev).days <= GAP_BRIDGE_DAYS:
+            fill = prev + timedelta(days=1)
+            while fill < d:
+                pts.append(point(fill, last_val, prev))
+                prev = fill
+                fill += timedelta(days=1)
+        pts.append(point(d, by_date[iso], prev))
+        prev, last_val = d, by_date[iso]
     days = RANGE_DAYS[range_key]
     if days is not None:
         cutoff = (today - timedelta(days=days)).isoformat()
@@ -405,10 +444,11 @@ def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
     return pts
 
 
-def build_growth(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date) -> dict:
+def build_growth(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date,
+                 notes: list[dict] | None = None, fee_lines: list[dict] | None = None) -> dict:
     """Pure: headline figures from cost versus value (not from snapshots),
     plus the chart series for one range."""
-    points = build_series(snapshots, pos, insts, range_key, today)
+    points = build_series(snapshots, pos, insts, range_key, today, notes, fee_lines)
     n, m = pos["holdings_with_cost"], pos["holdings_total"]
     return {
         "range": range_key, "method": METHOD, "method_label": METHOD_LABEL, "points": points,
@@ -508,7 +548,8 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
     pos = build_positions(stmt, holdings, notes, insts, ia.all_fee_lines(periods))
     anchor = acc.get("anchor") or None
     anchor_d = _as_date(anchor.get("date")) if anchor else None
-    growth = build_growth(snaps, pos, insts, range_key, today)
+    fee_lines = ia.all_fee_lines(periods)
+    growth = build_growth(snaps, pos, insts, range_key, today, notes, fee_lines)
 
     # The anchor date's value on our side: today's figure, else the chart's.
     ours_on_anchor = None
@@ -516,7 +557,7 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
         if anchor_d >= today:
             ours_on_anchor = pos["value"]
         else:
-            full = growth["points"] if range_key == "all" else build_series(snaps, pos, insts, "all", today)
+            full = growth["points"] if range_key == "all" else build_series(snaps, pos, insts, "all", today, notes, fee_lines)
             ours_on_anchor = next((p["value"] for p in full if p["date"] == anchor_d.isoformat()), None)
     override = bool(anchor and anchor.get("use_provider_value") and anchor_d is not None)
     value_now = pos["value"]

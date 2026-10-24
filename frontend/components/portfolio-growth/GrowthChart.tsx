@@ -3,7 +3,7 @@
 import { useState, type KeyboardEvent, type PointerEvent } from "react";
 import MoneyText from "@/components/MoneyText";
 import {
-  CHART_WAITING, chartGeometry, linePath, money, shortDate, showsPaidLine,
+  CHART_WAITING, chartGeometry, contributionText, linePath, money, shortDate, showsPaidLine, stepPath, valueSegments,
   type GrowthPoint,
 } from "@/lib/investmentGrowth";
 
@@ -45,6 +45,7 @@ export default function GrowthChart({
 
   const last = points.length - 1;
   const paidLine = showsPaidLine(points);
+  const segments = valueSegments(points);
   const valueAbove = geo ? geo.ys[last] <= geo.paidYs[last] : true;
 
   return (
@@ -64,6 +65,7 @@ export default function GrowthChart({
                   <MoneyText text={money(sel.value - sel.paid_in, { sign: true, hidden })} className="text-[12px] text-slate-900 dark:text-slate-100" />
                 </>
               ) : null}
+              {sel.contribution ? <MoneyText text={contributionText(sel.contribution, hidden)} className="text-[12px] text-slate-600 dark:text-slate-400" /> : null}
             </span>
           </>
         ) : (
@@ -82,8 +84,15 @@ export default function GrowthChart({
         {geo ? (
           <svg viewBox={`0 0 ${W} ${height}`} className="block h-auto w-full overflow-visible" aria-hidden="true">
             <line x1="0" x2={W} y1={height - 0.5} y2={height - 0.5} className="stroke-slate-200 dark:stroke-slate-700" strokeWidth="1" />
-            {paidLine ? <path d={linePath(geo.xs, geo.paidYs)} fill="none" className="stroke-slate-400 dark:stroke-slate-500" strokeWidth="1.5" strokeDasharray="4 4" strokeLinejoin="round" /> : null}
-            <path d={linePath(geo.xs, geo.ys)} fill="none" className="stroke-indigo-600 dark:stroke-indigo-400" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            {paidLine ? <path d={stepPath(geo.xs, geo.paidYs)} fill="none" className="stroke-slate-400 dark:stroke-slate-500" strokeWidth="1.5" strokeDasharray="4 4" strokeLinejoin="round" /> : null}
+            {segments.map((seg) => seg.length > 1 ? (
+              <path key={seg[0]} d={linePath(seg.map((i) => geo.xs[i]), seg.map((i) => geo.ys[i]))} fill="none" className="stroke-indigo-600 dark:stroke-indigo-400" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            ) : (
+              <circle key={seg[0]} cx={geo.xs[seg[0]]} cy={geo.ys[seg[0]]} r="2.5" className="fill-indigo-600 dark:fill-indigo-400" />
+            ))}
+            {paidLine ? points.map((p, i) => p.contribution ? (
+              <circle key={`c${i}`} cx={geo.xs[i]} cy={geo.paidYs[i]} r="3" fill="none" className="stroke-slate-500 dark:stroke-slate-400" strokeWidth="1.5" />
+            ) : null) : null}
             <text x={W} y={geo.ys[last] + (valueAbove ? -8 : 15)} textAnchor="end" className="fill-indigo-700 stroke-white text-[10px] font-semibold dark:fill-indigo-300 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Value</text>
             {paidLine ? <text x={W} y={geo.paidYs[last] + (valueAbove ? 15 : -8)} textAnchor="end" className="fill-slate-600 stroke-white text-[10px] font-semibold dark:fill-slate-400 dark:stroke-slate-800" strokeWidth="3" paintOrder="stroke">Paid in</text> : null}
             {sel && idx !== null ? (
