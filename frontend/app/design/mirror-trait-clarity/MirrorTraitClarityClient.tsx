@@ -12,7 +12,9 @@ type State = "all" | "kept" | "change" | "pending" | "save-error" | "hidden" | "
 type Trait = { id: string; title: string; narrative: string; evidence: string[]; mark?: "health"; choice: Choice };
 
 const states: State[] = ["all", "kept", "change", "pending", "save-error", "hidden", "long"];
-const controls = "inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-3 py-2 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800";
+const controlShape = "inline-flex min-h-11 items-center justify-center rounded-xl border px-3 py-2 text-[13px] font-semibold transition-colors active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
+const controls = `${controlShape} border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800`;
+const selectedControls = `${controlShape} border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 dark:border-indigo-500 dark:bg-indigo-600 dark:text-white dark:hover:bg-indigo-700`;
 const quietFocus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800";
 
 function displayText(text: string, hidden: boolean) {
@@ -63,8 +65,8 @@ function Preview({ variant, state, dark }: { variant: "a" | "b"; state: State; d
         <p className="text-xl font-bold">Mirror trait clarity</p>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">G332 preview. Synthetic observations and local choices only. No accounts, traits or coaching preferences change.</p>
         <nav className="mt-3 flex flex-wrap gap-2" aria-label="Design variants">
-          <Link href={href({ variant: "a" })} className={`${controls} ${variant === "a" ? "border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 dark:border-indigo-500 dark:bg-indigo-500" : ""}`}>A · Two clear answers</Link>
-          <Link href={href({ variant: "b" })} className={`${controls} ${variant === "b" ? "border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 dark:border-indigo-500 dark:bg-indigo-500" : ""}`}>B · One decision row</Link>
+          <Link href={href({ variant: "a" })} className={variant === "a" ? selectedControls : controls}>A · Two clear answers</Link>
+          <Link href={href({ variant: "b" })} className={variant === "b" ? selectedControls : controls}>B · One decision row</Link>
         </nav>
         <p className="mt-2 max-w-2xl text-[13px] leading-5 text-slate-600 dark:text-slate-300">{variant === "a" ? "A makes each choice visible without repeating the rule." : "B gives an untouched observation a quieter ending, then opens the same explicit choice when asked."}</p>
         <details className="mt-3"><summary className={`flex min-h-11 cursor-pointer items-center rounded text-[13px] font-semibold ${quietFocus}`}>Examples and display</summary><nav className="mt-2 flex flex-wrap gap-2" aria-label="Synthetic states">{states.map(value => <Link key={value} href={href({ state: value })} className={controls} aria-current={value === state ? "page" : undefined}>{value}</Link>)}<Link href={href({ mode: dark ? "light" : "dark" })} className={controls}>{dark ? "Light theme" : "Dark theme"}</Link></nav></details>
