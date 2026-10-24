@@ -13,7 +13,7 @@ import type {
   SubscriptionInfo, GrowView,
   MoneyShape, MoneyShapeJob, MoneyShapePeriod, MoneyShapeTrend, MoneyShapeEvidenceRow,
   MoneyShapeTrait, MoneyShapeProposal, MoneyShapeWhatWorks,
-  MoneyShapePeriodEntry, MoneyShapeAverageEntry,
+  MoneyShapePeriodEntry, MoneyShapeAverageEntry, SpendPeriod, SpendIncomeRow,
 } from "@wealth/shared";
 export type {
   Account, Connection, Transaction, KPIs, Insight,
@@ -24,7 +24,7 @@ export type {
   SubscriptionInfo, GrowView,
   MoneyShape, MoneyShapeJob, MoneyShapePeriod, MoneyShapeTrend, MoneyShapeEvidenceRow,
   MoneyShapeTrait, MoneyShapeProposal, MoneyShapeWhatWorks,
-  MoneyShapePeriodEntry, MoneyShapeAverageEntry,
+  MoneyShapePeriodEntry, MoneyShapeAverageEntry, SpendPeriod, SpendIncomeRow,
 } from "@wealth/shared";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
@@ -624,14 +624,7 @@ export type SpendVerdictMoved = {
 
 export type SpendVerdictPills = { spent: number; income: number; net: number };
 
-export type SpendVerdictPeriod = {
-  start: string;
-  end: string;
-  days_elapsed: number;
-  days_left: number | null;
-  offset: number;
-  closed: boolean;
-};
+export type SpendVerdictPeriod = SpendPeriod;
 
 // One point on the SpendHeader pace strip: cumulative spend by day `day`,
 // `actual` always known, `usual` null when there's no baseline yet.

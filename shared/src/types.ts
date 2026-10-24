@@ -999,3 +999,43 @@ export interface CycleStory {
   persona?: string;
   is_demo?: boolean;
 }
+
+/** G326: one income row the server counted into a Spend period's In figure.
+ *  Dated as the bank dated it; `attributed_early` is true when it landed
+ *  before the period start but is counted for this period. */
+export interface SpendIncomeRow {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** Signed like the total: a credit adds, a reversal subtracts. */
+  amount: number;
+  description: string;
+  merchant_name: string;
+  category: string;
+  account_id: string;
+  attributed_early: boolean;
+}
+
+/** G326: the ONE period definition behind GET /spend/verdict. The header
+ *  label, "Day N of M", In and the income list all read this object. The
+ *  newer fields are optional only so a payload cached before they shipped
+ *  still parses; the client falls back to its own period math for those. */
+export interface SpendPeriod {
+  start: string;
+  end: string;
+  days_elapsed: number;
+  days_left: number | null;
+  period_days?: number;
+  offset: number;
+  closed: boolean;
+  /** Inclusive day count, end minus start plus one. */
+  length_days?: number;
+  /** 1-based day of the period that today is (the full length once closed). */
+  day_number?: number;
+  /** First day of the next period (YYYY-MM-DD). */
+  payday?: string;
+  /** Server-composed label, for example "25 Sep to 29 Oct". */
+  label?: string;
+  /** Exactly the rows summed into pills.income. */
+  income_rows?: SpendIncomeRow[];
+}

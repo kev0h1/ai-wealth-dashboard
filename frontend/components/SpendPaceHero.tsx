@@ -6,6 +6,7 @@ import TransactionRow from "@/components/TransactionRow";
 import type { SpendVerdict, Transaction } from "@/lib/api";
 import { spendHeroModel, spendHeroMoney as spendHeroMoneyRaw } from "@/lib/spendHero";
 import { useMaskedFormatter } from "@/lib/balancesHidden";
+import { periodDayCaption } from "@/lib/spendPeriod";
 
 export interface SpendPaceHeroProps {
   verdict: SpendVerdict | null;
@@ -42,7 +43,7 @@ export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = fal
     </div>
     <div className="mt-3">
       <button data-out-amount type="button" onClick={onOutTap} aria-label={`Show spending behind ${out} out`} className={`${action} ${amountSize} whitespace-nowrap text-left font-mono font-bold leading-tight tracking-[-0.025em] tabular-nums text-slate-950 dark:text-white`}>{out}</button>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Day {verdict.period.days_elapsed}{model.totalDays != null ? ` of ${model.totalDays}` : ""}</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{periodDayCaption(verdict)}</p>
     </div>
     <div className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
       {model.difference == null || model.usual == null
