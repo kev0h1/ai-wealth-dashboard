@@ -1014,6 +1014,69 @@ async def _dismissed_unresolved_ids(uid: str) -> set[str]:
         return set()
 
 
+# ── G326: ONE period definition, from the server ─────────────────────────────
+# The client used to rebuild its own period from its own copy of the pay-period
+# config (header label, income list, "Pay arrived" node), which could disagree
+# with the window this verdict's figures were counted over. `period` now carries
+# everything the page shows about the window, plus the exact income rows behind
+# `pills.income`, so the header label, "Day N of M", In and "Income this period"
+# are all read from one object and can never describe different periods.
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _short_date(d: date, with_year: bool) -> str:
+    return f"{d.day} {_MONTHS[d.month - 1]}" + (f" {d.year}" if with_year else "")
+
+
+def build_income_rows(txns: list[dict], kind_map: dict, start: date) -> list[dict]:
+    """The income-flow rows `bucket_transactions` counts into income_total,
+    with their real dates. Signed like the total (a credit adds, a debit
+    reversal subtracts), so `sum(r["amount"]) == income_total`.
+    `attributed_early` is True for a row dated before the period start (the
+    verdict window is the period itself, so this is only ever True if a caller
+    widens the window to pull early-landing pay in)."""
+    rows: list[dict] = []
+    for t in txns:
+        flow = classify_flow(kind_map, t["category"], t["debit"], bool(t.get("own_move")), bool(t.get("card_repayment")))
+        if flow.kind != INCOME_FLOW:
+            continue
+        rows.append({
+            "id": t["id"],
+            "date": t["date"].isoformat(),
+            "amount": round(t["amount"] if t["debit"] is False else -t["amount"], 2),
+            "description": t["description"],
+            "merchant_name": t["merchant_name"],
+            "category": t["category"],
+            "account_id": t["account_id"],
+            "attributed_early": t["date"] < start,
+        })
+    rows.sort(key=lambda r: (-abs(r["amount"]), r["date"]))
+    return rows
+
+
+def build_period_payload(period: dict, income_rows: list[dict], today: date) -> dict:
+    """Extend the pace.py period dict (kept verbatim for compatibility) with
+    the single period definition the Spend page reads. Returns a new dict;
+    the input is cached and shared, so it is never mutated."""
+    start = date.fromisoformat(period["start"])
+    end = date.fromisoformat(period["end"])
+    length_days = (end - start).days + 1
+    if period.get("closed"):
+        day_number = length_days
+    else:
+        day_number = max(1, min(length_days, (today - start).days + 1))
+    with_year = start.year != end.year
+    return {
+        **period,
+        "length_days": length_days,
+        "day_number": day_number,
+        "payday": (end + timedelta(days=1)).isoformat(),
+        "label": f"{_short_date(start, with_year)} to {_short_date(end, with_year)}",
+        "income_rows": income_rows,
+    }
+
+
 async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
     """The GET /spend/verdict payload with independent metadata reads grouped."""
     kind_map, goal_names, dismissed_unresolved_ids = await asyncio.gather(
@@ -1044,6 +1107,8 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
 
     txns = await _load_period_txns(uid, start, end)
     cat_agg, moved_groups, income_total = bucket_transactions(txns, kind_map)
+    income_rows = build_income_rows(txns, kind_map, start)
+    period = build_period_payload(period, income_rows, timeutil.user_today())
 
     result = assemble_verdict(
         cat_agg=cat_agg,
