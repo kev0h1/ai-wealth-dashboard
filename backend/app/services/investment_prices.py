@@ -340,14 +340,15 @@ def holding_value(h: dict, inst: dict | None) -> float | None:
 
 
 async def _recompute_account(acc: dict, holdings: list[dict], insts: dict) -> float:
-    total = 0.0
-    for h in holdings:
-        v = holding_value(h, insts.get(h.get("instrument_key")))
-        total += v if v is not None else (h.get("statement_value") or 0)
+    """G333: stores the canonical account value (post-statement contract notes
+    at units x price, as the growth card shows). `last_refreshed` means "last
+    recompute", not "new prices": the prices' own dates are on the instruments."""
+    from app.services.investment_growth import account_value  # lazy: investment_growth imports this module
+    value, _pos = await account_value(acc, holdings, None, insts)
     await investment_accounts_col.update_one(
-        {"_id": acc["_id"]}, {"$set": {"total_value": round(total, 2), "last_refreshed": _utcnow()}},
+        {"_id": acc["_id"]}, {"$set": {"total_value": value, "last_refreshed": _utcnow()}},
     )
-    return round(total, 2)
+    return value
 
 
 async def _link_holdings(holdings: list[dict]) -> None:

@@ -109,6 +109,7 @@
     "check:g219-accounts-route": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g219-accounts-route.test.mjs",
     "check:g236-accounts-header": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g236-accounts-header.test.mjs",
     "check:g277-growth-at-once": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g277-growth-at-once.test.mjs",
+    "check:g333-growth-chart": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g333-growth-chart.test.mjs",
     "check:g278-anchor": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g278-anchor.test.mjs",
     "check:g279-pay-split": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g279-pay-split.test.mjs",
     "check:g236-accounts-fold-in": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g236-accounts-fold-in.test.mjs",

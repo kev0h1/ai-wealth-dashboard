@@ -26,7 +26,7 @@ from app.db.collections import (
 )
 from app.services import investment_anchor as ia
 from app.services.investment_prices import (
-    best_match, get_instruments, holding_value, instrument_key, norm_name as _norm,
+    best_match, get_instruments, holding_value, instrument_key, norm_name as _norm, note_only_instruments,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,41 @@ def _doc_id(account_id: str, d: date) -> str:
     return f"{account_id}|{d.isoformat()}"
 
 
+async def account_value(acc: dict, holdings: list[dict] | None = None, notes: list[dict] | None = None,
+                        insts: dict | None = None) -> tuple[float, dict]:
+    """G333: THE account value, used by the Accounts header, the growth card,
+    the holdings list and the daily snapshot. It is build_positions()["value"]:
+    units x latest price for everything priced (including funds bought by
+    contract note after the statement), cash and unpriced holdings at their
+    statement value. Loads whatever it is not given. Returns (value, positions)."""
+    if holdings is None:
+        holdings = await investment_holdings_col.find({"account_id": acc["_id"]}).to_list(None)
+    if notes is None:
+        notes = await investment_notes_col.find({"account_id": acc["_id"]}).to_list(None)
+    keys = [h.get("instrument_key") for h in holdings] + [instrument_key(None, None, n.get("fund_name")) for n in notes]
+    insts = dict(insts or {})
+    missing = [k for k in keys if k and k not in insts]
+    if missing:
+        insts.update(await get_instruments(missing))
+    pos = build_positions(_as_date(acc.get("statement_date")), holdings, notes, insts,
+                          ia.all_fee_lines(acc.get("statement_periods") or []))
+    pos["insts"] = insts  # the instruments used, so callers (price_dating) need not query again
+    return pos["value"], pos
+
+
+def price_dating(insts: dict, holdings: list[dict], notes: list[dict], stmt_date) -> dict:
+    """G333: how fresh the prices behind the account value are. Looks at the
+    priced instruments of the holdings and of note-only funds."""
+    keys = {h.get("instrument_key") for h in holdings}
+    for key, _name in note_only_instruments(stmt_date, holdings, notes):
+        keys.add(key)
+    priced = [insts[k] for k in keys if k and insts.get(k) and insts[k].get("price") and insts[k].get("price_date")]
+    dates = sorted(str(i["price_date"])[:10] for i in priced)
+    low = any(i.get("confidence") == "low" or i.get("source") in ("legacy", "migrated") for i in priced)
+    return {"prices_as_of": dates[-1] if dates else None, "prices_oldest": dates[0] if dates else None,
+            "price_confidence": "low" if low else "normal"}
+
+
 async def snapshot_account(acc: dict, holdings: list[dict], insts: dict, today: date | None = None) -> dict | None:
     """Write (or overwrite) today's snapshot for one account. Returns the
     snapshot, or None when there is nothing to value."""
@@ -106,10 +141,8 @@ async def snapshot_account(acc: dict, holdings: list[dict], insts: dict, today: 
     else:
         paid_in = net_contributions(notes, None, today)
 
-    # Notes dated after the statement are bought but not yet in the holdings'
-    # units, so they join the value at cost (the same rule the account card
-    # uses for display_value).
-    value = holdings_value(holdings, insts) + net_contributions(notes, stmt_date, today)
+    # G333: the canonical account value (post-statement notes at units x price).
+    value, _pos = await account_value(acc, holdings, notes, insts)
     doc = {
         "_id": _doc_id(account_id, today), "user_id": acc.get("user_id"),
         "account_id": account_id, "date": today.isoformat(),
@@ -338,11 +371,37 @@ def backfill_values(rows: list[dict], insts: dict, start: date, end: date) -> di
     return out
 
 
-def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date) -> list[dict]:
-    """Chart points: stored daily snapshots, backfilled from shared price
-    history where it covers the holdings, filled forward daily otherwise, and
-    ending on the current value. paid_in is null when only some holdings have
-    a known cost (a paid-in line over part of the value would mislead)."""
+GAP_BRIDGE_DAYS = 3  # weekends and bank holidays are bridged flat; anything longer stays a gap
+
+
+def _contribution_between(notes: list[dict], fee_lines: list[dict] | None, stmt_date: date | None,
+                          after: date, upto: date) -> float:
+    """G333: signed money paid in (or taken out) by contract notes dated in
+    (after, upto], fees excluded, notes inside the statement excluded (the same
+    notes the paid-in line counts)."""
+    total = 0.0
+    for n in notes or []:
+        d = _as_date(n.get("trade_date"))
+        if d is None or d <= after or d > upto:
+            continue
+        if stmt_date is not None and d <= stmt_date:
+            continue
+        if ia.is_fee_note(n, fee_lines):
+            continue
+        total += n.get("amount") or 0.0
+    return round(total, 2)
+
+
+def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date,
+                 notes: list[dict] | None = None, fee_lines: list[dict] | None = None) -> list[dict]:
+    """Chart points (G333): one per date that has data (stored daily snapshots,
+    shared price history where it covers the holdings, and today's live value).
+    A gap of up to three days is bridged flat; a longer gap stays a gap and the
+    point after it carries gap_before, so the chart never invents a line across
+    weeks we know nothing about. Each point carries `contribution`, the signed
+    net of contract notes since the previous point, so money paid in is never
+    mistaken for growth. paid_in is null when only some holdings have a known
+    cost (a paid-in line over part of the value would mislead)."""
     rows = pos["rows"]
     by_date = {p["date"]: p["value"] for p in snapshots}
     cost_dates = [r["_cost_date"] for r in rows if r["_cost_date"]]
@@ -357,15 +416,28 @@ def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
         by_date.setdefault(iso, v)
     by_date[today.isoformat()] = pos["value"]  # today is always the live figure
     complete = pos["holdings_total"] > 0 and pos["holdings_with_cost"] == pos["holdings_total"]
-    pts, last = [], None
-    cur = date.fromisoformat(min(by_date))
-    while cur <= today:
-        iso = cur.isoformat()
-        last = by_date.get(iso, last)
-        if last is not None:
-            pts.append({"date": iso, "value": last,
-                        "paid_in": _paid_in_at(rows, pos["adj"], cur) if complete else None})
-        cur += timedelta(days=1)
+    stmt = pos.get("stmt_date")
+
+    def point(d: date, value: float, prev: date | None) -> dict:
+        after = prev if prev is not None else d - timedelta(days=1)
+        return {"date": d.isoformat(), "value": value,
+                "paid_in": _paid_in_at(rows, pos["adj"], d) if complete else None,
+                "contribution": _contribution_between(notes, fee_lines, stmt, after, d),
+                "gap_before": prev is not None and (d - prev).days > GAP_BRIDGE_DAYS}
+
+    pts: list[dict] = []
+    prev: date | None = None
+    last_val = None
+    for iso in sorted(by_date):
+        d = date.fromisoformat(iso)
+        if prev is not None and 1 < (d - prev).days <= GAP_BRIDGE_DAYS:
+            fill = prev + timedelta(days=1)
+            while fill < d:
+                pts.append(point(fill, last_val, prev))
+                prev = fill
+                fill += timedelta(days=1)
+        pts.append(point(d, by_date[iso], prev))
+        prev, last_val = d, by_date[iso]
     days = RANGE_DAYS[range_key]
     if days is not None:
         cutoff = (today - timedelta(days=days)).isoformat()
@@ -373,10 +445,11 @@ def build_series(snapshots: list[dict], pos: dict, insts: dict, range_key: str, 
     return pts
 
 
-def build_growth(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date) -> dict:
+def build_growth(snapshots: list[dict], pos: dict, insts: dict, range_key: str, today: date,
+                 notes: list[dict] | None = None, fee_lines: list[dict] | None = None) -> dict:
     """Pure: headline figures from cost versus value (not from snapshots),
     plus the chart series for one range."""
-    points = build_series(snapshots, pos, insts, range_key, today)
+    points = build_series(snapshots, pos, insts, range_key, today, notes, fee_lines)
     n, m = pos["holdings_with_cost"], pos["holdings_total"]
     return {
         "range": range_key, "method": METHOD, "method_label": METHOD_LABEL, "points": points,
@@ -476,7 +549,8 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
     pos = build_positions(stmt, holdings, notes, insts, ia.all_fee_lines(periods))
     anchor = acc.get("anchor") or None
     anchor_d = _as_date(anchor.get("date")) if anchor else None
-    growth = build_growth(snaps, pos, insts, range_key, today)
+    fee_lines = ia.all_fee_lines(periods)
+    growth = build_growth(snaps, pos, insts, range_key, today, notes, fee_lines)
 
     # The anchor date's value on our side: today's figure, else the chart's.
     ours_on_anchor = None
@@ -484,7 +558,7 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
         if anchor_d >= today:
             ours_on_anchor = pos["value"]
         else:
-            full = growth["points"] if range_key == "all" else build_series(snaps, pos, insts, "all", today)
+            full = growth["points"] if range_key == "all" else build_series(snaps, pos, insts, "all", today, notes, fee_lines)
             ours_on_anchor = next((p["value"] for p in full if p["date"] == anchor_d.isoformat()), None)
     override = bool(anchor and anchor.get("use_provider_value") and anchor_d is not None)
     value_now = pos["value"]
@@ -504,8 +578,9 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
         for p in growth["points"]:
             if p["date"] == anchor_d.isoformat():
                 p["value"] = anchor["provider_value"]
-    # Header value (the Accounts row) counts later contract notes at cost; say so when it differs.
-    header = round((acc.get("total_value") or 0.0) + ia_after_statement(notes, stmt), 2) if stmt else None
+    # G333: the Accounts header shows the same canonical value as the growth card.
+    # The only time they differ is the provider-value display override for today.
+    header = pos["value"] if (stmt or notes or holdings) else None
     # No pre-formatted pounds: the client builds the sentence so hide-balances can mask it.
     value_note_kind = None
     if header is not None and growth["value"] is not None and abs(header - value_now) >= 0.01:
@@ -519,6 +594,7 @@ async def account_growth(acc: dict, range_key: str, today: date | None = None) -
         **growth,
         "value_source": "provider" if override and anchor_d == today else "sorted",
         "header_value": header, "value_note_kind": value_note_kind,
+        **price_dating(insts, holdings, notes, stmt),
         "undated_payment_lines": _undated_lines(periods),
         "lifetime": lifetime, "anchor": ({k: v for k, v in anchor.items()} if anchor else None),
         "anchor_history": acc.get("anchor_history") or [],

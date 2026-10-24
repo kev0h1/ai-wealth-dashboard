@@ -4,7 +4,6 @@ import { ChevronRight } from "lucide-react";
 import GrowthChart from "./portfolio-growth/GrowthChart";
 import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
-import { SinceStatementLine } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { chartReady, valueNoteText, CHART_WAITING, money, NO_COST_LINE, shortDate, SIMPLE_GAIN_NOTE, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
@@ -68,7 +67,6 @@ export default function PortfolioGrowthCard({
       {growth.value !== null ? (
         <div className="mt-3 space-y-3">
           <LifetimeBlock g={growth} hidden={hidden} onAnchor={onAnchor} onOverride={onOverride} />
-          <SinceStatementLine g={growth} hidden={hidden} />
           {!growth.lifetime && growth.growth_abs !== null && !growth.cost_coverage ? <GrowthSplit g={growth} hidden={hidden} /> : null}
           {!growth.lifetime && growth.growth_abs === null ? <p className={`text-[12px] ${whisper}`}>{NO_COST_LINE}</p> : null}
           {!growth.lifetime && growth.growth_abs !== null && growth.cost_coverage ? (

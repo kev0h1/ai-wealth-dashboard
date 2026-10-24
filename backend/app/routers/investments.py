@@ -12,7 +12,7 @@ from app.core.auth import current_user
 from app.core import timeutil
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col, investment_valuations_col
 from app.services import investment_anchor as ia
-from app.services.investment_growth import account_growth, build_positions
+from app.services.investment_growth import account_growth, account_value, build_positions, price_dating
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
 from app.core.timeutil import as_utc, to_user_date
 from app.services.investment_prices import (
@@ -70,8 +70,13 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
             if not ia.is_fee_note(n, fee_lines):
                 paid_in_since += n.get("amount", 0.0)
 
+    # G333: one canonical value. The stored total is refreshed on every price
+    # recompute, but a statement or note uploaded since then is only in the live
+    # figure, so read it live (the same function the recompute stores).
+    holdings = await investment_holdings_col.find({"account_id": account_id}).to_list(None)
+    display_value, _pos = await account_value(acc, holdings, notes)
     total_value = acc.get("total_value", 0.0)
-    display_value = round(total_value + added_since, 2)
+    dating = price_dating(_pos["insts"], holdings, notes, ia.as_date(statement_date))
     return {
         "id":                account_id,
         "provider":          acc.get("provider", "Unknown"),
@@ -85,6 +90,7 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
         "has_statement_periods": bool(acc.get("statement_periods")),
         "notes_since":       notes_since,
         "display_value":     display_value,
+        **dating,
         "statement_date":    acc.get("statement_date").isoformat() if acc.get("statement_date") else None,
         "last_refreshed":    acc.get("last_refreshed").isoformat() if acc.get("last_refreshed") else None,
         "updated_at":        acc.get("updated_at", datetime.now()).isoformat(),
@@ -570,6 +576,10 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
         r = by_id.get(row["id"])
         if r:
             row["gain_abs"], row["gain_pct"], row["cost"] = r["gain_abs"], r["gain_pct"], r["cost"]
+            # G333: the row carries post-statement note units and value, so the rows sum to the account value.
+            row["units"] = r["units"] if r["units"] is not None else row["units"]
+            row["current_value"], row["current_price"] = r["value"], r["price"] or row["current_price"]
+            row["price_date"] = r["price_date"] or row["price_date"]
     have = {o["id"] for o in out}
     for r in pos["rows"]:
         if r["id"] in have:

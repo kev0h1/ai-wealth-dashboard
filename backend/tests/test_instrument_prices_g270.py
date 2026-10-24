@@ -86,6 +86,12 @@ def cols(monkeypatch):
         monkeypatch.setattr(mod, "investment_holdings_col", holdings)
         monkeypatch.setattr(mod, "investment_accounts_col", accs)
     monkeypatch.setattr(ip, "investment_notes_col", _Col())
+    # G333: _recompute_account values the account through investment_growth.account_value.
+    import app.services.investment_growth as ig
+    monkeypatch.setattr(ig, "investment_notes_col", _Col())
+    monkeypatch.setattr(ig, "investment_holdings_col", holdings)
+    monkeypatch.setattr(ig, "investment_valuations_col", _Col())
+    monkeypatch.setattr(ig, "investment_accounts_col", accs)
     monkeypatch.setattr(ip, "user_today", lambda: TODAY)
     # Frozen "now" on TODAY so same-day checks never depend on the real clock.
     monkeypatch.setattr(ip, "_utcnow", lambda: datetime(2026, 10, 14, 7, tzinfo=timezone.utc))

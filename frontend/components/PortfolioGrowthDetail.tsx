@@ -4,10 +4,10 @@ import GrowthChart from "./portfolio-growth/GrowthChart";
 import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import HoldingRows from "./portfolio-growth/HoldingRows";
 import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
-import { PurchaseRows, SinceStatementLine, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
+import { PurchaseRows, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { cardSurface } from "./PortfolioGrowthCard";
-import { chartReady, valueNoteText, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, valueNoteText, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, formatPriceDay, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 /** Drill-in for one investment account (G271): a taller chart, the paid-in and
  *  growth split, each holding's change since the last statement, how growth is
@@ -37,6 +37,11 @@ export default function PortfolioGrowthDetail({
             <Money text={money(growth.value, { hidden })} className={`text-[30px] font-bold leading-tight tracking-tight ${ink}`} />
           </p>
         ) : null}
+        {growth.prices_as_of ? (
+          <p className={`mt-0.5 text-[12px] ${whisper}`}>
+            Prices as of {formatPriceDay(growth.prices_as_of, growth.prices_oldest)}{growth.price_confidence === "low" ? " · estimated" : ""}
+          </p>
+        ) : null}
       </header>
 
       {chartReady(growth.points) ? (
@@ -53,7 +58,6 @@ export default function PortfolioGrowthDetail({
       {valueNoteText(growth, hidden) ? <p className={`text-[12px] leading-snug ${whisper}`}>{valueNoteText(growth, hidden)}</p> : null}
 
       <LifetimeBlock g={growth} hidden={hidden} onAnchor={onAnchor} onOverride={onOverride} detail />
-      <SinceStatementLine g={growth} hidden={hidden} />
       {!growth.lifetime && !growth.cost_coverage ? <GrowthSplit g={growth} hidden={hidden} /> : null}
 
       <HoldingRows holdings={growth.holdings} hidden={hidden} />

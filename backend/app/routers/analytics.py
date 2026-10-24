@@ -274,24 +274,12 @@ async def get_kpis(user: dict = Depends(current_user)):
     # GBP net worth only — a non-GBP statement account must not be summed as £
     stmt_accs     = [a for a in stmt_accs_all if str(a.get("currency", "GBP")).upper() == "GBP"]
     inv_accs      = await investment_accounts_col.find({"user_id": uid}).to_list(None)
-    # Aggregate contract notes since each account's statement date (display_value semantics)
-    inv_notes     = await investment_notes_col.find({"user_id": uid}).to_list(None)
-    _stmt_dates   = {a["_id"]: a.get("statement_date") for a in inv_accs}
-    _notes_by_acc: dict = {}
-    for _n in inv_notes:
-        _notes_by_acc.setdefault(_n["account_id"], []).append(_n)
-    investment_total = sum(
-        a.get("total_value", 0) + sum(
-            _n.get("amount", 0)
-            for _n in _notes_by_acc.get(a["_id"], [])
-            if (
-                _stmt_dates.get(a["_id"]) is None
-                or _n.get("trade_date") is None
-                or _n["trade_date"] > _stmt_dates[a["_id"]]
-            )
-        )
-        for a in inv_accs
-    )
+    # G333: the one canonical account value (post-statement contract notes at units x price)
+    from app.services.investment_growth import account_value
+    investment_total = 0.0
+    for _a in inv_accs:
+        _v, _ = await account_value(_a)
+        investment_total += _v
 
     if not accounts and not yapily_accs and not stmt_accs and not inv_accs:
         return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)
