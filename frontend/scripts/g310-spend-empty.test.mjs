@@ -48,7 +48,7 @@ assert.match(fullHero, /Income this period/);
 assert.match(fullHero, /How Out adds up/);
 
 const page = readFileSync(new URL("../app/components/SpendPage.tsx", import.meta.url), "utf8");
-const pay = page.indexOf("Pay arrived");
+const pay = page.indexOf("payArrivedText(verdict"); // G326: the node text now comes from lib/spendPeriod.ts
 assert.ok(pay > 0, "Pay arrived entry present");
 const guard = page.lastIndexOf("{verdict.pills.income > 0 && (", pay);
 assert.ok(guard > 0, "Pay arrived guarded on income > 0");
