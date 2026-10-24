@@ -541,6 +541,10 @@ export interface InvestmentAccount {
   /** G278: the latest statement was read by the period parser, so fees can be recognised. */
   has_statement_periods?: boolean;
   display_value: number;
+  /** G333: the newest price date behind the value (ISO date), the oldest, and whether any price is an estimate. */
+  prices_as_of?: string | null;
+  prices_oldest?: string | null;
+  price_confidence?: "low" | "normal";
 }
 
 export interface InvestmentNote {

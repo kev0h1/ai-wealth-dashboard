@@ -7,7 +7,7 @@ import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
 import { PurchaseRows, SinceStatementLine, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { cardSurface } from "./PortfolioGrowthCard";
-import { chartReady, valueNoteText, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
+import { chartReady, valueNoteText, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, formatPriceDay, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
 
 /** Drill-in for one investment account (G271): a taller chart, the paid-in and
  *  growth split, each holding's change since the last statement, how growth is
@@ -35,6 +35,11 @@ export default function PortfolioGrowthDetail({
         {growth.value !== null ? (
           <p className="mt-1">
             <Money text={money(growth.value, { hidden })} className={`text-[30px] font-bold leading-tight tracking-tight ${ink}`} />
+          </p>
+        ) : null}
+        {growth.prices_as_of ? (
+          <p className={`mt-0.5 text-[12px] ${whisper}`}>
+            Prices as of {formatPriceDay(growth.prices_as_of, growth.prices_oldest)}{growth.price_confidence === "low" ? " · estimated" : ""}
           </p>
         ) : null}
       </header>

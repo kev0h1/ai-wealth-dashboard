@@ -109,6 +109,10 @@ export interface InvestmentGrowth {
   /** G278 */
   value_source?: "sorted" | "provider";
   header_value?: number | null;
+  /** G333: newest and oldest price date behind the value, and whether any price is an estimate. */
+  prices_as_of?: string | null;
+  prices_oldest?: string | null;
+  price_confidence?: "low" | "normal";
   /** Why the Accounts header shows a different figure; the sentence is built client-side so it can mask. */
   value_note_kind?: "notes_at_cost" | "price_date" | "cash" | null;
   /** Statement payment lines with no date, not counted as contributions. */
@@ -202,6 +206,17 @@ export function shortDate(iso: string, withYear = false): string {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   if (!y || !m || !d) return iso;
   return `${d} ${MONTHS[m - 1]}${withYear ? ` ${y}` : ""}`;
+}
+
+/** G333: "16 Oct", or "15 to 16 Oct" when the prices span two dates. Null when there is no price date. */
+export function formatPriceDay(asOf: string | null | undefined, oldest?: string | null): string | null {
+  if (!asOf) return null;
+  if (!oldest || oldest.slice(0, 10) === asOf.slice(0, 10)) return shortDate(asOf);
+  const [, om, od] = oldest.slice(0, 10).split("-").map(Number);
+  const [, nm] = asOf.slice(0, 10).split("-").map(Number);
+  const to = shortDate(asOf);
+  if (om === nm) return `${od} to ${to}`;
+  return `${shortDate(oldest)} to ${to}`;
 }
 
 /** Direction of a change as a plain word for assistive tech; never colour alone. */

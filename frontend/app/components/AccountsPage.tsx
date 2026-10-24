@@ -5,6 +5,7 @@ import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
+import { formatPriceDay } from "@/lib/investmentGrowth";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
@@ -1396,17 +1397,21 @@ export default function AccountsPage() {
     setRefreshingInvestment(id);
     try {
       const res = await api.refreshInvestmentPrices(id);
+      const acct = investmentAccounts.find(a => a.id === id);
+      const asOf = formatPriceDay(acct?.prices_as_of, acct?.prices_oldest);
       const note =
-        res.status === "unavailable" ? "Price check unavailable right now"
-        : res.status === "skipped" ? "Prices already checked today"
-        : res.status === "failed" ? "Price check unavailable right now"
+        res.status === "unavailable" || res.status === "failed"
+          ? `Could not get newer prices today.${asOf ? ` Showing prices as of ${asOf}.` : ""}`
+        : res.status === "skipped" ? "Prices already checked today."
         : "";
       setInvestmentRefreshNote(prev => ({ ...prev, [id]: note }));
-      // Only a real update moves the account figures and the refreshed stamp.
+      // G333: pull the account back so the value, price dates and confidence all come from the server.
+      // A failed refresh never stamps a new refresh time client-side.
       if (res.status === "updated") {
         setInvestmentAccounts(prev =>
-          prev.map(a => a.id === id ? { ...a, total_value: res.new_total, last_refreshed: new Date().toISOString() } : a)
+          prev.map(a => a.id === id ? { ...a, total_value: res.new_total, display_value: res.new_total, last_refreshed: new Date().toISOString() } : a)
         );
+        api.getInvestmentAccounts().then(setInvestmentAccounts).catch(() => {});
       }
       // Reload holdings to reflect updated prices
       const h = await api.getInvestmentHoldings(id);
@@ -3202,6 +3207,12 @@ export default function AccountsPage() {
               const refreshDate = inv.last_refreshed
                 ? new Date(inv.last_refreshed).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
                 : null;
+              // G333: the date of the prices themselves, not the last recompute.
+              const pricesAsOf = formatPriceDay(inv.prices_as_of, inv.prices_oldest);
+              const pricesStale = !!inv.prices_as_of && !!inv.last_refreshed
+                && (Date.now() - new Date(`${inv.prices_as_of}T00:00:00`).getTime()) > 2 * 86_400_000
+                && new Date(inv.last_refreshed) > new Date(`${inv.prices_as_of}T23:59:59`);
+              const noNewerNote = pricesStale && refreshDate ? ` · no newer prices on ${refreshDate}` : "";
 
               // Display value (display_value if available, else total_value)
               const displayValue = inv.display_value ?? inv.total_value;
@@ -3219,9 +3230,9 @@ export default function AccountsPage() {
               // Whether prices were refreshed after the statement
               const hasRefreshAfterStatement =
                 !isProvisional &&
-                inv.last_refreshed !== null &&
+                !!inv.prices_as_of &&
                 inv.statement_date !== null &&
-                new Date(inv.last_refreshed) > new Date(inv.statement_date);
+                new Date(inv.prices_as_of) > new Date(inv.statement_date);
 
               // Decomposed value line (Change 2 + Change 3)
               let decomposedLine: React.ReactNode = null;
@@ -3241,11 +3252,11 @@ export default function AccountsPage() {
                     const noteWord = notesSince === 1 ? "note" : "notes";
                     const what = paidInSince > 0 ? "paid in" : "net taken out";
                     decomposedLine = (
-                      <span><MoneyText text={`Prices refreshed ${refreshDate} · ${sign}£${hideNetWorth ? "••••" : absVal} ${what} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
+                      <span><MoneyText text={`Prices as of ${pricesAsOf}${noNewerNote} · ${sign}£${hideNetWorth ? "••••" : absVal} ${what} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
                     );
                   } else {
                     decomposedLine = (
-                      <span>Prices refreshed {refreshDate} · statement {stmtDate}</span>
+                      <span>Prices as of {pricesAsOf}{noNewerNote} · statement {stmtDate}</span>
                     );
                   }
                 } else {
@@ -3256,7 +3267,7 @@ export default function AccountsPage() {
                     const verb = paidInSince > 0 ? "paid in" : "net taken out";
                     const noteWord = notesSince === 1 ? "contract note" : "contract notes";
                     decomposedLine = (
-                      <span><MoneyText text={`Valued £${(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on ${stmtDate} · ${sign}£${absVal} ${verb} since (${notesSince} ${noteWord})`} /></span>
+                      <span><MoneyText text={`Statement dated ${stmtDate} · ${sign}£${hideNetWorth ? "••••" : absVal} ${verb} since (${notesSince} ${noteWord})`} /></span>
                     );
                   } else {
                     decomposedLine = <span>Statement dated {stmtDate}</span>;
@@ -3334,7 +3345,7 @@ export default function AccountsPage() {
                             </div>
                             <p className="text-xs text-slate-400 mt-0.5 truncate">
                               {inv.account_reference}
-                              {refreshDate && <span className="ml-1.5">· updated {refreshDate}</span>}
+                              {pricesAsOf && <span className="ml-1.5">· prices as of {pricesAsOf}</span>}
                             </p>
                           </div>
                           <span className="text-sm font-bold money text-slate-800 dark:text-slate-100 flex-shrink-0">
@@ -3634,6 +3645,7 @@ export default function AccountsPage() {
                             const hDisplayValue = h.current_value ?? h.statement_value;
                             const displayPrice = h.current_price ?? h.price_per_unit;
                             const hasLivePrice = h.current_price !== null;
+                            const estimated = hasLivePrice && h.price_confidence === "low";
                             // G270: a dated end-of-day price, never "Live".
                             const priceAsOf = h.price_date
                               ? (() => {
@@ -3656,8 +3668,8 @@ export default function AccountsPage() {
                                     )}
                                     {displayPrice && (
                                       <p className="text-xs mt-0.5">
-                                        <span className={hasLivePrice ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-slate-400"}>
-                                          {hasLivePrice ? (priceAsOf ? `Price as of ${priceAsOf} ` : "Price ") : "Statement price "}<span className="font-mono tabular-nums">£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span> / unit
+                                        <span className={hasLivePrice && !estimated ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-slate-400"}>
+                                          {hasLivePrice ? (estimated ? (priceAsOf ? `Estimated price as of ${priceAsOf} ` : "Estimated price ") : (priceAsOf ? `Price as of ${priceAsOf} ` : "Price ")) : "Statement price "}<span className="font-mono tabular-nums">£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span> / unit
                                         </span>
                                       </p>
                                     )}
