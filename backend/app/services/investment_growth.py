@@ -93,6 +93,7 @@ async def account_value(acc: dict, holdings: list[dict] | None = None, notes: li
         insts.update(await get_instruments(missing))
     pos = build_positions(_as_date(acc.get("statement_date")), holdings, notes, insts,
                           ia.all_fee_lines(acc.get("statement_periods") or []))
+    pos["insts"] = insts  # the instruments used, so callers (price_dating) need not query again
     return pos["value"], pos
 
 

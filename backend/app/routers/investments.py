@@ -76,8 +76,7 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
     holdings = await investment_holdings_col.find({"account_id": account_id}).to_list(None)
     display_value, _pos = await account_value(acc, holdings, notes)
     total_value = acc.get("total_value", 0.0)
-    keys = [h.get("instrument_key") for h in holdings] + [instrument_key(None, None, n.get("fund_name")) for n in notes]
-    dating = price_dating(await get_instruments(keys), holdings, notes, ia.as_date(statement_date))
+    dating = price_dating(_pos["insts"], holdings, notes, ia.as_date(statement_date))
     return {
         "id":                account_id,
         "provider":          acc.get("provider", "Unknown"),
