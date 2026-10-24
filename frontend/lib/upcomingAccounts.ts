@@ -95,3 +95,8 @@ export function positionsFromToday(
   }
   return out;
 }
+
+/** G327: "Payments through Thu 29 Oct", from the account window's last day (UTC). */
+export function paymentsThroughLabel(accountEndMs: number): string {
+  return `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
+}

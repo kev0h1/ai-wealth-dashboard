@@ -185,11 +185,13 @@ def period_facts(start: _date, end: _date, today: _date, closed: bool = False) -
 def current_period_facts(today: _date, config: dict, confirmed_payday: _date | None = None) -> dict:
     """The current pay period's facts for `today` under `config`, plus
     `payday_observed`: the confirmed salary date and its source when it
-    differs from the period's own payday (end + 1), else None."""
+    differs from the period's own payday (end + 1), else None. `type` is the
+    pay-period config type, so the client never reads its own copy of it."""
     start, end = get_pay_period_for_date(today, config)
     facts = period_facts(start, end, today)
     observed = None
     if confirmed_payday is not None and confirmed_payday.isoformat() != facts["payday"]:
         observed = {"date": confirmed_payday.isoformat(), "source": "confirmed"}
     facts["payday_observed"] = observed
+    facts["type"] = config.get("type", "calendar_month")
     return facts

@@ -8,7 +8,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
-import { getPayPeriodWithConfig } from "@/lib/payPeriod";
+import { resolveUpcomingPeriod } from "@/lib/upcomingPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,7 +29,7 @@ import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@
 import { isOptionalMove } from "@/lib/cardRepayment";
 import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
-import { positionsFromToday, upcomingAccountWindow } from "@/lib/upcomingAccounts";
+import { paymentsThroughLabel, positionsFromToday, upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
@@ -259,10 +259,14 @@ export default function PlanningPage() {
 
   // Derived rather than mirrored into state: changing the pay-period setting
   // now produces one render instead of an effect-driven second render.
-  const [periodStart, periodEnd] = useMemo(
-    () => getPayPeriodWithConfig(new Date(planningNow), payPeriodConfig),
-    [payPeriodConfig, planningNow]
+  // G327: the period is the server's (`cashflow.period`) once the payload
+  // has arrived; the client pay-period config is only the loading seed.
+  const upcomingPeriod = useMemo(
+    () => resolveUpcomingPeriod(cashflow, { config: payPeriodConfig, nowMs: planningNow }),
+    [cashflow, payPeriodConfig, planningNow]
   );
+  const periodStart = upcomingPeriod.start;
+  const periodEnd = upcomingPeriod.end;
 
   // The runway is the page's primary answer, so its request starts alone.
   // Plans now follow it in the page hierarchy, but their supporting requests
@@ -367,7 +371,7 @@ export default function PlanningPage() {
   const excludedAccountIds = new Set(accounts.filter((account) => account.include_in_safe_to_spend === false).map((account) => account.id));
   const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
-  const accountPeriodLabel = `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
+  const accountPeriodLabel = paymentsThroughLabel(accountEndMs);
   const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
   const accountSummaries = withCoverSuggestions((accountWalk?.accounts ?? []).map((account) => accountPositions[account.id] ? { ...account, position: accountPositions[account.id] } : account), todayItems);
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
@@ -636,13 +640,8 @@ export default function PlanningPage() {
       ) : !cashflow ? (
         <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
       ) : (() => {
-        const today = new Date(planningNow);
-        const nextPayday = new Date(periodEnd.getTime() + 86400000);
-        const isCalendarMonth = payPeriodConfig.type === "calendar_month";
-        const todayMidnight = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-        const nextPaydayMidnight = new Date(Date.UTC(nextPayday.getUTCFullYear(), nextPayday.getUTCMonth(), nextPayday.getUTCDate()));
-        const daysToPayday = Math.round((nextPaydayMidnight.getTime() - todayMidnight.getTime()) / 86400000);
-        const paydayLabel = nextPayday.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+        const { isCalendarMonth, daysToPayday, paydayLabel } = upcomingPeriod;
+        const nextPaydayMidnight = upcomingPeriod.payday;
 
         const NEXT_PERIOD_LOOKAHEAD_MS = 5 * 86400000;
 
