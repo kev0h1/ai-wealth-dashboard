@@ -175,6 +175,8 @@ def _patch(monkeypatch, acc, notes=None, holdings=None, insts=None):
     async def _get(keys):
         return ins
     monkeypatch.setattr(ig, "get_instruments", _get)
+    monkeypatch.setattr(router, "get_instruments", _get)  # G333: the display reads prices and holdings live
+    monkeypatch.setattr(router, "investment_holdings_col", Col(holdings if holdings is not None else kevin_holdings()))
     monkeypatch.setattr(ig, "user_today", lambda: TODAY)
     return acc
 
@@ -204,13 +206,13 @@ def test_etf_without_a_price_reads_no_price_yet(monkeypatch):
     assert etf["price"] is None and etf["units"] == 43.0 and etf["value"] == 4908.98
 
 
-def test_value_is_priced_and_header_difference_is_named(monkeypatch):
+def test_header_and_growth_value_are_one_figure(monkeypatch):
+    # G333: the header no longer counts later notes at cost, so it equals the growth card.
     g = asyncio.run(ig.account_growth(_patch(monkeypatch, kevin_acc(total_value=15096.06)), "all"))
     expect = round(50.32 * 300.0 + 0.06 + 1.35 * 300.0 + 43 * 112.46, 2)
     assert g["value"] == expect
-    header = round(15096.06 + 400 + 4908.98, 2)
-    assert g["header_value"] == header
-    assert g["value_note_kind"] == "notes_at_cost" and "value_note" not in g
+    assert g["header_value"] == expect
+    assert g["value_note_kind"] is None and "value_note" not in g
 
 
 def test_lifetime_is_primary_and_uses_the_anchor(monkeypatch):
@@ -327,8 +329,8 @@ def test_fee_note_lowers_value_but_not_cost_or_paid_in():
     assert pos["paid_in"] == 2500.0
 
 
-def test_header_paid_in_since_excludes_a_fee():
-    acc = kevin_acc()
+def test_header_paid_in_since_excludes_a_fee(monkeypatch):
+    acc = _patch(monkeypatch, kevin_acc())
     notes = kevin_notes() + [_note("f", -12.0, date(2026, 10, 10), units=0.04, kind="fee")]
     d = asyncio.run(router._investment_display(acc, notes))
     assert d["paid_in_since"] == 5308.98 and d["added_since"] == round(5308.98 - 12.0, 2)
@@ -466,7 +468,8 @@ def test_undated_statement_lines_are_counted_not_silently_lost(monkeypatch):
     assert life["paid_in_after"] == 1200.0
 
 
-def test_display_flags_whether_the_statement_was_read_for_periods():
+def test_display_flags_whether_the_statement_was_read_for_periods(monkeypatch):
+    _patch(monkeypatch, None)
     d = asyncio.run(router._investment_display(kevin_acc(), []))
     assert d["has_statement_periods"] is True
     bare = {k: v for k, v in kevin_acc().items() if k != "statement_periods"}
