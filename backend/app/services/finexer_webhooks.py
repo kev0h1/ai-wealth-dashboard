@@ -343,7 +343,8 @@ def _day_key(now: Optional[datetime] = None) -> str:
 async def bump_daily_counters(now: Optional[datetime] = None, **increments: int) -> None:
     """$inc counters on one worker_runs_col doc per UTC day (`requests`,
     `rate_limited`, `webhook_events`, `webhook_syncs_enqueued`,
-    `webhook_events_coalesced`, `poll_syncs_enqueued`). Best effort: metrics
+    `webhook_events_coalesced`, `poll_syncs_enqueued`, and E11's `user_syncs` and
+    `history_syncs`). Best effort: metrics
     must never break a sync or a webhook."""
     incs = {k: int(v) for k, v in increments.items() if v}
     if not incs:

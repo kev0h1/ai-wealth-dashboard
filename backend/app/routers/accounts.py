@@ -32,6 +32,7 @@ from app.services.planned import settle_planned_expenses
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 from app.services.retention import disconnect_connection as _disconnect_connection
 from app.services.finexer_webhooks import bump_daily_counters
+from app.services import sync_throttle
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -206,6 +207,15 @@ async def sync_all(user: dict = Depends(current_user)):
     if await open_banking_paused(uid):
         return {"message": "Bank sync is paused on your plan", "paused": True,
                 "connections": 0, "total_accounts": 0}
+
+    # E11: one user-present refresh a minute. The first sync after connect and
+    # its retry are exempt (see services/sync_throttle.py). Plain message and
+    # Retry-After; the app shows it as a neutral note, not an error.
+    retry_after = await sync_throttle.check_user_sync(uid)
+    if retry_after:
+        raise HTTPException(status_code=429, detail=sync_throttle.MESSAGE,
+                            headers={"Retry-After": str(retry_after)})
+    await bump_daily_counters(user_syncs=1)
 
     # G210: a retry clears a first sync's recorded error so Home reads as
     # syncing again; a fresh failure re-stamps it.
