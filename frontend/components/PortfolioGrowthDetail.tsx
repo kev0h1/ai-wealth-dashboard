@@ -4,7 +4,7 @@ import GrowthChart from "./portfolio-growth/GrowthChart";
 import GrowthSplit from "./portfolio-growth/GrowthSplit";
 import HoldingRows from "./portfolio-growth/HoldingRows";
 import LifetimeBlock from "./portfolio-growth/LifetimeBlock";
-import { PurchaseRows, SinceStatementLine, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
+import { PurchaseRows, StatementPeriods } from "./portfolio-growth/SecondaryGrowth";
 import { growthSummary, ink, label, Money, RangeChips, RiskLines, whisper } from "./portfolio-growth/Parts";
 import { cardSurface } from "./PortfolioGrowthCard";
 import { chartReady, valueNoteText, CHART_WAITING, LIFETIME_NOTE, METHOD_NOTE, formatPriceDay, money, shortDate, type GrowthRange, type InvestmentGrowth } from "@/lib/investmentGrowth";
@@ -58,7 +58,6 @@ export default function PortfolioGrowthDetail({
       {valueNoteText(growth, hidden) ? <p className={`text-[12px] leading-snug ${whisper}`}>{valueNoteText(growth, hidden)}</p> : null}
 
       <LifetimeBlock g={growth} hidden={hidden} onAnchor={onAnchor} onOverride={onOverride} detail />
-      <SinceStatementLine g={growth} hidden={hidden} />
       {!growth.lifetime && !growth.cost_coverage ? <GrowthSplit g={growth} hidden={hidden} /> : null}
 
       <HoldingRows holdings={growth.holdings} hidden={hidden} />

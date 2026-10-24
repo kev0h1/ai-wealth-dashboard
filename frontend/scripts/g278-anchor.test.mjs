@@ -50,7 +50,7 @@ assert.ok(!/>Growth<\/h2>/.test(noAnchor), "the heading is never Growth");
 assert.ok(noAnchor.includes("£20,342.64"), "the value shows");
 assert.ok(noAnchor.includes("Anchor from your provider to see lifetime growth"), "entry point with no anchor");
 assert.ok(!noAnchor.includes("Edit anchor"), "no Edit anchor without an anchor");
-assert.ok(noAnchor.includes("Growth since your 4 Sep statement") && noAnchor.includes("+£198.01"), "growth since the statement, secondary");
+assert.ok(!noAnchor.includes("Growth since your 4 Sep statement"), "G333: one growth figure, no second since-statement line");
 assert.ok(noAnchor.includes("Cost is known for 1 of 3 holdings"), "partial cost says so instead of a misleading pair");
 
 // Anchor set: lifetime leads, the rate is the provider's, reconciliation and its control show.
