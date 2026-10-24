@@ -11,7 +11,7 @@ import { FillRulePicker, type FillRuleValue } from "@/components/AllocationField
 import { usePreferences } from "@/components/PreferencesContext";
 import { periodRhythmLabel } from "@/lib/payPeriod";
 import { periodsLeftFrom, pickServerPeriod, type ServerPeriodBounds } from "@/lib/serverPeriodWindow";
-import { cachedVerdict } from "@/lib/verdictCache";
+import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
 import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -375,7 +375,17 @@ export default function CommitmentSheet({
   // Live "≈ £X/period" estimate — remaining over pay periods left, ceiled to £5
   // G329: anchor on the server period; the client config is a FALLBACK only
   // (no host period and no cached verdict) and still supplies later rhythm.
-  const periodAnchor = pickServerPeriod(serverPeriod, cachedVerdict(0)?.period);
+  // When neither exists (opened from Long-term planning or Penny) the verdict
+  // for offset 0 is fetched once on open; the config applies only if that fails.
+  const [fetchedPeriod, setFetchedPeriod] = useState<ServerPeriodBounds | null>(null);
+  const hasHostPeriod = !!serverPeriod || !!cachedVerdict(0);
+  useEffect(() => {
+    if (hasHostPeriod) return;
+    let cancelled = false;
+    fetchVerdictData(0).then(v => { if (!cancelled) setFetchedPeriod(v.period); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [hasHostPeriod]);
+  const periodAnchor = pickServerPeriod(serverPeriod, cachedVerdict(0)?.period, fetchedPeriod);
   const periods = monthValid ? periodsLeftFrom(month, payPeriodConfig, periodAnchor, new Date()) : null;
   const periodLabel = periodRhythmLabel(payPeriodConfig);
   const contributionCadence = periodLabel === "monthly" ? "each month" : periodLabel === "weekly" ? "each week" : periodLabel?.startsWith("every ") ? periodLabel : "each pay period";

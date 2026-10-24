@@ -22,6 +22,10 @@ export function pickServerPeriod(...candidates: Array<ServerPeriodBounds | null 
   return null;
 }
 
+/** True when the period has already ended (a payload cached across a rollover). */
+const isStale = (p: ServerPeriodBounds | null | undefined, now: Date) =>
+  !!p && !!p.end && dateToUTCDay(p.end) < Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
 /**
  * Home's pinned-chart window. Order: the Safe to Spend payload's `period`
  * (already loaded for the hero), then the current-period Spend verdict from
@@ -33,11 +37,14 @@ export function resolveHomeChartWindow(opts: {
   verdictPeriod?: ServerPeriodBounds | null;
   fallback: { config: PayPeriodConfig; now: Date };
 }): HomeChartWindow {
-  const sts = pickServerPeriod(opts.safeToSpendPeriod);
+  // The Safe to Spend response cache can outlive a period rollover (6 h bound),
+  // so a candidate that ended before today is skipped for the next source.
+  const now = opts.fallback.now;
+  const sts = isStale(opts.safeToSpendPeriod, now) ? null : pickServerPeriod(opts.safeToSpendPeriod);
   if (sts) return { ...sts, source: "safe-to-spend" };
-  const v = pickServerPeriod(opts.verdictPeriod);
+  const v = isStale(opts.verdictPeriod, now) ? null : pickServerPeriod(opts.verdictPeriod);
   if (v) return { ...v, source: "verdict" };
-  const [start, end] = getPayPeriodWithConfig(opts.fallback.now, opts.fallback.config);
+  const [start, end] = getPayPeriodWithConfig(now, opts.fallback.config);
   return { start, end, source: "client-fallback" };
 }
 
