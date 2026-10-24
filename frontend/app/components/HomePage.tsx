@@ -278,9 +278,11 @@ export default function HomePage() {
   // first paint.
   const [coverMoveVisible, setCoverMoveVisible] = useState(false);
   const [coverMoveReserves, setCoverMoveReserves] = useState<Record<string, number>>({});
-  const onCoverMoveVisibleChange = useCallback((visible: boolean, reserves: Record<string, number> = {}) => {
+  const [coverMoveDestinations, setCoverMoveDestinations] = useState<Record<string, string[]>>({});
+  const onCoverMoveVisibleChange = useCallback((visible: boolean, reserves: Record<string, number> = {}, destinations: Record<string, string[]> = {}) => {
     setCoverMoveVisible(visible);
     setCoverMoveReserves(reserves);
+    setCoverMoveDestinations(destinations);
   }, []);
   // A manual sync can overlap the mount fetch. Only the most recently started
   // request may commit values, so an older calculation can never overwrite a
@@ -1076,6 +1078,7 @@ export default function HomePage() {
                   spendFrom={spendFrom}
                   coverMoveVisible={coverMoveVisible}
                   coverMoveReserves={coverMoveReserves}
+                  coverMoveDestinations={coverMoveDestinations}
                   syncing={heroSync ?? undefined}
                   onSyncRetry={() => { void (refreshFailed ? handleSync() : handleSyncRetry()); }}
                 />

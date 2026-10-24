@@ -161,7 +161,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
 {
   const rail = renderTreatment(PLANS["bank-rail"]).markup;
   check("the account list renders its 'Held in' label", rail.includes("Held in"));
-  check("the account list replaces the obsolete footnote with its approved scope caption", rail.includes("One estimate across these accounts.") && !rail.includes("Each figure is how much of your estimate"));
+  check("the account list removes the obsolete top scope caption", !rail.includes("One estimate across these accounts.") && !rail.includes("Each figure is how much of your estimate"));
   check("the account list identifies its approved layout", rail.includes('data-spend-from-layout="account-list"'));
   check("the account list has a semantic list", /<ul[^>]*\baria-label="Accounts holding part of this estimate"/.test(rail));
   const railLiTags = rail.match(/<li\b[^>]*>/g) ?? [];
@@ -196,7 +196,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const markup = renderList();
   check("G320: pool-sized account figure is not repeated", !markup.includes("£120 held"));
   check("G320: lower account limit remains visible", markup.includes("£30") && markup.includes('data-spend-from-limit'));
-  check("G320: lower limits explicitly share the one total", markup.includes("Account limits share the total above."));
+  check("G324: lower limits carry the quiet independent-ceilings explanation", markup.includes("Separate account limits, not amounts to add together."));
   check("G320: duplicate bank accounts show their display names", markup.includes("Premier Current Account") && markup.includes("Maingi K M"));
   check("G320: rows are semantic list items with account markers", (markup.match(/data-spend-from-account=/g) ?? []).length === 2 && (markup.match(/<li /g) ?? []).length === 2);
 
@@ -210,12 +210,15 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("G320: unknown banks use the existing badge fallback", noLogo.includes("Zzyzx Bank") && !noLogo.includes("/banks/zzyzx"));
 
   const withReserve = renderList({ coverMoveVisible: true, reserveByAccount: { b2: 12 } });
-  check("G320: a visible move names its source reserve", textOf(withReserve).includes("£12 held back for the move") && !withReserve.includes("The move above is already held back."));
-  check("G320: reserve metadata does not deduct from the account limit", textOf(withReserve).includes("£30 held") && (withReserve.match(/held back for the move/g) ?? []).length === 1);
+  check("G324: a visible move names its source reserve without inventing a destination", textOf(withReserve).includes("£12 already held back in Barclays Maingi K M for the move shown above.") && !withReserve.includes("The move above is already held back."));
+  check("G324: reserve metadata does not deduct from the account limit", textOf(withReserve).includes("£30 held") && (withReserve.match(/already held back/g) ?? []).length === 1);
   const withoutReserve = renderList({ coverMoveVisible: true });
   check("G320: a visible move without source metadata keeps the neutral reconciliation", withoutReserve.includes("The move above is already held back."));
   check("G320: no move renders neither reserve note", !markup.includes("held back for the move") && !markup.includes("The move above is already held back."));
-  check("G320: hiding a move suppresses stale reserve metadata", !renderList({ coverMoveVisible: false, reserveByAccount: { b2: 12 } }).includes("held back for the move"));
+  check("G320: hiding a move suppresses stale reserve metadata", !renderList({ coverMoveVisible: false, reserveByAccount: { b2: 12 } }).includes("already held back"));
+
+  const namedDestination = renderList({ coverMoveVisible: true, reserveByAccount: { b2: 12 }, destinationsByAccount: { b2: ["Monzo Everyday", "Chase Flex Current"] } });
+  check("G324: a visible move names each real destination", textOf(namedDestination).includes("£12 already held back in Barclays Maingi K M for the move to Monzo Everyday and Chase Flex Current."));
 
   const masked = renderToStaticMarkup(React.createElement(BalancesHiddenContext.Provider, { value: true }, React.createElement(SpendFromAccountList, {
     entries, pool: 120, amount, coverMoveVisible: true, reserveByAccount: { b2: 12 }, onLogoError: noop, kind: "bank-rail",
@@ -229,7 +232,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   );
   const treatmentMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null, treatment?.heroAside ?? null, treatment?.body ?? null));
   check("G320: healthy treatment returns the list as its body, not a hero aside", treatment?.heroAside == null && treatmentMarkup.includes('data-spend-from-layout="account-list"'));
-  check("G320: the renderer forwards reserve metadata after onRetry", textOf(treatmentMarkup).includes("£12 held back for the move"));
+  check("G320: the renderer forwards reserve metadata after onRetry", textOf(treatmentMarkup).includes("£12 already held back"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

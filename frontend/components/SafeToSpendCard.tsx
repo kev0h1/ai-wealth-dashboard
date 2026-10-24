@@ -19,6 +19,7 @@ import {
 } from "@/lib/spendFromAccount";
 import { BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
+import { DisclosureSummary } from "@/components/Disclosure";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import SpendFromAccountList from "@/components/SpendFromAccountList";
 import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
@@ -55,6 +56,7 @@ interface SafeToSpendCardProps {
   coverMoveVisible?: boolean;
   /** Visible funded transfer legs, for disclosure only. Already in headroom. */
   coverMoveReserves?: Record<string, number>;
+  coverMoveDestinations?: Record<string, string[]>;
   /**
    * Design-history seam. Production renders G320 approved B account rows
    * when absent. Other open design rounds may inject their own treatment.
@@ -102,8 +104,11 @@ function localBank(account: SpendFromAccount["account"]) {
   };
 }
 
-// G322 (G321 option B): the always-visible "what this counts" line under the hero.
+// G322 exact wording retained. G324 B2 keeps the first sentence visible
+// and places its exclusions in the adjacent scope disclosure.
 export const COUNTS_LINE = "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet.";
+const COUNTS_INTRO = COUNTS_LINE.slice(0, COUNTS_LINE.indexOf(". ") + 1);
+const COUNTS_EXCLUSIONS = COUNTS_LINE.slice(COUNTS_INTRO.length + 1);
 
 /**
  * G148 (2026-09-23): the quiet placeholder for a rail that is absent rather
@@ -167,6 +172,7 @@ export function approvedSpendFromTreatment(
   onLogoError: (logoSrc: string) => void,
   onRetry?: () => void,
   reserveByAccount?: Record<string, number>,
+  destinationsByAccount?: Record<string, string[]>,
 ): SpendFromTreatment | null {
   switch (plan.kind) {
     // The one branch that still renders nothing. `pending` means the
@@ -208,7 +214,7 @@ export function approvedSpendFromTreatment(
     case "bank-rail":
     default:
       return {
-        body: <SpendFromAccountList entries={plan.entries} pool={plan.pool} amount={amount} coverMoveVisible={coverMoveVisible} reserveByAccount={reserveByAccount} onLogoError={onLogoError} kind={plan.kind === "name-fallback" ? "name-fallback" : "bank-rail"} />,
+        body: <SpendFromAccountList entries={plan.entries} pool={plan.pool} amount={amount} coverMoveVisible={coverMoveVisible} reserveByAccount={reserveByAccount} destinationsByAccount={destinationsByAccount} onLogoError={onLogoError} kind={plan.kind === "name-fallback" ? "name-fallback" : "bank-rail"} />,
       };
   }
 }
@@ -271,10 +277,10 @@ function CalculationRow({
   // rule against nothing.
   return (
     <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 first:mt-0 first:border-t-0 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
-      <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`} aria-hidden="true">{operator}</span>
+      <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-600 dark:text-indigo-300" : "text-slate-600 dark:text-slate-300"}`} aria-hidden="true">{operator}</span>
       <div className="min-w-0">
         <dt className={`${total ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-200"} text-[13px] leading-snug`}>{label}</dt>
-        {detail && <p className="mt-0.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{detail}</p>}
+        {detail && <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300 text-pretty">{detail}</p>}
       </div>
       <dd aria-label={spokenValue} className={`money shrink-0 text-sm font-semibold ${FORECAST_INK}`}>{value}</dd>
     </div>
@@ -315,51 +321,29 @@ function CardBalanceFact({
   const headline = hasUnconfirmedReserve ? growth : newSpend;
 
   return (
-    <aside className={`mt-5 rounded-2xl border px-3.5 py-3.5 ${amberOn ? "border-amber-200/80 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-400/[0.04]" : "border-slate-200/80 bg-slate-50/80 dark:border-white/[0.08] dark:bg-white/[0.035]"}`} aria-label="Card balance activity">
-      <div className="flex items-start gap-3">
-        <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${amberOn ? "bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300" : "bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/70 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10"}`}>
-          <CreditCard size={16} aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.075em] text-slate-500 dark:text-slate-400">{hasUnconfirmedReserve ? "Card balances this pay period" : "Went on cards this pay period"}</p>
-            <p aria-label={`${hasUnconfirmedReserve ? "increase of" : "spent"} ${amount(headline)}`} className="money shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">+{amount(headline)}</p>
-          </div>
-
-          {hasUnconfirmedReserve ? (
-            <>
-              <div className={`mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-full ${muted ? "bg-slate-100 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200" : "bg-amber-100 text-amber-800 dark:bg-amber-400/12 dark:text-amber-200"} px-2.5 text-[11px] font-semibold`}>
-                <AlertCircle size={13} aria-hidden="true" />
-                Repayment not confirmed
-              </div>
-              <p className="mt-2 text-[13px] leading-snug text-slate-600 dark:text-slate-300 text-pretty">
-                <MoneyText text={`${amount(reserve)} of this is held back because its repayment has not been identified.`} />
-              </p>
-              {finalPosition < 0 && (
-                <p className="mt-1.5 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-                  <MoneyText text={`That leaves a ${amount(Math.abs(finalPosition))} safety shortfall.`} />
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="mt-1.5 text-[13px] leading-snug text-slate-600 dark:text-slate-300 text-pretty">
-                {wording === "cleared_monthly" && due
-                  ? `Due around ${due}. It is not deducted from today’s cash figure.`
-                  : wording === "cleared_monthly"
-                    ? "Its repayment is forecast separately. It is not deducted from today’s cash figure."
-                    : "This added to your card balances this pay period. It is not deducted from the cash above."}
-              </p>
-              <p className="mt-1.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Purchases only. Balance transfers and repayments are not counted here.</p>
-            </>
-          )}
+    <section data-g324-card-activity className="mt-3" aria-label="Card balance activity">
+      <details>
+        <DisclosureSummary className="min-h-11 cursor-pointer rounded-lg text-[13px] font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">
+          <span className="flex min-w-0 items-center gap-2"><CreditCard size={15} aria-hidden="true" className={amberOn ? "shrink-0 text-amber-700 dark:text-amber-300" : "shrink-0"} /><span>{hasUnconfirmedReserve ? "Card balances this pay period" : "Went on cards this pay period"}</span></span>
+          <span className="money ml-auto shrink-0 text-[13px]"><MoneyText text={amount(headline)} /></span>
+        </DisclosureSummary>
+        <div className="space-y-2 pb-3 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+          {hasUnconfirmedReserve ? <>
+            <p className="flex items-center gap-1.5"><AlertCircle size={13} aria-hidden="true" className={muted ? "text-slate-400" : "text-amber-700 dark:text-amber-300"} />Repayment not confirmed</p>
+            <p><MoneyText text={`${amount(reserve)} of this is already held back because its repayment has not been identified.`} /></p>
+            {finalPosition < 0 && <p><MoneyText text={`That leaves a ${amount(Math.abs(finalPosition))} safety shortfall.`} /></p>}
+          </> : <>
+            <p>{wording === "cleared_monthly" && due ? `Due around ${due}. Its repayment is forecast separately.` : wording === "cleared_monthly" ? "Its repayment is forecast separately." : "This added to your card balances this pay period."}</p>
+            <p>Purchases only. Balance transfers and repayments are not counted here.</p>
+          </>}
         </div>
-      </div>
-    </aside>
+      </details>
+      <p className="text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">{hasUnconfirmedReserve ? <MoneyText text={`${amount(newSpend)} of purchases is a separate figure, not the fallback reserve.`} /> : "It is not deducted from the cash estimate above."}</p>
+    </section>
   );
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, coverMoveDestinations, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = spendFromPreview?.hideBalances === true || (!previewBalancesVisible && (hideNetWorth || !preferencesReady));
@@ -496,8 +480,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     );
   }
 
-  const freeAmount = zeroSafe(data.safe_to_spend);
-  const cashRunway = data.safe_to_spend_cash == null ? freeAmount : zeroSafe(data.safe_to_spend_cash);
   const exactCashRunway = data.safe_to_spend_cash ?? data.safe_to_spend;
   const exactLowestProjected = data.lowest_projected_balance ?? null;
   const cardGrowth = zeroSafe(data.card_growth_total ?? 0);
@@ -521,6 +503,8 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
 
 
+  const pace = data.pace;
+  const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
   const belowBuffer = !sync && presentation.status.label === "Below buffer";
   const heroCaption = sync
     ? `Last known cash figure until ${paydayLabel}`
@@ -528,7 +512,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? "short after plans and envelopes"
     : state === "short" && !isCardsUnconfirmedShort
     ? "short before payday"
-    : `Estimated cash left until ${paydayLabel}`);
+    : `Cash left until ${paydayLabel}`);
 
   const calculationItems = [
     { label: "Plans reserved", shortLabel: "plans", value: data.commitments_reserved ?? 0 },
@@ -537,28 +521,29 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const contextParts = [
     data.bills_total > 0 ? "upcoming bills" : "the cash forecast",
     ...calculationItems.map((item) => item.shortLabel),
-    ...(data.buffer > 0 && !belowBuffer ? [`your ${amount(data.buffer)} buffer`] : []),
+    ...(data.buffer > 0 && !belowBuffer ? ["your buffer"] : []),
   ];
   // Say the scope once, using Spend's supporting-prose role. Card reserves
   // keep their separate cash explanation rather than implying a cash gap.
-  const heroSupport = isCardsUnconfirmedShort
-    ? `${heroCaption}. The cash forecast found ${amount(cashRunway)}, then held back ${amount(cardReserve)} for an unconfirmed card repayment.`
-    : sync
+  const heroSupport = sync
     ? `${heroCaption}. After ${listPhrase(contextParts)}.`
+    : isCardsUnconfirmedShort
+    ? `${amount(cardReserve)} held while a card bill is unconfirmed, leaving a ${amount(Math.abs(data.safe_to_spend))} safety shortfall.`
     : belowBuffer
     ? `After ${listPhrase(contextParts)}, this is below your ${amount(data.buffer)} safety buffer.`
     : plansOnly
     ? `Short after ${listPhrase(contextParts)}.`
     : state === "short"
     ? `After ${listPhrase(contextParts)}, you are short before payday.`
+    : cardReserve > 0
+    ? `${amount(cardReserve)} held while a card bill is unconfirmed, after ${listPhrase(contextParts)}.`
+    : showPace
+    ? `About ${amount(Math.round(pace!.sustainable!))} a day until ${paydayLabel}, after ${listPhrase(contextParts)}.`
     : `${heroCaption}, after ${listPhrase(contextParts)}.`;
 
-  // G115 approved variant A: up to two ranked current accounts sit in a
-  // compact rail beside the pooled hero. The rail is used only when every
-  // bank has a bundled local mark; one unknown bank switches the whole
-  // treatment to named rows so an initials stack never becomes the answer.
-  // The scope line stays in the reading flow because these per-account
-  // figures do not add up to the pooled Safe to Spend verdict above.
+  // G324 approved B2: the existing ranked account treatment stays visible
+  // beneath the scope inside the hero. No eligibility or cash calculation
+  // changes; independent account ceilings are never addends.
   const approvedSpendFrom = approvedSpendFromTreatment(
     spendFromPlan,
     amount,
@@ -566,6 +551,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     handleSpendFromLogoError,
     onRetry,
     coverMoveReserves,
+    coverMoveDestinations,
   );
   const spendFromTreatment = spendFromPreview ?? approvedSpendFrom;
 
@@ -573,8 +559,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // ink line under the Spend from scope note, linking to Accounts.
   const excludedCount = data.excluded_accounts_count ?? 0;
 
-  const pace = data.pace;
-  const showPace = pace != null && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && pace.sustainable != null;
   const freshnessLabel = sync ? null : syncAgeLabel(data.last_synced);
   const summaryLabel = state === "short" && !isCardsUnconfirmedShort
     ? `How we got ${amount(heroAmount)} short`
@@ -611,7 +595,8 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   );
 
   return (
-    <section className="hero-arrive sts-card relative rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-label safe-to-spend-heading">
+    <div data-g324-surface>
+    <section data-g324-hero className="hero-arrive sts-card relative rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-label safe-to-spend-heading">
       <div className="flex items-center justify-between gap-3">
         <p id="safe-to-spend-label" className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">{sync ? "Estimated left to spend" : presentation.eyebrow}</p>
         {sync ? (
@@ -623,7 +608,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           <ForecastStatusBadge status={presentation.status} />
         )}
       </div>
-      {error && <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30" role="status"><p className="text-xs text-slate-700 dark:text-slate-200">Couldn&apos;t refresh. Showing your last figure.</p>{onRetry && <button type="button" onClick={onRetry} className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Retry</button>}</div>}
+      {error && <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30" role="status"><p className="text-xs text-slate-700 dark:text-slate-200">Couldn&apos;t refresh. Showing your last figure.</p>{onRetry && <button type="button" onClick={onRetry} className="min-h-11 shrink-0 rounded-lg px-2 text-xs font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Retry</button>}</div>}
 
       {spendFromTreatment?.heroAside ? (
         <div className="mt-5 flex items-start justify-between gap-4">
@@ -641,9 +626,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       <p id="safe-to-spend-scope" className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={data.estimated ? heroSupport.replace(/\.$/, "") : heroSupport} />{data.estimated && <span className="text-xs text-slate-500 dark:text-slate-400"> · early estimate</span>}</p>
 
-      <p data-sts-counts className="mt-2 text-pretty text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_LINE}</p>
+      <p data-sts-counts className="mt-2 text-pretty text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_INTRO}</p>
 
-      {spendFromTreatment?.body}
+      {sync && state !== "short" && heroAmount > 0 && ["bank-rail", "name-fallback"].includes(spendFromPlan.kind) && <p className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">Last known account limits.</p>}
+      {(state !== "short" && heroAmount > 0) || !["bank-rail", "name-fallback"].includes(spendFromPlan.kind) ? spendFromTreatment?.body : null}
 
       {excludedCount > 0 && (
         <Link
@@ -655,21 +641,28 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </Link>
       )}
 
-      {cardGrowth > 0 && (
-        <CardBalanceFact
-          growth={cardGrowth}
-          newSpend={cardNewSpend}
-          reserve={cardReserve}
-          finalPosition={data.safe_to_spend}
-          wording={data.card_growth_wording}
-          dueDate={data.card_growth_due_date ?? null}
-          amount={amount}
-          muted={!!sync}
-        />
-      )}
-
-      <div className="mt-3 border-t border-slate-100 dark:border-white/10">
-        <details className="group">
+      <div data-g219-action-row className="mt-4 flex flex-wrap items-center gap-x-3">
+        {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
+        <Link
+          href="/accounts"
+          data-g219-accounts-link
+          className="group -mr-3 ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-slate-600 transition-colors hover:text-slate-900 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none dark:text-slate-300 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          Your accounts
+          <ArrowRight size={15} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
+        </Link>
+      </div>
+    </section>
+    <div data-g324-evidence className="mt-3 [&_.text-slate-500]:text-slate-600 dark:[&_.text-slate-500]:text-slate-300">
+      <details data-sts-caveat className="border-b border-slate-200 dark:border-slate-700">
+        <DisclosureSummary className="min-h-11 cursor-pointer rounded-lg text-[13px] font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">What this estimate counts</DisclosureSummary>
+        <div className="space-y-2 pb-4 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+          <p>{COUNTS_EXCLUSIONS}</p>
+          <p data-sts-disclaimer>An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.</p>
+        </div>
+      </details>
+      <div className="border-b border-slate-200 dark:border-slate-700">
+        <details data-g324-calculation className="group [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl bg-transparent text-sm font-semibold text-slate-600 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 [-webkit-tap-highlight-color:transparent] [&::-webkit-details-marker]:hidden">
             {summaryLabel}
             <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -677,8 +670,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
           <div className="pb-2 pt-3">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.085em] text-slate-500 dark:text-slate-400">Cash calculation</h3>
-              <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Exact steps</span>
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.085em] text-slate-600 dark:text-slate-300">Cash calculation</h3>
             </div>
 
             <dl className="mt-1.5">
@@ -704,14 +696,14 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
                 <dl className="mt-1.5">
                   <CalculationRow operator="+" label="From cash calculation" value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} />
                   <CalculationRow operator="−" label="Unconfirmed card reserve" value={exactAmount(cardReserve)} spokenValue={`minus ${exactAmount(cardReserve)}`} detail="Held back because no repayment forecast has been learned." />
-                  <CalculationRow operator="=" label="Safety position" value={signedExactAmount(data.safe_to_spend)} spokenValue={signedExactAmount(data.safe_to_spend)} detail={data.safe_to_spend < 0 ? "The amount available above cannot fall below £0, so the shortfall stays visible here." : undefined} total />
+                  <CalculationRow operator="=" label="Safety position" value={signedExactAmount(data.safe_to_spend)} spokenValue={signedExactAmount(data.safe_to_spend)} detail={data.safe_to_spend < 0 ? "The amount available above cannot fall below zero, so the shortfall stays visible here." : undefined} total />
                 </dl>
               </section>
             )}
 
             {cardGrowth > 0 && cardReserve <= 0 && (
-              <p className="mt-4 border-l-2 border-slate-200 pl-3 text-[12px] leading-relaxed text-slate-500 dark:border-slate-700 dark:text-slate-400 text-pretty">
-                <MoneyText text={`The ${amount(cardNewSpend)} spent on cards is shown above for context. It is not part of this cash calculation.`} />
+              <p className="mt-4 text-[12px] leading-5 text-slate-600 dark:text-slate-300 text-pretty">
+                <MoneyText text={`The ${amount(cardNewSpend)} spent on cards is shown below for context. It is not part of this cash calculation.`} />
               </p>
             )}
 
@@ -719,27 +711,30 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
               <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty">Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>
             )}
 
+            <div className="mt-4 space-y-1 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+              <p><MoneyText text={showPace ? `${exactAmount(pace!.sustainable!)}/day until ${paydayLabel}` : `Pay period ends ${paydayLabel}`} /></p>
+              {(data.payday_income ?? 0) > 0 && <p><MoneyText text={`Pay of about ${amount(data.payday_income!)} due ${paydayLabel}.`} /> This is expected pay, not cash received before payday.</p>}
+              {freshnessLabel && <p>{freshnessLabel}</p>}
+            </div>
+
           </div>
         </details>
       </div>
 
-      <div className="space-y-1 border-t border-slate-100 pt-3 dark:border-white/10">
-        <p className="text-[12px] text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={showPace ? `${hidden ? "£••••" : fmt2(pace!.sustainable!)}/day until ${paydayLabel}` : `Pay period ends ${paydayLabel}`} />{(data.payday_income ?? 0) > 0 && <><span aria-hidden="true"> · </span><MoneyText text={`~${hidden ? "£••••" : fmt(data.payday_income!)} expected`} /></>}</p>
-        {freshnessLabel && <p className="text-sm text-slate-500 dark:text-slate-400">{freshnessLabel}</p>}
-        <p data-sts-disclaimer className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.</p>
-      </div>
+      {(cardGrowth > 0 || cardNewSpend > 0 || cardReserve > 0) && (
+        <CardBalanceFact
+          growth={cardGrowth}
+          newSpend={cardNewSpend}
+          reserve={cardReserve}
+          finalPosition={data.safe_to_spend}
+          wording={data.card_growth_wording}
+          dueDate={data.card_growth_due_date ?? null}
+          amount={amount}
+          muted={!!sync}
+        />
+      )}
 
-      <div data-g219-action-row className="mt-3 flex flex-wrap items-center gap-x-3">
-        {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
-        <Link
-          href="/accounts"
-          data-g219-accounts-link
-          className="group -mr-3 ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-slate-600 transition-colors hover:text-slate-900 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none dark:text-slate-300 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          Your accounts
-          <ArrowRight size={15} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
-        </Link>
-      </div>
-    </section>
+    </div>
+    </div>
   );
 }

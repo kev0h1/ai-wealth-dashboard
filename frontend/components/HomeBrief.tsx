@@ -24,7 +24,7 @@ import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
-import { hasFundedCoverMove, visibleCoverMoveReserves, isActionableCompanionItem } from "@/lib/companionItems";
+import { hasFundedCoverMove, visibleCoverMoveDestinations, visibleCoverMoveReserves, isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText, { AmountText } from "@/components/MoneyText";
 import { maskMoneyText, useBalancesHidden } from "@/lib/balancesHidden";
 import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
@@ -103,7 +103,7 @@ interface HomeBriefProps {
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onClearedChange. */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onCoverMoveVisibleChange. */
-  onCoverMoveVisibleChange?: (visible: boolean, reserves?: Record<string, number>) => void;
+  onCoverMoveVisibleChange?: (visible: boolean, reserves?: Record<string, number>, destinations?: Record<string, string[]>) => void;
   /**
    * Home-only: rendered directly beneath the greeting row (avatar/"Good
    * morning"/refresh), above everything else the brief renders (sync-error
@@ -2167,7 +2167,7 @@ export interface BriefBodyProps {
    * this to SafeToSpendCard so G115 can say a visible move above is already
    * held back without leaving that sentence behind after the card is hidden.
    */
-  onCoverMoveVisibleChange?: (visible: boolean, reserves?: Record<string, number>) => void;
+  onCoverMoveVisibleChange?: (visible: boolean, reserves?: Record<string, number>, destinations?: Record<string, string[]>) => void;
 }
 
 export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: hideNetWorthProp = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
@@ -2182,6 +2182,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
   const hasVisibleCoverMove = hasFundedCoverMove(items);
   // Same dismissal-filtered legs as MoveCard, stabilised for the effect.
   const coverMoveReserveKey = JSON.stringify(visibleCoverMoveReserves(items));
+  const coverMoveDestinationKey = JSON.stringify(visibleCoverMoveDestinations(items));
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
   // nothing stops a future caller passing a fresh inline function every
@@ -2229,8 +2230,12 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
   onCoverMoveVisibleChangeRef.current = onCoverMoveVisibleChange;
 
   useLayoutEffect(() => {
-    onCoverMoveVisibleChangeRef.current?.(hasVisibleCoverMove, JSON.parse(coverMoveReserveKey) as Record<string, number>);
-  }, [hasVisibleCoverMove, coverMoveReserveKey]);
+    onCoverMoveVisibleChangeRef.current?.(
+      hasVisibleCoverMove,
+      JSON.parse(coverMoveReserveKey) as Record<string, number>,
+      JSON.parse(coverMoveDestinationKey) as Record<string, string[]>,
+    );
+  }, [hasVisibleCoverMove, coverMoveReserveKey, coverMoveDestinationKey]);
 
   if (items.length === 0) {
     // Home-only: everything that existed got hidden via "Hide on Home", not
