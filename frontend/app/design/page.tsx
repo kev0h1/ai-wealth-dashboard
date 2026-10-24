@@ -55,6 +55,14 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
+    slug: "mirror-trait-clarity",
+    name: "Mirror trait clarity · G332",
+    description: "G332 design round, impeccable · two coded directions for reading and choosing traits. Every observation uses the same full-width evidence grid whether it has a category mark or not; the choice rule appears once above the cards; figures use plain language. A Two clear answers shows Keep it and Help me change together. B One decision row keeps untouched observations quiet, then reveals the same choices on demand. Synthetic local choices only, no account changes or coaching starts · ?variant=a|b&state=all|kept|change|pending|save-error|hidden|long&mode=light|dark",
+    variants: [{ label: "A · Two clear answers", value: "a" }, { label: "B · One decision row", value: "b" }],
+    states: [{ label: "All traits", value: "all" }, { label: "Kept", value: "kept" }, { label: "Change selected", value: "change" }, { label: "Saving", value: "pending" }, { label: "Save failure", value: "save-error" }, { label: "Hidden figures", value: "hidden" }, { label: "Long copy", value: "long" }],
+    group: "current",
+  },
+  {
     slug: "plan-picker-v2",
     name: "Choose what fits · B50",
     description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
