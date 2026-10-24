@@ -16,7 +16,7 @@ import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildUpcomingRunwayView, deriveSafeToSpendHeadline, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
-import { upcomingForecastPresentation } from "@/lib/cashForecastStatus";
+import { forecastPence, upcomingForecastPresentation } from "@/lib/cashForecastStatus";
 import { useForecastContext } from "@/lib/useForecastContext";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
@@ -781,7 +781,11 @@ export default function PlanningPage() {
         const plansReservedTotal = cashflow.plans_reserved ?? 0;
         const allocationsRemainingCount = (cashflow.allocations ?? []).filter(a => a.active && a.remaining > 0).length;
         const plansUnavailable = cashflow.plans_available === false;
-        const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal;
+        // Every input is already a penny amount. Normalise their combined
+        // result at this presentation boundary so 0.3 - 0.1 - 0.2 remains an
+        // exactly-covered forecast, without changing the dated event walk,
+        // reserves or reconciliation inputs.
+        const runway = forecastPence(spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal);
         const runwayNegative = runway < 0;
         const runwayStatus = runwayNegative ? "short" : runway > 0 ? "left" : "even";
         // Reuse the existing date-ordered pooled walk, strictly before payday.
@@ -789,9 +793,9 @@ export default function PlanningPage() {
         // cannot prove that payments are safe. The amount above is unchanged.
         const cashEvidence = typeof cashflow.spendable_balance === "number" && Number.isFinite(cashflow.spendable_balance)
           && cashflow.balances_live !== false && rawItems.every(item => Number.isFinite(Date.parse(item.expected_date)) && Number.isFinite(item.amount));
-        const lowestCash = cashEvidence ? Math.min(cashflow.spendable_balance!, ...items
+        const lowestCash = cashEvidence ? forecastPence(Math.min(cashflow.spendable_balance!, ...items
           .filter(item => Date.parse(item.expected_date) < nextPaydayMidnight.getTime())
-          .map(item => item.balance_after)) : null;
+          .map(item => item.balance_after))) : null;
         const statusData = forecastContext.data;
         const forecastPresentation = upcomingForecastPresentation({
           runway, lowestCash, evidenceCurrent: cashEvidence, nextPayday: nextPaydayMidnight.getTime(), isCalendarMonth,

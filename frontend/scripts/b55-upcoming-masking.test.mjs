@@ -40,7 +40,7 @@ for (const [label, build] of [
     assert.match(hiddenHtml, /aria-label="Amount hidden, (short|left)"/, `hero ${label}: aria-label masked`);
     assert.match(hiddenHtml, /Savings backup/, `hero ${label}: savings line present but masked`);
     const shown = build(false, extra);
-    assert.match(shown, /£1,235/, `hero ${label}: spendable now visible`);
+    assert.match(shown, /£1,234\.56/, `hero ${label}: exact spendable now visible in the calculation`);
     assert.match(shown, /£4,321/, `hero ${label}: savings visible`);
     assert.match(shown, /pounds (short|left)"/, `hero ${label}: aria-label restored`);
     assert.doesNotMatch(shown, /£••••/, `hero ${label}: nothing masked when visible`);

@@ -170,6 +170,21 @@ export function buildSpendPeriodView(verdict: SpendVerdict): PennyScreenView {
   };
 }
 
+/**
+ * Upcoming is a forecast rather than an amount the user can spend today.
+ * Keep its familiar whole-pound reading once it reaches a pound, but never
+ * round a real sub-pound runway to £0. That would make a 42p shortage look
+ * like an even forecast in both the hero and Penny's screen context.
+ */
+export function formatUpcomingRunwayAmount(value: number): string {
+  const absolute = Math.abs(value);
+  const subPound = absolute > 0 && absolute < 1;
+  return `£${absolute.toLocaleString("en-GB", {
+    minimumFractionDigits: subPound ? 2 : 0,
+    maximumFractionDigits: subPound ? 2 : 0,
+  })}`;
+}
+
 export type UpcomingRunwayInput = {
   runway: number;
   runwayStatus: "short" | "left" | "even";
@@ -196,7 +211,7 @@ export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreen
     figures: [{
       key: "runway",
       label: (isCalendarMonth ? "Projected at month end" : "Projected at payday") + (plansUnavailable ? " (estimated, goal plans not loaded so it may be too high)" : ""),
-      value: `${runwayStatus === "short" ? "−" : ""}${fmtGbp(runway)}`,
+      value: `${runwayStatus === "short" ? "−" : ""}${formatUpcomingRunwayAmount(runway)}`,
     }],
     asOf: new Date().toISOString(),
   };
