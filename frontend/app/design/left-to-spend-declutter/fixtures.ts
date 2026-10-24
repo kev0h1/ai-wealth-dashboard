@@ -1,5 +1,5 @@
 import type { Account, SafeToSpend } from "@/lib/api";
-import type { SpendFromResult } from "@/lib/spendFromAccount";
+import type { SpendFromAccount, SpendFromResult } from "@/lib/spendFromAccount";
 import type { SyncingInfo } from "@/components/SyncNote";
 
 export type Forecast = Extract<SafeToSpend, { status: "ok" }>;
@@ -15,6 +15,32 @@ export const ACCOUNTS: SpendFromResult = {
   alternative: { accountId: starling.id, name: starling.name, provider: starling.provider, headroom: 54, account: starling },
 };
 export const MOVE = { amount: 25, source: "NatWest", destination: "Barclays" };
+export const ACCOUNT_EXAMPLES = [
+  { id: "standard", label: "Two banks, with a move" },
+  { id: "one", label: "One account, lower limit" },
+  { id: "whole", label: "One account covers the estimate" },
+  { id: "same-bank", label: "Same bank, different accounts" },
+  { id: "long", label: "Long account names" },
+  { id: "unknown", label: "Unknown bank mark" },
+] as const;
+export type AccountExample = typeof ACCOUNT_EXAMPLES[number]["id"];
+export function accountEntries(example: AccountExample, pool: number): SpendFromAccount[] {
+  if (ACCOUNTS.kind !== "account") return [];
+  const best = ACCOUNTS.best;
+  const alternative = ACCOUNTS.alternative;
+  if (example === "one") return [best];
+  if (example === "whole") return [{ ...best, headroom: pool, capped: true, account: { ...best.account, balance: 10000 } }];
+  if (example === "unknown") return [{ ...best, provider: "Community Credit Union", account: { ...best.account, provider: "Community Credit Union", provider_id: "community_credit_union" } }];
+  if ((example === "same-bank" || example === "long") && alternative) {
+    const firstName = example === "long" ? "Joint household bills and weekly spending account" : "Everyday spending";
+    const secondName = example === "long" ? "Personal transport and day to day spending account" : "Bills account";
+    return [
+      { ...best, name: firstName, account: { ...best.account, name: firstName } },
+      { ...alternative, name: secondName, provider: best.provider, account: { ...alternative.account, name: secondName, provider: best.provider, provider_id: best.account.provider_id } },
+    ];
+  }
+  return [best, ...(alternative ? [alternative] : [])];
+}
 const base: Forecast = {
   status: "ok", safe_to_spend: 261, safe_to_spend_cash: 261, spendable_now: 1101,
   next_payday: "2026-10-30T12:00:00Z", days_until_payday: 7, payday_income: 4798,

@@ -33,9 +33,9 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
   {
     slug: "left-to-spend-declutter",
-    name: "Left to spend · less to read · G324",
-    description: "A keeps the full approved scope visible, B keeps its first sentence visible, C puts all counts and accuracy detail on tap. One clear verdict and next action, with account ceilings, named moves, labelled expected pay and separate card facts one tap away. Fixed fixtures; no production change. Disclosure prominence is a review choice, not legal approval.",
-    variants: [{ label: "A · Visible scope", value: "a" }, { label: "B · Short scope", value: "b" }, { label: "C · Verdict first", value: "c" }],
+    name: "Left to spend · B, accounts at a glance · G324",
+    description: "G324 second round: B Short scope with account guidance visible inside the hero. B1 puts bank names and account limits beside the figure; B2 uses a full-width account list under the scope. No account expansion needed. Separate non-additive ceilings, named reserved move, same-bank/long-name/one-account examples, masks and all original financial states. Earlier A/B/C remain available. Fixed fixtures; disclosure prominence is still a review choice, not legal approval.",
+    variants: [{ label: "B1 · Beside the figure", value: "b1" }, { label: "B2 · Inside the hero", value: "b2" }],
     states: [{ label: "Tight with a move", value: "tight" }, { label: "Looks on track", value: "comfortable" }, { label: "Payments short", value: "payments-short" }, { label: "Plans gap", value: "plans-only" }, { label: "Card purchases", value: "card-purchases" }, { label: "Confirmed card bill", value: "card-monthly" }, { label: "Unconfirmed card bill", value: "card-reserve" }, { label: "No account headroom", value: "no-account" }, { label: "Loading", value: "loading" }, { label: "First sync", value: "cold-sync" }, { label: "Updating saved figure", value: "warm-sync" }, { label: "Incomplete calculation", value: "degraded" }, { label: "Request failed", value: "error" }, { label: "No supported forecast", value: "unsupported" }],
     group: "current",
   },
