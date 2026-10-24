@@ -9,7 +9,9 @@ import { isPlanSourceAccount } from "@/lib/upcomingPlans";
 import { api, Account, Commitment, CommitmentPreview, PlanFillCandidates } from "@/lib/api";
 import { FillRulePicker, type FillRuleValue } from "@/components/AllocationFields";
 import { usePreferences } from "@/components/PreferencesContext";
-import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPeriodConfig } from "@/lib/payPeriod";
+import { periodRhythmLabel } from "@/lib/payPeriod";
+import { periodsLeftFrom, pickServerPeriod, type ServerPeriodBounds } from "@/lib/serverPeriodWindow";
+import { cachedVerdict } from "@/lib/verdictCache";
 import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -81,6 +83,8 @@ interface CommitmentSheetProps {
   operations?: CommitmentSheetOperations;
   initialMode?: "view" | "edit" | "contribution";
   initialStep?: "purpose" | "details";
+  /** G329: the server's current pay period from the host page (cashflow.period on Upcoming, verdict.period on Spend). When absent the sheet reads the cached Spend verdict, and only then the client config (fallback). */
+  serverPeriod?: ServerPeriodBounds | null;
   embedded?: {
     renderActions(actions: ReactNode): ReactNode;
     onEdit(step?: "details"): void;
@@ -119,27 +123,6 @@ function ceil5(n: number): number {
   return Math.ceil(n / 5) * 5;
 }
 
-/**
- * Pay-period START days in [today, target month's first day] inclusive, min 1.
- * Mirrors the backend's _period_starts_between: the current period only counts
- * when its start date is today — on any mid-period day it is excluded.
- */
-function periodsLeftFor(targetYm: string, config: PayPeriodConfig): number {
-  if (!/^\d{4}-\d{2}$/.test(targetYm)) return 1;
-  const [y, m] = targetYm.split("-").map(Number);
-  const target = Date.UTC(y, m - 1, 1);
-  const now = new Date();
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  let [start, end] = getPayPeriodWithConfig(now, config);
-  let count = 0;
-  for (let i = 0; i < 60; i++) {
-    if (start.getTime() > target) break;
-    if (start.getTime() >= today) count++;
-    [start, end] = nextPeriodWithConfig(end, config);
-  }
-  return Math.max(1, count);
-}
-
 export default function CommitmentSheet({
   accounts,
   commitment,
@@ -151,6 +134,7 @@ export default function CommitmentSheet({
   operations = api,
   initialMode = "edit",
   initialStep = "purpose",
+  serverPeriod,
   embedded,
 }: CommitmentSheetProps) {
   const { payPeriodConfig } = usePreferences();
@@ -389,7 +373,10 @@ export default function CommitmentSheet({
   })();
 
   // Live "≈ £X/period" estimate — remaining over pay periods left, ceiled to £5
-  const periods = monthValid ? periodsLeftFor(month, payPeriodConfig) : null;
+  // G329: anchor on the server period; the client config is a FALLBACK only
+  // (no host period and no cached verdict) and still supplies later rhythm.
+  const periodAnchor = pickServerPeriod(serverPeriod, cachedVerdict(0)?.period);
+  const periods = monthValid ? periodsLeftFrom(month, payPeriodConfig, periodAnchor, new Date()) : null;
   const periodLabel = periodRhythmLabel(payPeriodConfig);
   const contributionCadence = periodLabel === "monthly" ? "each month" : periodLabel === "weekly" ? "each week" : periodLabel?.startsWith("every ") ? periodLabel : "each pay period";
   const remaining = amountValid

@@ -31,7 +31,7 @@ export type UpcomingDetailServices = {
 };
 export type UpcomingDetailFlowProps = {
   initialView: UpcomingDetailView; onClose(): void;
-  accounts: Account[]; summaries: UpcomingAccountSummary[]; periodLabel: string; periodStart: Date;
+  accounts: Account[]; summaries: UpcomingAccountSummary[]; periodLabel: string; periodStart: Date; /** G329: cashflow.period, for the goal sheet. */ serverPeriod?: { start: string; end: string } | null;
   plans: Plan[]; plansStatus: "loading" | "error" | "ready";
   allocations: Allocation[]; payments: PaymentDetail[];
   onRefresh(): Promise<void>;
@@ -136,6 +136,7 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
           commitment={goal}
           services={services?.goal}
           navigation={navigation}
+          serverPeriod={props.serverPeriod}
           onLoaded={(commitment) => setGoals(previous => ({ ...previous, [commitment.id]: commitment }))}
           onRefresh={props.onRefresh}
         />,
