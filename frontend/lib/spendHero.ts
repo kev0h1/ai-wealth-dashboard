@@ -1,4 +1,5 @@
 import type { SpendVerdict } from "@/lib/api";
+import { periodDayCount } from "@/lib/spendPeriod";
 
 const currency = new Intl.NumberFormat("en-GB", {
   style: "currency", currency: "GBP", minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -25,7 +26,7 @@ export function spendHeroModel(verdict: SpendVerdict) {
     usual, difference, direction,
     status: direction === "unavailable" ? "No comparison"
       : direction === "level" ? "In line" : direction === "above" ? "Above usual" : "Below usual",
-    totalDays: verdict.period.days_left == null ? null : verdict.period.days_elapsed + verdict.period.days_left,
+    totalDays: periodDayCount(verdict).total,
     named, unresolved,
     other: Math.max(0, verdict.pills.spent - named - unresolved),
     moved: verdict.moved_total ?? verdict.moved.reduce((sum, item) => sum + item.amount, 0),

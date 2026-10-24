@@ -17,9 +17,13 @@ import {
   prevPeriodWithConfig,
   nextPeriodWithConfig,
   filterPeriod,
+  dateToUTCDay,
+  // G326: client period math, kept ONLY for the first paint before a server
+  // period exists (loading skeleton seed, offset stepping, restore lookup).
   findPeriodByStart,
   DEFAULT_PAY_PERIOD_CONFIG,
 } from "@/lib/payPeriod";
+import { hasServerIncome, payArrivedText, periodLabelFromVerdict, serverIncomeTransactions } from "@/lib/spendPeriod";
 import { usePreferences } from "@/components/PreferencesContext";
 import { maskMoneyText } from "@/lib/balancesHidden";
 import { insightsForDisplay } from "@/lib/spendTips";
@@ -325,8 +329,13 @@ export default function SpendPage() {
   // point must always land back on the current period, same as today.
   const pendingRestoreRef = useRef<string | null>(restoredUi.periodStart ?? null);
   const hasNavigatedRef = useRef(false);
-  const [periodStart, setPeriodStart] = useState<Date>(() => initialPeriod.start);
-  const [periodEnd, setPeriodEnd] = useState<Date>(() => initialPeriod.end);
+  // G326: these two are the CLIENT's navigation guess (the pay-period config
+  // stepped locally). They only seed the verdict request's offset and stand in
+  // while no server period exists (loading, or a verdict cached before
+  // `period.label` shipped). Everything the page shows or filters by reads the
+  // server's period via `periodStart`/`periodEnd` below.
+  const [clientPeriodStart, setPeriodStart] = useState<Date>(() => initialPeriod.start);
+  const [clientPeriodEnd, setPeriodEnd] = useState<Date>(() => initialPeriod.end);
   const [oldestTxDate, setOldestTxDate] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -410,6 +419,17 @@ export default function SpendPage() {
   const [verdict, setVerdict] = useState<SpendVerdict | null>(() => cachedVerdict(initialPeriod.offset));
   const [verdictLoading, setVerdictLoading] = useState(() => cachedVerdict(initialPeriod.offset) == null);
   const verdictOffsetRef = useRef(initialPeriod.offset);
+  // G326: ONE period definition. The server's verdict period, when it is for
+  // the offset on screen, wins over the client's own pay-period math.
+  const serverPeriod = verdict && verdict.period.offset === periodOffset && verdict.period.label != null ? verdict.period : null;
+  const periodStart = useMemo(
+    () => (serverPeriod ? new Date(dateToUTCDay(serverPeriod.start)) : clientPeriodStart),
+    [serverPeriod, clientPeriodStart],
+  );
+  const periodEnd = useMemo(
+    () => (serverPeriod ? new Date(dateToUTCDay(serverPeriod.end)) : clientPeriodEnd),
+    [serverPeriod, clientPeriodEnd],
+  );
   // The period view's closing SpendShapeCard — undefined while its own idle
   // fetch hasn't settled yet (skeleton), null once a fetch resolves with
   // nothing to show (card renders nothing). Seeded from any value already
@@ -942,16 +962,23 @@ export default function SpendPage() {
   // P2P credits dated later in the period. IncomeDrilldown (SpendHeader.tsx)
   // just maps the list in order with no date-grouping assumption, so this
   // reorder is safe.
+  //
+  // G326: when the verdict carries `period.income_rows` the list IS those rows
+  // (the exact rows summed into In, with their real dates), so it can never be
+  // empty while In is non-zero. The transaction filter below is the fallback
+  // for a verdict cached before the field shipped.
   const incomeTxns = useMemo(
     () =>
-      homeTxns
-        .filter(
-          (tx) =>
-            tx.transaction_type === "credit" &&
-            (tx.category || "Other") === "Income"
-        )
-        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
-    [homeTxns]
+      verdict && hasServerIncome(verdict)
+        ? serverIncomeTransactions(verdict)
+        : homeTxns
+          .filter(
+            (tx) =>
+              tx.transaction_type === "credit" &&
+              (tx.category || "Other") === "Income"
+          )
+          .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
+    [verdict, homeTxns]
   );
 
   // All transactions in the period, newest first — the chronological list
@@ -971,7 +998,7 @@ export default function SpendPage() {
   function handlePrev() {
     if (!canGoPrev) return;
     hasNavigatedRef.current = true;
-    const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig);
+    const [s, e] = prevPeriodWithConfig(clientPeriodStart, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
     setPeriodOffset(o => o - 1);
@@ -979,7 +1006,7 @@ export default function SpendPage() {
 
   function handleNext() {
     hasNavigatedRef.current = true;
-    const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig);
+    const [s, e] = nextPeriodWithConfig(clientPeriodEnd, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
     setPeriodOffset(o => o + 1);
@@ -1015,13 +1042,14 @@ export default function SpendPage() {
     const list: RecentPeriodOption[] = [];
     let [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
     for (let i = 0; i < 6; i++) {
-      list.push({ offset: -i, label: formatPeriodLocal(s, e) });
+      // G326: the row for the period the server described uses the server's own label.
+      list.push({ offset: -i, label: serverPeriod && serverPeriod.offset === -i && serverPeriod.label ? serverPeriod.label : formatPeriodLocal(s, e) });
       if (oldestTxDate && s.getTime() <= oldestTxDate.getTime()) break;
       const [ps, pe] = prevPeriodWithConfig(s, payPeriodConfig);
       s = ps; e = pe;
     }
     return list;
-  }, [payPeriodConfig, oldestTxDate]);
+  }, [payPeriodConfig, oldestTxDate, serverPeriod]);
 
   // Miscategorised-transfers chip: opens the review sheet where each flagged
   // transaction can be recategorised or dismissed in place (replaces the old
@@ -1030,10 +1058,8 @@ export default function SpendPage() {
     setReviewOpen(true);
   }
 
-  const [currentStart, currentEnd] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-  const isCurrentPeriod =
-    periodStart.getTime() === currentStart.getTime() &&
-    periodEnd.getTime() === currentEnd.getTime();
+  // G326: offset 0 is the current period by the server's own definition.
+  const isCurrentPeriod = periodOffset === 0;
 
   const periodSwipe = usePeriodSwipe({ onPrev: handlePrev, onNext: handleNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
 
@@ -1138,7 +1164,7 @@ export default function SpendPage() {
     <div className="mx-auto min-h-dvh max-w-6xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] pt-5 sm:px-6 lg:px-8 lg:pb-8" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top, 0px))" }}>
       <SpendPeriodBar
         verdict={verdict}
-        periodLabel={formatPeriodLocal(periodStart, periodEnd)}
+        periodLabel={verdict ? periodLabelFromVerdict(verdict, formatPeriodLocal(periodStart, periodEnd)) : formatPeriodLocal(periodStart, periodEnd)}
         isCurrentPeriod={isCurrentPeriod}
         canGoPrev={canGoPrev}
         onPrev={handlePrev}
@@ -1162,7 +1188,7 @@ export default function SpendPage() {
             key={verdict?.period.start ?? "loading"}
             verdict={verdict}
             incomeTxns={incomeTxns}
-            incomeLoading={txLoading}
+            incomeLoading={txLoading && !(verdict && hasServerIncome(verdict))}
             onIncomeOpen={() => setTransactionsRequested(true)}
             onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
             onOutTap={handleOutTap}
@@ -1185,7 +1211,7 @@ export default function SpendPage() {
                   <span className="absolute -left-8 top-1 flex size-6 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-[#f0f2f7] dark:ring-[#0f172a] sm:-left-10" aria-hidden="true">
                     <WalletCards size={12} />
                   </span>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">Pay arrived · {periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600 dark:text-slate-400">{payArrivedText(verdict, periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" }))}</p>
                   <h2 className="mt-2 text-xl font-bold text-slate-950 dark:text-white"><span className="font-mono tabular-nums">{wholeMoney(verdict.pills.income)}</span> recorded coming in</h2>
                 </section>
               )}

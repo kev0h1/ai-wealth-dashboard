@@ -37,6 +37,7 @@ import { useMaskedFormatter } from "@/lib/balancesHidden";
 import type { SpendVerdict, Transaction } from "@/lib/api";
 import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { dateToUTCDay } from "@/lib/payPeriod";
+import { periodDayCaption } from "@/lib/spendPeriod";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
 // minus — same <£1 zero-safe convention as SafeToSpendCard.tsx's
@@ -302,7 +303,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <h1 className="text-[28px] font-bold leading-none tracking-[-0.03em] text-slate-950 dark:text-white">Spend</h1>
             <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              Day {verdict.period.days_elapsed}{verdict.period.days_left != null ? ` of ${verdict.period.days_elapsed + verdict.period.days_left}` : ""}
+              {periodDayCaption(verdict)}
             </p>
           </div>
           <button
