@@ -57,3 +57,14 @@ export function resolveUpcomingPeriod(
     fromServer: false,
   };
 }
+
+/**
+ * G329: "Pay expected Wed 28 Oct." only when the server reports a confirmed
+ * salary date that differs from the period's own payday, so Home's until-date
+ * and Upcoming's payday do not read as a contradiction. Null otherwise.
+ */
+export function payExpectedLabel(period: CashflowData["period"] | null | undefined): string | null {
+  const o = period?.payday_observed;
+  if (!period || !o || o.date === period.payday) return null;
+  return `Pay expected ${labelFor(isoToUtc(o.date))}.`;
+}
