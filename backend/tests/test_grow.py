@@ -140,6 +140,51 @@ def test_period_gate_to_cover_is_absolute_value():
     assert gate["short"] is True
 
 
+def test_period_gate_exactly_zero_short_state_does_not_raise_an_alarm():
+    # The Safe to Spend state retains its wider zero-or-below classification,
+    # but Planning only enters its risk hero for an amount it can truthfully
+    # display as needing cover.
+    sts = {"status": "ok", "state": "short", "safe_to_spend": 0.0, "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": False, "to_cover": 0.0, "period_end": "2026-09-25"}
+
+
+def test_period_gate_sub_penny_shortfall_does_not_render_as_zero_alarm():
+    sts = {"status": "ok", "state": "short", "safe_to_spend": -0.004, "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": False, "to_cover": 0.0, "period_end": "2026-09-25"}
+
+
+def test_period_gate_negative_few_pence_is_a_real_alarm():
+    sts = {"status": "ok", "state": "short", "safe_to_spend": -0.02, "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": True, "to_cover": 0.02, "period_end": "2026-09-25"}
+
+
+def test_period_gate_positive_amount_with_stale_short_state_is_not_a_deficit():
+    sts = {"status": "ok", "state": "short", "safe_to_spend": 25.0, "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": False, "to_cover": 0.0, "period_end": "2026-09-25"}
+
+
+def test_period_gate_non_finite_shortfall_degrades_to_no_alarm():
+    sts = {"status": "ok", "state": "short", "safe_to_spend": float("nan"), "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": False, "to_cover": 0.0, "period_end": "2026-09-25"}
+
+
+def test_period_gate_incomplete_calculation_never_raises_an_alarm():
+    sts = {"status": "ok", "calculation_status": "degraded", "state": "short", "safe_to_spend": -4.0, "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": False, "to_cover": 0.0, "period_end": "2026-09-25"}
+
+
+def test_period_gate_syncing_calculation_never_raises_an_alarm():
+    sts = {"status": "ok", "calculation_status": "syncing", "state": "short", "safe_to_spend": -4.0, "next_payday": "2026-09-25"}
+    gate = grow._period_gate(sts)
+    assert gate == {"short": False, "to_cover": 0.0, "period_end": "2026-09-25"}
+
+
 # ── grow_view integration — gate wired into the real endpoint payload,
 #    typical-month figures verified unchanged (verdict-hierarchy change
 #    only, per the owner's decision — not an arithmetic one) ─────────────
