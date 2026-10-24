@@ -22,7 +22,7 @@ from app.db.collections import (
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.finexer_sync import finexer_sync_pipeline
-from app.services.finexer_webhooks import bump_daily_counters, finexer_poll_due
+from app.services.finexer_webhooks import bump_daily_counters, effective_poll_window, finexer_poll_due
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
@@ -306,6 +306,11 @@ async def task_reconcile_truelayer(ctx):
         {"_id": 1, "user_id": 1, "last_synced": 1, "last_webhook_at": 1},
     ).sort("created_at", 1).to_list(None)
 
+    # E11: owner-editable polling settings (database, then env, then default).
+    await runtime_settings.ensure_fresh()
+    sync_poll_hours = float(runtime_settings.setting("SYNC_POLL_HOURS"))
+    safety_net_hours = float(runtime_settings.setting("SYNC_WEBHOOK_SAFETY_NET_HOURS"))
+
     fx_candidates = []
     for fx in fx_conns:
         uid = fx.get("user_id")
@@ -315,8 +320,9 @@ async def task_reconcile_truelayer(ctx):
         if window is None:
             skipped_on_upload += 1
             continue
+        window = effective_poll_window(window, sync_poll_hours)
         # A167: webhooks are the primary trigger; polling is the safety net.
-        if finexer_poll_due(fx, now, window):
+        if finexer_poll_due(fx, now, window, safety_net_hours=safety_net_hours):
             fx_candidates.append((fx, uid))
         else:
             skipped_fresh += 1

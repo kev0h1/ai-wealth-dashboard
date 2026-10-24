@@ -148,6 +148,11 @@ REGISTRY: dict[str, Spec] = {s.key: s for s in [
     Spec("RECONCILE_SPREAD_MINUTES", "int", 210, "Reconcile spread (minutes)", "Bank sync", min=1, max=210),
     Spec("RECONCILE_MAX_PER_MINUTE", "int", 40, "Reconcile jobs per minute", "Bank sync", min=1, max=40),
     Spec("RECONCILE_MIN_GAP_SECONDS", "int", 2, "Reconcile minimum gap (seconds)", "Bank sync", min=1, max=60),
+    # E11: Finexer polling cadence. Defaults reproduce today's behaviour.
+    Spec("SYNC_POLL_HOURS", "int", 4, "Bank poll interval (hours)", "Bank sync", min=1, max=24,
+         help="How often the reconcile cron re-syncs a Finexer consent that is not covered by a healthy webhook. 4 is the current 3 h 30 window; the cron itself ticks every 4 hours, so lower values behave as 4."),
+    Spec("SYNC_WEBHOOK_SAFETY_NET_HOURS", "int", 0, "Webhook safety-net window (hours)", "Bank sync", min=0, max=48,
+         help="0 is off. Above 0, polling only syncs a consent with no webhook and no sync in this many hours (12 is proposed). Keeps unattended access well inside four a day."),
 ]}
 
 for _k in REGISTRY:
