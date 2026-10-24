@@ -50,12 +50,18 @@ export type UpcomingAccountSummary = {
 };
 
 /** Shared coverage boundary: before payday, with the established final-day lookahead. */
-export function upcomingAccountWindow(periodEndMs: number, nowMs: number): number {
+export function upcomingAccountWindow(periodEndMs: number, nowMs: number, daysToPayday?: number): number {
   const day = 86400000;
   const payday = periodEndMs + day;
-  const now = new Date(nowMs);
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return Math.round((payday - today) / day) <= 1 ? payday + 5 * day : payday - 1;
+  // G327: callers holding the server period pass its days-to-payday (London day),
+  // so the final-day test agrees with the hero and never depends on the client's UTC clock.
+  let days = daysToPayday;
+  if (days === undefined) {
+    const now = new Date(nowMs);
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    days = Math.round((payday - today) / day);
+  }
+  return days <= 1 ? payday + 5 * day : payday - 1;
 }
 
 /** Convenience for consumers needing only the card; no second calculation. */

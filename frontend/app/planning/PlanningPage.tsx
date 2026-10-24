@@ -365,7 +365,7 @@ export default function PlanningPage() {
 
   // One window and one result feed the account card, its working and row
   // coverage. They are source-account evidence, never inputs to the hero.
-  const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow);
+  const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow, upcomingPeriod.fromServer ? upcomingPeriod.daysToPayday : undefined);
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs, accounts) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
   const excludedAccountIds = new Set(accounts.filter((account) => account.include_in_safe_to_spend === false).map((account) => account.id));

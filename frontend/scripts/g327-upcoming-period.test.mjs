@@ -56,4 +56,13 @@ assert.doesNotMatch(hero, /31 Oct|month end/);
 const cal = resolveUpcomingPeriod({ period: { start: "2026-10-01", end: "2026-10-31", length_days: 31, day_number: 24, payday: "2026-11-01", label: "1 Oct to 31 Oct", payday_observed: null, type: "calendar_month" } }, { config: { type: "last_friday" }, nowMs: calendarSeed.nowMs });
 assert.equal(cal.isCalendarMonth, true);
 assert.equal(cal.daysToPayday, 8);
+// Final day under both clocks: 00:30 BST on 29 Oct is still 28 Oct in UTC. The
+// server says day 35 of 35 (1 day to payday), so the window must extend, as the hero does.
+const lateNow = Date.parse("2026-10-28T23:30:00Z");
+const finalDay = resolveUpcomingPeriod({ period: { ...period, day_number: 35 } }, { config: { type: "calendar_month" }, nowMs: lateNow });
+assert.equal(finalDay.daysToPayday, 1);
+assert.equal(upcomingAccountWindow(finalDay.end.getTime(), lateNow), Date.parse("2026-10-29") + 86400000 - 1, "legacy UTC test disagrees in that hour");
+assert.equal(upcomingAccountWindow(finalDay.end.getTime(), lateNow, finalDay.daysToPayday), Date.parse("2026-11-04"), "server day drives the final-day lookahead");
+const earlyNow = Date.parse("2026-10-29T10:00:00Z");
+assert.equal(upcomingAccountWindow(finalDay.end.getTime(), earlyNow, finalDay.daysToPayday), upcomingAccountWindow(finalDay.end.getTime(), earlyNow), "clocks agree when UTC and London share the day");
 console.log("g327-upcoming-period ok");
