@@ -35,8 +35,10 @@ and today and yesterday's counters from `worker_runs` doc
 `finexer_api_calls:YYYY-MM-DD`: `requests`, `rate_limited`, `webhook_events`,
 `webhook_syncs_enqueued`, `webhook_events_coalesced`, `poll_syncs_enqueued`.
 E9 adds the last 50 webhook events table. E11 adds `user_syncs` and
-`history_syncs` to the same daily doc, so the three triggers can finally be
-compared.
+`history_syncs` to the same daily doc and to the `/ops/health` Finexer block,
+shown as "N webhook, N polled, N user, N history" under "Syncs today" (with
+yesterday's user and history figures as the hint), so the triggers can finally
+be compared.
 
 Gap found: before E11 nothing recorded the trigger of a completed sync.
 `trigger` only reaches `recompute_derived_caches`. The daily counters count
@@ -75,8 +77,8 @@ Mongo is not readable from this host. Kevin should read, on production
    to the first, webhooks are not arriving and polling must not be reduced.
 2. The E9 table: count of `bank_account.synced` and `bank_account.updated` per
    day, and the share with outcome `queued` against `skipped` or `failed`.
-3. The daily counters for each of the last 7 days: `webhook_syncs_enqueued`,
-   `poll_syncs_enqueued`, `user_syncs`, `requests` and `rate_limited`. The
+3. The "Syncs today" line on `/ops/health` (N webhook, N polled, N user, N
+   history), read daily for 7 days, and `API calls today`. The
    target ratio: poll syncs per consent per day at or below 2 while
    `consents_without_webhook` is 0.
 4. `last_received_at`: minutes since the last webhook, at several times of day.
@@ -118,18 +120,26 @@ Finexer returns, and that is a question for them (section 7).
 ## 5. Regulatory
 
 PSD2 RTS on strong customer authentication (Commission Delegated Regulation
-(EU) 2018/389), Article 36(5): an account information service provider may
-access the payment account data without the customer being present no more
-than four times in 24 hours, unless a higher frequency is agreed between the
-provider and the bank with the customer's agreement. Text:
-https://eur-lex.europa.eu/eli/reg_del/2018/389/oj. **Unverified here:** the
-EUR-Lex page returned no content to the fetch tool on this host, so the article
-number and the figure of four are cited from memory and must be checked against
-the text before anyone relies on them. The UK retained the rule in the FCA's
-SCA-RTS (the FCA Handbook, SCA-RTS, Article 36), and the Payment Services
-Regulations 2017 regulation 70 (legislation.gov.uk/uksi/2017/752/regulation/70,
-opened and confirmed to cover AIS access obligations) is the parent provision.
-The detail of the UK cap wording is unverified for the same reason.
+(EU) 2018/389), Article 36(5), verified 2026-10-24 on the UK retained text,
+https://www.legislation.gov.uk/eur/2018/389/article/36:
+
+> "Account information service providers shall be able to access information
+> from designated payment accounts and associated payment transactions held by
+> account servicing payment service providers for the purposes of performing the
+> account information service in either of the following circumstances: (a)
+> whenever the payment service user is actively requesting such information;
+> (b) where the payment service user does not actively request such information,
+> no more than four times in a 24-hour period, unless a higher frequency is
+> agreed between the account information service provider and the account
+> servicing payment service provider, with the payment service user's consent."
+
+The EU original (https://eur-lex.europa.eu/eli/reg_del/2018/389/oj) was
+unreachable from this host on 2026-10-24. Limb (a) exempts user-present
+refreshes, which is why the manual refresh and its once-a-minute throttle sit
+outside the cap; limb (b) is the basis of the "higher frequency agreed"
+question for Finexer. The Payment Services Regulations 2017 regulation 70
+(https://www.legislation.gov.uk/uksi/2017/752/regulation/70) was opened and
+confirmed to cover account information service access obligations.
 
 Who is the TPP: Finexer is the authorised account information service provider
 and Sorted acts as its agent (the regulated footer on the consent template
@@ -187,6 +197,18 @@ and `requests` per day, and only then consider `SYNC_POLL_HOURS`. Rollback is
 setting `SYNC_WEBHOOK_SAFETY_NET_HOURS` back to 0 (or clearing the override),
 which restores today's cadence within the 60 second settings cache with no
 deploy.
+
+Caveats on the build and on the "two unattended syncs a day" figure:
+
+- The throttle's first-sync exemption applies to any user with a never-synced
+  connection or authorised consent, so a stuck never-synced connection leaves
+  that user unthrottled. Accepted: the throttle fails open and the exemption
+  is per user.
+- `last_synced` is stamped only on success, so a consent whose sync keeps
+  failing is retried on every 4-hourly tick (up to 6 a day) and the safety net
+  does not cap it, because the predicate keys on `last_synced`. The "two a day"
+  figure therefore assumes syncs succeed. Follow-up, not part of E11: cap
+  retries of failing consents.
 
 Questions to send Finexer:
 

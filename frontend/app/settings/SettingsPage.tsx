@@ -1615,7 +1615,7 @@ export default function SettingsPage() {
         <SettingsGroup visible={activeSection === "account"} title="Data" intro="Manage your history and excluded payments.">
           <div className="px-4 py-3.5">
             <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Refresh history</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-3">Refresh your figures from everything your banks share. Open Banking connections already keep all the history your bank shares, so there is no separate 90-day fetch for them.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-3">Refresh your figures from the history your connected banks have shared.</p>
             <button
               onClick={handleSyncHistory}
               disabled={syncingHistory}

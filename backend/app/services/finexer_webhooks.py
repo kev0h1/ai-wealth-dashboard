@@ -431,4 +431,9 @@ async def webhook_health(now: Optional[datetime] = None) -> dict:
         "api_calls_yesterday": int(yesterday.get("requests", 0)),
         "webhook_syncs_today": int(today.get("webhook_syncs_enqueued", 0)),
         "poll_syncs_today": int(today.get("poll_syncs_enqueued", 0)),
+        # E11: user-present refreshes and Settings history refreshes.
+        "user_syncs_today": int(today.get("user_syncs", 0)),
+        "user_syncs_yesterday": int(yesterday.get("user_syncs", 0)),
+        "history_syncs_today": int(today.get("history_syncs", 0)),
+        "history_syncs_yesterday": int(yesterday.get("history_syncs", 0)),
     }

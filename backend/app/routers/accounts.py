@@ -333,8 +333,7 @@ async def sync_history(user: dict = Depends(current_user)):
     if conns:
         message = "Full sync complete"
     elif finexer_count:
-        message = ("Your bank connections already hold all the history your bank shares, "
-                   "so there is nothing more to fetch. Your figures have been refreshed.")
+        message = "Your figures have been refreshed from the history your bank has shared."
     else:
         message = "No bank connections to sync. Your figures have been refreshed."
     return {

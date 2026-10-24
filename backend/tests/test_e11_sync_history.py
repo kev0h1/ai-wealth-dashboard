@@ -41,7 +41,7 @@ def test_finexer_only_user_is_told_nothing_more_to_fetch(monkeypatch):
     res = _run()
     assert res["history_fetched"] is False
     assert res["finexer_consents"] == 1
-    assert "already hold all the history" in res["message"]
+    assert res["message"] == "Your figures have been refreshed from the history your bank has shared."
     assert "Full sync complete" not in res["message"]
     assert "—" not in res["message"] and "!" not in res["message"]
     assert counted == [{"history_syncs": 1}]
