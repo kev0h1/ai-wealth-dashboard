@@ -218,7 +218,7 @@ def _home_sts_state(sts: dict) -> tuple[str, bool]:
     chip's status word must never disagree with the Home hero it sits
     under, so it is computed here the SAME way, from the SAME cached
     result, rather than re-deriving a fresh judgement from `sts["state"]`
-    alone. Exactly zero is no headroom, not a deficit. Genuine penny
+    alone. Exactly zero means no spare cash. Genuine penny
     shortfalls stay short and are formatted with pence."""
     raw_state = sts.get("state") or ""
     short_reason = sts.get("short_reason")
