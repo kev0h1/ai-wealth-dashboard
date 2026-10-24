@@ -42,6 +42,7 @@ from app.db.collections import category_intent_col, commitments_col, preferences
 from app.services.categories import get_category_kinds
 from app.services.categorisation import canonical_merchant_key
 from app.services.pace import compute_category_signals, get_total_pace_curve_fn
+from app.services.pay_period import period_facts
 from app.services.spending import (
     INCOME_FLOW, MOVED, REFUND, SPEND, classify_flow, try_build_spending_context,
 )
@@ -1022,13 +1023,6 @@ async def _dismissed_unresolved_ids(uid: str) -> set[str]:
 # `pills.income`, so the header label, "Day N of M", In and "Income this period"
 # are all read from one object and can never describe different periods.
 
-_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-
-
-def _short_date(d: date, with_year: bool) -> str:
-    return f"{d.day} {_MONTHS[d.month - 1]}" + (f" {d.year}" if with_year else "")
-
-
 def build_income_rows(txns: list[dict], kind_map: dict, start: date) -> list[dict]:
     """The income-flow rows `bucket_transactions` counts into income_total,
     with their real dates. Signed like the total (a credit adds, a debit
@@ -1061,18 +1055,13 @@ def build_period_payload(period: dict, income_rows: list[dict], today: date) -> 
     the input is cached and shared, so it is never mutated."""
     start = date.fromisoformat(period["start"])
     end = date.fromisoformat(period["end"])
-    length_days = (end - start).days + 1
-    if period.get("closed"):
-        day_number = length_days
-    else:
-        day_number = max(1, min(length_days, (today - start).days + 1))
-    with_year = start.year != end.year
+    facts = period_facts(start, end, today, closed=bool(period.get("closed")))
     return {
         **period,
-        "length_days": length_days,
-        "day_number": day_number,
-        "payday": (end + timedelta(days=1)).isoformat(),
-        "label": f"{_short_date(start, with_year)} to {_short_date(end, with_year)}",
+        "length_days": facts["length_days"],
+        "day_number": facts["day_number"],
+        "payday": facts["payday"],
+        "label": facts["label"],
         "income_rows": income_rows,
     }
 

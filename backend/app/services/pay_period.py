@@ -151,3 +151,45 @@ def is_payday_day(days_away: int, days_to_pay: int) -> bool:
     if days_to_pay <= 1:
         return False
     return days_away == days_to_pay
+
+
+# ── G327: ONE period-facts definition shared by Spend and Upcoming ───────────
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _short_date(d: _date, with_year: bool) -> str:
+    return f"{d.day} {_MONTHS[d.month - 1]}" + (f" {d.year}" if with_year else "")
+
+
+def period_facts(start: _date, end: _date, today: _date, closed: bool = False) -> dict:
+    """start/end/length_days/day_number/payday/label for a period. The single
+    builder behind the Spend verdict's `period` (spend_verdict.build_period_payload)
+    and the cashflow payload's `period`, so the two surfaces can never disagree.
+    `payday` is the next period's first day (end + 1)."""
+    length_days = (end - start).days + 1
+    if closed:
+        day_number = length_days
+    else:
+        day_number = max(1, min(length_days, (today - start).days + 1))
+    with_year = start.year != end.year
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "length_days": length_days,
+        "day_number": day_number,
+        "payday": (end + timedelta(days=1)).isoformat(),
+        "label": f"{_short_date(start, with_year)} to {_short_date(end, with_year)}",
+    }
+
+
+def current_period_facts(today: _date, config: dict, confirmed_payday: _date | None = None) -> dict:
+    """The current pay period's facts for `today` under `config`, plus
+    `payday_observed`: the confirmed salary date and its source when it
+    differs from the period's own payday (end + 1), else None."""
+    start, end = get_pay_period_for_date(today, config)
+    facts = period_facts(start, end, today)
+    observed = None
+    if confirmed_payday is not None and confirmed_payday.isoformat() != facts["payday"]:
+        observed = {"date": confirmed_payday.isoformat(), "source": "confirmed"}
+    facts["payday_observed"] = observed
+    return facts
