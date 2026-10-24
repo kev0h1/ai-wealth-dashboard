@@ -9,9 +9,16 @@ type SpendFromAccountListProps = {
   amount: (value: number) => string;
   coverMoveVisible: boolean;
   reserveByAccount?: Record<string, number>;
+  destinationsByAccount?: Record<string, string[]>;
   onLogoError: (logoSrc: string) => void;
   kind: "bank-rail" | "name-fallback";
 };
+
+function joinDestinationLabels(labels: string[]) {
+  if (labels.length < 2) return labels[0] ?? "";
+  if (labels.length === 2) return labels.join(" and ");
+  return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
+}
 
 /**
  * The approved G320 B treatment. Account limits are independent ceilings on
@@ -23,6 +30,7 @@ export default function SpendFromAccountList({
   amount,
   coverMoveVisible,
   reserveByAccount,
+  destinationsByAccount,
   onLogoError,
   kind,
 }: SpendFromAccountListProps) {
@@ -41,15 +49,14 @@ export default function SpendFromAccountList({
       className="mt-4"
     >
       <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Held in</p>
-      <p className="mt-1 text-[13px] font-normal leading-5 text-slate-600 dark:text-slate-300">
-        {entries.length === 1 ? "Within the estimate above." : "One estimate across these accounts."}
-      </p>
-      <ul aria-label="Accounts holding part of this estimate" className="mt-3 space-y-3">
+      <ul aria-label="Accounts holding part of this estimate" className="mt-2 space-y-2">
         {entries.map((entry) => {
           const brand = accountBrand(entry.account);
           const showLimit = !hasKnownPool || Math.round(entry.headroom) < Math.round(pool);
           const reserve = reserveByAccount?.[entry.accountId] ?? 0;
           const sameBank = brands.filter((label) => label === brand.label).length > 1;
+          const destinations = destinationsByAccount?.[entry.accountId] ?? [];
+          const sourceLabel = sameBank ? `${brand.label} ${displayAccountName(entry.name)}` : brand.label;
 
           return (
             <li
@@ -66,7 +73,7 @@ export default function SpendFromAccountList({
                 onLogoError={brand.logoSrc ? () => onLogoError(brand.logoSrc!) : undefined}
               />
               <span className="min-w-0">
-                <span className="block break-words text-[13px] font-medium leading-5 text-slate-700 dark:text-slate-200">{brand.label}</span>
+                <span className="block break-words text-[12px] font-medium leading-5 text-slate-700 dark:text-slate-200">{brand.label}</span>
                 {sameBank && <span className="block break-words text-[12px] leading-5 text-slate-600 dark:text-slate-300">{displayAccountName(entry.name)}</span>}
               </span>
               {showLimit && (
@@ -76,7 +83,7 @@ export default function SpendFromAccountList({
               )}
               {coverMoveVisible && reserve > 0 && (
                 <p className="col-span-2 col-start-2 mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                  <MoneyText text={`${amount(reserve)} held back for the move`} />
+                  <MoneyText text={`${amount(reserve)} already held back in ${sourceLabel} for the ${destinations.length > 0 ? `move to ${joinDestinationLabels(destinations)}` : "move shown above"}.`} />
                 </p>
               )}
             </li>
@@ -86,8 +93,11 @@ export default function SpendFromAccountList({
       {coverMoveVisible && !hasReserveSource && (
         <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300">The move above is already held back.</p>
       )}
-      {entries.length > 1 && hasLowerLimit && (
-        <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300">Account limits share the total above.</p>
+      {entries.length === 1 && !hasLowerLimit && (
+        <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300">Within the estimate above.</p>
+      )}
+      {entries.length > 1 && (
+        <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300">Separate account limits, not amounts to add together.</p>
       )}
     </section>
   );

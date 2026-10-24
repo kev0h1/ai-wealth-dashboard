@@ -41,7 +41,8 @@ assert.match(src, /previewBalancesVisible = false/);
 assert.match(src, /!previewBalancesVisible && \(hideNetWorth \|\| !preferencesReady\)/);
 assert.doesNotMatch(readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8"), /previewBalancesVisible/, "Home must not opt in");
 
-// 7. Hero disclaimer (Kevin 2026-10-06): one quiet line wherever a figure renders.
+// 7. G324 approved B2: exact disclaimer once in the quiet scope disclosure
+// wherever a figure renders, including a last-known syncing figure.
 const DISCLAIMER = "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.";
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
@@ -61,10 +62,18 @@ assert.ok(hasLine(render({ data: fx["on-track"], syncing: syncInfo })), "stale f
 assert.ok(!hasLine(render({ data: null, error: true })), "error state has no disclaimer");
 assert.ok(!hasLine(render({ data: null, loading: true })), "loading state has no disclaimer");
 assert.ok(!hasLine(render({ data: fx.degraded })), "degraded state withholds the figure and the disclaimer");
-const dis = src.match(/<p data-sts-disclaimer className="([^"]+)">([^<]+)<\/p>/);
-assert.ok(dis, "disclaimer element present in source");
-assert.equal(dis[1], "text-[11px] leading-snug text-slate-500 dark:text-slate-400");
-assert.equal(dis[2], DISCLAIMER);
-assert.doesNotMatch(dis[2], /—|!/);
+const dis = src.match(/<p data-sts-disclaimer>([^<]+)<\/p>/);
+assert.ok(dis, "exact disclaimer element remains in source");
+assert.equal(dis[1], DISCLAIMER);
+assert.doesNotMatch(dis[1], /—|!/);
+const complete = render({ data: fx["on-track"] });
+const hero = complete.slice(complete.indexOf("data-g324-hero"), complete.indexOf("data-g324-evidence"));
+assert.doesNotMatch(hero, /data-sts-disclaimer/, "B2 places accuracy in its separate scope disclosure");
+const caveatStart = complete.indexOf("data-sts-caveat");
+const caveat = complete.slice(caveatStart, complete.indexOf("</details>", caveatStart));
+assert.match(caveat, /What this estimate counts/);
+assert.ok(caveat.includes(DISCLAIMER), "the full accuracy warning is accessible in one tap");
+assert.equal(complete.split(DISCLAIMER).length - 1, 1, "do not duplicate or omit the warning");
+assert.match(caveat, /class="[^"]*text-\[12px\][^"]*text-slate-600[^"]*dark:text-slate-300/, "approved quiet 12px canvas-prose role has adequate contrast");
 
 console.log("g218-figure-tone: all assertions passed");

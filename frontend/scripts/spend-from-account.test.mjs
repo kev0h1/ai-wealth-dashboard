@@ -36,7 +36,7 @@
 // stale/malformed payload either).
 
 import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, spendFromCombinedLine, spendFromCombinedParts, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
-import { hasFundedCoverMove, visibleCoverMoveReserves } from "../lib/companionItems";
+import { hasFundedCoverMove, visibleCoverMoveDestinations, visibleCoverMoveReserves } from "../lib/companionItems";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -308,14 +308,22 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
 
 // G320 B: disclosure of visible funded sources, never a second deduction.
 {
-  const leg = (id, amount) => ({ amount, move_map: { from: { account_id: id } } });
-  const funded = { id: "move:funded", type: "move", moves: [leg("natwest", 25), leg("natwest", 15), leg("hsbc", 9)] };
+  const leg = (id, amount, provider = "Monzo", name = "Everyday") => ({ amount, move_map: { from: { account_id: id }, to: { provider, name } } });
+  const funded = { id: "move:funded", type: "move", moves: [leg("natwest", 25), leg("natwest", 15), leg("hsbc", 9, "Barclays", "PREMIER CURRENT ACCOUNT")] };
   const invalid = { id: "move:invalid", type: "move", moves: [leg("natwest", -20), leg("natwest", NaN), leg("natwest", Infinity), { amount: 20, move_map: {} }] };
+  check("G324: invalid-only legs cannot claim that a move is funded", hasFundedCoverMove([invalid]), false);
+  check("G324: valid funded legs retain the move note", hasFundedCoverMove([funded]), true);
+  check("G324: zero-only legs cannot claim a reserved move", hasFundedCoverMove([{ ...funded, moves: [leg("natwest", 0)] }]), false);
   check("G320: split legs stay attached to their source accounts", visibleCoverMoveReserves([funded]), { natwest: 40, hsbc: 9 });
   check("G320: malformed or non-positive legs do not invent reserves", visibleCoverMoveReserves([invalid]), {});
   check("G320: non-move and no-source cards disclose no reserve", visibleCoverMoveReserves([{ ...funded, type: "unfunded_move" }, { type: "move" }]), {});
   check("G320: hiding the funded card removes source reserve disclosures", visibleCoverMoveReserves([funded].filter(item => item.id !== funded.id)), {});
   check("G320: updated legs replace rather than accumulate the old reserve", visibleCoverMoveReserves([{ ...funded, moves: [leg("hsbc", 11)] }]), { hsbc: 11 });
+  check("G324: visible funded legs name canonical destinations by source", visibleCoverMoveDestinations([funded]), { natwest: ["Monzo Everyday"], hsbc: ["Barclays Premier Current Account"] });
+  check("G324: destination labels dedupe per source", visibleCoverMoveDestinations([{ ...funded, moves: [leg("natwest", 25), leg("natwest", 15, "Chase", "FLEX CURRENT")] }]), { natwest: ["Monzo Everyday", "Chase Flex Current"] });
+  check("G324: stale destination fields never invent a named destination", visibleCoverMoveDestinations([{ ...funded, moves: [leg("natwest", 25, "", "Everyday"), leg("hsbc", 10, "Barclays", "")] }]), {});
+  check("G324: a partly unnamed aggregate never attributes the whole reserve to its known destination", visibleCoverMoveDestinations([{ ...funded, moves: [leg("natwest", 25, "barclays", "BILLS"), leg("natwest", 15, "", "")] }]), {});
+  check("G324: non-text stale destination fields fail closed without a render crash", visibleCoverMoveDestinations([{ ...funded, moves: [leg("natwest", 25, 7, "Everyday")] }]), {});
 }
 
 // G115: the reconciliation line says a visible move is already held back
@@ -327,10 +335,11 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   const funded = {
     id: "move:funded",
     type: "move",
-    moves: [{ headline: "Move £20", amount: 20, move_map: {} }],
+    moves: [{ headline: "Move £20", amount: 20, move_map: { from: { account_id: "source" } } }],
   };
   const noSource = { id: "move:no-source", type: "move" };
   check("G115: a funded move with transfer legs enables the held-back explanation", hasFundedCoverMove([funded]), true);
+  check("G324: a leg without an identified source is not proof of a held reserve", hasFundedCoverMove([{ ...funded, moves: [{ amount: 20, move_map: {} }] }]), false);
   check("G115: a no-source move card does not claim money is held back", hasFundedCoverMove([noSource]), false);
   check("G115: an empty transfer-leg array is not a funded move", hasFundedCoverMove([{ ...noSource, moves: [] }]), false);
   const dismissedIds = new Set([funded.id]);

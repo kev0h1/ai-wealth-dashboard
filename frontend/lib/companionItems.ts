@@ -1,4 +1,14 @@
 import type { CompanionItem } from "@/lib/api";
+import { displayAccountName } from "@/lib/accountName";
+
+function visibleFundedMoveLegs(items: CompanionItem[]) {
+  return items.flatMap((item) => (item.type === "move" ? item.moves ?? [] : []).flatMap((move) => {
+    const source = move.move_map?.from?.account_id;
+    const amount = move.amount;
+    if (!source || typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) return [];
+    return [{ source, amount, destination: move.move_map.to }];
+  }));
+}
 
 /**
  * Whether Home is visibly rendering a cover move whose transfer legs are
@@ -10,23 +20,37 @@ import type { CompanionItem } from "@/lib/api";
  * the funded card removes the reconciliation copy in the same render.
  */
 export function hasFundedCoverMove(items: CompanionItem[]): boolean {
-  return items.some((item) => item.type === "move" && (item.moves?.length ?? 0) > 0);
+  return visibleFundedMoveLegs(items).length > 0;
 }
 
 /** G320: disclosure of visible funded legs, never another cash deduction. */
 export function visibleCoverMoveReserves(items: CompanionItem[]): Record<string, number> {
   const reserves = new Map<string, number>();
-  for (const item of items) {
-    if (item.type !== "move") continue;
-    for (const move of item.moves ?? []) {
-      const source = move.move_map?.from?.account_id;
-      const amount = move.amount;
-      if (source && typeof amount === "number" && Number.isFinite(amount) && amount > 0) {
-        reserves.set(source, (reserves.get(source) ?? 0) + amount);
-      }
-    }
+  for (const move of visibleFundedMoveLegs(items)) {
+    reserves.set(move.source, (reserves.get(move.source) ?? 0) + move.amount);
   }
   return Object.fromEntries(reserves);
+}
+
+/**
+ * Named destinations for the same valid, visible funded legs that disclose
+ * reserves. This is explanation-only metadata: it never changes reserve
+ * arithmetic, eligibility or the amount shown in Safe to Spend.
+ */
+export function visibleCoverMoveDestinations(items: CompanionItem[]): Record<string, string[]> {
+  const destinations = new Map<string, Set<string>>();
+  const incompleteSources = new Set<string>();
+  for (const move of visibleFundedMoveLegs(items)) {
+    const provider = typeof move.destination?.provider === "string" ? move.destination.provider.trim() : "";
+    const name = typeof move.destination?.name === "string" ? move.destination.name.trim() : "";
+    // A half-present or stale endpoint is not enough to name an account.
+    if (!provider || !name) { incompleteSources.add(move.source); continue; }
+    const label = `${displayAccountName(provider)} ${displayAccountName(name)}`;
+    const labels = destinations.get(move.source) ?? new Set<string>();
+    labels.add(label);
+    destinations.set(move.source, labels);
+  }
+  return Object.fromEntries([...destinations].filter(([source]) => !incompleteSources.has(source)).map(([source, labels]) => [source, [...labels]]));
 }
 
 /**
