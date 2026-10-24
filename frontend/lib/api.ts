@@ -275,6 +275,21 @@ export type InternalInflow = {
   destination_spendable?: boolean;
 };
 
+export type CashflowPeriod = {
+  /** ISO dates. `payday` is the period end + 1 (the next period's first day). */
+  start: string;
+  end: string;
+  length_days: number;
+  /** 1-based day of the period today falls on (the user's London day). */
+  day_number: number;
+  payday: string;
+  label: string;
+  /** The confirmed salary date and its source when it differs from `payday`, else null. */
+  payday_observed: { date: string; source: "confirmed" } | null;
+  /** The pay-period config type the server resolved this period with. */
+  type: string;
+};
+
 export type CashflowData = {
   weekly_projection: CashflowWeek[];
   upcoming_bills: UpcomingBill[];
@@ -289,6 +304,10 @@ export type CashflowData = {
   savings_balance?: number;
   next_payday: string | null;
   payday_source: "confirmed" | "period" | null;
+  /** G327: the server's one pay-period definition (same builder as the Spend
+   * verdict's `period`). Optional only so an older API build degrades to the
+   * client seed; every rendered Upcoming date reads this once present. */
+  period?: CashflowPeriod;
   income_suggestion: IncomeSuggestion | null;
   /** See `InternalInflow`. Optional, defaults to `[]` for older cached responses. */
   internal_inflows?: InternalInflow[];

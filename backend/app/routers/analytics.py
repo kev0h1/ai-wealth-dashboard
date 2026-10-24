@@ -36,7 +36,7 @@ from app.db.collections import (
     confirmed_transfer_pairs_col, pending_transactions_col, card_terms_col,
 )
 from app.services.account_names import display_account_name
-from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+from app.services.pay_period import current_period_facts, get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.categorisation import (
@@ -4824,6 +4824,14 @@ async def get_cashflow(user: dict = Depends(current_user)):
     else:
         resp["next_payday"] = None
         resp["payday_source"] = None
+
+    # G327: ONE period definition for Upcoming (same builder as the Spend
+    # verdict's `period`). next_payday above may be a confirmed salary date;
+    # `period.payday` is always the period end + 1 and `payday_observed`
+    # carries the confirmed date when it differs.
+    resp["period"] = current_period_facts(
+        _today_d, _pay_cfg, _confirmed[0] if _confirmed else None
+    )
 
     # income_suggestion: largest mature un-rejected unconfirmed stream
     _dismissed = set(_prefs.get("dismissed_recurring") or [])
