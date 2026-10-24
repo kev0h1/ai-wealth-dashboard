@@ -14,6 +14,7 @@ rather than touching real Mongo, following test_llm_meter.py's own
 `_FakeLlmUsageCol` shape.
 """
 import asyncio
+import pytest
 import re
 
 import app.core.llm as llm_module
@@ -930,3 +931,38 @@ def test_subscription_endpoint_exposes_penny_cap_fields(monkeypatch):
     assert usage["penny_remaining"] == 1
     assert usage["penny_topup_messages"] == 0
     assert usage["penny_resets_on"]
+
+
+@pytest.mark.parametrize("gap", [0.0, -0.01, -0.42, -0.99])
+def test_home_zero_and_penny_gaps_are_honest(monkeypatch, gap):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "state": "short", "short_reason": "bills",
+            "safe_to_spend": gap, "safe_to_spend_cash": gap,
+            "days_until_payday": 3, "next_payday": "2026-10-30",
+            "lowest_projected_balance": gap, "calculation_status": "complete",
+        }
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+    answer = _run(answer_chip(UID, "home_payday_status", None))["answer"]
+    if gap == 0:
+        assert "Nothing left to spend" in answer
+        assert "looks on track" not in answer.lower()
+        assert "short of covering" not in answer
+    else:
+        assert f"£{abs(gap):.2f} short" in answer
+        assert f"dip to about −£{abs(gap):.2f}" in answer
+        assert "£0 short" not in answer
+        assert "−£0 before" not in answer
+    _assert_house_style(answer)
+
+
+@pytest.mark.parametrize("calculation_status", ["degraded", "syncing"])
+def test_home_zero_sentinel_is_not_a_verdict(monkeypatch, calculation_status):
+    async def fake_sts(uid):
+        return {"status": "ok", "state": "short", "short_reason": "bills", "safe_to_spend": 0, "calculation_status": calculation_status}
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+    answer = _run(answer_chip(UID, "home_payday_status", None))["answer"]
+    assert "calculation is incomplete" in answer
+    assert "Nothing left" not in answer
+    assert "short of covering" not in answer
+    assert "looks on track" not in answer.lower()

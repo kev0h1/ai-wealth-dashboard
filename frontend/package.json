@@ -171,6 +171,7 @@
     "reel:render": "remotion render remotion/index.ts SortedReel out/sorted-reel.mp4 --codec=h264 --concurrency=2",
     "reel:studio": "remotion studio remotion/index.ts",
     "check:c35-marketing-sources": "python3 ../website/scripts/check-sources.py && node ../website/scripts/check-preview.mjs",
+    "check:g330-zero-headroom": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g330-zero-headroom.test.mjs",
     "check:g324-home-declutter": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g324-home-declutter.test.mjs"
   },
   "dependencies": {

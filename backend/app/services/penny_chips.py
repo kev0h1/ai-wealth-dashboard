@@ -218,15 +218,19 @@ def _home_sts_state(sts: dict) -> tuple[str, bool]:
     chip's status word must never disagree with the Home hero it sits
     under, so it is computed here the SAME way, from the SAME cached
     result, rather than re-deriving a fresh judgement from `sts["state"]`
-    alone. A backend "short" reading within a penny of zero
-    (`free_amount > -1`) reads as "comfortable" on the card too — the same
-    rounding tolerance is applied here."""
+    alone. Exactly zero means no spare cash. Genuine penny
+    shortfalls stay short and are formatted with pence."""
     raw_state = sts.get("state") or ""
     short_reason = sts.get("short_reason")
     free_amount = float(sts.get("safe_to_spend") or 0.0)
     is_cards_unconfirmed = raw_state == "short" and short_reason == "cards_unconfirmed"
-    state = "comfortable" if (raw_state == "short" and not is_cards_unconfirmed and free_amount > -1) else raw_state
+    state = "tight" if (raw_state == "short" and not is_cards_unconfirmed and free_amount >= 0) else raw_state
     return state, is_cards_unconfirmed
+
+
+def _home_cash_amount(value: float) -> str:
+    """Home retains pence for a sub-pound amount so a real gap never reads £0."""
+    return _fmt_gbp(value, 2) if 0 < abs(value) < 1 else _fmt_gbp(value)
 
 
 async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
@@ -237,6 +241,13 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
         return _engine_result(
             "home_payday_status",
             "I don't have enough account data connected yet to work out where you stand until payday.",
+            sts,
+        )
+
+    if sts.get("calculation_status") in {"degraded", "syncing"}:
+        return _engine_result(
+            "home_payday_status",
+            "Your left to spend estimate is not ready because the calculation is incomplete. Check your bank for your latest balance.",
             sts,
         )
 
@@ -264,14 +275,16 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     counts_caveat = (
         "It does not count unconnected accounts, pending payments or bills I have not spotted."
     )
-    if state == "comfortable":
+    if free_amount == 0 and not is_cards_unconfirmed:
+        sentence1 = f"Nothing left to spend{until}. " + counts_caveat
+    elif state == "comfortable":
         sentence1 = (
-            f"It looks on track: you have an estimated {_fmt_gbp(free_amount)} left to spend{until}{to_go}. "
+            f"It looks on track: you have an estimated {_home_cash_amount(free_amount)} left to spend{until}{to_go}. "
             + counts_caveat
         )
     elif state == "tight":
         sentence1 = (
-            f"It looks tight: you have an estimated {_fmt_gbp(free_amount)} left to spend{until}{to_go}. "
+            f"It looks tight: you have an estimated {_home_cash_amount(free_amount)} left to spend{until}{to_go}. "
             + counts_caveat
         )
     elif is_cards_unconfirmed:
@@ -284,18 +297,18 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
             # is only the plans and envelopes the user set aside. Calm, not a
             # payment at risk; same reading as the amber Home hero.
             sentence1 = (
-                f"You're about {_fmt_gbp(gap)} short after plans and envelopes{when}. "
+                f"You're about {_home_cash_amount(gap)} short after plans and envelopes{when}. "
                 "Your bills are covered; it's only the money you've set aside."
             )
         else:
-            sentence1 = f"You're about {_fmt_gbp(gap)} short of covering this pay period{when}."
+            sentence1 = f"You're about {_home_cash_amount(gap)} short of covering this pay period{when}."
 
     lowest = sts.get("lowest_projected_balance")
     sentence2 = ""
     if sts.get("calculation_status") == "degraded":
         sentence2 = "Part of this figure couldn't be worked out just now, so treat it as a cautious estimate."
     elif lowest is not None:
-        sentence2 = f"Your balance is projected to dip to about {_fmt_gbp(lowest)} before then."
+        sentence2 = f"Your balance is projected to dip to about {_home_cash_amount(lowest)} before then."
 
     growth = float(sts.get("card_growth_total") or 0.0)
     sentence_card = ""

@@ -33,6 +33,12 @@ function fmtGbp(value: number): string {
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+/** Keep small cash figures honest without adding pence to every hero. */
+export function formatSafeToSpendAmount(value: number): string {
+  const pence = Math.abs(value) > 0 && Math.abs(value) < 1;
+  return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: pence ? 2 : 0, maximumFractionDigits: pence ? 2 : 0 })}`;
+}
+
 export type SafeToSpendHeadline = {
   state: "comfortable" | "tight" | "short";
   stateLabel: string;
@@ -61,11 +67,12 @@ export function isPlansOnlyShort(data: Extract<SafeToSpend, { status: "ok" }>): 
  * maths SafeToSpendCard.tsx's own render uses for its hero figure and
  * status chip. */
 export function deriveSafeToSpendHeadline(data: Extract<SafeToSpend, { status: "ok" }>): SafeToSpendHeadline {
-  const freeAmount = zeroSafe(data.safe_to_spend);
-  const cashRunway = data.safe_to_spend_cash == null ? freeAmount : zeroSafe(data.safe_to_spend_cash);
+  // G330: a penny shortfall is still a shortfall. Never snap it to £0.
+  const freeAmount = data.safe_to_spend;
+  const cashRunway = data.safe_to_spend_cash ?? freeAmount;
   const isCardsUnconfirmedShort = data.state === "short" && data.short_reason === "cards_unconfirmed";
   const state: "comfortable" | "tight" | "short" =
-    data.state === "short" && !data.short_reason && freeAmount > -1 ? "comfortable" : data.state;
+    data.state === "short" && !isCardsUnconfirmedShort && freeAmount >= 0 ? "tight" : data.state;
   const stateLabel = state === "comfortable" ? "Looks on track" : state === "tight" ? "Tight" : isCardsUnconfirmedShort ? "Check card bill" : "Short";
   const heroAmount = state === "short" ? (isCardsUnconfirmedShort ? 0 : Math.abs(cashRunway)) : freeAmount;
 
@@ -134,7 +141,7 @@ export function buildSafeToSpendView(
       label: presentation.caption ? "Below your safety buffer" : headline.plansOnly
         ? "Short after plans and envelopes"
         : headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Estimated left to spend",
-      value: `${presentation.signed ? "−" : ""}${fmtGbp(headline.heroAmount)}`,
+      value: `${presentation.signed ? "−" : ""}${formatSafeToSpendAmount(headline.heroAmount)}`,
     }],
     asOf: data.last_synced ?? new Date().toISOString(),
   };

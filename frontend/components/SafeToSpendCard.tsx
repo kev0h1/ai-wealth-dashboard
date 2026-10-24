@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
-import { zeroSafe, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
+import { formatSafeToSpendAmount, deriveSafeToSpendHeadline, buildSafeToSpendView } from "@/lib/pennyScreenViews";
 import { homeForecastPresentation, FORECAST_INK } from "@/lib/cashForecastStatus";
 import ForecastStatusBadge from "@/components/ForecastStatusBadge";
 import {
@@ -76,10 +76,6 @@ interface SafeToSpendCardProps {
    * fixture amounts. Production never passes it, so masking is unchanged.
    */
   previewBalancesVisible?: boolean;
-}
-
-function fmt(value: number): string {
-  return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function fmt2(value: number): string {
@@ -203,7 +199,7 @@ export function approvedSpendFromTreatment(
           <div data-g115-treatment="no-current" className="mt-2 flex items-start gap-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
             <p>
-              No current account has spare cash towards this estimate right now.
+              No cash is available to spend from your current accounts right now.
               {coverMoveVisible ? " Use the move above first." : " Checked account by account."}
             </p>
           </div>
@@ -482,9 +478,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
   const exactCashRunway = data.safe_to_spend_cash ?? data.safe_to_spend;
   const exactLowestProjected = data.lowest_projected_balance ?? null;
-  const cardGrowth = zeroSafe(data.card_growth_total ?? 0);
-  const cardNewSpend = zeroSafe(data.card_new_spend_total ?? 0);
-  const cardReserve = zeroSafe(data.card_growth_reserved ?? 0);
+  const cardGrowth = data.card_growth_total ?? 0;
+  const cardNewSpend = data.card_new_spend_total ?? 0;
+  const cardReserve = data.card_growth_reserved ?? 0;
   // `state`/`stateLabel`/`isCardsUnconfirmedShort`/`heroAmount`/`paydayLabel`
   // now come from `deriveSafeToSpendHeadline` (this file, above) — the SAME
   // call the Penny screen-context effect above makes, not a second copy of
@@ -493,7 +489,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const { state, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly } = headline;
   const presentation = homeForecastPresentation(data, headline);
 
-  const amount = (value: number) => hidden ? "£••••" : fmt(value);
+  const amount = (value: number) => hidden ? "£••••" : formatSafeToSpendAmount(value);
   const exactAmount = (value: number) => hidden ? "£••••" : fmt2(value);
   const signedExactAmount = (value: number) => hidden
     ? `${value < 0 ? "−" : "+"}£••••`
@@ -528,7 +524,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const heroSupport = sync
     ? `${heroCaption}. After ${listPhrase(contextParts)}.`
     : isCardsUnconfirmedShort
-    ? `${amount(cardReserve)} held while a card bill is unconfirmed, leaving a ${amount(Math.abs(data.safe_to_spend))} safety shortfall.`
+    ? data.safe_to_spend < 0
+      ? `${amount(cardReserve)} held while a card bill is unconfirmed, leaving a ${amount(Math.abs(data.safe_to_spend))} safety shortfall.`
+      : `${amount(cardReserve)} held while a card bill is unconfirmed. Nothing left to spend before ${paydayLabel}.`
+    : heroAmount === 0
+    ? `Nothing left to spend before ${paydayLabel}, after ${listPhrase(contextParts)}.`
     : belowBuffer
     ? `After ${listPhrase(contextParts)}, this is below your ${amount(data.buffer)} safety buffer.`
     : plansOnly
@@ -560,7 +560,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const excludedCount = data.excluded_accounts_count ?? 0;
 
   const freshnessLabel = sync ? null : syncAgeLabel(data.last_synced);
-  const summaryLabel = state === "short" && !isCardsUnconfirmedShort
+  const summaryLabel = heroAmount === 0
+    ? "How we worked this out"
+    : state === "short" && !isCardsUnconfirmedShort
     ? `How we got ${amount(heroAmount)} short`
     : `How we got ${amount(heroAmount)}`;
   const cashTotalLabel = exactCashRunway < 0 ? "Cash position before payday" : "Cash available until payday";
