@@ -136,3 +136,61 @@ def test_agent_injects_focus_into_propose_calls_and_carries_it_on_the_proposal(m
 def test_prompt_carries_the_followup_rule():
     assert "just this one" in penny_agent_module._WRITE_TOOLS_ADDENDUM
     assert "never search again by a rounded amount" in penny_agent_module._WRITE_TOOLS_ADDENDUM
+
+
+# ── Review fix: whole-token matching, a defined "generic" ───────────────────
+
+def _alloc(labels):
+    ids = [f"A{i}" for i in range(len(labels))]
+    return {"tool": "get_set_asides", "kind": "allocation", "args": {}, "ids": ids, "labels": dict(zip(ids, labels))}
+
+
+def _picked(focus, ref, tool="propose_update_allocation", arg="allocation_ref", **extra):
+    execute, calls = _calls_executor([])
+    run(penny_focus.run_with_focus("u", tool, {arg: ref, **extra, "_focus": focus}, execute))
+    return calls[0][1][arg]
+
+
+def test_generic_reference_never_picks_among_several():
+    two = _alloc(["Holiday", "Digital saver"])
+    assert _picked(two, "it") == "it"
+    assert _picked(two, "that pot") == "that pot"
+    assert _picked(_alloc(["Holiday"]), "it") == "A0"
+
+
+def test_explicit_non_matching_name_is_not_overridden():
+    assert _picked(_alloc(["Car", "Holiday"]), "Car insurance") == "Car insurance"
+
+
+def test_named_reference_matches_whole_tokens_only():
+    f = _alloc(["Saving Challenge (2026)", "Holiday", "Digital saver"])
+    assert _picked(f, "that Holiday pot") == "A1"
+    assert _picked(f, "holiday") == "A1"
+    assert _picked(f, "Digital") == "A2"
+    assert _picked(f, "digi") == "digi"  # a fragment is not a token
+
+
+def test_transaction_merchant_matches_by_tokens():
+    f = {"tool": "search_transactions", "kind": "transaction", "args": {}, "ids": ["T1", "T2"],
+         "labels": {"T1": "BRITISH GAS 2026-10-01 £159.70", "T2": "TESCO 2026-10-02 £10.00"}}
+    execute, calls = _calls_executor([])
+    run(penny_focus.run_with_focus("u", "propose_recategorise_transaction",
+                                   {"merchant": "British Gas", "new_category": "Software", "scope": "just_once", "_focus": f}, execute))
+    assert calls[0][1]["transaction_id"] == "T1"
+    two_gas = {**f, "labels": {"T1": "BRITISH GAS 2026-10-01 £159.70", "T2": "BRITISH GAS 2026-09-01 £150.00"}}
+    execute, calls = _calls_executor([])
+    run(penny_focus.run_with_focus("u", "propose_recategorise_transaction",
+                                   {"merchant": "gas", "new_category": "Software", "scope": "just_once", "_focus": two_gas}, execute))
+    assert "transaction_id" not in calls[0][1]
+
+
+def test_a_new_lookup_that_finds_nothing_clears_the_focus(monkeypatch):
+    async def fake_execute(uid, name, args):
+        return {"transactions": [], "count": 0}
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute)
+    client = _ScriptedAsyncClient([_tool_call_payload("search_transactions", {"merchants": "Nothing"}),
+                                   _final_payload("HEADLINE: Nothing found\nREPLY: I found no payments to Nothing.")])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+    out = run(penny_agent_module.run_penny_agent("u", "Anything from Nothing", [], "home", "", last_result=TXN_FOCUS))
+    assert "last_result" not in out

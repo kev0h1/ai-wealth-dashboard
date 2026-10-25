@@ -1055,6 +1055,7 @@ async def run_penny_agent(
         plan_results: list[dict] = []  # G336: every plan_consolidation result, for the figure guard
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
+        focus_cleared = False
         repaired = False
         rounds = 0
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
@@ -1182,6 +1183,10 @@ async def run_penny_agent(
                                 }
                         elif (produced := penny_focus.focus_from_result(name, result)):
                             new_last_result = produced  # B59: set-asides, goals, accounts, bills, recurring
+                            focus_cleared = False
+                        if (name in penny_focus.KIND_BY_TOOL and isinstance(result, dict) and "error" not in result
+                                and (new_last_result is None or new_last_result.get("tool") != name)):
+                            new_last_result, focus_cleared = None, True  # B59: a fresh lookup that found nothing resets the focus
                         if isinstance(result, dict) and "_table" in result:
                             result = dict(result)
                             block = penny_table.validate_or_none(result.pop("_table"))
@@ -1225,7 +1230,7 @@ async def run_penny_agent(
                                 result.get("kind"), result.get("proposal_id"), name, uid, rounds,
                             )
                             # B59: the focus rides through a proposal unchanged.
-                            carried = new_last_result or focus_in
+                            carried = new_last_result or (None if focus_cleared else focus_in)
                             return {"proposal": result, **({"last_result": carried} if carried else {})}
                         messages.append({
                             "role": "tool",
@@ -1285,7 +1290,7 @@ async def run_penny_agent(
                         prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
-                        if new_last_result or focus_in:
+                        if new_last_result or (focus_in and not focus_cleared):
                             done["last_result"] = new_last_result or focus_in
                         return done
                     return {"loop_failed": True}
@@ -1305,7 +1310,7 @@ async def run_penny_agent(
                     done["chart"] = chart_block
                 if move_plan_block:
                     done["move_plan"] = move_plan_block
-                if new_last_result or focus_in:
+                if new_last_result or (focus_in and not focus_cleared):
                     done["last_result"] = new_last_result or focus_in  # B59: carried when nothing new
                 return done
 

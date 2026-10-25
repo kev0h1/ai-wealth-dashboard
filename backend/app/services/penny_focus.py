@@ -61,6 +61,10 @@ def _clean_label(text) -> str:
     return re.sub(r"\s+", " ", _CTRL_RE.sub(" ", str(text or ""))).strip()[:LABEL_MAX]
 
 
+# Deliberate: a focus is refreshed on every turn (carried forward when nothing new
+# is found), so it does not age out of the 12-turn window mid-conversation. The
+# kind check and whole-token matching bound the harm of a stale one, and a new
+# producer tool returning an empty result set clears it (see penny_agent).
 def clean_focus(raw) -> dict | None:
     """Validate a focus read from storage or built by a producer. None when it
     holds no usable ids. Legacy G254 values (no kind) are transaction focus."""
@@ -156,18 +160,28 @@ def focus_block(focus: dict | None) -> str:
     )
 
 
+_STOPWORDS = frozenset({
+    "it", "this", "that", "one", "pot", "set", "aside", "asides", "setaside", "allocation", "plan", "goal",
+    "account", "bill", "payment", "transaction", "the", "my", "just", "change", "back", "same",
+})
+
+
 def _norm(text) -> str:
     return re.sub(r"[^a-z0-9£.]+", " ", str(text or "").lower()).strip()
 
 
+def _ref_tokens(text) -> list[str]:
+    """The reference's own words: lower-cased, punctuation stripped, stopwords
+    removed. Empty means the reference is generic ("it", "that pot")."""
+    return [t for t in _norm(text).split() if t not in _STOPWORDS]
+
+
 def _label_matches(needle: str, label: str) -> bool:
-    n, label = _norm(needle), _norm(label)
-    if not n:
-        return False
-    if n in label or (len(label) >= 3 and f" {label} " in f" {n} "):
-        return True
-    tokens = n.split()
-    return bool(tokens) and all(t in label.split() or t in label for t in tokens)
+    """Whole-token containment: every non-stopword token of the reference is a
+    token of the label. No substring tests, and a generic reference matches
+    nothing."""
+    tokens = _ref_tokens(needle)
+    return bool(tokens) and set(tokens) <= set(_norm(label).split())
 
 
 def _narrow_transactions(focus: dict, merchant, date_str, amount) -> list[str]:
@@ -185,25 +199,31 @@ def _narrow_transactions(focus: dict, merchant, date_str, amount) -> list[str]:
     return ids
 
 
+def _single(focus: dict) -> str | None:
+    return focus["ids"][0] if len(focus["ids"]) == 1 else None
+
+
 def _pick(tool: str, args: dict, focus: dict) -> str | None:
-    """The focused id this call should address before it runs, or None."""
+    """The focused id this call should address before it runs, or None. A
+    generic reference ("it", "that pot") takes the single focused id and never
+    picks among several; a named one must match exactly one focused label."""
     ref_arg = REF_ARG_BY_TOOL[tool][0]
     ref = args.get(ref_arg)
     ref = str(ref).strip() if ref is not None else ""
     if ref and ref in focus["ids"]:
-        return None
+        return None  # an explicit id is never overridden
     if tool == "propose_recategorise_transaction":
         if ref:
             return None
         merchant = str(args.get("merchant") or "").strip()
-        if merchant:
-            ids = _narrow_transactions(focus, merchant, args.get("date"), args.get("amount"))
-            return ids[0] if len(ids) == 1 else None
-        return focus["ids"][0] if len(focus["ids"]) == 1 else None
-    if ref:
-        ids = [i for i in focus["ids"] if _label_matches(ref, focus["labels"].get(i, ""))]
+        if not _ref_tokens(merchant):
+            return _single(focus)
+        ids = _narrow_transactions(focus, merchant, args.get("date"), args.get("amount"))
         return ids[0] if len(ids) == 1 else None
-    return focus["ids"][0] if len(focus["ids"]) == 1 else None
+    if not _ref_tokens(ref):
+        return _single(focus)
+    ids = [i for i in focus["ids"] if _label_matches(ref, focus["labels"].get(i, ""))]
+    return ids[0] if len(ids) == 1 else None
 
 
 def _failed_to_find(result) -> bool:
