@@ -55,6 +55,13 @@ ROUTING_CASES = [
          question="Can I afford a £60 night out?", expect_any=["352"]),
     dict(id="route-14-prior-period", screen="spend", first="get_spend_verdict", required=["get_spend_verdict"],
          question="How much did I spend last pay period compared with this one?", expect_any=["1,764", "1764"]),
+    # G334: moving money between own accounts goes to plan_consolidation, never raw balances.
+    dict(id="route-15-move-into-account", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="How much can I move into my Barclays account from the other accounts?", expect_any=["200"]),
+    dict(id="route-16-move-out-of-left-to-spend", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Out of what's left to spend, how much should I move from the other current accounts into Barclays?", expect_any=["200"]),
+    dict(id="route-17-move-graphic", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Can you draw a graphic of the money moves into Barclays?", expect_any=["200"]),
 ]
 
 # category -> {this period, last-n-months} fixtures
@@ -128,6 +135,10 @@ def fake_execute_factory(real_execute, base_fixtures, verdict_by_offset, categor
                 amount = 0.0
             return {"verdict": f"Yes, £{amount:,.0f} fits, with £{412 - amount:,.0f} of safe to spend left.",
                     "amount": _money(amount), "safe_to_spend": _money(412), "remaining_after": _money(412 - amount)}
+        if name == "plan_consolidation":
+            return {"summary": "You could move up to £200.00 into your Barclays account: £146.00 from NatWest and £54.00 from Starling. Each account keeps enough for its own bills and set-asides.",
+                    "total": _money(200, 2), "legs": [{"name": "NatWest", "amount": _money(146, 2)},
+                                                      {"name": "Starling", "amount": _money(54, 2)}]}
         if name in base_fixtures:
             return base_fixtures[name]
         return {"error": "no data available for that in this evaluation"}
