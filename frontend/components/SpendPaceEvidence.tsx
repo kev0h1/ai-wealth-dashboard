@@ -31,7 +31,7 @@ export default function SpendPaceEvidence({ daysElapsed, spent, paceSeries, nota
 
   return (
     <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-labelledby="spend-pace-evidence-heading">
-      <h2 id="spend-pace-evidence-heading" className="text-base font-bold text-slate-950 dark:text-white">How this compares with usual</h2>
+      <h2 id="spend-pace-evidence-heading" className="text-base font-bold text-slate-950 dark:text-white">Compared with a usual month</h2>
       <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={copy.baselineLine} /></p>
       <dl className="mt-4 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700 dark:border-slate-700">
         {copy.namedLabel && copy.namedExcess !== null && (
@@ -42,12 +42,12 @@ export default function SpendPaceEvidence({ daysElapsed, spent, paceSeries, nota
         )}
         {copy.residual !== null && (
           <div className="flex items-start justify-between gap-4 py-3">
-            <dt className="text-[13px] leading-5 text-slate-700 dark:text-slate-300">Other differences</dt>
+            <dt className="text-[13px] leading-5 text-slate-700 dark:text-slate-300">{copy.residualLabel}</dt>
             <dd className="shrink-0 font-mono text-sm font-bold tabular-nums text-slate-950 dark:text-white">{formatSignedMoney(copy.residual, { plus: true })}</dd>
           </div>
         )}
         <div className="flex items-center justify-between gap-4 py-3">
-          <dt className="text-[13px] font-bold text-slate-950 dark:text-white">Difference from usual pace</dt>
+          <dt className="text-[13px] font-bold text-slate-950 dark:text-white">{copy.totalLabel}</dt>
           <dd className="shrink-0 font-mono text-sm font-bold tabular-nums text-slate-950 dark:text-white">{formatSignedMoney(copy.total, { plus: true })}</dd>
         </div>
       </dl>

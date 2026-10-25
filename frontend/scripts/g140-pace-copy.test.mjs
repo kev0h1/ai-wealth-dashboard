@@ -21,11 +21,11 @@ for (const [state, fixture] of Object.entries(PACE_COPY_FIXTURES)) {
   }
   const expected = fixture.actualOut - fixture.usualByNow;
   check(`${state}: total preserves existing Out less usual arithmetic`, copy.total === expected);
-  check(`${state}: baseline names its amount and derivation`, copy.baselineLine === `Your usual pace by day ${fixture.daysElapsed} is £${(Math.round(fixture.usualByNow * 100) / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Usual pace is based on the median of up to three 30-day spending totals for each category before this pay period, adjusted for how far through the period you are.`);
+  check(`${state}: baseline names its amount and derivation`, copy.baselineLine === `By day ${fixture.daysElapsed} you usually spend about £${Math.round(fixture.usualByNow).toLocaleString("en-GB")}. We work this out from your last 3 months.`);
   if (fixture.namedCategories.length) {
     check(`${state}: residual reconciles named excess to total`, copy.residual === expected - fixture.namedExcess);
     check(`${state}: names the categories instead of a count`, copy.namedLabel?.includes(fixture.namedCategories[0]));
-    check(`${state}: residual is honestly labelled a balancing amount`, copy.residualCaption?.includes("Balancing amount") && !copy.residualCaption?.includes("other spending"));
+    check(`${state}: residual caption explains what is left`, copy.residualCaption?.startsWith("This is what's left after the categories above.") && !copy.residualCaption?.includes("other spending"));
   } else {
     check(`${state}: no-notables state does not invent a named row`, copy.namedLabel === null && copy.residual === null);
   }
@@ -48,7 +48,7 @@ const productionSource = readFileSync(new URL("../components/SpendVerdictView.ts
 check("approved preview A imports the production evidence component", previewSource.includes('import SpendPaceEvidence from "@/components/SpendPaceEvidence"'));
 check("real journey renders the production evidence component", productionSource.includes("<SpendPaceEvidence"));
 const evidenceSource = readFileSync(new URL("../components/SpendPaceEvidence.tsx", import.meta.url), "utf8");
-check("no-notable comparisons retain the signed total row", evidenceSource.includes("Difference from usual pace") && !evidenceSource.includes('state === "nothing"'));
+check("no-notable comparisons retain the signed total row", evidenceSource.includes("copy.totalLabel") && !evidenceSource.includes('state === "nothing"'));
 check("approved evidence stays in one enclosing card", evidenceSource.includes('rounded-2xl border border-slate-200 bg-white p-4 shadow-sm') && evidenceSource.includes('border-y border-slate-100'));
 check("early and no-baseline states are explicitly withheld even with series data", productionSource.includes("state={state}") && evidenceSource.includes('state === "early" || state === "nobaseline"'));
 check("preview does not wrap the production ledger in a second card", !previewSource.split("function LedgerTreatment")[1].split("function ExplanationTreatment")[0].includes("rounded-2xl"));
@@ -56,8 +56,8 @@ check("preview does not wrap the production ledger in a second card", !previewSo
 const props = { daysElapsed: 13, spent: 2480, paceSeries: [{ day: 13, actual: 2480, usual: 2510 }], notables: [], unresolvedTotal: 0 };
 const render = (overrides = {}) => renderToStaticMarkup(React.createElement(SpendPaceEvidence, { ...props, ...overrides }));
 const noNotables = render();
-check("rendered no-notables evidence contains one card and its signed total", (noNotables.match(/<section/g) ?? []).length === 1 && noNotables.includes("−£30") && noNotables.includes("Difference from usual pace"));
-check("rendered no-notables evidence has no invented named or residual row", !noNotables.includes("Above usual:") && !noNotables.includes("Other differences"));
+check("rendered no-notables evidence contains one card and its signed total", (noNotables.match(/<section/g) ?? []).length === 1 && noNotables.includes("−£30") && noNotables.includes("Less than usual in total"));
+check("rendered no-notables evidence has no invented named or residual row", !noNotables.includes("More than usual on") && !noNotables.includes("everything else"));
 check("rendered evidence withholds unreliable numeric history", render({ state: "early" }) === "" && render({ state: "nobaseline" }) === "");
 check("rendered evidence withholds missing history", render({ paceSeries: [] }) === "");
 check("rendered zero-spend comparison preserves the true baseline", render({ state: "nothing", spent: 0 }).includes("−£2,510"));
