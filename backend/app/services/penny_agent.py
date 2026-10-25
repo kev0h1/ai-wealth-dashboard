@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_chart, penny_move_plan, penny_period, penny_reply_guards, penny_table
+from app.services import penny_chart, penny_focus, penny_move_plan, penny_period, penny_reply_guards, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -589,7 +589,11 @@ _WRITE_TOOLS_ADDENDUM = (
     "sheet in the app instead.\n"
     "20. Amounts: quote a transaction's amount exactly as the tool returned it, with "
     "both decimals (£159.70, never £160), and identify a transaction you already "
-    "found by its returned transaction_id, never by a rounded figure."
+    "found by its returned transaction_id, never by a rounded figure. Follow-ups such "
+    "as 'just this one', 'change it back', 'put it under X', 'this one' or 'that pot' "
+    "refer to the entity you already found (the FOCUS note names it): pass its id, "
+    "never search again by a rounded amount, and never say you cannot find something "
+    "you reported in the last few turns."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up
@@ -826,12 +830,15 @@ def clean_last_result_args(args: dict | None) -> dict:
 
 
 def _last_result_block(last_result: dict | None) -> str:
-    ids = (last_result or {}).get("ids") if isinstance(last_result, dict) else None
-    if not isinstance(ids, list) or not ids:
+    focus = penny_focus.clean_focus(last_result)
+    if not focus:
         return ""
+    if focus["kind"] != "transaction":
+        return penny_focus.focus_block(focus)
+    ids = focus["ids"]
     args = clean_last_result_args((last_result or {}).get("args"))
     shown = ", ".join(f"{k}={v}" for k, v in args.items()) or "no filters"
-    return _LAST_RESULT_TEMPLATE.format(n=len(ids), args=shown)
+    return _LAST_RESULT_TEMPLATE.format(n=len(ids), args=shown) + penny_focus.focus_block(focus)
 
 
 def safe_prose(raw: str | None) -> str:
@@ -955,7 +962,8 @@ async def run_penny_agent(
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
     date_grounding += await _category_context_block(uid)
     date_grounding += _last_result_block(last_result)
-    last_ids = list((last_result or {}).get("ids") or []) if isinstance(last_result, dict) else []
+    focus_in = penny_focus.clean_focus(last_result)
+    last_ids = list(focus_in["ids"]) if focus_in and focus_in["kind"] == "transaction" else []
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools
     # addendum, ~8,500 tokens together with the tool schemas above — comfortably
@@ -1123,6 +1131,8 @@ async def run_penny_agent(
                             call_args = {**call_args, "_ids_ok": True}
                             if last_ids:
                                 call_args["_last_result_ids"] = last_ids
+                        if name in PROPOSE_TOOL_NAMES and isinstance(call_args, dict) and focus_in:
+                            call_args = {**call_args, "_focus": focus_in}  # B59
                         t0 = time.monotonic()
                         result = await execute_tool(uid, name, call_args)
                         if isinstance(result, dict) and "_result_ids" in result:
@@ -1131,10 +1141,12 @@ async def run_penny_agent(
                             if ids:
                                 prior = (last_result or {}).get("args") if call_args.get("transaction_ids") == "last_result" else None
                                 new_last_result = {
-                                    "tool": name,
+                                    "tool": name, "kind": "transaction",
                                     "args": clean_last_result_args(prior if prior is not None else call_args),
-                                    "ids": ids,
+                                    "ids": ids, "labels": penny_focus.transaction_labels(result),
                                 }
+                        elif (produced := penny_focus.focus_from_result(name, result)):
+                            new_last_result = produced  # B59: set-asides, goals, accounts, bills, recurring
                         if isinstance(result, dict) and "_table" in result:
                             result = dict(result)
                             block = penny_table.validate_or_none(result.pop("_table"))
@@ -1165,7 +1177,7 @@ async def run_penny_agent(
                             plan_results.append(result)
                         logger.info(
                             "penny_agent: tool=%s args=%s ms=%d uid=%s",
-                            name, {k: v for k, v in call_args.items() if k != "_last_result_ids"}, dt_ms, uid,
+                            name, {k: v for k, v in call_args.items() if k not in ("_last_result_ids", "_focus")}, dt_ms, uid,
                         )
                         if isinstance(result, dict) and result.get("proposal") is True:
                             # Penny Agent Mode v1: a propose-only write tool
@@ -1177,7 +1189,9 @@ async def run_penny_agent(
                                 "penny_agent: proposal kind=%s id=%s returned by %s for %s, rounds=%d",
                                 result.get("kind"), result.get("proposal_id"), name, uid, rounds,
                             )
-                            return {"proposal": result}
+                            # B59: the focus rides through a proposal unchanged.
+                            carried = new_last_result or focus_in
+                            return {"proposal": result, **({"last_result": carried} if carried else {})}
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.get("id"),
@@ -1236,8 +1250,8 @@ async def run_penny_agent(
                         prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
-                        if new_last_result:
-                            done["last_result"] = new_last_result
+                        if new_last_result or focus_in:
+                            done["last_result"] = new_last_result or focus_in
                         return done
                     return {"loop_failed": True}
                 headline, reply = parsed
@@ -1256,8 +1270,8 @@ async def run_penny_agent(
                     done["chart"] = chart_block
                 if move_plan_block:
                     done["move_plan"] = move_plan_block
-                if new_last_result:
-                    done["last_result"] = new_last_result
+                if new_last_result or focus_in:
+                    done["last_result"] = new_last_result or focus_in  # B59: carried when nothing new
                 return done
 
     try:

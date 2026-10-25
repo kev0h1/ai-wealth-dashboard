@@ -8071,6 +8071,11 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
     above already wraps its own engine call, and any error building the args
     themselves (a malformed `args` dict from the model) is caught here too."""
     args = args or {}
+    if name.startswith("propose_") and "_focus" in args:
+        # B59: a follow-up ("just this one", "that pot") addresses the entity
+        # the conversation already found; see penny_focus.
+        from app.services.penny_focus import run_with_focus
+        return await run_with_focus(uid, name, args, execute_tool)
     try:
         if name == "get_safe_to_spend":
             return await _exec_get_safe_to_spend(uid)

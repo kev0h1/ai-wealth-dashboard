@@ -309,7 +309,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             })
     # G254: the previous answer's transaction ids ride on the stored chat so
     # "these" still resolves after the text window has moved on.
-    last_result = await penny_conversations.latest_last_result(uid, cid) if cid else None
+    last_result = await penny_conversations.latest_focus(uid, cid) if cid else None
     if last_result:
         result = await _can_i_answer(body, user, last_result=last_result)
     else:
@@ -520,6 +520,8 @@ async def _can_i_answer(body: dict, user: dict, last_result: dict | None = None)
                 "topic": None,
                 "out_of_scope": False,
                 "proposal": proposal,
+                # B59: the focus rides through a proposal turn unchanged.
+                **({"_last_result": agent_result["last_result"]} if agent_result.get("last_result") else {}),
             }
         answer = {
             "reply": _house_style(agent_result["reply"]),

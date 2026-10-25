@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.db.collections import penny_conversations_col, penny_proposals_col
-from app.services import penny_chart, penny_move_plan, penny_table
+from app.services import penny_chart, penny_focus, penny_move_plan, penny_table
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +90,10 @@ def _full(doc: dict, internal: bool = False) -> dict:
 
 
 def clean_last_result(raw) -> dict | None:
-    """G254: the transaction ids of the answer's result set, plus the tool and
-    the few short arguments that produced it. Ids only, no payloads."""
-    if not isinstance(raw, dict) or raw.get("tool") != "search_transactions":
-        return None
-    ids = [str(i)[:64] for i in (raw.get("ids") or []) if isinstance(i, (str, int)) and str(i).strip()]
-    if not ids:
-        return None
-    args = {}
-    for k, v in (raw.get("args") or {}).items() if isinstance(raw.get("args"), dict) else []:
-        if isinstance(k, str) and len(k) <= 20 and isinstance(v, (str, int, float)) and not isinstance(v, bool):
-            args[k] = str(v)[:40]
-    return {"tool": "search_transactions", "args": args, "ids": ids[:200]}
+    """G254, generalised by B59: the entity focus of an answer (ids, short
+    labels, the tool and the few short arguments that produced it). Ids and
+    labels only, no payloads. See penny_focus."""
+    return penny_focus.clean_focus(raw)
 
 
 def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None, move_plan=None) -> dict | None:
@@ -136,18 +128,25 @@ def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result
     return turn
 
 
-async def latest_last_result(uid: str, cid: str) -> dict | None:
-    """The newest assistant turn's last_result for the user's own chat, or
-    None. Never raises: memory is a convenience, not a dependency."""
+async def latest_focus(uid: str, cid: str) -> dict | None:
+    """B59: the most recent assistant turn that carries a focus, looking back
+    up to FOCUS_LOOKBACK_TURNS turns, for the user's own chat, or None. Never
+    raises: memory is a convenience, not a dependency."""
     try:
         doc = await penny_conversations_col.find_one({"_id": cid, "user_id": uid}, {"turns": 1})
     except Exception:
-        logger.exception("penny_conversations: last_result lookup failed")
+        logger.exception("penny_conversations: focus lookup failed")
         return None
-    for t in reversed((doc or {}).get("turns") or []):
+    turns = ((doc or {}).get("turns") or [])[-penny_focus.FOCUS_LOOKBACK_TURNS:]
+    for t in reversed(turns):
         if t.get("role") == "assistant":
-            return clean_last_result(t.get("last_result"))
+            focus = clean_last_result(t.get("last_result"))
+            if focus:
+                return focus
     return None
+
+
+latest_last_result = latest_focus  # the G254 name, kept for existing callers
 
 
 async def list_conversations(uid: str) -> list[dict]:
