@@ -174,6 +174,7 @@ def test_dry_run_deletes_nothing_and_prints_counts_only(monkeypatch, capsys):
     assert "users discovered: 3" in out.out
     assert "finexer consents to revoke: 3 live of 3 total" in out.out
     assert "allow-list entries kept: 2" in out.out
+    assert "Expect 0 before applying; a non-zero count means earlier revoke failures are still pending." in out.out
     assert "live PAID subscriptions: 0" in out.out
     assert f"database: {DB_NAME}" in out.out
     assert f"host: {HOST}" in out.out
@@ -272,9 +273,10 @@ def test_failed_finexer_revoke_completes_with_marker_and_exit_1(monkeypatch, cap
     out = capsys.readouterr()
     assert code == 1
     assert len(cols["orphaned_revocations_col"].docs) == 3
-    assert "Finexer revokes that failed and must be retried: 3" in out.out
-    assert "Re-run this script" in out.out
-    assert "nightly retry" in out.out
+    assert "Finexer revokes that failed: 3" in out.out
+    assert "Local consents are already removed." in out.out
+    assert "nightly retry_orphaned_revocations job retries these markers" in out.out
+    assert "Re-run this script only if a user is listed as failed." in out.out
     _assert_clean_output(out.out + out.err)
     # the rest of the erasure still completed
     assert cols["transactions_col"].docs == {}
@@ -334,3 +336,32 @@ def test_script_never_names_a_drop_call():
     src = (Path(script.__file__)).read_text()
     for banned in ("drop_database(", "drop_collection(", ".drop()", "guarded_drop"):
         assert banned not in src
+
+
+def test_stale_marker_cleared_during_apply_is_not_a_mismatch(monkeypatch, capsys):
+    cols, client = _build(monkeypatch)
+    cols["orphaned_revocations_col"].docs["stale-marker-1"] = {"_id": "stale-marker-1"}
+    orig = retention.erase_user
+
+    async def clearing(uid):
+        cols["orphaned_revocations_col"].docs.pop("stale-marker-1", None)
+        return await orig(uid)
+
+    monkeypatch.setattr(retention, "erase_user", clearing)
+    code = _run(_args())
+    out = capsys.readouterr()
+    assert code == 0, out.err
+    assert "new markers 0" in out.out
+    assert "stale-marker-1" not in out.out + out.err
+
+
+def test_new_marker_ids_alongside_a_preexisting_one_are_reported(monkeypatch, capsys):
+    cols, client = _build(monkeypatch, fx_status=500)
+    cols["orphaned_revocations_col"].docs["stale-marker-1"] = {"_id": "stale-marker-1"}
+    code = _run(_args())
+    out = capsys.readouterr()
+    assert code == 1
+    assert "new markers 3" in out.out
+    assert "Finexer revokes that failed: 3" in out.out
+    assert "stale-marker-1" not in out.out + out.err
+    assert "fx-1-test" not in out.out + out.err

@@ -1247,3 +1247,30 @@ def test_erase_user_prefix_regex_is_escaped_and_anchored(monkeypatch):
     _patch_all_collections(monkeypatch, cols)
     asyncio.run(retention.erase_user(uid))
     assert set(cols["needle_history_col"].docs) == {"aXb@example.com:p", f"zz{uid}:p"}
+
+
+def test_erase_user_does_not_hit_longer_uid_with_same_prefix(monkeypatch):
+    """a@b.c must not delete rows of a@b.cd (exact for dismissed:, terminated
+    prefixes for the rest)."""
+    uid, longer = "a@b.c", "a@b.cd"
+    cols = {
+        "companion_items_col": FakeCol([
+            {"_id": f"dismissed:{uid}"}, {"_id": f"dismissed:{longer}"},
+        ]),
+        "needle_history_col": FakeCol([
+            {"_id": f"{uid}:2026-10-01"}, {"_id": f"{longer}:2026-10-01"},
+        ]),
+        "merchant_categories_col": FakeCol([
+            {"_id": f"{uid}::tesco"}, {"_id": f"{longer}::tesco"},
+        ]),
+        "cycle_story_col": FakeCol([
+            {"_id": f"{uid}:2026-10-01:a:v1"}, {"_id": f"{longer}:2026-10-01:a:v1"},
+        ]),
+    }
+    _patch_all_collections(monkeypatch, cols)
+    removed = asyncio.run(retention.erase_user(uid))
+    assert set(cols["companion_items_col"].docs) == {f"dismissed:{longer}"}
+    assert set(cols["needle_history_col"].docs) == {f"{longer}:2026-10-01"}
+    assert set(cols["merchant_categories_col"].docs) == {f"{longer}::tesco"}
+    assert set(cols["cycle_story_col"].docs) == {f"{longer}:2026-10-01:a:v1"}
+    assert removed["companion_items_id_exact"] == 1

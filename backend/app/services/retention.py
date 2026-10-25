@@ -154,6 +154,13 @@ async def erase_user(uid: str) -> dict[str, int]:
             count += r.deleted_count
         if count:
             removed[f"{name}_id_prefix"] = count
+    for name, templates in sorted(_cols.ID_EXACT_COLLECTIONS.items()):
+        count = 0
+        for template in templates:
+            r = await _cols.db[name].delete_many({"_id": template.replace("{uid}", uid)})
+            count += r.deleted_count
+        if count:
+            removed[f"{name}_id_exact"] = count
     r = await _cols.db[_cols.BROADCAST_RECIPIENTS_COLLECTION].update_many(
         {"recipient_ids": uid}, {"$pull": {"recipient_ids": uid}},
     )

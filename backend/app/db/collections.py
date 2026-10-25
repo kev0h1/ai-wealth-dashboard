@@ -690,14 +690,20 @@ UID_FIELD_COLLECTIONS = frozenset({
 })
 
 # ID_PREFIX_COLLECTIONS: `_id` starts with one of these templates ({uid} is
-# the user id). Matched with an anchored, escaped regex, never a bare uid
-# regex. merchant_categories also holds GLOBAL rows keyed by a bare merchant
+# the user id) and MUST end with a terminator (":" or "::"). Matched with an
+# anchored, escaped regex, never a bare uid regex. merchant_categories also holds GLOBAL rows keyed by a bare merchant
 # key; they never start with "{uid}::" and must survive.
 ID_PREFIX_COLLECTIONS: dict[str, list[str]] = {
     "needle_history": ["{uid}:"],
-    "companion_items": ["dismissed:{uid}"],
     "merchant_categories": ["{uid}::"],
     "cycle_stories": ["{uid}:"],
+}
+
+# ID_EXACT_COLLECTIONS: `_id` equals the template exactly. No terminator
+# follows the uid, so a prefix match would also hit a longer uid
+# ("dismissed:a@b.c" vs "dismissed:a@b.cd").
+ID_EXACT_COLLECTIONS: dict[str, list[str]] = {
+    "companion_items": ["dismissed:{uid}"],
 }
 
 # Collection whose array field lists user ids; erase_user pulls the id out of

@@ -32,7 +32,7 @@ Read, in order: the database name and host (are they production?), the user
 count, the per-collection counts of what would be deleted (an upper bound: a
 document matched by two sweeps counts twice), the Finexer consents to revoke,
 the allow-list entries kept, the live PAID subscription count (must be 0), and
-the `orphaned_revocations` marker count. The output holds counts only: no
+the `orphaned_revocations` marker count (expect 0 before applying). The output holds counts only: no
 email and no raw id. Nothing is changed.
 
 ## 2. Apply
@@ -63,8 +63,11 @@ idempotent, and a re-run finishes any user that failed.
 
 ## 3. Verify
 
-1. If the output reports failed Finexer revokes, re-run the apply command, or
-   wait for the nightly `retry_orphaned_revocations`.
+1. If the output reports failed Finexer revokes: local consents are already
+   removed. The nightly `retry_orphaned_revocations` job retries these
+   markers; check the Finexer dashboard for consents still active and revoke
+   them there if any remain. Re-run this script only if a user is listed as
+   failed.
 2. Open the Finexer dashboard and confirm no consents remain active.
 3. Re-run the dry run: every count should be zero and the user count 0.
 4. Restart the production API. `_seed_subscriptions` recreates the manual
@@ -84,8 +87,8 @@ idempotent, and a re-run finishes any user that failed.
 - Ops logs and metrics (`worker_runs`, `health_samples`, `alert_state`,
   `error_types_seen`, `locks`, `billing_events`, `llm_global_usage`).
 - `orphaned_revocations`: markers are kept by design so a failed Finexer
-  revoke is retried; the script only reports new ones, and treats a removed
-  one as an error.
+  revoke is retried; the script compares marker ids before and after, reports
+  new ones, and accepts a stale one cleared by a successful revoke.
 - `session_tombstones`: expire by TTL, and keep the erased users' old session
   tokens dead.
 

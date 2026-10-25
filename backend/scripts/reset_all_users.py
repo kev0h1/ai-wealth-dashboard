@@ -176,6 +176,10 @@ async def count_for_user(cols, uid: str) -> dict:
             prefix = template.replace("{uid}", uid)
             add(f"{name}_id_prefix", await cols.db[name].count_documents(
                 {"_id": {"$regex": "^" + re.escape(prefix)}}))
+    for name, templates in sorted(cols.ID_EXACT_COLLECTIONS.items()):
+        for template in templates:
+            add(f"{name}_id_exact", await cols.db[name].count_documents(
+                {"_id": template.replace("{uid}", uid)}))
     add("broadcasts_recipient_pulled", await cols.db[cols.BROADCAST_RECIPIENTS_COLLECTION]
         .count_documents({"recipient_ids": uid}))
     return out
@@ -192,9 +196,14 @@ async def paid_subscription_counts(cols) -> dict:
 
 async def kept_counts(cols) -> dict:
     out = {}
-    for attr in KEPT_COLLECTIONS + (ORPHANS,):
+    for attr in KEPT_COLLECTIONS:
         out[attr.removesuffix("_col")] = await getattr(cols, attr).count_documents({})
     return out
+
+
+async def orphan_ids(cols) -> set:
+    """Set of marker _ids (never printed)."""
+    return {d["_id"] async for d in getattr(cols, ORPHANS).find({}, {"_id": 1})}
 
 
 async def revocable_consents(cols) -> tuple:
@@ -238,7 +247,9 @@ async def run(args, env=None) -> int:
     print(f"finexer consents to revoke: {live} live of {consents_total} total")
     before = await kept_counts(cols)
     print(f"allow-list entries kept: {before['allowed_signups']}")
-    print(f"orphaned_revocations markers: {before['orphaned_revocations']}")
+    orphans_before = await orphan_ids(cols)
+    print(f"orphaned_revocations markers: {len(orphans_before)}")
+    print("Expect 0 before applying; a non-zero count means earlier revoke failures are still pending.")
     paid = await paid_subscription_counts(cols)
     paid_total = sum(paid.values())
     print(f"live PAID subscriptions: {paid_total}")
@@ -284,10 +295,7 @@ async def run(args, env=None) -> int:
     exit_code = 0
     changed = []
     for name in before:
-        if name == "orphaned_revocations":
-            ok = after[name] >= before[name]
-        else:
-            ok = after[name] == before[name]
+        ok = after[name] == before[name]
         print(f"kept: {name}: {after[name]} (before {before[name]})")
         if not ok:
             changed.append(name)
@@ -295,12 +303,17 @@ async def run(args, env=None) -> int:
         print(f"ERROR: shared collection(s) changed: {', '.join(changed)}", file=sys.stderr)
         exit_code = 1
 
-    new_markers = after["orphaned_revocations"] - before["orphaned_revocations"]
+    # Marker ids compared as sets: new ids are revoke failures from this run;
+    # removed ids (a stale marker cleared by a successful revoke) are fine.
+    new_markers = len(await orphan_ids(cols) - orphans_before)
+    print(f"kept: orphaned_revocations: new markers {new_markers}")
     if new_markers > 0:
         print(
-            f"Finexer revokes that failed and must be retried: {new_markers}. "
-            "Re-run this script (it is idempotent) or wait for the nightly retry, "
-            "and confirm in the Finexer dashboard that no consents remain active."
+            f"Finexer revokes that failed: {new_markers}. "
+            "Local consents are already removed. The nightly retry_orphaned_revocations "
+            "job retries these markers; check the Finexer dashboard for consents still "
+            "active and revoke them there if any remain. Re-run this script only if a "
+            "user is listed as failed."
         )
         exit_code = 1
     else:
