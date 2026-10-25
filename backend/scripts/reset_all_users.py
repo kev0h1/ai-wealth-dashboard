@@ -232,7 +232,7 @@ async def run(args, env=None) -> int:
         for label, n in (await count_for_user(cols, uid)).items():
             totals[label] = totals.get(label, 0) + n
     print(format_counts("documents that would be deleted:", totals))
-    print(f"  total: {sum(totals.values())}")
+    print(f"  total: {sum(totals.values())} (upper bound: a document matched by two sweeps counts twice)")
 
     live, consents_total = await revocable_consents(cols)
     print(f"finexer consents to revoke: {live} live of {consents_total} total")

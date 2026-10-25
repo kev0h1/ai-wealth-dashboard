@@ -109,7 +109,11 @@ class FakeCol:
         to_del = [k for k, d in self.docs.items() if _matches(d, filt)]
         for k in to_del:
             del self.docs[k]
+        self.deleted_total = getattr(self, "deleted_total", 0) + len(to_del)
         return _DeleteResult(len(to_del))
+
+    async def distinct(self, field):
+        return sorted({d[field] for d in self.docs.values() if d.get(field) is not None})
 
     async def delete_one(self, filt):
         for k, d in list(self.docs.items()):
