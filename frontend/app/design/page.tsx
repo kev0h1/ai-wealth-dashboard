@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-from-accounts",
+    name: "Spend from account list · G325",
+    description: "G325, impeccable · Restore Spend from within approved B2, explain independent account limits, and disclose the other counted current accounts. A keeps two visible; B shows every usable account. Production hero and working with fictional data; account treatments are proposals. Includes missing third account, payment timing, pooled cap, card purchases, move reserve, masking and long names.",
+    variants: [{ label: "A · Two at a glance", value: "a" }, { label: "B · All with room", value: "b" }],
+    states: [{ label: "Another account has room", value: "third" }, { label: "Different payment timing", value: "timing" }, { label: "Pooled cap", value: "combined" }, { label: "All accounts shown", value: "all" }, { label: "Uncertain check", value: "uncertain" }, { label: "Long names", value: "long" }, { label: "Card purchases", value: "cards" }, { label: "Move held back", value: "move" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
