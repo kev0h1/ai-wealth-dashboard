@@ -62,6 +62,8 @@ FIXTURES = [
     (3.4, 900.0, 22),      # whole-number multiple branch
     (368.8, 5000.0, 9),    # large multiple rounds to 369
     (2.6, 400.0, 10),      # rounds up to 3
+    (2.15, 400.0, 10),     # .x5 boundary, rounds to 2.2 on both sides
+    (1.85, 400.0, 10),     # .x5 boundary, rounds to 1.9 (twice) on both sides
     (3.5, 400.0, 10),      # exact .5 rounds half up to 4
 ]
 

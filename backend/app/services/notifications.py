@@ -629,7 +629,8 @@ def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> s
     `excess <= 0` out before a category can qualify as notable), so the
     round-half-up note below never needs to handle a negative value."""
     day_label = f"day {days_elapsed}"
-    rounded = round(multiple, 1)
+    # Round-half-up to one decimal, matching JS Math.round(multiple * 10) / 10.
+    rounded = math.floor(multiple * 10 + 0.5) / 10
     if 1.9 <= rounded <= 2.1:
         return f"About twice what you usually spend by {day_label}."
     if rounded > 2.1:
