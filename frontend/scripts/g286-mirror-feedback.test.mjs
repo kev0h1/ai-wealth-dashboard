@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
-import MirrorFeedbackCard from "../components/MirrorFeedbackCard.tsx";
+import MirrorFeedbackCard, { MirrorChoiceRule, MIRROR_CHOICE_RULE } from "../components/MirrorFeedbackCard.tsx";
 import { mirrorMoney, mirrorText, completedFor, leadingTrait, periodLabel } from "../lib/mirrorFeedback.ts";
 
 const noop = async () => {};
@@ -35,8 +35,20 @@ assert.ok(!/<input[^>]*checkbox/.test(current));
 for (const choice of ["keep", null]) {
   const quiet = text(render({ trait: { ...trait, choice }, completed }));
   assert.ok(!quiet.includes("£82.12") && !quiet.includes("What happened") && !quiet.includes("Adjust this aim"), "keep and unchosen never expose coaching");
-  assert.ok(quiet.includes(choice === "keep" ? "no coaching" : "Coaching stays off"));
+  if (choice === "keep") assert.match(quiet, /No coaching/i);
+  else assert.ok(!quiet.includes("Coaching stays off"), "the page rule is not repeated on untouched cards");
+  assert.ok(quiet.includes("Keep it") && quiet.includes("Help me change"), "both approved choices remain explicit");
 }
+const unknownCategory = { ...trait, id: "long", title: "Your Signature: A long custom category for outdoor activities and equipment", ref_category: "Outdoor activities and equipment", choice: null };
+const noCategory = { ...trait, id: "hygiene", title: "Clean record", ref_category: undefined, choice: null };
+const pageReading = renderToStaticMarkup(React.createElement(React.Fragment, null,
+  React.createElement(MirrorChoiceRule),
+  React.createElement(MirrorFeedbackCard, { ...props, trait: unknownCategory, category: unknownCategory.ref_category }),
+  React.createElement(MirrorFeedbackCard, { ...props, trait: noCategory, category: null }),
+));
+assert.equal(text(pageReading).split(MIRROR_CHOICE_RULE).length - 1, 1, "the shared rule is stated once across multiple traits");
+assert.equal((text(pageReading).match(/What we saw/g) ?? []).length, 2, "each trait keeps its own factual evidence");
+assert.ok(!pageReading.includes("Your chosen pace is being checked"), "untouched category and non-category traits withhold coaching");
 for (const result of [82, 98, 100, 118]) {
   const html = render({ activeAim: null, completed: { ...completed, result_amount: result } });
   assert.ok(text(html).includes("What happened"));
@@ -52,6 +64,7 @@ const failed = text(render({ error: "offline" }));
 assert.ok(failed.includes("Try again") && !failed.includes("£82.12"));
 const source = readFileSync(new URL("../app/mirror/MirrorPage.tsx", import.meta.url), "utf8");
 assert.ok(source.includes("!preferencesReady || hideNetWorth"));
+assert.equal((source.match(/<MirrorChoiceRule/g) ?? []).length, 1, "production page renders the shared choice rule once");
 assert.ok(source.includes("api.completedCheckpoints()") && source.includes("api.setMirrorChoice"));
 assert.ok(!source.includes("WHAT YOU&apos;RE WORKING ON"), "no detached aim dashboard");
 const evidence = readFileSync(new URL("../components/MirrorEvidence.tsx", import.meta.url), "utf8");

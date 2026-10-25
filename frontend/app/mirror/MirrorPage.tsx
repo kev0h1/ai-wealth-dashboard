@@ -7,7 +7,7 @@ import { api, MirrorPortrait, MirrorTrait, ActiveAim, type CompletedAim } from "
 import { goBack } from "@/lib/goBack";
 import AimSheet from "@/components/AimSheet";
 import MirrorNextStep, { type MirrorStepKind } from "@/components/MirrorNextStep";
-import MirrorFeedbackCard from "@/components/MirrorFeedbackCard";
+import MirrorFeedbackCard, { MirrorChoiceRule } from "@/components/MirrorFeedbackCard";
 import MirrorEvidence from "@/components/MirrorEvidence";
 import { DisclosureChevron } from "@/components/Disclosure";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -326,7 +326,7 @@ function MirrorContent() {
             <ChevronLeft size={16} aria-hidden="true" />{fromSpend ? "Back to Spend" : "Back"}
           </button>
           <h1 className="text-[28px] font-bold leading-tight tracking-tight">How your money behaves</h1>
-          <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Computed from your last {monthsLabel} months of transactions. No judgement, just what the data says.</p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Computed from your last {monthsLabel} months of transactions. These are observations, not a verdict on you.</p>
           {!loading && portrait?.status === "ok" && <button
             type="button" disabled={refreshing} onClick={() => { setRefreshing(true); void loadPortrait(true); void loadFeedback(); }}
             className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg text-[13px] font-semibold text-indigo-700 hover:text-indigo-800 active:opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50 dark:text-indigo-300 dark:hover:text-indigo-200"
@@ -345,6 +345,7 @@ function MirrorContent() {
           </section>
           : primary && portrait?.status === "ok" ? <>
             {loadError && <p role="status" className="mt-3 text-[13px] text-slate-600 dark:text-slate-300">The refresh did not finish. The portrait below is the previous snapshot, checked on {new Date(portrait.computed_at).toLocaleDateString("en-GB")}.</p>}
+            <div className="mt-5 max-w-2xl"><MirrorChoiceRule /></div>
             <div className="mt-5 grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] min-[900px]:gap-6">
               <div className="min-w-0">
                 <div ref={primaryPanel} tabIndex={-1} className="rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-500">{renderTrait(primary)}</div>
@@ -353,7 +354,6 @@ function MirrorContent() {
                     Other patterns<DisclosureChevron open={otherPatternsOpen} />
                   </button>
                   <div id={otherPatternsId} hidden={!otherPatternsOpen} className="space-y-4 pt-2">
-                    <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">Each trait has its own choice. Kept traits receive no coaching.</p>
                     {others.map(trait => <div key={trait.id}>
                       {renderTrait(trait)}
                       <button type="button" onClick={() => {

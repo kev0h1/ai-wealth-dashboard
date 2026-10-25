@@ -130,7 +130,8 @@ def classify_saving_flow(txns: list, saving_acc_ids: set) -> dict:
 #: cached portrait (routers/behaviour.py:get_mirror) is recomputed on deploy.
 #: 1: G280 category kinds reclassified (signature_pleasure eligibility now
 #: includes Subscriptions, Cash, Charity and Other, all Free).
-PORTRAIT_VERSION = 1
+#: 2: G332 signature frequency and narrative copy.
+PORTRAIT_VERSION = 2
 
 
 async def compute_portrait(uid: str) -> dict:
@@ -433,11 +434,17 @@ async def compute_portrait(uid: str) -> dict:
         top_cat = max(disc_counts, key=lambda c: disc_counts[c])
         if disc_counts[top_cat] >= 5:
             monthly_count = disc_counts[top_cat] / max(1, span_days / 30)
+            approximate_frequency = max(1, round(monthly_count))
+            frequency_copy = (
+                "about once a month"
+                if approximate_frequency == 1
+                else f"about {approximate_frequency} times a month"
+            )
             evidence = [
                 f"{disc_counts[top_cat]} {top_cat.lower()} transactions in the window",
-                f"£{disc_totals[top_cat]:.0f} total · ~{monthly_count:.1f}× per month",
+                f"£{disc_totals[top_cat]:.0f} total · {frequency_copy}",
             ]
-            fallback = f"{top_cat} is clearly something you love: it's your most frequent discretionary category."
+            fallback = f"{top_cat} is your most frequent category for optional spending."
             traits.append({
                 "id": "signature_pleasure",
                 "title": f"Your Signature: {top_cat}",

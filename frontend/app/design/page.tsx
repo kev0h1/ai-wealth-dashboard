@@ -54,14 +54,7 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "All patterns", value: "all" }, { label: "Current aim", value: "active" }, { label: "Completed aim", value: "completed" }, { label: "Kept", value: "kept" }, { label: "Hidden figures", value: "hidden" }, { label: "Load failure", value: "error" }, { label: "Save failure", value: "save-error" }, { label: "Long copy", value: "long" }],
     group: "current",
   },
-  {
-    slug: "mirror-trait-clarity",
-    name: "Mirror trait clarity · G332",
-    description: "G332 design round, impeccable · two coded directions for reading and choosing traits. Every observation uses the same full-width evidence grid whether it has a category mark or not; the choice rule appears once above the cards; figures use plain language. A Two clear answers shows Keep it and Help me change together. B One decision row keeps untouched observations quiet, then reveals the same choices on demand. Synthetic local choices only, no account changes or coaching starts · ?variant=a|b&state=all|kept|change|pending|save-error|hidden|long&mode=light|dark",
-    variants: [{ label: "A · Two clear answers", value: "a" }, { label: "B · One decision row", value: "b" }],
-    states: [{ label: "All traits", value: "all" }, { label: "Kept", value: "kept" }, { label: "Change selected", value: "change" }, { label: "Saving", value: "pending" }, { label: "Save failure", value: "save-error" }, { label: "Hidden figures", value: "hidden" }, { label: "Long copy", value: "long" }],
-    group: "current",
-  },
+
   {
     slug: "plan-picker-v2",
     name: "Choose what fits · B50",
