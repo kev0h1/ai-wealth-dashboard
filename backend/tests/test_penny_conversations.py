@@ -301,6 +301,25 @@ def test_erase_user_clears_conversations(monkeypatch):
         monkeypatch.setattr(colmod, name, fake)
     monkeypatch.setattr(colmod, "ERASE_ONLY_COLLECTIONS", frozenset())
     monkeypatch.setattr(colmod, "RETIRED_COLLECTIONS", frozenset())
+
+    # H133: erase_user also sweeps uid-field / id-prefix collections and the
+    # broadcast recipients by bare name through db[name]: keep that off Motor.
+    class _NoopRes:
+        deleted_count = 0
+        modified_count = 0
+
+    class _NoopCol:
+        async def delete_many(self, f):
+            return _NoopRes()
+
+        async def update_many(self, f, u):
+            return _NoopRes()
+
+    class _NoopDb:
+        def __getitem__(self, name):
+            return _NoopCol()
+
+    monkeypatch.setattr(colmod, "db", _NoopDb())
     fakes["penny_conversations_col"].docs = [
         {"_id": "c1", "user_id": A, "turns": []}, {"_id": "c2", "user_id": B, "turns": []},
     ]
