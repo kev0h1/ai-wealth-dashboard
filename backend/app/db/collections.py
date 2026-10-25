@@ -676,6 +676,41 @@ ERASE_ONLY_COLLECTIONS = frozenset({
 RETIRED_COLLECTIONS = frozenset({"expo_push_tokens", "savings_plans"})
 
 
+# H133: per-user data that erase_user's `user_id` / `_id == uid` sweep missed
+# because the document keys the user by a `uid` field or by an `_id` prefix.
+# Bare Mongo collection names (several bindings are named differently, e.g.
+# cycle_story_col -> "cycle_stories"). Every name here must be a managed
+# collection (tests/test_collections_manifest.py).
+#
+# UID_FIELD_COLLECTIONS: documents carry `uid == <user id>`.
+UID_FIELD_COLLECTIONS = frozenset({
+    "user_rules", "challenges", "upcoming_overrides", "upcoming_rules",
+    "needle_history", "companion_items", "merchant_categories",
+    "oauth_codes", "oauth_tokens",
+})
+
+# ID_PREFIX_COLLECTIONS: `_id` starts with one of these templates ({uid} is
+# the user id) and MUST end with a terminator (":" or "::"). Matched with an
+# anchored, escaped regex, never a bare uid regex. merchant_categories also holds GLOBAL rows keyed by a bare merchant
+# key; they never start with "{uid}::" and must survive.
+ID_PREFIX_COLLECTIONS: dict[str, list[str]] = {
+    "needle_history": ["{uid}:"],
+    "merchant_categories": ["{uid}::"],
+    "cycle_stories": ["{uid}:"],
+}
+
+# ID_EXACT_COLLECTIONS: `_id` equals the template exactly. No terminator
+# follows the uid, so a prefix match would also hit a longer uid
+# ("dismissed:a@b.c" vs "dismissed:a@b.cd").
+ID_EXACT_COLLECTIONS: dict[str, list[str]] = {
+    "companion_items": ["dismissed:{uid}"],
+}
+
+# Collection whose array field lists user ids; erase_user pulls the id out of
+# the array and never deletes the broadcast itself (it is shared).
+BROADCAST_RECIPIENTS_COLLECTION = "broadcasts"
+
+
 def managed_collection_names() -> set[str]:
     """Every bare Mongo collection name erase_user knows about: live bindings
     (by their real collection name, not the attribute name), erase-only and

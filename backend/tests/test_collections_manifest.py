@@ -106,3 +106,37 @@ def test_managed_collection_names_flags_unknown_collection():
 
 def test_every_bound_collection_name_is_managed():
     assert _bound_mongo_names() <= collections.managed_collection_names()
+
+
+# ── H133: uid-field / id-prefix manifests ───────────────────────────────────
+
+def test_h133_manifests_name_only_managed_collections():
+    managed = collections.managed_collection_names()
+    names = (
+        set(collections.UID_FIELD_COLLECTIONS)
+        | set(collections.ID_PREFIX_COLLECTIONS)
+        | set(collections.ID_EXACT_COLLECTIONS)
+        | {collections.BROADCAST_RECIPIENTS_COLLECTION}
+    )
+    assert names <= managed, sorted(names - managed)
+
+
+def test_h133_id_prefix_templates_are_anchored_per_user():
+    for name, templates in collections.ID_PREFIX_COLLECTIONS.items():
+        assert templates, name
+        for template in templates:
+            assert "{uid}" in template, (name, template)
+
+
+
+def test_h133_every_prefix_template_ends_with_a_terminator():
+    for name, templates in collections.ID_PREFIX_COLLECTIONS.items():
+        for template in templates:
+            assert template.endswith(":") or template.endswith("::"), (name, template)
+            assert template.count("{uid}") == 1 and template.index("{uid}") + 5 < len(template), (name, template)
+
+
+def test_h133_exact_templates_carry_the_uid():
+    for name, templates in collections.ID_EXACT_COLLECTIONS.items():
+        for template in templates:
+            assert "{uid}" in template, (name, template)
