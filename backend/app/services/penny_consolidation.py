@@ -90,18 +90,23 @@ def _money(amount: float) -> dict:
     return {"raw": val, "formatted": _fmt(val)}
 
 
-_TITLE_RE = re.compile(r"\b(?:mr|mrs|ms|miss|dr)\b\.?", re.I)
+_PERSON_TITLES = {"mr", "mrs", "ms", "miss", "dr", "mx"}
 
 
 def _looks_like_person(display: str) -> bool:
-    """Token-free fallback: a title, or surname-and-initials ("Maingi K M")."""
-    if _TITLE_RE.search(display or ""):
-        return True
-    words = re.findall(r"[A-Za-z']+", display or "")
-    if len(words) < 2:
+    """Token-free fallback: a leading title, or surname plus 2-3 initials
+    ("Maingi K M", "K M Maingi"). "&" or digits mean it is a product name."""
+    text = display or ""
+    if "&" in text or re.search(r"\d", text):
         return False
+    words = re.findall(r"[A-Za-z']+", text)
+    if not words:
+        return False
+    if words[0].lower() in _PERSON_TITLES:
+        return True
     singles = [w for w in words if len(w) == 1 and w.isupper()]
-    return len(singles) == len(words) - 1
+    others = [w for w in words if len(w) > 1]
+    return 2 <= len(singles) <= 3 and len(others) == 1 and len(others[0]) >= 4
 
 
 def source_label(display_name: str | None, provider: str | None, tokens: list[str] | None) -> str:

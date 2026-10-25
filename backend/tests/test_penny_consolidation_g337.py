@@ -63,3 +63,17 @@ def test_target_holder_named_reads_into_your_bank_account():
         target_id="t", eligibility={"a": _elig(50)}, accounts=accounts, pool=100.0, amount=None,
         include_savings=False, pot_ids=set(), name_tokens=TOKENS)
     assert plan["summary"].startswith("You could move up to £50.00 into your Barclays account")
+
+
+@pytest.mark.parametrize("display,expected", [
+    ("Plan A", "HSBC Plan A"),
+    ("Savings A", "HSBC Savings A"),
+    ("ISA S&S", "HSBC ISA S&S"),
+    ("Flex E Account", "HSBC Flex E Account"),
+    ("Pepper Dr Fund", "HSBC Pepper Dr Fund"),
+    ("Maingi K M", "your HSBC account"),
+    ("K M Maingi", "your HSBC account"),
+    ("Dr Pepper Fund", "your HSBC account"),
+])
+def test_tokenless_person_shape(display, expected):
+    assert source_label(display, "ob-hsbc", []) == expected

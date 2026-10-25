@@ -13,9 +13,9 @@ one plain push (only one fired), or nothing, all landing on "/" (home, where
 both the payday plan and the move recommendation cards live).
 """
 import logging
-import re
 import math
 import os
+import re
 from datetime import datetime, timedelta
 from datetime import date as _date
 
@@ -400,8 +400,7 @@ async def _user_name_tokens(user_id: str) -> list[str]:
         tokens = list(prof.get("name_tokens") or [])
         if not tokens:
             # G337: derive from the saved name when tokens were never stored.
-            words = re.findall(r"[a-z']+", str(prof.get("full_name") or "").lower())
-            tokens = list(words)
+            tokens = re.findall(r"[a-z']+", str(prof.get("full_name") or "").lower())
         return tokens
     except Exception:
         log.warning("plan shortfall name tokens lookup failed for %s", user_id)
