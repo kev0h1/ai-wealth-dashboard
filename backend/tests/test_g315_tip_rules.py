@@ -3,7 +3,7 @@ One group of tests per rule (a) to (f), plus the rendered-card gate and the
 cache invalidation. No network, no real database, no OpenRouter or Tavily."""
 import asyncio
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -325,13 +325,31 @@ def test_exactly_one_freshness_line(cat):
     assert "Researched" not in out["body"] and "Valid until" not in out["body"]
 
 
-def test_expiry_line_survives_only_for_a_body_without_a_checked_line():
+def test_expiry_line_survives_only_for_a_body_without_a_checked_line(monkeypatch):
+    # Fixed instants, not utcnow: `_relative_age` differences Europe/London
+    # calendar dates (G161), so a wall-clock fixture flakes 23:00-00:00 UTC
+    # in the week after BST ends (H134).
+    now_fixed = datetime(2026, 10, 21, 12, 0)  # naive-ok: fixed UTC fixture matching the stored convention
+    monkeypatch.setattr(si.timeutil, "user_now", lambda: now_fixed.replace(tzinfo=timezone.utc))
     out = si._serialize_insight({
         "_id": "x", "insight_id": "gym-x", "category": "gym", "pinned": False, "is_new": False,
-        "refreshed_at": NOW, "researched_at": NOW - timedelta(days=2),
-        "content_valid_until": NOW + timedelta(days=5), "triggered_by": [row("PureGym", 25.0)],
+        "refreshed_at": now_fixed, "researched_at": now_fixed - timedelta(days=2),
+        "content_valid_until": now_fixed + timedelta(days=5), "triggered_by": [row("PureGym", 25.0)],
         "prompt_version": si.PROMPT_VERSION, "title": "t", "body": "You pay PureGym £25 a month."})
     assert out["expiry_line"] == "Researched 2d ago"
+
+
+def test_relative_age_counts_london_calendar_days_across_the_clock_change():
+    # now is GMT; 23 Oct 23:30 UTC was still BST, so it is 24 Oct in London.
+    now = datetime(2026, 10, 25, 23, 30, tzinfo=timezone.utc)
+    assert si._relative_age(datetime(2026, 10, 23, 23, 30, tzinfo=timezone.utc), now) == "yesterday"
+    assert si._expiry_line(datetime(2026, 10, 23, 23, 30, tzinfo=timezone.utc), now + timedelta(days=5), None, now) == "Researched yesterday"
+
+
+def test_relative_age_two_days_across_the_clock_change():
+    now = datetime(2026, 10, 25, 23, 30, tzinfo=timezone.utc)
+    assert si._relative_age(datetime(2026, 10, 22, 23, 30, tzinfo=timezone.utc), now) == "2d ago"
+    assert si._expiry_line(datetime(2026, 10, 22, 23, 30, tzinfo=timezone.utc), now + timedelta(days=5), None, now) == "Researched 2d ago"
 
 
 # ── the rendered-card gate ──────────────────────────────────────────────────
