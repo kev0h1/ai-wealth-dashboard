@@ -3,7 +3,7 @@
 import MoneyText from "@/components/MoneyText";
 import { MoveAccountIcon, MoveRouteSummary } from "@/components/MoveRoute";
 import { useBalancesHidden } from "@/lib/balancesHidden";
-import { formatMovePlanMoney, nothingSpareLine, normalisePennyMovePlan, type PennyMovePlan as MovePlanBlock } from "@/lib/pennyMovePlan";
+import { formatMovePlanMoney, leftOutLine, nothingSpareLine, normalisePennyMovePlan, type PennyMovePlan as MovePlanBlock } from "@/lib/pennyMovePlan";
 
 /**
  * G334: the route Penny just described, drawn under her reply with the same
@@ -21,6 +21,7 @@ export default function PennyMovePlan({ plan }: { plan: MovePlanBlock | null | u
   if (!block) return null;
   const sources = block.legs.map((l) => ({ provider: l.provider, name: l.name, amount: l.amount }));
   const spare = nothingSpareLine(block.skipped);
+  const leftOut = leftOutLine(block.skipped);
   const totalText = block.requested !== null && block.shortfall <= 0
     ? `${formatMovePlanMoney(block.total)} in total`
     : `Up to ${formatMovePlanMoney(block.total)} in total`;
@@ -53,6 +54,7 @@ export default function PennyMovePlan({ plan }: { plan: MovePlanBlock | null | u
           <MoneyText text={`You asked about ${formatMovePlanMoney(block.requested)}`} />
         </p>
       )}
+      {leftOut && <p className="mt-0.5 text-[12px] leading-4 text-slate-500 dark:text-slate-400">{leftOut}</p>}
       {spare && <p className="mt-0.5 text-[12px] leading-4 text-slate-500 dark:text-slate-400">{spare}</p>}
     </section>
   );

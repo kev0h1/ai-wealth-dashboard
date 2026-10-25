@@ -37,7 +37,8 @@ PLAN_CONSOLIDATION_SCHEMA = {
             "moves. It uses the same per-account figures as Home's Spend from card, never raw "
             "balances, and never counts set-aside pots. Figures are authoritative: quote the "
             "summary verbatim, never recompute, never offer to move the money; the app never "
-            "moves money. When legs exist the user sees a diagram of the route below your reply."
+            "moves money. When legs exist the user sees a diagram of the route below your reply. "
+            "Moving money between the user's own accounts never changes their left to spend."
         ),
         "parameters": {
             "type": "object",
@@ -50,6 +51,15 @@ PLAN_CONSOLIDATION_SCHEMA = {
                     "type": "number",
                     "description": "Optional: the amount the user asked about, in pounds. Omit to ask for the most that can move.",
                 },
+                "exclude_account_ids_or_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Accounts, pots or savings the user has said not to touch, in this message or earlier "
+                        "in the conversation ('I don't want to touch my savings'). Pass them on every call; "
+                        "they are never used as a source."
+                    ),
+                },
                 "include_savings": {
                     "type": "boolean",
                     "description": "Only true when the user explicitly asks to include savings accounts. Set-aside pots are never included.",
@@ -60,6 +70,9 @@ PLAN_CONSOLIDATION_SCHEMA = {
         },
     },
 }
+
+
+UNCHANGED_SENTENCE = "Moving money between your own accounts does not change your left to spend."
 
 
 def _fmt(amount: float) -> str:
@@ -101,21 +114,12 @@ def _headroom_of(entry: dict) -> float:
         return 0.0
 
 
-def plan_consolidation_legs(
-    *, target_id: str, eligibility: dict, accounts: list[dict], pool: float | None,
-    amount: float | None, include_savings: bool, pot_ids: set[str], name_tokens: list[str],
-) -> dict:
-    """PURE. See the module docstring."""
-    eligibility = eligibility or {}
-    target = next((a for a in accounts if str(a.get("id")) == str(target_id)), None) or {}
-    t_name, t_bank = _label(target, name_tokens)
-    t_entry = eligibility.get(str(target_id)) or {}
-    target_out = {
-        "account_id": str(target_id), "name": t_name, "bank": t_bank,
-        "provider": target.get("provider"),
-        "own_headroom": _headroom_of(t_entry) if t_entry else None,
-    }
-
+def classify_sources(
+    *, target_id: str | None, eligibility: dict, accounts: list[dict], include_savings: bool,
+    pot_ids: set[str], name_tokens: list[str], excluded_ids: set[str] | frozenset = frozenset(),
+) -> tuple[list[dict], list[dict]]:
+    """PURE. THE one place an account is judged a possible source or skipped
+    (shared by the planner and get_safe_to_spend's `spend_from`)."""
     sources: list[dict] = []
     skipped: list[dict] = []
     for acc in accounts:
@@ -125,7 +129,10 @@ def plan_consolidation_legs(
         def skip(reason: str) -> None:
             skipped.append({"account_id": aid, "name": name, "reason": reason})
 
-        if aid == str(target_id):
+        if target_id is not None and aid == str(target_id):
+            continue
+        if aid in excluded_ids:
+            skip("excluded_by_user")
             continue
         if is_credit_card_account(acc):
             skip("credit_card")
@@ -139,7 +146,7 @@ def plan_consolidation_legs(
         if acc.get("cover_source_eligible") is False or acc.get("include_in_safe_to_spend") is False:
             skip("excluded")
             continue
-        entry = eligibility.get(aid)
+        entry = (eligibility or {}).get(aid)
         if not entry:
             skip("no_data")
             continue
@@ -148,8 +155,57 @@ def plan_consolidation_legs(
             skip("nothing_spare")
             continue
         sources.append({"account_id": aid, "name": name, "bank": bank,
-                        "provider": acc.get("provider"), "headroom": head})
+                        "provider": acc.get("provider"), "headroom": head,
+                        "raw_headroom": entry.get("account_headroom_raw")})
+    return sources, skipped
 
+
+def resolve_excluded_ids(terms, accounts: list[dict], name_tokens: list[str]) -> set[str]:
+    """PURE. The user's exclusions ('savings', 'Monzo', an id) to account ids.
+    Matches every account a term fits, since an exclusion is never a guess to
+    clarify: leaving one extra account out is the safe side."""
+    from app.services.penny_tools import _name_matches
+
+    if isinstance(terms, str):
+        terms = [terms]
+    out: set[str] = set()
+    for term in terms or []:
+        term = str(term or "").strip()
+        if not term:
+            continue
+        if any(term == str(a.get("id")) for a in accounts):
+            out.add(term)
+            continue
+        for acc in accounts:
+            aid = str(acc.get("id"))
+            label, bank = _label(acc, name_tokens)
+            raw_name = display_account_name(acc.get("name")) or ""
+            if any(_name_matches(term, n) for n in (label, raw_name, bank or "")):
+                out.add(aid)
+    return out
+
+
+def plan_consolidation_legs(
+    *, target_id: str, eligibility: dict, accounts: list[dict], pool: float | None,
+    amount: float | None, include_savings: bool, pot_ids: set[str], name_tokens: list[str],
+    excluded_ids: set[str] | frozenset = frozenset(),
+) -> dict:
+    """PURE. See the module docstring."""
+    eligibility = eligibility or {}
+    target = next((a for a in accounts if str(a.get("id")) == str(target_id)), None) or {}
+    t_name, t_bank = _label(target, name_tokens)
+    t_entry = eligibility.get(str(target_id)) or {}
+    target_out = {
+        "account_id": str(target_id), "name": t_name, "bank": t_bank,
+        "provider": target.get("provider"),
+        "own_headroom": _headroom_of(t_entry) if t_entry else None,
+    }
+
+    sources, skipped = classify_sources(
+        target_id=target_id, eligibility=eligibility, accounts=accounts,
+        include_savings=include_savings, pot_ids=pot_ids, name_tokens=name_tokens,
+        excluded_ids=excluded_ids,
+    )
     sources.sort(key=lambda s: -s["headroom"])
     available = round(sum(s["headroom"] for s in sources), 2)
     requested = round(float(amount), 2) if amount is not None and amount > 0 else None
@@ -180,6 +236,7 @@ def plan_consolidation_legs(
         "target": target_out, "legs": legs, "skipped": skipped, "total": total,
         "pool": round(float(pool), 2) if pool is not None else None,
         "requested": requested, "shortfall": shortfall, "floor": SPEND_FROM_FLOOR,
+        "left_to_spend_unchanged": True,
     }
     out["summary"] = _summary(out)
     return out
@@ -192,6 +249,9 @@ def _summary(plan: dict) -> str:
         first = f"Nothing can move into {target} right now without leaving another account short."
         if requested is not None:
             first = f"You asked about {_fmt(requested)}. " + first
+        left_out = [s["name"] for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
+        if left_out:
+            first += f" {_join(left_out[:3])} left out as you asked."
         return first
     route = _join([f"{_fmt(l['amount'])} from {_mid(l['name'])}" for l in legs])
     if requested is not None and plan["shortfall"] > 0:
@@ -204,11 +264,14 @@ def _summary(plan: dict) -> str:
     spare = [_mid(s["name"]) for s in plan["skipped"] if s["reason"] == "nothing_spare"]
     if spare:
         notes.append(f"{_join(spare[:2])} {'has' if len(spare) == 1 else 'have'} nothing spare")
+    left_out = [s["name"] for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
+    if left_out:
+        notes.append(f"{_join(left_out[:3])} left out as you asked")
     pots = [s["name"] for s in plan["skipped"] if s["reason"] == "set_aside_pot"]
     if pots:
         notes.append(f"{_join(pots[:2])} {'is a set-aside pot' if len(pots) == 1 else 'are set-aside pots'} and stays put")
     sentence = notes[0][0].upper() + "; ".join(notes)[1:] + "."
-    return f"{head} {sentence}"
+    return f"{head} {sentence} {UNCHANGED_SENTENCE}"
 
 
 async def _load_accounts(uid: str) -> list[dict]:
@@ -241,7 +304,7 @@ async def _load_today(uid: str) -> dict:
 
 async def exec_plan_consolidation(
     uid: str, target_account_id_or_name: str | None, amount=None, include_savings=False,
-    _card_ok: bool = True,
+    _card_ok: bool = True, exclude_account_ids_or_names=None,
 ) -> dict:
     from app.services.penny_tools import _resolve_account_for_propose, _tool_error
 
@@ -284,13 +347,16 @@ async def exec_plan_consolidation(
         logger.exception("plan_consolidation: loading inputs failed for %s", uid)
         return _tool_error("the move plan lookup failed")
 
+    excluded_ids = resolve_excluded_ids(exclude_account_ids_or_names, accounts, tokens)
     plan = plan_consolidation_legs(
-        target_id=target.id, eligibility=eligibility, accounts=accounts, pool=pool,
+        excluded_ids=excluded_ids, target_id=target.id, eligibility=eligibility, accounts=accounts, pool=pool,
         amount=amt, include_savings=bool(include_savings), pot_ids=pots, name_tokens=tokens,
     )
     result = {
         "summary": plan["summary"],
-        "target": {"account_id": plan["target"]["account_id"], "name": plan["target"]["name"]},
+        "target": {"account_id": plan["target"]["account_id"], "name": plan["target"]["name"],
+                   "own_headroom": _money(plan["target"]["own_headroom"]) if plan["target"]["own_headroom"] is not None else None},
+        "left_to_spend_unchanged": True,
         "legs": [
             {"account_id": l["account_id"], "name": l["name"],
              "amount": _money(l["amount"]), "keeps": _money(l["keeps"])}
@@ -321,3 +387,39 @@ async def exec_plan_consolidation(
             "skipped": [{"name": s["name"], "reason": s["reason"]} for s in plan["skipped"]],
         }
     return result
+
+
+
+async def spend_from_extras(uid: str) -> dict:
+    """get_safe_to_spend's per-account block, from the same loaders and the
+    same `classify_sources` as plan_consolidation. Never raises: on any
+    failure only the static flag is returned."""
+    out: dict = {"own_account_moves_change_total": False}
+    try:
+        payload = await _load_today(uid)
+        eligibility = payload.get("account_eligibility") if isinstance(payload, dict) else None
+        if not isinstance(eligibility, dict):
+            return out
+        from app.services.notifications import _user_name_tokens
+
+        accounts = await _load_accounts(uid)
+        pots = await _load_pot_ids(uid)
+        tokens = await _user_name_tokens(uid)
+        sources, skipped = classify_sources(
+            target_id=None, eligibility=eligibility, accounts=accounts,
+            include_savings=False, pot_ids=pots, name_tokens=tokens,
+        )
+    except Exception:
+        logger.warning("get_safe_to_spend: per-account block failed for %s", uid, exc_info=True)
+        return out
+    out["spend_from"] = [
+        {"name": s["name"], "bank": s["bank"], "amount": _money(s["headroom"]),
+         "keeps": _money(max(0.0, float(s["raw_headroom"] or 0.0) - s["headroom"])
+                         if s.get("raw_headroom") is not None else 0.0)}
+        for s in sorted(sources, key=lambda x: -x["headroom"])
+    ]
+    out["excluded"] = [
+        {"name": k["name"], "reason": k["reason"]}
+        for k in skipped if k["reason"] in ("set_aside_pot", "savings", "credit_card")
+    ]
+    return out

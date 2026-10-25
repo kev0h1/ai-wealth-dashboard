@@ -305,7 +305,7 @@ TOOL_SCHEMAS = [
                 "left until payday. Figures are authoritative: quote them verbatim, "
                 "never recompute, derive, or round them yourself. `state` is a "
                 "verdict word already decided by the server, reproduce it exactly, "
-                "never substitute your own."
+                "never substitute your own. spend_from lists how much each current account can give without going short; a move between the user's own accounts never changes safe_to_spend."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -2153,7 +2153,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "card_growth_reserved": _money(sts.get("card_growth_reserved")),
         "card_growth_wording": sts.get("card_growth_wording"),
         "card_growth_due_date": sts.get("card_growth_due_date"),
-        "estimated": sts.get("estimated"),
+        "estimated": sts.get("estimated"), **(await _spend_from_extras(uid)),  # G336, same line keeps the leak allowlist stable
     }
 
 
@@ -8278,7 +8278,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             from app.services.penny_consolidation import exec_plan_consolidation
             return await exec_plan_consolidation(
                 uid, args.get("target_account_id_or_name"), amount=args.get("amount"),
-                include_savings=args.get("include_savings") is True,
+                include_savings=args.get("include_savings") is True, exclude_account_ids_or_names=args.get("exclude_account_ids_or_names"),
             )
         return _tool_error(f"unknown tool: {name}")
     except Exception:
@@ -8292,3 +8292,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
 from app.services.penny_consolidation import PLAN_CONSOLIDATION_SCHEMA  # noqa: E402
 
 TOOL_SCHEMAS.append(PLAN_CONSOLIDATION_SCHEMA)
+
+
+async def _spend_from_extras(uid: str) -> dict:
+    from app.services.penny_consolidation import spend_from_extras
+    return await spend_from_extras(uid)

@@ -20,6 +20,7 @@ export type PennyMovePlanSkipReason =
   | "savings"
   | "credit_card"
   | "excluded"
+  | "excluded_by_user"
   | "no_data"
   | "is_target";
 
@@ -36,7 +37,7 @@ export type PennyMovePlan = {
 };
 
 export const MOVE_PLAN_MAX_LEGS = 8;
-const REASONS = new Set(["nothing_spare", "set_aside_pot", "savings", "credit_card", "excluded", "no_data", "is_target"]);
+const REASONS = new Set(["nothing_spare", "set_aside_pot", "savings", "credit_card", "excluded", "excluded_by_user", "no_data", "is_target"]);
 
 function str(v: unknown, max: number): string | null {
   return typeof v === "string" && v.trim() !== "" && v.length <= max ? v : null;
@@ -119,4 +120,14 @@ export function nothingSpareLine(skipped: PennyMovePlan["skipped"]): string | nu
   const list = extra > 0 ? `${shown.join(", ")} and ${extra} more` : shown.join(" and ");
   const plural = names.length > 1;
   return `${list} ${plural ? "have" : "has"} nothing spare`;
+}
+
+/** Accounts the user asked Penny to leave alone: "Barclays savings left out as you asked". */
+export function leftOutLine(skipped: PennyMovePlan["skipped"]): string | null {
+  const names = skipped.filter((s) => s.reason === "excluded_by_user").map((s) => s.name);
+  if (names.length === 0) return null;
+  const shown = names.slice(0, 2);
+  const extra = names.length - shown.length;
+  const list = extra > 0 ? `${shown.join(", ")} and ${extra} more` : shown.join(" and ");
+  return `${list} left out as you asked`;
 }

@@ -29,7 +29,7 @@ MAX_SKIPPED = 12
 MAX_NAME = 80
 MAX_SUMMARY = 600
 MAX_BLOCK_JSON = 8000
-REASONS = ("nothing_spare", "set_aside_pot", "savings", "credit_card", "excluded", "no_data", "is_target")
+REASONS = ("nothing_spare", "set_aside_pot", "savings", "credit_card", "excluded", "excluded_by_user", "no_data", "is_target")
 
 
 class MovePlanInvalid(ValueError):
