@@ -3,16 +3,14 @@ import hashlib
 import re
 from datetime import datetime
 
-from typing import Literal
-
-from fastapi import APIRouter, Body, Depends, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
 from app.core import timeutil
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col, investment_valuations_col
 from app.services import investment_anchor as ia
-from app.services.investment_growth import account_growth, account_value, build_positions, price_dating
+from app.services.investment_growth import account_value, build_positions, price_dating
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
 from app.core.timeutil import as_utc, to_user_date
 from app.services.investment_prices import (
@@ -86,7 +84,6 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
         "total_value":       total_value,
         "added_since":       round(added_since, 2),
         "paid_in_since":     round(paid_in_since, 2),
-        "has_anchor":        bool(acc.get("anchor")),
         "has_statement_periods": bool(acc.get("statement_periods")),
         "notes_since":       notes_since,
         "display_value":     display_value,
@@ -565,7 +562,7 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
             "last_refreshed": fetched.isoformat() if fetched else None,
         })
     # G278: a fund that exists only through contract notes (for example an ETF bought
-    # after the statement) is a holding too, with its units, price, value and gain.
+    # after the statement) is a holding too, with its units, price and value.
     notes = await investment_notes_col.find({"account_id": account_id}).to_list(None)
     keys = [h.get("instrument_key") for h in holdings] + [instrument_key(None, None, n.get("fund_name")) for n in notes]
     all_insts = await get_instruments(keys)
@@ -575,7 +572,6 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
     for row in out:
         r = by_id.get(row["id"])
         if r:
-            row["gain_abs"], row["gain_pct"], row["cost"] = r["gain_abs"], r["gain_pct"], r["cost"]
             # G333: the row carries post-statement note units and value, so the rows sum to the account value.
             row["units"] = r["units"] if r["units"] is not None else row["units"]
             row["current_value"], row["current_price"] = r["value"], r["price"] or row["current_price"]
@@ -590,7 +586,7 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
             "price_per_unit": None, "statement_value": 0, "book_cost": None, "book_cost_source": None,
             "current_price": r["price"], "current_value": r["value"], "price_date": price_date,
             "price_source": "contract_notes", "price_confidence": None, "last_refreshed": None,
-            "from_contract_notes": True, "cost": r["cost"], "gain_abs": r["gain_abs"], "gain_pct": r["gain_pct"],
+            "from_contract_notes": True,
         })
     return out
 
@@ -616,79 +612,3 @@ async def refresh_investment_prices(account_id: str, user: dict = Depends(curren
         raise HTTPException(404, "Investment account not found")
     result = await refresh_account_prices(acc)
     return result
-
-
-@router.get("/investment/accounts/{account_id}/growth")
-@router.get("/investments/{account_id}/growth")
-async def get_investment_growth(
-    account_id: str,
-    range: Literal["1m", "3m", "6m", "1y", "all"] = Query("all"),
-    user: dict = Depends(current_user),
-):
-    """G271: value over time, money paid in and simple growth (value minus
-    paid in) for one account, plus each holding's change since the last
-    statement. Prices are end of day and may be delayed."""
-    acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": user["email"]})
-    if not acc:
-        raise HTTPException(404, "Investment account not found")
-    return await account_growth(acc, range)
-
-
-# ── G278: anchor from your provider ───────────────────────────────────────
-
-async def _owned_account(account_id: str, uid: str) -> dict:
-    acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
-    if not acc:
-        raise HTTPException(404, "Investment account not found")
-    return acc
-
-
-@router.post("/investment/accounts/{account_id}/anchor")
-async def set_investment_anchor(account_id: str, body: dict = Body(...), user: dict = Depends(current_user)):
-    """Set, edit or re-anchor: what the provider shows on a date. User-entered
-    and editable. Re-anchoring keeps the previous anchor in anchor_history."""
-    acc = await _owned_account(account_id, user["email"])
-    anchor, problem = ia.check_anchor(body or {}, timeutil.user_today())
-    if anchor is None:
-        raise HTTPException(422, problem)
-    anchor["entered_at"] = timeutil.user_now().isoformat()
-    new, history = ia.replace_anchor(acc.get("anchor"), anchor, acc.get("anchor_history"))
-    await investment_accounts_col.update_one(
-        {"_id": account_id, "user_id": user["email"]},
-        {"$set": {"anchor": new, "anchor_history": history}},
-    )
-    fresh = await investment_accounts_col.find_one({"_id": account_id})
-    return await account_growth(fresh, "all")
-
-
-@router.delete("/investment/accounts/{account_id}/anchor")
-async def clear_investment_anchor(account_id: str, user: dict = Depends(current_user)):
-    """Clear the current anchor. The history of earlier anchors is kept."""
-    acc = await _owned_account(account_id, user["email"])
-    history = acc.get("anchor_history") or []
-    if acc.get("anchor"):
-        history = (history + [{**{k: v for k, v in acc["anchor"].items() if k != "use_provider_value"},
-                               "replaced_at": timeutil.user_now().isoformat(), "cleared": True}])[-20:]
-    await investment_accounts_col.update_one(
-        {"_id": account_id, "user_id": user["email"]},
-        {"$unset": {"anchor": ""}, "$set": {"anchor_history": history}},
-    )
-    fresh = await investment_accounts_col.find_one({"_id": account_id})
-    return await account_growth(fresh, "all")
-
-
-@router.post("/investment/accounts/{account_id}/anchor/override")
-async def set_anchor_override(account_id: str, body: dict = Body(...), user: dict = Depends(current_user)):
-    """Display override only: show the provider's value for the anchor date.
-    No data is rewritten; turning it off restores Sorted's own figure."""
-    acc = await _owned_account(account_id, user["email"])
-    if not acc.get("anchor"):
-        raise HTTPException(422, "There is no anchor to use. Anchor from your provider first.")
-    on = body.get("use_provider_value")
-    if not isinstance(on, bool):
-        raise HTTPException(422, "use_provider_value must be true or false.")
-    await investment_accounts_col.update_one(
-        {"_id": account_id, "user_id": user["email"]}, {"$set": {"anchor": {**acc["anchor"], "use_provider_value": on}}},
-    )
-    fresh = await investment_accounts_col.find_one({"_id": account_id})
-    return await account_growth(fresh, "all")

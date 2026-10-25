@@ -12,7 +12,7 @@ import app.services.investment_anchor as ia  # noqa: E402
 import app.services.investment_growth as ig  # noqa: E402
 import app.services.investment_prices as ip  # noqa: E402
 from test_investment_anchor_g278 import (  # noqa: E402
-    FTSE, FTSE_KEY, NOTE_FTSE_KEY, SP, SP_KEY, USER, _dt, _note, kevin_holdings, kevin_period,
+    FTSE_KEY, NOTE_FTSE_KEY, SP, SP_KEY, USER, _dt, _note, kevin_holdings, kevin_period,
 )
 from test_investment_growth_g271 import Col  # noqa: E402
 
@@ -69,14 +69,17 @@ def test_account_value_helper_loads_what_it_needs(monkeypatch):
     assert abs(value - EXPECT) < 0.01 and pos["value"] == value
 
 
-def test_header_growth_card_and_holdings_list_agree(monkeypatch):
+def test_header_value_equals_the_holdings_sum(monkeypatch):
     a = acc()
     _patch(monkeypatch, [a])
-    g = asyncio.run(ig.account_growth(a, "all", TODAY))
-    assert abs(g["value"] - EXPECT) < 0.01 and g["header_value"] == g["value"]
-    assert g["value_note_kind"] is None
+    d = asyncio.run(router._investment_display(a, notes()))
+    assert abs(d["display_value"] - EXPECT) < 0.01
+    assert "has_anchor" not in d  # G338: no anchor flag on the display
     rows = asyncio.run(router.get_investment_holdings("a1", {"email": USER}))
     assert abs(sum(r["current_value"] for r in rows) - EXPECT) < 0.01
+    assert abs(d["display_value"] - sum(r["current_value"] for r in rows)) < 0.01
+    for r in rows:
+        assert not {"gain_abs", "gain_pct", "cost"} & set(r)
     ftse = next(r for r in rows if r["id"] == "h1")
     assert ftse["units"] == round(50.32 + 1.3348, 4)
 
@@ -97,8 +100,6 @@ def test_price_dating_and_confidence(monkeypatch):
     d = asyncio.run(router._investment_display(a, notes()))
     assert d["prices_as_of"] == "2026-10-16" and d["prices_oldest"] == "2026-10-15"
     assert d["price_confidence"] == "low"
-    g = asyncio.run(ig.account_growth(a, "all", TODAY))
-    assert (g["prices_as_of"], g["prices_oldest"], g["price_confidence"]) == ("2026-10-16", "2026-10-15", "low")
 
 
 def test_normal_confidence_when_every_price_is_a_dated_real_source():
@@ -108,46 +109,3 @@ def test_normal_confidence_when_every_price_is_a_dated_real_source():
     out = ig.price_dating(ins, kevin_holdings(), notes(), STMT)
     assert out["price_confidence"] == "normal"
     assert ig.price_dating({}, kevin_holdings(), notes(), STMT)["prices_as_of"] is None
-
-
-def test_reconciliation_against_the_provider_names_the_provider(monkeypatch):
-    anchor = ia.validate_anchor({"date": "2026-10-16", "provider_value": 20152.83, "total_paid_in": 18971.69}, TODAY)
-    anchor["entered_at"] = "2026-10-16T09:00:00"
-    a = acc(anchor=anchor)
-    _patch(monkeypatch, [a])
-    g = asyncio.run(ig.account_growth(a, "all", TODAY))
-    rc = g["lifetime"]["reconciliation"]
-    assert rc is not None and abs(abs(rc["difference"]) - 182.47) < 1.0
-    assert "Vanguard" in rc["text"]
-
-
-# ── chart: gaps stay gaps, money paid in is marked ───────────────────────
-
-def _pos():
-    return ig.build_positions(STMT, kevin_holdings(), notes(), insts(), ia.all_fee_lines([kevin_period()]))
-
-
-def test_a_long_gap_is_not_forward_filled_and_contributions_are_marked():
-    snaps = [{"date": "2026-09-04", "value": 14835.65}]
-    pts = ig.build_series(snaps, _pos(), insts(), "all", TODAY, notes(), ia.all_fee_lines([kevin_period()]))
-    assert [p["date"] for p in pts] == ["2026-09-04", "2026-10-15", "2026-10-16", "2026-10-24"]
-    assert [p["gap_before"] for p in pts] == [False, True, False, True]
-    assert pts[0]["contribution"] == 0
-    assert pts[1]["contribution"] == 5308.98  # paid in across the gap lands on the next point, not as growth
-    assert sum(p["contribution"] for p in pts) == 5308.98
-    assert pts[-1]["value"] == pos_value()
-
-
-def pos_value():
-    return _pos()["value"]
-
-
-def test_short_gaps_are_bridged_flat_and_a_note_day_carries_its_contribution():
-    n = [_note("n5", 4908.98, date(2026, 10, 13), SP, units=43.0)]
-    i = {SP_KEY: {"_id": SP_KEY, "price": 114.02, "price_date": "2026-10-16", "history": [
-        {"price_date": "2026-10-13", "price": 114.0}, {"price_date": "2026-10-16", "price": 114.02}]}}
-    pos = ig.build_positions(STMT, [], n, i)
-    pts = ig.build_series([], pos, i, "all", date(2026, 10, 16), n, [])
-    assert [p["date"] for p in pts] == ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"]
-    assert not any(p["gap_before"] for p in pts)
-    assert [p["contribution"] for p in pts] == [4908.98, 0, 0, 0]

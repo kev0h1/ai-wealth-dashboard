@@ -142,7 +142,7 @@ TOOL_SCOPES: dict[str, str] = {
     "get_savings_position": "plans:read",
     "get_debt_position": "plans:read",
     "get_goals": "plans:read", "get_set_asides": "plans:read", "get_payday_plan": "accounts:read", "get_pay_split": "insights:read",  # B59, B60 (one line: the leak allowlist keys on line numbers)
-    "get_investment_growth": "accounts:read",
+    "get_investment_value": "accounts:read",
     "check_affordability": "plans:read",
     "get_tax_position": "plans:read",
     "calculate": "plans:read",
