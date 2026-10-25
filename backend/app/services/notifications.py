@@ -15,6 +15,7 @@ both the payday plan and the move recommendation cards live).
 import logging
 import math
 import os
+import re
 from datetime import datetime, timedelta
 from datetime import date as _date
 
@@ -395,8 +396,12 @@ async def _user_name_tokens(user_id: str) -> list[str]:
     try:
         from app.db.collections import user_profiles_col
 
-        prof = await user_profiles_col.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
-        return list(prof.get("name_tokens") or [])
+        prof = await user_profiles_col.find_one({"_id": user_id}, {"name_tokens": 1, "full_name": 1}) or {}
+        tokens = list(prof.get("name_tokens") or [])
+        if not tokens:
+            # G337: derive from the saved name when tokens were never stored.
+            tokens = re.findall(r"[a-z']+", str(prof.get("full_name") or "").lower())
+        return tokens
     except Exception:
         log.warning("plan shortfall name tokens lookup failed for %s", user_id)
         return []

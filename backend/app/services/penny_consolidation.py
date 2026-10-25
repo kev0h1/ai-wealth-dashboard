@@ -16,6 +16,7 @@ never moves money: the result is a recommendation sentence plus an optional
 card (`_move_plan`) drawing the route.
 """
 import logging
+import re
 
 from app.services.account_kinds import is_credit_card_account, is_savings_account
 from app.services.account_names import display_account_name
@@ -89,15 +90,47 @@ def _money(amount: float) -> dict:
     return {"raw": val, "formatted": _fmt(val)}
 
 
-def _label(account: dict, name_tokens: list[str]) -> tuple[str, str | None]:
-    """(display name, bank). A holder-named account reads "Your HSBC account"."""
+_PERSON_TITLES = {"mr", "mrs", "ms", "miss", "dr", "mx"}
+
+
+def _looks_like_person(display: str) -> bool:
+    """Token-free fallback: a leading title, or surname plus 2-3 initials
+    ("Maingi K M", "K M Maingi"). "&" or digits mean it is a product name."""
+    text = display or ""
+    if "&" in text or re.search(r"\d", text):
+        return False
+    words = re.findall(r"[A-Za-z']+", text)
+    if not words:
+        return False
+    if words[0].lower() in _PERSON_TITLES:
+        return True
+    singles = [w for w in words if len(w) == 1 and w.isupper()]
+    others = [w for w in words if len(w) > 1]
+    return 2 <= len(singles) <= 3 and len(others) == 1 and len(others[0]) >= 4
+
+
+def source_label(display_name: str | None, provider: str | None, tokens: list[str] | None) -> str:
+    """G337: THE name for an account in a sentence or card. A holder-named
+    account never appears by name ("your HSBC account"); a bland product name
+    gets its bank ("NatWest The Number One"). Lower-case "your": capitalise
+    at the start of a sentence."""
     from app.services.companion import _bank_name_of, _is_holder_named
 
-    name = display_account_name(account.get("name"))
-    bank = _bank_name_of(account.get("provider"))
-    if _is_holder_named(name, name_tokens):
-        return (f"Your {bank} account" if bank else "Your account"), bank
-    return name or "Your account", bank
+    display = (display_name or "").strip()
+    bank = _bank_name_of(provider)
+    if not display or _is_holder_named(display, tokens) or (not tokens and _looks_like_person(display)):
+        return f"your {bank} account" if bank else "your account"
+    if bank and not re.search(r"(?<![A-Za-z])" + re.escape(bank) + r"(?![A-Za-z])", display, re.I):
+        return f"{bank} {display}"
+    return display
+
+
+def _label(account: dict, name_tokens: list[str]) -> tuple[str, str | None]:
+    """(label, bank), sentence-cased for a card or list ("Your HSBC account")."""
+    from app.services.companion import _bank_name_of
+
+    label = source_label(display_account_name(account.get("name")), account.get("provider"), name_tokens)
+    return label[:1].upper() + label[1:], _bank_name_of(account.get("provider"))
 
 
 def _mid(name: str) -> str:
@@ -264,7 +297,7 @@ def _summary(plan: dict) -> str:
         first = f"Nothing can move into {target} right now without leaving another account short."
         if requested is not None:
             first = f"You asked about {_fmt(requested)}. " + first
-        left_out = [s["name"] for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
+        left_out = [_mid(s["name"]) for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
         if left_out:
             first += f" {_join(left_out[:3])} left out as you asked."
         return first + _unmatched_sentence(plan)
@@ -279,10 +312,10 @@ def _summary(plan: dict) -> str:
     spare = [_mid(s["name"]) for s in plan["skipped"] if s["reason"] == "nothing_spare"]
     if spare:
         notes.append(f"{_join(spare[:2])} {'has' if len(spare) == 1 else 'have'} nothing spare")
-    left_out = [s["name"] for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
+    left_out = [_mid(s["name"]) for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
     if left_out:
         notes.append(f"{_join(left_out[:3])} left out as you asked")
-    pots = [s["name"] for s in plan["skipped"] if s["reason"] == "set_aside_pot"]
+    pots = [_mid(s["name"]) for s in plan["skipped"] if s["reason"] == "set_aside_pot"]
     if pots:
         notes.append(f"{_join(pots[:2])} {'is a set-aside pot' if len(pots) == 1 else 'are set-aside pots'} and stays put")
     sentence = notes[0][0].upper() + "; ".join(notes)[1:] + "."
