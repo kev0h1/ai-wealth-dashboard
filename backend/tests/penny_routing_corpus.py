@@ -68,7 +68,7 @@ ROUTING_CASES = [
     dict(id="route-18-kevin-consolidate-premier", screen="home", first="plan_consolidation", required=["plan_consolidation"],
          question="Which accounts have the left to spend and how can I consolidate it in my premier account", expect_any=["200"]),
     dict(id="route-19-kevin-not-savings", screen="home", first="plan_consolidation", required=["plan_consolidation"],
-         question="No I don't want to touch my savings, which accounts should I move from", expect_any=["200"]),
+         question="No I don't want to touch my savings, which accounts should I move from into my Barclays account", expect_any=["200"]),
     dict(id="route-20-kevin-monzo-in-plan", screen="home", first="plan_consolidation", required=["plan_consolidation"],
          question="Isn't the Monzo money already account for in a plan, which accounts can I move to my Barclays premier account", expect_any=["200"]),
     dict(id="route-21-kevin-visualise", screen="home", first="plan_consolidation", required=["plan_consolidation"],
@@ -76,11 +76,11 @@ ROUTING_CASES = [
     dict(id="route-22-kevin-rather-spend-barclays", screen="home", first="plan_consolidation", required=["plan_consolidation"],
          question="I know I can spend a certain amount from certain accounts which have some money left to spend, but I'd rather spend from my Barclays premier account, how much can I move to it from the other accounts", expect_any=["200"]),
     dict(id="route-23-kevin-where-414", screen="home", first="plan_consolidation", required=["plan_consolidation"],
-         question="Where does the 414 come from, which accounts can I move money from", expect_any=["200"]),
+         question="Where does the 414 come from, which accounts can I move money from into my Barclays account", expect_any=["200"]),
     dict(id="route-24-kevin-spend-from-barclays", screen="home", first="plan_consolidation", required=["plan_consolidation"],
          question="Okay if I want to spend what's left to spend from my Barclays account, how can I move the money", expect_any=["200"]),
     dict(id="route-25-kevin-which-236", screen="home", first="plan_consolidation", required=["plan_consolidation"],
-         question="Which accounts should I move the 236 from", expect_any=["200"]),
+         question="Which accounts should I move the 236 from into my Barclays account", expect_any=["200"]),
 ]
 
 # category -> {this period, last-n-months} fixtures
