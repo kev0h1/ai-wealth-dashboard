@@ -432,7 +432,7 @@ TOOL_SCHEMAS = [
             "name": "get_savings_position",
             "description": (
                 "The user's savings buffer: current savings, target, percent funded, "
-                "and monthly income/spending/surplus. Use this for questions about "
+                "monthly income/spending/surplus, and the buffer's own setting (target_type months or amount, target_months, account_names, days_covered). Use this for questions about "
                 "savings progress, safety net size, or monthly surplus. Figures are "
                 "authoritative: quote them verbatim, never recompute, derive, or "
                 "round them yourself. monthly_surplus is a 90-day "
@@ -3433,7 +3433,7 @@ async def _exec_get_savings_position(uid: str) -> dict:
         )
 
     return {
-        "configured": bool(goal),
+        "configured": bool(goal), **await _buffer_extras(uid, goal, current, monthly_spending),
         "current_savings": _money(current),
         "target_amount": _money(target),
         "pct_funded": pct,
@@ -4303,7 +4303,7 @@ async def _exec_get_insights(uid: str) -> dict:
         from app.routers.savings_insights import _serialize_insight
         result["insights"] = [
             {
-                "rank": i + 1,
+                "rank": i + 1, "id": d.get("insight_id"),  # B60: the id a propose_*_insight reference accepts
                 "title": (s := _serialize_insight(d))["title"] or "",
                 "summary": s["body"] or "",
                 # Enrichment pass, 2026-08-27: why-fields the insights
@@ -6294,7 +6294,7 @@ async def _exec_propose_edit_occurrence(
         "new_date": str(new_date) if new_date is not None else None,
         "new_amount": round(new_amount, 2) if new_amount is not None else None,
     }
-    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence)
+    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence, **_occurrence_change_text(key, occ, date_str, new_date, new_amount))  # B60
 
 
 async def _exec_propose_clear_override(uid: str, key_or_name, date_str) -> dict:
@@ -6613,7 +6613,7 @@ async def _exec_propose_set_card_apr(uid: str, card_ref, apr_pct, user_texts=Non
     if before_apr is not None:
         consequence += f" Currently recorded: {_fmt_pct(before_apr)}."
     params = {"account_id": account.id, "apr_pct": apr_rounded}
-    return await _create_proposal(uid, "set_card_apr", params, summary, consequence)
+    return await _create_proposal(uid, "set_card_apr", params, summary, consequence, before=(_fmt_pct(before_apr) if before_apr is not None else "Not set"), after=_fmt_pct(apr_rounded), entity=account.name)  # B60
 
 
 # ── B15 (2026-09-08, B12 stage 2) — preferences that change money maths ────
@@ -7249,7 +7249,7 @@ async def _exec_propose_update_offline_account(
     summary = f"Update '{label}', " + ", ".join(bits) if bits else f"Update '{label}'"
     consequence = "Only changes this offline account's own record on Accounts."
     params = {"account_id": doc["_id"], **updates}
-    return await _create_proposal(uid, "update_offline_account", params, summary, consequence)
+    return await _create_proposal(uid, "update_offline_account", params, summary, consequence, **_offline_account_change_text(doc, updates))  # B60
 
 
 async def _exec_propose_delete_offline_account(uid: str, account_ref=None) -> dict:
@@ -7549,7 +7549,7 @@ async def _exec_propose_update_account_rule(
     summary = f"Update the '{label}' rule, " + ", ".join(bits) if bits else f"Update the '{label}' rule"
     consequence = "Changes take effect on this account's future postings; a paused rule stops mirroring new transactions."
     params = {"rule_id": rule["_id"], **updates}
-    return await _create_proposal(uid, "update_account_rule", params, summary, consequence)
+    return await _create_proposal(uid, "update_account_rule", params, summary, consequence, **_account_rule_change_text(rule, updates))  # B60
 
 
 async def _exec_propose_delete_account_rule(uid: str, rule_ref=None) -> dict:
@@ -8288,6 +8288,21 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "get_set_asides":
             from app.services.penny_set_asides import exec_get_set_asides
             return await exec_get_set_asides(uid)
+        if name == "get_payday_plan":
+            from app.services.penny_payday_plan import exec_get_payday_plan
+            return await exec_get_payday_plan(uid)
+        if name == "propose_set_savings_goal":
+            from app.services.penny_buffer import exec_propose_set_savings_goal
+            return await exec_propose_set_savings_goal(uid, args)
+        if name == "propose_clear_savings_goal":
+            from app.services.penny_buffer import exec_propose_clear_savings_goal
+            return await exec_propose_clear_savings_goal(uid)
+        if name == "propose_connect_bank":
+            from app.services.penny_connect_bank import exec_propose_connect_bank
+            return await exec_propose_connect_bank(uid, args.get("bank"))
+        if name == "get_pay_split":
+            from app.services.penny_pay_split import exec_get_pay_split
+            return await exec_get_pay_split(uid, args.get("reference"))
         return _tool_error(f"unknown tool: {name}")
     except Exception:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
@@ -8367,3 +8382,86 @@ def _commitment_change_text(doc: dict, updates: dict) -> dict:
 from app.services.penny_set_asides import SET_ASIDES_SCHEMA  # noqa: E402
 
 TOOL_SCHEMAS.append(SET_ASIDES_SCHEMA)
+
+
+# B60: the payday plan read tool, appended last so no line above moves. The
+# executor lives in penny_payday_plan.py.
+from app.services.penny_payday_plan import PAYDAY_PLAN_SCHEMA  # noqa: E402
+
+TOOL_SCHEMAS.append(PAYDAY_PLAN_SCHEMA)
+
+
+# B60: the pay split read tool, appended last. The executor lives in penny_pay_split.py.
+from app.services.penny_pay_split import PAY_SPLIT_SCHEMA  # noqa: E402
+
+TOOL_SCHEMAS.append(PAY_SPLIT_SCHEMA)
+
+
+# B60: the safety buffer view fields and propose tools, appended last so no line
+# above moves. Everything lives in penny_buffer.py.
+from app.services.penny_buffer import (  # noqa: E402
+    PROPOSE_CLEAR_SAVINGS_GOAL_SCHEMA, PROPOSE_SET_SAVINGS_GOAL_SCHEMA,
+)
+
+
+async def _buffer_extras(uid: str, goal, current: float, monthly_spending: float) -> dict:
+    from app.services.penny_buffer import buffer_extras
+    return await buffer_extras(uid, goal, current, monthly_spending)
+
+
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_SET_SAVINGS_GOAL_SCHEMA)
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CLEAR_SAVINGS_GOAL_SCHEMA)
+
+# B60: propose_connect_bank, record-only (see penny_connect_bank.py).
+from app.services.penny_connect_bank import PROPOSE_CONNECT_BANK_SCHEMA  # noqa: E402
+
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CONNECT_BANK_SCHEMA)
+PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)  # rebuilt after the B60 appends
+
+
+# B60: before and after text for the proposal kinds that had only a summary
+# (offline account, mirror rule and upcoming occurrence edits). Appended last so
+# no line above moves.
+def _offline_account_change_text(doc: dict, updates: dict) -> dict:
+    before, after = [], []
+    if "name" in updates and updates["name"] != doc.get("name"):
+        before.append(str(doc.get("name") or ""))
+        after.append(str(updates["name"]))
+    if "account_type" in updates:
+        before.append(str(doc.get("account_type") or "savings").replace("_", " "))
+        after.append(str(updates["account_type"]).replace("_", " "))
+    if "balance" in updates:
+        before.append(_money(doc.get("balance"), 2)["formatted"])
+        after.append(_money(updates["balance"], 2)["formatted"])
+    return {"before": _join_change(before), "after": _join_change(after), "entity": doc.get("name")}
+
+
+def _account_rule_change_text(rule: dict, updates: dict) -> dict:
+    before, after = [], []
+    if "name" in updates and updates["name"] != rule.get("name"):
+        before.append(str(rule.get("name") or ""))
+        after.append(str(updates["name"]))
+    if "match_value" in updates:
+        before.append(f"Matches '{rule.get('match_value') or ''}'")
+        after.append(f"Matches '{updates['match_value']}'")
+    if "match_type" in updates:
+        before.append(f"Match type {rule.get('match_type') or 'not set'}")
+        after.append(f"Match type {updates['match_type']}")
+    if "sign" in updates:
+        before.append(f"Sign {rule.get('sign') or 'not set'}")
+        after.append(f"Sign {updates['sign']}")
+    if "active" in updates:
+        before.append("Active" if rule.get("active", True) else "Paused")
+        after.append("Active" if updates["active"] else "Paused")
+    return {"before": _join_change(before), "after": _join_change(after), "entity": rule.get("name")}
+
+
+def _occurrence_change_text(key: str, occ: dict | None, date_str: str, new_date, new_amount) -> dict:
+    before, after = [], []
+    if new_amount is not None:
+        before.append(_money(occ["amount"], 2)["formatted"] if occ and occ.get("amount") is not None else "Expected amount")
+        after.append(_money(new_amount, 2)["formatted"])
+    if new_date is not None:
+        before.append(date.fromisoformat(date_str).strftime("%-d %b"))
+        after.append(date.fromisoformat(str(new_date)).strftime("%-d %b"))
+    return {"before": _join_change(before), "after": _join_change(after), "entity": key}

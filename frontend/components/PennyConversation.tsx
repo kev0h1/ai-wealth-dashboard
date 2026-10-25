@@ -113,7 +113,7 @@
 //   `bucketsRef`/`setBucket` for why event-handler reads go through a ref
 //   rather than the `buckets` state variable directly.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import PennyStarterState from "@/components/PennyStarterState";
@@ -129,6 +129,7 @@ import CommitmentSheet from "@/components/CommitmentSheet";
 import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
+import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { maskMoneyText, useBalancesHidden } from "@/lib/balancesHidden";
 import PennyReplyText from "@/components/PennyMarkdown";
 import PennyTable from "@/components/PennyTable";
@@ -149,6 +150,9 @@ import {
   openMoreMessagesSheet,
 } from "@/components/PennySheetProvider";
 import { getPennyScreenConfig, type PennyChip } from "@/lib/pennyScreenConfig";
+
+// B60: the bank picker is a 53KB chunk, only loaded when a connect_bank card is confirmed.
+const BankPickerSheet = lazy(() => import("@/components/BankPickerSheet"));
 
 const BG = BRAND_GRADIENT;
 const HISTORY_CAP = 6;
@@ -505,6 +509,18 @@ function ProposalChange({ before, after }: { before?: string | null; after?: str
   );
 }
 
+/** B60: Penny never connects a bank. The connect_bank card shows the Finexer
+ * disclosure (the same fixed text the bank picker shows) and the user taps
+ * Continue to Finexer; only then does the host open the bank picker. */
+export const CONNECT_BANK_KIND = "connect_bank";
+export const CONNECT_BANK_CLOSING = "Tap Continue to Finexer to review permissions and connect. Nothing is connected until you finish with Finexer.";
+export const CONNECT_BANK_DONE = "Carry on in the Finexer window to finish connecting.";
+/** The bank named on a connect_bank proposal. A restored chat has no params, so the entity line carries it. */
+export function connectBankName(proposal: PennyProposal): string | null {
+  const fromParams = proposal.params && typeof proposal.params.bank === "string" ? proposal.params.bank : null;
+  return fromParams || proposal.entity || null;
+}
+
 export function ProposalConfirmCard({
   msg,
   onConfirm,
@@ -544,6 +560,7 @@ export function ProposalConfirmCard({
   // surface that now shows the real thing; the honesty is in the copy
   // ("is set up", past tense, only reachable after a genuine 200), never a
   // silent disappearance.
+  const isConnect = proposal.kind === CONNECT_BANK_KIND;
   if (status === "done") {
     return (
       <div className="flex justify-start">
@@ -553,7 +570,7 @@ export function ProposalConfirmCard({
           className="max-w-[90%] min-h-[44px] flex items-center gap-1 text-left bg-slate-100 dark:bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-3 active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
           <span className="text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 break-words">
-            Done. <MoneyText text={proposal.summary} /> is set up
+            {isConnect ? CONNECT_BANK_DONE : <>Done. <MoneyText text={proposal.summary} /> is set up</>}
           </span>
           <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
         </button>
@@ -591,9 +608,18 @@ export function ProposalConfirmCard({
       <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words">
         <MoneyText text={proposal.summary} />
       </p>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 break-words">
-        <MoneyText text={proposal.consequence} />
-      </p>
+      {isConnect ? (
+        <>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 break-words">
+            {TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}
+          </p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 break-words">{CONNECT_BANK_CLOSING}</p>
+        </>
+      ) : (
+        <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 break-words">
+          <MoneyText text={proposal.consequence} />
+        </p>
+      )}
       <ProposalChange before={proposal.before} after={proposal.after} />
       <div className="mt-3 flex items-center gap-2">
         <button
@@ -602,7 +628,7 @@ export function ProposalConfirmCard({
           disabled={busy}
           className="min-h-[44px] flex-1 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-60 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          {busy ? "Setting up…" : "Confirm"}
+          {busy ? (isConnect ? "Continuing…" : "Setting up…") : isConnect ? "Continue to Finexer" : "Confirm"}
         </button>
         <button
           type="button"
@@ -947,6 +973,8 @@ export default function PennyConversation({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [offer, setOffer] = useState<CanIOffer | null>(null);
   const [offerSheetOpen, setOfferSheetOpen] = useState(false);
+  // B60: the bank picker opens only after the user taps Continue to Finexer on a connect_bank card.
+  const [connectBank, setConnectBank] = useState<{ bank: string | null } | null>(null);
   const [input, setInput] = useState("");
   // Personalised £-chips (canISuggestions) and dismissed-chip bookkeeping
   // both stay GLOBAL, not per-bucket (owner spec, 2026-08-26, "PER-SCREEN
@@ -1425,6 +1453,9 @@ export default function PennyConversation({
     }));
     api.executePennyProposal(proposalId)
       .then(() => {
+        // B60: the confirm recorded the tap; the bank picker, and the normal
+        // Finexer consent flow inside it, is what actually connects.
+        if (current.proposal.kind === CONNECT_BANK_KIND) setConnectBank({ bank: connectBankName(current.proposal) });
         setBucket(screen, (prev) => ({
           ...prev,
           messages: prev.messages.map((m) =>
@@ -2106,7 +2137,9 @@ export default function PennyConversation({
                 msg={m}
                 onConfirm={() => confirmProposal(bucketKey, m.id, m.proposal.proposal_id)}
                 onCancel={() => cancelProposal(bucketKey, m.id, m.proposal.proposal_id)}
-                onOpenDone={() => closePennySheetThen(() => router.push("/planning"))}
+                onOpenDone={() => m.proposal.kind === CONNECT_BANK_KIND
+                  ? setConnectBank({ bank: connectBankName(m.proposal) })
+                  : closePennySheetThen(() => router.push("/planning"))}
               />
             );
           }
@@ -2264,6 +2297,11 @@ export default function PennyConversation({
           own accounts. No sheet-reopen dance (unlike CanISection's bottom
           sheet, this surface is in-page, not a modal, so there's nothing
           to reopen underneath). */}
+      {connectBank && (
+        <Suspense fallback={null}>
+          <BankPickerSheet provider="finexer" preselectName={connectBank.bank ?? undefined} onClose={() => setConnectBank(null)} />
+        </Suspense>
+      )}
       {offerSheetOpen && offer && (
         <CommitmentSheet
           prefill={{ name: offer.name, amount: offer.amount, target_date: offer.target_date }}

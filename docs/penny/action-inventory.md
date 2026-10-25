@@ -1,6 +1,6 @@
-# Penny action inventory: what the UI can do vs what Penny can propose
+# Penny capability matrix: what the UI can do vs what Penny can show and propose
 
-Captured 2026-09-08 from the live components and backend. Sibling of the question inventory in docs/penny/question-inventory/ (read side); this is the write side. Status per row: covered (a propose tool does the same write with the same fields), partial (Penny can read the object but not change it, or proposes only a subset of the UI's fields), gap (no Penny tool).
+Captured 2026-09-08 from the live components and backend, reworked 2026-10-25 (B60) around Kevin's rule below. Sibling of the question inventory in docs/penny/question-inventory/ (read side); this is the write side. Status per row: covered (a propose tool does the same write with the same fields), partial (Penny can read the object but not change it, or proposes only a subset of the UI's fields), gap (no Penny tool).
 
 Caveat: caller surfaces were located by grep, so a UI action mounted through an indirection (context provider, hook) is attributed to the file that issues the call.
 
@@ -8,9 +8,27 @@ Files: frontend/lib/api.ts, PENNY_TOOLS.md, backend/app/services/penny_tools.py,
 
 Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Penny proposes, never executes; every write goes through a proposal row that the user confirms in the sheet, and the server re-checks agent-mode consent at execute time. Some UI actions should stay UI-only on purpose: file uploads and receipt scans (need a picker), account deletion, granting or revoking Penny consent, and the miscategorised guardrail queue (explicitly excluded from propose_recategorise_transaction). Those are marked in section 7.
 
+## 0. Kevin's list (2026-10-25)
+
+Kevin's rule: any view the app has, Penny can show; any write the app can do, Penny can propose with explicit confirmation. Only irreversible destructive actions (delete account, erase data) and things needing a native picker stay UI-only (section 7). Every write is a proposal the user confirms, the app never moves money, and Penny never connects a bank herself.
+
+| Capability | View tool | Write tool | Status | Notes |
+|---|---|---|---|---|
+| Goals | `get_goals` | `propose_create_commitment`, `propose_update_commitment`, `propose_delete_commitment` | covered | name, amount and target date; funding pots and contributions stay in the app (partial rows in section 2) |
+| Set-asides | `get_set_asides` (B59) | `propose_create_allocation`, `propose_update_allocation`, `propose_delete_allocation` | covered | edit covers name, amount, recurrence and paused; the fill account and match rule stay in the app |
+| Payday plan | `get_payday_plan` (B60), `get_today_brief` | none | covered (view) | a recommendation with no lifecycle (G172): nothing to confirm, verify or celebrate, so there is no write to propose |
+| Pay split versus the conscious spending plan | `get_pay_split` (B60) | none | covered (view), write gap | Penny compares against any of the three references on request; saving the selected reference (`pay_split_reference`) is a gap, low value |
+| Tips | `get_insights` (ids added B60) | `propose_dismiss_insight`, `propose_pin_insight`, `propose_label_merchant`, `propose_remove_merchant_label`, `propose_mark_insight_opened`, `propose_save_insight_context` | covered | |
+| Card APRs | `get_debt_position` | `propose_set_card_apr`, `propose_set_card_terms` | covered | the representative-rate lookup stays UI-only (it can trigger a paid search) |
+| Offline accounts | `get_accounts`, `get_account_activity` | `propose_create_offline_account`, `propose_update_offline_account`, `propose_delete_offline_account`, `propose_add_ledger_entry`, `propose_update_ledger_entry`, `propose_delete_ledger_entry` | covered | |
+| Rules | none lists them | `propose_create_account_rule`, `propose_update_account_rule`, `propose_delete_account_rule` | partial | the write tools resolve a rule by name, but no read tool lists the rules (gap) |
+| Connect an account | none | `propose_connect_bank` (B60) | covered | Penny asks, the card shows the Finexer and agency disclosure, the user taps Continue to Finexer, the bank picker and the normal consent flow start. Nothing is written until then |
+| Safety buffer, view and update | `get_savings_position` (B60 fields) | `propose_set_savings_goal`, `propose_clear_savings_goal` (B60) | covered | the Grow ladder rung states are not returned (too heavy for a chat lookup); the `payday_buffer` preference is separate and not writable |
+| Predictions (upcoming bills) | `get_upcoming_bills`, `get_recurring_payments` | `propose_skip_occurrence`, `propose_edit_occurrence`, `propose_clear_override`, `propose_dismiss_recurring`, `propose_restore_recurring` | covered | |
+
 ## 1. Penny tool list
 
-### Read tools, 20, all in `TOOL_SCHEMAS` (`penny_tools.py` L131-642)
+### Read tools, 25, all in `TOOL_SCHEMAS`
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
@@ -19,10 +37,14 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `search_transactions(q, category, merchants, date_from, date_to, txn_type)` | read | same query builder as `GET /transactions/search` |
 | `get_accounts` | read | account service + `accountKind.ts` twin + `preferences.home_pinned_accounts` |
 | `get_spend_verdict(period_offset)` | read | spend-verdict service (`GET /spend/verdict`) |
-| `get_savings_position` | read | savings cashflow + `savings_goals_col` + `compute_safe_to_spend` period gate |
+| `get_savings_position` | read | savings cashflow + `savings_goals_col` + `compute_safe_to_spend` period gate; B60 adds the buffer's own setting (type, months, account names, days covered) |
 | `get_debt_position` | read | debt plan engine + card terms |
 | `get_goals` | read | `app.routers.commitments.list_commitments` |
 | `get_set_asides` | read | `app.routers.allocations.list_allocations` + `get_accounts` (B59) |
+| `get_investment_growth` | read | investment growth service (G271) |
+| `plan_consolidation(target_account_id_or_name, amount?, include_savings?, exclude_account_ids_or_names?)` | read (G334) | `build_today_payload` account eligibility, the move planner |
+| `get_payday_plan` | read (B60) | `app.services.companion.compute_today_items` (the live payday plan item, else the preview, never persisted) |
+| `get_pay_split(reference?)` | read (B60) | `app.services.money_shape.get_money_shape_cached` + the `pay_split_reference` preference |
 | `check_affordability(amount, timeframe?)` | read | `app.services.affordability` |
 | `get_category_spend(category?, months?)` | read | `compute_spend_verdict` + raw txn rows |
 | `get_insights` | read | `savings_insights_col` ordered as `GET /savings-insights` (G283: facts only, no saving figures) |
@@ -36,7 +58,7 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `calculate(expression)` | read | `app.services.safe_calc.evaluate` (AST whitelist, never `eval`) |
 | `preview_trend_intent(category, answer)` | read (B17) | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`), `answer='one_off'` short-circuits without an engine call |
 
-### Propose/write tools, 46, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L643-1876)
+### Propose/write tools, 49, in `PROPOSE_TOOL_SCHEMAS`
 
 B14 (2026-09-08, B12 stage 1 shipped) added the ten edit/delete twins below
 the original eight, for the covered creates only (planned, allocation,
@@ -59,7 +81,7 @@ that: full card terms (status/promos/BT offers/minimum-payment note/
 product key/usage, not just APR) and the intent/insight/merchant-label
 actions — see section 2's per-row status changes and section 3's revised
 counts. The catalog is 37 + 9 = 46 after B17, and every count below is
-reconciled against that real total.
+reconciled against that real total. B60 (2026-10-25) added three more (`propose_set_savings_goal`, `propose_clear_savings_goal`, `propose_connect_bank`), so the registry holds 49, and four read tools were missing from this table (`get_investment_growth`, `plan_consolidation`, `get_payday_plan`, `get_pay_split`), so it holds 25. `tests/test_penny_capability_matrix.py` fails if a tool is added to the registry and not listed here.
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
@@ -109,6 +131,9 @@ reconciled against that real total.
 | `propose_pin_insight(insight_ref, pinned)` | propose (B17) | `app.routers.savings_insights.toggle_pin_insight` (`PATCH /savings-insights/{id}/pin`; a toggle — the executor only calls it when current state differs from `pinned`) |
 | `propose_label_merchant(merchant, label)` | propose (B17) | `app.routers.savings_insights.label_bill` (`POST /savings-insights/label`) |
 | `propose_remove_merchant_label(merchant_key)` | propose (B17) | `app.routers.savings_insights.delete_bill_label` (`DELETE /savings-insights/labels/{merchant_key}`) |
+| `propose_set_savings_goal(target_type, target_months?, target_amount?, account_names?)` | propose (B60) | `app.routers.savings.save_savings_goal` (`PUT /savings/goal`) |
+| `propose_clear_savings_goal()` | propose (B60) | `app.routers.savings.delete_savings_goal` (`DELETE /savings/goal`) |
+| `propose_connect_bank(bank?)` | propose (B60) | record-only: no write, the card's Continue to Finexer tap opens the bank picker and the normal consent flow |
 
 ### Agent-mode consent gate
 
@@ -147,9 +172,9 @@ reconciled against that real total.
 | Resolve a movement (mine-here / mine-goal / mine-offline / someone-else / spending) | `components/TeachingSheet.tsx:158,181,215` | `POST /transactions/{id}/resolve-movement` (`resolveMovement`) | none | gap |
 | Create a custom category | `components/CategoriesContext.tsx:39` (from `TeachingSheet.tsx:198`) | `POST /categories` (`addCategory`) | none | gap |
 | Delete a custom category | `components/CategoriesContext.tsx:46` | `DELETE /categories/{name}` (`deleteCategory`) | none | gap |
-| Dismiss a flagged own-transfer series | `components/MiscategorisedReviewSheet.tsx:320` | `POST /transactions/dismiss-miscategorised-series` (`dismissMiscategorisedSeries`) | none, tool description forbids touching this queue | gap (deliberate) |
-| Confirm a transfer pair | `components/MiscategorisedReviewSheet.tsx:211` | `POST /transactions/confirm-transfer-pair` (`confirmTransferPair`) | none, explicitly out of scope | gap (deliberate) |
-| Dismiss a transfer-pair suggestion | `components/MiscategorisedReviewSheet.tsx:222` | `POST /transactions/dismiss-transfer-pair` (`dismissTransferPair`) | none | gap (deliberate) |
+| Dismiss a flagged own-transfer series | `components/MiscategorisedReviewSheet.tsx:320` | `POST /transactions/dismiss-miscategorised-series` (`dismissMiscategorisedSeries`) | none, tool description forbids touching this queue | gap (low value) |
+| Confirm a transfer pair | `components/MiscategorisedReviewSheet.tsx:211` | `POST /transactions/confirm-transfer-pair` (`confirmTransferPair`) | none, explicitly out of scope | gap (low value) |
+| Dismiss a transfer-pair suggestion | `components/MiscategorisedReviewSheet.tsx:222` | `POST /transactions/dismiss-transfer-pair` (`dismissTransferPair`) | none | gap (low value) |
 | Dismiss the "not yet placed" ask card | `components/SpendVerdictView.tsx:1181` | `POST /spend/verdict/dismiss-unresolved` (`dismissUnresolvedAsk`) | `get_spend_verdict` returns `unresolved` | partial |
 
 ### Bills, upcoming, allocations
@@ -181,7 +206,8 @@ reconciled against that real total.
 | Preview commitment feasibility | `components/CommitmentSheet.tsx:205` | `POST /commitments/preview` (`previewCommitment`) | `get_goals` + `check_affordability` adjacent, no per-commitment preview | partial |
 | Edit a commitment / contribute / mark done | `components/CommitmentSheet.tsx:276-291` | `PATCH /commitments/{id}` (`updateCommitment`) | `propose_update_commitment` (B14; name/amount/target_date only, not `funding_pots`/`contribute_delta`/`status`) | partial |
 | Cancel a commitment | `components/CommitmentSheet.tsx:331` | `DELETE /commitments/{id}` (`cancelCommitment`) | `propose_delete_commitment` (B14) | covered |
-| Save / replace the savings goal | `components/SavingsGoalSheet.tsx:87` | `PUT /savings/goal` (`saveSavingsGoal`) | `get_savings_position` returns `configured`/`target_amount` | partial |
+| Save / replace the savings goal (safety buffer) | `components/SavingsGoalSheet.tsx:87` | `PUT /savings/goal` (`saveSavingsGoal`) | `propose_set_savings_goal` (B60), viewed with `get_savings_position` | covered |
+| Remove the savings goal (safety buffer) | no UI caller (`deleteSavingsGoal` has none, section 5) | `DELETE /savings/goal` (`deleteSavingsGoal`) | `propose_clear_savings_goal` (B60) | covered, not counted in section 3's UI-write totals (no api.ts caller exists) |
 | Add an offline savings pot | `components/SavingsGoalSheet.tsx:60` | `POST /savings/manual-account` (`addSavingsManualAccount`) | none | gap |
 | Edit an offline savings pot | `components/SavingsGoalSheet.tsx:57` | `PATCH /savings/manual-account/{id}` (`updateSavingsManualAccount`) | none | gap |
 | Delete an offline savings pot | `components/SavingsGoalSheet.tsx:74` | `DELETE /savings/manual-account/{id}` (`deleteSavingsManualAccount`) | none | gap |
@@ -202,7 +228,7 @@ reconciled against that real total.
 | Save name / postcode (and finish onboarding) | `app/settings/SettingsPage.tsx:319`, `components/Onboarding.tsx:139,153` | `PUT /profile` (`updateProfile`) | none | gap |
 | Delete my account and all data | `app/settings/SettingsPage.tsx:335` | `DELETE /account` (`deleteUserAccount`) | none | gap (deliberate) |
 | Toggle "hide net worth" | `components/PreferencesContext.tsx:117` | `PATCH /preferences` (`updatePreferences`) | `propose_set_hide_balances` (B15) | covered |
-| Toggle dark mode | `components/PreferencesContext.tsx:123` | `PATCH /preferences` | none | gap (deliberate) |
+| Toggle dark mode | `components/PreferencesContext.tsx:123` | `PATCH /preferences` | none | gap (low value) |
 | Set the pay-period boundary | `components/PreferencesContext.tsx:128`, `components/Onboarding.tsx:165` | `PATCH /preferences {pay_period_config}` | `propose_set_pay_period` (B15) | covered |
 | Set debt target months | `components/PreferencesContext.tsx:138` | `PATCH /preferences {debt_target_months}` | `propose_set_debt_target` (B15) | covered |
 | Set debt tracking start | `components/PreferencesContext.tsx:143` | `PATCH /preferences {debt_tracking_start}` | `propose_set_debt_tracking_start` (B15) | covered |
@@ -211,10 +237,10 @@ reconciled against that real total.
 | Toggle Child Benefit | `app/settings/SettingsPage.tsx:378` | `PATCH /preferences {has_child_benefit}` | `get_tax_position` reads it, `propose_set_child_benefit` (B15) writes it | covered |
 | Exclude accounts from the cover plan | `app/settings/SettingsPage.tsx:389` | `PATCH /preferences {cover_plan_exclude_add}` / `{cover_plan_exclude_remove}` (G54, 2026-09-14: single-account delta, was `{cover_plan_excluded_accounts}` whole-list replace — see G54 for why) | `propose_set_cover_plan_exclusions` (B15) still sends the whole-list `{cover_plan_excluded_accounts}` shape, now CAS-protected server-side | covered |
 | Change notification preferences | `app/settings/SettingsPage.tsx:398` | `PATCH /preferences {notification_prefs}` | none | gap |
-| Reorder Spend "over time" widgets | `components/SpendTrends.tsx:1030` | `PATCH /preferences {spend_widgets}` | none | gap (deliberate) |
-| Pin a widget to Home | `components/SpendTrends.tsx:1036` | `PATCH /preferences {home_pinned_widget}` | none | gap (deliberate) |
-| Pin cards to Home | `lib/useHomePinnedCards.ts:60` | `PATCH /preferences {home_pinned_cards}` | none | gap (deliberate) |
-| Send a test push | `app/settings/SettingsPage.tsx:511` | `POST /push/test` (`sendTestPush`) | none | gap (deliberate) |
+| Reorder Spend "over time" widgets | `components/SpendTrends.tsx:1030` | `PATCH /preferences {spend_widgets}` | none | gap (low value) |
+| Pin a widget to Home | `components/SpendTrends.tsx:1036` | `PATCH /preferences {home_pinned_widget}` | none | gap (low value) |
+| Pin cards to Home | `lib/useHomePinnedCards.ts:60` | `PATCH /preferences {home_pinned_cards}` | none | gap (low value) |
+| Send a test push | `app/settings/SettingsPage.tsx:511` | `POST /push/test` (`sendTestPush`) | none | gap (low value) |
 
 ### Penny, Mirror, behaviour
 
@@ -230,20 +256,31 @@ reconciled against that real total.
 
 | UI action | Surface | Endpoint (api.ts method) | Penny tool | Status |
 |---|---|---|---|---|
-| Confirm payday landed | `components/HomeBrief.tsx:195` | `POST /income/confirm-payday` (`confirmPayday`) | `get_today_brief` returns the payday_plan item | partial |
+| Confirm payday landed | `components/HomeBrief.tsx:195` | `POST /income/confirm-payday` (`confirmPayday`) | `get_payday_plan` (B60) and `get_today_brief` return the payday plan | partial |
 | Dismiss a Today / companion item | `components/HomeBrief.tsx:209,302,385,457`, `components/PaydayPlanCard.tsx:76` | `POST /today/dismiss` (`dismissTodayItem`) | `get_today_brief` returns the items | partial |
+
+### Views and connecting (B59, B60)
+
+| UI action | Surface | Endpoint (api.ts method) | Penny tool | Status |
+|---|---|---|---|---|
+| View the set-asides on Upcoming | `app/planning/PlanningPage.tsx` | `GET /allocations` (`listAllocations`) | `get_set_asides` (B59) | covered |
+| View the payday plan | `components/PaydayPlanCard.tsx` | `GET /today` (`getToday`, `payday_preview`) | `get_payday_plan` (B60) | covered |
+| View how pay was split and compare with a reference | `components/SpendShapeCard.tsx`, `app/spend/shape/ShapePage.tsx` | `GET /money-shape` (`getMoneyShape`) | `get_pay_split` (B60) | covered |
+| Choose the pay split reference | `app/spend/shape/ShapePage.tsx` | `PATCH /preferences {pay_split_reference}` (`updatePreferences`) | none (Penny compares any reference on request) | gap, low value |
+| Connect a bank through Finexer | `components/BankPickerSheet.tsx` | `GET /auth/finexer/link` (`finexerConnectLink`) | `propose_connect_bank` (B60): the card shows the disclosure, the user's Continue to Finexer tap opens the picker | covered |
+| List the mirror rules | `app/components/AccountsPage.tsx` | `GET /manual-account-rules` (`manualAccountRules`) | none | gap |
 
 ### Receipts, statements, uploads
 
 | UI action | Surface | Endpoint (api.ts method) | Penny tool | Status |
 |---|---|---|---|---|
 | Scan a grocery receipt | `app/receipts/ReceiptsPage.tsx:75`, `components/GroceryBasketCard.tsx:75` | `POST /baskets/scan-receipt` (`scanReceipt`) | none | gap (deliberate) |
-| Delete a scanned basket | `app/receipts/ReceiptsPage.tsx:67`, `components/GroceryBasketCard.tsx:119` | `DELETE /baskets/{id}` (`deleteBasket`) | none | gap (deliberate) |
+| Delete a scanned basket | `app/receipts/ReceiptsPage.tsx:67`, `components/GroceryBasketCard.tsx:119` | `DELETE /baskets/{id}` (`deleteBasket`) | none | gap (low value) |
 | Upload a bank statement | `components/StatementUpload.tsx:49` | `POST /statement/upload` (`uploadStatement`) | none | gap (deliberate) |
 | Upload an investment statement | `components/InvestmentUpload.tsx:38` | `POST /investment/upload` (`uploadInvestmentStatement`) | none | gap (deliberate) |
 | Upload a contract note to an account | `app/components/AccountsPage.tsx:1218` | `POST /investment/accounts/{id}/notes/upload` (`uploadInvestmentNote`) | none | gap (deliberate) |
 | Upload a contract note (cold start) | `app/components/AccountsPage.tsx:1254` | `POST /investment/notes/upload` (`uploadInvestmentNoteColdStart`) | none | gap (deliberate) |
-| Delete a contract note | `app/components/AccountsPage.tsx:1235` | `DELETE /investment/notes/{id}` (`deleteInvestmentNote`) | none | gap (deliberate) |
+| Delete a contract note | `app/components/AccountsPage.tsx:1235` | `DELETE /investment/notes/{id}` (`deleteInvestmentNote`) | none | gap (low value) |
 
 ### Other (insights and spend behaviour)
 
@@ -260,6 +297,8 @@ reconciled against that real total.
 | **Remove a merchant's bill-type label** *(new row, B17)* | no UI surface found (`deleteBillLabel` in api.ts has no caller, see section 5) | `DELETE /savings-insights/labels/{merchantKey}` (`deleteBillLabel`) | `propose_remove_merchant_label` (B17) | covered, not counted in section 3's UI-write totals (no api.ts caller exists) |
 
 ## 3. Counts
+
+Revised 2026-10-25 (B59 and B60): `propose_set_savings_goal` moved 1 row from partial to covered (save or replace the savings goal, now also writable, and its view gained the goal's own fields). The new rows in section 2's "Views and connecting" group are reads, a record-only connect and one unlisted preference, so they do not change the write totals below. `propose_clear_savings_goal` and `propose_connect_bank` add covered capabilities with no api.ts write caller to flip (`deleteSavingsGoal` has no caller; the connect link is a GET), consistent with `propose_disconnect_bank`'s precedent. Covered 39 → 40, partial 15 → 14, gap and total unchanged.
 
 Revised 2026-09-21 (A98, Kenya region removed): three gap rows disappeared
 with the feature rather than being covered — Mono exchange and the M-Pesa
@@ -325,12 +364,12 @@ same cost-control reasoning PENNY_TOOLS.md's B17 paragraph gives.
 | | Count |
 |---|---|
 | Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 87 |
-| Covered | 39 |
-| Partial | 15 |
+| Covered | 40 |
+| Partial | 14 |
 | Gap | 32 |
 | n/a (Penny's own consent and proposal plumbing) | 1 counted (grant consent); execute/cancel excluded |
 
-The 39 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`, `syncAll`, `createManualAccount`, `updateManualAccount`, `deleteManualAccount`, `addManualTransaction`, `updateManualTransaction`, `deleteManualTransaction`, `createManualAccountRule`, `updateManualAccountRule`, `deleteManualAccountRule`, `saveCardTerms`, `dismissSpotlightInsight`, `markInsightOpened`, `saveInsightContext`, `recordTrendIntent`, `intentPreview`, `deleteIntent`. (`propose_disconnect_bank`/`propose_pin_insight`/`propose_label_merchant`/`propose_remove_merchant_label` are four further covered capabilities on top of these 39 — see the paragraphs above for why they aren't counted here.)
+The 40 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`, `syncAll`, `createManualAccount`, `updateManualAccount`, `deleteManualAccount`, `addManualTransaction`, `updateManualTransaction`, `deleteManualTransaction`, `createManualAccountRule`, `updateManualAccountRule`, `deleteManualAccountRule`, `saveCardTerms`, `dismissSpotlightInsight`, `markInsightOpened`, `saveInsightContext`, `recordTrendIntent`, `intentPreview`, `deleteIntent`, `saveSavingsGoal`. (`propose_disconnect_bank`/`propose_pin_insight`/`propose_label_merchant`/`propose_remove_merchant_label` are four further covered capabilities on top of these 40 (B60 adds `propose_clear_savings_goal` and `propose_connect_bank` to that list) — see the paragraphs above for why they aren't counted here.)
 
 ## 4. Gaps grouped (32)
 
@@ -350,6 +389,8 @@ Receipts, statements, uploads (7): scan receipt, delete basket, upload statement
 
 Other (0): every row in this group (mark insight opened, save insight context, record trend intent, intent preview, undo intent) moved to covered under B17.
 
+Moved out of the UI-only list by B60 (low value, not forbidden): Kevin's rule keeps only irreversible deletes, native pickers and the consent gate UI-only, so these are gaps with an honest low-value note rather than exclusions. Dismiss a flagged own-transfer series, confirm a transfer pair and dismiss a transfer-pair suggestion (the miscategorised review is a dedicated queue with its own evidence sheet), delete a scanned basket and delete a contract note (they remove the user's own scan or note, not account data), send a test push (a diagnostic), toggle dark mode, reorder Spend widgets, pin a widget to Home and pin cards to Home (layout preferences with no financial meaning). Also unlisted until B60: choose the pay split reference (`pay_split_reference`) and list the mirror rules (no read tool), both low value.
+
 ## 5. Excluded from the table
 
 Auth, push and device plumbing: `validateSession`, `subscribePush`/`unsubscribePush`, `registerApnsToken`/`unregisterApnsToken`, `registerFcmToken`/`unregisterFcmToken`, `reportPushDiagnostic`, `linkAppleIdentity`/`unlinkAppleIdentity`. Login/logout/refresh live in `components/LoginScreen.tsx`, `components/AuthProvider.tsx` and `lib/nativeAuth.ts`, not in api.ts.
@@ -366,28 +407,13 @@ Unwired write methods exported from api.ts with no caller in frontend/ (dead or 
 - `updateProfile`, `updateCommitment`, `updatePlanned` and `deleteUserAccount` bypass `toJson`/`apiErrorFromResponse` and throw generic errors, unlike every other write in the file.
 - `DELETE /connections/{id}` (`delete_connection`, `accounts.py`) exists on the backend and is what `propose_disconnect_bank` (B16) replays, but there is no api.ts method for it (checked: no `/connections` write or read caller of any kind in `lib/api.ts`, `GET /connections` itself has no frontend caller either) and no UI surface calls it today. The Accounts page's own disconnect action, `deleteAccount`, calls the narrower per-account `DELETE /accounts/{id}` instead, which can incidentally tear down a whole TrueLayer connection only when it was the account's last one — a side effect, not the same deliberate whole-connection action. Penny's own propose/confirm path is, today, the only way to explicitly disconnect a whole bank connection in one step; this is honestly reported as a covered row in section 2 rather than overclaiming a UI caller that doesn't exist.
 
-## 7. Deliberately UI-only (proposed exclusions, for Kevin to confirm)
+## 7. UI-only by doctrine
 
-Still awaiting Kevin's confirmation as of B17 (2026-09-08) — none of this list's rows are changed by B17's stage 4/5 build; none of the actions B17 covers (full card terms, trend intents, insight/merchant-label actions) belong on this list, they are all real propose tools now, see section 2.
+Kevin's rule (2026-10-25): everything else the app does, Penny can show or propose. Only these stay in the app, and Penny says which screen does each:
 
-These need a native picker, touch account existence or consent itself, or are pure layout preference with no financial meaning. Proposed to stay out of Penny's propose surface:
-
-- Scan a grocery receipt (`POST /baskets/scan-receipt`)
-- Delete a scanned basket (`DELETE /baskets/{id}`)
-- Upload a bank statement (`POST /statement/upload`)
-- Upload an investment statement (`POST /investment/upload`)
-- Upload a contract note to an account (`POST /investment/accounts/{id}/notes/upload`)
-- Upload a contract note (cold start) (`POST /investment/notes/upload`)
-- Delete a contract note (`DELETE /investment/notes/{id}`)
-- Delete my account and all data (`DELETE /account`)
-- Grant Penny agent-mode consent (`POST /penny/agent-consent`)
-- Confirm a Penny proposal (`POST /penny/proposals/{id}/execute`)
-- Cancel a Penny proposal (`POST /penny/proposals/{id}/cancel`)
-- Dismiss a flagged own-transfer series (`POST /transactions/dismiss-miscategorised-series`)
-- Confirm a transfer pair (`POST /transactions/confirm-transfer-pair`)
-- Dismiss a transfer-pair suggestion (`POST /transactions/dismiss-transfer-pair`)
-- Send a test push (`POST /push/test`)
-- Toggle dark mode (`PATCH /preferences`, dark mode field)
-- Reorder Spend "over time" widgets (`PATCH /preferences {spend_widgets}`)
-- Pin a widget to Home (`PATCH /preferences {home_pinned_widget}`)
-- Pin cards to Home (`PATCH /preferences {home_pinned_cards}`)
+- Delete my account and all data (`DELETE /account`, Settings): irreversible.
+- Erase data: irreversible, Settings.
+- Scan a grocery receipt (`POST /baskets/scan-receipt`, Receipts): needs the native camera or picker.
+- Upload a bank statement, an investment statement or a contract note (`POST /statement/upload`, `POST /investment/upload`, `POST /investment/accounts/{id}/notes/upload`, `POST /investment/notes/upload`, Accounts): need a file picker.
+- Grant or revoke Penny agent-mode consent (`POST /penny/agent-consent`, Settings): this is the gate itself.
+- Confirm or cancel a Penny proposal (`POST /penny/proposals/{id}/execute`, `POST /penny/proposals/{id}/cancel`): the user's own confirm step is the gate.

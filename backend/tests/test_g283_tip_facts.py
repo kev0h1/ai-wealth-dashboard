@@ -281,6 +281,7 @@ def test_penny_get_insights_output_has_no_saving_and_passes_the_list(monkeypatch
         assert key not in blob
     for row in out["insights"]:
         assert tip_copy.find_banned(row["title"]) is None and tip_copy.find_banned(row["summary"]) is None
+    assert {r["id"] for r in out["insights"]} == {d["insight_id"] for d in docs}  # B60: rows carry the id a reference accepts
 
 
 def test_get_insights_tool_description_forbids_claims():

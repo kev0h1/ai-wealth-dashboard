@@ -43,7 +43,7 @@ for (const p of ["frontend/content/terms.md", "TERMS.md", "shared/signin-handoff
   if (t.indexOf("export const TRADING_NAME_DISCLOSURE") < t.indexOf("export const AGENT_DISCLOSURE")) failures.push("TRADING_NAME_DISCLOSURE must be declared after AGENT_DISCLOSURE (fixed text stays first)");
 }
 // Components must render the shared constant (so they cannot drift).
-for (const p of ["frontend/components/BankPickerSheet.tsx", "frontend/components/bank-connect/BankConnectionParts.tsx", "frontend/components/LoginScreen.tsx", "frontend/components/LegalDocument.tsx"]) {
+for (const p of ["frontend/components/BankPickerSheet.tsx", "frontend/components/bank-connect/BankConnectionParts.tsx", "frontend/components/LoginScreen.tsx", "frontend/components/LegalDocument.tsx", "frontend/components/PennyConversation.tsx"]) {
   const t = read(p);
   if (!/\{AGENT_DISCLOSURE\}/.test(t)) failures.push(`${p} does not render {AGENT_DISCLOSURE}`);
   // A163: every {AGENT_DISCLOSURE} is directly preceded by the trading-name sentence in the same element.

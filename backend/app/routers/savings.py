@@ -1,6 +1,7 @@
 """Safety-net savings goal, insights and plan endpoints."""
 import uuid as uuid_lib
 from datetime import datetime, timedelta
+import math
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -121,9 +122,10 @@ async def savings_insights(user: dict = Depends(current_user)):
     }
 
 
-@router.put("/savings/goal")
-async def save_savings_goal(body: dict, user: dict = Depends(current_user)):
-    uid         = user["email"]
+def build_savings_goal_doc(uid: str, body: dict) -> dict:
+    """The one validation of a safety-buffer goal body. PUT /savings/goal and
+    Penny's propose_set_savings_goal (B60) both go through it, so the rules
+    cannot drift. Raises HTTPException(400) on a bad body."""
     target_type = body.get("target_type")
     if target_type not in ("months", "amount"):
         raise HTTPException(400, "target_type must be 'months' or 'amount'")
@@ -135,17 +137,27 @@ async def save_savings_goal(body: dict, user: dict = Depends(current_user)):
         "created_at": datetime.now(),
     }
     if target_type == "months":
-        months = int(body.get("target_months") or 3)
+        raw_months = body.get("target_months") or 3
+        if isinstance(raw_months, float) and not math.isfinite(raw_months):
+            raise HTTPException(400, "target_months out of range")
+        months = int(raw_months)
         if months < 1 or months > 24:
             raise HTTPException(400, "target_months out of range")
         doc["target_months"] = months
         doc["target_amount"] = None
     else:
         amount = float(body.get("target_amount") or 0)
-        if amount <= 0:
+        if not math.isfinite(amount) or amount <= 0:
             raise HTTPException(400, "target_amount must be positive")
         doc["target_amount"] = round(amount, 2)
         doc["target_months"] = None
+    return doc
+
+
+@router.put("/savings/goal")
+async def save_savings_goal(body: dict, user: dict = Depends(current_user)):
+    uid = user["email"]
+    doc = build_savings_goal_doc(uid, body)
     await savings_goals_col.replace_one({"_id": uid}, doc, upsert=True)
     response_cache.invalidate(uid)  # grow buffer target/pct changed
     return await savings_insights(user)
