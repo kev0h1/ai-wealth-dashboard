@@ -91,6 +91,13 @@ ROUTING_CASES = [
          question="Can I edit my Holiday set-aside here, in this chat", expect_any=None),
     dict(id="route-29-kevin-put-under-software", screen="spend", first="propose_recategorise_transaction", required=["propose_recategorise_transaction"],
          question="Put the British Gas payment under Software, just this one", expect_any=None),
+    # B60: the safety buffer, view and update.
+    dict(id="route-30-safety-buffer", screen="planning", first="get_savings_position", required=["get_savings_position"],
+         question="What's my safety buffer", expect_any=None),
+    dict(id="route-31-buffer-months", screen="planning", first="propose_set_savings_goal", required=["propose_set_savings_goal"],
+         question="Change my buffer to 3 months", expect_any=None),
+    dict(id="route-32-buffer-amount", screen="planning", first="propose_set_savings_goal", required=["propose_set_savings_goal"],
+         question="Set my emergency fund to £2,000", expect_any=None),
 ]
 
 # category -> {this period, last-n-months} fixtures

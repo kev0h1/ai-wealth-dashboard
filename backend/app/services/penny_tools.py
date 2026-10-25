@@ -432,7 +432,7 @@ TOOL_SCHEMAS = [
             "name": "get_savings_position",
             "description": (
                 "The user's savings buffer: current savings, target, percent funded, "
-                "and monthly income/spending/surplus. Use this for questions about "
+                "monthly income/spending/surplus, and the buffer's own setting (target_type months or amount, target_months, account_names, days_covered). Use this for questions about "
                 "savings progress, safety net size, or monthly surplus. Figures are "
                 "authoritative: quote them verbatim, never recompute, derive, or "
                 "round them yourself. monthly_surplus is a 90-day "
@@ -3433,7 +3433,7 @@ async def _exec_get_savings_position(uid: str) -> dict:
         )
 
     return {
-        "configured": bool(goal),
+        "configured": bool(goal), **await _buffer_extras(uid, goal, current, monthly_spending),
         "current_savings": _money(current),
         "target_amount": _money(target),
         "pct_funded": pct,
@@ -8291,6 +8291,12 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "get_payday_plan":
             from app.services.penny_payday_plan import exec_get_payday_plan
             return await exec_get_payday_plan(uid)
+        if name == "propose_set_savings_goal":
+            from app.services.penny_buffer import exec_propose_set_savings_goal
+            return await exec_propose_set_savings_goal(uid, args)
+        if name == "propose_clear_savings_goal":
+            from app.services.penny_buffer import exec_propose_clear_savings_goal
+            return await exec_propose_clear_savings_goal(uid)
         if name == "get_pay_split":
             from app.services.penny_pay_split import exec_get_pay_split
             return await exec_get_pay_split(uid, args.get("reference"))
@@ -8386,3 +8392,20 @@ TOOL_SCHEMAS.append(PAYDAY_PLAN_SCHEMA)
 from app.services.penny_pay_split import PAY_SPLIT_SCHEMA  # noqa: E402
 
 TOOL_SCHEMAS.append(PAY_SPLIT_SCHEMA)
+
+
+# B60: the safety buffer view fields and propose tools, appended last so no line
+# above moves. Everything lives in penny_buffer.py.
+from app.services.penny_buffer import (  # noqa: E402
+    PROPOSE_CLEAR_SAVINGS_GOAL_SCHEMA, PROPOSE_SET_SAVINGS_GOAL_SCHEMA,
+)
+
+
+async def _buffer_extras(uid: str, goal, current: float, monthly_spending: float) -> dict:
+    from app.services.penny_buffer import buffer_extras
+    return await buffer_extras(uid, goal, current, monthly_spending)
+
+
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_SET_SAVINGS_GOAL_SCHEMA)
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CLEAR_SAVINGS_GOAL_SCHEMA)
+PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)  # rebuilt after the B60 appends

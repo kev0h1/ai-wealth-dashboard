@@ -1322,6 +1322,24 @@ async def _execute_remove_merchant_label(uid: str, params: dict) -> dict:
     return await _route_delete_bill_label(params["merchant_key"], user={"email": uid})
 
 
+async def _execute_set_savings_goal(uid: str, params: dict) -> dict:
+    """B60: replays PUT /savings/goal (its own validation and cache invalidation)."""
+    from app.routers.savings import save_savings_goal as _route_save_savings_goal
+
+    body = {"target_type": params["target_type"], "account_ids": params.get("account_ids") or []}
+    for key in ("target_months", "target_amount"):
+        if params.get(key) is not None:
+            body[key] = params[key]
+    return await _route_save_savings_goal(body, user={"email": uid})
+
+
+async def _execute_clear_savings_goal(uid: str, params: dict) -> dict:
+    """B60: replays DELETE /savings/goal."""
+    from app.routers.savings import delete_savings_goal as _route_delete_savings_goal
+
+    return await _route_delete_savings_goal(user={"email": uid})
+
+
 _PROPOSAL_EXECUTORS = {
     "mirror_choice":              _execute_mirror_choice,
     "dismiss_recurring":          _execute_dismiss_recurring,
@@ -1369,6 +1387,8 @@ _PROPOSAL_EXECUTORS = {
     "pin_insight":                _execute_pin_insight,
     "label_merchant":             _execute_label_merchant,
     "remove_merchant_label":      _execute_remove_merchant_label,
+    "set_savings_goal":           _execute_set_savings_goal,
+    "clear_savings_goal":         _execute_clear_savings_goal,
 }
 
 

@@ -572,6 +572,7 @@ _PROPOSE_GROUPS = (
     ("cards", ("card",)),
     ("accounts", ("account", "ledger", "bank", "sync_now")),
     ("insights", ("insight", "trend_intent", "mirror")),
+    ("safety buffer", ("savings_goal",)),
     ("settings", ("set_",)),
 )
 
