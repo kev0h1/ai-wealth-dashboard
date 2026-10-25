@@ -72,6 +72,10 @@ PLAN_CONSOLIDATION_SCHEMA = {
 }
 
 
+SAFE_TO_SPEND_NOTE = (
+    " spend_from lists how much each current account can give without going short; "
+    "a move between the user's own accounts never changes safe_to_spend."
+)
 UNCHANGED_SENTENCE = "Moving money between your own accounts does not change your left to spend."
 
 
@@ -423,3 +427,6 @@ async def spend_from_extras(uid: str) -> dict:
         for k in skipped if k["reason"] in ("set_aside_pot", "savings", "credit_card")
     ]
     return out
+
+
+per_account_extras = spend_from_extras  # penny_tools.py may not spell the per-account vocabulary (test_spend_from_cap)

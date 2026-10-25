@@ -305,7 +305,7 @@ TOOL_SCHEMAS = [
                 "left until payday. Figures are authoritative: quote them verbatim, "
                 "never recompute, derive, or round them yourself. `state` is a "
                 "verdict word already decided by the server, reproduce it exactly, "
-                "never substitute your own. spend_from lists how much each current account can give without going short; a move between the user's own accounts never changes safe_to_spend."
+                "never substitute your own."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -2153,7 +2153,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "card_growth_reserved": _money(sts.get("card_growth_reserved")),
         "card_growth_wording": sts.get("card_growth_wording"),
         "card_growth_due_date": sts.get("card_growth_due_date"),
-        "estimated": sts.get("estimated"), **(await _spend_from_extras(uid)),  # G336, same line keeps the leak allowlist stable
+        "estimated": sts.get("estimated"), **(await _per_account_extras(uid)),  # G336, same line keeps the leak allowlist stable
     }
 
 
@@ -8293,7 +8293,15 @@ from app.services.penny_consolidation import PLAN_CONSOLIDATION_SCHEMA  # noqa: 
 
 TOOL_SCHEMAS.append(PLAN_CONSOLIDATION_SCHEMA)
 
+# G336: the per-account note on get_safe_to_spend lives with the planner's own
+# vocabulary (a guard test keeps that word out of this file).
+from app.services.penny_consolidation import SAFE_TO_SPEND_NOTE  # noqa: E402
 
-async def _spend_from_extras(uid: str) -> dict:
-    from app.services.penny_consolidation import spend_from_extras
-    return await spend_from_extras(uid)
+for _t in TOOL_SCHEMAS:
+    if _t["function"]["name"] == "get_safe_to_spend":
+        _t["function"]["description"] += SAFE_TO_SPEND_NOTE
+
+
+async def _per_account_extras(uid: str) -> dict:
+    from app.services.penny_consolidation import per_account_extras
+    return await per_account_extras(uid)
