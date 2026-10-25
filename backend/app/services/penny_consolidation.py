@@ -78,8 +78,8 @@ def _label(account: dict, name_tokens: list[str]) -> tuple[str, str | None]:
 
     name = display_account_name(account.get("name"))
     bank = _bank_name_of(account.get("provider"))
-    if bank and _is_holder_named(name, name_tokens):
-        return f"Your {bank} account", bank
+    if _is_holder_named(name, name_tokens):
+        return (f"Your {bank} account" if bank else "Your account"), bank
     return name or "Your account", bank
 
 
@@ -247,7 +247,15 @@ async def exec_plan_consolidation(
 
     resolved = await _resolve_account_for_propose(uid, target_account_id_or_name)
     if resolved.get("ambiguous"):
-        return resolved
+        from app.services.notifications import _user_name_tokens
+
+        tokens = await _user_name_tokens(uid)
+        out = dict(resolved)
+        out["matches"] = [
+            {**m, "name": _label({"name": m.get("name"), "provider": m.get("provider")}, tokens)[0]}
+            for m in resolved.get("matches") or []
+        ]
+        return out
     if resolved.get("error"):
         return _tool_error(resolved["error"])
     target = resolved.get("account")

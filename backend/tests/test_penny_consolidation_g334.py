@@ -206,3 +206,41 @@ def test_executor_error_when_left_to_spend_unavailable(monkeypatch):
     monkeypatch.setattr(pc, "_load_today", today)
     res = asyncio.run(pc.exec_plan_consolidation("u", "barclays"))
     assert "Left to spend is not available" in res["error"]
+
+
+def test_holder_named_without_a_known_bank_reads_your_account():
+    plan = kevin(accounts=[
+        _acc("bar", "Barclays Current", "ob-barclays"),
+        _acc("x", "HSBC Maingi K M", "bank"),
+    ], eligibility={"x": _elig(90)})
+    assert plan["legs"][0]["name"] == "Your account"
+    assert "Maingi" not in plan["summary"]
+
+
+def test_titled_name_with_empty_tokens_reads_your_bank_account():
+    plan = kevin(accounts=[
+        _acc("bar", "Barclays Current", "ob-barclays"),
+        _acc("x", "MR KEVIN MBITHI MAINGI", "ob-hsbc"),
+    ], eligibility={"x": _elig(90)}, name_tokens=[])
+    assert plan["legs"][0]["name"] == "Your HSBC account"
+
+
+def test_ambiguous_target_candidates_never_carry_a_holder_name(monkeypatch):
+    from app.services import penny_tools
+    import app.services.notifications as notifications
+
+    async def resolve(uid, name):
+        return {"ambiguous": True, "matches": [
+            {"id": "a", "name": "HSBC Maingi K M", "provider": "ob-hsbc"},
+            {"id": "b", "name": "HSBC Savings", "provider": "ob-hsbc"},
+        ]}
+
+    async def tokens(uid):
+        return ["maingi", "k", "m"]
+
+    monkeypatch.setattr(penny_tools, "_resolve_account_for_propose", resolve)
+    monkeypatch.setattr(notifications, "_user_name_tokens", tokens)
+    res = asyncio.run(pc.exec_plan_consolidation("u", "hsbc"))
+    assert res["ambiguous"] is True
+    assert [m["name"] for m in res["matches"]] == ["Your HSBC account", "HSBC Savings"]
+    assert [m["id"] for m in res["matches"]] == ["a", "b"]

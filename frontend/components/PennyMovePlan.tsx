@@ -25,7 +25,7 @@ export default function PennyMovePlan({ plan }: { plan: MovePlanBlock | null | u
     ? `${formatMovePlanMoney(block.total)} in total`
     : `Up to ${formatMovePlanMoney(block.total)} in total`;
   return (
-    <section data-penny-move-plan data-balances-hidden={hidden ? "true" : "false"} aria-label="Move route" className="mt-3 min-w-0">
+    <section data-penny-move-plan data-balances-hidden={hidden ? "true" : "false"} aria-label="Move route" className="min-w-0">
       <MoveRouteSummary sources={sources} destination={{ provider: block.target.provider, name: block.target.name }} />
       <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-100 px-3 dark:divide-slate-700 dark:border-slate-700">
         {block.legs.map((leg, i) => (
