@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { stableAcross } from "@/lib/pennyIosPanGuard";
-import { pennyBottomInset, pennyDockNext, pennyKeyboardVisible, pennyLayoutShrank, pennyViewport, type PennyDock } from "@/lib/pennyKeyboardViewport";
+import { pennyDockNext, pennyFixedGap, pennyKeyboardVisible, pennyLayoutShrank, pennyViewport, type PennyDock } from "@/lib/pennyKeyboardViewport";
 
 /** How long after the keyboard appears the dock may still settle. */
 const SETTLE_MS = 500;
@@ -40,6 +40,12 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
     const vv = window.visualViewport;
     let frame = 0;
     let confirmTimer = 0;
+    // Zero-size fixed probe: its bottom edge is exactly where `fixed; bottom: 0`
+    // lands, whichever interactive-widget strategy the browser applied (G335).
+    const probe = document.createElement("div");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = "position:fixed;left:0;bottom:0;width:0;height:0;visibility:hidden;pointer-events:none";
+    document.body.appendChild(probe);
     const read = () => {
       const layout = { width: window.innerWidth, height: window.innerHeight };
       const visual = vv ? { top: vv.offsetTop, left: vv.offsetLeft, width: vv.width, height: vv.height, scale: vv.scale } : null;
@@ -50,7 +56,7 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
       else layoutBaseline.current = Math.max(layoutBaseline.current, layout.height);
       const keyboardVisible = pennyKeyboardVisible(baseline.current, next);
       const layoutShrank = pennyLayoutShrank(layoutBaseline.current, layout.height);
-      const inset = keyboardVisible ? pennyBottomInset(layout.height, visual, layoutShrank) : 0;
+      const inset = keyboardVisible ? pennyFixedGap(probe.getBoundingClientRect().bottom || layout.height, visual) : 0;
       const now = performance.now();
       if (keyboardVisible && !dock.current) shownAt.current = now;
       dock.current = pennyDockNext(dock.current, { keyboardVisible, height: next.height, inset, top: next.top }, now - shownAt.current < SETTLE_MS);
@@ -80,6 +86,7 @@ export function usePennyKeyboard(enabled: boolean): PennyKeyboardState | null {
     const keyboardEvents = ["keyboardWillShow", "keyboardDidShow", "keyboardWillHide", "keyboardDidHide"];
     keyboardEvents.forEach(name => window.addEventListener(name, update));
     return () => {
+      probe.remove();
       cancelAnimationFrame(frame);
       window.clearTimeout(confirmTimer);
       vv?.removeEventListener("resize", update);

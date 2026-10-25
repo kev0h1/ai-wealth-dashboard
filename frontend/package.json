@@ -56,6 +56,7 @@
     "check:g244-penny-sheet-close": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g244-penny-sheet-close.test.mjs",
     "check:g247-penny-reopen": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g244-penny-sheet-close.test.mjs",
     "check:g249-penny-composer": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g249-penny-composer.test.mjs",
+    "check:g335-composer-keyboard": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g335-composer-keyboard.test.mjs",
     "check:g191-keyboard": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g191-keyboard.test.mjs",
     "check:bank-logos": "node scripts/check-bank-logos.mjs",
     "check:design-no-live-data": "node scripts/check-design-no-live-data.mjs",
