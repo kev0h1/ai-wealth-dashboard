@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, type ReactNode, type RefObject, useId, useRef, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, ShieldCheck } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { AimRing } from "@/components/AimProgress";
 import { useColours } from "@/components/ColourProvider";
@@ -12,6 +12,12 @@ import type { ActiveAim, CompletedAim, MirrorTrait } from "@/lib/api";
 import styles from "./mirrorFeedback.module.css";
 
 type Choice = "keep" | "change";
+
+export const MIRROR_CHOICE_RULE = "Choose separately for each trait. Coaching stays off until you choose change. If you keep one, Sorted will not coach you on it.";
+
+export function MirrorChoiceRule() {
+  return <p className={styles.choiceRule}><ShieldCheck size={16} className={styles.ruleIcon} aria-hidden="true" />{MIRROR_CHOICE_RULE}</p>;
+}
 
 export default function MirrorFeedbackCard({
   trait,
@@ -95,25 +101,27 @@ export default function MirrorFeedbackCard({
               {createElement(getCategoryIcon(categoryName ?? undefined), { size: 18, strokeWidth: 2 })}
             </span>
           )}
-          <div className={styles.titleCopy}>
-            <h2 id={`${statusId}-title`}><MoneyText text={mirrorText(trait.title, masked)} /></h2>
-            <p id={statusId}><MoneyText text={mirrorText(trait.narrative, masked)} /></p>
-          </div>
+          <h2 id={`${statusId}-title`} className={styles.title}><MoneyText text={mirrorText(trait.title, masked)} /></h2>
         </div>
+        <p id={statusId} className={styles.narrative}><MoneyText text={mirrorText(trait.narrative, masked)} /></p>
         {trait.evidence.length > 0 && (
           <div className={styles.evidence}>
-            {trait.evidence.map((item, index) => <p key={`${trait.id}-${index}`}><MoneyText text={mirrorText(item, masked)} /></p>)}
+            <p className={styles.evidenceLabel}>What we saw</p>
+            <ul className={styles.evidenceList}>{trait.evidence.map((item, index) => <li key={`${trait.id}-${index}`}><MoneyText text={mirrorText(item, masked)} /></li>)}</ul>
           </div>
         )}
-        <div className={styles.choiceGrid} aria-label={mirrorText(`Choose what to do with ${trait.title}`, masked)}>
+      </header>
+      <div className={styles.choices}>
+        <p className={styles.choicePrompt}>How should Sorted use this?</p>
+        <div className={styles.choiceGrid} role="group" aria-label={mirrorText(`Choose what to do with ${trait.title}`, masked)} aria-busy={busy === "choice"}>
           <button
             type="button"
             className={styles.choice}
             aria-pressed={choice === "keep"}
             disabled={busy !== null}
-            onClick={() => { if (choice !== "keep") void run("choice", () => onChoice("keep"), "Your choice has been saved."); }}
+            onClick={() => { if (choice !== "keep") void run("choice", () => onChoice("keep"), ""); }}
           >
-            Keep this trait
+            Keep it
           </button>
           <button
             type="button"
@@ -121,21 +129,15 @@ export default function MirrorFeedbackCard({
             className={styles.choice}
             aria-pressed={choice === "change"}
             disabled={busy !== null}
-            onClick={() => { if (choice !== "change") void run("choice", () => onChoice("change"), "Your choice has been saved."); }}
+            onClick={() => { if (choice !== "change") void run("choice", () => onChoice("change"), ""); }}
           >
-            Change this trait
+            Help me change
           </button>
         </div>
-      </header>
+      </div>
 
-      <div className={styles.body}>
-        {!canCoach ? (
-          <p className={styles.quiet}>
-            {choice === "keep"
-              ? "That is part of how you do things. It stays as it is, with no coaching on this trait."
-              : "Choose what feels right for this trait. Coaching stays off until you choose change."}
-          </p>
-        ) : loading ? (
+      {(canCoach || choice === "keep" || busy !== null || message || actionError) && <div className={styles.body}>
+        {!canCoach ? (choice === "keep" ? <p className={styles.quiet}>Kept. No coaching will start for this trait.</p> : null) : loading ? (
           <div className={styles.loading} aria-label="Loading aim feedback">
             <span /><span /><span />
           </div>
@@ -169,8 +171,9 @@ export default function MirrorFeedbackCard({
         ) : nextStep ? nextStep : (
           <p className={styles.quiet}>There is no current check for this trait yet.</p>
         )}
+        {busy === "choice" && <p className={styles.status} role="status">Saving your choice…</p>}
         {(message || actionError) && <p className={styles.status} role="status">{actionError || message}</p>}
-      </div>
+      </div>}
     </section>
   );
 }

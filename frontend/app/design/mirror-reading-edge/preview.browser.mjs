@@ -43,8 +43,8 @@ const layout = async label => {
 try{
   for(const variant of ["a","b"])for(const mode of ["light","dark"]){
     await go(`variant=${variant}&mode=${mode}`);await layout(`${variant}-${mode}-all`);await b.shot(`${variant}-${mode}-all`,{full:true});
-    await click("Keep this trait",card("orchestrator"));await b.waitFor(`${card("orchestrator")}.textContent.includes('no coaching on this trait')`);
-    await click("Change this trait",card("signature_pleasure"));await b.waitFor(`${card("signature_pleasure")}.textContent.includes('Set an aim for Eating Out')`);
+    await click("Keep it",card("orchestrator"));await b.waitFor(`${card("orchestrator")}.textContent.includes('No coaching will start for this trait')`);
+    await click("Help me change",card("signature_pleasure"));await b.waitFor(`${card("signature_pleasure")}.textContent.includes('Set an aim for Eating Out')`);
     assert.equal(await b.evaluate("!!document.querySelector('[data-sheet-frame]')"),false,"choosing change never auto-opens an aim editor");
     await click("Set an aim for Eating Out",card("signature_pleasure"));await b.waitFor("document.querySelector('[data-sheet-frame]')");
     await b.evaluate("Promise.all(document.getAnimations().map(animation=>animation.finished.catch(()=>{}))).then(()=>true)");
@@ -56,8 +56,8 @@ try{
     await click("Stop checking this aim",card("signature_pleasure"));await b.waitFor("document.body.innerText.includes('Confirm stop')");await click("Keep checking");
     await click("Stop checking this aim",card("signature_pleasure"));await click("Confirm stop");await b.waitFor(`${card("signature_pleasure")}.textContent.includes('Set an aim for Eating Out')`);
     await go(`variant=${variant}&mode=${mode}&state=completed`);await click("Keep this pace",card("signature_pleasure"));await b.waitFor(`${card("signature_pleasure")}.textContent.includes('Your chosen pace is being checked')`);
-    await go(`variant=${variant}&mode=${mode}&state=save-error`);await click("Keep this trait",card("saving_habit"));await b.waitFor("document.body.innerText.includes('That did not save')");
-    await click("Keep this trait",card("saving_habit"));await b.waitFor(`${card("saving_habit")}.textContent.includes('no coaching on this trait')`);
+    await go(`variant=${variant}&mode=${mode}&state=save-error`);await click("Keep it",card("saving_habit"));await b.waitFor("document.body.innerText.includes('That did not save')");
+    await click("Keep it",card("saving_habit"));await b.waitFor(`${card("saving_habit")}.textContent.includes('No coaching will start for this trait')`);
     await go(`variant=${variant}&mode=${mode}&state=error`);await click("Try again",card("signature_pleasure"));await b.waitFor(`${card("signature_pleasure")}.textContent.includes('Set an aim for Eating Out')`);
   }
   for(const variant of ["a","b"])for(const width of [320,768,1280]){
