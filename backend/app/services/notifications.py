@@ -631,9 +631,10 @@ def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> s
     day_label = f"day {days_elapsed}"
     rounded = round(multiple, 1)
     if 1.9 <= rounded <= 2.1:
-        return f"about twice your usual pace for {day_label}."
+        return f"About twice what you usually spend by {day_label}."
     if rounded > 2.1:
-        return f"about {rounded:.1f}× your usual pace for {day_label}."
+        # Whole number, round-half-up to match JS Math.round (multiple > 0).
+        return f"About {math.floor(multiple + 0.5)} times what you usually spend by {day_label}."
     # Round-half-up, not Python's round() (banker's rounding), to match the
     # frontend's `Math.round` (half away from zero) at the .5 boundary -
     # e.g. round(1234.5) rounds to 1234 in Python but 1235 in JS. `excess`

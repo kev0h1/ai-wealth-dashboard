@@ -75,14 +75,14 @@ function paceBadgeClasses(multiple: number): string {
 export function paceLine(multiple: number, excess: number, daysElapsed: number): string {
   const dayLabel = `day ${daysElapsed}`;
   const rounded = Math.round(multiple * 10) / 10;
-  if (rounded >= 1.9 && rounded <= 2.1) return `about twice your usual pace for ${dayLabel}.`;
-  if (rounded > 2.1) return `about ${rounded.toFixed(1)}× your usual pace for ${dayLabel}.`;
+  if (rounded >= 1.9 && rounded <= 2.1) return `About twice what you usually spend by ${dayLabel}.`;
+  if (rounded > 2.1) return `About ${Math.round(multiple)} times what you usually spend by ${dayLabel}.`;
   return `${fmtRaw(excess)} more than usual by ${dayLabel}.`;
 }
 
 function causeLine(cause: SpendVerdictCause[]): string | null {
   if (!cause.length) return null;
-  return `Biggest: ${cause.map((c) => `${c.name} ${fmtRaw(c.amount)}`).join(" · ")}.`;
+  return `Biggest payments: ${cause.map((c) => `${c.name} ${fmtRaw(c.amount)}`).join(", ")}.`;
 }
 
 function IconChip({
@@ -393,7 +393,7 @@ function NotableFigureBadge({
             localResolved ? "opacity-0 pointer-events-none" : "opacity-100"
           }`}
         >
-          {multiple.toFixed(1)}× usual
+          {Math.round(multiple)}× usual
         </span>
         <span
           className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 transition-opacity duration-200 ${
@@ -504,7 +504,7 @@ function NotableCardBody({
       >
         <div className="overflow-hidden">
           <p className="mt-2 text-[12px] text-slate-600 dark:text-slate-400">
-            {notable.prior_intent?.question ?? "Was this a one-off, or the new normal?"}
+            {notable.prior_intent?.question ?? "Is this a one-off, or will it happen again?"}
           </p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
@@ -517,7 +517,7 @@ function NotableCardBody({
                 <RotateCcw size={15} aria-hidden="true" />
                 {pending === "one_off" ? "Saving…" : "One-off"}
               </span>
-              <span className="mt-1 text-[10px] font-medium leading-4 text-slate-500 dark:text-slate-400">Keep your usual pace</span>
+              <span className="mt-1 text-[10px] font-medium leading-4 text-slate-500 dark:text-slate-400">Keep my usual</span>
             </button>
             <button
               type="button"
@@ -525,8 +525,8 @@ function NotableCardBody({
               onClick={() => onNewNormalRequest?.(notable.category)}
               className="flex min-h-[68px] flex-col items-start justify-center rounded-xl border border-slate-300 bg-white px-3 text-left text-slate-700 transition-[background-color,border-color,transform] hover:border-indigo-300 hover:bg-indigo-50/50 active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none dark:border-slate-500 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-indigo-400/50 dark:hover:bg-indigo-400/10"
             >
-              <span className="flex items-center gap-2 text-[13px] font-bold"><TrendingUp size={15} aria-hidden="true" />New normal</span>
-              <span className="mt-1 text-[10px] font-medium leading-4 text-slate-500 dark:text-slate-400">Review a new usual</span>
+              <span className="flex items-center gap-2 text-[13px] font-bold"><TrendingUp size={15} aria-hidden="true" />It&apos;ll happen again</span>
+              <span className="mt-1 text-[10px] font-medium leading-4 text-slate-500 dark:text-slate-400">Update my usual</span>
             </button>
           </div>
           {intentError && (

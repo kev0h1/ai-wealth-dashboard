@@ -1737,7 +1737,7 @@ def test_get_spend_verdict_enrichment_fields_present(monkeypatch):
             "moved": [{"kind": "pots", "label": "To your pots", "amount": 500.0, "payments_count": 1}],
             "notables": [{"category": "Bills", "spent": 340.0, "multiple": 2.1,
                             "cause": [{"name": "British Gas", "amount": 200.0}],
-                            "consequence_line": {"text": "Bills alone accounts for most of that."}}],
+                            "consequence_line": {"text": "Most of this is Bills."}}],
         }
 
     monkeypatch.setattr(penny_tools_module, "compute_spend_verdict", fake_verdict)
@@ -1751,7 +1751,7 @@ def test_get_spend_verdict_enrichment_fields_present(monkeypatch):
     assert result["quiet_flags"][0]["category"] == "Subscriptions"
     assert result["moved"][0]["label"] == "To your pots"
     assert result["notables"][0]["cause"][0]["name"] == "British Gas"
-    assert result["notables"][0]["consequence_line"] == "Bills alone accounts for most of that."
+    assert result["notables"][0]["consequence_line"] == "Most of this is Bills."
 
 
 # ── 8. calculate ──────────────────────────────────────────────────────────

@@ -59,7 +59,10 @@ FIXTURES = [
     (1.3, 1234.5, 13),     # more-than-usual branch, exact .5 (Python/JS diverge)
     (1.05, 142.5, 5),      # more-than-usual branch, exact .5, different day
     (2.0, 340.0, 13),      # exactly-twice branch
-    (3.4, 900.0, 22),      # N.Nx-multiple branch
+    (3.4, 900.0, 22),      # whole-number multiple branch
+    (368.8, 5000.0, 9),    # large multiple rounds to 369
+    (2.6, 400.0, 10),      # rounds up to 3
+    (3.5, 400.0, 10),      # exact .5 rounds half up to 4
 ]
 
 
@@ -125,5 +128,5 @@ def test_backend_pace_line_rounds_half_up_like_js_math_round():
 def test_backend_pace_line_twice_and_multiple_wording_unchanged():
     # G151 only changed the more-than-usual branch; these two are untouched
     # and must stay untouched.
-    assert _pace_line(2.0, 340.0, 13, SYM) == "about twice your usual pace for day 13."
-    assert _pace_line(3.4, 900.0, 22, SYM) == "about 3.4× your usual pace for day 22."
+    assert _pace_line(2.0, 340.0, 13, SYM) == "About twice what you usually spend by day 13."
+    assert _pace_line(3.4, 900.0, 22, SYM) == "About 3 times what you usually spend by day 22."

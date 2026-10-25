@@ -117,24 +117,24 @@ Backend semantics referenced below: `/root/ai-wealth-dashboard/backend/app/servi
 - **Questions**: WHERE — which payments? WHAT — does it include refunds? WHY is it different from the same category's row in the majority list (it isn't listed twice — notables are removed from majority, SpendVerdictView promoted-set logic)? HOW — does correcting one payment move this?
 
 ### 2.4 Notable card — pace line (`paceLine`, SpendVerdictView:56-62)
-- **Shows**: one of three sentences from `multiple`, `excess`, `daysElapsed`: "about twice your usual pace for day 23." / "about 4.3× your usual pace for day 23." / "running about £120 ahead of usual for day 23."
+- **Shows**: one of three sentences from `multiple`, `excess`, `daysElapsed`: "About twice what you usually spend by day 23." / "About 4 times what you usually spend by day 23." / "running about £120 ahead of usual for day 23."
 - **Questions**: WHAT — "usual pace for day 23": is my usual front-loaded by bills? WHY — £120 ahead: ahead of what number exactly (the underlying `usual_by_now` is in `notable.pace` but never rendered)? WHEN — will this self-correct by period end? WHY does the wording change between × and £ (threshold at 1.9-2.1)?
 
 ### 2.5 Notable card — consequence line (SpendVerdictView:361-365)
 - **Shows**: `notable.consequence_line.text` — server-priced consequence (from `spend_impact`), deliberately un-alarmed styling. Absent when unpriced.
 - **Questions**: WHY this consequence — what assumption (rest of period at usual pace?) produced it? WHAT — is it a prediction or a fact? WHERE — what does it hit: bills, savings, left to spend? HOW — what would make it go away? WHY does one card have it and another doesn't?
 
-### 2.6 Notable card — "Biggest:" cause line (`causeLine`, SpendVerdictView:64-67)
-- **Shows**: `Biggest: {name} £{amount} · {name} £{amount}.` from `notable.cause[]` (backend `_top_causes` over the category's debit transactions), clamped to 2 lines.
+### 2.6 Notable card — "Biggest payments:" cause line (`causeLine`, SpendVerdictView:64-67)
+- **Shows**: `Biggest payments: {name} £{amount}, {name} £{amount}.` from `notable.cause[]` (backend `_top_causes` over the category's debit transactions), clamped to 2 lines.
 - **Questions**: WHERE — is that a merchant or a raw bank string? WHY only two/three names — what's the rest? WHAT — is "biggest" by single payment or by merchant total? HOW — tap a name to filter (not tappable; only the whole card routes).
 
 ### 2.7 "See the {payments_count} payment(s) ›" (SpendVerdictView:372-379)
 - **Shows**: `notable.payments_count`. **Do**: `onOpenCategory(name)` → SpendPage pushes `/transactions?category=X&from=ISO&to=ISO` (SpendPage:746-752) — hub with two removable chips.
 - **Questions**: WHERE — the actual payments. WHAT — why does the hub show more/fewer than N once I remove the period chip? WHEN — the period chip: what happens if I widen? HOW — recategorise from there (each row → TeachingSheet).
 
-### 2.8 Intent pair — question + "One-off" / "New normal" (SpendVerdictView:393-427)
-- **Shows**: `notable.prior_intent?.question` (softened repeat-ask when this category was already filed new-normal before) else "Was this a one-off, or the new normal?".
-- **Do**: "One-off" → `POST /trends/intent {answer:"one_off"}` (awaited, real error surface: "Couldn't save that, try again."), then card collapses + `ResolveToast`. "New normal" → never posts; opens `IntentConsentSheet` (§4.1).
+### 2.8 Intent pair — question + "One-off" / "It'll happen again" (SpendVerdictView:393-427)
+- **Shows**: `notable.prior_intent?.question` (softened repeat-ask when this category was already filed new-normal before) else "Is this a one-off, or will it happen again?".
+- **Do**: "One-off" → `POST /trends/intent {answer:"one_off"}` (awaited, real error surface: "Couldn't save that, try again."), then card collapses + `ResolveToast`. "It'll happen again" (formerly "New normal") → never posts; opens `IntentConsentSheet` (§4.1).
 - **Questions**: WHAT happens if I say one-off — does it hide the card, silence future alerts, or change my baseline? WHAT does "new normal" change (that's exactly what the consent sheet answers)? WHY is it asking again — I said this last month (that's `prior_intent`). HOW do I undo (toast Undo → `DELETE /spend/intent/{category}`)? WHEN — does an answer apply to this period only or forever? WHERE does the answer show up elsewhere (Home, aims, left to spend)?
 
 ### 2.9 AimBlock — three states (SpendVerdictView:116-247)
