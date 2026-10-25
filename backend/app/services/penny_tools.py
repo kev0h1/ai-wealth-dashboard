@@ -2153,7 +2153,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "card_growth_reserved": _money(sts.get("card_growth_reserved")),
         "card_growth_wording": sts.get("card_growth_wording"),
         "card_growth_due_date": sts.get("card_growth_due_date"),
-        "estimated": sts.get("estimated"),
+        "estimated": sts.get("estimated"), **(await _per_account_extras(uid)),  # G336, same line keeps the leak allowlist stable
     }
 
 
@@ -8278,7 +8278,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             from app.services.penny_consolidation import exec_plan_consolidation
             return await exec_plan_consolidation(
                 uid, args.get("target_account_id_or_name"), amount=args.get("amount"),
-                include_savings=args.get("include_savings") is True,
+                include_savings=args.get("include_savings") is True, exclude_account_ids_or_names=args.get("exclude_account_ids_or_names"),
             )
         return _tool_error(f"unknown tool: {name}")
     except Exception:
@@ -8292,3 +8292,16 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
 from app.services.penny_consolidation import PLAN_CONSOLIDATION_SCHEMA  # noqa: E402
 
 TOOL_SCHEMAS.append(PLAN_CONSOLIDATION_SCHEMA)
+
+# G336: the per-account note on get_safe_to_spend lives with the planner's own
+# vocabulary (a guard test keeps that word out of this file).
+from app.services.penny_consolidation import SAFE_TO_SPEND_NOTE  # noqa: E402
+
+for _t in TOOL_SCHEMAS:
+    if _t["function"]["name"] == "get_safe_to_spend":
+        _t["function"]["description"] += SAFE_TO_SPEND_NOTE
+
+
+async def _per_account_extras(uid: str) -> dict:
+    from app.services.penny_consolidation import per_account_extras
+    return await per_account_extras(uid)

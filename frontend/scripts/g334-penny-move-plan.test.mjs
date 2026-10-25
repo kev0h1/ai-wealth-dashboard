@@ -58,6 +58,17 @@ const plan = {
   assert.equal(lib.nothingSpareLine(many), "A, B and 2 more have nothing spare");
   assert.equal(lib.nothingSpareLine([{ name: "A", reason: "nothing_spare" }, { name: "B", reason: "nothing_spare" }]), "A and B have nothing spare");
   assert.equal(lib.nothingSpareLine([{ name: "Pot", reason: "set_aside_pot" }]), null);
+  assert.equal(lib.leftOutLine([{ name: "Barclays savings", reason: "excluded_by_user" }]), "Barclays savings left out as you asked");
+  assert.equal(lib.leftOutLine(plan.skipped), null);
+}
+
+// ---- 2b. optional unmatched exclusions (G336) ----------------------------------
+{
+  const ok = lib.normalisePennyMovePlan({ ...plan, unmatched_exclusions: ["Halifax"] });
+  assert.deepEqual(ok.unmatchedExclusions, ["Halifax"]);
+  assert.equal(lib.normalisePennyMovePlan({ ...plan, unmatched_exclusions: [""] }), null);
+  assert.equal(lib.normalisePennyMovePlan({ ...plan, unmatched_exclusions: "x" }), null);
+  assert.equal(lib.normalisePennyMovePlan(plan).unmatchedExclusions, undefined);
 }
 
 // ---- 3. the card renders the route, rows, total, whisper; no control ----------

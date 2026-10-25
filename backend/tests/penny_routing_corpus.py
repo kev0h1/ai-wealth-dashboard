@@ -62,6 +62,25 @@ ROUTING_CASES = [
          question="Out of what's left to spend, how much should I move from the other current accounts into Barclays?", expect_any=["200"]),
     dict(id="route-17-move-graphic", screen="home", first="plan_consolidation", required=["plan_consolidation"],
          question="Can you draw a graphic of the money moves into Barclays?", expect_any=["200"]),
+    # G336: Kevin's own phrasings from the stored thread (2026-10-24), verbatim. The corpus is
+    # single-turn, so the three follow-ups (route-19, route-20, route-23) carry their context in the
+    # question; the multi-turn replay lives in tests/test_penny_move_replay_g336.py.
+    dict(id="route-18-kevin-consolidate-premier", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Which accounts have the left to spend and how can I consolidate it in my premier account", expect_any=["200"]),
+    dict(id="route-19-kevin-not-savings", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="No I don't want to touch my savings, which accounts should I move from into my Barclays account", expect_any=["200"]),
+    dict(id="route-20-kevin-monzo-in-plan", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Isn't the Monzo money already account for in a plan, which accounts can I move to my Barclays premier account", expect_any=["200"]),
+    dict(id="route-21-kevin-visualise", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Visualise that move to my Barclays account", expect_any=["200"]),
+    dict(id="route-22-kevin-rather-spend-barclays", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="I know I can spend a certain amount from certain accounts which have some money left to spend, but I'd rather spend from my Barclays premier account, how much can I move to it from the other accounts", expect_any=["200"]),
+    dict(id="route-23-kevin-where-414", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Where does the 414 come from, which accounts can I move money from into my Barclays account", expect_any=["200"]),
+    dict(id="route-24-kevin-spend-from-barclays", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Okay if I want to spend what's left to spend from my Barclays account, how can I move the money", expect_any=["200"]),
+    dict(id="route-25-kevin-which-236", screen="home", first="plan_consolidation", required=["plan_consolidation"],
+         question="Which accounts should I move the 236 from into my Barclays account", expect_any=["200"]),
 ]
 
 # category -> {this period, last-n-months} fixtures
@@ -136,8 +155,8 @@ def fake_execute_factory(real_execute, base_fixtures, verdict_by_offset, categor
             return {"verdict": f"Yes, £{amount:,.0f} fits, with £{412 - amount:,.0f} of safe to spend left.",
                     "amount": _money(amount), "safe_to_spend": _money(412), "remaining_after": _money(412 - amount)}
         if name == "plan_consolidation":
-            return {"summary": "You could move up to £200.00 into your Barclays account: £146.00 from NatWest and £54.00 from Starling. Each account keeps enough for its own bills and set-asides.",
-                    "total": _money(200, 2), "legs": [{"name": "NatWest", "amount": _money(146, 2)},
+            return {"summary": "You could move up to £200.00 into your Barclays account: £146.00 from NatWest and £54.00 from Starling. Each account keeps enough for its own bills and set-asides. Moving money between your own accounts does not change your left to spend.",
+                    "left_to_spend_unchanged": True, "pool": _money(236, 2), "total": _money(200, 2), "legs": [{"name": "NatWest", "amount": _money(146, 2)},
                                                       {"name": "Starling", "amount": _money(54, 2)}]}
         if name in base_fixtures:
             return base_fixtures[name]

@@ -29,7 +29,7 @@ MAX_SKIPPED = 12
 MAX_NAME = 80
 MAX_SUMMARY = 600
 MAX_BLOCK_JSON = 8000
-REASONS = ("nothing_spare", "set_aside_pot", "savings", "credit_card", "excluded", "no_data", "is_target")
+REASONS = ("nothing_spare", "set_aside_pot", "savings", "credit_card", "excluded", "excluded_by_user", "no_data", "is_target")
 
 
 class MovePlanInvalid(ValueError):
@@ -57,7 +57,7 @@ def _num(v, what: str, *, optional: bool = False) -> float | None:
 def validate_move_plan(raw) -> dict:
     if not isinstance(raw, dict):
         raise MovePlanInvalid("move plan must be an object")
-    if set(raw) - {"kind", "target", "legs", "total", "pool", "requested", "shortfall", "summary", "skipped"}:
+    if set(raw) - {"kind", "target", "legs", "total", "pool", "requested", "shortfall", "summary", "skipped", "unmatched_exclusions"}:
         raise MovePlanInvalid("unknown move plan field")
     if raw.get("kind") != "move_plan":
         raise MovePlanInvalid("bad kind")
@@ -92,6 +92,12 @@ def validate_move_plan(raw) -> dict:
             if not isinstance(s, dict) or set(s) - {"name", "reason"} or s.get("reason") not in REASONS:
                 raise MovePlanInvalid("bad skipped entry")
             skipped.append({"name": _text(s.get("name"), MAX_NAME, "skipped name"), "reason": s["reason"]})
+    unmatched_in = raw.get("unmatched_exclusions")
+    unmatched: list[str] = []
+    if unmatched_in is not None:
+        if not isinstance(unmatched_in, list) or len(unmatched_in) > 5:
+            raise MovePlanInvalid("bad unmatched_exclusions list")
+        unmatched = [_text(u, 60, "unmatched exclusion") for u in unmatched_in]
     out = {
         "kind": "move_plan", "target": target, "legs": legs,
         "total": _num(raw.get("total"), "total"),
@@ -101,6 +107,8 @@ def validate_move_plan(raw) -> dict:
         "summary": _text(raw.get("summary"), MAX_SUMMARY, "summary"),
         "skipped": skipped,
     }
+    if unmatched:
+        out["unmatched_exclusions"] = unmatched
     if len(json.dumps(out, ensure_ascii=False)) > MAX_BLOCK_JSON:
         raise MovePlanInvalid("move plan too large")
     return out

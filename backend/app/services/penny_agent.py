@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_chart, penny_move_plan, penny_period, penny_table
+from app.services import penny_chart, penny_move_plan, penny_period, penny_reply_guards, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -527,7 +527,15 @@ _SYSTEM_PROMPT = (
     "which include set-aside pots and each account's own bills). Quote its `summary` "
     "verbatim, never add a figure it did not return, and never offer to move the money: "
     "the app never moves money. When it returns legs the app draws the route below your "
-    "reply, so a request for a graphic is answered by it, not by a chart.\n\n"
+    "reply, so a request for a graphic is answered by it, not by a chart. If the user "
+    "has said not to touch savings, pots or a named account, keep that exclusion for the "
+    "rest of the conversation, pass it in exclude_account_ids_or_names, and never list that "
+    "account as a source again. Moving money between the user's own accounts never changes "
+    "the left to spend figure, so never say the figure rises or falls because of a move. "
+    "When a prior turn in the thread answered a move question from balances, do not repeat "
+    "it: call plan_consolidation now. If the user has not named the account to move into, "
+    "use the one they named earlier in the thread; if there is none, ask which account in "
+    "one line instead of reading balances.\n\n"
     "OUTPUT FORMAT: once you have everything you need for an IN-SCOPE "
     "question, respond with EXACTLY two lines, nothing before or after:\n"
     "HEADLINE: <under 8 words>\n"
@@ -844,6 +852,30 @@ def _guarded_pair(headline: str, reply: str, periods: list[dict], uid: str) -> t
         return headline, reply
 
 
+# Scope: only a turn where plan_consolidation ran (coordinator rejection 2026-10-25: a reply guard must never rewrite text outside the tool's own turn).
+def _move_guarded(reply: str, plan_results: list[dict], uid: str, all_results: list[dict] | None = None) -> str:
+    """G336: the figure guard (plan_consolidation ran) and the "a move changes
+    left to spend" sentence guard. Never raises; the original reply stands on
+    any error. Logs a count only, never an amount."""
+    if not plan_results:
+        return reply
+    try:
+        if plan_results:
+            reply, stray = penny_reply_guards.guard_consolidation_reply(reply, plan_results, all_results)
+            if stray:
+                logger.warning(
+                    "penny_agent: reply for %s carried %d figure(s) plan_consolidation did not return; "
+                    "replaced with the tool summary", uid, stray,
+                )
+        reply, changed = penny_reply_guards.fix_unchanged_claim(reply)
+        if changed:
+            logger.warning("penny_agent: reply for %s claimed a move changes left to spend; sentence replaced", uid)
+        return reply
+    except Exception:
+        logger.exception("penny_reply_guards error at call site for %s", uid)
+        return reply
+
+
 def _guarded(text: str, periods: list[dict], uid: str) -> str:
     return _guarded_pair("", text, periods, uid)[1]
 
@@ -973,6 +1005,8 @@ async def run_penny_agent(
         table_block: dict | None = None
         chart_block: dict | None = None
         move_plan_block: dict | None = None
+        all_results: list[dict] = []  # G336: every tool result of the turn (allowed figures)
+        plan_results: list[dict] = []  # G336: every plan_consolidation result, for the figure guard
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
         repaired = False
@@ -1122,6 +1156,10 @@ async def run_penny_agent(
                         periods.extend(penny_period.collect_periods(result))
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
+                        if isinstance(result, dict):
+                            all_results.append(result)
+                        if name == "plan_consolidation" and isinstance(result, dict):
+                            plan_results.append(result)
                         logger.info(
                             "penny_agent: tool=%s args=%s ms=%d uid=%s",
                             name, {k: v for k, v in call_args.items() if k != "_last_result_ids"}, dt_ms, uid,
@@ -1192,7 +1230,7 @@ async def run_penny_agent(
                         continue
                     prose = safe_prose(content)
                     if prose:
-                        prose = _guarded(prose, periods, uid)
+                        prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
                         if new_last_result:
@@ -1203,6 +1241,7 @@ async def run_penny_agent(
                 # G265: a period phrase the model wrote that no tool result
                 # backs is replaced with the tool's own label.
                 headline, reply = _guarded_pair(headline, reply, periods, uid)
+                reply = _move_guarded(reply, plan_results, uid, all_results)
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,
