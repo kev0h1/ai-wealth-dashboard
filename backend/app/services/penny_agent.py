@@ -852,10 +852,13 @@ def _guarded_pair(headline: str, reply: str, periods: list[dict], uid: str) -> t
         return headline, reply
 
 
+# Scope: only a turn where plan_consolidation ran (coordinator rejection 2026-10-25: a reply guard must never rewrite text outside the tool's own turn).
 def _move_guarded(reply: str, plan_results: list[dict], uid: str, all_results: list[dict] | None = None) -> str:
     """G336: the figure guard (plan_consolidation ran) and the "a move changes
     left to spend" sentence guard. Never raises; the original reply stands on
     any error. Logs a count only, never an amount."""
+    if not plan_results:
+        return reply
     try:
         if plan_results:
             reply, stray = penny_reply_guards.guard_consolidation_reply(reply, plan_results, all_results)

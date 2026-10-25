@@ -181,12 +181,32 @@ def test_model_answering_from_balances_after_the_tool_is_replaced(monkeypatch, k
     assert result["move_plan"]["total"] == 200.0  # the card is untouched by the guard
 
 
-def test_would_rise_sentence_replaced_even_without_the_tool(monkeypatch, kevin_world):
-    script = [_final_payload(
-        "HEADLINE: About that move\nREPLY: You could shift money across. "
-        "Your left to spend would rise to £650 if you move it. Nothing else changes."
-    )]
+def test_no_tool_called_reply_untouched(monkeypatch, kevin_world):
+    text = ("You could shift money across. Your left to spend would rise to £650 if you move it. "
+            "Nothing else changes.")
+    result, _ = _run(monkeypatch, THREAD_ONE, QUESTION_ONE, [_final_payload(f"HEADLINE: About that move\nREPLY: {text}")])
+    assert result["reply"] == text
+
+
+def test_unrelated_turn_with_another_tool_is_left_exactly_as_is(monkeypatch, kevin_world):
+    text = "Your left to spend would fall if you move £500 to your ISA."
+
+    async def fake(uid, name, args):
+        return {"category": "Groceries", "this_period": {"spent": {"raw": 286.4, "formatted": "£286"}}}
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake)
+    script = [_tool_call_payload("get_category_spend", {"category": "Groceries"}),
+              _final_payload(f"HEADLINE: Groceries\nREPLY: {text}")]
+    result, _ = _run(monkeypatch, [], "How much on groceries?", script)
+    assert result["tools_used"] == ["get_category_spend"] and result["reply"] == text
+
+
+def test_would_rise_sentence_replaced_after_the_tool(monkeypatch, kevin_world):
+    script = [
+        _tool_call_payload("plan_consolidation", {"target_account_id_or_name": "Barclays Premier"}),
+        _final_payload("HEADLINE: About that move\nREPLY: You could move £200 into Barclays. "
+                       "Your left to spend would rise if you move it. Nothing else changes."),
+    ]
     result, _ = _run(monkeypatch, THREAD_ONE, QUESTION_ONE, script)
-    assert "£650" not in result["reply"] and "would rise" not in result["reply"]
-    assert UNCHANGED_SENTENCE in result["reply"]
-    assert result["reply"].startswith("You could shift money across.") and result["reply"].endswith("Nothing else changes.")
+    assert "would rise" not in result["reply"] and UNCHANGED_SENTENCE in result["reply"]
+    assert result["reply"].startswith("You could move £200 into Barclays.") and result["reply"].endswith("Nothing else changes.")
