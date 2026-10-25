@@ -84,7 +84,11 @@ def amount_description_regex(amount: float) -> str:
 def amount_clause(amount: float) -> dict:
     """Mongo clause: the home amount, an original-currency amount field, or
     the figure inside the description. Amounts are stored absolute."""
-    lo, hi = round(amount - 0.005, 4), round(amount + 0.005, 4)
+    # B59: a whole-pound figure ("160") is how a rounded quote of £159.70
+    # comes back from the user or the model, so it matches within half a
+    # pound. A figure with pence stays exact (+/- 0.005).
+    tol = 0.5 if float(amount) == round(float(amount)) else 0.005
+    lo, hi = round(amount - tol, 4), round(amount + tol, 4)
     return {"$or": [
         {"amount": {"$gte": lo, "$lte": hi}},
         {"original_amount": {"$gte": lo, "$lte": hi}},

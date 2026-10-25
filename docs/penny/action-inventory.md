@@ -22,6 +22,7 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `get_savings_position` | read | savings cashflow + `savings_goals_col` + `compute_safe_to_spend` period gate |
 | `get_debt_position` | read | debt plan engine + card terms |
 | `get_goals` | read | `app.routers.commitments.list_commitments` |
+| `get_set_asides` | read | `app.routers.allocations.list_allocations` + `get_accounts` (B59) |
 | `check_affordability(amount, timeframe?)` | read | `app.services.affordability` |
 | `get_category_spend(category?, months?)` | read | `compute_spend_verdict` + raw txn rows |
 | `get_insights` | read | `savings_insights_col` ordered as `GET /savings-insights` (G283: facts only, no saving figures) |

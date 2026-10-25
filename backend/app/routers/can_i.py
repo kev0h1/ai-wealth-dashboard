@@ -309,7 +309,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             })
     # G254: the previous answer's transaction ids ride on the stored chat so
     # "these" still resolves after the text window has moved on.
-    last_result = await penny_conversations.latest_last_result(uid, cid) if cid else None
+    last_result = await penny_conversations.latest_focus(uid, cid) if cid else None
     if last_result:
         result = await _can_i_answer(body, user, last_result=last_result)
     else:
@@ -333,13 +333,14 @@ async def _record_exchange(uid: str, cid: str, question: str, result: dict, last
     """Append the question and the reply text to the chat. Never raises: a
     storage failure must not turn a good answer into an error."""
     try:
-        proposal_id = result.get("proposal", {}).get("proposal_id") if isinstance(result.get("proposal"), dict) else None
+        proposal = result.get("proposal") if isinstance(result.get("proposal"), dict) else None
+        proposal_id = proposal.get("proposal_id") if proposal else None
         turns = [
             penny_conversations.clean_turn("user", question.strip()),
             penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id,
                                            table=result.get("table"), chart=result.get("chart"),
                                            move_plan=result.get("move_plan"),
-                                           last_result=last_result),
+                                           last_result=last_result, proposal=proposal),
         ]
         stored = await penny_conversations.append_turns(uid, cid, turns)
         if proposal_id:
@@ -512,14 +513,21 @@ async def _can_i_answer(body: dict, user: dict, last_result: dict | None = None)
             # headline/reply pair alongside the structured `proposal` block
             # the frontend's confirm card renders from.
             proposal = agent_result["proposal"]
+            # B59: the reply is the summary then the consequence, never the bare
+            # consequence, so a restored or text-only view still says what it is about.
+            summary_text = str(proposal["summary"]).strip()
+            if summary_text and summary_text[-1] not in ".!?":
+                summary_text += "."
             return {
-                "reply": _house_style(proposal["consequence"]),
+                "reply": _house_style(f"{summary_text} {proposal['consequence']}"),
                 "headline": _house_style(proposal["summary"]),
                 "facts": [],
                 "explainer": False,
                 "topic": None,
                 "out_of_scope": False,
                 "proposal": proposal,
+                # B59: the focus rides through a proposal turn unchanged.
+                **({"_last_result": agent_result["last_result"]} if agent_result.get("last_result") else {}),
             }
         answer = {
             "reply": _house_style(agent_result["reply"]),
@@ -1531,6 +1539,7 @@ async def execute_proposal(proposal_id: str, user: dict = Depends(current_user))
         "penny_proposal_audit uid=%s proposal_id=%s kind=%s executed_at=%s source=penny",
         uid, proposal_id, doc["kind"], now.isoformat(),
     )
+    await penny_conversations.set_proposal_status(uid, proposal_id, "executed")  # B59
     return {"executed": True, "kind": doc["kind"], "result": result, "replayed": False}
 
 
@@ -1556,4 +1565,5 @@ async def cancel_proposal(proposal_id: str, user: dict = Depends(current_user)):
             raise HTTPException(410, "proposal already executed")
         if not doc.get("cancelled_at"):
             raise HTTPException(409, "This proposal has already been submitted. Check the app for its result.")
+    await penny_conversations.set_proposal_status(uid, proposal_id, "cancelled")  # B59
     return {"cancelled": True, "proposal_id": proposal_id}

@@ -81,6 +81,16 @@ ROUTING_CASES = [
          question="Okay if I want to spend what's left to spend from my Barclays account, how can I move the money", expect_any=["200"]),
     dict(id="route-25-kevin-which-236", screen="home", first="plan_consolidation", required=["plan_consolidation"],
          question="Which accounts should I move the 236 from into my Barclays account", expect_any=["200"]),
+    # B59: Kevin's set-aside and recategorise thread (2026-10-25). Single-turn stand-ins carry the
+    # context the follow-ups had; the multi-turn replay lives in tests/test_penny_b59_replay.py.
+    dict(id="route-26-kevin-set-asides", screen="upcoming", first="get_set_asides", required=["get_set_asides"],
+         question="What are my set asides for the month", expect_any=["Holiday", "Digital saver"]),
+    dict(id="route-27-kevin-edit-set-aside", screen="upcoming", first="propose_update_allocation", required=["propose_update_allocation"],
+         question="Can I edit my Holiday set-aside", expect_any=None),
+    dict(id="route-28-kevin-edit-it-here", screen="upcoming", first="propose_update_allocation", required=["propose_update_allocation"],
+         question="Can I edit my Holiday set-aside here, in this chat", expect_any=None),
+    dict(id="route-29-kevin-put-under-software", screen="spend", first="propose_recategorise_transaction", required=["propose_recategorise_transaction"],
+         question="Put the British Gas payment under Software, just this one", expect_any=None),
 ]
 
 # category -> {this period, last-n-months} fixtures
@@ -158,6 +168,14 @@ def fake_execute_factory(real_execute, base_fixtures, verdict_by_offset, categor
             return {"summary": "You could move up to £200.00 into your Barclays account: £146.00 from NatWest and £54.00 from Starling. Each account keeps enough for its own bills and set-asides. Moving money between your own accounts does not change your left to spend.",
                     "left_to_spend_unchanged": True, "pool": _money(236, 2), "total": _money(200, 2), "legs": [{"name": "NatWest", "amount": _money(146, 2)},
                                                       {"name": "Starling", "amount": _money(54, 2)}]}
+        if name == "get_set_asides":
+            pots = [("a1", "Saving Challenge (2026)", 50), ("a2", "Holiday", 120), ("a3", "Digital saver", 30)]
+            return {"set_asides": [{"id": i, "name": n, "target": _money(v, 2), "filled": _money(0, 2), "remaining": _money(v, 2),
+                                    "status": "active"} for i, n, v in pots], "count": 3,
+                    "how_to_edit": "Ask me to change it, or open Upcoming in the app."}
+        if name.startswith("propose_"):
+            return {"proposal": True, "proposal_id": "eval", "kind": name[len("propose_"):], "summary": "Proposed for the user to confirm.",
+                    "consequence": "Nothing changes until they confirm.", "params": {}}
         if name in base_fixtures:
             return base_fixtures[name]
         return {"error": "no data available for that in this evaluation"}

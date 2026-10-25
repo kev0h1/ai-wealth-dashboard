@@ -23,6 +23,7 @@
     "check:g291-plan-journey": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g291-plan-journey.test.mjs",
     "check:g312-set-aside-editor": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g312-set-aside-editor.test.mjs",
     "check:g306-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g306-masking.test.mjs",
+    "check:b59-penny-proposal-restore": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b59-penny-proposal-restore.test.mjs",
     "check:b56-penny-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b56-penny-masking.test.mjs",
     "check:b55-upcoming-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b55-upcoming-masking.test.mjs",
     "check:b54-home-move-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b54-home-move-masking.test.mjs",

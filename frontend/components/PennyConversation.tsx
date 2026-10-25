@@ -117,6 +117,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import PennyStarterState from "@/components/PennyStarterState";
+import { answerText, proposalMsgFromTurn } from "@/lib/pennyProposalRestore";
 import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLimitError, PennyProposal } from "@/lib/api";
 import type { PennyChatSession } from "@/lib/usePennyChatSession";
 import { PENNY_FULL_ACTION, PENNY_FULL_NOTICE, PENNY_MAX_TURNS } from "@/lib/pennyConversationSession";
@@ -231,6 +232,9 @@ export type ProposalMsg = {
    * string (expired/cancelled/etc, see api.executePennyProposal), rendered
    * verbatim rather than a generic "something went wrong". */
   errorDetail?: string;
+  /** B59: rebuilt from a stored chat. A resolved restored card keeps its summary
+   * and before/after lines and shows the status as a line, not a bubble. */
+  restored?: boolean;
 };
 /** The one-time gate before Penny can act on the user's behalf at all (set
  * up envelopes/goals/one-offs), as opposed to only answering. Same
@@ -483,6 +487,24 @@ function ExplainerBubble({ msg }: { msg: ExplainerMsg }) {
  * cancelProposal, which check-and-flip `status` synchronously via
  * `bucketsRef` before the network call even starts), not here — this
  * component only reflects `status`, it never owns it. */
+/** B59: "Before: Bills" and "After: Software". The values go through MoneyText,
+ * so a money figure is masked under Hide balances like every other amount. */
+function ProposalChange({ before, after }: { before?: string | null; after?: string | null }) {
+  if (!before && !after) return null;
+  const row = (label: string, value: string) => (
+    <p className="flex gap-1.5 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 break-words">
+      <span className="font-semibold text-slate-500 dark:text-slate-400">{label}:</span>
+      <span className="tabular-nums"><MoneyText text={value} /></span>
+    </p>
+  );
+  return (
+    <div className="mt-2 space-y-0.5">
+      {before ? row("Before", before) : null}
+      {after ? row("After", after) : null}
+    </div>
+  );
+}
+
 export function ProposalConfirmCard({
   msg,
   onConfirm,
@@ -499,6 +521,21 @@ export function ProposalConfirmCard({
   onOpenDone: () => void;
 }) {
   const { proposal, status } = msg;
+
+  // B59: a restored chat shows a resolved proposal as its card with the status
+  // as a line, so the thread still says what the change was.
+  if (msg.restored && (status === "done" || status === "cancelled" || status === "error")) {
+    const line = status === "done" ? "Confirmed" : status === "cancelled" ? "Cancelled" : msg.errorDetail ?? "Expired, ask again";
+    return (
+      <div className="glass-card rounded-2xl p-4 w-full">
+        <p className="text-[15px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words">
+          <MoneyText text={proposal.summary} />
+        </p>
+        <ProposalChange before={proposal.before} after={proposal.after} />
+        <p className="mt-2 text-[13px] font-semibold text-slate-500 dark:text-slate-400">{line}</p>
+      </div>
+    );
+  }
 
   // Resolved states collapse into a quiet, bubble-shaped line — same
   // PENNY_BUBBLE shell every other Penny turn ends up in, so a resolved
@@ -557,6 +594,7 @@ export function ProposalConfirmCard({
       <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 break-words">
         <MoneyText text={proposal.consequence} />
       </p>
+      <ProposalChange before={proposal.before} after={proposal.after} />
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
@@ -1163,7 +1201,7 @@ export default function PennyConversation({
         // variant. See ExplainerMsg/ExplainerBubble doc comments.
         assistantMsg = { id, role: "assistant", kind: "explainer", reply: res.reply, topic: res.topic };
       } else if (res.headline) {
-        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.headline, reply: res.reply, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), move_plan: normalisePennyMovePlan(res.move_plan), degraded: false };
+        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.headline, reply: answerText(res.reply, res.headline), facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), move_plan: normalisePennyMovePlan(res.move_plan), degraded: false };
       } else {
         assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), move_plan: normalisePennyMovePlan(res.move_plan), degraded: true };
       }
@@ -1502,7 +1540,7 @@ export default function PennyConversation({
   // `chat.restore` (resume from History, load-latest at start, New chat).
   // Creating a stored chat on the first question never bumps it. Restored
   // turns are plain text, so they render as plain assistant text (like an
-  // engine chip answer); cards and proposals are not rebuilt.
+  // engine chip answer); a stored proposal block is rebuilt as its card (B59).
   const restoreSeenRef = useRef(0);
   const restoreSeq = chat?.restore.seq ?? 0;
   useEffect(() => {
@@ -1511,7 +1549,7 @@ export default function PennyConversation({
     const turns = chat.restore.turns;
     const restored: Msg[] = turns.map((t) => t.role === "user"
       ? { id: newMsgId(), role: "user" as const, content: t.text }
-      : { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: t.text, table: normalisePennyTable(t.table), chart: normalisePennyChart(t.chart), move_plan: normalisePennyMovePlan(t.move_plan), degraded: true });
+      : proposalMsgFromTurn(t, newMsgId()) ?? { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: answerText(t.text), table: normalisePennyTable(t.table), chart: normalisePennyChart(t.chart), move_plan: normalisePennyMovePlan(t.move_plan), degraded: true });
     setBucket("chat", () => ({
       messages: restored,
       askedLabels: new Set(turns.filter((t) => t.role === "user").map((t) => t.text)),

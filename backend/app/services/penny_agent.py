@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_chart, penny_move_plan, penny_period, penny_reply_guards, penny_table
+from app.services import penny_chart, penny_focus, penny_move_plan, penny_period, penny_reply_guards, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -557,12 +557,40 @@ _SYSTEM_PROMPT = (
 # tools might be refused, the server is the only gate, and the refusal
 # outcome doesn't read as a model-authored decline. Kept as a separate
 # constant, not folded into `_SYSTEM_PROMPT`, purely for readability.
+# B59: rule 13 used to name 8 of the 46 propose tools, so the model did not know
+# set-asides, plans, one-offs, accounts or settings could be changed. The list
+# is now built from PROPOSE_TOOL_SCHEMAS, grouped by what the tool changes, so it
+# cannot go stale when a tool is added. First matching group wins; a tool no
+# group claims lands in "other".
+_PROPOSE_GROUPS = (
+    ("set-asides (allocations)", ("allocation",)),
+    ("plans and aims", ("commitment", "checkpoint")),
+    ("one-offs", ("planned",)),
+    ("upcoming payments", ("occurrence", "clear_override")),
+    ("recurring payments", ("recurring",)),
+    ("transactions", ("transaction", "merchant")),
+    ("cards", ("card",)),
+    ("accounts", ("account", "ledger", "bank", "sync_now")),
+    ("insights", ("insight", "trend_intent", "mirror")),
+    ("settings", ("set_",)),
+)
+
+
+def _propose_tool_catalogue() -> str:
+    groups: dict[str, list[str]] = {label: [] for label, _ in _PROPOSE_GROUPS}
+    groups["other"] = []
+    for schema in PROPOSE_TOOL_SCHEMAS:
+        name = schema["function"]["name"]
+        label = next((g for g, keys in _PROPOSE_GROUPS if any(k in name for k in keys)), "other")
+        groups[label].append(name)
+    return "; ".join(f"{label}: {', '.join(names)}" for label, names in groups.items() if names)
+
+
 _WRITE_TOOLS_ADDENDUM = (
     "\n\n13. You may also PROPOSE an action for the user to confirm, never "
-    "execute one yourself: propose_mirror_choice, propose_dismiss_recurring, "
-    "propose_restore_recurring, propose_add_planned, propose_create_allocation, "
-    "propose_create_commitment, propose_recategorise_transaction, "
-    "propose_set_card_apr. Call one of these ONLY when the user has clearly "
+    "execute one yourself. The propose tools, by what they change, are: "
+    + _propose_tool_catalogue() + ". "
+    "Call one of these ONLY when the user has clearly "
     "asked you to do or set up that specific thing, never merely because "
     "they mentioned or discussed it. Resolve any account, series, trait or "
     "transaction by calling a read tool first if you aren't already sure of "
@@ -586,7 +614,21 @@ _WRITE_TOOLS_ADDENDUM = (
     "independently refuses an unprovenanced number, so calling it early "
     "only wastes a round. Scope v1: standard APR only, point a 0% promo "
     "window or balance-transfer offer request at the card's own terms "
-    "sheet in the app instead."
+    "sheet in the app instead.\n"
+    "20. Amounts: quote a transaction's amount exactly as the tool returned it, with "
+    "both decimals (£159.70, never £160), and identify a transaction you already "
+    "found by its returned transaction_id, never by a rounded figure. Follow-ups such "
+    "as 'just this one', 'change it back', 'put it under X', 'this one' or 'that pot' "
+    "refer to the entity you already found (the FOCUS note names it): pass its id, "
+    "never search again by a rounded amount, and never say you cannot find something "
+    "you reported in the last few turns.\n"
+    "21. Nothing the app can do is out of your reach. If a propose tool exists for what "
+    "the user asks, propose it and let them confirm; never say something cannot be edited "
+    "here or from this screen. Only four things need the app itself: scanning a receipt "
+    "(Receipts), uploading a statement or contract note (Accounts), deleting the account or "
+    "erasing data (Settings), and turning consent on or off (Settings). For those, say "
+    "exactly which screen does it. If consent is off, say how to turn it on in Settings "
+    "rather than saying you cannot."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up
@@ -823,12 +865,15 @@ def clean_last_result_args(args: dict | None) -> dict:
 
 
 def _last_result_block(last_result: dict | None) -> str:
-    ids = (last_result or {}).get("ids") if isinstance(last_result, dict) else None
-    if not isinstance(ids, list) or not ids:
+    focus = penny_focus.clean_focus(last_result)
+    if not focus:
         return ""
+    if focus["kind"] != "transaction":
+        return penny_focus.focus_block(focus)
+    ids = focus["ids"]
     args = clean_last_result_args((last_result or {}).get("args"))
     shown = ", ".join(f"{k}={v}" for k, v in args.items()) or "no filters"
-    return _LAST_RESULT_TEMPLATE.format(n=len(ids), args=shown)
+    return _LAST_RESULT_TEMPLATE.format(n=len(ids), args=shown) + penny_focus.focus_block(focus)
 
 
 def safe_prose(raw: str | None) -> str:
@@ -952,7 +997,8 @@ async def run_penny_agent(
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
     date_grounding += await _category_context_block(uid)
     date_grounding += _last_result_block(last_result)
-    last_ids = list((last_result or {}).get("ids") or []) if isinstance(last_result, dict) else []
+    focus_in = penny_focus.clean_focus(last_result)
+    last_ids = list(focus_in["ids"]) if focus_in and focus_in["kind"] == "transaction" else []
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools
     # addendum, ~8,500 tokens together with the tool schemas above — comfortably
@@ -1009,6 +1055,7 @@ async def run_penny_agent(
         plan_results: list[dict] = []  # G336: every plan_consolidation result, for the figure guard
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
+        focus_cleared = False
         repaired = False
         rounds = 0
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
@@ -1120,6 +1167,8 @@ async def run_penny_agent(
                             call_args = {**call_args, "_ids_ok": True}
                             if last_ids:
                                 call_args["_last_result_ids"] = last_ids
+                        if name in PROPOSE_TOOL_NAMES and isinstance(call_args, dict) and focus_in:
+                            call_args = {**call_args, "_focus": focus_in}  # B59
                         t0 = time.monotonic()
                         result = await execute_tool(uid, name, call_args)
                         if isinstance(result, dict) and "_result_ids" in result:
@@ -1128,10 +1177,16 @@ async def run_penny_agent(
                             if ids:
                                 prior = (last_result or {}).get("args") if call_args.get("transaction_ids") == "last_result" else None
                                 new_last_result = {
-                                    "tool": name,
+                                    "tool": name, "kind": "transaction",
                                     "args": clean_last_result_args(prior if prior is not None else call_args),
-                                    "ids": ids,
+                                    "ids": ids, "labels": penny_focus.transaction_labels(result),
                                 }
+                        elif (produced := penny_focus.focus_from_result(name, result)):
+                            new_last_result = produced  # B59: set-asides, goals, accounts, bills, recurring
+                            focus_cleared = False
+                        if (name in penny_focus.KIND_BY_TOOL and isinstance(result, dict) and "error" not in result
+                                and (new_last_result is None or new_last_result.get("tool") != name)):
+                            new_last_result, focus_cleared = None, True  # B59: a fresh lookup that found nothing resets the focus
                         if isinstance(result, dict) and "_table" in result:
                             result = dict(result)
                             block = penny_table.validate_or_none(result.pop("_table"))
@@ -1162,7 +1217,7 @@ async def run_penny_agent(
                             plan_results.append(result)
                         logger.info(
                             "penny_agent: tool=%s args=%s ms=%d uid=%s",
-                            name, {k: v for k, v in call_args.items() if k != "_last_result_ids"}, dt_ms, uid,
+                            name, {k: v for k, v in call_args.items() if k not in ("_last_result_ids", "_focus")}, dt_ms, uid,
                         )
                         if isinstance(result, dict) and result.get("proposal") is True:
                             # Penny Agent Mode v1: a propose-only write tool
@@ -1174,7 +1229,9 @@ async def run_penny_agent(
                                 "penny_agent: proposal kind=%s id=%s returned by %s for %s, rounds=%d",
                                 result.get("kind"), result.get("proposal_id"), name, uid, rounds,
                             )
-                            return {"proposal": result}
+                            # B59: the focus rides through a proposal unchanged.
+                            carried = new_last_result or (None if focus_cleared else focus_in)
+                            return {"proposal": result, **({"last_result": carried} if carried else {})}
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.get("id"),
@@ -1233,8 +1290,8 @@ async def run_penny_agent(
                         prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
-                        if new_last_result:
-                            done["last_result"] = new_last_result
+                        if new_last_result or (focus_in and not focus_cleared):
+                            done["last_result"] = new_last_result or focus_in
                         return done
                     return {"loop_failed": True}
                 headline, reply = parsed
@@ -1253,8 +1310,8 @@ async def run_penny_agent(
                     done["chart"] = chart_block
                 if move_plan_block:
                     done["move_plan"] = move_plan_block
-                if new_last_result:
-                    done["last_result"] = new_last_result
+                if new_last_result or (focus_in and not focus_cleared):
+                    done["last_result"] = new_last_result or focus_in  # B59: carried when nothing new
                 return done
 
     try:

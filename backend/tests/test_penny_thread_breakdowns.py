@@ -313,7 +313,7 @@ def test_loop_returns_the_result_ids_and_injects_them_next_turn(monkeypatch):
     ])
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
     first = asyncio.run(penny_agent_module.run_penny_agent("kevin", "digital ocean", [], None, ""))
-    assert first["last_result"] == {"tool": "search_transactions", "args": {"merchants": "Digital Ocean"}, "ids": ["do-1", "do-2"]}
+    assert first["last_result"] == {"tool": "search_transactions", "kind": "transaction", "args": {"merchants": "Digital Ocean"}, "ids": ["do-1", "do-2"], "labels": {}}
     assert seen_args[0]["_ids_ok"] is True and "_last_result_ids" not in seen_args[0]
     assert "last_result is available" not in json.dumps(client.calls[0]["messages"][0])
 
@@ -335,9 +335,9 @@ def test_loop_returns_the_result_ids_and_injects_them_next_turn(monkeypatch):
 def test_clean_last_result_is_ids_only_and_bounded():
     out = svc.clean_last_result({"tool": "search_transactions", "args": {"q": "x" * 90, "bad": {"n": 1}},
                                  "ids": [f"id{i}" for i in range(500)], "transactions": [{"amount": 1}]})
-    assert set(out) == {"tool", "args", "ids"} and len(out["ids"]) == 200 and len(out["args"]["q"]) == 40
+    assert set(out) == {"tool", "kind", "args", "ids", "labels"} and len(out["ids"]) == 200 and len(out["args"]["q"]) == 40
     assert "bad" not in out["args"]
-    assert svc.clean_last_result({"tool": "get_accounts", "ids": ["a"]}) is None
+    assert svc.clean_last_result({"tool": "get_safe_to_spend", "ids": ["a"]}) is None
     assert svc.clean_last_result({"tool": "search_transactions", "ids": []}) is None
 
 
@@ -418,5 +418,5 @@ def test_fuzzy_scan_is_bounded(monkeypatch):
 
 
 def test_rule_18_states_counts_come_from_the_result():
-    block = penny_agent_module._last_result_block({"ids": ["a"], "args": {}})
+    block = penny_agent_module._last_result_block({"tool": "search_transactions", "ids": ["a"], "args": {}})
     assert "count or matched_count" in block and "never from earlier messages" in block
