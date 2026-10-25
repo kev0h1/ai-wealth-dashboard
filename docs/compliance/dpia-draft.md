@@ -103,7 +103,7 @@ For each activity: purpose; data; lawful-basis OPTIONS (not a choice; the specia
 
 ### 2.8 Investment statements and contract notes (AI parse, G272, A164)
 
-- Purpose: set holdings from an uploaded statement, add trades from contract notes, then track growth.
+- Purpose: set holdings from an uploaded statement, add trades from contract notes, then show a dated value snapshot (G338, 2026-10-25: growth, gain and anchor views removed).
 - Data: the first 15,000 characters of extracted statement text are sent to the model (`backend/app/services/pdf.py:145`; contract notes 12,000 characters, `pdf.py:199`), model `google/gemini-2.5-flash` via OpenRouter (`pdf.py:150-151`). The statement text can carry the account holder's name, address, account reference and holdings; the prompt asks the model to extract provider, account type, account reference, statement date, value, holdings, payments, withdrawals, fees, interest and purchases (`pdf.py:99-140`).
 - Storage: parsed fields only; the route reads the file into memory and keeps `parsed` (`backend/app/routers/investments.py:98-160`; the raw text variable is discarded as `_raw_text`, `investments.py:270, 369`). No write of the file or the raw text was found in `investments.py` (grep); framework or proxy temporary storage of the upload is not verified. The PDF itself is therefore not kept by the application code found. A164 (todo) asks PRIVACY.md to say PDFs are deleted after extraction and which fields are kept; PRIVACY.md does not yet say so (section 2 item 4 mentions uploaded statements only).
 - Fields kept (from the schema and collections): investment accounts, holdings (name, units, value, cost where printed), notes (contract notes), daily valuations (`investment_valuations`, `backend/app/db/collections.py:88`), anchor and anchor history (user-entered provider value, return and date, G278), all in the erasure manifest (`backend/app/db/collections.py:574` lists `investment_valuations_col`, verified; `investment_accounts_col`, `investment_holdings_col` and `investment_notes_col` are in the same manifest).
@@ -114,15 +114,12 @@ For each activity: purpose; data; lawful-basis OPTIONS (not a choice; the specia
 - Recipients: OpenRouter and the underlying model provider (Google `gemini-2.5-flash` is the requested model, `pdf.py:150`); MongoDB Atlas and Railway for the parsed fields.
 - Residual gaps: PRIVACY.md lacks (a) the statement-parse flow and what is sent, (b) fields kept, (c) valuation snapshots and anchors. A164 is open.
 
-### 2.9 Provider anchor (user-entered)
+### 2.9 Provider anchor (user-entered, retired from the UI on 2026-10-25)
 
-- Data: provider, value and return on a date, as the user enters them (`frontend/lib/investmentGrowth.ts:136-139`; `investments.py:654` deletes the anchor). Display only; not recomputed (investmentGrowth.ts:139).
-- Lawful-basis options: contract, consent. Risk: the figure is unverified third-party data supplied by the user; any further risk beyond 2.8 is for the specialist to assess.
-- Purpose: let the user record what their provider shows (value, return, date) so lifetime growth can be tracked from that point, display only.
-- Necessity and proportionality: three user-entered figures and a date; the alternative is no lifetime growth (`frontend/lib/investmentGrowth.ts:163`: growth shows once cost is known or an anchor is entered). Whether that is necessary is for the specialist.
-- Mitigations: the user can edit or clear it at any time (investmentGrowth.ts:138); masked when balances are hidden (G278 review notes); deletable via `DELETE /investment/accounts/{id}/anchor` (`backend/app/routers/investments.py:654`).
-- Retention: stored on the investment account document with an `anchor_history` (G278 note); kept until edited, cleared or the account is deleted; the history retention period is not stated (gap).
-- Recipients: MongoDB Atlas and Railway; not part of the statement-parse prompt. Penny's `get_investment_growth` can return the anchor to the Penny model and to an MCP client the user connects (PENNY_TOOLS.md:66).
+- Status (G338, Kevin 2026-10-25): the anchor flow is removed. No screen or Penny tool collects, shows or recomputes an anchor, and the anchor routes (`POST`/`DELETE /investment/accounts/{id}/anchor`, `.../anchor/override`) are deleted. Anchor and `anchor_history` data already stored on investment account documents is left untouched (no migration, no deletion): it is no longer read by the application, remains in the erasure manifest, and is removed with the account or on user deletion.
+- Earlier data: provider, value and return on a date, as the user entered them. Lawful basis was contract or consent; the figure was unverified third-party data supplied by the user.
+- Retention: kept on the investment account document until the account or the user is deleted; no TTL (gap). Whether stored anchors should be purged is a question for the specialist and for Kevin.
+- Recipients: MongoDB Atlas and Railway only; never part of the statement-parse prompt. Penny's `get_investment_value` does not return anchor data.
 
 ### 2.10 App Store and Play billing identifiers (C21, C24, in progress)
 
