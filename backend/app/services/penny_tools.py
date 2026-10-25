@@ -8297,6 +8297,9 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "propose_clear_savings_goal":
             from app.services.penny_buffer import exec_propose_clear_savings_goal
             return await exec_propose_clear_savings_goal(uid)
+        if name == "propose_connect_bank":
+            from app.services.penny_connect_bank import exec_propose_connect_bank
+            return await exec_propose_connect_bank(uid, args.get("bank"))
         if name == "get_pay_split":
             from app.services.penny_pay_split import exec_get_pay_split
             return await exec_get_pay_split(uid, args.get("reference"))
@@ -8408,4 +8411,9 @@ async def _buffer_extras(uid: str, goal, current: float, monthly_spending: float
 
 PROPOSE_TOOL_SCHEMAS.append(PROPOSE_SET_SAVINGS_GOAL_SCHEMA)
 PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CLEAR_SAVINGS_GOAL_SCHEMA)
+
+# B60: propose_connect_bank, record-only (see penny_connect_bank.py).
+from app.services.penny_connect_bank import PROPOSE_CONNECT_BANK_SCHEMA  # noqa: E402
+
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CONNECT_BANK_SCHEMA)
 PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)  # rebuilt after the B60 appends

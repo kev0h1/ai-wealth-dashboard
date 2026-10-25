@@ -98,6 +98,11 @@ ROUTING_CASES = [
          question="Change my buffer to 3 months", expect_any=None),
     dict(id="route-32-buffer-amount", screen="planning", first="propose_set_savings_goal", required=["propose_set_savings_goal"],
          question="Set my emergency fund to £2,000", expect_any=None),
+    # B60: connect a bank, proposal first.
+    dict(id="route-33-connect-monzo", screen="accounts", first="propose_connect_bank", required=["propose_connect_bank"],
+         question="Connect my Monzo account", expect_any=None),
+    dict(id="route-34-add-another-bank", screen="accounts", first="propose_connect_bank", required=["propose_connect_bank"],
+         question="Add another bank", expect_any=None),
 ]
 
 # category -> {this period, last-n-months} fixtures

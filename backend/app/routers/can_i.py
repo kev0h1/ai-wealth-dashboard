@@ -1340,6 +1340,13 @@ async def _execute_clear_savings_goal(uid: str, params: dict) -> dict:
     return await _route_delete_savings_goal(user={"email": uid})
 
 
+async def _execute_connect_bank(uid: str, params: dict) -> dict:
+    """B60: record-only. Penny never connects a bank: confirming the card only
+    records the tap, and the app then opens its own bank picker, where the
+    normal Finexer consent flow starts. Nothing else is written."""
+    return {"recorded": True, "open": "bank_picker", "bank": params.get("bank")}
+
+
 _PROPOSAL_EXECUTORS = {
     "mirror_choice":              _execute_mirror_choice,
     "dismiss_recurring":          _execute_dismiss_recurring,
@@ -1389,6 +1396,7 @@ _PROPOSAL_EXECUTORS = {
     "remove_merchant_label":      _execute_remove_merchant_label,
     "set_savings_goal":           _execute_set_savings_goal,
     "clear_savings_goal":         _execute_clear_savings_goal,
+    "connect_bank":               _execute_connect_bank,
 }
 
 

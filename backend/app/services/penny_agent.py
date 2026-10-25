@@ -629,7 +629,8 @@ _WRITE_TOOLS_ADDENDUM = (
     "(Receipts), uploading a statement or contract note (Accounts), deleting the account or "
     "erasing data (Settings), and turning consent on or off (Settings). For those, say "
     "exactly which screen does it. If consent is off, say how to turn it on in Settings "
-    "rather than saying you cannot."
+    "rather than saying you cannot. "
+    "To connect a bank, call propose_connect_bank; the user taps Continue to Finexer on the card."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up

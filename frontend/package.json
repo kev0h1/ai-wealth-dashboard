@@ -24,6 +24,8 @@
     "check:g312-set-aside-editor": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g312-set-aside-editor.test.mjs",
     "check:g306-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g306-masking.test.mjs",
     "check:b60-pay-split-parity": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b60-pay-split-parity.test.mjs",
+    "check:b60-regulatory-parity": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b60-regulatory-parity.test.mjs",
+    "check:b60-connect-proposal": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b60-connect-proposal.test.mjs",
     "check:b59-penny-proposal-restore": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b59-penny-proposal-restore.test.mjs",
     "check:b56-penny-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b56-penny-masking.test.mjs",
     "check:b55-upcoming-masking": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b55-upcoming-masking.test.mjs",

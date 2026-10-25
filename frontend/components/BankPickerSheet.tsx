@@ -59,6 +59,10 @@ interface BankPickerSheetProps {
   initialQuery?: string;
   /** Design previews only: open the expandable disclosure on first render. */
   initiallyExpanded?: boolean;
+  /** B60: a bank name from Penny's connect proposal. When exactly one listed bank
+   *  matches, the picker opens on that bank's review step, which still needs the
+   *  Continue to Finexer tap. No match: the picker opens on its list. */
+  preselectName?: string;
 }
 
 /** The sheet description, with the sentence set in it for the "header" placement. */
@@ -99,7 +103,7 @@ export function pickerFooter(placement: DisclosurePlacement, initiallyExpanded =
   if (placement === "expandable") return <ExpandableDisclosure initiallyExpanded={initiallyExpanded} />;
   return undefined;
 }
-export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer", stayOnReturn = false, disclosurePlacement = "footer", stickySearch = false, banksOverride, initialQuery = "", initiallyExpanded = false }: BankPickerSheetProps) {
+export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer", stayOnReturn = false, disclosurePlacement = "footer", stickySearch = false, banksOverride, initialQuery = "", initiallyExpanded = false, preselectName }: BankPickerSheetProps) {
   const [banks, setBanks] = useState<Bank[]>(banksOverride ?? []);
   const [loading, setLoading] = useState(!banksOverride);
   const [query, setQuery] = useState(initialQuery);
@@ -219,7 +223,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
 
   if (provider === "finexer" && !banksOverride) return <BankConnectionFlow
     banks={banks} loading={loading} loadError={loadError} connectionError={error} connecting={connecting}
-    onRetry={retryBanks} onConnect={handleSelect} onClose={onClose} />;
+    onRetry={retryBanks} onConnect={handleSelect} onClose={onClose} preselectName={preselectName} />;
 
   return <SheetFrame
     title="Add a Bank"
