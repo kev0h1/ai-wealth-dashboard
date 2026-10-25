@@ -52,7 +52,7 @@ REF_ARG_BY_TOOL = {
 
 # Error text meaning "I could not find what you pointed at" (a retry with the
 # focused entity is safe), as opposed to a validation failure.
-_NOT_FOUND_RE = re.compile(r"\bno (transaction|allocation|commitment|account|recurring|series)\b|series matching|are required|is required", re.I)
+_NOT_FOUND_RE = re.compile(r"\bno (transaction|allocation|commitment|account|recurring|series)\b|series matching|required", re.I)
 
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 

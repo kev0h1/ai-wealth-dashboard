@@ -96,7 +96,36 @@ def clean_last_result(raw) -> dict | None:
     return penny_focus.clean_focus(raw)
 
 
-def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None, move_plan=None) -> dict | None:
+PROPOSAL_STATUSES = ("pending", "executed", "cancelled", "expired")
+
+
+def _short(value, limit: int) -> str | None:
+    text = re.sub(r"\s+", " ", str(value if value is not None else "")).strip()
+    return text[:limit] if text else None
+
+
+def clean_proposal(raw) -> dict | None:
+    """B59: the compact proposal block kept on an assistant turn so a restored
+    chat still shows the card. Display text only: never the params."""
+    if not isinstance(raw, dict):
+        return None
+    proposal_id = _short(raw.get("proposal_id"), 64)
+    summary = _short(raw.get("summary"), 300)
+    consequence = _short(raw.get("consequence"), 300)
+    if not proposal_id or not summary or not consequence:
+        return None
+    status = raw.get("status")
+    return {
+        "proposal_id": proposal_id, "kind": _short(raw.get("kind"), 60) or "",
+        "summary": summary, "consequence": consequence,
+        "before": _short(raw.get("before"), 80), "after": _short(raw.get("after"), 80),
+        "entity": _short(raw.get("entity"), 80),
+        "destructive": bool(raw.get("destructive")),
+        "status": status if status in PROPOSAL_STATUSES else "pending",
+    }
+
+
+def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None, move_plan=None, proposal=None) -> dict | None:
     """One stored turn, or None when it is not storable (bad role, empty
     text). Text only; nothing else from the request is kept, except G251's
     optional validated `table` block on an assistant turn: the same values the
@@ -121,6 +150,10 @@ def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result
         block = penny_move_plan.validate_or_none(move_plan)
         if block:
             turn["move_plan"] = block
+    if proposal is not None and role == "assistant":
+        block = clean_proposal(proposal)
+        if block:
+            turn["proposal"] = block
     if last_result is not None and role == "assistant":
         cleaned = clean_last_result(last_result)
         if cleaned:
@@ -154,11 +187,52 @@ async def list_conversations(uid: str) -> list[dict]:
     return [_summary(d) async for d in cur]
 
 
+async def _live_proposal_statuses(uid: str, doc: dict) -> None:
+    """B59: a stored proposal block says "pending" until someone updates it, so
+    the proposal's own row is the truth on read: executed, cancelled, or past
+    its expiry. Best effort: a failed lookup leaves the stored status."""
+    pending = {t["proposal"]["proposal_id"]: t["proposal"] for t in doc.get("turns") or []
+               if isinstance(t.get("proposal"), dict) and t["proposal"].get("status") == "pending"}
+    if not pending:
+        return
+    try:
+        rows = {r["_id"]: r async for r in penny_proposals_col.find({"user_id": uid, "_id": {"$in": list(pending)}})}
+    except Exception:
+        logger.exception("penny_conversations: proposal status lookup failed")
+        return
+    now = datetime.now()  # naive-ok: proposals store naive local expiry timestamps
+    for pid, block in pending.items():
+        row = rows.get(pid)
+        if row is None:
+            block["status"] = "expired"
+        elif row.get("executed_at"):
+            block["status"] = "executed"
+        elif row.get("cancelled_at"):
+            block["status"] = "cancelled"
+        elif row.get("expires_at") and now > row["expires_at"]:
+            block["status"] = "expired"
+
+
 async def get_conversation(uid: str, cid: str) -> dict:
     doc = await penny_conversations_col.find_one({"_id": cid, "user_id": uid})
     if not doc:
         raise ConversationNotFound(cid)
+    await _live_proposal_statuses(uid, doc)
     return _full(doc)
+
+
+async def set_proposal_status(uid: str, proposal_id: str, status: str) -> None:
+    """Keep the stored turn's proposal status in step with the proposal row
+    (confirm, cancel). Best effort and user-scoped: the row stays the truth."""
+    if status not in PROPOSAL_STATUSES:
+        return
+    try:
+        await penny_conversations_col.update_one(
+            {"user_id": uid, "turns.proposal.proposal_id": proposal_id},
+            {"$set": {"turns.$.proposal.status": status}},
+        )
+    except Exception:
+        logger.exception("penny_conversations: could not update the stored proposal status")
 
 
 async def create_conversation(uid: str) -> dict:

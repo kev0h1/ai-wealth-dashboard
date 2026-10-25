@@ -1282,7 +1282,7 @@ export type PennyConversationSummary = {
   turn_count: number;
   at_cap: boolean;
 };
-export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string; table?: import("./pennyTable").PennyTableBlock | null; chart?: import("./pennyChart").PennyChartSpec | null; move_plan?: import("./pennyMovePlan").PennyMovePlan | null };
+export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string; proposal?: PennyStoredProposal | null; table?: import("./pennyTable").PennyTableBlock | null; chart?: import("./pennyChart").PennyChartSpec | null; move_plan?: import("./pennyMovePlan").PennyMovePlan | null };
 export type PennyConversation = PennyConversationSummary & { turns: PennyConversationTurn[] };
 
 /** Agent mode v1's confirm card (owner decisions locked: confirm-as-is, no
@@ -1303,6 +1303,26 @@ export type PennyProposal = {
   summary: string;
   consequence: string;
   params: Record<string, unknown>;
+  /** B59: the changed field, so the card can say what moves from what to what.
+   * Null when a proposal has no single before and after. */
+  before?: string | null;
+  after?: string | null;
+  entity?: string | null;
+  destructive?: boolean;
+};
+
+/** B59: the compact proposal block stored on an assistant turn, so a restored
+ * chat rebuilds the card. `status` is the proposal's live state at read time. */
+export type PennyStoredProposal = {
+  proposal_id: string;
+  kind: string;
+  summary: string;
+  consequence: string;
+  before: string | null;
+  after: string | null;
+  entity: string | null;
+  destructive: boolean;
+  status: "pending" | "executed" | "cancelled" | "expired";
 };
 
 export type CompanionAction = {

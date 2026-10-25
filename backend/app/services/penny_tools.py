@@ -5310,7 +5310,7 @@ _PROPOSAL_TTL_MINUTES = 15
 
 
 async def _create_proposal(
-    uid: str, kind: str, params: dict, summary: str, consequence: str, *, destructive: bool = False,
+    uid: str, kind: str, params: dict, summary: str, consequence: str, *, destructive: bool = False, before=None, after=None, entity=None,
 ) -> dict:
     """The ONE place a proposal doc is built. Never mutates real user data —
     inserts a row into penny_proposals_col only. `_id` is a uuid4 string
@@ -5339,7 +5339,7 @@ async def _create_proposal(
         "params": params,
         "summary": summary,
         "consequence": consequence,
-        "destructive": destructive,
+        "destructive": destructive, "before": _proposal_text(before), "after": _proposal_text(after), "entity": _proposal_text(entity),  # B59
         "created_at": now,
         "expires_at": now + timedelta(minutes=_PROPOSAL_TTL_MINUTES),
         "executed_at": None,
@@ -5354,7 +5354,7 @@ async def _create_proposal(
         "summary": summary,
         "consequence": consequence,
         "params": params,
-        "destructive": destructive,
+        "destructive": destructive, "before": doc["before"], "after": doc["after"], "entity": doc["entity"],  # B59
     }
 
 
@@ -6085,7 +6085,7 @@ async def _exec_propose_update_allocation(
         summary = f"Change the {label} allocation " + ", ".join(bits) if bits else f"Update the {label} allocation"
         consequence = "Changes how much this allocation reserves from left to spend."
     params = {"allocation_id": doc["id"], **updates}
-    return await _create_proposal(uid, "update_allocation", params, summary, consequence)
+    return await _create_proposal(uid, "update_allocation", params, summary, consequence, **_allocation_change_text(doc, updates))
 
 
 def _alloc_period_note(doc: dict) -> str:
@@ -6163,7 +6163,7 @@ async def _exec_propose_update_commitment(uid: str, commitment_ref, name=None, a
     summary = f"Change the {label} plan " + ", ".join(bits) if bits else f"Update the {label} plan"
     consequence = "This changes how much it needs each pay period, re-worked from the new figures."
     params = {"commitment_id": doc["id"], **updates}
-    return await _create_proposal(uid, "update_commitment", params, summary, consequence)
+    return await _create_proposal(uid, "update_commitment", params, summary, consequence, **_commitment_change_text(doc, updates))
 
 
 async def _exec_propose_delete_commitment(uid: str, commitment_ref) -> dict:
@@ -6484,7 +6484,7 @@ async def _exec_propose_recategorise_transaction(
             "transaction_id": txn_id, "new_category": new_category, "scope": "just_once",
             "previous_category": current_category,
         }
-        return await _create_proposal(uid, "recategorise_transaction", params, summary, consequence)
+        return await _create_proposal(uid, "recategorise_transaction", params, summary, consequence, before=current_category, after=new_category, entity=merchant_label)
 
     # scope == "always" — blast radius via count_rule_matches
     # (app.services.categorisation), the SAME matching definition
@@ -6526,7 +6526,7 @@ async def _exec_propose_recategorise_transaction(
         "transaction_id": txn_id, "new_category": new_category, "scope": "always",
         "previous_category": current_category, "pattern": pattern, "merchant_label": merchant_label,
     }
-    return await _create_proposal(uid, "recategorise_transaction", params, summary, consequence)
+    return await _create_proposal(uid, "recategorise_transaction", params, summary, consequence, before=current_category, after=new_category, entity=merchant_label)
 
 
 # ── propose_set_card_apr ──────────────────────────────────────────────────
@@ -8310,3 +8310,50 @@ for _t in TOOL_SCHEMAS:
 async def _per_account_extras(uid: str) -> dict:
     from app.services.penny_consolidation import per_account_extras
     return await per_account_extras(uid)
+
+
+# B59: before and after text for a proposal card. Appended last so no line
+# above moves (test_no_raw_exception_leak keys its allowlist on line numbers).
+_PROPOSAL_TEXT_MAX = 80
+
+
+def _proposal_text(value) -> str | None:
+    """A short plain string for a proposal's before, after or entity line, or None."""
+    text = re.sub(r"\s+", " ", str(value if value is not None else "")).strip()
+    return text[:_PROPOSAL_TEXT_MAX] if text else None
+
+
+def _join_change(parts: list[str]) -> str | None:
+    return _proposal_text("; ".join(parts)) if parts else None
+
+
+def _allocation_change_text(doc: dict, updates: dict) -> dict:
+    before, after = [], []
+    if "amount_per_period" in updates:
+        before.append(f"{_money(doc.get('amount_per_period'), 2)['formatted']} per period")
+        after.append(f"{_money(updates['amount_per_period'], 2)['formatted']} per period")
+    if "name" in updates:
+        before.append(str(doc.get("name") or ""))
+        after.append(str(updates["name"]))
+    if "recurrence" in updates:
+        names = {"once": "One-off this period"}
+        before.append(names.get(doc.get("recurrence"), "Repeats every period"))
+        after.append(names.get(updates["recurrence"], "Repeats every period"))
+    if "active" in updates:
+        before.append("Active" if doc.get("active", True) else "Paused")
+        after.append("Active" if updates["active"] else "Paused")
+    return {"before": _join_change(before), "after": _join_change(after), "entity": doc.get("name")}
+
+
+def _commitment_change_text(doc: dict, updates: dict) -> dict:
+    before, after = [], []
+    if "amount" in updates:
+        before.append(_money(doc.get("amount"), 2)["formatted"])
+        after.append(_money(updates["amount"], 2)["formatted"])
+    if "target_date" in updates and updates["target_date"] != doc.get("target_date"):
+        before.append(f"Target date {doc.get('target_date') or 'not set'}")
+        after.append(f"Target date {updates['target_date']}")
+    if "name" in updates and updates["name"] != doc.get("name"):
+        before.append(str(doc.get("name") or ""))
+        after.append(str(updates["name"]))
+    return {"before": _join_change(before), "after": _join_change(after), "entity": doc.get("name")}
