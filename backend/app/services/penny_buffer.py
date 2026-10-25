@@ -111,7 +111,7 @@ async def _current_goal_text(uid: str) -> tuple[dict | None, float, str]:
 
     goal = await savings_goals_col.find_one({"_id": uid})
     try:
-        _, spending, _ = await _cashflow(uid, datetime.now() - timedelta(days=90))
+        _, spending, _ = await _cashflow(uid, datetime.now() - timedelta(days=90))  # naive-ok: 90-day lookback window, same as get_savings_position
     except Exception:
         logger.warning("penny_buffer: spending unavailable for %s", uid, exc_info=True)
         spending = 0.0
