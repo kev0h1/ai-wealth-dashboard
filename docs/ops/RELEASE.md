@@ -366,3 +366,8 @@ What can and cannot be re-read: the statement upload keeps neither the PDF nor i
     .venv/bin/python scripts/reparse_investment_statements.py
 
 It prints how many accounts already have a period and how many need the statement uploaded again. `--apply` only re-reads text an account document carries (nothing writes that today), or a local file for one named account (`--account ID --file statement.pdf --apply`, one OpenRouter call). Without a period an account still shows its anchor figure, value and per-purchase gains from contract notes; only the statement-period growth line waits for the re-upload.
+
+## H133: production reset for testers (one-off, Kevin only)
+
+Erasing every user from production is a separate, hand-run operator script,
+not part of a release. See [RESET.md](RESET.md).
