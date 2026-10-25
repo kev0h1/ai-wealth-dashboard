@@ -8291,6 +8291,9 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "get_payday_plan":
             from app.services.penny_payday_plan import exec_get_payday_plan
             return await exec_get_payday_plan(uid)
+        if name == "get_pay_split":
+            from app.services.penny_pay_split import exec_get_pay_split
+            return await exec_get_pay_split(uid, args.get("reference"))
         return _tool_error(f"unknown tool: {name}")
     except Exception:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
@@ -8377,3 +8380,9 @@ TOOL_SCHEMAS.append(SET_ASIDES_SCHEMA)
 from app.services.penny_payday_plan import PAYDAY_PLAN_SCHEMA  # noqa: E402
 
 TOOL_SCHEMAS.append(PAYDAY_PLAN_SCHEMA)
+
+
+# B60: the pay split read tool, appended last. The executor lives in penny_pay_split.py.
+from app.services.penny_pay_split import PAY_SPLIT_SCHEMA  # noqa: E402
+
+TOOL_SCHEMAS.append(PAY_SPLIT_SCHEMA)
