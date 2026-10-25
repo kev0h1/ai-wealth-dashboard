@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_chart, penny_period, penny_table
+from app.services import penny_chart, penny_move_plan, penny_period, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -972,6 +972,7 @@ async def run_penny_agent(
         tools_used: list[str] = []
         table_block: dict | None = None
         chart_block: dict | None = None
+        move_plan_block: dict | None = None
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
         repaired = False
@@ -1112,6 +1113,12 @@ async def run_penny_agent(
                                 result["chart"] = penny_chart.marker_for_model(block)
                                 result.pop("transactions", None)
                                 result.pop("top_categories", None)
+                        if isinstance(result, dict) and "_move_plan" in result:
+                            result = dict(result)
+                            block = penny_move_plan.validate_or_none(result.pop("_move_plan"))
+                            if block:
+                                move_plan_block = block
+                                result["move_plan"] = penny_move_plan.marker_for_model(block)
                         periods.extend(penny_period.collect_periods(result))
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
@@ -1205,6 +1212,8 @@ async def run_penny_agent(
                     done["table"] = table_block
                 if chart_block:
                     done["chart"] = chart_block
+                if move_plan_block:
+                    done["move_plan"] = move_plan_block
                 if new_last_result:
                     done["last_result"] = new_last_result
                 return done
