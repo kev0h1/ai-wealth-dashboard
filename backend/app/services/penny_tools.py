@@ -6294,7 +6294,7 @@ async def _exec_propose_edit_occurrence(
         "new_date": str(new_date) if new_date is not None else None,
         "new_amount": round(new_amount, 2) if new_amount is not None else None,
     }
-    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence)
+    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence, **_occurrence_change_text(key, occ, date_str, new_date, new_amount))  # B60
 
 
 async def _exec_propose_clear_override(uid: str, key_or_name, date_str) -> dict:
@@ -6613,7 +6613,7 @@ async def _exec_propose_set_card_apr(uid: str, card_ref, apr_pct, user_texts=Non
     if before_apr is not None:
         consequence += f" Currently recorded: {_fmt_pct(before_apr)}."
     params = {"account_id": account.id, "apr_pct": apr_rounded}
-    return await _create_proposal(uid, "set_card_apr", params, summary, consequence)
+    return await _create_proposal(uid, "set_card_apr", params, summary, consequence, before=(_fmt_pct(before_apr) if before_apr is not None else "Not set"), after=_fmt_pct(apr_rounded), entity=account.name)  # B60
 
 
 # ── B15 (2026-09-08, B12 stage 2) — preferences that change money maths ────
@@ -7249,7 +7249,7 @@ async def _exec_propose_update_offline_account(
     summary = f"Update '{label}', " + ", ".join(bits) if bits else f"Update '{label}'"
     consequence = "Only changes this offline account's own record on Accounts."
     params = {"account_id": doc["_id"], **updates}
-    return await _create_proposal(uid, "update_offline_account", params, summary, consequence)
+    return await _create_proposal(uid, "update_offline_account", params, summary, consequence, **_offline_account_change_text(doc, updates))  # B60
 
 
 async def _exec_propose_delete_offline_account(uid: str, account_ref=None) -> dict:
@@ -7549,7 +7549,7 @@ async def _exec_propose_update_account_rule(
     summary = f"Update the '{label}' rule, " + ", ".join(bits) if bits else f"Update the '{label}' rule"
     consequence = "Changes take effect on this account's future postings; a paused rule stops mirroring new transactions."
     params = {"rule_id": rule["_id"], **updates}
-    return await _create_proposal(uid, "update_account_rule", params, summary, consequence)
+    return await _create_proposal(uid, "update_account_rule", params, summary, consequence, **_account_rule_change_text(rule, updates))  # B60
 
 
 async def _exec_propose_delete_account_rule(uid: str, rule_ref=None) -> dict:
@@ -8417,3 +8417,51 @@ from app.services.penny_connect_bank import PROPOSE_CONNECT_BANK_SCHEMA  # noqa:
 
 PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CONNECT_BANK_SCHEMA)
 PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)  # rebuilt after the B60 appends
+
+
+# B60: before and after text for the proposal kinds that had only a summary
+# (offline account, mirror rule and upcoming occurrence edits). Appended last so
+# no line above moves.
+def _offline_account_change_text(doc: dict, updates: dict) -> dict:
+    before, after = [], []
+    if "name" in updates and updates["name"] != doc.get("name"):
+        before.append(str(doc.get("name") or ""))
+        after.append(str(updates["name"]))
+    if "account_type" in updates:
+        before.append(str(doc.get("account_type") or "savings").replace("_", " "))
+        after.append(str(updates["account_type"]).replace("_", " "))
+    if "balance" in updates:
+        before.append(_money(doc.get("balance"), 2)["formatted"])
+        after.append(_money(updates["balance"], 2)["formatted"])
+    return {"before": _join_change(before), "after": _join_change(after), "entity": doc.get("name")}
+
+
+def _account_rule_change_text(rule: dict, updates: dict) -> dict:
+    before, after = [], []
+    if "name" in updates and updates["name"] != rule.get("name"):
+        before.append(str(rule.get("name") or ""))
+        after.append(str(updates["name"]))
+    if "match_value" in updates:
+        before.append(f"Matches '{rule.get('match_value') or ''}'")
+        after.append(f"Matches '{updates['match_value']}'")
+    if "match_type" in updates:
+        before.append(f"Match type {rule.get('match_type') or 'not set'}")
+        after.append(f"Match type {updates['match_type']}")
+    if "sign" in updates:
+        before.append(f"Sign {rule.get('sign') or 'not set'}")
+        after.append(f"Sign {updates['sign']}")
+    if "active" in updates:
+        before.append("Active" if rule.get("active", True) else "Paused")
+        after.append("Active" if updates["active"] else "Paused")
+    return {"before": _join_change(before), "after": _join_change(after), "entity": rule.get("name")}
+
+
+def _occurrence_change_text(key: str, occ: dict | None, date_str: str, new_date, new_amount) -> dict:
+    before, after = [], []
+    if new_amount is not None:
+        before.append(_money(occ["amount"], 2)["formatted"] if occ and occ.get("amount") is not None else "Expected amount")
+        after.append(_money(new_amount, 2)["formatted"])
+    if new_date is not None:
+        before.append(date.fromisoformat(date_str).strftime("%-d %b"))
+        after.append(date.fromisoformat(str(new_date)).strftime("%-d %b"))
+    return {"before": _join_change(before), "after": _join_change(after), "entity": key}
