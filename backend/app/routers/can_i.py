@@ -338,6 +338,7 @@ async def _record_exchange(uid: str, cid: str, question: str, result: dict, last
             penny_conversations.clean_turn("user", question.strip()),
             penny_conversations.clean_turn("assistant", result.get("reply") or result.get("headline") or "", proposal_id,
                                            table=result.get("table"), chart=result.get("chart"),
+                                           move_plan=result.get("move_plan"),
                                            last_result=last_result),
         ]
         stored = await penny_conversations.append_turns(uid, cid, turns)
@@ -534,6 +535,9 @@ async def _can_i_answer(body: dict, user: dict, last_result: dict | None = None)
         if agent_result.get("chart"):
             # G252: a typed chart spec the client draws from data.
             answer["chart"] = agent_result["chart"]
+        if agent_result.get("move_plan"):
+            # G334: a typed move-route card the client draws from data.
+            answer["move_plan"] = agent_result["move_plan"]
         if agent_result.get("last_result"):
             # G254: stored on the chat server-side, never sent to the client.
             answer["_last_result"] = agent_result["last_result"]

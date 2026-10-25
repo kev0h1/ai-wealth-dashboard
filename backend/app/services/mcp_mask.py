@@ -166,6 +166,8 @@ _SENSITIVE_KEYS = {
 # Tool-specific keys dropped anywhere in that tool's own result tree.
 _TOOL_DROP_KEYS: dict[str, set[str]] = {
     "get_account_activity": {"top_transactions", "first_transaction", "last_transaction"},
+    # G334: the Penny-only card block; the connector gets the plain result.
+    "plan_consolidation": {"_move_plan"},
 }
 
 # Tool-specific (parent_key, child_key) pairs dropped anywhere in that

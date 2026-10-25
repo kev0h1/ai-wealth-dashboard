@@ -133,6 +133,7 @@ TOOL_SCOPES: dict[str, str] = {
     "get_accounts": "accounts:read",
     "get_account_activity": "accounts:read",
     "get_fill_candidates": "accounts:read",
+    "plan_consolidation": "accounts:read",
     "get_safe_to_spend": "accounts:read",
     "get_today_brief": "accounts:read",
     "get_mirror": "accounts:read",

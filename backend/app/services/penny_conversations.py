@@ -3,7 +3,7 @@ per user, each capped at PENNY_MAX_TURNS turns.
 
 Storage shape (collection `penny_conversations`, one document per chat):
   {_id: conversation_id (uuid4 str), user_id, title, created_at, updated_at,
-   turns: [{role: "user"|"assistant", text, ts, proposal_id?, table?, chart?}]}
+   turns: [{role: "user"|"assistant", text, ts, proposal_id?, table?, chart?, move_plan?}]}
 (G254: an assistant turn may carry `last_result` {tool, args, ids}: the ids of the
 transactions its answer listed, so "these" resolves later. Ids only, never sent
 to the client, included in the data export.)
@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.db.collections import penny_conversations_col, penny_proposals_col
-from app.services import penny_chart, penny_table
+from app.services import penny_chart, penny_move_plan, penny_table
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def clean_last_result(raw) -> dict | None:
     return {"tool": "search_transactions", "args": args, "ids": ids[:200]}
 
 
-def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None) -> dict | None:
+def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None, move_plan=None) -> dict | None:
     """One stored turn, or None when it is not storable (bad role, empty
     text). Text only; nothing else from the request is kept, except G251's
     optional validated `table` block on an assistant turn: the same values the
@@ -125,6 +125,10 @@ def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result
         spec = penny_chart.validate_or_none(chart)
         if spec:
             turn["chart"] = spec
+    if move_plan is not None and role == "assistant":
+        block = penny_move_plan.validate_or_none(move_plan)
+        if block:
+            turn["move_plan"] = block
     if last_result is not None and role == "assistant":
         cleaned = clean_last_result(last_result)
         if cleaned:

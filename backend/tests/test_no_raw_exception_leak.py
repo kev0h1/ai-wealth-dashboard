@@ -93,7 +93,7 @@ ALLOWLIST: set[tuple[str, int]] = {
     # again; none of these is a new exception site. Line re-derived
     # empirically post-merge (AST scan of the merged file), not carried
     # forward from any one branch.
-    ("app/routers/mcp.py", 624),
+    ("app/routers/mcp.py", 625),
     # penny_tools.py: `except HTTPException as e: return _tool_error(str(e.detail))`
     # / `return {"error": str(e.detail)}` — forwarding HTTPException.detail
     # raised by our own _validate_*/_normalise_* helpers a few lines above

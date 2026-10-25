@@ -133,6 +133,8 @@ import PennyReplyText from "@/components/PennyMarkdown";
 import PennyTable from "@/components/PennyTable";
 import PennyChart from "@/components/PennyChart";
 import { normalisePennyChart, type PennyChartSpec } from "@/lib/pennyChart";
+import PennyMovePlan from "@/components/PennyMovePlan";
+import { normalisePennyMovePlan, type PennyMovePlan as PennyMovePlanBlock } from "@/lib/pennyMovePlan";
 import { normalisePennyTable, type PennyTableBlock } from "@/lib/pennyTable";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import type { PennyAskContext } from "@/components/PennySheetProvider";
@@ -186,6 +188,8 @@ export type VerdictMsg = {
   table?: PennyTableBlock | null;
   /** G252: a typed chart spec the answer refers to, drawn under the reply. */
   chart?: PennyChartSpec | null;
+  /** G334: a typed move-route card for a consolidation answer, drawn under the reply. */
+  move_plan?: PennyMovePlanBlock | null;
   /** True when this came from a backend that doesn't ship headline/facts
    * yet — `headline` here is actually the raw `reply` string, rendered as
    * plain body text rather than a bold verdict headline. */
@@ -347,7 +351,7 @@ const PENNY_BUBBLE_TABLE = "w-[96%] min-w-0 bg-slate-100 dark:bg-slate-700 round
 export function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
   return (
     <div className="flex justify-start">
-      <div className={msg.table || msg.chart ? PENNY_BUBBLE_TABLE : PENNY_BUBBLE}>
+      <div className={msg.table || msg.chart || msg.move_plan ? PENNY_BUBBLE_TABLE : PENNY_BUBBLE}>
         {msg.degraded ? (
           <div className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200 break-words"><PennyReplyText text={msg.headline} /></div>
         ) : (
@@ -382,6 +386,7 @@ export function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap
         )}
         {msg.table && <PennyTable table={msg.table} />}
         {msg.chart && <PennyChart chart={msg.chart} />}
+        {msg.move_plan && <PennyMovePlan plan={msg.move_plan} />}
         {/* The muted grey "facts" tier that used to render here is gone —
             owner order, 2026-08-25 (the "duplication war": his own
             screenshot showed a debt reply quoting "£23,587.71 carried
@@ -1158,9 +1163,9 @@ export default function PennyConversation({
         // variant. See ExplainerMsg/ExplainerBubble doc comments.
         assistantMsg = { id, role: "assistant", kind: "explainer", reply: res.reply, topic: res.topic };
       } else if (res.headline) {
-        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.headline, reply: res.reply, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), degraded: false };
+        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.headline, reply: res.reply, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), move_plan: normalisePennyMovePlan(res.move_plan), degraded: false };
       } else {
-        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), degraded: true };
+        assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, table: normalisePennyTable(res.table), chart: normalisePennyChart(res.chart), move_plan: normalisePennyMovePlan(res.move_plan), degraded: true };
       }
       // Appended to the bucket the question was ASKED from (`bucketScreen`,
       // captured above), not necessarily whatever bucket is on screen now.
@@ -1506,7 +1511,7 @@ export default function PennyConversation({
     const turns = chat.restore.turns;
     const restored: Msg[] = turns.map((t) => t.role === "user"
       ? { id: newMsgId(), role: "user" as const, content: t.text }
-      : { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: t.text, table: normalisePennyTable(t.table), chart: normalisePennyChart(t.chart), degraded: true });
+      : { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: t.text, table: normalisePennyTable(t.table), chart: normalisePennyChart(t.chart), move_plan: normalisePennyMovePlan(t.move_plan), degraded: true });
     setBucket("chat", () => ({
       messages: restored,
       askedLabels: new Set(turns.filter((t) => t.role === "user").map((t) => t.text)),

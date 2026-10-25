@@ -8274,7 +8274,21 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_propose_label_merchant(uid, args.get("merchant"), args.get("label"))
         if name == "propose_remove_merchant_label":
             return await _exec_propose_remove_merchant_label(uid, args.get("merchant_key"))
+        if name == "plan_consolidation":
+            from app.services.penny_consolidation import exec_plan_consolidation
+            return await exec_plan_consolidation(
+                uid, args.get("target_account_id_or_name"), amount=args.get("amount"),
+                include_savings=args.get("include_savings") is True,
+            )
         return _tool_error(f"unknown tool: {name}")
     except Exception:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
         return _tool_error("tool failed")
+
+
+# G334: appended last so no line above moves (test_no_raw_exception_leak keys
+# its allowlist on this file's line numbers). The executor lives in
+# penny_consolidation.py.
+from app.services.penny_consolidation import PLAN_CONSOLIDATION_SCHEMA  # noqa: E402
+
+TOOL_SCHEMAS.append(PLAN_CONSOLIDATION_SCHEMA)

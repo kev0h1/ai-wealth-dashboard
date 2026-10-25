@@ -83,7 +83,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.core.llm import LLMCeilingReached, openrouter_chat
-from app.services import penny_chart, penny_period, penny_table
+from app.services import penny_chart, penny_move_plan, penny_period, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -519,7 +519,15 @@ _SYSTEM_PROMPT = (
     "exactly as that label ('6 months, 11 Apr to 11 Oct', 'this pay period, 25 Sep "
     "to 29 Oct') and never describe a period the result did not return: a result "
     "labelled this pay period is NOT the last 6 months. The app replaces a period "
-    "phrase that disagrees with the result.\n\n"
+    "phrase that disagrees with the result.\n"
+    "19. Moving money between the user's own accounts: any question about moving or "
+    "consolidating money into an account, how much can be moved, where it could come "
+    "from, or a picture, diagram or graphic of those moves, goes to plan_consolidation "
+    "with the account named as the target (never answer it from get_accounts balances, "
+    "which include set-aside pots and each account's own bills). Quote its `summary` "
+    "verbatim, never add a figure it did not return, and never offer to move the money: "
+    "the app never moves money. When it returns legs the app draws the route below your "
+    "reply, so a request for a graphic is answered by it, not by a chart.\n\n"
     "OUTPUT FORMAT: once you have everything you need for an IN-SCOPE "
     "question, respond with EXACTLY two lines, nothing before or after:\n"
     "HEADLINE: <under 8 words>\n"
@@ -964,6 +972,7 @@ async def run_penny_agent(
         tools_used: list[str] = []
         table_block: dict | None = None
         chart_block: dict | None = None
+        move_plan_block: dict | None = None
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
         repaired = False
@@ -1104,6 +1113,12 @@ async def run_penny_agent(
                                 result["chart"] = penny_chart.marker_for_model(block)
                                 result.pop("transactions", None)
                                 result.pop("top_categories", None)
+                        if isinstance(result, dict) and "_move_plan" in result:
+                            result = dict(result)
+                            block = penny_move_plan.validate_or_none(result.pop("_move_plan"))
+                            if block:
+                                move_plan_block = block
+                                result["move_plan"] = penny_move_plan.marker_for_model(block)
                         periods.extend(penny_period.collect_periods(result))
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
@@ -1197,6 +1212,8 @@ async def run_penny_agent(
                     done["table"] = table_block
                 if chart_block:
                     done["chart"] = chart_block
+                if move_plan_block:
+                    done["move_plan"] = move_plan_block
                 if new_last_result:
                     done["last_result"] = new_last_result
                 return done
