@@ -4303,7 +4303,7 @@ async def _exec_get_insights(uid: str) -> dict:
         from app.routers.savings_insights import _serialize_insight
         result["insights"] = [
             {
-                "rank": i + 1,
+                "rank": i + 1, "id": d.get("insight_id"),  # B60: the id a propose_*_insight reference accepts
                 "title": (s := _serialize_insight(d))["title"] or "",
                 "summary": s["body"] or "",
                 # Enrichment pass, 2026-08-27: why-fields the insights
