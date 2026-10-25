@@ -29,7 +29,8 @@ assert.equal(grab("BRIEF_CARD"), "relative overflow-hidden rounded-2xl border bo
 assert.match(grab("SECONDARY_ACTION"), /border border-slate-200 bg-white text-slate-700/);
 assert.match(grab("ACTION_BASE"), /min-h-11/, "44px targets");
 for (const n of ["BRIEF_CARD", "SECONDARY_ACTION", "BriefIcon", "KindLabel", "DismissChip", "MoveAccountIcon", "AllocationShortfallCard"]) {
-  assert.match(brief, new RegExp(`export (const|function) ${n}\\b`), `${n} must stay exported`);
+  // G334: MoveAccountIcon moved to components/MoveRoute.tsx and is re-exported here.
+  assert.match(brief, new RegExp(`export (const|function) ${n}\\b|export \\{ ${n} \\}`), `${n} must stay exported`);
 }
 
 // 2. The production card source: calm, lighter than the move card, no Penny.

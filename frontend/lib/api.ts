@@ -1262,6 +1262,8 @@ export type CanIResponse = {
   table?: import("./pennyTable").PennyTableBlock | null;
   /** G252: a typed chart spec the app draws itself (see lib/pennyChart.ts). */
   chart?: import("./pennyChart").PennyChartSpec | null;
+  /** G334: a typed move-route card the app draws itself (see lib/pennyMovePlan.ts). */
+  move_plan?: import("./pennyMovePlan").PennyMovePlan | null;
   /** G254: true when the answer loop failed on the server (not a refusal, not
    * stored): `reply` says so plainly and the client offers Try again. */
   retry?: boolean;
@@ -1280,7 +1282,7 @@ export type PennyConversationSummary = {
   turn_count: number;
   at_cap: boolean;
 };
-export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string; table?: import("./pennyTable").PennyTableBlock | null; chart?: import("./pennyChart").PennyChartSpec | null };
+export type PennyConversationTurn = { role: "user" | "assistant"; text: string; ts?: string | null; proposal_id?: string; table?: import("./pennyTable").PennyTableBlock | null; chart?: import("./pennyChart").PennyChartSpec | null; move_plan?: import("./pennyMovePlan").PennyMovePlan | null };
 export type PennyConversation = PennyConversationSummary & { turns: PennyConversationTurn[] };
 
 /** Agent mode v1's confirm card (owner decisions locked: confirm-as-is, no
