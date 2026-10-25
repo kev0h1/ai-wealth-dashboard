@@ -130,7 +130,7 @@ def test_get_safe_to_spend_description_and_spend_from(monkeypatch):
     assert [(s["name"], s["amount"]["raw"], s["held_back"]["raw"]) for s in out["spend_from"]] == [
         ("NatWest Select", 146.0, 25.0), ("Starling Personal", 54.0, 0.0)]
     assert all("keeps" not in e for e in out["spend_from"])
-    assert {(e["name"], e["reason"]) for e in out["excluded"]} == {("Saving Challenge", "set_aside_pot"), ("Amex", "credit_card")}
+    assert {(e["name"], e["reason"]) for e in out["excluded"]} == {("Monzo Saving Challenge", "set_aside_pot"), ("Amex", "credit_card")}
 
 
 def test_spend_from_extras_never_raises(monkeypatch):

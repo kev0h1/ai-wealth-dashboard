@@ -13,6 +13,7 @@ one plain push (only one fired), or nothing, all landing on "/" (home, where
 both the payday plan and the move recommendation cards live).
 """
 import logging
+import re
 import math
 import os
 from datetime import datetime, timedelta
@@ -395,8 +396,13 @@ async def _user_name_tokens(user_id: str) -> list[str]:
     try:
         from app.db.collections import user_profiles_col
 
-        prof = await user_profiles_col.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
-        return list(prof.get("name_tokens") or [])
+        prof = await user_profiles_col.find_one({"_id": user_id}, {"name_tokens": 1, "full_name": 1}) or {}
+        tokens = list(prof.get("name_tokens") or [])
+        if not tokens:
+            # G337: derive from the saved name when tokens were never stored.
+            words = re.findall(r"[a-z']+", str(prof.get("full_name") or "").lower())
+            tokens = list(words)
+        return tokens
     except Exception:
         log.warning("plan shortfall name tokens lookup failed for %s", user_id)
         return []
