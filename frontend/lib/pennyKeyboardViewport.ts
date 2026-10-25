@@ -40,6 +40,22 @@ export function pennyBottomInset(layoutHeight: number, visual?: Partial<PennyVie
   return Math.max(0, Math.round(layoutHeight - (Math.max(0, visual.top ?? 0) + visual.height)));
 }
 
+/** G335: the same gap, measured from where `position: fixed; bottom: 0` really
+ * lands (a zero-size fixed probe's bottom edge) instead of from
+ * `window.innerHeight`. Chrome on Android reports innerHeight from the visual
+ * viewport, and its fixed containing block can differ from both by a toolbar or
+ * pan offset even when the layout viewport shrank, which left the composer's
+ * lower edge and the advice note under the keyboard while the shrunk-layout
+ * shortcut insisted on 0. Same coordinate system as `position: fixed`, so it is
+ * 0 when the layout resized with the keyboard, the full keyboard gap on iOS, and
+ * the true remainder in between, never counted twice. Sub-2px noise is 0. */
+export function pennyFixedGap(fixedBottom: number, visual?: Partial<PennyViewport> | null): number {
+  if (!visual || visual.height == null || !Number.isFinite(fixedBottom)) return 0;
+  if (Math.abs((visual.scale ?? 1) - 1) >= 0.02) return 0;
+  const gap = Math.round(fixedBottom - (Math.max(0, visual.top ?? 0) + visual.height));
+  return gap < 2 ? 0 : gap;
+}
+
 /** A keyboard height change smaller than this is not a different keyboard
  * (suggestion strip flicker, sub-pixel rounding). */
 export const PENNY_DOCK_REFIT_PX = 24;
