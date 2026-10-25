@@ -95,3 +95,15 @@ def test_payday_plan_without_data_and_failure(monkeypatch):
 def test_payday_plan_is_in_the_catalogue_and_the_connector():
     assert "get_payday_plan" in {t["function"]["name"] for t in TOOL_SCHEMAS}
     assert mcp_module.TOOL_SCOPES["get_payday_plan"] == "accounts:read"
+
+
+def test_risk_copy_never_falls_back_to_the_engines_raw_copy(monkeypatch):
+    risk = {"account_id": "a9", "name": "Mr K Maingi", "shortfall": 120, "copy": "£300 leaves Mr K Maingi on payday and nothing expected in covers it."}
+    _world(monkeypatch, preview=_item(payday_split_risk=risk))
+
+    async def fake_accounts(uid):
+        return [{"id": "a9", "name": "Mr K Maingi", "provider": "natwest"}]
+    monkeypatch.setattr(consolidation_module, "_load_accounts", fake_accounts)
+    res = asyncio.run(execute_tool(UID, "get_payday_plan", {}))
+    copy = res["payday_split_risk"]["copy"]
+    assert "Maingi" not in copy and copy == "£120 leaves your NatWest account on payday and nothing expected in covers it."

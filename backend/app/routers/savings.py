@@ -1,6 +1,7 @@
 """Safety-net savings goal, insights and plan endpoints."""
 import uuid as uuid_lib
 from datetime import datetime, timedelta
+import math
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -136,14 +137,17 @@ def build_savings_goal_doc(uid: str, body: dict) -> dict:
         "created_at": datetime.now(),
     }
     if target_type == "months":
-        months = int(body.get("target_months") or 3)
+        raw_months = body.get("target_months") or 3
+        if isinstance(raw_months, float) and not math.isfinite(raw_months):
+            raise HTTPException(400, "target_months out of range")
+        months = int(raw_months)
         if months < 1 or months > 24:
             raise HTTPException(400, "target_months out of range")
         doc["target_months"] = months
         doc["target_amount"] = None
     else:
         amount = float(body.get("target_amount") or 0)
-        if amount <= 0:
+        if not math.isfinite(amount) or amount <= 0:
             raise HTTPException(400, "target_amount must be positive")
         doc["target_amount"] = round(amount, 2)
         doc["target_months"] = None

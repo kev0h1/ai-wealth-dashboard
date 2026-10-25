@@ -24,8 +24,8 @@ def _world(monkeypatch, goal=None, spending=2000.0):
         return {"configured": True}
 
     async def fake_accounts(user):
-        return [SimpleNamespace(id="a1", name="Marcus Savings", provider="marcus"),
-                SimpleNamespace(id="a2", name="HSBC Savings", provider="hsbc")]
+        return [SimpleNamespace(id="a1", name="Marcus Savings", provider="marcus", type="savings", subtype="savings", manual=False),
+                SimpleNamespace(id="a2", name="HSBC Savings", provider="hsbc", type="savings", subtype="savings", manual=False)]
 
     async def fake_bank(uid):
         return [{"_id": "a1", "name": "Marcus Savings", "provider": "marcus"}]
@@ -129,3 +129,33 @@ def test_new_propose_tools_are_registered_and_grouped():
     from app.services.penny_agent import _propose_tool_catalogue
     assert "safety buffer: propose_set_savings_goal, propose_clear_savings_goal" in _propose_tool_catalogue()
     assert penny_buffer.PROPOSE_SET_SAVINGS_GOAL_SCHEMA["function"]["name"] in PROPOSE_TOOL_NAMES
+
+
+def test_set_proposal_rejects_cards_and_investments_and_lists_counted_accounts(monkeypatch):
+    from app.core.models import Account
+    _world(monkeypatch)
+    accs = [Account(id="a1", name="Marcus Savings", type="savings", subtype="savings", balance=1.0, provider="marcus"),
+            Account(id="a2", name="Monzo Pot", type="current", subtype="current", balance=1.0, provider="monzo"),
+            Account(id="c1", name="Green Amex", type="credit_card", subtype="CREDIT_CARD", balance=-1.0, provider="amex"),
+            Account(id="i1", name="Stocks ISA", type="savings", subtype="stocks_isa", balance=1.0, provider="aj")]
+
+    async def fake_accounts(user):
+        return accs
+    monkeypatch.setattr(accounts_module, "get_accounts", fake_accounts)
+    for name in ("Green Amex", "Stocks ISA"):
+        res = asyncio.run(execute_tool(UID, "propose_set_savings_goal", {"target_type": "amount", "target_amount": 500, "account_names": [name]}))
+        assert "error" in res and name in res["error"] and "only current and savings accounts can count" in res["error"]
+    ok = asyncio.run(execute_tool(UID, "propose_set_savings_goal",
+                                  {"target_type": "amount", "target_amount": 500, "account_names": ["Marcus", "Monzo Pot"]}))
+    assert "Counts: Marcus Savings, Monzo Pot." in ok["consequence"] and "Counts: Marcus Savings, Monzo Pot." in ok["after"]
+
+
+def test_goal_doc_rejects_nan_and_inf():
+    import pytest
+    from fastapi import HTTPException
+    from app.routers.savings import build_savings_goal_doc
+    for body in ({"target_type": "amount", "target_amount": float("nan")}, {"target_type": "amount", "target_amount": float("inf")},
+                 {"target_type": "months", "target_months": float("nan")}, {"target_type": "months", "target_months": float("inf")}):
+        with pytest.raises(HTTPException) as exc:
+            build_savings_goal_doc(UID, body)
+        assert exc.value.status_code == 400

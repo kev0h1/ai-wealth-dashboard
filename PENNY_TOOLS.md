@@ -80,7 +80,7 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | `get_payday_plan` | the `get_today_brief` computation (`compute_today_items`, live item else the preview, never persisted) in `penny_payday_plan.py` (B60) | the payday plan the next salary is expected to follow: `total`, `salary` (stays), `dests` (bills, typical spend, buffer, move), `next_pay`, `payday_split` (what leaves each account on payday), `payday_split_risk`, `estimated` and a server-built hedged `summary`. Account names follow the G337 label (a holder-named account is never named). A recommendation with no lifecycle (G172). Exposed over MCP as `accounts:read` |
 | `get_pay_split(reference?)` | `get_money_shape_cached` (the engine behind `GET /money-shape`) plus the `pay_split_reference` preference, in `penny_pay_split.py` (B60); `GUIDES` and `compare_shape` port `frontend/lib/paySplitReference.ts` and `check:b60-pay-split-parity` fails if the numbers drift | the latest period's take-home, the four jobs (amount, share), the selected reference (50/30/20, Conscious Spending Plan 60/20/20 example, or Pay yourself first with no percentages), per-job `comparison` rows (`actual_pct`, `guide_pct`, `delta_pct`), 3, 6 and 12 month average shares, the what-works line and a server-built `summary`. Facts about one reference, never a target. Exposed over MCP as `insights:read` |
 
-All 22 of the above are read-only (and `calculate` still has no side effect).
+All 24 of the above are read-only (and `calculate` still has no side effect).
 
 ## Write tools (propose-only)
 

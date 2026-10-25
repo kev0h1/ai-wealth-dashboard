@@ -128,6 +128,18 @@ def describe_goal(goal: dict | None, spending: float, target_amount_fn) -> str:
     return f"{months} month{'s' if months != 1 else ''} of spending{about}"
 
 
+async def _label_for(uid: str, acc) -> str:
+    from app.services.account_names import display_account_name
+    from app.services.notifications import _user_name_tokens
+    from app.services.penny_consolidation import source_label
+
+    try:
+        tokens = await _user_name_tokens(uid)
+    except Exception:
+        tokens = []
+    return source_label(display_account_name(acc.name), acc.provider, tokens)
+
+
 async def exec_propose_set_savings_goal(uid: str, args: dict) -> dict:
     from app.routers.savings import _target_amount, build_savings_goal_doc
     from app.services import penny_tools as pt
@@ -149,6 +161,7 @@ async def exec_propose_set_savings_goal(uid: str, args: dict) -> dict:
 
     goal, spending, before = await _current_goal_text(uid)
     account_ids = [str(i) for i in (goal or {}).get("account_ids") or []]
+    labels: list[str] = []
     if names:
         account_ids = []
         for name in names:
@@ -157,8 +170,15 @@ async def exec_propose_set_savings_goal(uid: str, args: dict) -> dict:
                 return resolved
             if resolved.get("error"):
                 return pt._tool_error(resolved["error"])
-            if resolved.get("account") is not None:
-                account_ids.append(str(resolved["account"].id))
+            acc = resolved.get("account")
+            if acc is not None:
+                from app.services.account_kinds import is_credit_card_account
+
+                label = await _label_for(uid, acc)
+                if is_credit_card_account({"type": acc.type, "subtype": acc.subtype}) or pt._account_kind(acc) in ("Credit", "Investment"):
+                    return pt._tool_error(f"{label} cannot count towards the buffer, only current and savings accounts can count")
+                account_ids.append(str(acc.id))
+                labels.append(label)
     after = describe_goal(doc, spending, _target_amount)
     summary = f"Set your safety buffer to {after}"
     params = {"target_type": doc["target_type"], "account_ids": account_ids}
@@ -167,6 +187,10 @@ async def exec_propose_set_savings_goal(uid: str, args: dict) -> dict:
     else:
         params["target_amount"] = doc["target_amount"]
     consequence = "Changes the target your buffer progress is measured against. Nothing moves between accounts."
+    if labels:
+        counts = f"Counts: {', '.join(labels)}."
+        consequence = f"{consequence} {counts}"
+        after = f"{after}. {counts}"
     return await pt._create_proposal(
         uid, "set_savings_goal", params, summary, consequence,
         before=before, after=after, entity="Safety buffer",

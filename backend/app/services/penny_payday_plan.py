@@ -139,7 +139,8 @@ async def exec_get_payday_plan(uid: str) -> dict:
     if risk:
         name = label(risk.get("account_id"), risk.get("name"))
         out = next((a["out"] for a in (shaped_split or {}).get("accounts", []) if a["name"] == name), None)
-        copy = f"{_gbp(out)} leaves {name} on payday and nothing expected in covers it." if out is not None else risk.get("copy")
+        amount = out if out is not None else risk.get("shortfall")  # never the engine's raw copy, it may name a holder
+        copy = f"{_gbp(amount)} leaves {name} on payday and nothing expected in covers it."
         shaped_risk = {"name": name, "shortfall": risk.get("shortfall"), "copy": copy}
         plan["payday_split_risk"] = shaped_risk
     plan["summary"] = _summary(plan, shaped_split, shaped_risk)
