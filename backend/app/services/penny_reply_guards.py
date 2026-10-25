@@ -19,11 +19,15 @@ _SENTENCE_RE = re.compile(r".+?(?:[.!?]+(?=\s|$)|$)\s*", re.S)
 _LTS_RE = re.compile(r"left[\s-]+to[\s-]+spend|safe[\s-]+to[\s-]+spend", re.I)
 _DIRECTION_RE = re.compile(
     r"\b(?:would|will|could|can|may|should)\s+(?:rise|go\s+up|go\s+down|fall|increase|decrease|drop|grow|shrink)\b"
-    r"|\b(?:rises|rise|goes\s+up|goes\s+down|falls|increases|decreases|drops|grows|shrinks)\b"
+    r"|\b(?:rises|rise|rose|risen|goes\s+up|goes\s+down|falls|fell|fallen|increases|decreases|drops|dropped|climbed|climbs|jumps|jumped|jump|grows|shrinks)\b"
     r"|\b(?:increase|decrease)\b",
     re.I,
 )
-_MOVE_RE = re.compile(r"\b(?:move|moves|moved|moving|transfer|transfers|transferred|transferring)\b", re.I)
+_MOVE_RE = re.compile(
+    r"\b(?:move|moves|moved|moving|transfer|transfers|transferred|transferring)\b"
+    r"|\bonce\s+moved\b|\bafter\s+the\s+move\b",
+    re.I,
+)
 
 
 def extract_amounts(text: str) -> list[float]:
@@ -45,11 +49,31 @@ def _raw(v) -> float | None:
     return abs(round(float(v), 2))
 
 
-def allowed_amounts(results: list[dict]) -> set[float]:
+def _raw_values(node, out: set[float]) -> None:
+    """Every numeric `raw` value anywhere in a tool result."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "raw":
+                n = _raw(v)
+                if n is not None:
+                    out.add(n)
+            else:
+                _raw_values(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _raw_values(v, out)
+
+
+FLOOR_AMOUNT = 5.0
+
+
+def allowed_amounts(results: list[dict], all_results: list[dict] | None = None) -> set[float]:
     """Every figure a plan_consolidation result vouches for: legs, keeps,
     total, pool, requested, shortfall, the target's own headroom, and any
     figure written in its own summary."""
-    allowed: set[float] = set()
+    allowed: set[float] = {FLOOR_AMOUNT}
+    for res in all_results or []:
+        _raw_values(res, allowed)
     for res in results or []:
         if not isinstance(res, dict):
             continue
@@ -66,15 +90,16 @@ def allowed_amounts(results: list[dict]) -> set[float]:
     return allowed
 
 
-def guard_consolidation_reply(reply: str, results: list[dict]) -> tuple[str, int]:
+def guard_consolidation_reply(reply: str, results: list[dict], all_results: list[dict] | None = None) -> tuple[str, int]:
     """(reply, stray_figure_count). A stray figure swaps the reply for the
-    summary of the last result that has one; with no summary to fall back on
+    summary of the last result that has one (`all_results`: every tool result of
+    the turn, whose raw figures and the £5 floor are also allowed); with no summary to fall back on
     the reply stands."""
     results = [r for r in results or [] if isinstance(r, dict)]
     summary = next((r["summary"] for r in reversed(results) if isinstance(r.get("summary"), str) and r["summary"].strip()), None)
     if summary is None:
         return reply, 0
-    allowed = allowed_amounts(results)
+    allowed = allowed_amounts(results, all_results)
     stray = [a for a in extract_amounts(reply) if a not in allowed]
     if not stray:
         return reply, 0
@@ -82,15 +107,16 @@ def guard_consolidation_reply(reply: str, results: list[dict]) -> tuple[str, int
 
 
 def fix_unchanged_claim(reply: str) -> tuple[str, bool]:
-    """Replace any sentence claiming left to spend rises or falls, when the
-    reply is about a move or transfer. Returns (reply, changed)."""
-    if not reply or not _MOVE_RE.search(reply):
+    """Replace any sentence claiming left to spend rises or falls because of a
+    move or transfer (the move word must be in that same sentence). Returns
+    (reply, changed)."""
+    if not reply:
         return reply, False
     sentences = _SENTENCE_RE.findall(reply)
     changed = False
     out: list[str] = []
     for s in sentences:
-        if _LTS_RE.search(s) and _DIRECTION_RE.search(s):
+        if _LTS_RE.search(s) and _DIRECTION_RE.search(s) and _MOVE_RE.search(s):
             changed = True
             out.append(UNCHANGED_SENTENCE + (" " if s.endswith((" ", "\n")) else ""))
         else:

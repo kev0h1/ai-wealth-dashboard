@@ -88,10 +88,11 @@ def test_summary_ends_with_unchanged_sentence_when_legs_exist():
 def test_resolve_excluded_ids_by_name_bank_and_id():
     accounts = [_acc("a", "Barclays Savings", "ob-barclays", subtype="SAVINGS"), _acc("b", "NatWest Select", "ob-natwest"),
                 _acc("c", "Saving Challenge", "ob-monzo", subtype="SAVINGS")]
-    assert pc.resolve_excluded_ids(["savings"], accounts, []) == {"a", "c"}
-    assert pc.resolve_excluded_ids(["natwest", "c"], accounts, []) == {"b", "c"}
-    assert pc.resolve_excluded_ids(None, accounts, []) == set()
-    assert pc.resolve_excluded_ids("", accounts, []) == set()
+    assert pc.resolve_excluded_ids(["savings"], accounts, []) == ({"a", "c"}, [])
+    assert pc.resolve_excluded_ids(["natwest", "c"], accounts, []) == ({"b", "c"}, [])
+    assert pc.resolve_excluded_ids(None, accounts, []) == (set(), [])
+    assert pc.resolve_excluded_ids("", accounts, []) == (set(), [])
+    assert pc.resolve_excluded_ids(["natwest", "Halifax"], accounts, []) == ({"b"}, ["Halifax"])
 
 
 def test_schema_has_exclusion_array():
@@ -126,8 +127,9 @@ def test_get_safe_to_spend_description_and_spend_from(monkeypatch):
     monkeypatch.setattr(notifications, "_user_name_tokens", tokens)
     out = asyncio.run(pc.spend_from_extras("u"))
     assert out["own_account_moves_change_total"] is False
-    assert [(s["name"], s["amount"]["raw"], s["keeps"]["raw"]) for s in out["spend_from"]] == [
+    assert [(s["name"], s["amount"]["raw"], s["held_back"]["raw"]) for s in out["spend_from"]] == [
         ("NatWest Select", 146.0, 25.0), ("Starling Personal", 54.0, 0.0)]
+    assert all("keeps" not in e for e in out["spend_from"])
     assert {(e["name"], e["reason"]) for e in out["excluded"]} == {("Saving Challenge", "set_aside_pot"), ("Amex", "credit_card")}
 
 
@@ -139,3 +141,48 @@ def test_spend_from_extras_never_raises(monkeypatch):
 
     monkeypatch.setattr(pc, "_load_today", boom)
     assert asyncio.run(pc.spend_from_extras("u")) == {"own_account_moves_change_total": False}
+
+
+def test_move_word_must_be_in_the_same_sentence():
+    reply = "Your left to spend falls by £60 on Friday when rent leaves. Moving £200 into Barclays works."
+    assert g.fix_unchanged_claim(reply) == (reply, False)
+    reply2 = "Your left to spend rose by £60 last week. You could transfer £200 into Barclays."
+    assert g.fix_unchanged_claim(reply2) == (reply2, False)
+
+
+@pytest.mark.parametrize("verb", ["fell", "fallen", "rose", "risen", "dropped", "climbed", "jumped", "jumps"])
+def test_wider_direction_verbs_with_a_move_in_the_sentence(verb):
+    out, changed = g.fix_unchanged_claim(f"Here is the plan. Your left to spend {verb} after you move the money.")
+    assert changed and g.UNCHANGED_SENTENCE in out and verb not in out
+
+
+def test_figures_from_other_tool_results_and_the_floor_are_allowed():
+    sts = {"safe_to_spend": {"raw": 236.0, "formatted": "£236"}, "spend_from": [{"held_back": {"raw": 12.5}}]}
+    reply = "Left to spend is £236. £146 from NatWest and £54 from Starling gives £200. Keep at least £5."
+    assert g.guard_consolidation_reply(reply, [RESULT], [sts, RESULT]) == (reply, 0)
+    out, stray = g.guard_consolidation_reply("Your balances are £414 in all.", [RESULT], [sts, RESULT])
+    assert out == RESULT["summary"] and stray == 1
+    assert g.guard_consolidation_reply("Held back £12.50.", [RESULT], [sts, RESULT])[1] == 0
+
+
+def test_unmatched_exclusion_is_reported_in_the_plan_and_summary():
+    plan = kevin(unmatched_exclusions=["Halifax"])
+    assert plan["unmatched_exclusions"] == ["Halifax"]
+    assert "I could not match Halifax to one of your accounts." in plan["summary"]
+    assert plan["summary"].endswith(pc.UNCHANGED_SENTENCE)
+    assert "—" not in plan["summary"]
+    assert kevin()["unmatched_exclusions"] == []
+    assert "could not match" not in kevin()["summary"]
+
+
+def test_move_plan_validator_accepts_unmatched_exclusions():
+    from app.services import penny_move_plan as mp
+    block = {"kind": "move_plan", "target": {"name": "Barclays", "bank": None, "provider": None},
+             "legs": [{"name": "NatWest", "bank": None, "provider": None, "amount": 10, "keeps": 0}],
+             "total": 10, "pool": None, "requested": None, "shortfall": 0, "summary": "s", "skipped": [],
+             "unmatched_exclusions": ["Halifax"]}
+    assert mp.validate_move_plan(block)["unmatched_exclusions"] == ["Halifax"]
+    assert mp.validate_or_none({**block, "unmatched_exclusions": "x"}) is None
+    assert mp.validate_or_none({**block, "unmatched_exclusions": ["<b>"]}) is None
+    del block["unmatched_exclusions"]
+    assert "unmatched_exclusions" not in mp.validate_move_plan(block)

@@ -62,6 +62,15 @@ const plan = {
   assert.equal(lib.leftOutLine(plan.skipped), null);
 }
 
+// ---- 2b. optional unmatched exclusions (G336) ----------------------------------
+{
+  const ok = lib.normalisePennyMovePlan({ ...plan, unmatched_exclusions: ["Halifax"] });
+  assert.deepEqual(ok.unmatchedExclusions, ["Halifax"]);
+  assert.equal(lib.normalisePennyMovePlan({ ...plan, unmatched_exclusions: [""] }), null);
+  assert.equal(lib.normalisePennyMovePlan({ ...plan, unmatched_exclusions: "x" }), null);
+  assert.equal(lib.normalisePennyMovePlan(plan).unmatchedExclusions, undefined);
+}
+
 // ---- 3. the card renders the route, rows, total, whisper; no control ----------
 {
   const out = html(h(PennyMovePlan, { plan }));

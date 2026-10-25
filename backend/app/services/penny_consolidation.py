@@ -73,7 +73,7 @@ PLAN_CONSOLIDATION_SCHEMA = {
 
 
 SAFE_TO_SPEND_NOTE = (
-    " spend_from lists how much each current account can give without going short; "
+    " spend_from lists how much each current account can give without going short (held_back is what the left-to-spend cap kept back); "
     "a move between the user's own accounts never changes safe_to_spend."
 )
 UNCHANGED_SENTENCE = "Moving money between your own accounts does not change your left to spend."
@@ -164,15 +164,17 @@ def classify_sources(
     return sources, skipped
 
 
-def resolve_excluded_ids(terms, accounts: list[dict], name_tokens: list[str]) -> set[str]:
+def resolve_excluded_ids(terms, accounts: list[dict], name_tokens: list[str]) -> tuple[set[str], list[str]]:
     """PURE. The user's exclusions ('savings', 'Monzo', an id) to account ids.
     Matches every account a term fits, since an exclusion is never a guess to
-    clarify: leaving one extra account out is the safe side."""
+    clarify: leaving one extra account out is the safe side. Returns
+    (ids, unmatched terms)."""
     from app.services.penny_tools import _name_matches
 
     if isinstance(terms, str):
         terms = [terms]
     out: set[str] = set()
+    unmatched: list[str] = []
     for term in terms or []:
         term = str(term or "").strip()
         if not term:
@@ -180,19 +182,23 @@ def resolve_excluded_ids(terms, accounts: list[dict], name_tokens: list[str]) ->
         if any(term == str(a.get("id")) for a in accounts):
             out.add(term)
             continue
+        hit = False
         for acc in accounts:
             aid = str(acc.get("id"))
             label, bank = _label(acc, name_tokens)
             raw_name = display_account_name(acc.get("name")) or ""
             if any(_name_matches(term, n) for n in (label, raw_name, bank or "")):
                 out.add(aid)
-    return out
+                hit = True
+        if not hit and term not in unmatched:
+            unmatched.append(term[:60])
+    return out, unmatched
 
 
 def plan_consolidation_legs(
     *, target_id: str, eligibility: dict, accounts: list[dict], pool: float | None,
     amount: float | None, include_savings: bool, pot_ids: set[str], name_tokens: list[str],
-    excluded_ids: set[str] | frozenset = frozenset(),
+    excluded_ids: set[str] | frozenset = frozenset(), unmatched_exclusions: list[str] | None = None,
 ) -> dict:
     """PURE. See the module docstring."""
     eligibility = eligibility or {}
@@ -241,9 +247,14 @@ def plan_consolidation_legs(
         "pool": round(float(pool), 2) if pool is not None else None,
         "requested": requested, "shortfall": shortfall, "floor": SPEND_FROM_FLOOR,
         "left_to_spend_unchanged": True,
+        "unmatched_exclusions": list(unmatched_exclusions or [])[:5],
     }
     out["summary"] = _summary(out)
     return out
+
+
+def _unmatched_sentence(plan: dict) -> str:
+    return "".join(f" I could not match {t} to one of your accounts." for t in plan.get("unmatched_exclusions") or [])
 
 
 def _summary(plan: dict) -> str:
@@ -256,7 +267,7 @@ def _summary(plan: dict) -> str:
         left_out = [s["name"] for s in plan["skipped"] if s["reason"] == "excluded_by_user"]
         if left_out:
             first += f" {_join(left_out[:3])} left out as you asked."
-        return first
+        return first + _unmatched_sentence(plan)
     route = _join([f"{_fmt(l['amount'])} from {_mid(l['name'])}" for l in legs])
     if requested is not None and plan["shortfall"] > 0:
         head = f"You asked about {_fmt(requested)}; up to {_fmt(total)} can move into {target} without leaving another account short: {route}."
@@ -275,7 +286,7 @@ def _summary(plan: dict) -> str:
     if pots:
         notes.append(f"{_join(pots[:2])} {'is a set-aside pot' if len(pots) == 1 else 'are set-aside pots'} and stays put")
     sentence = notes[0][0].upper() + "; ".join(notes)[1:] + "."
-    return f"{head} {sentence} {UNCHANGED_SENTENCE}"
+    return f"{head} {sentence}{_unmatched_sentence(plan)} {UNCHANGED_SENTENCE}"
 
 
 async def _load_accounts(uid: str) -> list[dict]:
@@ -351,9 +362,9 @@ async def exec_plan_consolidation(
         logger.exception("plan_consolidation: loading inputs failed for %s", uid)
         return _tool_error("the move plan lookup failed")
 
-    excluded_ids = resolve_excluded_ids(exclude_account_ids_or_names, accounts, tokens)
+    excluded_ids, unmatched = resolve_excluded_ids(exclude_account_ids_or_names, accounts, tokens)
     plan = plan_consolidation_legs(
-        excluded_ids=excluded_ids, target_id=target.id, eligibility=eligibility, accounts=accounts, pool=pool,
+        excluded_ids=excluded_ids, unmatched_exclusions=unmatched, target_id=target.id, eligibility=eligibility, accounts=accounts, pool=pool,
         amount=amt, include_savings=bool(include_savings), pot_ids=pots, name_tokens=tokens,
     )
     result = {
@@ -361,6 +372,7 @@ async def exec_plan_consolidation(
         "target": {"account_id": plan["target"]["account_id"], "name": plan["target"]["name"],
                    "own_headroom": _money(plan["target"]["own_headroom"]) if plan["target"]["own_headroom"] is not None else None},
         "left_to_spend_unchanged": True,
+        "unmatched_exclusions": plan["unmatched_exclusions"],
         "legs": [
             {"account_id": l["account_id"], "name": l["name"],
              "amount": _money(l["amount"]), "keeps": _money(l["keeps"])}
@@ -390,6 +402,8 @@ async def exec_plan_consolidation(
             "shortfall": plan["shortfall"], "summary": plan["summary"],
             "skipped": [{"name": s["name"], "reason": s["reason"]} for s in plan["skipped"]],
         }
+        if plan["unmatched_exclusions"]:
+            result["_move_plan"]["unmatched_exclusions"] = plan["unmatched_exclusions"]
     return result
 
 
@@ -418,7 +432,7 @@ async def spend_from_extras(uid: str) -> dict:
         return out
     out["spend_from"] = [
         {"name": s["name"], "bank": s["bank"], "amount": _money(s["headroom"]),
-         "keeps": _money(max(0.0, float(s["raw_headroom"] or 0.0) - s["headroom"])
+         "held_back": _money(max(0.0, float(s["raw_headroom"] or 0.0) - s["headroom"])
                          if s.get("raw_headroom") is not None else 0.0)}
         for s in sorted(sources, key=lambda x: -x["headroom"])
     ]

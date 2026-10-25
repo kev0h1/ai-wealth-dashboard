@@ -852,13 +852,13 @@ def _guarded_pair(headline: str, reply: str, periods: list[dict], uid: str) -> t
         return headline, reply
 
 
-def _move_guarded(reply: str, plan_results: list[dict], uid: str) -> str:
+def _move_guarded(reply: str, plan_results: list[dict], uid: str, all_results: list[dict] | None = None) -> str:
     """G336: the figure guard (plan_consolidation ran) and the "a move changes
     left to spend" sentence guard. Never raises; the original reply stands on
     any error. Logs a count only, never an amount."""
     try:
         if plan_results:
-            reply, stray = penny_reply_guards.guard_consolidation_reply(reply, plan_results)
+            reply, stray = penny_reply_guards.guard_consolidation_reply(reply, plan_results, all_results)
             if stray:
                 logger.warning(
                     "penny_agent: reply for %s carried %d figure(s) plan_consolidation did not return; "
@@ -1002,6 +1002,7 @@ async def run_penny_agent(
         table_block: dict | None = None
         chart_block: dict | None = None
         move_plan_block: dict | None = None
+        all_results: list[dict] = []  # G336: every tool result of the turn (allowed figures)
         plan_results: list[dict] = []  # G336: every plan_consolidation result, for the figure guard
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
@@ -1152,6 +1153,8 @@ async def run_penny_agent(
                         periods.extend(penny_period.collect_periods(result))
                         dt_ms = int((time.monotonic() - t0) * 1000)
                         tools_used.append(name)
+                        if isinstance(result, dict):
+                            all_results.append(result)
                         if name == "plan_consolidation" and isinstance(result, dict):
                             plan_results.append(result)
                         logger.info(
@@ -1224,7 +1227,7 @@ async def run_penny_agent(
                         continue
                     prose = safe_prose(content)
                     if prose:
-                        prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid)
+                        prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
                         if new_last_result:
@@ -1235,7 +1238,7 @@ async def run_penny_agent(
                 # G265: a period phrase the model wrote that no tool result
                 # backs is replaced with the tool's own label.
                 headline, reply = _guarded_pair(headline, reply, periods, uid)
-                reply = _move_guarded(reply, plan_results, uid)
+                reply = _move_guarded(reply, plan_results, uid, all_results)
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,

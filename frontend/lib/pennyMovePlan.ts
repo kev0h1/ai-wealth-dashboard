@@ -34,6 +34,7 @@ export type PennyMovePlan = {
   shortfall: number;
   summary: string;
   skipped: { name: string; reason: PennyMovePlanSkipReason }[];
+  unmatchedExclusions?: string[];
 };
 
 export const MOVE_PLAN_MAX_LEGS = 8;
@@ -92,6 +93,17 @@ export function normalisePennyMovePlan(raw: unknown): PennyMovePlan | null {
       skipped.push({ name, reason: sr.reason as PennyMovePlanSkipReason });
     }
   }
+  let unmatchedExclusions: string[] | undefined;
+  if (r.unmatched_exclusions !== undefined && r.unmatched_exclusions !== null) {
+    if (!Array.isArray(r.unmatched_exclusions) || r.unmatched_exclusions.length > 5) return null;
+    const list: string[] = [];
+    for (const u of r.unmatched_exclusions as unknown[]) {
+      const t = str(u, 60);
+      if (!t) return null;
+      list.push(t);
+    }
+    if (list.length > 0) unmatchedExclusions = list;
+  }
   return {
     kind: "move_plan",
     target: { name: tName, bank: tBank, provider: tProvider ?? "" },
@@ -102,6 +114,7 @@ export function normalisePennyMovePlan(raw: unknown): PennyMovePlan | null {
     shortfall,
     summary,
     skipped,
+    ...(unmatchedExclusions ? { unmatchedExclusions } : {}),
   };
 }
 
