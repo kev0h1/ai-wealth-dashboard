@@ -325,13 +325,20 @@ def test_exactly_one_freshness_line(cat):
     assert "Researched" not in out["body"] and "Valid until" not in out["body"]
 
 
-def test_expiry_line_survives_only_for_a_body_without_a_checked_line():
+@pytest.mark.parametrize("now,expected", [
+    (datetime(2026, 10, 25, 12), "Researched 2d ago"),
+    # At 23:30 UTC before the clock change London was already on the next
+    # date. Forty-eight elapsed hours later is only one London date later.
+    (datetime(2026, 10, 25, 23, 30), "Researched yesterday"),
+])
+def test_expiry_line_survives_only_for_a_body_without_a_checked_line(monkeypatch, now, expected):
+    monkeypatch.setattr(si.timeutil, "user_now", lambda: si.timeutil.as_utc(now))
     out = si._serialize_insight({
         "_id": "x", "insight_id": "gym-x", "category": "gym", "pinned": False, "is_new": False,
-        "refreshed_at": NOW, "researched_at": NOW - timedelta(days=2),
-        "content_valid_until": NOW + timedelta(days=5), "triggered_by": [row("PureGym", 25.0)],
+        "refreshed_at": now, "researched_at": now - timedelta(days=2),
+        "content_valid_until": now + timedelta(days=5), "triggered_by": [row("PureGym", 25.0)],
         "prompt_version": si.PROMPT_VERSION, "title": "t", "body": "You pay PureGym £25 a month."})
-    assert out["expiry_line"] == "Researched 2d ago"
+    assert out["expiry_line"] == expected
 
 
 # ── the rendered-card gate ──────────────────────────────────────────────────
