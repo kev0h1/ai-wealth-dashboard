@@ -2549,7 +2549,7 @@ async def _exec_search_transactions(
             "id": tx.id,
             "date": date_str,
             "description": tx.merchant_name or tx.description,
-            "amount": _money(tx.amount),
+            "amount": _money(tx.amount, decimals=2),
             "transaction_type": tx.transaction_type,
             "category": tx.category,
         }
@@ -6406,8 +6406,8 @@ async def _resolve_transaction_for_propose(
         try:
             amount_f = abs(float(amount))
             candidates = [
-                d for d in candidates
-                if abs(abs(float(d.get("amount") or 0)) - amount_f) < 0.005
+                d for d in candidates  # B59: whole-pound figure = rounded quote, half-pound tolerance
+                if abs(abs(float(d.get("amount") or 0)) - amount_f) < (0.5 if amount_f == round(amount_f) else 0.005)
             ]
         except (TypeError, ValueError):
             pass  # an unparseable amount just doesn't narrow further

@@ -586,7 +586,10 @@ _WRITE_TOOLS_ADDENDUM = (
     "independently refuses an unprovenanced number, so calling it early "
     "only wastes a round. Scope v1: standard APR only, point a 0% promo "
     "window or balance-transfer offer request at the card's own terms "
-    "sheet in the app instead."
+    "sheet in the app instead.\n"
+    "20. Amounts: quote a transaction's amount exactly as the tool returned it, with "
+    "both decimals (£159.70, never £160), and identify a transaction you already "
+    "found by its returned transaction_id, never by a rounded figure."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up
