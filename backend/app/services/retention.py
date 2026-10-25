@@ -15,6 +15,7 @@ so behaviour is identical whether a human or the cron triggers it.
 Fail-safe rule: a document with no usable timestamp is NEVER swept. Absence
 of evidence someone actually is dormant/expired is not evidence they are.
 """
+import hashlib
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -121,7 +122,8 @@ async def erase_user(uid: str) -> dict[str, int]:
         except Exception:
             revoke_errors += 1
             logger.exception(
-                "erase_user: failed to revoke connection %s for %s", connection_id, uid,
+                "erase_user: failed to revoke connection %s for user %s",
+                connection_id, hashlib.sha256((uid or "").encode()).hexdigest()[:12],
             )
     if revoked:
         removed["connections_revoked"] = revoked
@@ -135,6 +137,28 @@ async def erase_user(uid: str) -> dict[str, int]:
         count = r_field.deleted_count + r_keyed.deleted_count
         if count:
             removed[attr.removesuffix("_col")] = count
+
+    # H133: per-user data keyed by a `uid` field or an `_id` prefix, which the
+    # `user_id` / `_id == uid` sweep above never matched.
+    for name in sorted(_cols.UID_FIELD_COLLECTIONS):
+        r = await _cols.db[name].delete_many({"uid": uid})
+        if r.deleted_count:
+            removed[f"{name}_uid"] = r.deleted_count
+    for name, templates in sorted(_cols.ID_PREFIX_COLLECTIONS.items()):
+        count = 0
+        for template in templates:
+            prefix = template.replace("{uid}", uid)
+            r = await _cols.db[name].delete_many(
+                {"_id": {"$regex": "^" + re.escape(prefix)}}
+            )
+            count += r.deleted_count
+        if count:
+            removed[f"{name}_id_prefix"] = count
+    r = await _cols.db[_cols.BROADCAST_RECIPIENTS_COLLECTION].update_many(
+        {"recipient_ids": uid}, {"$pull": {"recipient_ids": uid}},
+    )
+    if getattr(r, "modified_count", 0):
+        removed["broadcasts_recipient_pulled"] = r.modified_count
 
     # A101: ERASE_ONLY_COLLECTIONS have no *_col binding (A98 deliberately
     # removed theirs), so there is nothing for the loop above to getattr —

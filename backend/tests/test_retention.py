@@ -38,6 +38,9 @@ def _matches(doc: dict, filt: dict) -> bool:
         val = doc.get(key)
         if isinstance(cond, dict):
             ok = True
+            if "$regex" in cond:
+                import re as _re
+                ok = ok and isinstance(val, str) and _re.search(cond["$regex"], val) is not None
             if "$exists" in cond:
                 exists = key in doc and doc.get(key) is not None
                 ok = ok and (exists == cond["$exists"])
@@ -48,7 +51,10 @@ def _matches(doc: dict, filt: dict) -> bool:
             if not ok:
                 return False
         else:
-            if val != cond:
+            if isinstance(val, list) and not isinstance(cond, list):
+                if cond not in val:
+                    return False
+            elif val != cond:
                 return False
     return True
 
@@ -56,6 +62,7 @@ def _matches(doc: dict, filt: dict) -> bool:
 class _DeleteResult:
     def __init__(self, count):
         self.deleted_count = count
+        self.modified_count = count
 
 
 class _FakeCursor:
@@ -156,6 +163,8 @@ class FakeCol:
             if _matches(d, filt):
                 for k, v in (update.get("$set") or {}).items():
                     d[k] = v
+                for k, v in (update.get("$pull") or {}).items():
+                    d[k] = [x for x in d.get(k, []) if x != v]
                 count += 1
         return _DeleteResult(count)
 
@@ -185,14 +194,20 @@ def _patch_all_collections(monkeypatch, overrides: dict) -> None:
     real Mongo either — `overrides` may supply a FakeCol for one of those
     bare names too, keyed the same way as a `*_col` override."""
     from app.db import collections as _real_cols
+    bare_to_fake: dict = {}
     for name in dir(_real_cols):
         if not name.endswith("_col"):
             continue
-        monkeypatch.setattr(_real_cols, name, overrides.get(name, FakeCol()))
-    fake_db = FakeDB({
+        fake = overrides.get(name, FakeCol())
+        # H133: erase_user also reaches bound collections by bare name via
+        # db[name] (uid-field / id-prefix sweep): share the same FakeCol.
+        bare_to_fake[getattr(_real_cols, name).name] = fake
+        monkeypatch.setattr(_real_cols, name, fake)
+    unbound = {
         name: overrides.get(name, FakeCol())
         for name in (_real_cols.ERASE_ONLY_COLLECTIONS | _real_cols.RETIRED_COLLECTIONS)
-    })
+    }
+    fake_db = FakeDB({**bare_to_fake, **unbound})
     monkeypatch.setattr(_real_cols, "db", fake_db)
 
 
@@ -1155,3 +1170,76 @@ def test_erase_user_sweeps_retired_expo_push_tokens(monkeypatch):
     removed = asyncio.run(retention.erase_user(uid))
     assert removed.get("expo_push_tokens") == 1
     assert list(tokens.docs) == ["tok2"]
+
+
+# ── H133: erase_user gap sweep (uid field, _id prefix, broadcast recipients) ──
+
+def test_erase_user_sweeps_uid_field_and_id_prefix_gaps(monkeypatch):
+    uid = "gap1@example.com"
+    other = "gap2@example.com"
+    cols = {
+        "user_rules_col": FakeCol([{"_id": "r1", "uid": uid}, {"_id": "r2", "uid": other}]),
+        "challenges_col": FakeCol([{"_id": "c1", "uid": uid}]),
+        "upcoming_overrides_col": FakeCol([{"_id": "o1", "uid": uid}]),
+        "upcoming_rules_col": FakeCol([{"_id": "ur1", "uid": uid}]),
+        "needle_history_col": FakeCol([
+            {"_id": f"{uid}:2026-10-01"},
+            {"_id": f"{other}:2026-10-01", "uid": other},
+            {"_id": f"x{uid}:2026-10-01"},
+        ]),
+        "companion_items_col": FakeCol([
+            {"_id": "i1", "uid": uid},
+            {"_id": f"dismissed:{uid}"},
+            {"_id": f"dismissed:{other}"},
+        ]),
+        "merchant_categories_col": FakeCol([
+            {"_id": f"{uid}::tesco", "uid": uid},
+            {"_id": f"{other}::tesco", "uid": other},
+            {"_id": "tesco"},
+        ]),
+        "cycle_story_col": FakeCol([
+            {"_id": f"{uid}:2026-10-01:a:v1"},
+            {"_id": f"{other}:2026-10-01:a:v1"},
+        ]),
+        "oauth_codes_col": FakeCol([{"_id": "code1", "uid": uid}]),
+        "oauth_tokens_col": FakeCol([{"_id": "tok1", "uid": uid}, {"_id": "tok2", "uid": other}]),
+        "broadcasts_col": FakeCol([
+            {"_id": "b1", "recipient_ids": [uid, other], "created_by": "owner@example.com"},
+        ]),
+        "allowed_signups_col": FakeCol([{"_id": "gen1", "key": "k", "email": uid, "status": "invited"}]),
+    }
+    _patch_all_collections(monkeypatch, cols)
+    removed = asyncio.run(retention.erase_user(uid))
+
+    assert [d["_id"] for d in cols["user_rules_col"].docs.values()] == ["r2"]
+    assert list(cols["challenges_col"].docs) == []
+    assert list(cols["upcoming_overrides_col"].docs) == []
+    assert list(cols["upcoming_rules_col"].docs) == []
+    assert set(cols["needle_history_col"].docs) == {f"{other}:2026-10-01", f"x{uid}:2026-10-01"}
+    assert set(cols["companion_items_col"].docs) == {f"dismissed:{other}"}
+    # per-user rows removed, the other user's row and the global bare-key row kept
+    assert set(cols["merchant_categories_col"].docs) == {f"{other}::tesco", "tesco"}
+    assert set(cols["cycle_story_col"].docs) == {f"{other}:2026-10-01:a:v1"}
+    assert list(cols["oauth_codes_col"].docs) == []
+    assert set(cols["oauth_tokens_col"].docs) == {"tok2"}
+    # broadcast survives; only this user is pulled from the recipients
+    assert cols["broadcasts_col"].docs["b1"]["recipient_ids"] == [other]
+    # allow-list entries have generated ids and no user_id: untouched
+    assert "gen1" in cols["allowed_signups_col"].docs
+    assert removed["user_rules_uid"] == 1
+    assert removed["needle_history_id_prefix"] == 1
+    assert removed["merchant_categories_uid"] == 1
+    assert removed["cycle_stories_id_prefix"] == 1
+    assert removed["broadcasts_recipient_pulled"] == 1
+
+
+def test_erase_user_prefix_regex_is_escaped_and_anchored(monkeypatch):
+    uid = "a.b@example.com"
+    cols = {"needle_history_col": FakeCol([
+        {"_id": f"{uid}:p"},
+        {"_id": "aXb@example.com:p"},
+        {"_id": f"zz{uid}:p"},
+    ])}
+    _patch_all_collections(monkeypatch, cols)
+    asyncio.run(retention.erase_user(uid))
+    assert set(cols["needle_history_col"].docs) == {"aXb@example.com:p", f"zz{uid}:p"}
