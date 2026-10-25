@@ -198,7 +198,6 @@ def test_fee_note_lowers_value_but_not_cost_or_paid_in():
     pos = ig.build_positions(STMT, h, [fee], _insts(), [])
     row = pos["rows"][0]
     assert row["cost"] == 2500.0 and row["value"] == 3000.0 - 12.0 and row["units"] == 9.96
-    assert pos["paid_in"] == 2500.0
 
 
 def test_header_paid_in_since_excludes_a_fee(monkeypatch):

@@ -50,7 +50,7 @@ def test_partial_sale_removes_proportional_cost():
     sale["amount"] = -750.0
     pos = ig.build_positions(STMT, holds, [sale], _insts(**{"NAME:h1": 15.0}))
     row = pos["rows"][0]
-    assert row["cost"] == 500.0 and row["value"] == 750.0 and row["gain_abs"] == 250.0
+    assert row["cost"] == 500.0 and row["value"] == 750.0
 
 
 def test_partial_sale_without_units_uses_proceeds_over_value():
@@ -58,7 +58,7 @@ def test_partial_sale_without_units_uses_proceeds_over_value():
     sale = _note(750.0, date(2026, 10, 10), "Fund A")
     sale["amount"] = -750.0
     row = ig.build_positions(STMT, holds, [sale], _insts(**{"NAME:h1": 15.0}))["rows"][0]
-    assert row["cost"] == 500.0 and row["gain_abs"] == 250.0
+    assert row["cost"] == 500.0
 
 
 def test_full_sale_clamps_cost_at_zero_and_never_goes_negative():
@@ -66,7 +66,7 @@ def test_full_sale_clamps_cost_at_zero_and_never_goes_negative():
     sale = _note(1500.0, date(2026, 10, 10), "Fund A", units=100.0)
     sale["amount"] = -1500.0
     row = ig.build_positions(STMT, holds, [sale], _insts(**{"NAME:h1": 15.0}))["rows"][0]
-    assert row["cost"] == 0.0 and row["value"] == 0.0 and row["gain_abs"] == 0.0
+    assert row["cost"] == 0.0 and row["value"] == 0.0
     over = _note(9000.0, date(2026, 10, 10), "Fund A")
     over["amount"] = -9000.0
     assert ig.build_positions(STMT, holds, [over], _insts(**{"NAME:h1": 15.0}))["rows"][0]["cost"] == 0.0
@@ -77,7 +77,7 @@ def test_sale_with_no_computable_ratio_marks_cost_not_known():
     sale = _note(100.0, date(2026, 10, 10), "Fund A")
     sale["amount"] = -100.0
     row = ig.build_positions(STMT, holds, [sale], {})["rows"][0]
-    assert row["cost"] is None and row["gain_abs"] is None
+    assert row["cost"] is None
 
 
 def test_note_only_fund_is_in_the_refresh_set_and_then_priced():
@@ -90,9 +90,9 @@ def test_note_only_fund_is_in_the_refresh_set_and_then_priced():
     assert note_only_instruments(STMT, [_h("h2", SP, 5.0, 100.0)], notes) == []
     assert note_only_instruments(STMT, [], [_note(10000.0, date(2026, 9, 1))]) == []
     unpriced = ig.build_positions(STMT, held, notes, {})
-    assert unpriced["growth_abs"] == 0.0
+    assert unpriced["value"] == 5408.98  # the note is valued at cost until it is priced
     priced = ig.build_positions(STMT, held, notes, _insts(**{SP_KEY: 51.0}))
-    assert priced["growth_abs"] == 191.02
+    assert priced["value"] == 5600.0
 
 
 def test_refresh_paths_include_note_only_keys(monkeypatch):

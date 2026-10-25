@@ -40,16 +40,6 @@ def _as_date(v) -> date | None:
         return None
 
 
-def holdings_value(holdings: list[dict], insts: dict) -> float:
-    """Sum of units x shared price, falling back to the statement value for a
-    holding that is unlinked or unpriced (the same rule the account total uses)."""
-    total = 0.0
-    for h in holdings:
-        v = holding_value(h, insts.get(h.get("instrument_key")))
-        total += v if v is not None else (h.get("statement_value") or 0)
-    return round(total, 2)
-
-
 def net_contributions(notes: list[dict], after: date | None, upto: date) -> float:
     """Signed contract-note amounts dated in (after, upto]. A sale is stored
     negative, so this is money in minus money out."""
@@ -193,7 +183,7 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
             "cost": cost, "cost_source": (h.get("book_cost_source") or "statement") if cost is not None else None,
             "_nk": _norm(h.get("name")), "_contribs": [(None, cost)] if cost is not None else [],
             "_units": h.get("units"), "_key": h.get("instrument_key"), "_parts": [], "_known": cost is not None,
-            "_cost_date": None, "_held": h.get("units") or None,
+            "_held": h.get("units") or None,
         })
     adj_value = 0.0
     fee_adj = 0.0  # fees taken by selling units: value falls, cost does not
@@ -222,7 +212,7 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
                 "id": f"note:{key}", "name": n.get("fund_name"), "isin": None, "type": "Fund", "value": 0.0,
                 "statement_value": 0, "price_date": None, "cost": 0.0, "cost_source": "contract_notes",
                 "_nk": nk, "_contribs": [], "_units": None, "_key": key, "_parts": [], "_known": True,
-                "_cost_date": None, "_held": 0.0,
+                "_held": 0.0,
             }
             rows.append(row)
         if row is None:
@@ -244,8 +234,6 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
                 row["_contribs"].append((d, amt))
                 if row["cost_source"] is None:
                     row["cost_source"] = "contract_notes"
-                if d is not None and (row["_cost_date"] is None or d < row["_cost_date"]):
-                    row["_cost_date"] = d
             else:
                 # A sale removes its share of the cost, not the proceeds:
                 # units sold over units held, else proceeds over value before.
@@ -272,8 +260,6 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
         known = r["cost"] is not None and r["_known"]
         if not known:
             r["cost"] = r["cost_source"] = None
-        r["gain_abs"] = round(r["value"] - r["cost"], 2) if known else None
-        r["gain_pct"] = round(r["gain_abs"] / r["cost"] * 100, 2) if known and r["cost"] > 0 else None
         # since the last statement (kept for older clients)
         r["change_abs"] = round(r["value"] - r["statement_value"], 2) if r["price_date"] and r["statement_value"] else None
         r["change_pct"] = (round(r["change_abs"] / r["statement_value"] * 100, 2)
@@ -283,17 +269,5 @@ def build_positions(stmt_date: date | None, holdings: list[dict], notes: list[di
         r["units"] = round(held, 4) if held is not None and held > 0 else None
         px = (insts.get(r["_key"]) or {}).get("price")
         r["price"] = px if px and r["units"] else None
-    known_rows = [r for r in rows if r["cost"] is not None]
     value = round(sum(r["value"] for r in rows) + adj_value + fee_adj, 2)
-    out = {"rows": rows, "value": value, "adj": round(adj_value, 2), "stmt_date": stmt_date, "fees_after": round(fee_adj, 2),
-           "holdings_total": len(rows), "holdings_with_cost": len(known_rows)}
-    if known_rows:
-        paid_in = round(sum(r["cost"] for r in known_rows) + adj_value, 2)
-        known_value = round(sum(r["value"] for r in known_rows) + adj_value, 2)
-        gain = round(known_value - paid_in, 2)
-        dates = [r["_cost_date"] for r in known_rows if r["_cost_date"]]
-        out.update(paid_in=paid_in, growth_abs=gain, growth_pct=round(gain / paid_in * 100, 2) if paid_in > 0 else None,
-                   since=min(dates).isoformat() if dates else None)
-    else:
-        out.update(paid_in=None, growth_abs=None, growth_pct=None, since=None)
-    return out
+    return {"rows": rows, "value": value, "adj": round(adj_value, 2), "stmt_date": stmt_date, "fees_after": round(fee_adj, 2)}

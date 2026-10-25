@@ -3681,11 +3681,8 @@ export default function AccountsPage() {
                             );
                           })}
                           {investmentRefreshNote[inv.id] && (
-                            <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pt-2" role="status">{investmentRefreshNote[inv.id]}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pb-3 pt-2" role="status">{investmentRefreshNote[inv.id]}</p>
                           )}
-                          <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pb-3 pt-2">
-                            Estimated from your holdings and recent prices. For the exact value, check {inv.provider || "your provider"}. Capital at risk.
-                          </p>
                         </div>
                       )}
                     </div>

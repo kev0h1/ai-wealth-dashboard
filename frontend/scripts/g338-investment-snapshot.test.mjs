@@ -48,6 +48,7 @@ assert.equal(paidInHits.length, 0, "no percent-of-paid-in figure");
 
 // The caveat and the risk line sit with the value.
 assert.ok(accounts.includes("Estimated from your holdings and recent prices. For the exact value, check"));
+assert.equal(block.split("Estimated from your holdings and recent prices.").length - 1, 1, "caveat must render once per account");
 assert.ok(accounts.includes("Capital at risk."));
 assert.ok(accounts.includes("Prices as of"));
 
