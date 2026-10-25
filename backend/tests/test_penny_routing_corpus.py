@@ -7,7 +7,7 @@ from app.services import penny_tools
 
 
 def test_required_tools_exist_and_one_first_tool_each():
-    names = {t["function"]["name"] for t in penny_tools.TOOL_SCHEMAS}
+    names = {t["function"]["name"] for t in penny_tools.TOOL_SCHEMAS + penny_tools.PROPOSE_TOOL_SCHEMAS}  # B59: propose tools route too
     ids = set()
     for c in corpus.ROUTING_CASES:
         assert c["id"] not in ids
@@ -18,7 +18,7 @@ def test_required_tools_exist_and_one_first_tool_each():
 
 def test_combined_set_is_about_thirty_questions():
     # G245/G246 added 5 rows (2 growth, 3 simulator replacements) to the G241 corpus.
-    assert 28 <= len(g241.CASES) + len(corpus.ROUTING_CASES) <= 49  # G336 added 8 move phrasings
+    assert 28 <= len(g241.CASES) + len(corpus.ROUTING_CASES) <= 53  # G336 added 8 move phrasings, B59 added 4 set-aside and recategorise phrasings
 
 
 def test_padel_fixture_is_eleven_payments_totalling_225():

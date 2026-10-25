@@ -557,12 +557,40 @@ _SYSTEM_PROMPT = (
 # tools might be refused, the server is the only gate, and the refusal
 # outcome doesn't read as a model-authored decline. Kept as a separate
 # constant, not folded into `_SYSTEM_PROMPT`, purely for readability.
+# B59: rule 13 used to name 8 of the 46 propose tools, so the model did not know
+# set-asides, plans, one-offs, accounts or settings could be changed. The list
+# is now built from PROPOSE_TOOL_SCHEMAS, grouped by what the tool changes, so it
+# cannot go stale when a tool is added. First matching group wins; a tool no
+# group claims lands in "other".
+_PROPOSE_GROUPS = (
+    ("set-asides (allocations)", ("allocation",)),
+    ("plans and aims", ("commitment", "checkpoint")),
+    ("one-offs", ("planned",)),
+    ("upcoming payments", ("occurrence", "clear_override")),
+    ("recurring payments", ("recurring",)),
+    ("transactions", ("transaction", "merchant")),
+    ("cards", ("card",)),
+    ("accounts", ("account", "ledger", "bank", "sync_now")),
+    ("insights", ("insight", "trend_intent", "mirror")),
+    ("settings", ("set_",)),
+)
+
+
+def _propose_tool_catalogue() -> str:
+    groups: dict[str, list[str]] = {label: [] for label, _ in _PROPOSE_GROUPS}
+    groups["other"] = []
+    for schema in PROPOSE_TOOL_SCHEMAS:
+        name = schema["function"]["name"]
+        label = next((g for g, keys in _PROPOSE_GROUPS if any(k in name for k in keys)), "other")
+        groups[label].append(name)
+    return "; ".join(f"{label}: {', '.join(names)}" for label, names in groups.items() if names)
+
+
 _WRITE_TOOLS_ADDENDUM = (
     "\n\n13. You may also PROPOSE an action for the user to confirm, never "
-    "execute one yourself: propose_mirror_choice, propose_dismiss_recurring, "
-    "propose_restore_recurring, propose_add_planned, propose_create_allocation, "
-    "propose_create_commitment, propose_recategorise_transaction, "
-    "propose_set_card_apr. Call one of these ONLY when the user has clearly "
+    "execute one yourself. The propose tools, by what they change, are: "
+    + _propose_tool_catalogue() + ". "
+    "Call one of these ONLY when the user has clearly "
     "asked you to do or set up that specific thing, never merely because "
     "they mentioned or discussed it. Resolve any account, series, trait or "
     "transaction by calling a read tool first if you aren't already sure of "
@@ -593,7 +621,14 @@ _WRITE_TOOLS_ADDENDUM = (
     "as 'just this one', 'change it back', 'put it under X', 'this one' or 'that pot' "
     "refer to the entity you already found (the FOCUS note names it): pass its id, "
     "never search again by a rounded amount, and never say you cannot find something "
-    "you reported in the last few turns."
+    "you reported in the last few turns.\n"
+    "21. Nothing the app can do is out of your reach. If a propose tool exists for what "
+    "the user asks, propose it and let them confirm; never say something cannot be edited "
+    "here or from this screen. Only four things need the app itself: scanning a receipt "
+    "(Receipts), uploading a statement or contract note (Accounts), deleting the account or "
+    "erasing data (Settings), and turning consent on or off (Settings). For those, say "
+    "exactly which screen does it. If consent is off, say how to turn it on in Settings "
+    "rather than saying you cannot."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up

@@ -8285,6 +8285,9 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
                 uid, args.get("target_account_id_or_name"), amount=args.get("amount"),
                 include_savings=args.get("include_savings") is True, exclude_account_ids_or_names=args.get("exclude_account_ids_or_names"),
             )
+        if name == "get_set_asides":
+            from app.services.penny_set_asides import exec_get_set_asides
+            return await exec_get_set_asides(uid)
         return _tool_error(f"unknown tool: {name}")
     except Exception:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
@@ -8357,3 +8360,10 @@ def _commitment_change_text(doc: dict, updates: dict) -> dict:
         before.append(str(doc.get("name") or ""))
         after.append(str(updates["name"]))
     return {"before": _join_change(before), "after": _join_change(after), "entity": doc.get("name")}
+
+
+# B59: the set-asides read tool, appended last so no line above moves. The
+# executor lives in penny_set_asides.py.
+from app.services.penny_set_asides import SET_ASIDES_SCHEMA  # noqa: E402
+
+TOOL_SCHEMAS.append(SET_ASIDES_SCHEMA)
