@@ -1,6 +1,0 @@
-"use client";
-import MoneyText from "@/components/MoneyText";
-import {GUIDES,type GuideId} from "@/lib/paySplitReference";
-import {Actions,IncomeLine,NoFigures,captionFor,guideName,valueFor,type VariantProps} from "./shared";
-import s from "./VariantA.module.css";
-export default function VariantA(p:VariantProps){const visible=!p.hidden&&!p.loading&&p.comparison.available;return <section className={s.card} aria-label="Reference comparison"><h2>Your split, compared</h2><label className={s.picker}><span>Compare with</span><select aria-label="Comparison reference" value={p.guide.id} onChange={e=>p.onReferenceChange(e.target.value as GuideId)}>{GUIDES.map(g=><option key={g.id} value={g.id}>{guideName(g)}</option>)}</select></label><IncomeLine comparison={p.comparison} hidden={p.hidden} loading={p.loading}/>{visible?<div className={s.rows}>{p.comparison.rows.map(row=><div className={`${s.row} ${valueFor(row,p.guide).length>16?s.long:""}`} key={row.id}><strong>{row.label}</strong><div className={s.readout}><span className={s.value}><MoneyText text={valueFor(row,p.guide)}/></span><span className={s.caption}>{captionFor(row,p.guide)}</span></div></div>)}</div>:<NoFigures loading={p.loading} hidden={p.hidden} available={p.comparison.available}/>}<Actions guide={p.guide} onBreakdown={p.onBreakdown} disabled={!visible}/></section>}

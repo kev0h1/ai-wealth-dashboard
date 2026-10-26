@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "pay-split-compare",
-    name: "Compare with · G342",
-    description: "G342 design round after G341: A clear comparison rows, B actual-share tracks, C paired split overview. One difference figure per group, a plain income base, one breakdown and one explanation. Synthetic Kevin-like figures, independent four-part ranges, unchanged 50/30/20 and principle option, neutral colour, both themes and Hide balances. No customer data or preference writes.",
-    variants: [{ label: "A · Clear rows", value: "a" }, { label: "B · Share tracks", value: "b" }, { label: "C · Split overview", value: "c" }],
-    states: [{ label: "Your example", value: "kevin" }, { label: "Outside ranges", value: "outside" }, { label: "Income left over", value: "left" }, { label: "Large figures", value: "large" }, { label: "No income", value: "no-income" }, { label: "Loading", value: "loading" }, { label: "Save error", value: "save-error" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:

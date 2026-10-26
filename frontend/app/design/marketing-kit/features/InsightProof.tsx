@@ -36,7 +36,7 @@ export default function InsightProof({ kind, theme: _theme }: { kind: InsightPro
     return <section data-feature-proof="shape" className="p-4"><MoneyShapeHero shape={MONEY_SHAPE} hideValues={false} /></section>;
   }
   if (kind === "split-card") {
-    return <section data-feature-proof="split-card" className="p-4"><PaySplitComparison shape={MONEY_SHAPE} view="card" reference="50-30-20" hideValues={false} /></section>;
+    return <section data-feature-proof="split-card" className="p-4"><PaySplitComparison shape={MONEY_SHAPE} reference="50-30-20" hideValues={false} /></section>;
   }
-  return <section data-feature-proof="split" className="p-4"><PaySplitComparison shape={MONEY_SHAPE} view="detail" reference="50-30-20" hideValues={false} /></section>;
+  return <section data-feature-proof="split" className="p-4"><PaySplitComparison shape={MONEY_SHAPE} reference="50-30-20" hideValues={false} /></section>;
 }
