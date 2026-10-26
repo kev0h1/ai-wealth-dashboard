@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "account-balance-after",
+    name: "Bank balance and after payments and plans · G339",
+    description: "G339, impeccable · Two account readings using the canonical server account-position shape. A paired columns, B forecast subline. Account-specific upcoming working and an explanation of why Spend from can be lower. Bank group totals retained; savings/cards stay balance-only. Home estate view, masking, missing/stale/loading, earlier cash gaps, optional-plan gaps, long names and pence. Fictional fixtures; production unchanged.",
+    variants: [{ label: "A · Paired columns", value: "a" }, { label: "B · Forecast subline", value: "b" }],
+    states: [{ label: "Mixed positions", value: "mixed" }, { label: "Unknown check", value: "unknown" }, { label: "Earlier cash gap", value: "early" }, { label: "Plans-only gap", value: "plans" }, { label: "Not counted", value: "excluded" }, { label: "Loading", value: "loading" }, { label: "Last known", value: "stale" }, { label: "Long names", value: "long" }, { label: "Pence", value: "pence" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
