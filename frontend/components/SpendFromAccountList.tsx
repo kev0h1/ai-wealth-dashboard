@@ -45,11 +45,11 @@ export default function SpendFromAccountList({
     <section
       data-g115-treatment={kind}
       data-spend-from-layout="account-list"
-      aria-label="Account spending limits"
+      aria-label="Current accounts to spend from"
       className="mt-4"
     >
       <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Spend from</p>
-      <ul aria-label="Account spending limits" className="mt-2 space-y-2">
+      <ul aria-label="Current accounts to spend from" className="mt-2 space-y-2">
         {entries.map((entry) => {
           const brand = accountBrand(entry.account);
           const showLimit = !hasKnownPool || Math.round(entry.headroom) < Math.round(pool);
@@ -95,7 +95,12 @@ export default function SpendFromAccountList({
       )}
       {entries.length > 0 && (
         <p className={`${entries.length > 1 ? "mt-3" : "mt-2"} text-[12px] leading-5 text-slate-600 dark:text-slate-300`}>
-          {entries.length > 1 ? "Separate account limits, not amounts to add together. " : !hasLowerLimit ? "Within the estimate above. " : ""}
+          <MoneyText text={entries.length > 1
+            ? hasKnownPool
+              ? `The most you could spend from each account. They share your ${amount(pool!)}, so don't add them together. `
+              : "The figures share one estimate, so don't add them together. "
+            : !hasLowerLimit ? "Within the estimate above. " : "The most you could spend from this account. "} />
+          {entries.length > 1 ? `Showing your top ${entries.length} accounts. ` : "Showing your top account. "}
           See all accounts in Your accounts.
         </p>
       )}

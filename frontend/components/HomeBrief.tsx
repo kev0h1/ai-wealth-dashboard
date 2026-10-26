@@ -1238,7 +1238,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
 
   if (destination && legs.length > 0) {
     const { clearClause, dueCopy, hasOverdueBills } = paymentCopy!;
-    const safeSuffix = item.envelope_reserved ? " and envelopes" : "";
+    const safeSuffix = item.envelope_reserved ? " and set-asides" : "";
     const safeClause = item.sources_safe
       ? (legs.length === 1
           ? `the source still covers its own bills${safeSuffix}`
@@ -1391,7 +1391,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
             // 2026-08-31): an envelope reservation actually reduced a
             // source's contribution here — see item.envelope_reserved /
             // MoveMap.from.reserved_for_allocations.
-            const safeSuffix = item.envelope_reserved ? " and envelopes" : "";
+            const safeSuffix = item.envelope_reserved ? " and set-asides" : "";
             const safeClause = item.sources_safe
               ? (legs.length === 1
                   ? `the source still covers its own bills${safeSuffix}`
@@ -2124,11 +2124,11 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
       // G210: no verdict while a first sync runs, so no headroom claim.
       fallbackText = "Your first sync is still running. I will have a read on your money once it lands.";
     } else if (!safeToSpend || safeToSpend.status === "insufficient_data") {
-      fallbackText = "Your estimated left to spend isn't ready yet. I'm still mapping the bills, so check back later.";
+      fallbackText = "Your estimated left to spend isn't ready yet. I'm still checking the bills, so check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
-      fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped.";
+      fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The bills Sorted knows about are covered so far.";
     } else if (safeToSpend.state === "tight") {
-      fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills are mapped. I'll flag anything that needs you.";
+      fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills Sorted knows about are covered so far. I'll flag anything that needs you.";
     } else if (safeToSpend.state === "short" && safeToSpend.safe_to_spend <= -1) {
       // Same genuine-shortfall threshold as SafeToSpendCard's remap — a
       // near-zero "short" from the backend must not claim anything's worth
@@ -2141,7 +2141,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
       fallbackText = safeToSpend.short_reason === "cards_unconfirmed"
         ? "Nothing new needs you. A card repayment still needs confirming in the left to spend card below."
         : isPlansOnlyShort(safeToSpend)
-        ? "Nothing new needs you. Your bills are covered, you're only short after the plans and envelopes you set aside, shown in the left to spend card below."
+        ? "Nothing new needs you. The bills Sorted knows about are covered so far, you're only short after the plans and set-asides you chose, shown in the left to spend card below."
         : "Nothing new needs you. You're short this pay period, the gap is shown in the left to spend card below.";
     } else {
       fallbackText = "Nothing needs you today. Your estimate has headroom, and I am keeping an eye on the bills I know about.";
@@ -2597,14 +2597,14 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth: hideNetWor
     today0.setHours(0, 0, 0, 0);
     const daysAway = Math.round((d.getTime() - today0.getTime()) / 86400000);
     // Distance-aware date convention (mirrors SafeToSpendCard.tsx): today/tomorrow/weekday/short-date.
-    if (daysAway <= 0) return "Pay period ends today. See how I'd split your next pay cheque";
-    if (daysAway === 1) return "Pay period ends tomorrow. See how I'd split your next pay cheque";
+    if (daysAway <= 0) return "Pay period ends today. See how I'd split your next pay";
+    if (daysAway === 1) return "Pay period ends tomorrow. See how I'd split your next pay";
     if (daysAway < 7) {
       const wd = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "long" });
-      return `Pay period ends ${wd}. See how I'd split your next pay cheque`;
+      return `Pay period ends ${wd}. See how I'd split your next pay`;
     }
     const short = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-    return `Pay period ends ${short}. See how I'd split your next pay cheque`;
+    return `Pay period ends ${short}. See how I'd split your next pay`;
   })();
 
   async function handleTogglePreview() {

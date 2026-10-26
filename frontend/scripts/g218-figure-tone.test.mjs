@@ -30,7 +30,7 @@ assert.equal(isPlansOnlyShort({ ...ok, lowest_projected_balance: -50, plans_only
 
 // 5. Penny's published view speaks the same reading.
 assert.equal(deriveSafeToSpendHeadline(ok).plansOnly, true);
-assert.equal(buildSafeToSpendView(ok, { hidden: false }).figures[0].label, "Short after plans and envelopes");
+assert.equal(buildSafeToSpendView(ok, { hidden: false }).figures[0].label, "Short after plans and set-asides");
 const cash = { ...ok, lowest_projected_balance: -86, commitments_reserved: 0, allocations_reserved: 0 };
 assert.equal(buildSafeToSpendView(cash, { hidden: false }).figures[0].label, "Short before payday");
 

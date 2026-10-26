@@ -27,7 +27,7 @@ SET_ASIDES_SCHEMA = {
     "function": {
         "name": "get_set_asides",
         "description": (
-            "The user's set-asides (also called allocations, envelopes or pots to fill) for the "
+            "The user's set-asides (also called allocations or pots to fill) for the "
             "current pay period: each one's id, name, target for this period, how much has been "
             "filled, how much is still to go, the account it fills from, whether it is active or "
             "paused, and whether it repeats. Use it for 'what are my set asides', 'what am I "

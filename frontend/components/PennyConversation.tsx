@@ -699,7 +699,7 @@ export function ConsentCard({
         Want me to be able to set things up for you?
       </p>
       <p className="mt-1.5 text-[14px] leading-relaxed text-slate-600 dark:text-slate-300">
-        Things like envelopes, goals and one-offs. You&apos;ll always see exactly what would change and confirm before anything happens.
+        Things like set-asides, goals and one-offs. You&apos;ll always see exactly what would change and confirm before anything happens.
       </p>
       <div className="mt-3 flex items-center gap-2">
         <button

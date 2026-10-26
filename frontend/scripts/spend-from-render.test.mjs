@@ -163,7 +163,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("the account list renders its 'Spend from' label", rail.includes("Spend from"));
   check("the account list removes the obsolete top scope caption", !rail.includes("One estimate across these accounts.") && !rail.includes("Each figure is how much of your estimate"));
   check("the account list identifies its approved layout", rail.includes('data-spend-from-layout="account-list"'));
-  check("the account list has a semantic list", /<ul[^>]*\baria-label="Account spending limits"/.test(rail));
+  check("the account list has a semantic list", /<ul[^>]*\baria-label="Current accounts to spend from"/.test(rail));
   const railLiTags = rail.match(/<li\b[^>]*>/g) ?? [];
   check("the account list renders real list rows, never display:contents", railLiTags.length === 2 && railLiTags.every((tag) => !/\bclass="[^"]*\bcontents\b[^"]*"/.test(tag)));
   const rows = renderTreatment(PLANS["name-fallback"]).markup;
@@ -196,12 +196,16 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const markup = renderList();
   check("G320: pool-sized account figure is not repeated", !textOf(markup).includes("up to £120"));
   check("G320: lower account limit remains visible", textOf(markup).includes("up to £30") && markup.includes('data-spend-from-limit'));
-  check("G324: lower limits carry the quiet independent-ceilings explanation", markup.includes("Separate account limits, not amounts to add together."));
+  check("G324: lower limits carry the quiet independent-ceilings explanation", markup.includes("They share your") && markup.includes("£120") && markup.includes("add them together") && markup.includes("Showing your top 2 accounts."));
   check("G320: duplicate bank accounts show their display names", markup.includes("Premier Current Account") && markup.includes("Maingi K M"));
   check("G320: rows are semantic list items with account markers", (markup.match(/data-spend-from-account=/g) ?? []).length === 2 && (markup.match(/<li /g) ?? []).length === 2);
 
   const unknownPool = renderList({ pool: null });
   check("G320: an unknown pool keeps an account figure", unknownPool.includes("£120") && unknownPool.includes("£30"));
+  check("G340: an unknown shared estimate does not invent its amount", unknownPool.includes("The figures share one estimate") && !unknownPool.includes("They share your"));
+  check("G340: top accounts do not promise that omitted balances reconcile", !markup.includes("make up the rest"));
+  const single = renderList({entries:entries.slice(0,1)});
+  check("G340: single whole-estimate account keeps its context without inventing other accounts", single.includes("Within the estimate above") && single.includes("Showing your top account.") && !single.includes("top 2"));
 
   const noLogo = renderToStaticMarkup(React.createElement(SpendFromAccountList, {
     entries: [{ accountId: "unknown", name: "Everyday", headroom: 15, capped: false, provider: "Zzyzx Bank", account: account({ id: "unknown", provider: "Zzyzx Bank", provider_id: "zzyzx" }) }],
@@ -223,7 +227,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const masked = renderToStaticMarkup(React.createElement(BalancesHiddenContext.Provider, { value: true }, React.createElement(SpendFromAccountList, {
     entries, pool: 120, amount, coverMoveVisible: true, reserveByAccount: { b2: 12 }, onLogoError: noop, kind: "bank-rail",
   })));
-  check("G320: hidden amounts are masked in the DOM", !masked.includes("£30") && !masked.includes("£12") && masked.includes("£••••"));
+  check("G320: hidden amounts are masked in the DOM", !/£\d/.test(masked) && masked.includes("£••••"));
   check("G320: hidden amounts are not exposed through ARIA", !masked.includes("aria-label=\"£") && masked.includes('aria-label="Amount hidden"'));
 
   const treatment = approvedSpendFromTreatment(

@@ -49,7 +49,7 @@ assert.match(html, /Suggested from your transfers/, "picker renders the suggesti
 assert.match(html, /Which payment fills it\?/, "picker keeps the set-aside heading");
 const plain = renderToStaticMarkup(React.createElement(FillRulePicker, { accountId: "a", value: { match_type: "description_contains", match_value: "", fill_display_name: "" }, onChange: noop, loadCandidates: async () => [] }));
 assert.ok(!/Suggested from your transfers/.test(plain), "no label without a suggestion");
-assert.match(plain, /Only payments matching this count toward the envelope/, "set-asides keep their own helper text");
+assert.match(plain, /Only payments matching this count toward this set-aside/, "set-asides keep their own helper text");
 
 // 3. Row copy.
 const base = { id: "goal:g", record_id: "g", kind: "goal", name: "Japan", destination: "Japan pot", destination_account_ids: ["pot"], source_account_id: "monzo", source_basis: "chosen", period_amount: 85, filled_amount: 80, remaining: 0, active: true };

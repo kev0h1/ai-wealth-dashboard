@@ -72,6 +72,6 @@ assert.deepEqual(hits, [], `user-facing "Safe to Spend" or misleading copy remai
 // The new copy is present where the review put it.
 const card = readFileSync(join(frontend, "components/SafeToSpendCard.tsx"), "utf8");
 assert.match(card, /Estimated left to spend/);
-assert.match(card, /Counts your connected current accounts and the bills Sorted has learned\. Not other accounts, pending payments or bills it has not seen yet\./);
+assert.match(card, /Based on your connected current accounts and the bills Sorted knows about\. It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet\./);
 assert.match(card, /data-sts-counts/);
 console.log("g322-left-to-spend-copy: ok");

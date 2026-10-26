@@ -19,7 +19,7 @@ const text = (html) => html.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'");
 const both = render({ pooled: true, envelope: { amount: 101.52, count: 1 }, plan: { amount: 100, count: 1 } });
 const t = text(both);
 assert.match(t, /This figure is shared by all your accounts\. It is not a separate amount for each one\./);
-assert.match(t, /Your envelope holds back £101\.52 until payday\. You can edit it on Upcoming\./);
+assert.match(t, /Your set-aside holds back £101\.52 until payday\. You can edit it on Upcoming\./);
 assert.match(t, /Your plan holds back £100\.00\. You can edit it on Planning\./);
 assert.ok(both.includes(`href="${ENVELOPE_EDIT_HREF}"`) && both.includes(`href="${PLAN_EDIT_HREF}"`), "both edit links present");
 assert.equal(ENVELOPE_EDIT_HREF, "/upcoming#pay-period-plans");
@@ -29,10 +29,10 @@ assert.ok(!both.includes("<button"), "never a button");
 
 // Zero reservation drops its line.
 const envOnly = text(render({ pooled: false, envelope: { amount: 101.52 }, plan: { amount: 0 } }));
-assert.match(envOnly, /Your envelope holds back/);
+assert.match(envOnly, /Your set-aside holds back/);
 assert.ok(!/plan/i.test(envOnly) && !/shared by all/.test(envOnly), "no plan line, no pooling sentence");
 const planOnly = text(render({ pooled: false, envelope: { amount: 0 }, plan: { amount: 100 } }));
-assert.ok(!/envelope/i.test(planOnly) && /Your plan holds back £100\.00/.test(planOnly));
+assert.ok(!/set-aside/i.test(planOnly) && /Your plan holds back £100\.00/.test(planOnly));
 
 // Single account: pooling sentence absent; nothing at all when nothing to say.
 assert.ok(!render({ pooled: false, envelope: { amount: 5 } }).includes("shared by all"));
@@ -41,7 +41,7 @@ assert.equal(render({ pooled: false }), "");
 
 // Plurals.
 const many = text(render({ pooled: false, envelope: { amount: 50, count: 2 }, plan: { amount: 60, count: 3 } }));
-assert.match(many, /Your envelopes hold back £50\.00 until payday\. You can edit them on Upcoming/);
+assert.match(many, /Your set-asides hold back £50\.00 until payday\. You can edit them on Upcoming/);
 assert.match(many, /Your plans hold back £60\.00\. You can edit them on Planning\./);
 
 // Hidden balances stay hidden.
@@ -62,12 +62,12 @@ const card = (data, spendFrom) => text(renderToStaticMarkup(createElement(AppRou
 const reserved = { ...FIGURE_DATA["on-track"], allocations_reserved: 101.52, allocations_count: 1, commitments_reserved: 100, commitments_count: 1 };
 const multi = card(reserved, SPEND_FROM_RAIL);
 assert.match(multi, /shared by all your accounts/);
-assert.match(multi, /Your envelope holds back £101\.52 until payday\./);
+assert.match(multi, /Your set-aside holds back £101\.52 until payday\./);
 assert.match(multi, /Your plan holds back £100\.00\./);
 const single = card({ ...reserved, commitments_reserved: 0 }, { kind: "account", best: SPEND_FROM_RAIL.best, alternative: null });
 assert.ok(!/Your plan holds back/.test(single), "zero plan: no plan line");
 assert.ok(!/shared by all/.test(single), "single account: no pooling sentence");
-assert.match(single, /Your envelope holds back/);
+assert.match(single, /Your set-aside holds back/);
 const noReserve = card({ ...reserved, allocations_reserved: 0, commitments_reserved: 0 }, SPEND_FROM_RAIL);
 assert.ok(!/holds back/.test(noReserve), "no reservations: no release lines");
 

@@ -100,9 +100,9 @@ function localBank(account: SpendFromAccount["account"]) {
   };
 }
 
-// G322 exact wording retained. G324 B2 keeps the first sentence visible
+// G340 plain-English wording. G324 B2 keeps the first sentence visible
 // and places its exclusions in the adjacent scope disclosure.
-export const COUNTS_LINE = "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet.";
+export const COUNTS_LINE = "Based on your connected current accounts and the bills Sorted knows about. It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet.";
 const COUNTS_INTRO = COUNTS_LINE.slice(0, COUNTS_LINE.indexOf(". ") + 1);
 const COUNTS_EXCLUSIONS = COUNTS_LINE.slice(COUNTS_INTRO.length + 1);
 
@@ -288,6 +288,7 @@ function CardBalanceFact({
   newSpend,
   reserve,
   finalPosition,
+  cashEstimate,
   wording,
   dueDate,
   amount,
@@ -297,6 +298,7 @@ function CardBalanceFact({
   newSpend: number;
   reserve: number;
   finalPosition: number;
+  cashEstimate: number;
   wording: "carried" | "cleared_monthly" | null | undefined;
   dueDate: string | null;
   amount: (value: number) => string;
@@ -326,15 +328,19 @@ function CardBalanceFact({
         <div className="space-y-2 pb-3 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
           {hasUnconfirmedReserve ? <>
             <p className="flex items-center gap-1.5"><AlertCircle size={13} aria-hidden="true" className={muted ? "text-slate-400" : "text-amber-700 dark:text-amber-300"} />Repayment not confirmed</p>
-            <p><MoneyText text={`${amount(reserve)} of this is already held back because its repayment has not been identified.`} /></p>
+            <p><MoneyText text={`${amount(reserve)} is already held back because the repayment isn't confirmed.`} /></p>
             {finalPosition < 0 && <p><MoneyText text={`That leaves a ${amount(Math.abs(finalPosition))} safety shortfall.`} /></p>}
           </> : <>
-            <p>{wording === "cleared_monthly" && due ? `Due around ${due}. Its repayment is forecast separately.` : wording === "cleared_monthly" ? "Its repayment is forecast separately." : "This added to your card balances this pay period."}</p>
-            <p>Purchases only. Balance transfers and repayments are not counted here.</p>
+            <p><MoneyText text={`You've spent ${amount(newSpend)} on credit cards this pay period.`} /></p>
+            <p>Purchases only. Balance transfers and repayments are not counted here.{wording === "cleared_monthly" && due ? ` Due around ${due}. Its repayment is forecast separately.` : wording === "cleared_monthly" ? " Its repayment is forecast separately." : ""}</p>
           </>}
         </div>
       </details>
-      <p className="text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">{hasUnconfirmedReserve ? <MoneyText text={`${amount(newSpend)} of purchases is a separate figure, not the fallback reserve.`} /> : "It is not deducted from the cash estimate above."}</p>
+      <p className="text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={hasUnconfirmedReserve
+        ? `You've spent ${amount(newSpend)} on credit cards this pay period. This is a separate figure from the ${amount(reserve)} already held back above.`
+        : cashEstimate < 0
+          ? `This spend is separate from the ${amount(Math.abs(cashEstimate))} shortfall above. Repayments Sorted knows about count when due.`
+          : `This isn't taken off your ${amount(cashEstimate)} separately. Repayments Sorted knows about count when due.`} /></p>
     </section>
   );
 }
@@ -505,14 +511,14 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const heroCaption = sync
     ? `Last known cash figure until ${paydayLabel}`
     : presentation.caption ?? (plansOnly
-    ? "short after plans and envelopes"
+    ? "short after plans and set-asides"
     : state === "short" && !isCardsUnconfirmedShort
     ? "short before payday"
     : `Cash left until ${paydayLabel}`);
 
   const calculationItems = [
     { label: "Plans reserved", shortLabel: "plans", value: data.commitments_reserved ?? 0 },
-    { label: "Envelopes reserved", shortLabel: "envelopes", value: data.allocations_reserved ?? 0 },
+    { label: "Set-asides reserved", shortLabel: "set-asides", value: data.allocations_reserved ?? 0 },
   ].filter((item) => item.value > 0);
   const contextParts = [
     data.bills_total > 0 ? "upcoming bills" : "the cash forecast",
@@ -630,7 +636,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       <p data-sts-counts className="mt-2 text-pretty text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_INTRO}</p>
 
-      {sync && state !== "short" && heroAmount > 0 && ["bank-rail", "name-fallback"].includes(spendFromPlan.kind) && <p className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">Last known account limits.</p>}
+      {sync && state !== "short" && heroAmount > 0 && ["bank-rail", "name-fallback"].includes(spendFromPlan.kind) && <p className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">Last known account figures.</p>}
       {(state !== "short" && heroAmount > 0) || !["bank-rail", "name-fallback"].includes(spendFromPlan.kind) ? spendFromTreatment?.body : null}
 
       {excludedCount > 0 && (
@@ -729,6 +735,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           newSpend={cardNewSpend}
           reserve={cardReserve}
           finalPosition={data.safe_to_spend}
+          cashEstimate={presentation.signed ? -heroAmount : heroAmount}
           wording={data.card_growth_wording}
           dueDate={data.card_growth_due_date ?? null}
           amount={amount}

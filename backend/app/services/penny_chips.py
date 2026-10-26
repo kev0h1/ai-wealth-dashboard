@@ -288,7 +288,7 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
             + counts_caveat
         )
     elif is_cards_unconfirmed:
-        sentence1 = f"Bills are covered, but a card repayment still needs confirming{when}."
+        sentence1 = f"The bills Sorted knows about are covered so far, but a card repayment still needs confirming{when}."
     else:
         cash = sts.get("safe_to_spend_cash")
         gap = abs(free_amount if cash is None else float(cash))
@@ -297,8 +297,8 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
             # is only the plans and envelopes the user set aside. Calm, not a
             # payment at risk; same reading as the amber Home hero.
             sentence1 = (
-                f"You're about {_home_cash_amount(gap)} short after plans and envelopes{when}. "
-                "Your bills are covered; it's only the money you've set aside."
+                f"You're about {_home_cash_amount(gap)} short after plans and set-asides{when}. "
+                "The bills Sorted knows about are covered so far; it's only the money you've set aside."
             )
         else:
             sentence1 = f"You're about {_home_cash_amount(gap)} short of covering this pay period{when}."

@@ -300,9 +300,9 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         iconName: "Coins",
         color: "#7c3aed",
         bg: "#f3e8ff",
-        title: "Pay-period envelopes",
+        title: "Pay-period set-asides",
         description:
-          "An envelope holds back money for a category in this pay period, so the runway does not treat it as free to spend.",
+          "A set-aside holds back money for a category in this pay period, so the runway does not treat it as free to spend.",
       },
       {
         id: "upcoming-add",
@@ -312,7 +312,7 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         color: "#4f46e5",
         bg: "#ede9fe",
         title: "Plan this pay period",
-        description: "Add an envelope or a one-off payment without mixing it into your long-term goals.",
+        description: "Add a set-aside or a one-off payment without mixing it into your long-term goals.",
       },
     ],
   },

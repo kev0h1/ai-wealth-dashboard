@@ -118,7 +118,7 @@ export function FillRulePicker({
   note,
   suggestedName,
   emptyText = "No money has come into this account in the last 90 days.",
-  helperText = "Only payments matching this count toward the envelope, not everything landing in the account.",
+  helperText = "Only payments matching this count toward this set-aside, not everything landing in the account.",
 }: {
   accountId: string;
   value: FillRuleValue;

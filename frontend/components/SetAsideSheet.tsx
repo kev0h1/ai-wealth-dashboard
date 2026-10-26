@@ -19,7 +19,7 @@ type Step = "purpose" | "details" | "source" | "destination" | "tracking" | "rev
 const EMPTY_RULE: FillRuleValue = { match_type: "description_contains", match_value: "", fill_display_name: "" };
 const KINDS: { id: Kind; title: string; sub: string; icon: typeof Target }[] = [
   { id: "date", title: "By a date", sub: "Save toward a target, a bit each pay period", icon: Target },
-  { id: "envelope", title: "An envelope", sub: "Set aside an amount, every pay period or just this one", icon: Wallet },
+  { id: "envelope", title: "A set-aside", sub: "Set aside an amount, every pay period or just this one", icon: Wallet },
   { id: "single", title: "One payment", sub: "A single payment you know is coming", icon: Receipt },
 ];
 interface SetAsideSheetProps { accounts: Account[]; periodStart: Date; onClose: () => void; onSelectByDate?: () => void; onSelectSingle: () => void; onSavedAllocation: (item: Allocation) => void; scope?: "all" | "upcoming"; operations?: Pick<typeof api, "createAllocation" | "allocationFillCandidates">; }
