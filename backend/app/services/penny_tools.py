@@ -479,26 +479,21 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "get_investment_growth",
+            "name": "get_investment_value",
             "description": (
-                "How the user's investment accounts (an ISA, a pension) have done "
-                "so far: current value, money paid in, gain in pounds and percent "
-                "(simple: value minus what was paid in, not a time-weighted return) "
-                "and the as-of date, from the end-of-day prices. When the user has "
-                "anchored from their provider (`basis` is `anchor`), the lifetime "
-                "figure starts from the provider's own value and return, and any "
-                "`rate_of_return` is the provider's figure, as entered and dated: "
-                "say it is 'from <provider>', never recompute it. Statement-period "
-                "growth and per-purchase gains are secondary detail. When only some "
-                "holdings have a known cost the result says 'over N of M holdings'; "
-                "quote that. Use this for "
-                "'how has my ISA done', 'how much have my investments grown' and "
-                "'am I up or down'. `account` is optional free text naming one "
-                "account (e.g. 'ISA', 'Vanguard'); omit it for all of them. "
-                "Always carry the returned `capital_at_risk` line in the answer, "
-                "never call a fall bad or a rise a promise, and never say whether "
-                "to buy or sell. Figures are authoritative: quote them verbatim, "
-                "never recompute, derive, or round them yourself."
+                "What the user's investment accounts (an ISA, a pension) are worth "
+                "today, estimated from their holdings and the latest end-of-day "
+                "prices: per account the value, the date the prices are from "
+                "(`prices_as_of`, with `prices_oldest` when they span two dates), "
+                "the price confidence, the provider and a `caveat` sentence. Use "
+                "this for 'what are my investments worth' and 'how much is my ISA "
+                "worth'. `account` is optional free text naming one account (e.g. "
+                "'ISA', 'Vanguard'); omit it for all of them. Always carry the "
+                "returned `caveat` and `capital_at_risk` lines in the answer. Never "
+                "state gain, growth, return or paid in; Sorted does not compute "
+                "them. Never call a fall bad or a rise a promise, and never say "
+                "whether to buy or sell. Figures are authoritative: quote them "
+                "verbatim, never recompute, derive, or round them yourself."
             ),
             "parameters": {
                 "type": "object",
@@ -3611,20 +3606,18 @@ async def _exec_get_goals(uid: str) -> dict:
     return result
 
 
-# ── get_investment_growth (G271) ─────────────────────────────────────────
-_GROWTH_ACCOUNT_CAP = 5
-_GROWTH_RISK_LINE = (
-    "Capital at risk. Past performance is not a guide to future returns. "
-    "Prices are end of day and may be delayed."
-)
+# ── get_investment_value (G338, was get_investment_growth G271) ──────────
+_VALUE_ACCOUNT_CAP = 5
+_CAPITAL_AT_RISK = "Capital at risk."
 
 
-async def _exec_get_investment_growth(uid: str, account) -> dict:
-    """Read only. One entry per investment account from the same growth helper
-    the Accounts card uses, so the chat and the screen can never disagree."""
+async def _exec_get_investment_value(uid: str, account) -> dict:
+    """Read only. One entry per investment account: the same canonical value
+    the Accounts header shows (account_value), with the date of the prices."""
     try:
-        from app.db.collections import investment_accounts_col
-        from app.services.investment_growth import account_growth
+        from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col
+        from app.services import investment_anchor as ia
+        from app.services.investment_growth import account_value, price_dating
         accs = await investment_accounts_col.find({"user_id": uid}).to_list(None)
         needle = str(account).strip() if isinstance(account, str) else ""
         if needle:
@@ -3633,83 +3626,31 @@ async def _exec_get_investment_growth(uid: str, account) -> dict:
                 if _name_matches(needle, f"{a.get('provider') or ''} {a.get('account_type') or ''}")
             ]
         results = []
-        for a in accs[:_GROWTH_ACCOUNT_CAP]:
-            g = await account_growth(a, "all")
-            label = " ".join(x for x in (a.get("provider"), a.get("account_type")) if x) or "Investment account"
-            if g.get("value") is None:
-                results.append({"account": label, "status": "no_holdings_yet"})
+        for a in accs[:_VALUE_ACCOUNT_CAP]:
+            holdings = await investment_holdings_col.find({"account_id": a["_id"]}).to_list(None)
+            notes = await investment_notes_col.find({"account_id": a["_id"]}).to_list(None)
+            name = " ".join(x for x in (a.get("provider"), a.get("account_type")) if x) or "Investment account"
+            if not holdings and not notes:
+                results.append({"name": name, "status": "no_holdings_yet"})
                 continue
-            life = g.get("lifetime")
-            if g.get("growth_abs") is None and not life:
-                results.append({
-                    "account": label, "value": _money(g["value"], 2), "status": "cost_not_known",
-                    "note": ("Cost not known for these holdings, so no gain can be shown. The user can anchor from their provider "
-                             "(the value and return the provider shows, with the date), or add a contract note, or a statement that shows book cost."),
-                    "as_of": g.get("as_of"),
-                })
-                continue
-            entry = {"account": label, "value": _money(g["value"], 2), "as_of": g.get("as_of"),
-                     "method": g.get("method_label")}
-            if life:
-                # PRIMARY: lifetime growth from the user's own provider anchor.
-                a = life["anchor"]
-                prov = life.get("provider") or "the provider"
-                entry["basis"] = "anchor"
-                entry["paid_in"] = _money(life["paid_in"], 2)
-                entry["growth"] = _money(life["growth_abs"], 2)
-                entry["growth_pct"] = (
-                    {"raw": life["growth_pct"], "formatted": f'{life["growth_pct"]:+.2f}%'.replace("-", "−")}
-                    if life.get("growth_pct") is not None else None
-                )
-                entry["since"] = life.get("since")
-                entry["anchor"] = (
-                    f"Entered by the user from {prov} on {a['date']}: value {_money(a['provider_value'], 2)['formatted']}"
-                    + (f", return {_money(a['provider_return'], 2)['formatted']}" if a.get("provider_return") is not None else "")
-                    + (f", total paid in {_money(a['total_paid_in'], 2)['formatted']}" if a.get("total_paid_in") is not None else "")
-                    + f". Paid in after that date from contract notes and statements: {_money(life['paid_in_after'], 2)['formatted']}"
-                    + (f", withdrawn {_money(life['withdrawn_after'], 2)['formatted']}" if life.get("withdrawn_after") else "")
-                    + "."
-                )
-                rate = life.get("rate_of_return")
-                if rate:
-                    entry["rate_of_return"] = {
-                        "formatted": f'{rate["pct"]:+.2f}%'.replace("-", "−"), "label": rate["label"],
-                        "as_of": rate["as_of"], "note": rate["note"],
-                    }
-                rc = life.get("reconciliation")
-                if rc and rc.get("text"):
-                    entry["reconciliation"] = rc["text"]
-            else:
-                entry["basis"] = "contract_notes_and_book_cost"
-                entry["paid_in"] = _money(g["paid_in"], 2)
-                entry["growth"] = _money(g["growth_abs"], 2)
-                entry["growth_pct"] = (
-                    {"raw": g["growth_pct"], "formatted": f'{g["growth_pct"]:+.2f}%'.replace("-", "−")}
-                    if g.get("growth_pct") is not None else None
-                )
-                entry["since"] = g.get("since")
-                if g.get("cost_coverage"):
-                    entry["cost_coverage"] = g["cost_coverage"]
-                    entry["note"] = f"Gain is {g['cost_coverage']}; the rest read Cost not known."
-            # SECONDARY: statement-period growth and per-purchase gains.
-            ss = g.get("since_statement")
-            if ss:
-                entry["since_statement"] = {"date": ss["date"], "growth": _money(ss["growth_abs"], 2), "paid_in_since": _money(ss["paid_in"], 2)}
-            chain = g.get("periods_chain")
-            if chain:
-                entry["statement_periods"] = {"from": chain["from"], "to": chain["to"], "growth": _money(chain["growth_abs"], 2),
-                                              "fees": _money(chain["fees"], 2), "interest": _money(chain["interest"], 2)}
-            buys = [b for b in (g.get("purchases") or []) if b.get("gain_abs") is not None][:6]
-            if buys:
-                entry["purchases"] = [{"date": b["date"], "fund": b["fund_name"], "cost": _money(b["amount"], 2),
-                                       "gain": _money(b["gain_abs"], 2)} for b in buys]
-            results.append(entry)
+            value, pos = await account_value(a, holdings, notes)
+            dating = price_dating(pos["insts"], holdings, notes, ia.as_date(a.get("statement_date")))
+            provider = a.get("provider") or "your provider"
+            results.append({
+                "name": name,
+                "provider": a.get("provider"),
+                "value": _money(value, 2),
+                "prices_as_of": dating["prices_as_of"],
+                "prices_oldest": dating["prices_oldest"],
+                "price_confidence": dating["price_confidence"],
+                "caveat": f"Estimated from your holdings and recent prices. For the exact value, check {provider}.",
+            })
     except Exception:
-        logger.exception("penny_tools: get_investment_growth failed for %s", uid)
-        return _tool_error("investment growth lookup failed")
+        logger.exception("penny_tools: get_investment_value failed for %s", uid)
+        return _tool_error("investment value lookup failed")
     if not results:
-        return {"accounts": [], "note": "No investment account matches.", "capital_at_risk": _GROWTH_RISK_LINE}
-    return {"accounts": results, "capital_at_risk": _GROWTH_RISK_LINE}
+        return {"accounts": [], "note": "No investment account matches.", "capital_at_risk": _CAPITAL_AT_RISK}
+    return {"accounts": results, "capital_at_risk": _CAPITAL_AT_RISK}
 
 
 # ── check_affordability ──────────────────────────────────────────────────
@@ -8101,8 +8042,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_get_debt_position(uid)
         if name == "get_goals":
             return await _exec_get_goals(uid)
-        if name == "get_investment_growth":
-            return await _exec_get_investment_growth(uid, args.get("account"))
+        if name == "get_investment_value":
+            return await _exec_get_investment_value(uid, args.get("account"))
         if name == "check_affordability":
             return await _exec_check_affordability(uid, args.get("amount"), args.get("timeframe"))
         if name == "get_category_spend":

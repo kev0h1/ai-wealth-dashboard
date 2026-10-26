@@ -5,7 +5,7 @@ import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
-import { formatPriceDay } from "@/lib/investmentGrowth";
+import { formatPriceDay } from "@/lib/priceDay";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
@@ -54,7 +54,6 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
-import InvestmentGrowthSection from "@/components/InvestmentGrowthSection";
 import CountTowardsSafeToSpendRow from "@/components/CountTowardsSafeToSpendRow";
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
@@ -344,11 +343,6 @@ export default function AccountsPage() {
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
   const [showInvestmentUpload, setShowInvestmentUpload] = useState(false);
   const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
-  // G271: accounts whose growth card (with its own risk lines) is on screen.
-  const [growthShown, setGrowthShown] = useState<Record<string, boolean>>({});
-  const setGrowthShownFor = useCallback((id: string, shown: boolean) => {
-    setGrowthShown(prev => (prev[id] === shown ? prev : { ...prev, [id]: shown }));
-  }, []);
   const [investmentHoldings, setInvestmentHoldings] = useState<Record<string, InvestmentHolding[]>>({});
   const [loadingHoldings, setLoadingHoldings] = useState<string | null>(null);
   const [refreshingInvestment, setRefreshingInvestment] = useState<string | null>(null);
@@ -3413,6 +3407,9 @@ export default function AccountsPage() {
                         {decomposedLine && (
                           <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500 leading-snug">{decomposedLine}</p>
                         )}
+                        <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500 leading-snug">
+                          Estimated from your holdings and recent prices. For the exact value, check {inv.provider || "your provider"}. Capital at risk.
+                        </p>
                       </div>
 
                       {/* ── How this account stays current — answer (upload
@@ -3678,29 +3675,16 @@ export default function AccountsPage() {
                                     <p className="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">
                                       {hideNetWorth ? "••••" : `£${hDisplayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                                     </p>
-                                    {h.gain_abs != null && (
-                                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
-                                        {hideNetWorth ? "Gain ••••" : `Gain ${h.gain_abs < 0 ? "−" : "+"}£${Math.abs(h.gain_abs).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                                      </p>
-                                    )}
                                   </div>
                                 </div>
                               </div>
                             );
                           })}
                           {investmentRefreshNote[inv.id] && (
-                            <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pt-2" role="status">{investmentRefreshNote[inv.id]}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pb-3 pt-2" role="status">{investmentRefreshNote[inv.id]}</p>
                           )}
-                          <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pb-3 pt-2">
-                            {growthShown[inv.id] ? "" : "Prices are end of day and may be delayed. "}Your provider shows the exact value.
-                          </p>
                         </div>
                       )}
-
-                      {/* G271 C (Kevin 2026-10-15): value against money paid in. */}
-                      {!isLoadingH && holdings.length > 0 ? (
-                        <InvestmentGrowthSection accountId={inv.id} hidden={hideNetWorth} onShownChange={(shown) => setGrowthShownFor(inv.id, shown)} />
-                      ) : null}
                     </div>
                   )}
                 </div>

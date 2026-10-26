@@ -536,8 +536,6 @@ export interface InvestmentAccount {
   notes_since: number;
   /** G278: money paid in since the statement (contract notes, a fee-driven sale excluded). */
   paid_in_since?: number;
-  /** G278: the user has entered a provider anchor for lifetime growth. */
-  has_anchor?: boolean;
   /** G278: the latest statement was read by the period parser, so fees can be recognised. */
   has_statement_periods?: boolean;
   display_value: number;
@@ -580,9 +578,6 @@ export interface InvestmentHolding {
   price_confidence: string | null;
   /** G278: a fund that exists only through contract notes (no statement row). */
   from_contract_notes?: boolean;
-  /** G278: value minus cost, when the cost is known. */
-  gain_abs?: number | null;
-  gain_pct?: number | null;
 }
 
 export interface BudgetItem {

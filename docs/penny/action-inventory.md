@@ -41,7 +41,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 | `get_debt_position` | read | debt plan engine + card terms |
 | `get_goals` | read | `app.routers.commitments.list_commitments` |
 | `get_set_asides` | read | `app.routers.allocations.list_allocations` + `get_accounts` (B59) |
-| `get_investment_growth` | read | investment growth service (G271) |
+| `get_investment_value` | read | investment value service (G271, G338) |
 | `plan_consolidation(target_account_id_or_name, amount?, include_savings?, exclude_account_ids_or_names?)` | read (G334) | `build_today_payload` account eligibility, the move planner |
 | `get_payday_plan` | read (B60) | `app.services.companion.compute_today_items` (the live payday plan item, else the preview, never persisted) |
 | `get_pay_split(reference?)` | read (B60) | `app.services.money_shape.get_money_shape_cached` + the `pay_split_reference` preference |
@@ -81,7 +81,7 @@ that: full card terms (status/promos/BT offers/minimum-payment note/
 product key/usage, not just APR) and the intent/insight/merchant-label
 actions — see section 2's per-row status changes and section 3's revised
 counts. The catalog is 37 + 9 = 46 after B17, and every count below is
-reconciled against that real total. B60 (2026-10-25) added three more (`propose_set_savings_goal`, `propose_clear_savings_goal`, `propose_connect_bank`), so the registry holds 49, and four read tools were missing from this table (`get_investment_growth`, `plan_consolidation`, `get_payday_plan`, `get_pay_split`), so it holds 25. `tests/test_penny_capability_matrix.py` fails if a tool is added to the registry and not listed here.
+reconciled against that real total. B60 (2026-10-25) added three more (`propose_set_savings_goal`, `propose_clear_savings_goal`, `propose_connect_bank`), so the registry holds 49, and four read tools were missing from this table (`get_investment_value`, formerly `get_investment_growth`, `plan_consolidation`, `get_payday_plan`, `get_pay_split`), so it holds 25. `tests/test_penny_capability_matrix.py` fails if a tool is added to the registry and not listed here.
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
