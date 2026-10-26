@@ -48,7 +48,7 @@ export default function SpendFromAccountList({
       aria-label="Accounts holding part of this estimate"
       className="mt-4"
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Held in</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Spend from</p>
       <ul aria-label="Accounts holding part of this estimate" className="mt-2 space-y-2">
         {entries.map((entry) => {
           const brand = accountBrand(entry.account);

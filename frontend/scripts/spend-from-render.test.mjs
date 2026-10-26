@@ -160,7 +160,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
 // ── The healthy states use the approved B account list ─────────────────────
 {
   const rail = renderTreatment(PLANS["bank-rail"]).markup;
-  check("the account list renders its 'Held in' label", rail.includes("Held in"));
+  check("the account list renders its 'Spend from' label", rail.includes("Spend from"));
   check("the account list removes the obsolete top scope caption", !rail.includes("One estimate across these accounts.") && !rail.includes("Each figure is how much of your estimate"));
   check("the account list identifies its approved layout", rail.includes('data-spend-from-layout="account-list"'));
   check("the account list has a semantic list", /<ul[^>]*\baria-label="Accounts holding part of this estimate"/.test(rail));
