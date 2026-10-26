@@ -14,7 +14,7 @@ import { accountKindLabel } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { MaskedAmount } from "@/lib/balancesHidden";
-import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
+import type { AccountAvailabilityReading } from "@/lib/accountAvailability";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 import ActionLabel from "@/components/ActionLabel";
 
@@ -205,7 +205,7 @@ export default function AccountLedgerRow({
     row.source === "bank" && row.kind === "Current" && !notCounted && !sync ? availability : undefined;
   const availabilityAria = availabilityReading
     ? availabilityReading.kind === "ready"
-      ? `, available ${hideAmount ? "amount hidden" : formatAvailabilityAmount(availabilityReading.value)}${
+      ? `, available: ${hideAmount ? "amount hidden" : moneyStr(availabilityReading.value)}${
           availabilityReading.note ? `, ${availabilityReading.note}` : ""
         }`
       : availabilityReading.kind === "checking"
@@ -286,7 +286,7 @@ export default function AccountLedgerRow({
             {availabilityReading.kind === "ready" ? (
               <>
                 {availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
-                Available {hideAmount ? <MaskedAmount /> : <span className="money">{formatAvailabilityAmount(availabilityReading.value)}</span>}
+                Available: {hideAmount ? <MaskedAmount /> : <span className="money">{moneyStr(availabilityReading.value)}</span>}
               </>
             ) : availabilityReading.kind === "checking" ? (
               "Checking…"

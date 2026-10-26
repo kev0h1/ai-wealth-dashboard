@@ -58,11 +58,17 @@ assert.equal(formatAvailabilityAmount(-8.25), "−£8.25");
 // The actual row preserves its old output when the prop is absent or undefined.
 assert.equal(renderRow(), renderRow({ availability: undefined }));
 const ready = renderRow({ availability: accountAvailability(account(), snap()) });
-assert.match(ready, /£108/); assert.match(textOf(ready), /Available £8/); assert.match(ready, /available £8/);
+assert.match(ready, /£108/); assert.match(textOf(ready), /Available: £8/); assert.match(ready, /available: £8/);
 assert.match(ready, /data-g339-availability/);
+// Row captions use the bank balance's existing whole-pound rounding.
+for (const [value, expected] of [[108.36, "£108"], [26.29, "£26"], [11.39, "£11"], [26.5, "£27"], [0.4, "£0"]]) {
+  const rounded = renderRow({ row: row(account({ balance: value })), availability: { kind: "ready", value } });
+  assert.ok(rounded.includes(`, ${expected}, available: ${expected}`), "bank and available spoken figures round identically");
+  assert.ok(textOf(rounded).includes(`Available: ${expected}`));
+}
 const hidden = renderRow({ availability: accountAvailability(account(), snap()), hideAmount: true });
-assert.match(hidden, /available amount hidden/); assert.match(hidden, /Amount hidden|amount hidden/); assert.ok(!hidden.includes("£108") && !hidden.includes("£8"));
-assert.match(textOf(renderRow({ availability: { kind: "ready", value: 0 } })), /Available £0/);
+assert.match(hidden, /available: amount hidden/); assert.match(hidden, /Amount hidden|amount hidden/); assert.ok(!hidden.includes("£108") && !hidden.includes("£8"));
+assert.match(textOf(renderRow({ availability: { kind: "ready", value: 0 } })), /Available: £0/);
 for (const reading of [{ kind: "checking" }, { kind: "unavailable" }]) {
   const html = renderRow({ availability: reading });
   assert.match(html, new RegExp(reading.kind === "checking" ? "Checking…" : "Unavailable"));
@@ -80,9 +86,9 @@ assert.match(paymentsRow, /text-rose-700/); assert.match(plansRow, /text-amber-8
 
 // Home wires the same exact server value into the real row and masks it with the balance provider.
 const home = renderHome();
-assert.match(home, /£108/); assert.match(textOf(home), /Available £8/); assert.match(home, /available £8/);
+assert.match(home, /£108/); assert.match(textOf(home), /Available: £8/); assert.match(home, /available: £8/);
 const homeHidden = renderHome({}, true);
-assert.ok(!/£\d/.test(homeHidden) && homeHidden.includes("available amount hidden"));
+assert.ok(!/£\d/.test(homeHidden) && homeHidden.includes("available: amount hidden"));
 const homeAbsent = renderHome({ availabilitySnapshot: undefined });
 assert.ok(!homeAbsent.includes("data-g339-availability"));
 
