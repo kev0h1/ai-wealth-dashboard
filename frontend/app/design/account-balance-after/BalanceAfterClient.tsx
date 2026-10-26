@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, Info, Star } from "lucide-react";
+import { AlertTriangle, ChevronDown, Info, Star } from "lucide-react";
 import AccountsHeader from "@/components/AccountsHeader";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
@@ -14,7 +14,7 @@ import { displayAccountName } from "@/lib/accountName";
 import { CASES, getFixture, type Case, type Fixture, type FixtureAccount } from "./fixtures";
 import { day, money, reading } from "./presentation";
 
-type Variant = "a" | "b";
+type Variant = "a" | "b" | "c" | "d";
 const control = "min-h-11 touch-manipulation rounded-xl px-3 text-[13px] font-semibold hover:opacity-80 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 const muted = "text-[12px] leading-5 text-slate-600 dark:text-slate-300";
 const rowFocus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500";
@@ -28,9 +28,9 @@ function Status({ item, phase }: { item: FixtureAccount; phase: Fixture["phase"]
   </span>;
 }
 
-function Forecast({ item, phase }: { item: FixtureAccount; phase: Fixture["phase"] }) {
+function Forecast({ item, phase, compact = false }: { item: FixtureAccount; phase: Fixture["phase"]; compact?: boolean }) {
   const result = reading(item, phase);
-  return <span data-after={item.account.id} className="block text-right text-[14px] font-semibold leading-5 text-slate-900 dark:text-slate-100">
+  return <span data-after={item.account.id} className={compact ? "text-right text-[12px] font-normal leading-5 text-slate-600 dark:text-slate-300" : "block text-right text-[14px] font-semibold leading-5 text-slate-900 dark:text-slate-100"}>
     {result.value === null ? <span className="text-[12px] font-normal text-slate-600 dark:text-slate-300">{result.unavailable}</span> : <MoneyText text={money(result.value)} />}
   </span>;
 }
@@ -55,7 +55,14 @@ function PairGroup({ title, items, variant, fixture, onSelect, subtotal }: { tit
     {variant === "a" && <div className="grid grid-cols-[minmax(0,1fr)_70px_82px] max-[360px]:grid-cols-2 items-end gap-2 px-4 pb-2 text-right text-[10px] font-medium leading-4 text-slate-600 dark:text-slate-300" aria-hidden="true"><span className="max-[360px]:hidden" /><span>Bank<br />balance</span><span>After payments<br />and plans</span></div>}
     <div className="divide-y divide-slate-100 dark:divide-slate-700">
       {items.map(item => <button key={item.account.id} type="button" data-position-account={item.account.id} onClick={event => onSelect(item, event.currentTarget)} className={`w-full px-4 py-3 text-left hover:bg-slate-50 active:opacity-70 dark:hover:bg-slate-700/40 ${rowFocus}`}>
-        {variant === "a" ? <span className="grid grid-cols-[minmax(0,1fr)_70px_82px] max-[360px]:grid-cols-2 items-center gap-2">
+        {variant === "c" || variant === "d" ? <span data-stacked-readings className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+          <Identity item={item} pinned={fixture.pinnedIds.includes(item.account.id)} />
+          <span className="block max-w-[140px] text-right max-[360px]:max-w-[112px]">
+            <span data-bank-balance className="block text-[18px] font-semibold leading-6 text-slate-900 dark:text-slate-100"><span className="sr-only">Bank balance </span><MoneyText text={money(item.account.balance)} /></span>
+            {variant === "c" ? <span className="mt-0.5 flex flex-wrap items-baseline justify-end gap-x-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300"><span>After bills &amp; plans:</span><Forecast item={item} phase={fixture.phase} compact /></span> : <span className="mt-0.5 block text-slate-600 dark:text-slate-300"><span className="sr-only">After bills and plans </span><Forecast item={item} phase={fixture.phase} compact /><span aria-hidden="true" className="block text-[11px] leading-4">after bills &amp; plans</span></span>}
+            <span className="mt-0.5 block"><Status item={item} phase={fixture.phase} /></span>
+          </span>
+        </span> : variant === "a" ? <span className="grid grid-cols-[minmax(0,1fr)_70px_82px] max-[360px]:grid-cols-2 items-center gap-2">
           <span className="min-w-0 max-[360px]:col-span-2"><Identity item={item} pinned={fixture.pinnedIds.includes(item.account.id)} /></span>
           <span className="text-right text-[14px] font-medium"><span className="sr-only">Bank balance </span><MoneyText text={money(item.account.balance)} /></span>
           <span className="min-w-0"><span className="sr-only">After payments and plans </span><Forecast item={item} phase={fixture.phase} /><Status item={item} phase={fixture.phase} /></span>
@@ -92,7 +99,7 @@ function AccountWorking({ item, fixture, onClose }: { item: FixtureAccount; fixt
 
 export default function BalanceAfterClient() {
   const params=useSearchParams();
-  const [variant,setVariant]=useState<Variant>(params.get("variant")==="b"?"b":"a");
+  const [variant,setVariant]=useState<Variant>(["a","b","c","d"].includes(params.get("variant")??"")?params.get("variant") as Variant:"c");
   const [which,setWhich]=useState<Case>(CASES.some(c=>c.value===params.get("state"))?params.get("state") as Case:"mixed");
   const [surface,setSurface]=useState(params.get("surface")==="home"?"home":"accounts");
   const [dark,setDark]=useState(params.get("mode")!=="light"),[hidden,setHidden]=useState(params.get("hidden")==="1");
@@ -108,8 +115,9 @@ export default function BalanceAfterClient() {
   const currentTotal=estate.groups.find(g=>g.kind==="Current")?.subtotal??0;
   return <main className="min-h-screen bg-[#f0f2f7] px-4 py-5 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
     <div className="mx-auto max-w-6xl">
-      <p className="text-xl font-bold">Balances, with the next payments in view</p><p className={`mt-2 ${muted}`}>G339 · Fictional data. Two proposed row layouts, including the Home estate. Production is unchanged.</p>
-      <div className="mt-4 flex flex-wrap gap-2">{(["a","b"] as const).map(v=><button key={v} type="button" aria-pressed={variant===v} onClick={()=>setVariant(v)} className={`${control} ${variant===v?"bg-indigo-600 text-white":"border border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800"}`}>{v==="a"?"A · Paired columns":"B · Forecast subline"}</button>)}{(["accounts","home"] as const).map(s=><button key={s} type="button" aria-pressed={surface===s} onClick={()=>setSurface(s)} className={`${control} border ${surface===s?"border-indigo-500 text-indigo-700 dark:text-indigo-300":"border-slate-300 dark:border-slate-600"}`}>{s==="accounts"?"Accounts":"Home estate"}</button>)}</div>
+      <p className="text-xl font-bold">Bank balance first, estimate underneath</p><p className={`mt-2 ${muted}`}>G339 revision · The stacked hierarchy from your NatWest reference, in Sorted’s account rows. Fictional data; production is unchanged.</p>
+      <div className="mt-4 flex flex-wrap gap-2">{(["c","d"] as const).map(v=><button key={v} type="button" aria-pressed={variant===v} onClick={()=>setVariant(v)} className={`${control} ${variant===v?"bg-indigo-600 text-white":"border border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800"}`}>{v==="c"?"C · Compact stack":"D · Figure first"}</button>)}{(["accounts","home"] as const).map(s=><button key={s} type="button" aria-pressed={surface===s} onClick={()=>setSurface(s)} className={`${control} border ${surface===s?"border-indigo-500 text-indigo-700 dark:text-indigo-300":"border-slate-300 dark:border-slate-600"}`}>{s==="accounts"?"Accounts":"Home estate"}</button>)}</div>
+      <details className="group mt-2 text-[12px] text-slate-600 dark:text-slate-300"><summary className={`flex min-h-11 cursor-pointer items-center justify-between rounded-lg ${rowFocus}`}>Previous layouts<ChevronDown size={14} aria-hidden="true" className="group-open:rotate-180" /></summary><div className="flex flex-wrap gap-2">{(["a","b"] as const).map(v=><button key={v} type="button" aria-pressed={variant===v} onClick={()=>setVariant(v)} className={`${control} border border-slate-300 dark:border-slate-600`}>{v==="a"?"A · Paired columns":"B · Forecast subline"}</button>)}</div></details>
       <div className="mt-3 flex flex-wrap items-end gap-2"><label className="grid gap-1 text-[12px] text-slate-600 dark:text-slate-300">Example<select name="case" value={which} onChange={e=>{setWhich(e.target.value as Case);setSelected(null);}} className="min-h-11 max-w-full rounded-xl border border-slate-300 bg-white px-3 text-[14px] text-slate-900 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">{CASES.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}</select></label><button type="button" onClick={()=>setDark(!dark)} className={`${control} border border-slate-300 dark:border-slate-600`}>{dark?"Light theme":"Dark theme"}</button><button type="button" aria-pressed={hidden} onClick={()=>setHidden(!hidden)} className={`${control} border border-slate-300 dark:border-slate-600`}>{hidden?"Show balances":"Hide balances"}</button></div>
       <BalancesHiddenContext.Provider value={hidden}>
         <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,.8fr)]">
@@ -126,8 +134,8 @@ export default function BalanceAfterClient() {
             </>:<><PairGroup title="Your accounts" items={[...pinned,fixture.current[3]]} variant={variant} fixture={fixture} onSelect={select}/><button type="button" onClick={()=>setSurface("accounts")} className={`${control} w-full text-slate-600 dark:text-slate-300`}>All {estate.rows.length} accounts</button></>}
           </div>
           <section aria-label="Design decisions" className={`space-y-3 ${muted}`}>
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{variant==="a"?"Compare both readings by column":"Keep the balance row, add one reading"}</h2>
-            <p>{variant==="a"?"Two labelled columns make the bank balance and payday estimate easy to compare down the list. Long account names wrap.":"The familiar bank balance stays at the right. A full-width line below names what remains after payments and plans."}</p>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{variant==="c"?"One compact line beneath the balance":variant==="d"?"Two figures on the same right edge":variant==="a"?"Compare both readings by column":"Keep the balance row, add one reading"}</h2>
+            <p>{variant==="c"?"The bank balance leads at 18px. A quieter 12px line directly underneath says After bills & plans, with the estimate at the same right edge. This is the closest reading to your reference.":variant==="d"?"The bank balance still leads at 18px. The smaller estimate sits immediately beneath it, with its label on the next line. Both amounts share the same right edge.":variant==="a"?"Two labelled columns make the bank balance and payday estimate easy to compare down the list. Long account names wrap.":"The familiar bank balance stays at the right. A full-width line below names what remains after payments and plans."}</p>
             <p>The group total remains the bank balance total. Pinned duplicates are not added to net worth again. No combined forecast subtotal is invented.</p>
             <p>The second figure is the server’s after-payments-and-plans balance. It includes expected income and plans attributed to this account. Unassigned plans and the shared buffer are not deducted here.</p>
             <p>Spend from can be lower because it protects the account’s earlier low point, a reserved move and the shared cash limit. Tap a row to see that distinction and its own upcoming items.</p>
