@@ -9,7 +9,7 @@
 // Penny hand-off on this page uses.
 
 const REFERENCE_SHAPES: { label: string; ask: string }[] = [
-  { label: "Conscious Spending Plan", ask: "Explain the conscious spending plan" },
+  { label: "A common four-part split", ask: "Explain the four-part split" },
   { label: "50/30/20", ask: "Explain the 50/30/20 rule" },
   { label: "Pay yourself first", ask: "Explain pay yourself first" },
 ];

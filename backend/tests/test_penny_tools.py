@@ -1343,7 +1343,7 @@ _BASICS_KEYS = [
     "pension-tax-relief", "compound-interest", "investment-fees",
     "diversification", "dividend-allowance", "cgt-allowance",
     "tax-year-dates", "premium-bonds", "marriage-allowance",
-    "conscious-spending-plan", "fifty-thirty-twenty", "pay-yourself-first",
+    "four-part-split", "fifty-thirty-twenty", "pay-yourself-first",
     # B3 (2026-09-06): grounds the three tax chips that used to fall back
     # to the model (tax_pension_carry_forward/tax_salary_sacrifice/
     # tax_gift_aid in app.services.penny_chips) instead of inventing prose.
@@ -1351,36 +1351,25 @@ _BASICS_KEYS = [
 ]
 
 
-def test_explain_conscious_spending_plan_returns_text():
-    """The three reference explainers added alongside the money-shape work
-    (2026-09-02): Ramit Sethi's Conscious Spending Plan, the 50/30/20 rule,
-    and pay-yourself-first. All reference-only, no advice.
-
-    G80 (2026-09-16): reframed to lead on UK terms rather than a US author
-    and his book (Kevin: opening this from the reference shapes row read as
-    American even with the honest caveat), and the takeaway's "Insights"
-    reference retired 2026-09-04 -> now points at Spend, where the money
-    shape actually lives."""
-    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "conscious-spending-plan"}))
-    assert result["topic"] == "conscious-spending-plan"
+def test_explain_four_part_split_returns_generic_text():
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "four-part-split"}))
+    assert result["topic"] == "four-part-split"
     assert len(result["text"]) > 20
-    assert "Spend" in result["text"]  # ties back to the app's own shape, not a grade
-    assert "Insights" not in result["text"]  # retired page, no longer where the shape lives
-    assert "—" not in result["text"] and "–" not in result["text"]
-    # Leads on UK terms, not a US author/book: "take-home pay" (the UK framing)
-    # appears before the book's title in the text.
-    assert result["text"].index("take-home pay") < result["text"].index("I Will Teach You To Be Rich")
-
-
-def test_explain_conscious_spending_plan_has_no_us_account_terms():
-    """G80: the fault Kevin named was specifically 401(k)/Roth IRA reading
-    American, even in an otherwise-honest caveat. Regression guard so a
-    future edit can't reintroduce US account-type terms into UK-facing
-    money-basics copy."""
-    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "conscious-spending-plan"}))
-    lowered = result["text"].lower()
+    assert "Spend" in result["text"]
+    assert "Insights" not in result["text"]
     for term in ("401(k)", "401k", "roth ira"):
-        assert term not in lowered, f"US account-type term {term!r} reintroduced into conscious-spending-plan"
+        assert term not in result["text"].lower(), f"US account-type term {term!r} reintroduced"
+    assert "budget or target" in result["text"]
+    assert "—" not in result["text"] and "–" not in result["text"]
+    assert "conscious" not in result["text"].lower()
+    assert "ramit" not in result["text"].lower()
+
+
+def test_explain_legacy_four_part_topic_resolves_to_canonical_topic():
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "conscious-spending-plan"}))
+    assert result["topic"] == "four-part-split"
+    lowered = result["text"].lower()
+    assert "conscious" not in lowered
 
 
 def test_explain_fifty_thirty_twenty_leads_on_uk_terms():
@@ -1508,7 +1497,7 @@ def test_explain_topic_resolves_for_realistic_phrasing_variants():
     """Realistic model-picked topic strings: exact key, and the one case
     variance `_exec_explain` is documented to tolerate (it lowercases the
     key but does not normalise separators)."""
-    for topic in ("conscious-spending-plan", "Conscious-Spending-Plan", "FIFTY-THIRTY-TWENTY"):
+    for topic in ("four-part-split", "Four-Part-Split", "FIFTY-THIRTY-TWENTY"):
         result = asyncio.run(execute_tool("kevin", "explain", {"topic": topic}))
         assert "error" not in result, f"{topic!r} should resolve, case-insensitively"
 
