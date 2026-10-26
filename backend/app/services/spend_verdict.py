@@ -1185,7 +1185,7 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
             if cat in prior_one_off:
                 n["prior_intent"] = {
                     "repeat":   True,
-                    "question": f"{cat} is over usual again this period. One-off, or is this the new normal now?",
+                    "question": f"{cat} is over usual again this period. Is this a one-off, or will it happen again?",
                 }
             else:
                 n["prior_intent"] = None
@@ -1204,7 +1204,7 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
             if excess_total > 0:
                 share = loudest["excess"] / excess_total
                 if share >= 0.6:
-                    text = f"{loudest['category']} alone accounts for most of that."
+                    text = f"Most of this is {loudest['category']}."
                 else:
                     text = f"{loudest['category']} is about £{loudest['excess']:,.0f} of that."
             else:

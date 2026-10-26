@@ -458,7 +458,7 @@ def test_category_pace_pushes_once_then_dedupes_same_period(monkeypatch):
     asyncio.run(notifications._maybe_category_pace("kevin"))
     assert len(sent) == 1
     assert sent[0]["title"] == "Entertainment is running hot"
-    assert "twice your usual pace for day 22" in sent[0]["body"]
+    assert "twice what you usually spend by day 22" in sent[0]["body"]
     assert sent[0]["url"] == "/spend"
 
     # Same category, same period, second sync — must not renotify.
