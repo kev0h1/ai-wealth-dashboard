@@ -13,12 +13,12 @@
     "public/assets/upcoming-dark.webp": "bf4b7245d2f071dab1796bf1df06adcedf495c935b9f7b8d5452166ce695975e",
     "public/assets/upcoming-light.webp": "741bccf8c9f87d20cec0b120edf178d49dded7d989b7f784a28e24e6250f1fb9",
     "scripts/build.mjs": "11a6f173adf86b32f94355a582bc25a834f130c765dd4cfbee8dabee9f948cae",
-    "src/product-facts.json": "3203622b21a3cc2dccd1c4bd892d3d7c1b9f02509a48f684ed445f90701d1b14",
+    "src/product-facts.json": "5d445a063c6a8253b25d040b883828b43d8d1e6d36b155a17821a3d3a992a1bc",
     "src/site.css": "6e0a5b792178150881e037fd7f9e5145ebb86d20261939dda0e43748972f2455"
   },
   "outputs": {
-    "a/dark.html": "6e7fdcd576604a3951aa032cad935911e0a5d3ad6d981855b45a4f060376204d",
-    "a/light.html": "c1d0f315a43cf7086e3b8b49a1cd204bf883972fb7b92b91cccfe5e12b8ea177",
+    "a/dark.html": "0b6b36fe6f90a3408e8ce8235b841ba5069d01c6fc32e5abf8273e4b3f64b731",
+    "a/light.html": "e4882bcad2d91330e573fe6964562c32c5c5a8282cbcaf244d83aaded096f315",
     "assets/editorial-morning.webp": "3a98cef3d46c0bf082b1c0c4ab39ae1fc2eba1d3646def0bede6ed4da4f90f0f",
     "assets/figtree-LICENSE.txt": "bb272dfcd8801eb31fb98fe51828f76f0e41ac82f89256101df8021aa3d30ce2",
     "assets/figtree.woff2": "8330490a01c60c196eae00b823de8102275aaa5862e7b76a7af21b8745338928",
@@ -31,10 +31,10 @@
     "assets/sorted-logo-light.svg": "44b0856ecbe37e75438fd5352b7deada1a8804f21ab2715f7c2546cc57b6884f",
     "assets/upcoming-dark.webp": "bf4b7245d2f071dab1796bf1df06adcedf495c935b9f7b8d5452166ce695975e",
     "assets/upcoming-light.webp": "741bccf8c9f87d20cec0b120edf178d49dded7d989b7f784a28e24e6250f1fb9",
-    "b/dark.html": "9e0d05416c55db743a19e00202c104b4dd98abb6c1c654782fbbeb7d754300e8",
-    "b/light.html": "18287b052c167791fd20feac0deb0703d539123cc4c303f0fa10ca5ed99c09a1",
-    "c/dark.html": "ddc740af54b08a135748b503b29fc00cf35077e025d96f35738c9978d2dfe2c8",
-    "c/light.html": "ef9946d13cc406679783300a6de4bc1aaa91fc4d82944ae4a666d22d6161498e",
+    "b/dark.html": "190448fbb1c512211dfeae0639c46bf49b2c6949b0567aa7f946c43c10bb4c61",
+    "b/light.html": "075bf502f19929abfe71a596ac8b9229a2a36138dd3530b56be380cb588cad25",
+    "c/dark.html": "b37d20eb50b0946de9b9cbcf576465172ed099be529c4a9c55d8783e3fbb4d2a",
+    "c/light.html": "0dc0dd070807f38f230f5493a452ca9b11685a1870b7ef9437398c03b4f1d6b4",
     "index.html": "356a8f308b3b1721bdd4e25f49c4740e2e185fb4cc40df5c90ef87ad2affd037",
     "site.css": "6e0a5b792178150881e037fd7f9e5145ebb86d20261939dda0e43748972f2455"
   }

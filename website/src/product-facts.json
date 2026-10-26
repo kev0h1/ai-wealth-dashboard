@@ -70,7 +70,7 @@
   "trialDays": 14,
   "agentDisclosure": "AURIQ LTD is acting as an agent of Finexer LTD, which is authorised by the Financial Conduct Authority under the Payment Services Regulations 2017, firm reference number 925695, as an Authorised Payment Institution to provide account information services and payment initiation services.",
   "tradingNameDisclosure": "Sorted is a trading name of AURIQ LTD.",
-  "countsLine": "Counts your connected current accounts and the bills Sorted has learned. Not other accounts, pending payments or bills it has not seen yet.",
+  "countsLine": "Based on your connected current accounts and the bills Sorted knows about. It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet.",
   "disclaimer": "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.",
   "company": {
     "name": "AURIQ LTD",
