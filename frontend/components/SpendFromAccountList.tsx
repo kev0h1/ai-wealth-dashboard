@@ -45,11 +45,11 @@ export default function SpendFromAccountList({
     <section
       data-g115-treatment={kind}
       data-spend-from-layout="account-list"
-      aria-label="Accounts holding part of this estimate"
+      aria-label="Account spending limits"
       className="mt-4"
     >
       <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Spend from</p>
-      <ul aria-label="Accounts holding part of this estimate" className="mt-2 space-y-2">
+      <ul aria-label="Account spending limits" className="mt-2 space-y-2">
         {entries.map((entry) => {
           const brand = accountBrand(entry.account);
           const showLimit = !hasKnownPool || Math.round(entry.headroom) < Math.round(pool);
@@ -78,7 +78,7 @@ export default function SpendFromAccountList({
               </span>
               {showLimit && (
                 <span className="shrink-0 text-right text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                  <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span> held
+                  up to <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span>
                 </span>
               )}
               {coverMoveVisible && reserve > 0 && (
