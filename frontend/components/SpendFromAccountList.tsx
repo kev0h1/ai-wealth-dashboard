@@ -95,13 +95,10 @@ export default function SpendFromAccountList({
       )}
       {entries.length > 0 && (
         <p className={`${entries.length > 1 ? "mt-3" : "mt-2"} text-[12px] leading-5 text-slate-600 dark:text-slate-300`}>
-          <MoneyText text={entries.length > 1
-            ? hasKnownPool
-              ? `The most you could spend from each account. They share your ${amount(pool!)}, so don't add them together. `
-              : "The figures share one estimate, so don't add them together. "
-            : !hasLowerLimit ? "Within the estimate above. " : "The most you could spend from this account. "} />
-          {entries.length > 1 ? `Showing your top ${entries.length} accounts. ` : "Showing your top account. "}
-          See all accounts in Your accounts.
+          {entries.length > 1
+            ? `Showing your top ${entries.length} accounts. Each amount is the most that account could cover. Don't add them together. `
+            : `Showing your top account. ${!hasLowerLimit ? "Within the estimate above." : "This is the most that account could cover."} `}
+          See all in Your accounts.
         </p>
       )}
     </section>
