@@ -8,11 +8,13 @@
 //
 // Rendered across AccountsPage and HomePage.
 
-import { Star } from "lucide-react";
+import { AlertTriangle, Info, Star } from "lucide-react";
 import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
+import { MaskedAmount } from "@/lib/balancesHidden";
+import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 import ActionLabel from "@/components/ActionLabel";
 
@@ -122,6 +124,10 @@ export interface AccountLedgerRowProps {
   /** G236: mask the balance (and its spoken form) when the user has chosen to
    *  hide balances. Absent, the row renders exactly as before. */
   hideAmount?: boolean;
+  /** G339: a conservative spendable reading beneath an eligible current
+   *  account's bank balance. Absent, the amount stack renders exactly as
+   *  before. */
+  availability?: AccountAvailabilityReading;
 }
 
 export default function AccountLedgerRow({
@@ -136,6 +142,7 @@ export default function AccountLedgerRow({
   onAddRates,
   sync,
   hideAmount,
+  availability,
 }: AccountLedgerRowProps) {
   const brand = accountBrand(brandAccountFor(row));
   const isCredit = row.kind === "Credit";
@@ -191,6 +198,20 @@ export default function AccountLedgerRow({
       ? "!text-[13px] font-medium text-slate-600 dark:text-slate-300"
       : "text-slate-700 dark:text-slate-200"
     : null;
+  // Availability is deliberately opt-in and only belongs on connected bank
+  // current-account rows. Sync owns this compact caption slot while a bank is
+  // updating, and excluded accounts never surface a spendable reading.
+  const availabilityReading =
+    row.source === "bank" && row.kind === "Current" && !notCounted && !sync ? availability : undefined;
+  const availabilityAria = availabilityReading
+    ? availabilityReading.kind === "ready"
+      ? `, available ${hideAmount ? "amount hidden" : formatAvailabilityAmount(availabilityReading.value)}${
+          availabilityReading.note ? `, ${availabilityReading.note}` : ""
+        }`
+      : availabilityReading.kind === "checking"
+        ? ", availability checking"
+        : ", availability unavailable"
+    : "";
 
   return (
     <div
@@ -203,7 +224,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -235,7 +256,7 @@ export default function AccountLedgerRow({
         {showUtilisation && utilisation && <UtilisationBar pct={utilisation.pct} limit={utilisation.limit} hideAmount={hideAmount} />}
       </div>
 
-      <div className="shrink-0 flex flex-col items-end gap-1">
+      <div className={`shrink-0 flex flex-col items-end ${availabilityReading ? `${isOverdrawn ? "min-h-[45px] " : ""}gap-0.5` : "gap-1"}`}>
         {isInvestment && sparkline && sparkline.length > 0 && <MiniSparkline series={sparkline} />}
         <p
           className={`text-[16px] font-semibold ${balancePending ? "" : "money "}${sync ? "flex items-center gap-2 " : ""}${
@@ -260,11 +281,26 @@ export default function AccountLedgerRow({
             {`${syncAsOf ? `As of ${syncAsOf} · ` : ""}${syncWord}`}
           </p>
         ) : null}
+        {availabilityReading ? (
+          <p data-g339-availability className="inline-flex items-center justify-end gap-1 whitespace-nowrap text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+            {availabilityReading.kind === "ready" ? (
+              <>
+                {availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
+                Available {hideAmount ? <MaskedAmount /> : <span className="money">{formatAvailabilityAmount(availabilityReading.value)}</span>}
+              </>
+            ) : availabilityReading.kind === "checking" ? (
+              "Checking…"
+            ) : (
+              "Unavailable"
+            )}
+          </p>
+        ) : null}
         {/* Visual "owed"/"in credit" caption is gone on credit rows per
             Variant B — the minus sign above plus the terms chip below carry
             that meaning instead, so the right column never stacks three
-            deep. Non-credit rows are untouched: "overdrawn" still renders. */}
-        {!isCredit && stateCaption && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
+            deep. The compact Available caption uses the same slot on current rows;
+            overdrawn remains in the row’s accessible name and bank sign/tone. */}
+        {!isCredit && stateCaption && !availabilityReading && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
 
         {/* Card-terms pill / Add-rates affordance — mirrors AccountMiniCard's
             calm-variant treatment. APR is information, not alarm (muted

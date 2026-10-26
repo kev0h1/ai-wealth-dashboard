@@ -13,6 +13,7 @@ import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import { tidyAccountName } from "@/lib/accountName";
 import { useBalancesHidden } from "@/lib/balancesHidden";
+import { accountAvailability, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 
 export interface HomeEstateSectionProps {
   /** Wrapper classes and style, supplied by the page (rhythm and rise-in). */
@@ -30,6 +31,7 @@ export interface HomeEstateSectionProps {
   onViewAll: () => void;
   /** Rendered when the user has no bank accounts (the FirstAccountCard). */
   emptyState: ReactNode;
+  availabilitySnapshot?: AccountAvailabilitySnapshot;
 }
 
 function tidyRow<T extends { name: string }>(row: T): T {
@@ -49,6 +51,7 @@ export default function HomeEstateSection({
   onOpenInvestments,
   onViewAll,
   emptyState,
+  availabilitySnapshot,
 }: HomeEstateSectionProps) {
   // G306: account balances honour Hide balances (context from HomePage, hidden until preferences resolve).
   const hideAmount = useBalancesHidden();
@@ -78,6 +81,7 @@ export default function HomeEstateSection({
                 row={tidyRow(bankToRow(acc, pinnedIds))}
                 onClick={() => onOpenAccount(acc.id)}
                 hideAmount={hideAmount}
+                availability={availabilitySnapshot ? accountAvailability(acc, availabilitySnapshot) : undefined}
               />
             </div>
           ))}

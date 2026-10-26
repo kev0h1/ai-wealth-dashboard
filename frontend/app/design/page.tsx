@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "account-balance-after",
-    name: "Bank balance with a smaller forecast · G339",
-    description: "G339 revision, impeccable · NatWest-inspired hierarchy within Sorted rows: C compact stack, D figure first. Prominent bank balance with a smaller after-bills-and-plans estimate beneath, aligned right. Earlier A/B retained under Previous layouts. Account-specific upcoming working and an explanation of why Spend from can be lower. Bank group totals retained; savings/cards stay balance-only. Home estate view, masking, missing/stale/loading, earlier cash gaps, optional-plan gaps, long names and pence. Fictional fixtures; production unchanged.",
-    variants: [{ label: "C · Compact stack", value: "c" }, { label: "D · Figure first", value: "d" }, { label: "A · Previous columns", value: "a" }, { label: "B · Previous subline", value: "b" }],
-    states: [{ label: "Mixed positions", value: "mixed" }, { label: "Unknown check", value: "unknown" }, { label: "Earlier cash gap", value: "early" }, { label: "Plans-only gap", value: "plans" }, { label: "Not counted", value: "excluded" }, { label: "Loading", value: "loading" }, { label: "Last known", value: "stale" }, { label: "Long names", value: "long" }, { label: "Pence", value: "pence" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:

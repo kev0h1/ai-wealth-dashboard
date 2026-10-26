@@ -47,6 +47,7 @@ import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTic
 import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
+import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
@@ -313,6 +314,8 @@ export default function AccountsPage() {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [availabilitySnapshot, setAvailabilitySnapshot] = useState<AccountAvailabilitySnapshot>({ status: "loading" });
+  const availabilityRequestRef = useRef(0);
   // A113: per-connection consent expiry (GET /connections), joined to an
   // account via Account.connection_id — see formatConsentExpiry's use in
   // the detail view below. Non-fatal fetch: an empty list just means no
@@ -657,9 +660,14 @@ export default function AccountsPage() {
   }, [anyModalOpen]);
 
   const loadAccounts = useCallback(async () => {
+    const availabilityRequest = ++availabilityRequestRef.current;
+    setAvailabilitySnapshot({ status: "loading" });
+    const accountsPromise = getAccountsCached().catch(() => [] as Account[]);
+    // Start together, but never hold the existing Accounts reveal for the calculation.
+    const todayPromise = api.getToday().catch(() => null);
     try {
       const [accs, invAccs, manuals, mrules, kpiResult, conns] = await Promise.all([
-        getAccountsCached().catch(() => [] as Account[]),
+        accountsPromise,
         api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
         api.manualAccounts().catch(() => [] as ManualAccount[]),
         api.manualAccountRules().catch(() => [] as ManualAccountRule[]),
@@ -668,12 +676,18 @@ export default function AccountsPage() {
         // means no consent-expiry line renders, never a broken page.
         api.connections().catch(() => [] as Connection[]),
       ]);
+      if (availabilityRequest !== availabilityRequestRef.current) return;
       setAccounts(accs);
       setInvestmentAccounts(invAccs);
       setManualAccounts(manuals);
       setRules(mrules);
       setKpis(kpiResult);
       setConnections(conns);
+      // Publish availability only after the matching accounts batch has applied.
+      void todayPromise.then(today => {
+        if (availabilityRequest !== availabilityRequestRef.current) return;
+        setAvailabilitySnapshot(today ? { status: "ready", positions: today.account_eligibility } : { status: "failed" });
+      });
 
       // Validate reconnect: check if the newly connected account matches what was expected
       const raw = localStorage.getItem("reconnect_expected");
@@ -704,9 +718,11 @@ export default function AccountsPage() {
           }
         } catch { /* ignore parse errors */ }
       }
-    } catch {}
+    } catch {
+      if (availabilityRequest === availabilityRequestRef.current) setAvailabilitySnapshot({ status: "failed" });
+    }
     finally {
-      setLoading(false);
+      if (availabilityRequest === availabilityRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -920,6 +936,7 @@ export default function AccountsPage() {
       await api.setAccountCounted(id, include);
       setAccounts(prev => prev.map(a => (a.id === id ? { ...a, include_in_safe_to_spend: include } : a)));
       invalidateAllAccountData();
+      void loadAccounts();
     } catch (err) {
       setCountReason(err instanceof Error && err.message ? err.message : "That did not save. Please try again.");
     } finally {
@@ -1515,6 +1532,11 @@ export default function AccountsPage() {
     if (!acc || acc.paused || !acc.connection_id) return undefined;
     return syncInfoByConnection.get(acc.connection_id);
   };
+  const currentAvailabilitySnapshot: AccountAvailabilitySnapshot = syncStatus && syncStatus.state !== "idle"
+    ? { status: syncStatus.state === "syncing" ? "loading" : "failed" }
+    : availabilitySnapshot;
+  const availabilityFor = (row: EstateRow) => row.source === "bank"
+    ? accountAvailability(row.raw as Account, currentAvailabilitySnapshot) : undefined;
   const pendingRows = useMemo(() => {
     // Only a bank that has never synced gets a Pending row; a re-sync of a
     // bank with data has accounts already.
@@ -1661,6 +1683,7 @@ export default function AccountsPage() {
     // Category totals shifted — drop both rollups so they refetch on next view
     setCatSummaries(null);
     setCatSummariesCredit(null);
+    void loadAccounts();
   }
 
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
@@ -2141,6 +2164,8 @@ export default function AccountsPage() {
   if (selectedAccount) {
     const isCredit = accountKind(selectedAccount) === "Credit";
     const balance = selectedAccount.balance;
+    const available = accountAvailability(selectedAccount, currentAvailabilitySnapshot);
+    const position = currentAvailabilitySnapshot.status === "ready" ? currentAvailabilitySnapshot.positions?.[selectedAccount.id] : undefined;
     const isManual = !!selectedAccount.manual;
     const isStatement = selectedAccount.id.startsWith("statement-");
     const isExpired = selectedAccount.status === "expired";
@@ -2343,6 +2368,19 @@ export default function AccountsPage() {
           ) : null)}
 
           <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} />
+          {available && (
+            <div data-account-availability-working className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">
+              {available.kind === "ready" ? <>
+                <dl className="space-y-1.5">
+                  <div className="flex justify-between gap-3 font-semibold"><dt>Available</dt><dd><MoneyText text={hideNetWorth ? "£••••" : formatAvailabilityAmount(available.value)} /></dd></div>
+                  {typeof position?.after_payments_and_plans === "number" && Number.isFinite(position.after_payments_and_plans) && <div className="flex justify-between gap-3"><dt>After payments and plans</dt><dd><MoneyText text={hideNetWorth ? "£••••" : formatAvailabilityAmount(position.after_payments_and_plans)} /></dd></div>}
+                  {typeof position?.low_point_and_plans === "number" && Number.isFinite(position.low_point_and_plans) && <div className="flex justify-between gap-3"><dt>Lowest after plans</dt><dd><MoneyText text={hideNetWorth ? "£••••" : formatAvailabilityAmount(position.low_point_and_plans)} /></dd></div>}
+                </dl>
+                <p className="mt-2">Available is an estimate for this pay period. It protects earlier low points and any move held back, and cannot exceed your shared Left to spend. Separate account limits, not amounts to add together.</p>
+                {available.warning && <p className="mt-1">{available.note}</p>}
+              </> : <p>{available.kind === "checking" ? "Checking what is available…" : "The available estimate could not be checked. Refresh to try again."}</p>}
+            </div>
+          )}
           {/* The horizontal rule Kevin asked to keep (G87 approval,
               2026-09-16): it closes off the canvas header in place of the
               card boundary that used to do that job. */}
@@ -2954,6 +2992,7 @@ export default function AccountsPage() {
                               sync={syncFor(row)}
                               {...estateTermsProps(row)}
                               hideAmount={hideNetWorth}
+                              availability={availabilityFor(row)}
                             />
                           </div>
                         ))}
@@ -2975,7 +3014,7 @@ export default function AccountsPage() {
                         <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
                         <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
                           {estate.pinned.map((row) => (
-                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} />
+                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} availability={availabilityFor(row)} />
                           ))}
                         </div>
                       </section>
@@ -3049,7 +3088,7 @@ export default function AccountsPage() {
                         return (
                           <AccountGroupCard key={group.label} label={group.label} count={group.count} subtotal={group.subtotal} hidden={hideNetWorth} collapsed={isCollapsed} onToggle={() => toggleEstateGroup(group.label)}>
                             {group.rows.map((row) => (
-                              <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} />
+                              <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} availability={availabilityFor(row)} />
                             ))}
                           </AccountGroupCard>
                         );
@@ -3097,7 +3136,7 @@ export default function AccountsPage() {
                           >
                             <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
                               {inactiveRows.map((row) => (
-                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} hideAmount={hideNetWorth} />
+                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} hideAmount={hideNetWorth} availability={availabilityFor(row)} />
                               ))}
                             </div>
                           </div>

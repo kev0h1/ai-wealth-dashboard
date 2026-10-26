@@ -260,6 +260,7 @@ export default function HomePage() {
   // request succeeded with no account_eligibility on it" both arrived at
   // SafeToSpendCard as `undefined` and both rendered as nothing at all.
   const [todayStatus, setTodayStatus] = useState<TodayRequestStatus>(homeCache?.todayStatus ?? "loading");
+  const [availabilityFresh, setAvailabilityFresh] = useState(false);
   // G148 re-review — what happened to the GET /accounts this mount issued.
   // NOT derived from the page-level `loading` flag: that initialises to
   // `!homeCache`, so a warm remount starts with it already false, before
@@ -371,6 +372,7 @@ export default function HomePage() {
     // stale "we could not check" line on screen. Any eligibility already
     // held is untouched, so a warm rail does not blink out while refreshing.
     setTodayStatus("loading");
+    setAvailabilityFresh(false);
     setAccountsStatus("loading");
     try {
       // Fire the fast calls all in parallel and set each state as its own
@@ -425,6 +427,7 @@ export default function HomePage() {
             // which is the whole point of recording "ready" alongside it.
             setAccountEligibility(v.account_eligibility ?? undefined);
             setTodayStatus("ready");
+            setAvailabilityFresh(true);
           }
         })
         .catch(() => {
@@ -510,12 +513,14 @@ export default function HomePage() {
   // stale overwrite.
   const refetchToday = useCallback(() => {
     const requestId = ++loadRequestRef.current;
+    setAvailabilityFresh(false);
     api.getToday()
       .then((v) => {
         if (requestId !== loadRequestRef.current) return;
         setCompanionItems(v.items);
         setAccountEligibility(v.account_eligibility ?? undefined);
         setTodayStatus("ready");
+        setAvailabilityFresh(true);
       })
       .catch(() => {
         if (requestId === loadRequestRef.current) setTodayStatus("failed");
@@ -1180,6 +1185,12 @@ export default function HomePage() {
               topPickInvestment={topPickInvestment}
               totalAccountCount={accounts.length + investmentAccounts.length}
               pinnedIds={pinnedIds}
+              availabilitySnapshot={{
+                status: heroSync ? (heroSync.failed || heroSync.stalled ? "failed" : "loading")
+                  : accountsStatus !== "ready" ? accountsStatus
+                  : availabilityFresh ? todayStatus : todayStatus === "failed" ? "failed" : "loading",
+                positions: accountEligibility,
+              }}
               onOpenAccount={(id) => router.push(`/accounts?id=${id}`)}
               onOpenInvestments={() => router.push("/accounts?tab=Investments")}
               onViewAll={() => router.push("/accounts")}
