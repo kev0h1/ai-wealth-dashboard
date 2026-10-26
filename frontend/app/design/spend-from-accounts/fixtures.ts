@@ -1,7 +1,8 @@
 import type { Account, AccountEligibility, SafeToSpend } from "@/lib/api";
 
-export type Scenario = "third" | "timing" | "combined" | "all" | "uncertain" | "long" | "cards" | "move";
+export type Scenario = "current" | "third" | "timing" | "combined" | "all" | "uncertain" | "long" | "cards" | "move";
 export const SCENARIOS: { value: Scenario; label: string }[] = [
+  { value: "current", label: "Current card, with card activity" },
   { value: "third", label: "Another account has room" },
   { value: "timing", label: "Different payment timing" },
   { value: "combined", label: "Shared estimate caps the limits" },
@@ -17,6 +18,25 @@ function account(id: string, provider: string, provider_id: string, name: string
 }
 
 export function fixture(scenario: Scenario) {
+  if (scenario === "current") {
+    // Fictional walk: 452 now; early payments100 from each first account
+    // give low252; later income200, then payment70 from the third closes382.
+    // Unassigned envelope20 leaves232. This is not a private-bank diagnosis.
+    const accounts = [account("barclays", "Barclays", "barclays_personal", "Premier Current Account", 208), account("starling", "Starling", "starling", "Personal", 174), account("natwest", "NatWest", "natwest", "Bills", 70)];
+    const eligibility = Object.fromEntries(accounts.map((a, i) => {
+      const low = [108, 74, 0][i], closing = [208, 174, 0][i];
+      return [a.id, { short: low < 5, headroom: low - 10, spend_from_headroom: low, account_headroom_raw: low, spend_from_capped: false, after_payments: closing, plans_reserved: 0, after_payments_and_plans: closing, low_point: low, low_point_and_plans: low, uncertain: false }];
+    }));
+    const data: Extract<SafeToSpend, { status: "ok" }> = {
+      status: "ok", safe_to_spend: 232, safe_to_spend_cash: 232, spendable_now: 452, bills_total: 270, income_before_payday: 200,
+      lowest_projected_balance: 252, buffer: 0, commitments_reserved: 0, allocations_reserved: 20,
+      card_growth_reserved: 0, card_growth_total: 2141, card_new_spend_total: 2141, card_debt: 2141,
+      payday_income: 4798, next_payday: "2026-10-30", days_until_payday: 4,
+      state: "tight", short_reason: null, estimated: false, calculation_status: "complete",
+      pace: { state: "on_pace", sustainable: 58, days_left: 4 },
+    };
+    return { accounts, eligibility, data, pool: 232 };
+  }
   const accounts = [
     account("natwest", "NatWest", "natwest", "Everyday", 246),
     account("starling", "Starling", "starling", "Personal", 154),
