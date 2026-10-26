@@ -288,7 +288,6 @@ function CardBalanceFact({
   newSpend,
   reserve,
   finalPosition,
-  cashEstimate,
   wording,
   dueDate,
   amount,
@@ -298,7 +297,6 @@ function CardBalanceFact({
   newSpend: number;
   reserve: number;
   finalPosition: number;
-  cashEstimate: number;
   wording: "carried" | "cleared_monthly" | null | undefined;
   dueDate: string | null;
   amount: (value: number) => string;
@@ -322,7 +320,7 @@ function CardBalanceFact({
     <section data-g324-card-activity className="mt-3" aria-label="Card balance activity">
       <details>
         <DisclosureSummary className="min-h-11 cursor-pointer rounded-lg text-[13px] font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">
-          <span className="flex min-w-0 items-center gap-2"><CreditCard size={15} aria-hidden="true" className={amberOn ? "shrink-0 text-amber-700 dark:text-amber-300" : "shrink-0"} /><span>{hasUnconfirmedReserve ? "Card balances this pay period" : "Went on cards this pay period"}</span></span>
+          <span className="flex min-w-0 items-center gap-2"><CreditCard size={15} aria-hidden="true" className={amberOn ? "shrink-0 text-amber-700 dark:text-amber-300" : "shrink-0"} /><span>{hasUnconfirmedReserve ? "Card balances this pay period" : "Card spending this pay period"}</span></span>
           <span className="money ml-auto shrink-0 text-[13px]"><MoneyText text={amount(headline)} /></span>
         </DisclosureSummary>
         <div className="space-y-2 pb-3 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
@@ -338,9 +336,7 @@ function CardBalanceFact({
       </details>
       <p className="text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={hasUnconfirmedReserve
         ? `You've spent ${amount(newSpend)} on credit cards this pay period. This is a separate figure from the ${amount(reserve)} already held back above.`
-        : cashEstimate < 0
-          ? `This spend is separate from the ${amount(Math.abs(cashEstimate))} shortfall above. Repayments Sorted knows about count when due.`
-          : `This isn't taken off your ${amount(cashEstimate)} separately. Repayments Sorted knows about count when due.`} /></p>
+        : "Known card repayments due before payday are included in your estimate. Card purchases aren't deducted again."} /></p>
     </section>
   );
 }
@@ -735,7 +731,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           newSpend={cardNewSpend}
           reserve={cardReserve}
           finalPosition={data.safe_to_spend}
-          cashEstimate={presentation.signed ? -heroAmount : heroAmount}
           wording={data.card_growth_wording}
           dueDate={data.card_growth_due_date ?? null}
           amount={amount}

@@ -32,7 +32,7 @@ for(const state of STATES.map(s=>s.id))for(const hidden of [false,true]){
   }else{
     const hero=html.slice(html.indexOf('data-g324-hero'),html.indexOf('data-g324-evidence'));
     assert.match(hero,/Based on your connected current accounts and the bills Sorted knows about\./);
-    assert.doesNotMatch(hero,/payments still pending|How we got|Card balances this pay period|Went on cards/,'evidence stays below the hero');
+    assert.doesNotMatch(hero,/payments still pending|How we got|Card balances this pay period|Card spending/,'evidence stays below the hero');
     assert.match(hero,/data-g219-action-row/,'next actions stay in the hero');
     const caveat=html.slice(html.indexOf('data-sts-caveat'),html.indexOf('</details>',html.indexOf('data-sts-caveat')));
     assert.match(caveat,/What this estimate counts/);assert.match(plain(caveat),/It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet\./);assert.match(caveat,/It can be wrong/);
@@ -49,13 +49,13 @@ for(const example of ACCOUNT_EXAMPLES){
   assert.match(hero,/data-spend-from-layout="account-list"/,'accounts always visible within the hero');
   if(example.id==='whole')assert.doesNotMatch(hero,/£261 held/,'whole estimate never repeated as an account amount');
   if(example.id==='same-bank'||example.id==='long')assert.match(hero,/Bills account|Joint household bills/,'same-bank accounts remain identifiable');
-  if(example.id==='standard'){assert.match(plain(hero),/They share your £261, so don't add them together/);assert.match(plain(hero),/Showing your top 2 accounts/);assert.match(plain(hero),/£25 already held back in NatWest for the move to Barclays Bills account/);}
+  if(example.id==='standard'){assert.match(plain(hero),/Each amount is the most that account could cover\. Don't add them together/);assert.match(plain(hero),/Showing your top 2 accounts/);assert.match(plain(hero),/£25 already held back in NatWest for the move to Barclays Bills account/);}
   assert.doesNotMatch(hero,/<a[^>]+data-spend-from-account/,'bank rows are plain, not extra links');
   cases++;
 }
 const flat=renderScenario({patch:{card_growth_total:0,card_new_spend_total:1947}});
-assert.match(flat,/Went on cards this pay period/,'card purchases remain present when repayments leave net growth at zero');
-assert.match(flat,/£1,947/);assert.match(plain(flat),/taken off your £261 separately/);
+assert.match(flat,/Card spending this pay period/,'card purchases remain present when repayments leave net growth at zero');
+assert.match(flat,/£1,947/);assert.match(plain(flat),/Card purchases aren't deducted again/);
 const maskedPace=renderScenario({hidden:true,patch:{pace:{state:'on_pace',sustainable:37.29}}});
 assert.doesNotMatch(maskedPace,/£\d/);
 const pace=plain(renderScenario({patch:{pace:{state:'on_pace',sustainable:37.29}}}));
@@ -72,8 +72,8 @@ console.log(`G324 B2: ${cases} production state/account/masking contracts plus c
 // G340: card purchases, cash forecasts and fallback reserves remain distinct.
 for (const [options, expected] of [
   [{}, /You've spent £1,947 on credit cards/],
-  [{patch:{safe_to_spend:0,safe_to_spend_cash:0}}, /taken off your £0 separately/],
-  [{state:'payments-short'}, /separate from the £573 shortfall above/],
+  [{patch:{safe_to_spend:0,safe_to_spend_cash:0}}, /Known card repayments due before payday are included in your estimate/],
+  [{state:'payments-short'}, /Card purchases aren't deducted again/],
   [{state:'card-monthly'}, /Due around .* Its repayment is forecast separately/],
   [{state:'card-reserve'}, /£200 on credit cards.*separate figure from the £325 already held back above/],
 ]) {
@@ -81,9 +81,9 @@ for (const [options, expected] of [
   assert.match(text,expected);
   if(options.state==='card-reserve') {
     assert.match(text,/£73 safety shortfall/);
-    assert.doesNotMatch(text,/taken off your/,'fallback reserve is already deducted');
+    assert.doesNotMatch(text,/Known card repayments due before payday/,'fallback reserve is already deducted');
   } else {
-    assert.match(text,/Repayments Sorted knows about count when due/);
+    assert.match(text,/Known card repayments due before payday are included in your estimate/);
     assert.match(text,/Purchases only\. Balance transfers and repayments are not counted here/);
   }
   assert.doesNotMatch(renderScenario({...options,hidden:true}),/£\d/,'new explanatory amounts obey masking');

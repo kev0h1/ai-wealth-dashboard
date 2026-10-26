@@ -196,13 +196,13 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   const markup = renderList();
   check("G320: pool-sized account figure is not repeated", !textOf(markup).includes("up to £120"));
   check("G320: lower account limit remains visible", textOf(markup).includes("up to £30") && markup.includes('data-spend-from-limit'));
-  check("G324: lower limits carry the quiet independent-ceilings explanation", markup.includes("They share your") && markup.includes("£120") && markup.includes("add them together") && markup.includes("Showing your top 2 accounts."));
+  check("G324: lower limits carry the quiet independent-ceilings explanation", markup.includes("Each amount is the most that account could cover") && markup.includes("add them together") && markup.includes("Showing your top 2 accounts."));
   check("G320: duplicate bank accounts show their display names", markup.includes("Premier Current Account") && markup.includes("Maingi K M"));
   check("G320: rows are semantic list items with account markers", (markup.match(/data-spend-from-account=/g) ?? []).length === 2 && (markup.match(/<li /g) ?? []).length === 2);
 
   const unknownPool = renderList({ pool: null });
   check("G320: an unknown pool keeps an account figure", unknownPool.includes("£120") && unknownPool.includes("£30"));
-  check("G340: an unknown shared estimate does not invent its amount", unknownPool.includes("The figures share one estimate") && !unknownPool.includes("They share your"));
+  check("G340: an unknown shared estimate does not invent its amount", unknownPool.includes("Each amount is the most that account could cover") && unknownPool.includes("add them together"));
   check("G340: top accounts do not promise that omitted balances reconcile", !markup.includes("make up the rest"));
   const single = renderList({entries:entries.slice(0,1)});
   check("G340: single whole-estimate account keeps its context without inventing other accounts", single.includes("Within the estimate above") && single.includes("Showing your top account.") && !single.includes("top 2"));
