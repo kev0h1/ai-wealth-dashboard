@@ -1,12 +1,12 @@
 # G279: compare the pay split
 
-Mode: Operate. Approved A fold-in extending G269, not a new visual identity. Kevin chose the paired comparison and confirmed the intended default is 50/30/20. The 60/20/20 Conscious Spending Plan example remains an explicitly chosen alternative, with its ratio visible in the selector. Preview-local choices are not migrated into customer preferences.
+Mode: Operate. Approved A fold-in extending G269, not a new visual identity. Kevin chose the paired comparison and confirmed the intended default is 50/30/20. G341 replaces the former named alternative with Sorted's generic four-part split, while keeping the stored `conscious` preference id for compatibility. Preview-local choices are not migrated into customer preferences.
 
 ## Direction contract
 
 THESIS: make the difference inspectable, without disguising a reference as a budget or a diagnosis of which payment caused a cash gap.
 
-OWN-WORLD: inherit the Calm Cockpit, Figtree, mono money, G269's shared bar, slate surfaces, section colours and small amber signifiers. Figures and prose stay ink. No new hero, score, warning-coloured money or Penny gradient.
+OWN-WORLD: inherit the Calm Cockpit, Figtree, mono money, G269's shared bar, slate surfaces and section colours. Reference comparisons have no warning signifiers. Figures and prose stay ink. No new hero, score, warning-coloured money or Penny gradient.
 
 STORY: see the existing pay split, choose a remembered reference, identify the largest cost difference, then open reconciled section evidence. The reference is information, not a coaching instruction.
 
@@ -20,18 +20,19 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 - The original G269 bar uses shares of all outgoings when beyond income. New reference arithmetic uses exact section amounts against **income**. It never compares the existing rounded percentages with income percentages. Currency comparisons state their income base; reference bars use the same pound axis as the actual bar.
 - 50/30/20 is explicitly **adapted** to Fixed/Free/Moved. Sorted does not classify necessity, and Moved can include own-account transfers. Fixed is not exactly needs, Free is not exactly wants, and Moved is not a verified saving rate. Loan repayments are not silently moved between groups.
-- The Conscious Spending Plan option is labelled one **60/20/20 example**, combining 10% investment and 10% savings in Moved. Its broader ranges are disclosed, so a difference from this example is not claimed to breach the entire framework.
+- The generic four-part split uses indicative, independent ranges: Fixed 50–60%, Moved 10–20% (cash saving and investing are each roughly 5–10%), and Free 20–35%. These bands are illustrative and do not form one allocation that must add to 100%; they are not a target or advice. Moved can include transfers between the user's own accounts, so it is not a verified saving or investment rate.
+- G341 compares range references using exact income-based endpoints. A section is described as below, within or above its range, with a neutral difference from the nearest bound. Range differences are never added together to explain Beyond income, and the range reference does not render as one exact stacked bar.
 - Pay yourself first has no universal percentage split. It is offered as an explanation, with no invented numeric benchmark or over/under markers.
 - Moving more than a reference share is not overspending and never receives an amber cost warning. Lower movement is a neutral difference, not a nudge to save more.
-- For complete numeric reference splits, Fixed + Free + Moved differences reconcile to total outgoings minus income. This is a comparison ledger, **not causal attribution of Beyond**. The funding sentence remains G269's own fact and is not inferred from which group is above the reference.
+- For complete numeric reference splits, Fixed + Free + Moved differences reconcile to total outgoings minus income. This is a comparison ledger, **not causal attribution of Beyond**. The funding sentence remains G269's own fact and is not inferred from which group is above the reference. Range comparisons do not use this sum.
 - For averages, the existing mean-of-individual-gaps and legacy job metrics are retained unchanged. A separate server-computed net-flow job list and matching verdict drive the displayed bar, row and comparison, so an average of individual shortfalls is never mislabelled as the net average Beyond. Mixed under/over periods have explicit regression coverage.
 - Production driver totals are signed category amounts from the existing engine's exact period bucket, or mean amounts across the same periods as an average. The engine's original totals and percentages are unchanged. Unlabelled movements and rounding remain explicit residuals, never invented merchants or amounts reverse-engineered from rounded shares. Missing or non-reconciling evidence is withheld. Browsing transactions uses the selection's date range and is labelled as all activity in that range, not a promise that every listed transaction belongs to the section.
-- No trait coaching, budget-setting, aim mutation, bank action or automatic Penny turn. The only new customer write is an explicitly chosen reference through authenticated, allowlisted, versioned preferences. The default is 50/30/20, alternatives are named with their ratios, failed saves reconcile and remain visible, and the old preview browser key is never migrated.
+- No trait coaching, budget-setting, aim mutation, bank action or automatic Penny turn. The only new customer write is an explicitly chosen reference through authenticated, allowlisted, versioned preferences. The default is 50/30/20, the range alternative is labelled as ranges, failed saves reconcile and remain visible, and the old preview browser key is never migrated.
 
 ## Sources checked
 
 - [CFPB, spending rule worksheet](https://files.consumerfinance.gov/f/201603_cfpb_rules-to-live-by_my-spending-rule-to-live-by.pdf): the reference is a share of take-home income, with needs, wants, savings and debt payments, not Sorted's taxonomy.
-- [Conscious Spending Basics](https://www.iwillteachyoutoberich.com/conscious-spending-basics/): Fixed 50–60%, investment 10%, savings 5–10%, discretionary 20–35%; its 60/10/10/20 example supports the labelled illustration, not a universal limit.
+- G341 keeps the generic split self-contained. The retired four-part reference name and its outbound link are removed from the current customer flow. The existing CFPB source link for 50/30/20 remains.
 
 ## Acceptance and delivery
 
@@ -47,7 +48,7 @@ Approved A on both Spend card and drill-in, checked with under-reference, Fixed-
 
 ## Approved A production fold-in, 16 October 2026
 
-- Kevin selected A and queried the 60/20/20 reference. The preview already defaulted to 50/30/20, but its browser-local remembered choice could select an alternative. Production starts from the authenticated default of 50/30/20, labels the Conscious Spending Plan as a 60/20/20 example, and never migrates that preview key. An explicit choice is remembered through the existing versioned preference path, not as a bank or budget change.
+- G341 supersedes the former named alternative in the current flow. Production still starts from the authenticated default of 50/30/20; the persisted `conscious` value is retained only as a compatibility id and resolves to the generic four-part split. An explicit choice is remembered through the existing versioned preference path, not as a bank or budget change.
 - The production comparison now renders on Spend and the shape drill-in. The instrument and comparison receive the same selected period or average synchronously. Evidence comes from signed server category amounts with a labelled residual where required; missing or non-reconciling evidence is withheld. A separate net-flow view of averages resolves mixed-period Left/Beyond inconsistencies while retaining the engine's legacy metrics.
 - Focused backend checks passed, including the 55-test engine regression set after the independent financial correction, and the wider 104-test preference set. G279 arithmetic and actual-component render checks, shared preference reconciliation checks, TypeScript and scoped interface lint passed. A broader lint run over the legacy preference modules is not green: their existing `any` and eager-ref saver patterns remain, including the new saver following that pattern. No global-lint-clean claim is made.
 - A 41-state Chromium pass used actual production components with labelled synthetic fixtures and intercepted API calls, covering both themes, financial cases, thin history, reference/evidence sheets, privacy, keyboard return, responsive widths, and mocked authenticated save, reload and failure. A targeted two-capture financial-review rerun verified the mixed average: net Beyond £31.50 (instrument £32), Fixed mean £2,468 and +£46 versus the guide, rather than the legacy £254 mean individual shortfall.

@@ -1,5 +1,6 @@
 """B60 step 2: the get_pay_split read tool."""
 import asyncio
+import math
 
 import app.routers.mcp as mcp_module
 import app.services.money_shape as money_shape_module
@@ -39,15 +40,19 @@ def test_pay_split_compares_with_the_selected_reference(monkeypatch):
     _world(monkeypatch, _shape())
     res = asyncio.run(execute_tool(UID, "get_pay_split", {}))
     assert res["reference"]["id"] == "conscious" and res["reference"]["selected"] is True
+    assert res["reference"]["name"] == "A common four-part split"
+    assert res["reference"]["shares"] is None
+    assert res["reference"]["ranges"] == {"fixed": [50, 60], "moved": [10, 20], "free": [20, 35]}
     rows = {r["job"]: r for r in res["comparison"]}
-    assert rows["Fixed costs"]["actual_pct"] == 58 and rows["Fixed costs"]["guide_pct"] == 60
-    assert rows["Fixed costs"]["delta_pct"] == -2
-    assert rows["Free spending"]["actual_pct"] == 24 and rows["Free spending"]["guide_pct"] == 20
-    assert rows["Moved to savings"]["delta_pct"] == -2
-    assert res["summary"] == (
-        "For 25 Sep to 24 Oct, 58% of your take-home went to fixed costs against the 60% in the "
-        "Conscious Spending Plan example, 24% to free spending against 20%, 18% moved to savings against 20%."
-    )
+    assert rows["Fixed"]["actual_pct"] == 58 and rows["Fixed"]["guide_pct"] is None
+    assert rows["Fixed"]["guide_pct_min"] == 50 and rows["Fixed"]["guide_pct_max"] == 60
+    assert rows["Fixed"]["guide_min"]["formatted"] == "£1,500.00"
+    assert rows["Fixed"]["guide_max"]["formatted"] == "£1,800.00"
+    assert rows["Fixed"]["position"] == "within" and rows["Fixed"]["delta"]["raw"] == 0
+    assert rows["Free"]["position"] == "within"
+    assert rows["Moved"]["position"] == "within"
+    assert "within the 50-60% range" in res["summary"]
+    assert "independent reference bands, not a budget or target" in res["summary"]
     assert [a["months"] for a in res["averages"]] == [3] and res["averages"][0]["fixed_pct"] == 55
     assert res["what_works"][0].startswith("Calm starts")
     assert res["take_home"]["formatted"] == "£3,000.00"
@@ -77,11 +82,38 @@ def test_compare_shape_is_penny_exact_like_the_typescript():
     comp = compare_shape(_shape(fixed=1000.01, moved=500.0, free=1499.99, take_home=3000.0), "50-30-20")
     rows = {r["id"]: r for r in comp["rows"]}
     assert rows["fixed"]["guide"] == 1500.0 and rows["moved"]["guide"] == 600.0 and rows["free"]["guide"] == 900.0
+    assert rows["fixed"]["guide_min"] == rows["fixed"]["guide_max"] == 1500.0
+    assert rows["fixed"]["guide_share_min"] == rows["fixed"]["guide_share_max"] == 50
+    assert rows["fixed"]["position"] == "below"
     assert round(sum(r["guide"] for r in comp["rows"]), 2) == 3000.0
     assert compare_shape(_shape(take_home=0), "50-30-20")["available"] is False
     mismatch = _shape()
     mismatch["total_out"] = 1.0
     assert compare_shape(mismatch, "conscious")["available"] is False
+
+
+def test_four_part_range_boundaries_and_nonfinite_inputs_fail_closed():
+    lower = compare_shape(_shape(fixed=1500, moved=300, free=1200), "conscious")
+    lower_rows = {r["id"]: r for r in lower["rows"]}
+    assert lower_rows["fixed"]["position"] == "within"
+    assert lower_rows["fixed"]["delta"] == 0
+    assert lower_rows["fixed"]["guide_min"] == 1500
+    assert lower_rows["fixed"]["guide_max"] == 1800
+
+    below = compare_shape(_shape(fixed=1499.99, moved=300, free=1200.01), "conscious")
+    assert {r["id"]: r for r in below["rows"]}["fixed"]["position"] == "below"
+    assert {r["id"]: r for r in below["rows"]}["fixed"]["delta"] == -0.01
+
+    above = compare_shape(_shape(fixed=1800.01, moved=300, free=899.99), "conscious")
+    assert {r["id"]: r for r in above["rows"]}["fixed"]["position"] == "above"
+    assert {r["id"]: r for r in above["rows"]}["fixed"]["delta"] == 0.01
+
+    summary_rows = compare_shape(_shape(fixed=1499.99, moved=300, free=1200.01), "conscious")["rows"]
+    summary = pay_split_module._summary(None, pay_split_module.GUIDES["conscious"], summary_rows)
+    assert "Fixed was £1,499.99, £0.01 below the bottom of the 50-60% range." in summary
+
+    assert compare_shape(_shape(take_home=math.inf), "conscious")["available"] is False
+    assert compare_shape(_shape(fixed=math.nan), "conscious")["available"] is False
 
 
 def test_pay_split_is_in_the_catalogue_and_the_connector():

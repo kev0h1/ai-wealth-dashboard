@@ -8,11 +8,12 @@ export type Guide = {
   shortName: string;
   description: string;
   shares: Record<SectionId, number> | null;
+  ranges?: Record<SectionId, readonly [number, number]>;
 };
 
 export const GUIDES: Guide[] = [
   { id: "50-30-20", name: "50/30/20 · adapted", shortName: "50/30/20", shares: { fixed: 50, free: 30, moved: 20 }, description: "A common income guide: 50% needs, 30% wants, 20% savings and debt payments. Here it is roughly mapped to Fixed, Free and Moved, not a needs-and-wants assessment." },
-  { id: "conscious", name: "Conscious Spending Plan · 60/20/20 example", shortName: "60/20/20 example", shares: { fixed: 60, free: 20, moved: 20 }, description: "An alternative to 50/30/20: 60% Fixed, 20% Free and 20% Moved (10% investment plus 10% savings). The wider framework uses ranges: Fixed 50–60%, discretionary 20–35%, investment 10%, savings 5–10%. A difference from this example is not a breach of those ranges." },
+  { id: "conscious", name: "A common four-part split", shortName: "Four-part split", shares: null, ranges: { fixed: [50, 60], moved: [10, 20], free: [20, 35] }, description: "An illustrative split: Fixed 50 to 60%, cash saving 5 to 10%, investing 5 to 10%, and Free 20 to 35%. Saving and investing are grouped as Moved, 10 to 20%. These are independent ranges, not one allocation or a target. Moved can include transfers between your own accounts." },
   { id: "first", name: "Pay yourself first · principle", shortName: "Pay yourself first", shares: null, description: "Set money aside before deciding what remains for other spending. This principle does not prescribe a universal percentage, so it has no numeric comparison here." },
 ];
 
@@ -42,7 +43,12 @@ export type ComparisonRow = {
   delta: number | null;
   incomeShare: number;
   guideShare: number | null;
-  /** Only a cost group above this reference receives the amber signifier. */
+  guideMin: number | null;
+  guideMax: number | null;
+  guideShareMin: number | null;
+  guideShareMax: number | null;
+  position: "below" | "within" | "above" | null;
+  /** Numerical classification only, never a warning or coaching signal. */
   aboveCost: boolean;
 };
 export type Comparison = {
@@ -76,8 +82,15 @@ export function compareShape(shape: MoneyShape, guide: Guide): Comparison {
   const rows = SECTION_ORDER.map((id, index): ComparisonRow => {
     const actual = amounts[index] / 100;
     const reference = guideAmounts ? guideAmounts[id] / 100 : null;
-    const delta = guideAmounts ? (amounts[index] - guideAmounts[id]) / 100 : null;
-    return { id, label: SECTION_LABEL[id], actual, guide: reference, delta, incomeShare: actual / income * 100, guideShare: guide.shares?.[id] ?? null, aboveCost: id !== "moved" && delta !== null && delta > 0.004 };
+    const range = guide.ranges?.[id];
+    const min = range ? Math.round(pennies(income) * range[0] / 100) : guideAmounts?.[id] ?? null;
+    const max = range ? Math.round(pennies(income) * range[1] / 100) : guideAmounts?.[id] ?? null;
+    const delta = min === null || max === null ? null : (amounts[index] < min ? amounts[index] - min : amounts[index] > max ? amounts[index] - max : 0) / 100;
+    return { id, label: SECTION_LABEL[id], actual, guide: reference, delta, incomeShare: actual / income * 100, guideShare: guide.shares?.[id] ?? null,
+      guideMin: min === null ? null : min / 100, guideMax: max === null ? null : max / 100,
+      guideShareMin: range?.[0] ?? guide.shares?.[id] ?? null, guideShareMax: range?.[1] ?? guide.shares?.[id] ?? null,
+      position: delta === null ? null : delta < 0 ? "below" : delta > 0 ? "above" : "within",
+      aboveCost: id !== "moved" && delta !== null && delta > 0.004 };
   });
   const largestOver = rows.filter(row => row.aboveCost).sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))[0] ?? null;
   const netPence = totalPence - pennies(income);
@@ -86,7 +99,17 @@ export function compareShape(shape: MoneyShape, guide: Guide): Comparison {
 
 export function differenceLabel(row: ComparisonRow): string {
   if (row.delta === null) return "No fixed percentage";
-  if (Math.abs(row.delta) < 0.005) return "Matches this reference";
-  if (row.id === "moved") return row.delta > 0 ? "More moved than this reference" : "Less moved than this reference";
-  return row.delta > 0 ? "Above this reference" : "Below this reference";
+  const ranged = row.guide === null;
+  if (Math.abs(row.delta) < 0.005) return ranged ? "Within the range" : "Matches this reference";
+  return row.delta > 0
+    ? `${money(row.delta)} more than ${ranged ? "the top of the range" : "this reference"}`
+    : `${money(row.delta)} below ${ranged ? "the bottom of the range" : "this reference"}`;
+}
+
+export function referenceAmount(row: ComparisonRow): string {
+  return row.guide !== null ? money(row.guide) : row.guideMin !== null && row.guideMax !== null ? `${money(row.guideMin)} to ${money(row.guideMax)}` : "No fixed percentage";
+}
+
+export function referenceShare(row: ComparisonRow): string {
+  return row.guideShare !== null ? `${row.guideShare}% guide` : `${row.guideShareMin} to ${row.guideShareMax}% range`;
 }

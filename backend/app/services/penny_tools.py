@@ -218,7 +218,7 @@ def _explain_tool_description(connector_enabled: bool | None = None) -> str:
         "pension-tax-relief, compound-interest, investment-fees, "
         "diversification, dividend-allowance, cgt-allowance, "
         "tax-year-dates, premium-bonds, marriage-allowance, "
-        "conscious-spending-plan, fifty-thirty-twenty, "
+        "four-part-split, fifty-thirty-twenty, "
         "pay-yourself-first. "
         "Call this for ANY of these question shapes. An unknown topic "
         "returns the full list of valid keys to pick from. The "
@@ -4991,10 +4991,15 @@ _ALL_EXPLAIN_COPY: dict[str, str] = {
     **_PAGE_EXPLAINER_COPY, **_TOPIC_COPY,
     **_TERMS_COPY, **_NUMBERS_COPY, **_ACTIONS_COPY, **_BASICS_COPY,
 }
+_EXPLAIN_TOPIC_ALIASES = {
+    # Kept only so older internal tool calls resolve after the public topic rename.
+    "conscious-spending-plan": "four-part-split",
+}
 
 
 async def _exec_explain(topic: str | None) -> dict:
     key = (topic or "").strip().lower()
+    key = _EXPLAIN_TOPIC_ALIASES.get(key, key)
     # mcp_connector is the one flag-dependent entry: it is a valid,
     # reachable topic key ONLY when this deployment actually has the
     # connector (`MCP_CONNECTOR_ENABLED`, read here at CALL time so tests

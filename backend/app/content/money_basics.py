@@ -139,12 +139,12 @@ MONEY_BASICS: list[dict] = [
         "takeaway": "Up to £252/year if one partner is a low earner.",
     },
     {
-        "id": "conscious-spending-plan",
+        "id": "four-part-split",
         "topic": "Budgeting",
         "icon": "🧭",
-        "title": "The Conscious Spending Plan: four buckets for your take-home pay",
-        "body": "This splits your take-home pay, what lands after tax and National Insurance, into four buckets: fixed costs like rent and bills (50-60%), investing for the future such as a workplace pension or ISA (10%), savings goals (5-10%) and guilt-free spending on whatever you enjoy (20-35%). The idea comes from Ramit Sethi's book I Will Teach You To Be Rich, written for a US reader; a UK workplace pension and ISA cover the same ground here, and the percentages are starting points, not fixed rules everyone should hit.",
-        "takeaway": "The useful part is the shape, roughly how your pay splits between jobs, not the exact numbers. The app shows your own shape on Spend, under How your pay was split, and doesn't grade it against these ranges.",
+        "title": "A common four-part split",
+        "body": "One way to look at take-home pay is through four purposes: Fixed costs such as rent and bills (50-60%), cash saving (5-10%), investing such as a workplace pension or ISA (5-10%), and Free spending (20-35%). These are independent reference bands, not a split that needs to add up to 100% or a target to hit. On Spend, cash saving and investing sit together in Moved, so its approximate comparison range is 10-20%. Moved can also include transfers between accounts you own, so it does not verify saving or investing.",
+        "takeaway": "It is a way to compare proportions, not a budget or target. Spend shows your Fixed, Moved and Free amounts from your own transactions.",
     },
     {
         "id": "fifty-thirty-twenty",

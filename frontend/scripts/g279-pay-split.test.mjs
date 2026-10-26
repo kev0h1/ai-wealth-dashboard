@@ -20,6 +20,14 @@ for (const fixture of SCENARIOS.filter(item => item.id !== "thin")) {
     if (reference.shares) {
       assert.equal(Math.round(result.rows.reduce((sum, row) => sum + row.guide, 0) * 100), Math.round(result.income * 100));
       assert.equal(Math.round(result.rows.reduce((sum, row) => sum + row.delta, 0) * 100), Math.round(result.netDifference * 100), "all differences reconcile to outgoings minus income");
+    } else if (reference.ranges) {
+      assert.equal(result.netDifference, null, "independent ranges have no summed gap");
+      for (const row of result.rows) {
+        assert.equal(row.guide, null);
+        assert.equal(row.guideShare, null);
+        assert.ok(row.guideMin <= row.guideMax);
+        assert.equal(row.position, row.actual < row.guideMin ? "below" : row.actual > row.guideMax ? "above" : "within");
+      }
     } else {
       assert.equal(result.netDifference, null);
       assert.equal(result.largestOver, null);
@@ -52,7 +60,7 @@ assert.equal(compareShape(scenarioFor("free").shape, guide).largestOver.id, "fre
 const moved = compareShape(scenarioFor("under").shape, guide).rows.find(row => row.id === "moved");
 assert.ok(moved.delta > 0);
 assert.equal(moved.aboveCost, false, "movement above a reference is not a cost warning");
-assert.equal(differenceLabel(moved), "More moved than this reference");
+assert.equal(differenceLabel(moved), `${money(moved.delta)} more than this reference`);
 
 for (const income of [0, -1, NaN, Infinity]) assert.equal(compareShape({ ...scenarioFor("beyond").shape, take_home: income }, guide).available, false);
 assert.equal(compareShape(scenarioFor("thin").shape, guide).available, false);
@@ -91,8 +99,8 @@ assert.match(defaultHtml, /Paired actual and reference bars/);
 assert.match(defaultHtml, /\+£414/);
 assert.match(defaultHtml, /−£5.80/);
 assert.match(defaultHtml, /\+£98.80/);
-assert.match(draw({ reference: "conscious" }), /Conscious Spending Plan · 60\/20\/20 example/);
-assert.doesNotMatch(draw({ reference: "first" }), /Paired actual and reference bars|Above this reference/);
+assert.match(draw({ reference: "conscious" }), /A common four-part split/);
+assert.doesNotMatch(draw({ reference: "first" }), /Paired actual and reference bars|more than this reference/);
 assert.doesNotMatch(draw({ hideValues: true }), /£414|£2,836|£98.80/, "hidden comparison cannot disclose money in text or attributes");
 assert.match(draw({ hideValues: true }), /amounts are hidden/);
 assert.doesNotMatch(draw({ shape: scenarioFor("thin").shape }), /£0/);
@@ -146,3 +154,30 @@ for (const [out, meanGap, legacyLeft, netLeft, netBeyond] of [[800, 50, 250, 200
   }
 }
 console.log("PASS G279: exact income-based reference math, neutral movement, no invented principle benchmark, true approved-A production renders, explicit default/alternative ratios, privacy and thin states.");
+
+// G341: inclusive ranges, exact endpoint differences, no invented midpoint or risk.
+const ranges=guideFor('conscious');
+for(const [actual,position,delta] of [[4999.99,'below',-.01],[5000,'within',0],[6000,'within',0],[6000.01,'above',.01],[6124.69,'above',124.69]]){
+ const jobs=[{id:'fixed',amount:actual},{id:'moved',amount:1500},{id:'free',amount:2500}];
+ const candidate={...shape,take_home:10000,jobs,total_out:actual+4000};
+ const result=compareShape(candidate,ranges),fixed=result.rows[0];
+ assert.deepEqual([fixed.guideMin,fixed.guideMax,fixed.guide, fixed.position,fixed.delta],[5000,6000,null,position,delta]);
+ assert.equal(result.netDifference,null,'independent ranges do not form a net allocation');
+ if(delta===124.69)assert.equal(differenceLabel(fixed),'£124.69 more than the top of the range');
+ if(delta===0)assert.equal(differenceLabel(fixed),'Within the range');
+}
+for(const view of ['card','detail']){
+ const html=draw({reference:'conscious',view});
+ assert.match(html,/50 to 60% range/);assert.match(html,/10 to 20% range/);assert.match(html,/20 to 35% range/);
+ assert.match(html,/No budget or target is set/);
+ assert.doesNotMatch(html,/60\/20\/20|Paired actual and reference bars|How the differences add up|class="warning"/);
+ assert.doesNotMatch(draw({reference:'conscious',view,hideValues:true}),/£\d/);
+}
+assert.doesNotMatch(defaultHtml,/class="warning"/,'an income-reference difference is not financial risk');
+console.log('G341: generic range reference, inclusive endpoints, neutral copy and privacy passed');
+
+const liveCopyFiles=['../components/PaySplitComparison.tsx','../lib/paySplitReference.ts','../app/spend/shape/ReferenceShapesRow.tsx','../../backend/app/services/penny_pay_split.py','../../backend/app/content/money_basics.py','../../backend/app/services/penny_tools.py'];
+for(const file of liveCopyFiles){
+ const source=readFileSync(new URL(file,import.meta.url),'utf8').replaceAll('"conscious-spending-plan"','"legacy-topic"');
+ assert.doesNotMatch(source,/conscious[\s-]+spending|\bramit\b|\bsethi\b|iwillteachyoutoberich|guilt[\s-]+free/i,`${file}: retired reference must not reappear in live copy`);
+}

@@ -140,24 +140,24 @@ Status: DRAFT fact map for a qualified reviewer (board item A165, feeds A166). W
 - Safeguards: "Some people ..." framing and the capital-at-risk line (grow.py:486, 512); "general order to consider, not a fixed instruction" (penny_tools.py:4644-4650); no product named.
 - Open questions: the ladder is data-driven per user, so "some people" framing sits beside a personalised "active" rung.
 
-### 10. Pay split versus reference shapes (/spend/shape, G279 "Compare with", 50/30/20, Conscious Spending Plan, Pay yourself first)
+### 10. Pay split versus reference shapes (/spend/shape, G279 "Compare with", G341 generic four-part split, 50/30/20, Pay yourself first)
 
 - Surface and route: Spend card and `/spend/shape` (`frontend/components/PaySplitComparison.tsx`, `frontend/lib/paySplitReference.ts`, `frontend/app/spend/shape/ReferenceShapesRow.tsx`, `WhatWorksCard.tsx`, `frontend/components/PaySplitBeyond.tsx`); preference `pay_split_reference` (authenticated preference; G279 notes).
 - Wording samples:
   - `frontend/lib/paySplitReference.ts:14`: name "50/30/20 · adapted"; description "A common income guide: 50% needs, 30% wants, 20% savings and debt payments. Here it is roughly mapped to Fixed, Free and Moved, not a needs-and-wants assessment."
-  - `paySplitReference.ts:15`: name "Conscious Spending Plan · 60/20/20 example"; description "An alternative to 50/30/20: 60% Fixed, 20% Free and 20% Moved (10% investment plus 10% savings). The wider framework uses ranges: Fixed 50–60%, discretionary 20–35%, investment 10%, savings 5–10%. A difference from this example is not a breach of those ranges."
+  - `paySplitReference.ts:15`: the current generic four-part split uses independent illustrative ranges: Fixed 50–60%, Moved 10–20% (cash saving and investing each roughly 5–10%), and Free 20–35%. The bands do not form one required 100% allocation and are not a target or advice. The stored `conscious` id remains only for preference compatibility.
   - `paySplitReference.ts:16`: name "Pay yourself first · principle"; "This principle does not prescribe a universal percentage, so it has no numeric comparison here."
-  - `paySplitReference.ts:87-92` row readings: "Above this reference", "Below this reference", "More moved than this reference", "Less moved than this reference", "Matches this reference".
+  - `paySplitReference.ts` range readings: "Within the range", "£X below the bottom of the range" and "£X more than the top of the range", with a neutral nearest-bound currency difference. The generic range never receives a warning dot.
   - `PaySplitComparison.tsx:133`: "50/30/20 is the default. Choosing an alternative changes only this comparison, not a budget or bank payment."
   - `PaySplitComparison.tsx:44`: "This is an adapted illustration, not an assessment of what you need or should spend."
-  - `PaySplitComparison.tsx:49`: "A section above a reference is not necessarily responsible for money going beyond income. Money moved above a reference is not labelled overspending. Nothing here sets a budget, moves money or asks you to change a habit."
+  - `PaySplitComparison.tsx`: the comparison states exact income-based range endpoints without treating a range difference as overspending or a cause of Beyond income. Nothing here sets a budget, moves money or asks the user to change a habit.
   - `PaySplitComparison.tsx:126`: "Fixed roughly maps to needs, Free to wants, and Moved to savings. These are not exact matches; Moved can include your own transfers. This is general information, not advice."
-  - `frontend/app/spend/shape/ReferenceShapesRow.tsx:35`: "Opens an explainer in Penny. Choose the comparison above separately. No budget or target is set."
+  - `frontend/app/spend/shape/ReferenceShapesRow.tsx`: "Opens an explainer in Penny. Choose the comparison above separately. No budget or target is set." The current explainer uses Sorted's generic four-part split labels.
   - `frontend/app/spend/shape/WhatWorksCard.tsx:119`: "Describes your own history. Not advice."
   - `frontend/components/PaySplitBeyond.tsx:67`: "You spent {amount} more than came in." and `PaySplitBeyond.tsx:81`: "You moved {amount} while your cards grew by {amount}. Point that at the card and the gap closes itself." (the second line is shown only to a user who chose "change" on the saving habit in the Mirror, PaySplitBeyond.tsx:77-79 and `frontend/app/spend/shape/MoneyShapeHero.tsx:381`).
-- Example output (using the G279 note's figures, TODO.md G279): with Fixed 53%, Moved 18%, Free 29% against 50/30/20 and £4,844 income, the Fixed row reads "Above this reference" with a signed difference, and the Beyond-income block shows "Beyond income" with the reference differences listed.
-- What it does: compares the user's own pay split with a reference, flags a cost group above the reference with an amber marker (`aboveCost`, paySplitReference.ts:45-46, 80) and states a difference. It does not set a budget. One line (PaySplitBeyond.tsx:81) points the user at a structural redirect.
-- Regime questions: Does comparing a user's split with named budgeting references and flagging "above this reference" amount to general information or a recommendation about spending? Is "Point that at the card and the gap closes itself" (a redirect suggestion, paradox line) a recommendation? Is the "50/30/20 · adapted" mapping misleading given Fixed includes loan repayments and Moved can include own-account transfers (G279 note and PaySplitComparison.tsx:45)? CMA/ASA/DMCC: any issue in presenting a "60/20/20 example" under the Conscious Spending Plan name?
+- Current example: with £4,844 income, Fixed £2,836, Moved £963 and Free £1,552, the adapted 50/30/20 Fixed row reads "£414 more than this reference". With the generic four-part ranges, all three amounts are within their respective bands. Outgoings minus income is still £507, calculated independently; range differences do not explain or fund that amount.
+- What it does: compares the user's own pay split with 50/30/20, the generic four-part ranges or Pay yourself first. The generic range reports below, within or above the relevant band and a nearest-bound currency difference. It does not set a budget, add range deltas into Beyond income or use a warning marker for the range.
+- Regime questions retained from G279: does comparing a user's split with budgeting references amount to general information or a recommendation? Is the existing "Point that at the card and the gap closes itself" paradox line a recommendation? These questions are unchanged by G341 and are not legal conclusions.
 - Safeguards: "not advice", "not a budget" and "adapted" labels (lines above); a section above a reference is not labelled overspending (PaySplitComparison.tsx:49); paradox line gated on consent ("change" in the Mirror) and for single periods only (`PaySplitBeyond.tsx:77-79`); default 50/30/20 with the alternative selected by the user only; authenticated preference with save-error handling; DESIGN.md "Mirror is not a score" (BEHAVIOURS.md rules).
 - Open questions: attribution and IP are in the next section. The summary card on Spend carries no "not advice" line (the line sits in the detail "How the groups compare" disclosure, PaySplitComparison.tsx:126).
 
@@ -281,17 +281,15 @@ Status: DRAFT fact map for a qualified reviewer (board item A165, feeds A166). W
 
 ## Intellectual property: reference-shape names and third-party material
 
-### Names shipped, with exact labels
+### Historical names and current generic wording
 
 - `frontend/lib/paySplitReference.ts:14`: "50/30/20 · adapted" (shortName "50/30/20").
-- `frontend/lib/paySplitReference.ts:15`: "Conscious Spending Plan · 60/20/20 example" (shortName "60/20/20 example"). This is the currently shipped label. It carries no attribution to Ramit Sethi in the label. Kevin's interim default (TODO.md A165 note 2026-10-16): show "Conscious Spending Plan (Ramit Sethi)", never implying endorsement; generic fallback "Fixed / Invest / Save / Spend split". Neither is implemented.
-- `frontend/lib/paySplitReference.ts:16`: "Pay yourself first · principle".
-- `frontend/app/spend/shape/ReferenceShapesRow.tsx:12-14`: link labels "Conscious Spending Plan", "50/30/20", "Pay yourself first", each opening a Penny explainer turn ("Explain the conscious spending plan").
-- Penny explainer ids and copy: `backend/app/content/money_basics.py:142-163` (ids `conscious-spending-plan`, `fifty-thirty-twenty`, `pay-yourself-first`), listed to Penny at `penny_tools.py:219-220`.
+- Current G341 wording uses a generic four-part split with Fixed, Moved and Free labels and independent ranges. The persisted `conscious` preference id may remain internally for compatibility; it is not a customer-facing name.
+- The following named strings and outbound link were present in the historical G279 implementation and are being removed from current user-facing flow: "Conscious Spending Plan", the Ramit Sethi reference, and the `iwillteachyoutoberich.com` link. This historical record does not claim trademark clearance or make a legal finding.
 
 ### Where Ramit Sethi, Elizabeth Warren or their works are named in app text
 
-Grep (case-insensitive) for "ramit", "sethi", "i will teach", "iwillteach", "guilt-free", "conscious spending", "elizabeth warren", "all your worth", "pay yourself first" across `backend`, `frontend/app`, `frontend/components`, `frontend/lib`, `frontend/scripts`, `docs`, and root `*.md` found only the following in shipped app text or Penny content:
+Historical G279 grep (case-insensitive) for "ramit", "sethi", "i will teach", "iwillteach", "guilt-free", "conscious spending", "elizabeth warren", "all your worth", "pay yourself first" found the following before G341. This is historical evidence, not a statement about the current customer flow:
 
 - `backend/app/content/money_basics.py:146`: body "The idea comes from Ramit Sethi's book I Will Teach You To Be Rich, written for a US reader; a UK workplace pension and ISA cover the same ground here, and the percentages are starting points, not fixed rules everyone should hit." The same body uses "guilt-free spending on whatever you enjoy". Four buckets and the ranges (50-60%, 10%, 5-10%, 20-35%).
 - `backend/app/content/money_basics.py:154`: "It was popularised by US senator Elizabeth Warren in the book All Your Worth."
@@ -299,7 +297,7 @@ Grep (case-insensitive) for "ramit", "sethi", "i will teach", "iwillteach", "gui
 - `frontend/lib/paySplitReference.ts:15`: the ranges "Fixed 50–60%, discretionary 20–35%, investment 10%, savings 5–10%".
 - The G279 design document (`docs/design/G279-pay-split-compare.md:34`) records the source page for those ranges.
 
-Finding on copying: the grep found no verbatim passages, worksheets, diagrams, bucket names with his wording, or imagery taken from his books or website in app text or Penny content; the Conscious Spending Plan explainer paraphrases the four-bucket idea and ranges in Sorted's own words. Two items the specialist may wish to check against the source text, which I did not fetch or compare line by line (only the public page URL is cited): the phrase "guilt-free spending" (money_basics.py:146) and the bucket labels. This is a grep and a reading of our own text, not a comparison against his published text, so it cannot establish that nothing is similar.
+Finding on copying: the historical grep found no verbatim passages, worksheets, diagrams, bucket names with his wording, or imagery taken from those works. It was a grep and a reading of our own text, not a line-by-line source comparison, so it cannot establish that nothing is similar. G341 removes the named explainer and link from the current flow without making a legal conclusion.
 
 Facts recorded from Kevin (TODO.md A165 note 2026-10-16): copyright covers his wording, worksheets and diagrams, not the idea or the percentage ranges. Question for the specialist: is attribution enough, or should a generic name be used? Is linking to his site (PaySplitComparison.tsx:51) acceptable?
 

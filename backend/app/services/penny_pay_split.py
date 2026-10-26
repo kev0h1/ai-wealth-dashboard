@@ -14,28 +14,28 @@ import math
 
 logger = logging.getLogger(__name__)
 
-# One guide per line, same keys as the TypeScript GUIDES, so the parity gate can
-# read them. "phrase" is Python-only (how a sentence names the reference).
+# The parity gate checks these names, shares and range bounds against the
+# frontend. "phrase" is Python-only (how a sentence names the reference).
 GUIDES = {
-    "50-30-20": {"name": "50/30/20 · adapted", "short_name": "50/30/20", "shares": {"fixed": 50, "free": 30, "moved": 20}, "phrase": "50/30/20 guide"},
-    "conscious": {"name": "Conscious Spending Plan · 60/20/20 example", "short_name": "60/20/20 example", "shares": {"fixed": 60, "free": 20, "moved": 20}, "phrase": "Conscious Spending Plan example"},
-    "first": {"name": "Pay yourself first · principle", "short_name": "Pay yourself first", "shares": None, "phrase": "Pay yourself first principle"},
+    "50-30-20": {"name": "50/30/20 · adapted", "short_name": "50/30/20", "shares": {"fixed": 50, "free": 30, "moved": 20}, "ranges": None, "phrase": "50/30/20 guide"},
+    "conscious": {"name": "A common four-part split", "short_name": "Four-part split", "shares": None, "ranges": {"fixed": [50, 60], "moved": [10, 20], "free": [20, 35]}, "phrase": "four-part split"},
+    "first": {"name": "Pay yourself first · principle", "short_name": "Pay yourself first", "shares": None, "ranges": None, "phrase": "Pay yourself first principle"},
 }
 DEFAULT_REFERENCE = "50-30-20"
 SECTION_ORDER = ("fixed", "moved", "free")
-SECTION_LABEL = {"fixed": "Fixed costs", "moved": "Moved to savings", "free": "Free spending"}
+SECTION_LABEL = {"fixed": "Fixed", "moved": "Moved", "free": "Free"}
 
 PAY_SPLIT_SCHEMA = {
     "type": "function",
     "function": {
         "name": "get_pay_split",
         "description": (
-            "How the user's take-home pay was split in the latest pay period (fixed costs, moved to "
-            "savings, free spending, left over), compared with the reference split they have chosen "
-            "on the Spend shape page: 50/30/20, the Conscious Spending Plan 60/20/20 example, or Pay "
+            "How the user's take-home pay was split in the latest pay period (Fixed, Moved, Free, "
+            "left over), compared with the reference split they have chosen "
+            "on the Spend shape page: 50/30/20, a common four-part split with ranges, or Pay "
             "yourself first (no percentages). Also the 3, 6 and 12 month average shares and the "
             "what-works line. Use it for 'how is my pay split', 'am I on the 50/30/20' and 'how do I "
-            "compare with the conscious spending plan'. Pass reference only when the user names a "
+            "compare with the four-part split'. Pass reference only when the user names a "
             "different one than the one they picked. Quote the summary and the percentages verbatim. "
             "These are facts about one reference, never a target or advice."
         ),
@@ -62,22 +62,29 @@ def _money(amount) -> dict:
     return {"raw": val, "formatted": f"−£{abs(val):,.2f}" if val < 0 else f"£{val:,.2f}"}
 
 
+def _finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def compare_shape(shape: dict, guide_id: str) -> dict:
     """Port of compareShape: per-job actual, reference amount, delta and shares, or available False."""
     guide = GUIDES.get(guide_id) or GUIDES[DEFAULT_REFERENCE]
     income = shape.get("take_home")
     empty = {"available": False, "rows": []}
-    if shape.get("status") != "ok" or not isinstance(income, (int, float)) or income <= 0:
+    if shape.get("status") != "ok" or not _finite_number(income) or income <= 0:
         return empty
     by_id = {j.get("id"): j for j in shape.get("jobs") or []}
     jobs = [by_id.get(i) for i in SECTION_ORDER]
-    if any(j is None or not isinstance(j.get("amount"), (int, float)) or j["amount"] < 0 for j in jobs):
+    if any(j is None or not _finite_number(j.get("amount")) or j["amount"] < 0 for j in jobs):
         return empty
     amounts = [_pennies(j["amount"]) for j in jobs]
     total = sum(amounts)
-    if shape.get("total_out") is not None and abs(_pennies(shape["total_out"]) - total) > 2:
+    if shape.get("total_out") is not None and (
+        not _finite_number(shape["total_out"]) or abs(_pennies(shape["total_out"]) - total) > 2
+    ):
         return empty
     shares = guide["shares"]
+    ranges = guide["ranges"]
     ref = None
     if shares:
         ref = {
@@ -85,16 +92,46 @@ def compare_shape(shape: dict, guide_id: str) -> dict:
             "moved": int(math.floor(_pennies(income) * shares["moved"] / 100 + 0.5)),
         }
         ref["free"] = _pennies(income) - ref["fixed"] - ref["moved"]
+    bounds = None
+    if ranges:
+        income_pennies = _pennies(income)
+        bounds = {
+            job_id: (
+                int(math.floor(income_pennies * ranges[job_id][0] / 100 + 0.5)),
+                int(math.floor(income_pennies * ranges[job_id][1] / 100 + 0.5)),
+            )
+            for job_id in SECTION_ORDER
+        }
+    elif ref:
+        bounds = {job_id: (ref[job_id], ref[job_id]) for job_id in SECTION_ORDER}
     rows = []
     for idx, job_id in enumerate(SECTION_ORDER):
         actual = amounts[idx] / 100
+        lower, upper = bounds[job_id] if bounds else (None, None)
+        if lower is None:
+            position = None
+            delta = (amounts[idx] - ref[job_id]) / 100 if ref else None
+        elif amounts[idx] < lower:
+            position = "below"
+            delta = (amounts[idx] - lower) / 100
+        elif amounts[idx] > upper:
+            position = "above"
+            delta = (amounts[idx] - upper) / 100
+        else:
+            position = "within"
+            delta = 0
         rows.append({
             "id": job_id,
             "actual": actual,
             "guide": ref[job_id] / 100 if ref else None,
-            "delta": (amounts[idx] - ref[job_id]) / 100 if ref else None,
+            "guide_min": lower / 100 if lower is not None else None,
+            "guide_max": upper / 100 if upper is not None else None,
+            "delta": delta,
             "income_share": actual / income * 100,
             "guide_share": shares[job_id] if shares else None,
+            "guide_share_min": ranges[job_id][0] if ranges else (shares[job_id] if shares else None),
+            "guide_share_max": ranges[job_id][1] if ranges else (shares[job_id] if shares else None),
+            "position": position,
         })
     return {"available": True, "income": income, "rows": rows}
 
@@ -108,6 +145,23 @@ def _summary(label: str | None, guide: dict, rows: list[dict]) -> str:
     lead = f"For {label}, " if label else ""
     phrase = guide["phrase"]
     fixed, free, moved = by_id["fixed"], by_id["free"], by_id["moved"]
+    if guide["ranges"]:
+        def range_fact(row: dict) -> str:
+            range_label = f"{row['guide_share_min']}-{row['guide_share_max']}%"
+            if row["position"] == "within":
+                return f"within the {range_label} range"
+            amount = _money(abs(row["delta"]))["formatted"]
+            if row["position"] == "below":
+                return f"{amount} below the bottom of the {range_label} range"
+            return f"{amount} more than the top of the {range_label} range"
+
+        text = (
+            f"{SECTION_LABEL['fixed']} was {_money(fixed['actual'])['formatted']}, {range_fact(fixed)}. "
+            f"{SECTION_LABEL['moved']} was {_money(moved['actual'])['formatted']}, {range_fact(moved)}. "
+            f"{SECTION_LABEL['free']} was {_money(free['actual'])['formatted']}, {range_fact(free)}. "
+            "These are independent reference bands, not a budget or target."
+        )
+        return f"{lead}{text}" if lead else text
     if guide["shares"] is None:
         text = (
             f"{_pct(fixed['income_share'])}% of your take-home went to fixed costs, "
@@ -157,7 +211,7 @@ async def exec_get_pay_split(uid: str, reference: str | None = None) -> dict:
         ],
         "reference": {
             "id": ref_id, "name": guide["name"], "selected": ref_id == selected,
-            "shares": guide["shares"],
+            "shares": guide["shares"], "ranges": guide["ranges"],
         },
     }
     if comp["available"]:
@@ -169,6 +223,12 @@ async def exec_get_pay_split(uid: str, reference: str | None = None) -> dict:
                 "delta_pct": None if r["guide_share"] is None else _pct(r["income_share"]) - r["guide_share"],
                 "actual": _money(r["actual"]),
                 "guide": _money(r["guide"]) if r["guide"] is not None else None,
+                "guide_min": _money(r["guide_min"]) if r["guide_min"] is not None else None,
+                "guide_max": _money(r["guide_max"]) if r["guide_max"] is not None else None,
+                "guide_pct_min": r["guide_share_min"],
+                "guide_pct_max": r["guide_share_max"],
+                "position": r["position"],
+                "delta": _money(r["delta"]) if r["delta"] is not None else None,
             }
             for r in comp["rows"]
         ]
