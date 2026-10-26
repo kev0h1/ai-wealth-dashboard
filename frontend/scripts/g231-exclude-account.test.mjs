@@ -86,7 +86,7 @@ const acct = { id: "a1", name: "Joint bills", type: "Current", subtype: "CURRENT
   // Only connected current and savings accounts get the row.
   const page = readFileSync(new URL("../app/components/AccountsPage.tsx", import.meta.url), "utf8");
   assert.match(page, /!isManual && !isStatement && !isCredit && \(\s*<div className="px-4 pt-4">\s*<CountTowardsSafeToSpendRow/);
-  assert.match(page, /invalidateAllAccountData\(\);\s*\} catch \(err\)/, "caches clear after a successful toggle");
+  assert.match(page, /invalidateAllAccountData\(\);\s*void loadAccounts\(\);\s*\} catch \(err\)/, "successful toggles clear caches before refreshing availability");
 }
 
 // 4. Spend from never offers an excluded account.
