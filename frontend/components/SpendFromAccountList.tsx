@@ -93,11 +93,11 @@ export default function SpendFromAccountList({
       {coverMoveVisible && !hasReserveSource && (
         <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300">The move above is already held back.</p>
       )}
-      {entries.length === 1 && !hasLowerLimit && (
-        <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-300">Within the estimate above.</p>
-      )}
-      {entries.length > 1 && (
-        <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300">Separate account limits, not amounts to add together.</p>
+      {entries.length > 0 && (
+        <p className={`${entries.length > 1 ? "mt-3" : "mt-2"} text-[12px] leading-5 text-slate-600 dark:text-slate-300`}>
+          {entries.length > 1 ? "Separate account limits, not amounts to add together. " : !hasLowerLimit ? "Within the estimate above. " : ""}
+          See all accounts in Your accounts.
+        </p>
       )}
     </section>
   );
