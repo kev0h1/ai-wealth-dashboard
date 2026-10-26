@@ -34,9 +34,9 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "spend-from-accounts",
     name: "Spend from account list · G325",
-    description: "G325, impeccable · Restore Spend from within approved B2, explain independent account limits, and disclose the other counted current accounts. A keeps two visible; B shows every usable account. Production hero and working with fictional data; account treatments are proposals. Includes missing third account, payment timing, pooled cap, card purchases, move reserve, masking and long names.",
-    variants: [{ label: "A · Two at a glance", value: "a" }, { label: "B · All with room", value: "b" }],
-    states: [{ label: "Another account has room", value: "third" }, { label: "Different payment timing", value: "timing" }, { label: "Pooled cap", value: "combined" }, { label: "All accounts shown", value: "all" }, { label: "Uncertain check", value: "uncertain" }, { label: "Long names", value: "long" }, { label: "Card purchases", value: "cards" }, { label: "Move held back", value: "move" }],
+    description: "G325 revision, impeccable · Stay close to the current card: same top-two eligible account rows and action dock. C folds other accounts and explanation into the existing limits note; D keeps the plain note and places details below the current evidence disclosures. Current production reference and earlier A/B retained. No favourites or preference changes. Fictional card activity, masking, pooled cap and timing cases.",
+    variants: [{ label: "C · Details in the note", value: "c" }, { label: "D · Details below the card", value: "d" }, { label: "Current card", value: "current" }],
+    states: [{ label: "Current card with card activity", value: "current" }, { label: "Another account has room", value: "third" }, { label: "Different payment timing", value: "timing" }, { label: "Pooled cap", value: "combined" }, { label: "All accounts shown", value: "all" }, { label: "Uncertain check", value: "uncertain" }, { label: "Long names", value: "long" }, { label: "Card purchases", value: "cards" }, { label: "Move held back", value: "move" }],
     group: "current",
   },
   {

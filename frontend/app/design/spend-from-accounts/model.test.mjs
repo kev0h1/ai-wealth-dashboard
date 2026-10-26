@@ -49,3 +49,19 @@ assert.equal(accountListModel(excluded.accounts, excluded.eligibility, "b").othe
 const move = fixture("move");
 assert.equal(accountListModel(move.accounts, move.eligibility, "b").visible[0].headroom, 126);
 console.log("G325 fixture arithmetic, disclosure, filters, unknown checks, pool cap and reserved move passed.");
+
+const current = fixture("current");
+const balances = [208,174,70], lows = [...balances];
+let low = balances.reduce((a,b) => a+b,0);
+for (const event of [...TIMELINE, {account:2, amount:-70}]) {
+  balances[event.account] += event.amount;
+  lows[event.account] = Math.min(lows[event.account], balances[event.account]);
+  low = Math.min(low, balances.reduce((a,b) => a+b,0));
+}
+assert.deepEqual(lows,[108,74,0]);
+assert.equal(low-current.data.allocations_reserved-current.data.buffer,current.pool);
+assert.equal(current.data.spendable_now-current.data.bills_total+current.data.income_before_payday,balances.reduce((a,b)=>a+b,0));
+assert.deepEqual(accountListModel(current.accounts,current.eligibility,"a").visible.map(e=>e.accountId),["barclays","starling"]);
+assert.equal(current.data.pace.sustainable*current.data.pace.days_left,current.pool);
+assert.equal(current.data.card_new_spend_total,2141);
+console.log("G325 current-card walk, eligible rows, pace and independent card activity reconcile.");

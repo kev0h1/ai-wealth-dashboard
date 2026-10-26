@@ -15,6 +15,9 @@ import { fixture, SCENARIOS, type Scenario } from "./fixtures";
 const control = "min-h-11 touch-manipulation rounded-xl px-3 text-[13px] font-semibold hover:opacity-80 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none";
 const muted = "text-[12px] leading-5 text-slate-600 dark:text-slate-300";
 const format = (n: number) => `£${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
+type Variant = "a" | "b" | "c" | "d" | "current";
+const variantLabels: Record<Variant, string> = { a: "A · Two at a glance", b: "B · All with room", c: "C · Details in the note", d: "D · Details below the card", current: "Current card" };
+const LIMITS_NOTE = "Separate account limits, not amounts to add together.";
 
 function AccountRows({ entries, allEntries, pool, combined, reserve }: { entries: SpendFromAccount[]; allEntries: SpendFromAccount[]; pool: number; combined: boolean; reserve: boolean }) {
   return <ul className="space-y-2" aria-label="Account limits">
@@ -71,10 +74,56 @@ function AccountTreatment({ scenario, variant }: { scenario: Scenario; variant: 
   </section>;
 }
 
+function AccountWorking({ scenario }: { scenario: Scenario }) {
+  const { accounts, eligibility, pool } = fixture(scenario);
+  const model = accountListModel(accounts, eligibility, "a");
+  const allUsable = [...model.visible, ...model.others.flatMap(e => e.limit ? [e.limit] : [])];
+  const combined = spendFromIsCombined(allUsable, pool);
+  return <div data-g325-account-working className={`space-y-3 pb-3 pt-2 ${muted}`}>
+    <p>The headline checks all counted accounts together. Each account limit also uses that account’s own lowest cash after payments and plans, so the limits need not add up to the headline.</p>
+    {model.hasOtherRoom && <p>Only the two highest account limits are shown on the card.</p>}
+    {model.others.length > 0 && <>
+      <h4 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Other current accounts</h4>
+      <div className="space-y-3">
+        {model.others.map(other => other.limit ? <AccountRows key={other.account.id} entries={[other.limit]} allEntries={allUsable} pool={pool} combined={combined} reserve={scenario === "move"} /> : <div key={other.account.id} data-other-account={other.account.id} className="grid grid-cols-[24px_minmax(0,1fr)] gap-x-2">
+          <BankBadge size={24} logoSrc={accountBrand(other.account).logoSrc} initials={accountBrand(other.account).initials} altText="" brandBg={accountBrand(other.account).background} />
+          <div className="min-w-0 break-words"><p className="font-medium text-slate-700 dark:text-slate-200">{accountBrand(other.account).label}</p><p>{other.reason}</p></div>
+        </div>)}
+      </div>
+    </>}
+  </div>;
+}
+
+function CompactAccountTreatment({ scenario, variant }: { scenario: Scenario; variant: "c" | "d" }) {
+  const { accounts, eligibility, pool } = fixture(scenario);
+  const model = accountListModel(accounts, eligibility, "a");
+  const allUsable = [...model.visible, ...model.others.flatMap(e => e.limit ? [e.limit] : [])];
+  const combined = spendFromIsCombined(allUsable, pool);
+  return <section data-g325-accounts data-g325-compact={variant} aria-label="Accounts with room towards this estimate" className="mt-4">
+    <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Spend from</h3>
+    <AccountRows entries={model.visible} allEntries={allUsable} pool={pool} combined={combined} reserve={scenario === "move"} />
+    {combined && <p data-combined className={`mt-3 ${muted}`}><MoneyText text={spendFromCombinedLine(allUsable, pool, format, e => accountBrand(e.account).label)} /></p>}
+    {model.visible.length === 1 && model.visible[0].headroom >= pool && <p className={`mt-2 ${muted}`}>Within the estimate above.</p>}
+    {variant === "c" && model.others.length > 0 ? <details key={scenario} data-g325-compact-note className="mt-3">
+      <DisclosureSummary className={`min-h-11 cursor-pointer rounded-lg text-left font-normal active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${muted}`}><span>{LIMITS_NOTE}</span></DisclosureSummary>
+      <AccountWorking scenario={scenario} />
+    </details> : <p className={`mt-3 ${muted}`}>{LIMITS_NOTE}</p>}
+  </section>;
+}
+
+function OutsideWorking({ scenario }: { scenario: Scenario }) {
+  const f = fixture(scenario), model = accountListModel(f.accounts, f.eligibility, "a");
+  if (model.others.length === 0) return null;
+  return <details key={scenario} data-g325-outside-working className="border-b border-slate-200 dark:border-slate-700">
+    <DisclosureSummary className="min-h-11 cursor-pointer rounded-lg text-[13px] font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">{model.others.length > 0 ? "Other accounts and limits" : "About account limits"}</DisclosureSummary>
+    <AccountWorking scenario={scenario} />
+  </details>;
+}
+
 export default function SpendFromAccountsClient() {
   const params = useSearchParams();
-  const [variant, setVariant] = useState<"a" | "b">(params.get("variant") === "b" ? "b" : "a");
-  const [scenario, setScenario] = useState<Scenario>(SCENARIOS.some(s => s.value === params.get("state")) ? params.get("state") as Scenario : "third");
+  const [variant, setVariant] = useState<Variant>(["a", "b", "c", "d", "current"].includes(params.get("variant") ?? "") ? params.get("variant") as Variant : "c");
+  const [scenario, setScenario] = useState<Scenario>(SCENARIOS.some(s => s.value === params.get("state")) ? params.get("state") as Scenario : "current");
   const [dark, setDark] = useState(params.get("mode") !== "light");
   const [hidden, setHidden] = useState(params.get("hidden") === "1");
   useEffect(() => {
@@ -90,11 +139,12 @@ export default function SpendFromAccountsClient() {
   return <main className="min-h-screen bg-[#f0f2f7] px-4 py-5 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
     <a href="#g325-proposal" className="sr-only rounded-lg bg-white p-3 text-indigo-700 focus:not-sr-only focus:outline-2 focus:outline-indigo-500 dark:bg-slate-800 dark:text-indigo-300">Skip to the proposal</a>
     <div className="mx-auto max-w-5xl">
-      <h1 className="text-xl font-bold">Spend from, with the full picture</h1>
-      <p className="mt-2 max-w-2xl text-[13px] leading-5 text-slate-600 dark:text-slate-300">G325 · Two proposals within the approved B2 hero. Fictional accounts and figures. Production is unchanged.</p>
+      <h1 className="text-xl font-bold">Keep the card compact</h1>
+      <p className="mt-2 max-w-2xl text-[13px] leading-5 text-slate-600 dark:text-slate-300">G325 revision · Same hero and action row, with account details kept quiet. Rows still follow the cash checks. Fictional figures, no production changes.</p>
       <div className="mt-4 flex flex-wrap gap-2" aria-label="Design options">
-        {(["a", "b"] as const).map(v => <button key={v} type="button" aria-pressed={variant === v} onClick={() => setVariant(v)} className={`${control} ${variant === v ? "bg-indigo-600 text-white" : "border border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"}`}>{v === "a" ? "A · Two at a glance" : "B · All with room"}</button>)}
+        {(["c", "d", "current"] as const).map(v => <button key={v} type="button" aria-pressed={variant === v} onClick={() => setVariant(v)} className={`${control} ${variant === v ? "bg-indigo-600 text-white" : "border border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"}`}>{variantLabels[v]}</button>)}
       </div>
+      <details className="mt-2"><DisclosureSummary className={`${control} cursor-pointer px-0 text-slate-600 dark:text-slate-300`}>Previous designs</DisclosureSummary><div className="flex flex-wrap gap-2 py-2">{(["a", "b"] as const).map(v => <button key={v} type="button" aria-pressed={variant === v} onClick={() => setVariant(v)} className={`${control} ${variant === v ? "bg-indigo-600 text-white" : "border border-slate-300 dark:border-slate-600"}`}>{variantLabels[v]}</button>)}</div></details>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="grid gap-1 text-[12px] text-slate-600 dark:text-slate-300">Example
           <select name="example" value={scenario} onChange={e => setScenario(e.target.value as Scenario)} className="min-h-11 max-w-full rounded-xl border border-slate-300 bg-white px-3 text-[14px] text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
@@ -108,12 +158,14 @@ export default function SpendFromAccountsClient() {
         <div id="g325-proposal" tabIndex={-1} className="min-w-0 scroll-mt-5" data-proposal>
           {scenario === "move" && <p className={`mb-3 ${muted}`}><MoneyText text={hidden ? "Move shown above: £•••• from NatWest to HSBC. Already allowed for in the account limit." : "Move shown above: £20 from NatWest to HSBC. Already allowed for in the account limit."} /></p>}
           <BalancesHiddenContext.Provider value={hidden}>
-            <SafeToSpendCard data={data} previewBalancesVisible={!hidden} spendFrom={bestSpendAccount(eligibility, accounts)} spendFromPreview={{ hideBalances: hidden, body: <AccountTreatment scenario={scenario} variant={variant} /> }} />
+            <SafeToSpendCard data={data} previewBalancesVisible={!hidden} spendFrom={bestSpendAccount(eligibility, accounts)} spendFromPreview={variant === "current" ? undefined : { hideBalances: hidden, body: variant === "a" || variant === "b" ? <AccountTreatment scenario={scenario} variant={variant} /> : <CompactAccountTreatment scenario={scenario} variant={variant} /> }} />
+            {variant === "d" && <OutsideWorking scenario={scenario} />}
           </BalancesHiddenContext.Provider>
         </div>
         <section aria-label="About these proposals" className="space-y-3 text-[13px] leading-5 text-slate-600 dark:text-slate-300">
-          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{variant === "a" ? "Two visible, the rest one tap away" : "Every usable account visible"}</h2>
-          <p>{variant === "a" ? "Keeps the two highest limits in the existing compact list. The disclosure includes other usable accounts as well as those with nothing spare." : "Keeps every account with a usable limit in view. Only accounts with nothing spare, or a check that is not available, sit in the disclosure."}</p>
+          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{variant === "c" ? "The note is the disclosure" : variant === "d" ? "The card keeps its current height" : variant === "current" ? "Current production layout" : "Earlier round"}</h2>
+          <p>{variant === "c" ? "The existing limits note opens the explanation and other account checks. No extra paragraph or new disclosure row inside the closed card." : variant === "d" ? "The account rows, plain limits note and action dock stay in their current arrangement. Other accounts and the explanation sit below the existing calculation and card-activity disclosures." : variant === "current" ? "This renders the current production account list, for direct comparison using the same fictional inputs." : "These are the earlier, taller proposals retained for comparison."}</p>
+          <p>Favourites do not choose these rows. The same account checks and ranking still identify the two current accounts with the most room.</p>
           <p>The heading is a label. Rows report an account limit; they do not instruct a payment or move money.</p>
           <h2 className="pt-2 text-base font-bold text-slate-900 dark:text-slate-100">Why the figures can differ</h2>
           <p>Today’s list returns only two accounts. Its limits also use each account’s own lowest forecast point. The headline uses the combined forecast, then deducts the shared buffer and reserves.</p>
