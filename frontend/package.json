@@ -51,7 +51,6 @@
     "check:g309-settings-spacing": "node scripts/g309-settings-spacing.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:b53-plus-tier": "node scripts/b53-plus-tier.test.mjs",
-    "check:b50-plan-picker-v2": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs app/design/plan-picker-v2/model.test.mjs",
     "check:b50-plan-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b50-plan-picker.test.mjs",
     "check:design-stale": "node scripts/check-design-stale.mjs --strict",
     "check:design-stale-detect": "node scripts/design-stale-detect.test.mjs",

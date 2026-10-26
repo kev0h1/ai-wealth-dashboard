@@ -56,14 +56,6 @@ const ROUTES: PreviewRoute[] = [
   },
 
   {
-    slug: "plan-picker-v2",
-    name: "Choose what fits · B50",
-    description: "Two preview-only layouts: A full descriptions with prices on their own line, B one plan at a time with comparison. Four default plans, all three billing periods, synthetic free/trial/paid and unavailable states. iOS and Android examples are proposed store-ready fixtures, not live billing. Current PlanPicker is an inert reference. No account changes · ?variant=a|b&scenario=free|trialling|paid&platform=web|ios|android&mode=light|dark",
-    variants: [{ label: "A · Room to compare", value: "a" }, { label: "B · One clear choice", value: "b" }],
-    states: [{ label: "Free account", value: "free" }, { label: "In a trial", value: "trialling" }, { label: "Paid account", value: "paid" }],
-    group: "current",
-  },
-  {
     slug: "sorted-website",
     name: "Sorted marketing website · C35",
     description: "Three independent static homepages: A Product first, B Everyday money, C Clear perspective. Real app imagery, source-checked prices and disclosures, no forms or tracking. Open the full static page from the review gallery. Public pages and Vercel deployment follow the chosen direction and verified store links.",
