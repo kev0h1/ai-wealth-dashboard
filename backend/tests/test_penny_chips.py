@@ -121,9 +121,9 @@ def test_home_payday_status_plans_only_short_speaks_the_amber_reading(monkeypatc
     monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
 
     answer = _run(answer_chip(UID, "home_payday_status", None))["answer"]
-    assert "£250 short after plans and envelopes" in answer
+    assert "£250 short after plans and set-asides" in answer
     assert "short of covering this pay period" not in answer
-    assert "bills are covered" in answer.lower()
+    assert "bills sorted knows about are covered so far" in answer.lower()
     _assert_house_style(answer)
 
 

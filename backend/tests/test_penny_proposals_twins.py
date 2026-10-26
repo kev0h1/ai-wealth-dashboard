@@ -354,7 +354,7 @@ def test_propose_delete_allocation_happy_path(monkeypatch):
     assert result["proposal"] is True
     assert result["kind"] == "delete_allocation"
     assert result["params"] == {"allocation_id": "a1"}
-    assert result["summary"] == "Delete the Holiday envelope (£120 per pay period)"
+    assert result["summary"] == "Delete the Holiday set-aside (£120 per pay period)"
 
 
 def test_execute_update_allocation_dispatches_real_route(monkeypatch):

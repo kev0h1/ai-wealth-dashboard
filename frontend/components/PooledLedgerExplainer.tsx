@@ -43,7 +43,7 @@ export default function PooledLedgerExplainer({
       {pooled && <p data-g304-pooled>{poolingSentence}</p>}
       {showEnvelope && (
         <p data-g304-envelope>
-          <MoneyText text={`${many(envelope) ? "Your envelopes hold" : "Your envelope holds"} back ${format(envelope!.amount)} until payday.`} />{" "}
+          <MoneyText text={`${many(envelope) ? "Your set-asides hold" : "Your set-aside holds"} back ${format(envelope!.amount)} until payday.`} />{" "}
           <Link href={ENVELOPE_EDIT_HREF} className={linkClass}>{many(envelope) ? "You can edit them" : "You can edit it"}</Link>
           {` on Upcoming.`}
         </p>

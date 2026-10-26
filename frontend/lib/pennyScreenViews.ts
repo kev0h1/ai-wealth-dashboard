@@ -139,7 +139,7 @@ export function buildSafeToSpendView(
     figures: opts.hidden ? [] : [{
       key: "safe_to_spend",
       label: presentation.caption ? "Below your safety buffer" : headline.plansOnly
-        ? "Short after plans and envelopes"
+        ? "Short after plans and set-asides"
         : headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Estimated left to spend",
       value: `${presentation.signed ? "−" : ""}${formatSafeToSpendAmount(headline.heroAmount)}`,
     }],

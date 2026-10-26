@@ -173,7 +173,7 @@ function PlansSection({
       ) : empty ? (
         <div className="glass-card rounded-2xl px-4 py-4">
           <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nothing set aside yet.</p>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Add an envelope or one-off payment for this pay period.</p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Add a set-aside or one-off payment for this pay period.</p>
         </div>
       ) : (
         <SetAsideList

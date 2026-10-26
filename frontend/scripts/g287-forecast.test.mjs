@@ -113,7 +113,7 @@ assert.match(cardCheck, /Safety position/);
 const cards = plain(render(React.createElement(SafeToSpendCard, { ...g287CardProps("cards"), onRetry: noop, previewBalancesVisible: true })));
 assert.match(cards, /See your cards/);
 assert.match(cards, /Went on cards this pay period/);
-assert.match(cards, /not deducted from the cash/);
+assert.match(cards, /taken off your .* separately/);
 
 const upcomingProps = g287UpcomingProps(shortData);
 const upcomingShort = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...upcomingProps, presentation: upcoming("habitual") }));

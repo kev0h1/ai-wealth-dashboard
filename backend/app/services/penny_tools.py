@@ -755,7 +755,7 @@ TOOL_SCHEMAS = [
                 "grouped by recurring series, most recent first — the same "
                 "picker data the Allocation sheet's 'which payment fills "
                 "it?' step uses. Use this to find the exact payment that "
-                "should fill an envelope/allocation BEFORE calling "
+                "should fill a set-aside (allocation) BEFORE calling "
                 "propose_create_allocation, so match_value names a real, "
                 "recent payment rather than a guess. Amounts are "
                 "authoritative, quote them verbatim."
@@ -976,7 +976,7 @@ PROPOSE_TOOL_SCHEMAS = [
         "function": {
             "name": "propose_create_allocation",
             "description": (
-                "Propose a new per-pay-period allocation (envelope): a "
+                "Propose a new per-pay-period allocation (set-aside): a "
                 "fixed amount reserved from left to spend each period, "
                 "filled by a specific recurring credit payment landing in "
                 "one account. Call get_fill_candidates first to find the "
@@ -1094,7 +1094,7 @@ PROPOSE_TOOL_SCHEMAS = [
         "function": {
             "name": "propose_update_allocation",
             "description": (
-                "Propose changing an allocation's (envelope's) name, "
+                "Propose changing an allocation's (set-aside's) name, "
                 "amount per period, recurrence, or pausing/resuming it, "
                 "the same fields AllocationSheet's pause/resume and its "
                 "own save cover, EXCEPT which account or payment fills it "
@@ -1122,7 +1122,7 @@ PROPOSE_TOOL_SCHEMAS = [
         "function": {
             "name": "propose_delete_allocation",
             "description": (
-                "Propose deleting an allocation (envelope) entirely, the "
+                "Propose deleting an allocation (set-aside) entirely, the "
                 "same thing AllocationSheet's delete control does. "
                 "`allocation_ref` may be an id or a name, an ambiguous "
                 "name returns a list to disambiguate from."
@@ -4679,7 +4679,7 @@ _TERMS_COPY: dict[str, str] = {
     "reserved": (
         "Reserved money is notional, not physically moved. Two things get "
         "reserved before your left to spend figure is worked out for any "
-        "active commitment or envelope you've set up. Card balance growth "
+        "active plan or set-aside you've set up. Card balance growth "
         "is shown separately because the purchase has not left cash yet. "
         "Only growth on a card whose repayment has not been identified is "
         "held back as a cautious fallback. A reservation never transfers a "
@@ -4795,7 +4795,7 @@ _NUMBERS_COPY: dict[str, str] = {
         "before payday. It starts from the lowest point your "
         "spendable balance is projected to hit between now and payday "
         "(after bills and expected income), then subtracts your buffer, "
-        "your goal plans for the period, and envelopes. Card balance growth "
+        "your goal plans for the period, and set-asides. Card balance growth "
         "is shown beside FREE rather than normally being subtracted from "
         "cash; only a card whose repayment has not been identified is held "
         "back as a cautious fallback. NOW minus BILLS doesn't equal FREE because "
@@ -6051,7 +6051,7 @@ async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
     doc = resolved["allocation"]
 
     amount_fmt = _money(doc["amount_per_period"])["formatted"]
-    summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period{_alloc_period_note(doc)})"
+    summary = f"Delete the {doc['name']} set-aside ({amount_fmt} per pay period{_alloc_period_note(doc)})"
     consequence = "Its unfilled remainder stops being reserved from left to spend."
     params = {"allocation_id": doc["id"]}
     return await _create_proposal(uid, "delete_allocation", params, summary, consequence)

@@ -233,7 +233,7 @@ export default function LongTermPlanningPage() {
           }
         />
 
-        <p className="px-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">One-off payments and this pay period&apos;s envelopes live in <button type="button" onClick={() => router.push("/upcoming")} className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Upcoming</button>.</p>
+        <p className="px-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">One-off payments and this pay period&apos;s set-asides live in <button type="button" onClick={() => router.push("/upcoming")} className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Upcoming</button>.</p>
       </main>
 
       {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} initialMode={editingGoal ? "view" : "edit"} onClose={() => setEditingGoal(undefined)} onSaved={async item => { setEditingGoal(item); await refreshGoals(); }} onCancelled={refreshGoals} />}
