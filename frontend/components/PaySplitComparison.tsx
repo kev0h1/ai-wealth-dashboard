@@ -96,6 +96,7 @@ export default function PaySplitComparison({ shape, view = "detail", average = f
   const guide = guideFor(controlled ? reference : prefs.paySplitReference);
   const comparison = compareShape(shape, guide);
   const numeric = !!(guide.shares || guide.ranges);
+  const compactAmount = (row: ComparisonRow) => guide.shares ? signedMoney(row.delta ?? 0) : money(row.actual);
   const error = !controlled && prefs.preferencesSaveError?.field === "pay_split_reference" ? prefs.preferencesSaveError.message : null;
   const choose = (id: GuideId) => {
     if (controlled) onReferenceChange?.(id); else prefs.setPaySplitReference(id);
@@ -108,12 +109,12 @@ export default function PaySplitComparison({ shape, view = "detail", average = f
     {error && <p className={s.saveError} role="status">{error} Choose the reference again to retry.</p>}
     {!ready ? <div className={s.unavailable}><p>{prefs.preferencesReady ? "Could not load your saved reference." : "Checking your saved reference."}</p>{prefs.preferencesReady && <button type="button" className={s.explainLink} onClick={() => { void prefs.refreshPreferences().catch(() => {}); }}>Try again</button>}</div> : masked ? <p className={s.baseNote}>Comparison amounts are hidden while Hide balances is on.</p> : !comparison.available ? <div className={s.unavailable}><h2>No comparison yet</h2><p>A completed pay period with income and a complete split is needed. Nothing has been treated as zero.</p></div> : <>
       <div className={s.comparisonHead}>
-        <h2>{!numeric ? "A principle, not a percentage" : view === "card" ? "How each section compares" : "Your amounts beside the guide"}</h2>
+        <h2>{view === "card" && !guide.shares ? average ? "Your average amounts" : "Your amounts this period" : !numeric ? "A principle, not a percentage" : view === "card" ? "How each section compares" : "Your amounts beside the guide"}</h2>
         <button type="button" className={s.iconButton} aria-label="How comparison works" onClick={() => setExplain(true)}><Info size={17} aria-hidden="true" /></button>
       </div>
       <p className={s.baseNote}>{average ? "Average per pay period. " : ""}{numeric ? <>Reference based on <MoneyText text={money(comparison.income)} /> income, not total outgoings.</> : <>Income this period: <MoneyText text={money(comparison.income)} />.</>}</p>
       {!numeric && <p className={s.baseNote}>Pay yourself first sets no fixed split. Your amounts are shown without over/under markers.</p>}
-      {guide.ranges && <p className={s.baseNote}>Independent ranges, not one exact split. Differences use the nearest boundary.</p>}
+      {guide.ranges && <p className={s.baseNote}>{view === "card" ? "Each amount is compared with its own range." : "Independent ranges, not one exact split. Differences use the nearest boundary."}</p>}
       {view === "detail" ? <>
         <PairedBars comparison={comparison} guide={guide} />
         <div className={s.rows}>{comparison.rows.map(row => <div className={s.row} key={row.id}>
@@ -128,7 +129,7 @@ export default function PaySplitComparison({ shape, view = "detail", average = f
         </div>}
         <details className={s.details}><summary>How the groups compare<ChevronDown size={16} aria-hidden="true" /></summary><p>Fixed roughly maps to needs, Free to wants, and Moved to savings. These are not exact matches; Moved can include your own transfers. This is general information, not advice.</p><button type="button" onClick={() => setExplain(true)}>Read the full explanation</button></details>
       </> : <>
-        {numeric && <div className={[s.compactRows, comparison.rows.some(row => signedMoney(row.delta ?? 0).length > 10) ? s.compactLong : ""].join(" ")}>{comparison.rows.map(row => <button key={row.id} type="button" aria-label={"View " + row.label + " breakdown"} onClick={() => setEvidence(row.id)}><span>{row.label}</span><MoneyText text={signedMoney(row.delta ?? 0)} /><small>{reading(row, true)}</small></button>)}</div>}
+        <div className={[s.compactRows, comparison.rows.some(row => compactAmount(row).length > 10) ? s.compactLong : ""].join(" ")}>{comparison.rows.map(row => <button key={row.id} type="button" aria-label={"View " + row.label + " breakdown"} onClick={() => setEvidence(row.id)}><span>{row.label}</span><MoneyText text={compactAmount(row)} />{numeric && <small>{reading(row, true)}</small>}</button>)}</div>
         <Link className={s.viewComparison} href="/spend/shape">View the comparison and breakdown <ChevronRight size={16} aria-hidden="true" /></Link>
         <button type="button" className={s.explainLink} onClick={() => setExplain(true)}>Approximate mapping · how it works</button>
       </>}
