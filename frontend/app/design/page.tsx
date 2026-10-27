@@ -31,14 +31,6 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
-  {
-    slug: "pay-split-clarity",
-    name: "A clearer comparison flow · G346",
-    description: "A explains every choice in place; B separates numerical comparisons from learning about saving before spending. Plain labels, explicit choice effects, one contextual help entry, working picker, full breakdown and signed category evidence. Existing arithmetic and synthetic figures; G344 remains the range-layout review.",
-    variants: [{ label: "A · Explain in place", value: "a" }, { label: "B · Compare and learn", value: "b" }],
-    states: [{ label: "Example figures", value: "kevin" }, { label: "Above and below", value: "outside" }, { label: "True zero", value: "zero" }, { label: "Large figures", value: "large" }, { label: "No income", value: "no-income" }, { label: "Loading", value: "loading" }],
-    group: "current",
-  },
 
   {
     slug: "statements-house-ads",

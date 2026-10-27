@@ -1,6 +1,6 @@
 "use client";
 
-// "How do people usually think about this?" reference row — production.
+// "Ask Penny to explain:" reference row — production.
 // Plain text, no card frame, matches the approved wireframe
 // (app/design/insights-shape/shared.tsx's ReferenceShapesRow) with the
 // wireframe-only `<a href="#">` links swapped for buttons that open a
@@ -9,21 +9,21 @@
 // Penny hand-off on this page uses.
 
 const REFERENCE_SHAPES: { label: string; ask: string }[] = [
-  { label: "A common four-part split", ask: "Explain the four-part split" },
-  { label: "50/30/20", ask: "Explain the 50/30/20 rule" },
-  { label: "Pay yourself first", ask: "Explain pay yourself first" },
+  { label: "Example ranges", ask: "Explain the example ranges for Fixed, Moved and Free" },
+  { label: "50/30/20 example", ask: "Explain the 50/30/20 rule" },
+  { label: "Saving before spending", ask: "Explain saving before spending, also called pay yourself first" },
 ];
 
 export default function ReferenceShapesRow({ onAskPenny }: { onAskPenny: (ask: string) => void }) {
   return (
     <div className="px-1">
       <p className="text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 text-pretty">
-        How do people usually think about this?{" "}
+        Ask Penny to explain:{" "}
         {REFERENCE_SHAPES.map((ref, i) => (
           <span key={ref.label}>
             <button
               onClick={() => onAskPenny(ref.ask)}
-              className="text-indigo-600 dark:text-indigo-400 underline underline-offset-4 active:opacity-70 transition-opacity"
+              className="inline-flex min-h-11 items-center text-indigo-600 dark:text-indigo-400 underline underline-offset-4 active:opacity-70 transition-opacity"
             >
               {ref.label}
             </button>
@@ -32,7 +32,7 @@ export default function ReferenceShapesRow({ onAskPenny }: { onAskPenny: (ask: s
         ))}
       </p>
       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-        Opens an explainer in Penny. Choose the comparison above separately. No budget or target is set.
+        Opens a chat with Penny. Your chosen view stays the same.
       </p>
     </div>
   );
