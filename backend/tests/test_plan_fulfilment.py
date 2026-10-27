@@ -4,7 +4,7 @@ reservation release, partial match, the suggested rule, user scoping.
 No database: fake transaction collections, monkeypatched account map.
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -323,6 +323,9 @@ def test_create_and_patch_store_a_validated_rule_and_clear_it(monkeypatch):
 
 def test_account_plan_row_reports_filled_and_released(monkeypatch):
     """The Upcoming account sheet and the account position read this row."""
+    # This scenario needs fourteen monthly slots. A rolling today + 400 days
+    # crosses into another target month on some dates, changing the schedule.
+    monkeypatch.setattr(timeutil, "user_today", lambda *_: date(2026, 10, 26))
     from tests.test_plan_source_account import _rows
     pf.transactions_col = _Txns([_debit(80.0)])
     pf.yapily_transactions_col = _Txns()
