@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 # The parity gate checks these names, shares and range bounds against the
 # frontend. "phrase" is Python-only (how a sentence names the reference).
 GUIDES = {
-    "50-30-20": {"name": "50/30/20 · adapted", "short_name": "50/30/20", "shares": {"fixed": 50, "free": 30, "moved": 20}, "ranges": None, "phrase": "50/30/20 guide"},
-    "conscious": {"name": "A common four-part split", "short_name": "Four-part split", "shares": None, "ranges": {"fixed": [50, 60], "moved": [10, 20], "free": [20, 35]}, "phrase": "four-part split"},
-    "first": {"name": "Pay yourself first · principle", "short_name": "Pay yourself first", "shares": None, "ranges": None, "phrase": "Pay yourself first principle"},
+    "50-30-20": {"name": "50/30/20 example", "short_name": "50/30/20", "shares": {"fixed": 50, "free": 30, "moved": 20}, "ranges": None, "phrase": "50/30/20 example"},
+    "conscious": {"name": "Example ranges", "short_name": "Example ranges", "shares": None, "ranges": {"fixed": [50, 60], "moved": [10, 20], "free": [20, 35]}, "phrase": "example ranges"},
+    "first": {"name": "Saving before spending", "short_name": "Saving before spending", "shares": None, "ranges": None, "phrase": "saving before spending idea"},
 }
 DEFAULT_REFERENCE = "50-30-20"
 SECTION_ORDER = ("fixed", "moved", "free")
@@ -32,12 +32,15 @@ PAY_SPLIT_SCHEMA = {
         "description": (
             "How the user's take-home pay was split in the latest pay period (Fixed, Moved, Free, "
             "left over), compared with the reference split they have chosen "
-            "on the Spend shape page: 50/30/20, a common four-part split with ranges, or Pay "
-            "yourself first (no percentages). Also the 3, 6 and 12 month average shares and the "
+            "on the Spend shape page: 50/30/20 example, Example ranges, or Saving before spending "
+            "(the pay yourself first idea, with no percentages). Also the 3, 6 and 12 month average shares and the "
             "what-works line. Use it for 'how is my pay split', 'am I on the 50/30/20' and 'how do I "
-            "compare with the four-part split'. Pass reference only when the user names a "
+            "compare with the example ranges'. Pass reference only when the user names a "
             "different one than the one they picked. Quote the summary and the percentages verbatim. "
-            "These are facts about one reference, never a target or advice."
+            "These are facts about one reference, never a target or advice. "
+            "Saving before spending means putting savings aside when paid before planning other spending. "
+            "These period totals cannot establish whether savings were set aside first or how much savings grew. "
+            "Choosing a view does not create a budget or move money."
         ),
         "parameters": {
             "type": "object",

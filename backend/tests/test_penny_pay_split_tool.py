@@ -40,7 +40,7 @@ def test_pay_split_compares_with_the_selected_reference(monkeypatch):
     _world(monkeypatch, _shape())
     res = asyncio.run(execute_tool(UID, "get_pay_split", {}))
     assert res["reference"]["id"] == "conscious" and res["reference"]["selected"] is True
-    assert res["reference"]["name"] == "A common four-part split"
+    assert res["reference"]["name"] == "Example ranges"
     assert res["reference"]["shares"] is None
     assert res["reference"]["ranges"] == {"fixed": [50, 60], "moved": [10, 20], "free": [20, 35]}
     rows = {r["job"]: r for r in res["comparison"]}

@@ -12,9 +12,9 @@ export type Guide = {
 };
 
 export const GUIDES: Guide[] = [
-  { id: "50-30-20", name: "50/30/20 · adapted", shortName: "50/30/20", shares: { fixed: 50, free: 30, moved: 20 }, description: "A common income guide: 50% needs, 30% wants, 20% savings and debt payments. Here it is roughly mapped to Fixed, Free and Moved, not a needs-and-wants assessment." },
-  { id: "conscious", name: "A common four-part split", shortName: "Four-part split", shares: null, ranges: { fixed: [50, 60], moved: [10, 20], free: [20, 35] }, description: "An illustrative split: Fixed 50 to 60%, cash saving 5 to 10%, investing 5 to 10%, and Free 20 to 35%. Saving and investing are grouped as Moved, 10 to 20%. These are independent ranges, not one allocation or a target. Moved can include transfers between your own accounts." },
-  { id: "first", name: "Pay yourself first · principle", shortName: "Pay yourself first", shares: null, description: "Set money aside before deciding what remains for other spending. This principle does not prescribe a universal percentage, so it has no numeric comparison here." },
+  { id: "50-30-20", name: "50/30/20 example", shortName: "50/30/20", shares: { fixed: 50, free: 30, moved: 20 }, description: "Compare your amounts with example percentages of your income." },
+  { id: "conscious", name: "Example ranges", shortName: "Example ranges", shares: null, ranges: { fixed: [50, 60], moved: [10, 20], free: [20, 35] }, description: "Compare each amount with an example range of your income." },
+  { id: "first", name: "Saving before spending", shortName: "Saving before spending", shares: null, description: "Understand the idea of putting savings aside before other spending." },
 ];
 
 export const SECTION_LABEL: Record<SectionId, string> = { fixed: "Fixed", free: "Free", moved: "Moved" };
