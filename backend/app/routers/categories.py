@@ -3,7 +3,8 @@ import asyncio
 import re
 import uuid as uuid_lib
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any
+from fastapi import APIRouter, Body, Depends, HTTPException
 import httpx
 from pymongo.errors import DuplicateKeyError
 
@@ -18,7 +19,9 @@ from app.db.collections import (
     user_rules_col,
 )
 from app.services import data_version, response_cache
+from app.services.category_groups import EDITABLE_KINDS, response_for, revision_for
 from app.services.categorisation import apply_rules_bulk, apply_single_rule
+from app.services.money_shape import get_money_shape_cached
 from app.services.categories import (
     BUILTIN_CATEGORIES,
     BUILTIN_CATEGORY_KINDS,
@@ -69,6 +72,89 @@ async def get_categories(user: dict = Depends(current_user)):
     return _payload(await _custom_for(user["email"]))
 
 
+@router.get("/categories/groups")
+async def get_category_groups(user: dict = Depends(current_user)):
+    """The category-group editor's persisted read model.
+
+    ``get_money_shape_cached`` is intentionally the only evidence source: a
+    groups read never reaches into the live feed itself (the cache wrapper may
+    populate a missing or stale cached snapshot).
+    """
+    uid = user["email"]
+    # The evidence and metadata need not come from one Mongo document, but
+    # the advertised revision must describe the list used for these rows.  A
+    # short retry turns an edit racing this read into either a consistent
+    # snapshot or an explicit conflict, never a revision for stale rows.
+    for _ in range(2):
+        before = await _custom_for(uid)
+        shape = await get_money_shape_cached(uid)
+        after = await _custom_for(uid)
+        if revision_for(before) == revision_for(after):
+            return response_for(after, shape)
+    raise HTTPException(409, "Category groups changed concurrently, please retry")
+
+
+@router.patch("/categories/group")
+async def update_category_group(body: Any = Body(...), user: dict = Depends(current_user)):
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid request body")
+    uid = user["email"]
+    name = body.get("name")
+    kind = body.get("kind")
+    revision = body.get("revision")
+    if not isinstance(name, str) or not normalise_name(name):
+        raise HTTPException(400, "Invalid category name")
+    if not isinstance(kind, str) or kind.strip().casefold() not in EDITABLE_KINDS:
+        raise HTTPException(400, f"kind must be one of: {', '.join(EDITABLE_KINDS)}")
+    if not isinstance(revision, str) or not revision:
+        raise HTTPException(400, "revision is required")
+    if builtin_conflict(name):
+        raise HTTPException(400, "Built-in categories cannot be changed")
+    wanted = normalise_name(name)
+    selected_kind = kind.strip().casefold()
+
+    def _mutate(custom: list[dict]) -> list[dict]:
+        # This is inside _cas_update's retry loop: a revision is compared
+        # against the same fresh list which will be conditionally written.
+        if revision_for(custom) != revision:
+            raise HTTPException(409, "Category groups changed concurrently, please refresh")
+        for category in custom:
+            if normalise_name(category["name"]) == wanted:
+                if category["kind"] == "income":
+                    raise HTTPException(400, "Income categories cannot be changed")
+                category["default_kind"] = category.get("default_kind") or category["kind"]
+                category["kind"] = selected_kind
+                return custom
+        raise HTTPException(404, "Unknown custom category")
+
+    await _cas_update(uid, _mutate)
+    await _invalidate_kind_caches(uid)
+    # Do not recalculate/read Money Shape after the committed write. A
+    # successful save remains successful if a later read would fail.
+    return {"saved": True}
+
+
+@router.post("/categories/groups/reset")
+async def reset_category_groups(body: Any = Body(...), user: dict = Depends(current_user)):
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid request body")
+    uid = user["email"]
+    revision = body.get("revision")
+    if not isinstance(revision, str) or not revision:
+        raise HTTPException(400, "revision is required")
+
+    def _mutate(custom: list[dict]) -> list[dict]:
+        if revision_for(custom) != revision:
+            raise HTTPException(409, "Category groups changed concurrently, please refresh")
+        for category in custom:
+            category["kind"] = category.get("default_kind") or category["kind"]
+        return custom
+
+    await _cas_update(uid, _mutate)
+    await _invalidate_kind_caches(uid)
+    return {"saved": True}
+
+
 @router.post("/categories")
 async def add_category(body: dict, user: dict = Depends(current_user)):
     uid  = user["email"]
@@ -102,9 +188,10 @@ async def add_category(body: dict, user: dict = Depends(current_user)):
         for c in custom:
             if normalise_name(c["name"]) == norm:
                 # Idempotent, matching the old $addToSet: re-adding updates the kind.
+                c["default_kind"] = c.get("default_kind") or c["kind"]
                 c["kind"] = kind
                 return custom
-        custom.append({"name": name, "kind": kind})
+        custom.append({"name": name, "kind": kind, "default_kind": kind})
         return custom
 
     custom = await _cas_update(uid, _mutate)
@@ -170,7 +257,7 @@ async def _invalidate_kind_caches(uid: str) -> None:
     await money_shape_cache_col.update_one(
         {"_id": uid}, {"$unset": {"computed_at": ""}}
     )
-    response_cache.invalidate(uid)
+    await response_cache.ainvalidate(uid)
 
 
 _CAS_RETRIES = 5
@@ -211,7 +298,12 @@ async def _cas_update(uid: str, mutate) -> list[dict]:
         doc = await user_categories_col.find_one({"user_id": uid})
         raw_before = doc.get("categories") if doc else None
         new_custom = mutate(custom_categories(doc))
-        new_stored = [{"name": c["name"], "kind": c["kind"]} for c in new_custom]
+        new_stored = [
+            {"name": c["name"], "kind": c["kind"], **(
+                {"default_kind": c["default_kind"]} if c.get("default_kind") else {}
+            )}
+            for c in new_custom
+        ]
         try:
             result = await user_categories_col.update_one(
                 {"user_id": uid, "categories": raw_before},

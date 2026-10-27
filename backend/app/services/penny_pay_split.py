@@ -81,7 +81,10 @@ def compare_shape(shape: dict, guide_id: str) -> dict:
     if any(j is None or not _finite_number(j.get("amount")) or j["amount"] < 0 for j in jobs):
         return empty
     amounts = [_pennies(j["amount"]) for j in jobs]
-    total = sum(amounts)
+    excluded = shape.get("not_counted", 0)
+    if not _finite_number(excluded):
+        return empty
+    total = sum(amounts) + _pennies(excluded)
     if shape.get("total_out") is not None and (
         not _finite_number(shape["total_out"]) or abs(_pennies(shape["total_out"]) - total) > 2
     ):
@@ -168,14 +171,14 @@ def _summary(label: str | None, guide: dict, rows: list[dict]) -> str:
     if guide["shares"] is None:
         text = (
             f"{_pct(fixed['income_share'])}% of your take-home went to fixed costs, "
-            f"{_pct(free['income_share'])}% to free spending and {_pct(moved['income_share'])}% was moved to savings. "
+            f"{_pct(free['income_share'])}% to free spending and {_pct(moved['income_share'])}% was moved. "
             f"The {phrase} has no fixed percentage, so there is nothing to compare with."
         )
         return f"{lead}{text}" if lead else text[:1].upper() + text[1:]
     text = (
         f"{_pct(fixed['income_share'])}% of your take-home went to fixed costs against the {fixed['guide_share']}% "
         f"in the {phrase}, {_pct(free['income_share'])}% to free spending against {free['guide_share']}%, "
-        f"{_pct(moved['income_share'])}% moved to savings against {moved['guide_share']}%."
+        f"{_pct(moved['income_share'])}% moved against {moved['guide_share']}%."
     )
     return f"{lead}{text}" if lead else text[:1].upper() + text[1:]
 
@@ -208,6 +211,8 @@ async def exec_get_pay_split(uid: str, reference: str | None = None) -> dict:
         "period": period.get("label"),
         "take_home": _money(shape.get("take_home")),
         "overspent": _money(shape.get("overspent")),
+        "not_counted": _money(shape.get("not_counted")),
+        "not_counted_share": shape.get("not_counted_share", 0),
         "jobs": [
             {"id": j.get("id"), "label": j.get("label"), "amount": _money(j.get("amount")), "share": j.get("share")}
             for j in shape.get("jobs") or []
@@ -247,7 +252,11 @@ async def exec_get_pay_split(uid: str, reference: str | None = None) -> dict:
             "months": entry["months"], "label": entry.get("label"),
             "fixed_pct": shares.get("fixed"), "moved_pct": shares.get("moved"),
             "free_pct": shares.get("free"), "left_pct": shares.get("left"),
+            "not_counted": _money(entry.get("not_counted")),
+            "not_counted_pct": entry.get("not_counted_share", 0),
         })
+    if shape.get("not_counted"):
+        result["exclusion_note"] = "Not counted is excluded from spending comparisons, but its cash outflow is kept separate from money left."
     result["averages"] = averages
     what_works = shape.get("what_works") or {}
     lines = [what_works["headline"]] if what_works.get("state") == "ok" and what_works.get("headline") else []

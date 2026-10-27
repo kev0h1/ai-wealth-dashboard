@@ -37,6 +37,7 @@ type Entry = {
   beyond_source?: BeyondSource;
   card_growth?: number;
   savings_drawdown?: number;
+  not_counted?: number;
   jobs: MoneyShapeJob[] | null | undefined;
 };
 
@@ -45,7 +46,8 @@ type Entry = {
 export function beyondFigures(entry: Entry, average = false): BeyondFigures {
   const amountOf = (id: MoneyShapeJob["id"]) => entry.jobs?.find((j) => j.id === id)?.amount ?? 0;
   const moved = amountOf("moved");
-  const totalOut = entry.total_out ?? amountOf("fixed") + moved + amountOf("free");
+  const notCounted = entry.not_counted ?? 0;
+  const totalOut = entry.total_out ?? amountOf("fixed") + moved + amountOf("free") + notCounted;
   const beyond = entry.beyond ?? entry.overspent ?? 0;
   return {
     takeHome: entry.take_home,
@@ -64,7 +66,7 @@ export const gbp = (n: number) => `£${Math.round(Math.abs(n)).toLocaleString("e
 /** The plain sentence. Names the source only when the engine knows it. */
 export function beyondSentence(f: BeyondFigures, money: (n: number) => string = gbp): string | null {
   if (f.beyond < 1) return null;
-  const lead = `You spent ${money(f.beyond)} more than came in.`;
+  const lead = `More went out than came in by ${money(f.beyond)}.`;
   if (f.average) return `${lead.slice(0, -1)} on average.`;
   if (f.source === "cards") return `${lead} It came from your cards.`;
   if (f.source === "savings") return `${lead} It came from your savings.`;
@@ -82,10 +84,10 @@ export function paradoxLine(f: BeyondFigures, consent: boolean, money: (n: numbe
   }
   if (f.source === "savings") {
     return f.savingsDrawdown >= 1
-      ? `You moved ${money(f.moved)} to savings and drew ${money(f.savingsDrawdown)} back out in the same period.`
+      ? `You moved ${money(f.moved)} and drew ${money(f.savingsDrawdown)} back out in the same period.`
       : null;
   }
-  return `You moved ${money(f.moved)} to savings in a period that went past what came in. The habit is yours to keep.`;
+  return `You moved ${money(f.moved)} in a period that went past what came in. The habit is yours to keep.`;
 }
 
 type Seg = { id: string; bg: string; amount: number };

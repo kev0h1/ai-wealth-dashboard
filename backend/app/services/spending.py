@@ -60,6 +60,8 @@ from datetime import datetime, timedelta
 from app.db.collections import accounts_col, transactions_col, yapily_transactions_col
 from app.services.categories import (
     DEBT_CATEGORY,
+    EXCLUDED,
+    builtin_conflict,
     INCOME,
     MOVEMENT,
     get_category_kinds,
@@ -137,9 +139,11 @@ def classify_flow(
             if own_move:
                 return Flow(MOVED, "own_account")
             return Flow(SPEND, "loan_repayment")
-        return Flow(MOVED, "movement")
+        return Flow(MOVED, "own_account" if own_move else "movement")
     if own_move:
         return Flow(MOVED, "own_account")
+    if kind == EXCLUDED:
+        return Flow(EXCLUDED, "excluded_by_user")
     return Flow(SPEND, "spend") if is_debit else Flow(REFUND, "refund")
 
 
@@ -230,7 +234,7 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
     # Pass 1: debits that are already movements claim their partner credits
     # first, so those credits are not left free to pair with a spend debit.
     for d in dated:
-        if kind_of(kinds, _effective_category(d)) in (INCOME, MOVEMENT):
+        if kind_of(kinds, _effective_category(d)) == INCOME or (kind_of(kinds, _effective_category(d)) == MOVEMENT and builtin_conflict(_effective_category(d))):
             partner = closest_partner(d, allow_income=True, need_evidence=False)
             if partner is not None:
                 used.add(_txn_id(partner))
@@ -241,7 +245,7 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
         kind = kind_of(kinds, cat)
         if kind == INCOME:
             continue
-        if kind == MOVEMENT and normalise_name(cat) != normalise_name(DEBT_CATEGORY):
+        if kind == MOVEMENT and builtin_conflict(cat) and normalise_name(cat) != normalise_name(DEBT_CATEGORY):
             continue  # already not spending; no evidence needed
         did = _txn_id(d)
 

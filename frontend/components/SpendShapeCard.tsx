@@ -14,13 +14,15 @@
 // nothing else (tips live in category sublines and on the transactions
 // page now, see DESIGN.md's 2026-09-05 note).
 
-import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, Settings2 } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { JOB_COLOR, JobDot, SHAPE_LEGEND } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
 import PaySplitComparison from "@/components/PaySplitComparison";
 import type { GuideId } from "@/lib/paySplitReference";
 import { PaySplitBar, beyondFigures, beyondSentence, percentBase } from "@/components/PaySplitBeyond";
+import CategoryGroupsSheet from "@/components/CategoryGroupsSheet";
 
 // SHAPE_LEGEND is imported from MoneyShapeHero.tsx (G13) so this card and
 // the hero it opens can never disagree on what a job means, structurally
@@ -131,13 +133,16 @@ export default function SpendShapeCard({
   onOpen,
   reference,
   onReferenceChange,
+  onGroupsSaved,
 }: {
   shape: MoneyShape | null | undefined;
   hideValues: boolean;
   onOpen: () => void;
   reference?: GuideId;
   onReferenceChange?: (id: GuideId) => void;
+  onGroupsSaved?: () => void | Promise<void>;
 }) {
+  const [groupsOpen, setGroupsOpen] = useState(false);
   if (shape === undefined) return <CardSkeleton />;
   if (!shape || !hasShapeContent(shape)) return null;
 
@@ -151,21 +156,21 @@ export default function SpendShapeCard({
   const money = (n: number) => (hideValues ? "£••••" : `£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`);
   const sentence = beyondSentence(figures, money);
   const longBeyond = hasBeyond && money(figures.beyond).length > 7;
-  const segs = jobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }));
+  const notCounted = shape.not_counted ?? 0;
+  const segs = [...jobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount })), ...(notCounted > 0 ? [{ id: "excluded", bg: "bg-slate-400 dark:bg-slate-500", amount: notCounted }] : [])];
   // The engine sends shares of what went out when overspent (the bar is
   // outgoings) and of what came in otherwise; the caption says which.
 
   return (
     <div className="space-y-3">
-    <button
-      type="button"
-      onClick={onOpen}
-      className="glass-card rounded-2xl p-4 w-full min-h-11 text-left active:scale-[0.98] transition-transform"
-    >
+    <div className="glass-card rounded-2xl p-4">
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <CardLabel shape={shape} />
-          <PaySplitBar segs={segs} figures={figures} size="card" money={money} />
+        <div className="min-w-0 flex-1"><CardLabel shape={shape} /></div>
+        <button type="button" aria-label="Edit pay-split groups" aria-haspopup="dialog" onClick={() => setGroupsOpen(true)} className="-my-2 grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 active:scale-95 dark:text-slate-300"><Settings2 size={19} aria-hidden="true" /></button>
+      </div>
+      <button type="button" onClick={onOpen} className="mt-1 w-full min-h-11 text-left active:scale-[0.98] transition-transform">
+        <div className="min-w-0">
+          {notCounted >= 0 && <PaySplitBar segs={segs} figures={figures} size="card" money={money} />}
           <div className={`mt-3 grid gap-2 ${longBeyond ? "grid-cols-2" : "grid-cols-4"}`}>
             {fixed && <Cell dotId="fixed" label="Fixed" value={`${Math.round(fixed.share)}%`} />}
             {moved && <Cell dotId="moved" label="Moved" value={`${Math.round(moved.share)}%`} />}
@@ -177,13 +182,14 @@ export default function SpendShapeCard({
             )}
           </div>
           {sentence && <MoneyText text={sentence} className="mt-2 block text-[13px] leading-snug text-slate-700 dark:text-slate-300 text-pretty" />}
+          {notCounted !== 0 && <MoneyText text={`Not counted: ${hideValues ? "£••••" : `${notCounted < 0 ? "−" : ""}${money(notCounted)}`} · ${hideValues ? "••" : (shape.not_counted_share ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%${notCounted < 0 ? " (net refunds)" : ""}`} className="mt-1 block text-[11px] text-slate-500 dark:text-slate-400" />}
           <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">{SHAPE_LEGEND} {percentBase(hasBeyond)}</p>
           <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">This period so far is shown above in Spend.</p>
         </div>
-        <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-      </div>
-    </button>
+      </button>
+    </div>
     <PaySplitComparison shape={shape} view="card" hideValues={hideValues} reference={reference} onReferenceChange={onReferenceChange} />
+    {groupsOpen && <CategoryGroupsSheet onClose={() => setGroupsOpen(false)} onSaved={async () => { await onGroupsSaved?.(); }} />}
     </div>
   );
 }

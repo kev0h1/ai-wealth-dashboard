@@ -32,9 +32,11 @@ to the scope selector yet.
 from __future__ import annotations
 
 import calendar as _calendar
+import math
 from datetime import date as _date, datetime, timedelta
 
 from app.core import timeutil
+from app.services import data_version
 
 from app.db.collections import (
     accounts_col,
@@ -45,7 +47,7 @@ from app.db.collections import (
 )
 from app.services.account_kinds import is_credit_card_account
 from app.services.behaviour import classify_saving_flow, savings_account_ids
-from app.services.categories import MOVEMENT, get_category_kinds, is_commitment, is_discretionary, is_income, kind_of
+from app.services.categories import EXCLUDED, MOVEMENT, builtin_conflict, normalise_name, get_category_kinds, is_commitment, is_discretionary, is_income, kind_of
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label, prev_pay_period
 from app.services.spending import REFUND, SPEND, classify_flow, try_build_spending_context
 
@@ -78,7 +80,7 @@ _N_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 #: previous shape (e.g. the old horizon-sliced "trend"/"trend_summary") is
 #: never served even if its computed_at TTL hasn't expired yet.
 # 6: G280 category kinds reclassified (Rent added; Cash, Charity, Other free).
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -94,7 +96,7 @@ def _largest_remainder_pct(amounts: dict[str, float], total: float) -> dict[str,
     if total <= 0:
         return {k: 0 for k in keys}
     raw = {k: (amounts[k] / total * 100) for k in keys}
-    floors = {k: int(raw[k]) for k in keys}
+    floors = {k: math.floor(raw[k]) for k in keys}
     remainder = 100 - sum(floors.values())
     if remainder > 0:
         order = sorted(keys, key=lambda k: (raw[k] - floors[k]), reverse=True)
@@ -103,7 +105,7 @@ def _largest_remainder_pct(amounts: dict[str, float], total: float) -> dict[str,
     return floors
 
 
-def shares_of(fixed: float, moved: float, free: float, left: float, overspent: float) -> dict[str, int]:
+def shares_of(fixed: float, moved: float, free: float, left: float, overspent: float, not_counted: float = 0) -> dict[str, int]:
     """Integer shares for the four jobs.
 
     When ``overspent`` is 0 the shares are of take-home (fixed+moved+free+left,
@@ -113,6 +115,9 @@ def shares_of(fixed: float, moved: float, free: float, left: float, overspent: f
     """
     amounts = {"fixed": fixed, "moved": moved, "free": free, "left": left}
     total = (fixed + moved + free) if overspent > 1e-9 else (fixed + moved + free + left)
+    if not_counted:
+        amounts["not_counted"] = not_counted
+        total += not_counted
     return _largest_remainder_pct(amounts, total)
 
 
@@ -237,20 +242,41 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     # one value, the two filters are mutually exclusive by construction. No
     # id-based dedupe is needed or reachable here.
     investment_extra = [t for t in period_txns if t["is_debit"] and t["category"] == "Investment"]
-    moved_txns = type1 + type2 + investment_extra + own_move_txns
+    custom_moves = [t for t, f in flows if t["is_debit"] and f.kind == MOVEMENT
+                    and f.reason != "own_account" and not builtin_conflict(t["category"])]
+    # A declared custom transfer and its savings-account credit are one move.
+    # Pair once, on different accounts, within the existing savings tolerance.
+    already_moved = {id(t) for t in type1}
+    extra_debits = []
+    for t in investment_extra + own_move_txns + custom_moves:
+        if id(t) not in already_moved:
+            already_moved.add(id(t))
+            extra_debits.append(t)
+    unmatched_credits = list(type2)
+    for debit in extra_debits:
+        for credit in unmatched_credits:
+            if (credit["account_id"] != debit["account_id"]
+                    and abs(abs(credit["amount"]) - abs(debit["amount"])) <= .02
+                    and abs((_date.fromisoformat(credit["date"]) - _date.fromisoformat(debit["date"])).days) <= 2):
+                unmatched_credits.remove(credit)
+                break
+    moved_txns = type1 + unmatched_credits + extra_debits
     moved = sum(abs(t["amount"]) for t in moved_txns)
 
-    left_raw = take_home - fixed - free - moved
-    overspent = -left_raw if left_raw < 0 else 0.0
-    left = 0.0 if left_raw < 0 else left_raw
-
-    shares = shares_of(fixed, moved, free, left, overspent)
+    excluded_txns = [{**t, "amount": abs(t["amount"]) * (1 if t["is_debit"] else -1)}
+                     for t, f in flows if f.kind == EXCLUDED and t.get("_id") not in type2_ids]
+    not_counted = sum(t["amount"] for t in excluded_txns)
+    # Excluding a category from spending must not manufacture leftover cash.
+    left_raw = take_home - fixed - free - moved - not_counted
+    overspent = max(0.0, -left_raw)
+    left = max(0.0, left_raw)
+    shares = shares_of(fixed, moved, free, left, overspent, not_counted)
 
     # G269: total outgoings and where an overshoot came from. Net card growth
     # and net savings outflow are read from the period's own transactions
     # (Sorted keeps no balance history), so the source is only named when
     # the flows demonstrably cover the overshoot.
-    total_out = fixed + moved + free
+    total_out = fixed + moved + free + not_counted
     card_growth = sum(
         abs(t["amount"]) * (1 if t["is_debit"] else -1)
         for t in period_txns if t["account_id"] in card_ids
@@ -289,10 +315,28 @@ def bucket_period(txns: list[dict], kinds, saving_ids: set, start: _date, end: _
     # here is INCOME-kind by construction -- nothing further to filter.
     left_totals = _category_totals(income_txns)
 
+    evidence: dict[str, dict] = {}
+    def add_evidence(category, group, amount):
+        row = evidence.setdefault(category, {"name": category, "fixed": 0., "moved": 0., "free": 0., "excluded": 0., "income": 0., "editable_amount": 0.})
+        row[group] += amount
+    for group, entries in (("fixed", fixed_txns), ("free", free_txns), ("moved", moved_txns), ("income", income_txns), ("excluded", excluded_txns)):
+        for t in entries:
+            add_evidence(t["category"], group, t["amount"] if group in ("fixed", "free", "excluded") else abs(t["amount"]))
+    moved_ids = {id(t) for t in moved_txns}
+    for t, f in flows:
+        if f.kind == MOVEMENT and t["is_debit"] and id(t) not in moved_ids:
+            add_evidence(t["category"], "excluded", abs(t["amount"]))
+        if not builtin_conflict(t["category"]) and f.reason != "own_account" and t.get("_id") not in type2_ids:
+            add_evidence(t["category"], "editable_amount", abs(t["amount"]) * (1 if t["is_debit"] else -1))
+    group_evidence = [{key: round(value, 2) if isinstance(value, float) else value for key, value in row.items()} for row in evidence.values()]
+
     return {
         "start": start,
         "end": end,
         "take_home": take_home,
+        "not_counted": not_counted,
+        "not_counted_share": shares.get("not_counted", 0),
+        "group_evidence": group_evidence,
         "fixed": fixed,
         "moved": moved,
         "free": free,
@@ -448,7 +492,8 @@ def average_for_window(periods_newest_first: list[dict], months: int) -> dict | 
     free_mean = sum(p["free"] for p in periods_newest_first) / k
     left_mean = sum(p["left"] for p in periods_newest_first) / k
 
-    shares = shares_of(fixed_mean, moved_mean, free_mean, left_mean, overspent_mean)
+    excluded_mean = sum(p.get("not_counted", 0) for p in periods_newest_first) / k
+    shares = shares_of(fixed_mean, moved_mean, free_mean, left_mean, overspent_mean, excluded_mean)
     categories = {job: _union_categories(periods_newest_first, job) for job in ("fixed", "moved", "free", "left")}
     category_means = {}
     for job in ("fixed", "moved", "free"):
@@ -459,16 +504,19 @@ def average_for_window(periods_newest_first: list[dict], months: int) -> dict | 
         category_means[job] = totals
     jobs = _build_jobs(fixed_mean, moved_mean, free_mean, left_mean, shares, categories, category_means)
 
-    outflow_mean = fixed_mean + moved_mean + free_mean
+    outflow_mean = fixed_mean + moved_mean + free_mean + excluded_mean
     verdict = average_verdict_for(k, shares["fixed"], shares["free"], overspent_mean, outflow_mean, take_home_mean)
     # G279: preserve the legacy mean of clamped left/gap values above, but
     # present one coherent mean-flow split alongside an income reference.
     # Mean(individual shortfalls) is not max(mean(out)-mean(in), 0).
     net_left = max(0.0, take_home_mean - outflow_mean)
     net_beyond = max(0.0, outflow_mean - take_home_mean)
-    net_shares = shares_of(fixed_mean, moved_mean, free_mean, net_left, net_beyond)
+    net_shares = shares_of(fixed_mean, moved_mean, free_mean, net_left, net_beyond, excluded_mean)
     net_jobs = _build_jobs(fixed_mean, moved_mean, free_mean, net_left, net_shares, categories, category_means)
     net_verdict = average_verdict_for(k, net_shares["fixed"], net_shares["free"], net_beyond, outflow_mean, take_home_mean)
+
+    if excluded_mean:
+        verdict = net_verdict = "Not counted is kept separate from spending and money left."
 
     return {
         "months": months,
@@ -477,6 +525,8 @@ def average_for_window(periods_newest_first: list[dict], months: int) -> dict | 
         "end": newest["end"].isoformat(),
         "label": f"Last {months} months",
         "take_home": round(take_home_mean, 2),
+        "not_counted": round(excluded_mean, 2),
+        "not_counted_share": net_shares.get("not_counted", 0),
         "overspent": round(overspent_mean, 2),
         "total_out": round(outflow_mean, 2),
         "beyond": round(max(0.0, outflow_mean - take_home_mean), 2),
@@ -735,6 +785,9 @@ async def compute_money_shape(uid: str) -> dict:
             "end": p["end"].isoformat(),
             "label": p["label"],
             "take_home": round(p["take_home"], 2),
+            "not_counted": round(p["not_counted"], 2),
+            "not_counted_share": p["not_counted_share"],
+            "group_evidence": p["group_evidence"],
             "overspent": round(p["overspent"], 2),
             "total_out": round(p["total_out"], 2),
             "beyond": round(p["beyond"], 2),
@@ -742,7 +795,7 @@ async def compute_money_shape(uid: str) -> dict:
             "card_growth": round(max(0.0, p["card_growth"]), 2),
             "savings_drawdown": round(max(0.0, p["savings_drawdown"]), 2),
             "jobs": _build_jobs(p["fixed"], p["moved"], p["free"], p["left"], p["shares"], p["categories"], p["category_totals"]),
-            "verdict": verdict_for(p["shares"]["fixed"], p["shares"]["free"], p["overspent"]),
+            "verdict": ("Not counted is kept separate from spending and money left." if p["not_counted"] else verdict_for(p["shares"]["fixed"], p["shares"]["free"], p["overspent"])),
         }
         for p in valid_periods_full
     ]
@@ -786,6 +839,9 @@ async def compute_money_shape(uid: str) -> dict:
         "status": "ok",
         "period": {"start": hero_entry["start"], "end": hero_entry["end"], "label": hero_entry["label"]},
         "take_home": hero_entry["take_home"],
+        "not_counted": hero_entry["not_counted"],
+        "not_counted_share": hero_entry["not_counted_share"],
+        "group_evidence": hero_entry["group_evidence"],
         "overspent": hero_entry["overspent"],
         "total_out": hero_entry["total_out"],
         "beyond": hero_entry["beyond"],
@@ -840,11 +896,19 @@ async def compute_and_cache_money_shape(uid: str) -> dict:
     as compute_and_cache_cashflow, and FastAPI auto-serialises it to an ISO
     string on the way out) and ``schema_version`` (see get_money_shape_cached).
     """
-    data = await compute_money_shape(uid)
-    data["computed_at"] = datetime.now()
-    data["schema_version"] = SCHEMA_VERSION
-    await money_shape_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
-    return data
+    for _ in range(2):
+        version = await data_version.current(uid, fresh=True)
+        data = await compute_money_shape(uid)
+        data["data_version"] = version
+        data["computed_at"] = datetime.now()
+        data["schema_version"] = SCHEMA_VERSION
+        if await data_version.current(uid, fresh=True) != version:
+            continue
+        await money_shape_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
+        if await data_version.current(uid, fresh=True) == version:
+            return data
+    raise RuntimeError("Money shape changed while refreshing; retry the request")
+
 
 
 async def get_money_shape_cached(uid: str, ttl_hours: int = 6) -> dict:
@@ -855,11 +919,12 @@ async def get_money_shape_cached(uid: str, ttl_hours: int = 6) -> dict:
     this one, adding periods/averages and dropping the old horizon-sliced
     trend/trend_summary) roll out without a manual cache-wide invalidation.
     """
+    version = await data_version.current(uid, fresh=True)
     cached = await money_shape_cache_col.find_one({"_id": uid})
     if cached:
         computed_at = cached.get("computed_at")
         fresh = isinstance(computed_at, datetime) and (datetime.now() - computed_at).total_seconds() < ttl_hours * 3600
-        if fresh and cached.get("schema_version") == SCHEMA_VERSION:
+        if fresh and cached.get("schema_version") == SCHEMA_VERSION and cached.get("data_version", 0) == version:
             cached.pop("_id", None)
             return cached
 

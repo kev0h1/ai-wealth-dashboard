@@ -77,7 +77,7 @@ const OVERSPENT_MEANING = "Spend that went beyond your take-home pay";
 // Kevin's ask since it still fit. JOB_MEANING above still spells out the
 // fuller "Bills and commitments" per job row, so nothing here is lost, just
 // summarised shorter for the one-line caption.
-export const SHAPE_LEGEND = "Fixed is bills, moved is savings and investing.";
+export const SHAPE_LEGEND = "Fixed is bills; moved is transfers, savings and investing.";
 
 const JOB_ORDER: MoneyShapeJob["id"][] = ["fixed", "moved", "free", "left"];
 
@@ -182,15 +182,15 @@ export function currentEntry(
   averages: AverageEntry[],
   scope: Scope,
   hasControl: boolean
-): { start: string; end: string; take_home: number; overspent: number; jobs: MoneyShapeJob[]; verdict: string | null } & Pick<MoneyShape, "total_out" | "beyond" | "beyond_source" | "card_growth" | "savings_drawdown"> {
+): { start: string; end: string; take_home: number; overspent: number; jobs: MoneyShapeJob[]; verdict: string | null } & Pick<MoneyShape, "total_out" | "not_counted" | "not_counted_share" | "beyond" | "beyond_source" | "card_growth" | "savings_drawdown"> {
   if (hasControl) {
     if (scope.kind === "period" && periods.length > 0) {
       const p = periods[Math.min(scope.index, periods.length - 1)];
-      return { start: p.start, end: p.end, take_home: p.take_home, overspent: p.overspent, jobs: p.jobs, verdict: p.verdict, total_out: p.total_out, beyond: p.beyond, beyond_source: p.beyond_source, card_growth: p.card_growth, savings_drawdown: p.savings_drawdown };
+      return { start: p.start, end: p.end, take_home: p.take_home, overspent: p.overspent, jobs: p.jobs, verdict: p.verdict, total_out: p.total_out, not_counted: p.not_counted, not_counted_share: p.not_counted_share, beyond: p.beyond, beyond_source: p.beyond_source, card_growth: p.card_growth, savings_drawdown: p.savings_drawdown };
     }
     if (scope.kind === "average") {
       const a = averages.find((x) => x.months === scope.months);
-      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.net_jobs ?? a.jobs, verdict: a.net_verdict ?? a.verdict, total_out: a.total_out, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth, savings_drawdown: a.savings_drawdown };
+      if (a) return { start: a.start, end: a.end, take_home: a.take_home, overspent: a.overspent, jobs: a.net_jobs ?? a.jobs, verdict: a.net_verdict ?? a.verdict, total_out: a.total_out, not_counted: a.not_counted, not_counted_share: a.not_counted_share, beyond: a.beyond, beyond_source: a.beyond_source, card_growth: a.card_growth, savings_drawdown: a.savings_drawdown };
     }
   }
   return {
@@ -201,6 +201,8 @@ export function currentEntry(
     jobs: shape.jobs ?? [],
     verdict: shape.verdict,
     total_out: shape.total_out,
+    not_counted: shape.not_counted,
+    not_counted_share: shape.not_counted_share,
     beyond: shape.beyond,
     beyond_source: shape.beyond_source,
     card_growth: shape.card_growth,
@@ -375,6 +377,7 @@ export default function MoneyShapeHero({
   // The paradox line needs the saving-habit consent ("change" in the Mirror)
   // and is for single periods only, never averages (paradoxLine enforces both).
   const figures = beyondFigures(entry, displayedScope.kind === "average");
+  const notCounted = entry.not_counted ?? 0;
   const formatMoney = (amount: number) => hideValues ? "£••••" : `£${Math.round(Math.abs(amount)).toLocaleString("en-GB")}`;
   const longAmounts = orderedJobs.some(job => formatMoney(job.id === "left" && figures.beyond >= 1 ? figures.beyond : job.amount).length > 9);
   const sentence = hideValues ? null : beyondSentence(figures);
@@ -450,9 +453,9 @@ export default function MoneyShapeHero({
         </SectionLabel>
       )}
 
-      {orderedJobs.length > 0 && (
+      {orderedJobs.length > 0 && notCounted >= 0 && (
         <PaySplitBar
-          segs={orderedJobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount }))}
+          segs={[...orderedJobs.map((j) => ({ id: j.id, bg: JOB_COLOR[j.id].bg, amount: j.amount })), ...(notCounted > 0 ? [{ id: "excluded", bg: "bg-slate-400 dark:bg-slate-500", amount: notCounted }] : [])]}
           figures={figures}
           size="hero"
           money={formatMoney}
@@ -512,6 +515,7 @@ export default function MoneyShapeHero({
       <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">
         {SHAPE_LEGEND}
       </p>
+      {notCounted !== 0 && <MoneyText text={`Not counted: ${hideValues ? "£••••" : `${notCounted < 0 ? "−" : ""}${formatMoney(notCounted)}`} · ${hideValues ? "••" : (entry.not_counted_share ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%${notCounted < 0 ? " (net refunds)" : ""}. The actual cash remains recorded.`} className="mt-1 block text-[11px] text-slate-500 dark:text-slate-400" />}
       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Tap a job to see the transactions behind it.</p>
       <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">{percentBase(figures.beyond >= 1)}</p>
       {sentence && (
