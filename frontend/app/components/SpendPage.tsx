@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
 import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
 import { invalidateMoneyShapeCache, loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
+import { clearHomeCache } from "@/lib/homeCache";
 import { useCategories } from "@/components/CategoriesContext";
 import SpendShapeCard, { hasShapeContent } from "@/components/SpendShapeCard";
 import { useAllTransactions } from "@/lib/useAllTransactions";
@@ -477,6 +478,7 @@ export default function SpendPage() {
     // Clear every dependent read-model, then retain the prior paint until each
     // fresh request settles rather than incorrectly reporting an unchanged save.
     invalidateMoneyShapeCache();
+    clearHomeCache();
     invalidateVerdictCache();
     invalidateSignalsCache();
     refetchSignals(true);
