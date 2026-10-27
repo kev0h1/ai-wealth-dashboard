@@ -222,6 +222,9 @@ def test_search_scrubs_markup_from_merchant_names(monkeypatch):
 # ── get_category_spend rows ───────────────────────────────────────────────
 def test_category_spend_table_has_a_row_per_month_including_empty_ones(monkeypatch):
     import app.services.categories as categories_module
+    async def kinds(uid):
+        return categories_module.CategoryKinds(dict(categories_module.BUILTIN_CATEGORY_KINDS))
+    monkeypatch.setattr(penny_tools_module, "get_category_kinds", kinds)
     rows = [
         {"user_id": UID, "transaction_type": "debit", "amount": 12.0, "currency": "GBP",
          "date": datetime(2026, 10, 2), "category": "Eating Out", "custom_category": "", "merchant_name": "Pret"},

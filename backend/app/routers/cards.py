@@ -35,7 +35,7 @@ from app.services.needle import (
     _txns_for_period,
     _abs_amounts,
 )
-from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categories import EXCLUDED, get_category_kinds, is_non_spend, kind_of
 from app.services.card_names import apply_card_display_names
 
 log = logging.getLogger(__name__)
@@ -257,10 +257,18 @@ async def cards_story(
     new_spend = 0.0
     moved_between_cards = 0.0
     movement_in = 0.0
+    not_counted = 0.0
+    not_counted_in = 0.0
     for t in txns:
         ttype = t.get("transaction_type")
         amt = float(t.get("amount", 0) or 0)
         cat = t.get("custom_category") or t.get("category") or "Other"
+        if kind_of(kind_map, cat) == EXCLUDED:
+            if ttype == "debit":
+                not_counted += amt
+            elif ttype == "credit":
+                not_counted_in += amt
+            continue
         if ttype == "credit":
             if is_non_spend(kind_map, cat):
                 movement_in += amt
@@ -314,6 +322,8 @@ async def cards_story(
             "payments": round(payments, 2),
             "moved_between_cards": round(moved_between_cards, 2),
             "movement_in": round(movement_in, 2),
+            "not_counted": round(not_counted, 2),
+            "not_counted_in": round(not_counted_in, 2),
         },
         "per_card": per_card,
         "drivers": drivers,

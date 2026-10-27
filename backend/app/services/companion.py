@@ -687,7 +687,7 @@ async def _usual_payday_moves_raw(uid: str, salary_acct_id: str, pay_cfg: dict) 
     twice for the same request."""
     try:
         from app.services.pay_period import get_pay_period_for_date, prev_pay_period
-        from app.services.categories import get_category_kinds, is_non_spend, is_income
+        from app.services.categories import MOVEMENT, get_category_kinds, kind_of
 
         # ONE kind-map read for this whole call, reused for every debit across
         # all 4 paydays below (never per-transaction).
@@ -718,18 +718,11 @@ async def _usual_payday_moves_raw(uid: str, salary_acct_id: str, pay_cfg: dict) 
                 if str(d.get("account_id") or "") != str(salary_acct_id):
                     continue
                 d_cat = d.get("custom_category") or d.get("category") or ""
-                # Use the declared-kind helper instead of a hand-rolled name
-                # set, so a custom category kinded `movement` (e.g. a
-                # user-created savings pot name) is recognised as a payday
-                # destination too — the literal set only ever covered the
-                # 4 built-ins. `is_income` is excluded explicitly: plain
-                # `is_non_spend` also covers `income`, and measurement against
-                # live data showed some accounts have debit transactions
-                # categorised `Income` (refunds/reversals) that the old
-                # literal set never matched — including them would be a
-                # behaviour change, not just a generalisation, so income is
-                # kept out to match today's behaviour exactly.
-                if not is_non_spend(kinds, d_cat) or is_income(kinds, d_cat):
+                # Only a declared movement is a payday destination. In
+                # particular, Not counted is an outflow the user chose to
+                # omit from spending comparisons, not a transfer to suggest.
+                # `kind_of` keeps custom movement categories eligible.
+                if kind_of(kinds, d_cat) != MOVEMENT:
                     continue
                 debits.append(d)
 

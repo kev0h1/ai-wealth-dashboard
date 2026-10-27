@@ -97,8 +97,8 @@ _PROJECTION = {
 
 @dataclass(frozen=True)
 class Flow:
-    """How one transaction is read: ``kind`` is spend, refund, income or
-    movement; ``reason`` is the traceable why (Show Your Working)."""
+    """How one transaction is read: ``kind`` is spend, refund, income,
+    movement or excluded; ``reason`` is the traceable why (Show Your Working)."""
 
     kind: str
     reason: str
@@ -111,7 +111,7 @@ class Flow:
 
     def signed(self, amount: float) -> float:
         """The contribution to spending: +amount for a payment, -amount for a
-        refund, 0 for income and movement. ``amount`` is taken as absolute."""
+        refund, 0 for income, movement and excluded. ``amount`` is taken as absolute."""
         amt = abs(float(amount or 0))
         if self.kind == SPEND:
             return amt

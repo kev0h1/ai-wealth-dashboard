@@ -2558,7 +2558,7 @@ export type CardsStoryCard = {
 export type CardsStory = {
   status: string;
   period: { start: string; end: string; days_elapsed: number };
-  movement: { delta: number; new_spend: number; payments: number; moved_between_cards: number };
+  movement: { delta: number; new_spend: number; payments: number; moved_between_cards: number; not_counted?: number; not_counted_in?: number };
   per_card: CardsStoryCard[];
   drivers: { category: string; total: number }[];
   pattern_line: string | null;

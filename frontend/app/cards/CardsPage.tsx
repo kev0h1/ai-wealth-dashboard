@@ -154,7 +154,7 @@ export default function CardsPage() {
   }
 
   const { period, movement, per_card, drivers, pattern_line, trajectory } = story;
-  const { delta, new_spend, payments, moved_between_cards } = movement;
+  const { delta, new_spend, payments, moved_between_cards, not_counted = 0 } = movement;
   const { days_elapsed } = period;
 
   // ── Movement verdict ─────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ export default function CardsPage() {
             {/* Clarifying sentence — contextualises the headline. Names the
                 balance-transfer amount inline (G24) whenever there is one,
                 so the sentence's own arithmetic reconciles with the
-                headline delta: new_spend + moved_between_cards − payments
+                headline delta: new_spend + not_counted + moved_between_cards − payments
                 == delta. Leaving moved_between_cards out here (as before)
                 made "put on £422, paid off £123" read as if balances should
                 have grown by only £299, when the headline said £1,175 —
@@ -259,14 +259,15 @@ export default function CardsPage() {
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 leading-snug">
               <MoneyText text={
                 (() => {
+                  const excludedClause = not_counted > 0 ? ` plus ${mask(fmtGBP(not_counted))} marked Not counted` : "";
                   const movedClause = moved_between_cards > 0 ? `, moved ${mask(fmtGBP(moved_between_cards))} between cards` : "";
                   if (deltaAbs < 20) {
-                    return `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
+                    return `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))}${excludedClause}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
                   }
                   if (delta >= 20) {
-                    return `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
+                    return `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))}${excludedClause}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
                   }
-                  return `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
+                  return `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))}${excludedClause}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
                 })()
               } />
             </p>

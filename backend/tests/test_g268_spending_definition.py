@@ -373,15 +373,28 @@ def _verdict_txns(docs, ctx):
 EXPECTED_OUT = 100 - 40 + 62.5 + 1124 + 880 + 25 + 500 + 30  # 2681.5
 
 
-def test_every_surface_reconciles_to_one_out_figure(monkeypatch):
-    docs = _period_docs()
-    ctx = ctx_for(docs)
+@pytest.mark.parametrize("business_kind", ["discretionary", "movement", "excluded"])
+def test_every_surface_reconciles_to_one_out_figure(monkeypatch, business_kind):
+    docs = _period_docs() + [doc("Business", 20, debit=False, day=7)]
+    kind_map = CategoryKinds({**KINDS, "Business": business_kind})
+    ctx = SpendingContext.from_docs(docs, kind_map, IDENTITY, CARDS)
+    expected_out = EXPECTED_OUT - (20 if business_kind == "discretionary" else 530)
     txns = _verdict_txns(docs, ctx)
 
     # Spend's Out (and the chip, which shows this total): the verdict's own bucketing.
-    cat_agg, moved_groups, _income = spend_verdict.bucket_transactions(txns, KINDS)
-    spend_out = sum(r["spent"] for r in cat_agg.values())
-    assert spend_out == pytest.approx(EXPECTED_OUT)
+    cat_agg, moved_groups, _income = spend_verdict.bucket_transactions(txns, kind_map)
+    verdict = spend_verdict.assemble_verdict(
+        cat_agg=cat_agg, moved_groups=moved_groups, income_total=_income,
+        signals={}, days_elapsed=10, thin_history=True, goal_names=[], period={},
+    )
+    spend_out = verdict["pills"]["spent"]
+    if business_kind == "excluded":
+        assert "Business" not in cat_agg
+        assert not any(row["category"] == "Business" for key in ("notables", "majority", "quiet_flags") for row in verdict[key])
+        # Only proved own-account transfers stay Moved, never the excluded purchase/refund.
+        assert moved_groups["pots"]["amount"] == 200
+    assert sum(row["amount"] for row in spend_verdict.build_income_rows(txns, kind_map, START)) == _income == 3000
+    assert spend_out == pytest.approx(expected_out)
     # The own-account move is shown as moved between accounts, not spent.
     assert moved_groups["own_accounts"]["amount"] == pytest.approx(15000 + 150)
 
@@ -399,7 +412,7 @@ def test_every_surface_reconciles_to_one_out_figure(monkeypatch):
     # Pace day-N total: the last point of the pace series.
     days = (TODAY - START).days + 1
     series = spend_verdict.build_pace_series(
-        txns, KINDS, START, days, 0.0, True, total_curve_fn=None, period_days=days,
+        txns, kind_map, START, days, 0.0, True, total_curve_fn=None, period_days=days,
     )
     assert series[-1]["actual"] == pytest.approx(spend_out)
 
@@ -409,7 +422,7 @@ def test_every_surface_reconciles_to_one_out_figure(monkeypatch):
         "date": d["date"].date().isoformat(), "account_id": d["account_id"],
         "is_debit": d["transaction_type"] == "debit",
     } for d in docs]
-    shape = bucket_period(ms_txns, KINDS, set(), START, TODAY, ctx.own_move_ids, ctx.card_repayment_ids)
+    shape = bucket_period(ms_txns, kind_map, set(), START, TODAY, ctx.own_move_ids, ctx.card_repayment_ids)
     assert shape["fixed"] + shape["free"] == pytest.approx(spend_out)
 
     # Penny's multi-month aggregate (G265) and its stacked chart read the same bucketing.
@@ -417,14 +430,20 @@ def test_every_surface_reconciles_to_one_out_figure(monkeypatch):
         return txns
 
     async def fake_kinds(uid):
-        return KINDS
+        return kind_map
 
     monkeypatch.setattr(penny_tools, "_load_period_txns", fake_load)
     monkeypatch.setattr(penny_tools, "get_category_kinds", fake_kinds)
     result = asyncio.run(penny_tools._all_categories_window(UID, 1, False, None))
     assert result["total"]["raw"] + result["uncategorised_total"]["raw"] == pytest.approx(spend_out, abs=0.01)
     by_name = {c["category"]: c["total"]["raw"] for c in result["categories"]}
-    assert by_name["Business"] == pytest.approx(530)  # 500 + 30, never the 15,000
+    if business_kind == "discretionary":
+        assert by_name["Business"] == pytest.approx(510)  # 500 + 30 - 20 refund, never the own transfer
+    else:
+        assert "Business" not in by_name
+    if business_kind == "excluded":
+        assert shape["not_counted"] == 510
+        assert shape["total_out"] == pytest.approx(shape["fixed"] + shape["free"] + shape["moved"] + 510)
 
 
 def test_penny_category_tool_rows_match_spends_business_total(monkeypatch):
