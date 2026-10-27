@@ -172,7 +172,7 @@ export default function SpendShapeCard({
         <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       </div>
     </button>
-    <PaySplitComparison shape={shape} hideValues={hideValues} reference={reference} onReferenceChange={onReferenceChange} />
+    <PaySplitComparison shape={shape} view="card" hideValues={hideValues} reference={reference} onReferenceChange={onReferenceChange} />
     </div>
   );
 }
