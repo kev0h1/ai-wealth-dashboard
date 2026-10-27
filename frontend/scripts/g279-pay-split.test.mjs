@@ -96,20 +96,20 @@ const shape = scenarioFor("beyond").shape;
 const draw = props => renderToStaticMarkup(createElement(Comparison, { shape, reference: "50-30-20", hideValues: false, ...props }));
 const defaultHtml = draw({});
 assert.match(defaultHtml, /50\/30\/20/);
-assert.match(defaultHtml, /· adapted/);
+assert.match(defaultHtml, /50\/30\/20 example/);
 assert.doesNotMatch(defaultHtml, /60\/20\/20/, "the default display must not silently use the alternative reference");
-assert.match(defaultHtml, /Your amounts beside the guide/);
+assert.match(defaultHtml, /Your amounts and the example/);
 assert.match(defaultHtml, /Paired actual and reference bars/);
 assert.match(defaultHtml, /\+£414/);
 assert.match(defaultHtml, /−£5.80/);
 assert.match(defaultHtml, /\+£98.80/);
-assert.match(draw({ reference: "conscious" }), /A common four-part split/);
+assert.match(draw({ reference: "conscious" }), /Example ranges/);
 assert.doesNotMatch(draw({ reference: "first" }), /Paired actual and reference bars|more than this reference/);
 assert.doesNotMatch(draw({ hideValues: true }), /£414|£2,836|£98.80/, "hidden comparison cannot disclose money in text or attributes");
 assert.match(draw({ hideValues: true }), /amounts are hidden/);
 assert.doesNotMatch(draw({ shape: scenarioFor("thin").shape }), /£0/);
 assert.match(draw({ shape: scenarioFor("thin").shape }), /No comparison yet/);
-assert.match(draw({view:"card"}), /View the comparison and breakdown/);
+assert.match(draw({view:"card"}), /See full breakdown/);
 assert.doesNotMatch(draw({view:"card"}), /Paired actual and reference bars/);
 const card = renderToStaticMarkup(createElement(Card, { shape, hideValues: false, onOpen: () => {}, reference: "50-30-20" }));
 assert.equal((card.match(/aria-label="Reference comparison"/g) ?? []).length, 1, "Spend renders the actual approved comparison once");
@@ -117,7 +117,7 @@ let selected;
 const hero = renderToStaticMarkup(createElement(Hero, { shape, renderComparison: entry => { selected = entry; return createElement(Comparison, { shape: entry, reference: "50-30-20", hideValues: false }); } }));
 assert.equal(selected.take_home, shape.take_home);
 assert.deepEqual(selected.jobs, shape.jobs, "instrument and comparison get the same entry, not a later effect");
-assert.match(hero, /Your amounts beside the guide/);
+assert.match(hero, /Your amounts and the example/);
 const shapePageSource = readFileSync(new URL("../app/spend/shape/ShapePage.tsx", import.meta.url), "utf8");
 assert.match(shapePageSource, /reference=\{isPreview \? previewReference : undefined\}/, "fixture ShapePage uses a local reference, never customer preferences");
 assert.match(shapePageSource, /onReferenceChange=\{isPreview \? setPreviewReference : undefined\}/);
@@ -172,7 +172,7 @@ for(const [actual,position,delta] of [[4999.99,'below',-.01],[5000,'within',0],[
 {
  const html=draw({reference:'conscious'});
  assert.match(html,/Guide 50 to 60%/);assert.match(html,/Guide 10 to 20%/);assert.match(html,/Guide 20 to 35%/);
- assert.match(html,/No budget or target is set/);
+ assert.doesNotMatch(html,/No budget or target is set/);
  assert.doesNotMatch(html,/60\/20\/20|Paired actual and reference bars|How the differences add up|class="warning"/);
  assert.doesNotMatch(draw({reference:'conscious',hideValues:true}),/£\d/);
 }
@@ -191,10 +191,10 @@ const compact = draw({shape:exact,view:'card'});
 for (const amount of ["+£409.09", "−£26.93", "+£124.69"]) {
  assert.equal(compact.split(amount).length - 1, 1, amount + ' appears once, without repeating it in the caption');
 }
-assert.match(compact,/Reference based on .*£4,843.68.* income/);
-assert.match(compact,/above guide/);assert.match(compact,/below guide/);
+assert.match(compact,/Income for this pay period: .*£4,843.68/);
+assert.match(compact,/above 50% example/);assert.match(compact,/below 20% example/);
 assert.doesNotMatch(compact,/class="track"|class="marker"|Paired actual|Your income share/);
-assert.equal((compact.match(/>Approximate mapping · how it works</g)??[]).length,1);
+assert.equal((compact.match(/>How this comparison works</g)??[]).length,1);
 assert.match(compact,/href="\/spend\/shape"/);
 const restored=restoredFixture('historic');
 const screenshotComparison=compareShape(restored,guide);
@@ -203,12 +203,12 @@ for(const view of ['card','detail']){
  const html=draw({shape:restored,view});
  for(const amount of ['−£77.86','−£92.15','+£164.69'])assert.equal(html.split(amount).length-1,1);
  assert.match(html,/£461.02/);
- assert.match(html,/Compare with/);
+ assert.match(html,/Explore your pay/);
  assert.doesNotMatch(html,/class="warning"|consumerfinance|cfpb/i);
 }
 const detail=draw({shape:restored});
 assert.match(detail,/Paired actual and reference bars/);
-assert.match(detail,/Your amount/);assert.match(detail,/50% guide/);assert.match(detail,/20% guide/);assert.match(detail,/30% guide/);assert.match(detail,/Difference/);assert.match(detail,/£0.05/);
+assert.match(detail,/Your amount/);assert.match(detail,/50% example/);assert.match(detail,/20% example/);assert.match(detail,/30% example/);assert.match(detail,/Difference/);assert.match(detail,/£0.05/);
 assert.equal((detail.match(/class="barGroup"/g)??[]).length,2);
 assert.match(detail,/width:33\.111/,'actual bar uses exact money on the shared pound scale');
 const rangeHtml=draw({shape:exact,reference:'conscious'});
@@ -216,7 +216,7 @@ assert.doesNotMatch(rangeHtml,/Paired actual|60\/20\/20|How the differences add 
 assert.match(rangeHtml,/Guide 50 to 60%/);
 assert.match(rangeHtml,/Within range/);
 assert.doesNotMatch(draw({shape:exact,reference:'first'}),/Paired actual|class="amounts"|above guide|below guide/);
-assert.match(draw({shape:exact,average:true}),/Average per pay period/);
+assert.match(draw({shape:exact,average:true}),/Average income per pay period/);
 for(const reference of GUIDES.map(g=>g.id))for(const view of ['card','detail'])for(const props of [{hideValues:true},{reference:undefined,hideValues:false},{shape:scenarioFor('thin').shape}]){
  const html=draw({reference,view,...props});
  assert.doesNotMatch(html,/£\d|class="stackedBar"|class="amounts"|class="compactRows"/,'hidden, unready and unavailable states disclose no numbers or chart geometry');
@@ -233,7 +233,7 @@ for (const reference of ['conscious', 'first']) {
  }
  assert.equal((html.match(/aria-label="View (?:Fixed|Moved|Free) breakdown"/g) ?? []).length, 3);
  assert.doesNotMatch(html, />£0</, `${reference}: zero difference must not replace actual amounts`);
- if (reference === 'conscious') assert.equal((html.match(/Within range/g) ?? []).length, 3);
+ if (reference === 'conscious') assert.equal((html.match(/within \d+ to \d+% range/g) ?? []).length, 3);
  else assert.doesNotMatch(html, /Within range|above guide|below guide|Matches guide/);
  assert.match(draw({shape:exact, reference, view:'card', average:true}), /Your average amounts/);
  const zero = structuredClone(exact);
@@ -243,8 +243,8 @@ for (const reference of ['conscious', 'first']) {
  assert.equal((zeroHtml.match(/>£0</g) ?? []).length, 3, 'genuine zero amounts remain visible');
 }
 const outsideCompact = draw({shape:comparisonFixture('outside'), reference:'conscious', view:'card'});
-assert.match(outsideCompact, /Above range/);
-assert.match(outsideCompact, /Below range/);
+assert.match(outsideCompact, /above 50 to 60% range/);
+assert.match(outsideCompact, /below 10 to 20% range/);
 assert.doesNotMatch(outsideCompact, /above guide|below guide/);
 console.log('G345: alternative compact references show real group amounts, true zero and range positions without inventing a principle benchmark');
 
@@ -254,3 +254,12 @@ assert.doesNotMatch(rangeHtml, /class="amounts"|Difference<|>£0</);
 for (const amount of ['£2,830.93','£941.81','£1,577.79']) assert.ok(rangeHtml.includes(amount));
 assert.match(draw({shape:comparisonFixture('outside'),reference:'conscious'}), /above range/);
 assert.match(draw({shape:comparisonFixture('outside'),reference:'conscious'}), /below range/);
+
+// G346 A: explanation belongs beside actuals; a savings habit is never inferred.
+const savings = draw({shape:exact,reference:'first',view:'card'});
+assert.match(savings,/Saving before spending means putting money aside when you get paid/);
+assert.match(savings,/cannot tell whether savings were set aside first/);
+assert.match(savings,/What do these groups mean/);
+assert.doesNotMatch(savings,/No budget or target is set|Approximate mapping|over\/under markers|A principle, not a percentage/);
+assert.match(draw({shape:exact,reference:'50-30-20',view:'card'}),/Difference from the example/);
+assert.match(draw({shape:exact,reference:'conscious',view:'card'}),/within 50 to 60% range/);

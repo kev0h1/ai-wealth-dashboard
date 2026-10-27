@@ -343,6 +343,8 @@ A group opens signed, reconciled category evidence from that exact period or mea
 
 **G344 A, compact range rows (approved 2026-10-27).** The range detail now shows one actual amount, percentage guide and neutral status per group. Pound endpoints and the signed nearest-boundary difference live in the group sheet, with category evidence under What is in this amount. No repeated zero-difference ledger or cashflow working in the default range view. Point-reference and principle layouts keep their existing structure.
 
+**G346 A, explain in place (approved 2026-10-27).** Explore your pay retains all three saved choices: 50/30/20 example, Example ranges, Saving before spending. The savings view defines the habit before showing actual amounts, and does not infer timing or savings growth. One contextual help disclosure replaces the duplicated info/mapping explanations. The picker says the choice only changes the view, creates no budget and moves no money; remove the opaque No budget or target is set footer. This copy sits alongside G344 A compact range rows. Reference IDs, arithmetic and authenticated preference persistence stay unchanged.
+
 ### Connecting a bank (A155 G)
 
 - **Choose, review, hand off (shipped, the default).** "Choose your bank" with a fixed 44px search, then Sorted's own "Review your connection" step carrying the full A4.1 agency sentence, then "Continue to Finexer" (four taps before the bank's page, counting Finexer's Next and Connect).
