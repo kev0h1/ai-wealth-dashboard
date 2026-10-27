@@ -9,7 +9,7 @@
 // design preview at app/design/category-kind can keep importing it without
 // dragging in the rest of the retired Manage sheet.
 
-import { type LucideIcon, Wallet, Receipt, ArrowLeftRight } from "lucide-react";
+import { type LucideIcon, Wallet, Receipt, ArrowLeftRight, CircleMinus } from "lucide-react";
 import { CATEGORY_KINDS, DEFAULT_CUSTOM_COLOUR, type CategoryKind } from "@/lib/categories";
 
 // ── Category kind ───────────────────────────────────────────────────────────
@@ -35,6 +35,12 @@ const KIND_META: Record<CategoryKind, {
     icon: Receipt,
     consequence: "counts as spending, but as something you've committed to, not everyday money.",
     tail: "Real spend, already committed",
+  },
+  excluded: {
+    label: "Not counted",
+    icon: CircleMinus,
+    consequence: "is not counted in spending totals. Its cash effect stays recorded.",
+    tail: "Keep separate from spending totals",
   },
   movement: {
     label: "Money I move, not spend",

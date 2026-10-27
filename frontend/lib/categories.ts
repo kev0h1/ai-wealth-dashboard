@@ -138,7 +138,7 @@ export function getCategoryColour(
 // Vocabulary is the wire contract from backend app/services/categories.py
 // (USER_SELECTABLE_KINDS = discretionary | commitment | movement). The
 // backend's fourth kind, `income`, is internal-only and never offered here.
-export type CategoryKind = "discretionary" | "commitment" | "movement";
+export type CategoryKind = "discretionary" | "commitment" | "movement" | "excluded";
 
 export const CATEGORY_KINDS: readonly CategoryKind[] = [
   "discretionary",

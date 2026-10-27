@@ -48,15 +48,16 @@ DISCRETIONARY = "discretionary"
 COMMITMENT    = "commitment"
 MOVEMENT      = "movement"
 INCOME        = "income"
+EXCLUDED      = "excluded"  # G347: explicit user choice, never inferred.
 
 #: Kinds a user may pick when creating a custom category.
-USER_SELECTABLE_KINDS = (DISCRETIONARY, COMMITMENT, MOVEMENT)
+USER_SELECTABLE_KINDS = (DISCRETIONARY, COMMITMENT, MOVEMENT, EXCLUDED)
 
 #: Every valid kind, including the internal-only one.
 VALID_KINDS = USER_SELECTABLE_KINDS + (INCOME,)
 
 #: Kinds that are NOT real spend.
-NON_SPEND_KINDS = frozenset({MOVEMENT, INCOME})
+NON_SPEND_KINDS = frozenset({MOVEMENT, INCOME, EXCLUDED})
 
 #: Fallback for anything unrecognised, and for legacy bare-string categories.
 #:
@@ -257,7 +258,10 @@ def parse_stored_categories(doc: dict | None) -> list[dict]:
         if norm in seen:
             continue
         seen.add(norm)
-        out.append({"name": name, "kind": kind})
+        parsed = {"name": name, "kind": kind}
+        if isinstance(entry, dict) and (original := coerce_kind(entry.get("default_kind"), allow_internal=True)):
+            parsed["default_kind"] = original
+        out.append(parsed)
     return out
 
 

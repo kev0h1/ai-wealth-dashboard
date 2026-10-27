@@ -20,6 +20,7 @@
 .moved { background:#10b981; }
 .free { background:#0ea5e9; }
 .left { background:#e2e8f0; }
+.excluded { background:#94a3b8; }
 .rows { margin-top:12px; }
 .row { padding:10px 0 14px; border-top:1px solid #e2e8f0; }
 .row>button { width:100%; min-height:44px; display:flex; align-items:center; justify-content:space-between; text-align:left; }

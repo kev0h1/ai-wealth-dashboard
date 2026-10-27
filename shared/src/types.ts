@@ -358,6 +358,10 @@ export interface MoneyShapePeriodEntry {
   /** G269: everything that went out this period (fixed + moved + free).
    *  Optional: absent on a payload from before the field existed. */
   total_out?: number;
+  /** Actual cash that was deliberately left out of spending totals. Signed
+   * net, and still included in total_out so Left never inflates. */
+  not_counted?: number;
+  not_counted_share?: number;
   /** G269: max(0, total_out - take_home), what went out past what came in. */
   beyond?: number;
   /** G269: where the overshoot plausibly came from, only when the period's
@@ -388,6 +392,8 @@ export interface MoneyShapeAverageEntry {
   /** G269: everything that went out this period (fixed + moved + free).
    *  Optional: absent on a payload from before the field existed. */
   total_out?: number;
+  not_counted?: number;
+  not_counted_share?: number;
   /** G269: max(0, total_out - take_home), what went out past what came in. */
   beyond?: number;
   /** G269: where the overshoot plausibly came from, only when the period's
@@ -427,6 +433,8 @@ export interface MoneyShape {
   /** G269: everything that went out this period (fixed + moved + free).
    *  Optional: absent on a payload from before the field existed. */
   total_out?: number;
+  not_counted?: number;
+  not_counted_share?: number;
   /** G269: max(0, total_out - take_home), what went out past what came in. */
   beyond?: number;
   /** G269: where the overshoot plausibly came from, only when the period's
