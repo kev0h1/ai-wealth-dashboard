@@ -65,3 +65,12 @@ Kevin chose B from the G342 design round. This supersedes the G279 paired compar
 Each group displays its difference once with a short caption. Within-range amounts say Within range, exact matches say Matches, and Pay yourself first shows recorded money without an invented benchmark. Short reference names replace unexplained suffixes. One View breakdown sheet retains reconciled, signed section evidence, exact reference amounts and differences, scoped transaction browsing, and the independent income/left/gap totals. One inline How it works disclosure retains approximate-mapping caveats and the CFPB source. No budget or target is set.
 
 Production continues to use the existing authenticated versioned preference, loading and failed-save recovery, and shared privacy preference. Hidden, unready and unavailable states render no actual amount, percentage or chart geometry and disable breakdown. The temporary G342 preview and design-index entry are removed under H113 after local verification; no live importing surface or other open item requires them. Validation and independent review results are recorded on G342's board notes when complete.
+
+
+## G343 restoration approved, 27 October 2026
+
+Kevin chose the historical screenshot layout (70926, 70927, 70928) over the G343 proposals. Restore G279-style compact differences on Spend and paired actual/reference bars with actual/reference/difference rows on the detail page. This supersedes G342's share tracks. The upper instrument and its period/average selection stay unchanged, with its existing percentage-basis caption; the comparison remains based on exact income and a shared pound scale.
+
+Keep G341's inclusive generic ranges, no numeric benchmark for Pay yourself first, neutral reference comparisons, signed evidence, authenticated saved reference and privacy readiness. Compact captions state below/above guide or range without repeating the currency figure. Reference differences remain distinct from causes of any gap. The section sheet keeps category evidence and the actual total, without repeating the page's reference/difference rows. Moved can include own-account transfers and savings credits; the explanation does not call it all new saving. The US source link is removed.
+
+The selected visual reference is explicit approval to restore this layout, so there is no further variant round. The unchosen G343 preview/index entry is removed in this fold-in under H113 after local verification. Validation and independent production-diff review are recorded on the board when complete.

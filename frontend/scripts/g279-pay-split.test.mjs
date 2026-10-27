@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { compareShape, differenceLabel, guideFor, GUIDES, money, signedMoney } from "../lib/paySplitReference.ts";
 import { SCENARIOS, scenarioFor } from "./fixtures/g279-pay-split.ts";
 import { fixture as comparisonFixture } from "./fixtures/g342-pay-split.ts";
+import { restoredFixture } from "./fixtures/g343-restored-pay-split.ts";
 
 const guide = guideFor("50-30-20");
 for (const fixture of SCENARIOS.filter(item => item.id !== "thin")) {
@@ -95,28 +96,28 @@ const shape = scenarioFor("beyond").shape;
 const draw = props => renderToStaticMarkup(createElement(Comparison, { shape, reference: "50-30-20", hideValues: false, ...props }));
 const defaultHtml = draw({});
 assert.match(defaultHtml, /50\/30\/20/);
-assert.doesNotMatch(defaultHtml, /· adapted/);
+assert.match(defaultHtml, /· adapted/);
 assert.doesNotMatch(defaultHtml, /60\/20\/20/, "the default display must not silently use the alternative reference");
-assert.match(defaultHtml, /Your income share/);
-assert.equal((defaultHtml.match(/class="track"/g) ?? []).length, 3);
+assert.match(defaultHtml, /Your amounts beside the guide/);
+assert.match(defaultHtml, /Paired actual and reference bars/);
 assert.match(defaultHtml, /\+£414/);
 assert.match(defaultHtml, /−£5.80/);
 assert.match(defaultHtml, /\+£98.80/);
-assert.match(draw({ reference: "conscious" }), /Four-part split/);
+assert.match(draw({ reference: "conscious" }), /A common four-part split/);
 assert.doesNotMatch(draw({ reference: "first" }), /Paired actual and reference bars|more than this reference/);
 assert.doesNotMatch(draw({ hideValues: true }), /£414|£2,836|£98.80/, "hidden comparison cannot disclose money in text or attributes");
 assert.match(draw({ hideValues: true }), /amounts are hidden/);
 assert.doesNotMatch(draw({ shape: scenarioFor("thin").shape }), /£0/);
 assert.match(draw({ shape: scenarioFor("thin").shape }), /No comparison yet/);
-assert.match(defaultHtml, /View breakdown/);
-assert.doesNotMatch(defaultHtml, /Paired actual and reference bars/);
+assert.match(draw({view:"card"}), /View the comparison and breakdown/);
+assert.doesNotMatch(draw({view:"card"}), /Paired actual and reference bars/);
 const card = renderToStaticMarkup(createElement(Card, { shape, hideValues: false, onOpen: () => {}, reference: "50-30-20" }));
 assert.equal((card.match(/aria-label="Reference comparison"/g) ?? []).length, 1, "Spend renders the actual approved comparison once");
 let selected;
 const hero = renderToStaticMarkup(createElement(Hero, { shape, renderComparison: entry => { selected = entry; return createElement(Comparison, { shape: entry, reference: "50-30-20", hideValues: false }); } }));
 assert.equal(selected.take_home, shape.take_home);
 assert.deepEqual(selected.jobs, shape.jobs, "instrument and comparison get the same entry, not a later effect");
-assert.match(hero, /Your income share/);
+assert.match(hero, /Your amounts beside the guide/);
 const shapePageSource = readFileSync(new URL("../app/spend/shape/ShapePage.tsx", import.meta.url), "utf8");
 assert.match(shapePageSource, /reference=\{isPreview \? previewReference : undefined\}/, "fixture ShapePage uses a local reference, never customer preferences");
 assert.match(shapePageSource, /onReferenceChange=\{isPreview \? setPreviewReference : undefined\}/);
@@ -155,7 +156,7 @@ for (const [out, meanGap, legacyLeft, netLeft, netBeyond] of [[800, 50, 250, 200
     assert.match(rendered, /£200/);
   }
 }
-console.log("PASS G279: exact income-based reference math, neutral movement, no invented principle benchmark, approved G342 share-track production renders, explicit default/alternative ratios, privacy and thin states.");
+console.log("PASS G279: exact income-based reference math, neutral movement, no invented principle benchmark, restored G343 compact/paired production renders, explicit default/alternative ratios, privacy and thin states.");
 
 // G341: inclusive ranges, exact endpoint differences, no invented midpoint or risk.
 const ranges=guideFor('conscious');
@@ -184,40 +185,40 @@ for(const file of liveCopyFiles){
  assert.doesNotMatch(source,/conscious[\s-]+spending|\bramit\b|\bsethi\b|iwillteachyoutoberich|guilt[\s-]+free/i,`${file}: retired reference must not reappear in live copy`);
 }
 
-// G342: exact, unique differences and meaningful geometry across states.
+// G343 restoration: the screenshot layout, current exact arithmetic and privacy.
 const exact = comparisonFixture('kevin');
-const exactHtml = draw({shape: exact});
+const compact = draw({shape:exact,view:'card'});
 for (const amount of ["+£409.09", "−£26.93", "+£124.69"]) {
- assert.equal(exactHtml.split(amount).length - 1, 1, `${amount} appears once, not again in its caption`);
+ assert.equal(compact.split(amount).length - 1, 1, amount + ' appears once, without repeating it in the caption');
 }
-assert.match(exactHtml, /Compared with your .*£4,843.68.* income this period/);
-assert.match(exactHtml, /About 58.4% of income/);
-assert.match(exactHtml, /above the 50% reference/);
-assert.match(exactHtml, /below the 20% reference/);
-assert.equal((exactHtml.match(/>How it works</g) ?? []).length, 1);
-assert.equal((exactHtml.match(/>View breakdown</g) ?? []).length, 1);
-assert.doesNotMatch(exactHtml, /How comparison works|Approximate mapping|View the comparison and breakdown/);
-const withinHtml = draw({shape: exact, reference: 'conscious'});
-assert.equal((withinHtml.match(/Within range/g) ?? []).length, 3);
-assert.doesNotMatch(withinHtml, /[+−]£0|Paired actual/);
-assert.equal((withinHtml.match(/class="band"/g) ?? []).length, 3);
-assert.equal((exactHtml.match(/class="point"/g) ?? []).length, 3);
-const outside = structuredClone(exact);
-outside.jobs.find(job => job.id === 'fixed').amount = 5600;
-outside.total_out = 5600 + 941.81 + 1577.79;
-const outsideHtml = draw({shape: outside, reference: 'conscious'});
-assert.match(outsideHtml, /Same 0 to 125% scale/);
-assert.match(outsideHtml, /About 115.6% of income/);
-assert.match(outsideHtml, /left:92\.49/, 'actual marker stays above the 100% position on the extended axis');
-const principleHtml = draw({shape: exact, reference: 'first'});
-assert.doesNotMatch(principleHtml, /class="point"|class="band"|above the|below the/);
-assert.match(principleHtml, /£2,830.93/);
-assert.match(draw({shape: exact, average: true}), /average income per pay period/);
-for(const reference of GUIDES.map(g => g.id)) {
- for(const props of [{hideValues:true}, {reference:undefined, hideValues:false}, {shape: scenarioFor('thin').shape}]) {
-  const html = draw({reference, ...props});
-  assert.doesNotMatch(html, /£\d|class="track"|class="marker"|class="fill"/, 'hidden, unready and unavailable data have no figures or chart geometry');
-  assert.match(html, /class="viewComparison" disabled=""/, 'breakdown cannot expose unavailable or private values');
- }
+assert.match(compact,/Reference based on .*£4,843.68.* income/);
+assert.match(compact,/above guide/);assert.match(compact,/below guide/);
+assert.doesNotMatch(compact,/class="track"|class="marker"|Paired actual|Your income share/);
+assert.equal((compact.match(/>Approximate mapping · how it works</g)??[]).length,1);
+assert.match(compact,/href="\/spend\/shape"/);
+const restored=restoredFixture('historic');
+const screenshotComparison=compareShape(restored,guide);
+assert.deepEqual(screenshotComparison.rows.map(row=>[row.actual,row.guide,row.delta]),[[152.65,230.51,-77.86],[.05,92.2,-92.15],[303,138.31,164.69]]);
+for(const view of ['card','detail']){
+ const html=draw({shape:restored,view});
+ for(const amount of ['−£77.86','−£92.15','+£164.69'])assert.equal(html.split(amount).length-1,1);
+ assert.match(html,/£461.02/);
+ assert.match(html,/Compare with/);
+ assert.doesNotMatch(html,/class="warning"|consumerfinance|cfpb/i);
 }
-console.log('G342: one exact figure per group, approximate share captions, extended common axes, ranges/principle, average scope and privacy states passed');
+const detail=draw({shape:restored});
+assert.match(detail,/Paired actual and reference bars/);
+assert.match(detail,/Your amount/);assert.match(detail,/50% guide/);assert.match(detail,/20% guide/);assert.match(detail,/30% guide/);assert.match(detail,/Difference/);assert.match(detail,/£0.05/);
+assert.equal((detail.match(/class="barGroup"/g)??[]).length,2);
+assert.match(detail,/width:33\.111/,'actual bar uses exact money on the shared pound scale');
+const rangeHtml=draw({shape:exact,reference:'conscious'});
+assert.doesNotMatch(rangeHtml,/Paired actual|60\/20\/20|How the differences add up/);
+assert.match(rangeHtml,/50 to 60% range/);
+assert.match(rangeHtml,/Within range/);
+assert.doesNotMatch(draw({shape:exact,reference:'first'}),/Paired actual|class="amounts"|above guide|below guide/);
+assert.match(draw({shape:exact,average:true}),/Average per pay period/);
+for(const reference of GUIDES.map(g=>g.id))for(const view of ['card','detail'])for(const props of [{hideValues:true},{reference:undefined,hideValues:false},{shape:scenarioFor('thin').shape}]){
+ const html=draw({reference,view,...props});
+ assert.doesNotMatch(html,/£\d|class="stackedBar"|class="amounts"|class="compactRows"/,'hidden, unready and unavailable states disclose no numbers or chart geometry');
+}
+console.log('G343 restored layout: screenshot figures, compact unique deltas, paired pound-scale bars, exact detail rows, ranges/principle, scope and privacy passed');

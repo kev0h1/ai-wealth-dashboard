@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "pay-split-compare",
-    name: "Your pay, made clearer · G343",
-    description: "Second comparison design round: A numbers first, B directly labelled paired bars, C one combined money-and-comparison card. One income basis, simpler labels and English, no slider handles, no US source link, and a lighter breakdown with categories closed. Own-account transfers stay included and are disclosed. Synthetic figures only; production is unchanged.",
-    variants: [{ label: "A · Numbers first", value: "a" }, { label: "B · Paired bars", value: "b" }, { label: "C · All in one", value: "c" }],
-    states: [{ label: "Your example", value: "kevin" }, { label: "Outside ranges", value: "outside" }, { label: "Small rounding", value: "rounding" }, { label: "Transfers", value: "transfers" }, { label: "Refund", value: "refund" }, { label: "Large figures", value: "large" }, { label: "No income", value: "no-income" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
