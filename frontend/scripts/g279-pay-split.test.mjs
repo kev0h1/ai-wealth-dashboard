@@ -222,3 +222,28 @@ for(const reference of GUIDES.map(g=>g.id))for(const view of ['card','detail'])f
  assert.doesNotMatch(html,/£\d|class="stackedBar"|class="amounts"|class="compactRows"/,'hidden, unready and unavailable states disclose no numbers or chart geometry');
 }
 console.log('G343 restored layout: screenshot figures, compact unique deltas, paired pound-scale bars, exact detail rows, ranges/principle, scope and privacy passed');
+
+// G345: alternative compact references must show the data, not zero range
+// differences or an empty principle card. The point reference keeps its deltas.
+for (const reference of ['conscious', 'first']) {
+ const html = draw({shape:exact, reference, view:'card'});
+ assert.match(html, /Your amounts this period/);
+ for (const amount of ['£2,830.93', '£941.81', '£1,577.79']) {
+  assert.equal(html.split(amount).length - 1, 1, `${reference}: actual ${amount} is visible once`);
+ }
+ assert.equal((html.match(/aria-label="View (?:Fixed|Moved|Free) breakdown"/g) ?? []).length, 3);
+ assert.doesNotMatch(html, />£0</, `${reference}: zero difference must not replace actual amounts`);
+ if (reference === 'conscious') assert.equal((html.match(/Within range/g) ?? []).length, 3);
+ else assert.doesNotMatch(html, /Within range|above guide|below guide|Matches guide/);
+ assert.match(draw({shape:exact, reference, view:'card', average:true}), /Your average amounts/);
+ const zero = structuredClone(exact);
+ zero.jobs.forEach(job => { job.amount = 0; job.drivers = []; });
+ zero.total_out = zero.beyond = zero.overspent = 0;
+ const zeroHtml = draw({shape:zero, reference, view:'card'});
+ assert.equal((zeroHtml.match(/>£0</g) ?? []).length, 3, 'genuine zero amounts remain visible');
+}
+const outsideCompact = draw({shape:comparisonFixture('outside'), reference:'conscious', view:'card'});
+assert.match(outsideCompact, /Above range/);
+assert.match(outsideCompact, /Below range/);
+assert.doesNotMatch(outsideCompact, /above guide|below guide/);
+console.log('G345: alternative compact references show real group amounts, true zero and range positions without inventing a principle benchmark');
