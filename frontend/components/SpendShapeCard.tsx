@@ -39,30 +39,40 @@ function orderedJobs(jobs: MoneyShapeJob[]): MoneyShapeJob[] {
   return JOB_ORDER.map((id) => jobs.find((j) => j.id === id)).filter((j): j is MoneyShapeJob => !!j);
 }
 
-// The trailing token off the period's own label, rather than a hardcoded
-// month. money_shape.py's `_period_label` already sends this short (e.g.
-// "Aug" for most rhythms, "w/c 3 Mar" for a weekly one) — splitting on
-// " to " and taking the last word is a no-op for that real shape (no
-// match, the whole string survives), it only trims a longer "DD Mon to DD
-// Mon" label back to its trailing month, which no live payload sends today
-// but this route's own design fixtures do (readability in a picker-sheet
-// context). Falls back to the most recent `periods` entry when
-// `shape.period` itself isn't set (mirrors MoneyShapeHero's own
-// periods-vs-top-level fallback), then to a generic
-// phrase if neither is present.
-function periodShortLabel(shape: MoneyShape): string {
-  const label = shape.period?.label ?? shape.periods?.[0]?.label;
-  if (!label) return "this period";
-  const end = label.split(" to ").pop() ?? label;
-  const tokens = end.trim().split(" ");
-  return tokens[tokens.length - 1] || label;
+// Dates are server-provided calendar days. Only show a range when both parse
+// strictly and form a real period; a short server label is not enough to
+// invent one. Cross-year ranges keep both years so their boundaries remain
+// clear.
+function lastFullPayPeriodLabel(shape: MoneyShape): string {
+  const period = shape.period ?? shape.periods?.[0];
+  const parse = (value: string | undefined) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? "");
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const timestamp = Date.UTC(year, month, day);
+    const date = new Date(timestamp);
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day
+      ? { day, month, year, timestamp }
+      : null;
+  };
+  const start = parse(period?.start);
+  const end = parse(period?.end);
+  if (!start || !end || start.timestamp > end.timestamp) return "Last full pay period";
+
+  const includeYear = start.year !== end.year;
+  const formatter = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", ...(includeYear ? { year: "numeric" as const } : {}), timeZone: "UTC" });
+  const format = ({ timestamp }: typeof start) => formatter.format(timestamp);
+  return `Last full pay period · ${format(start)} to ${format(end)}`;
 }
 
 function CardLabel({ shape }: { shape: MoneyShape }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-      How your pay was split · {periodShortLabel(shape)}
-    </p>
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">How your pay was split</p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{lastFullPayPeriodLabel(shape)}</p>
+    </div>
   );
 }
 
@@ -168,6 +178,7 @@ export default function SpendShapeCard({
           </div>
           {sentence && <MoneyText text={sentence} className="mt-2 block text-[13px] leading-snug text-slate-700 dark:text-slate-300 text-pretty" />}
           <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">{SHAPE_LEGEND} {percentBase(hasBeyond)}</p>
+          <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">This period so far is shown above in Spend.</p>
         </div>
         <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       </div>
