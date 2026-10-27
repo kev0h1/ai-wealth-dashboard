@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "pay-split-clarity",
+    name: "A clearer comparison flow · G346",
+    description: "A explains every choice in place; B separates numerical comparisons from learning about saving before spending. Plain labels, explicit choice effects, one contextual help entry, working picker, full breakdown and signed category evidence. Existing arithmetic and synthetic figures; G344 remains the range-layout review.",
+    variants: [{ label: "A · Explain in place", value: "a" }, { label: "B · Compare and learn", value: "b" }],
+    states: [{ label: "Example figures", value: "kevin" }, { label: "Above and below", value: "outside" }, { label: "True zero", value: "zero" }, { label: "Large figures", value: "large" }, { label: "No income", value: "no-income" }, { label: "Loading", value: "loading" }],
+    group: "current",
+  },
+  {
     slug: "pay-split-ranges",
     name: "A quieter four-part comparison · G344",
     description: "Focused range-view refinement: A compact rows, B one summary and a small table. Default view shows your amounts, percentage guides and concise non-repeating statuses. Exact income-derived pound endpoints and signed evidence stay on tap. Restored50/30/20 production layout is unchanged. Both themes, masking and edge cases; synthetic data only.",
