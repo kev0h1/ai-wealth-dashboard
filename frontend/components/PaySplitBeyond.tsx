@@ -66,7 +66,7 @@ export const gbp = (n: number) => `£${Math.round(Math.abs(n)).toLocaleString("e
 /** The plain sentence. Names the source only when the engine knows it. */
 export function beyondSentence(f: BeyondFigures, money: (n: number) => string = gbp): string | null {
   if (f.beyond < 1) return null;
-  const lead = `More went out than came in by ${money(f.beyond)}.`;
+  const lead = `${money(f.beyond)} more went out than came in.`;
   if (f.average) return `${lead.slice(0, -1)} on average.`;
   if (f.source === "cards") return `${lead} It came from your cards.`;
   if (f.source === "savings") return `${lead} It came from your savings.`;

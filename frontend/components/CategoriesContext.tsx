@@ -36,7 +36,9 @@ export function CategoriesProvider({ children }: { children: ReactNode }) {
     const { all, custom, kinds } = await api.getCategories();
     setAll(all); setCustom(custom); setKinds(kinds);
   }, []);
-  useEffect(() => { void refreshCategories().catch(() => {}); }, [refreshCategories]);
+  useEffect(() => {
+    api.getCategories().then(({ all, custom, kinds }) => { setAll(all); setCustom(custom); setKinds(kinds); }).catch(() => {});
+  }, []);
 
   // G83 fix-round (2026-09-18 review): the write-plus-invalidate logic
   // lives in lib/categoryMutations.ts (a category add/delete is the ONLY
