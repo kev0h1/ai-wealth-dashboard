@@ -39,14 +39,7 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Example figures", value: "kevin" }, { label: "Above and below", value: "outside" }, { label: "True zero", value: "zero" }, { label: "Large figures", value: "large" }, { label: "No income", value: "no-income" }, { label: "Loading", value: "loading" }],
     group: "current",
   },
-  {
-    slug: "pay-split-ranges",
-    name: "A quieter four-part comparison · G344",
-    description: "Focused range-view refinement: A compact rows, B one summary and a small table. Default view shows your amounts, percentage guides and concise non-repeating statuses. Exact income-derived pound endpoints and signed evidence stay on tap. Restored50/30/20 production layout is unchanged. Both themes, masking and edge cases; synthetic data only.",
-    variants: [{ label: "A · Compact rows", value: "a" }, { label: "B · Small table", value: "b" }],
-    states: [{ label: "All within range", value: "kevin" }, { label: "Above and below", value: "outside" }, { label: "One below", value: "left" }, { label: "Exactly on edges", value: "boundary" }, { label: "True zero", value: "zero" }, { label: "Large figures", value: "large" }, { label: "No income", value: "no-income" }],
-    group: "current",
-  },
+
   {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",

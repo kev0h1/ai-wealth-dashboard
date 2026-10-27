@@ -171,7 +171,7 @@ for(const [actual,position,delta] of [[4999.99,'below',-.01],[5000,'within',0],[
 }
 {
  const html=draw({reference:'conscious'});
- assert.match(html,/50 to 60% range/);assert.match(html,/10 to 20% range/);assert.match(html,/20 to 35% range/);
+ assert.match(html,/Guide 50 to 60%/);assert.match(html,/Guide 10 to 20%/);assert.match(html,/Guide 20 to 35%/);
  assert.match(html,/No budget or target is set/);
  assert.doesNotMatch(html,/60\/20\/20|Paired actual and reference bars|How the differences add up|class="warning"/);
  assert.doesNotMatch(draw({reference:'conscious',hideValues:true}),/£\d/);
@@ -213,7 +213,7 @@ assert.equal((detail.match(/class="barGroup"/g)??[]).length,2);
 assert.match(detail,/width:33\.111/,'actual bar uses exact money on the shared pound scale');
 const rangeHtml=draw({shape:exact,reference:'conscious'});
 assert.doesNotMatch(rangeHtml,/Paired actual|60\/20\/20|How the differences add up/);
-assert.match(rangeHtml,/50 to 60% range/);
+assert.match(rangeHtml,/Guide 50 to 60%/);
 assert.match(rangeHtml,/Within range/);
 assert.doesNotMatch(draw({shape:exact,reference:'first'}),/Paired actual|class="amounts"|above guide|below guide/);
 assert.match(draw({shape:exact,average:true}),/Average per pay period/);
@@ -247,3 +247,10 @@ assert.match(outsideCompact, /Above range/);
 assert.match(outsideCompact, /Below range/);
 assert.doesNotMatch(outsideCompact, /above guide|below guide/);
 console.log('G345: alternative compact references show real group amounts, true zero and range positions without inventing a principle benchmark');
+
+// G344 A: range rows lead with actuals, hiding the pound ledger until requested.
+assert.match(rangeHtml, /class="rangeRows"/);
+assert.doesNotMatch(rangeHtml, /class="amounts"|Difference<|>£0</);
+for (const amount of ['£2,830.93','£941.81','£1,577.79']) assert.ok(rangeHtml.includes(amount));
+assert.match(draw({shape:comparisonFixture('outside'),reference:'conscious'}), /above range/);
+assert.match(draw({shape:comparisonFixture('outside'),reference:'conscious'}), /below range/);

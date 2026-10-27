@@ -341,6 +341,8 @@ The comparison uses exact section amounts against income. The original instrumen
 
 A group opens signed, reconciled category evidence from that exact period or mean per pay period. Missing evidence is withheld. The section sheet does not repeat the reference/difference already on the page; unlabelled movements and rounding remain explicit. Date-range browsing remains labelled as all activity, not only that group. The explanation uses plain language and no US source link. Single-point differences net to the total used or moved minus income, without claiming which payment caused or funded it. No budget or target is set; there are no new aims, bank actions or coaching. Keep the saved authenticated reference, visible preference errors/retry and shared hide-balances readiness guard. Remove the unchosen temporary round under H113 when folding in this restoration.
 
+**G344 A, compact range rows (approved 2026-10-27).** The range detail now shows one actual amount, percentage guide and neutral status per group. Pound endpoints and the signed nearest-boundary difference live in the group sheet, with category evidence under What is in this amount. No repeated zero-difference ledger or cashflow working in the default range view. Point-reference and principle layouts keep their existing structure.
+
 ### Connecting a bank (A155 G)
 
 - **Choose, review, hand off (shipped, the default).** "Choose your bank" with a fixed 44px search, then Sorted's own "Review your connection" step carrying the full A4.1 agency sentence, then "Continue to Finexer" (four taps before the bank's page, counting Finexer's Next and Connect).
