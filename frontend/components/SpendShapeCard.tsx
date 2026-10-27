@@ -15,7 +15,7 @@
 // page now, see DESIGN.md's 2026-09-05 note).
 
 import { useState } from "react";
-import { ChevronRight, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { JOB_COLOR, JobDot, SHAPE_LEGEND } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
@@ -168,7 +168,7 @@ export default function SpendShapeCard({
         <div className="min-w-0 flex-1"><CardLabel shape={shape} /></div>
         <button type="button" aria-label="Edit pay-split groups" aria-haspopup="dialog" onClick={() => setGroupsOpen(true)} className="-my-2 grid size-11 shrink-0 place-items-center rounded-xl text-slate-600 active:scale-95 dark:text-slate-300"><Settings2 size={19} aria-hidden="true" /></button>
       </div>
-      <button type="button" onClick={onOpen} className="mt-1 w-full min-h-11 text-left active:scale-[0.98] transition-transform">
+      <button type="button" aria-label="View your pay split" onClick={onOpen} className="mt-1 w-full min-h-11 text-left active:scale-[0.98] transition-transform">
         <div className="min-w-0">
           {notCounted >= 0 && <PaySplitBar segs={segs} figures={figures} size="card" money={money} />}
           <div className={`mt-3 grid gap-2 ${longBeyond ? "grid-cols-2" : "grid-cols-4"}`}>

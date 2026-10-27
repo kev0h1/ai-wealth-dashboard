@@ -38,8 +38,7 @@ export function loadMoneyShape(): Promise<MoneyShape> {
   if (fresh) return Promise.resolve(fresh);
   if (!inFlightMoneyShape) {
     const requestGeneration = generation;
-    let request: Promise<MoneyShape>;
-    request = api.getMoneyShape()
+    const request: Promise<MoneyShape> = api.getMoneyShape()
       .then((shape) => {
         if (requestGeneration === generation) cachedEntry = { data: shape, at: Date.now() };
         // A caller awaiting a pre-invalidation request must not paint its

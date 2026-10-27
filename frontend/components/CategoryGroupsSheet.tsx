@@ -40,7 +40,13 @@ export default function CategoryGroupsSheet({ onClose, onSaved }: { onClose: () 
     catch { setData(null); setError("Your groups could not be loaded. Try again."); return false; }
     finally { setLoading(false); }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    let active = true;
+    api.getCategoryGroups().then(result => { if (active) setData(result); })
+      .catch(() => { if (active) setError("Your groups could not be loaded. Try again."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => { headingRef.current?.focus(); if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [view]);
   const rows = useMemo(() => (data?.rows ?? []).filter(row =>
     row.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) && (filter === "all" || row.kind === filter)
