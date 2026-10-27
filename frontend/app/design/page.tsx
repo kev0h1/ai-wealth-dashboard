@@ -31,6 +31,14 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {
+    slug: "pay-split-groups",
+    name: "Pay-split groups · G347",
+    description: "A grouped list or B a searchable category list. Edit a custom category, review the effect on spending, save or restore its original group. Protected categories explain why. Completed-period scope stays visible; synthetic local changes only.",
+    variants: [{ label: "A · By group", value: "a" }, { label: "B · Find a category", value: "b" }],
+    states: [{ label: "Everyday example", value: "standard" }, { label: "Activity in a later period", value: "later-period" }, { label: "No custom categories", value: "no-custom" }, { label: "Many categories", value: "many" }, { label: "Save failed", value: "save-error" }, { label: "Loading", value: "loading" }, { label: "Could not load", value: "missing" }],
+    group: "current",
+  },
 
   {
     slug: "statements-house-ads",
