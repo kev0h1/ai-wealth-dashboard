@@ -99,7 +99,7 @@ from app.routers.chat import build_tax_fact_pack
 from app.content.money_basics import MONEY_BASICS, TAX_YEAR as _BASICS_TAX_YEAR
 from app.services.affordability import check_affordability as _check_affordability
 from app.services.categories import (
-    get_category_kinds, is_non_spend, normalise_name, resolve_category_name,
+    EXCLUDED, get_category_kinds, is_non_spend, kind_of, normalise_name, resolve_category_name,
 )
 from app.services.account_names import display_account_name
 from app.services.companion import compute_today_items, humanise_account_name
@@ -3013,12 +3013,12 @@ async def _account_activity_rows(uid: str, account_id: str, start: datetime, end
 
 def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> dict:
     """Server-side aggregation only — the model must never sum these rows
-    itself. Money out is split spend vs movement using the same declared
-    category kind (`app.services.categories.is_non_spend`) every other
-    spend/movement split in this codebase already uses."""
+    itself. Money out is split into spending, movement and Not counted.
+    Excluded payments still reduce the balance, but are never transfers."""
     money_in = 0.0
     money_out_spend = 0.0
     money_out_movement = 0.0
+    money_out_not_counted = 0.0
     for d in rows:
         amt = abs(float(d.get("amount") or 0))
         ttype = d.get("transaction_type")
@@ -3031,14 +3031,19 @@ def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> di
             # movement even when its category is a spend one.
             did = str(d.get("_id") or "")
             if ctx is not None:
-                counts = classify_flow(kind_map, cat, True, ctx.is_own_move(did), ctx.is_card_repayment(did)).kind == "spend"
+                flow = classify_flow(kind_map, cat, True, ctx.is_own_move(did), ctx.is_card_repayment(did))
+                excluded = flow.kind == EXCLUDED
+                counts = flow.kind == "spend"
             else:
+                excluded = kind_of(kind_map, cat) == EXCLUDED
                 counts = not is_non_spend(kind_map, cat)
-            if not counts:
+            if excluded:
+                money_out_not_counted += amt
+            elif not counts:
                 money_out_movement += amt
             else:
                 money_out_spend += amt
-    money_out = money_out_spend + money_out_movement
+    money_out = money_out_spend + money_out_movement + money_out_not_counted
     top = sorted(rows, key=lambda d: abs(float(d.get("amount") or 0)), reverse=True)[:_ACTIVITY_TOP_N]
 
     def _row_to_txn(d: dict) -> dict:
@@ -3067,6 +3072,7 @@ def _summarise_account_activity(acc, rows: list[dict], kind_map, ctx=None) -> di
         "money_out": _money(money_out),
         "money_out_spend": _money(money_out_spend),
         "money_out_movement": _money(money_out_movement),
+        "money_out_not_counted": _money(money_out_not_counted),
         "net": _money(money_in - money_out),
         "top_transactions": [_row_to_txn(d) for d in top],
         "first_transaction": _row_to_txn(by_date[0]) if by_date else None,
@@ -3686,12 +3692,16 @@ async def _category_txn_rows(uid: str, category: str, start: datetime, end: date
     (app.services.spending). For a spend-kind category the rows are its debits
     plus its refund credits (netted by `_row_signed`), and a debit that is
     really a move to the user's own account is left out. A movement or income
-    category (someone asking about Savings) keeps its debits as before."""
+    category (someone asking about Savings) keeps its debits as before.
+    Not counted contributes no rows to a spending history."""
     home_currency = "GBP"
     ctx = None
     spend_kind = True
+    # An unreadable meaning cannot safely fall back to counting every debit.
+    kinds = await get_category_kinds(uid)
+    if kind_of(kinds, category) == EXCLUDED:
+        return []  # Explicitly excluded from every category-spend window/chart.
     try:
-        kinds = await get_category_kinds(uid)
         ctx = await build_spending_context(uid, start, end, kinds=kinds)
         spend_kind = not is_non_spend(kinds, category)
     except Exception:
@@ -3787,6 +3797,13 @@ async def _stacked_category_chart(uid: str, categories, months, chart: dict) -> 
             names.append(resolved)
     if len(names) < 2:
         return None
+    try:
+        kinds = await get_category_kinds(uid)
+    except Exception:
+        logger.exception("penny_tools: chart category meaning lookup failed for %s", uid)
+        return _tool_error("category meaning lookup failed")
+    excluded_names = [name for name in names if kind_of(kinds, name) == EXCLUDED]
+    excluded_note = f"{', '.join(excluded_names)}: marked Not counted, excluded from spending." if excluded_names else None
     months = _clean_months(months) or 6
     today = timeutil.user_today()
     period = penny_period.window_period(months, today)
@@ -3811,9 +3828,9 @@ async def _stacked_category_chart(uid: str, categories, months, chart: dict) -> 
     }
     built = penny_chart.chart_from_rows(
         merged, "stacked_bar", "month", keys, series_names=names, title=f"{' and '.join([', '.join(names[:-1]), names[-1]]) if len(names) > 2 else ' and '.join(names)} by month, {period['label']}",
-        note=penny_chart.join_notes(chart.get("note"), tables[0].get("note")),
+        note=penny_chart.join_notes(chart.get("note"), tables[0].get("note"), excluded_note),
     )
-    return {"categories": names, "period": period, "last_n_months": {"months": months}, "_chart": built} if built else None
+    return {"categories": names, "not_counted_categories": excluded_names, "period": period, "last_n_months": {"months": months}, "_chart": built} if built else None
 
 
 def _clean_months(months) -> int | None:
@@ -4002,6 +4019,17 @@ async def _exec_get_category_spend(uid: str, category: str | None, months, as_ta
             category = resolved
         elif names:
             unrecognised = names[:_CATEGORY_HINT_CAP]
+    if category and unrecognised is None:
+        try:
+            kinds = await get_category_kinds(uid)
+            if kind_of(kinds, category) == EXCLUDED:
+                return {
+                    "category": category, "counted_in_spending": False,
+                    "note": "This category is marked Not counted, so it is excluded from spending totals. Its transactions and cash effects are still recorded. Use search_transactions to inspect the activity.",
+                }
+        except Exception:
+            logger.exception("penny_tools: category meaning lookup failed for %s", uid)
+            return _tool_error("category meaning lookup failed")
     if not category and months:
         # G265: a multi-month question with no single category is an aggregate
         # over the window, never the current pay period's figures.
@@ -6369,7 +6397,7 @@ async def _recat_valid_categories(uid: str) -> tuple[list[str], dict]:
     """Same source the app's own recategorise sheet populates its picker
     from (`GET /categories`), filtered the exact same way
     `TeachingSheet.tsx`'s `spendPickable` filters it: never "Other", never
-    "Income", never a movement/income-kind category — under ENGINE.md's
+    "Income", never a movement/income/excluded-kind category — under ENGINE.md's
     Destination Rule, movement resolves to a pot-ledger destination via the
     app's own resolve-movement flow, never a category correction, spend or
     otherwise. Returns (valid_names, kinds_map)."""
@@ -6379,7 +6407,7 @@ async def _recat_valid_categories(uid: str) -> tuple[list[str], dict]:
     kinds = cats.get("kinds") or {}
     valid = [
         c for c in (cats.get("all") or [])
-        if c not in ("Other", "Income") and kinds.get(c) not in ("movement", "income")
+        if c not in ("Other", "Income") and kinds.get(c) not in ("movement", "income", "excluded")
     ]
     return valid, kinds
 

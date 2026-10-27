@@ -819,6 +819,10 @@ def test_check_affordability_tool_rejects_non_numeric_amount():
 # summed by the model), top merchants present ───────────────────────────────
 
 def test_get_category_spend_tool_returns_server_side_aggregate_and_top_merchants(monkeypatch):
+    from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
+    async def category_kinds(uid):
+        return CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
+    monkeypatch.setattr(penny_tools_module, "get_category_kinds", category_kinds)
     async def fake_verdict(uid, offset=0):
         return {
             "period": {"start": "2026-08-01", "end": "2026-08-28"},
@@ -867,6 +871,10 @@ def test_get_category_spend_tool_with_no_category_returns_top_categories(monkeyp
 
 
 def test_get_category_spend_tool_last_n_months_uses_rolling_window(monkeypatch):
+    from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
+    async def category_kinds(uid):
+        return CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
+    monkeypatch.setattr(penny_tools_module, "get_category_kinds", category_kinds)
     async def fake_verdict(uid, offset=0):
         return {"period": {"start": "2026-08-01", "end": "2026-08-28"}, "notables": [], "majority": []}
 
@@ -990,6 +998,10 @@ class _FakeCollection:
 
 
 def test_category_txn_rows_filters_foreign_currency_rows(monkeypatch):
+    from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
+    async def category_kinds(uid):
+        return CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
+    monkeypatch.setattr(penny_tools_module, "get_category_kinds", category_kinds)
 
     monkeypatch.setattr(penny_tools_module, "transactions_col", _FakeCollection([
         {"amount": 50.0, "category": "Groceries", "currency": "GBP", "merchant_name": "Tesco"},

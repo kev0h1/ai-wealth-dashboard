@@ -9,6 +9,7 @@ interface CatsCtx {
   customCategories: string[];
   /** Kind for every category, built-in and custom — from GET /categories. */
   kinds: Record<string, ApiCategoryKind>;
+  refreshCategories: () => Promise<void>;
   addCategory: (name: string, kind?: CategoryKind) => Promise<void>;
   deleteCategory: (name: string) => Promise<void>;
   isCustom: (name: string) => boolean;
@@ -19,6 +20,7 @@ const Ctx = createContext<CatsCtx>({
   allCategories: [...CATEGORIES],
   customCategories: [],
   kinds: {},
+  refreshCategories: async () => {},
   addCategory: async () => {},
   deleteCategory: async () => {},
   isCustom: () => false,
@@ -30,10 +32,12 @@ export function CategoriesProvider({ children }: { children: ReactNode }) {
   const [customCategories, setCustom] = useState<string[]>([]);
   const [kinds, setKinds] = useState<Record<string, ApiCategoryKind>>({});
 
+  const refreshCategories = useCallback(async () => {
+    const { all, custom, kinds } = await api.getCategories();
+    setAll(all); setCustom(custom); setKinds(kinds);
+  }, []);
   useEffect(() => {
-    api.getCategories()
-      .then(({ all, custom, kinds }) => { setAll(all); setCustom(custom); setKinds(kinds); })
-      .catch(() => {});
+    api.getCategories().then(({ all, custom, kinds }) => { setAll(all); setCustom(custom); setKinds(kinds); }).catch(() => {});
   }, []);
 
   // G83 fix-round (2026-09-18 review): the write-plus-invalidate logic
@@ -63,7 +67,7 @@ export function CategoriesProvider({ children }: { children: ReactNode }) {
   const defaultColour = useCallback((name: string) => getCategoryColour(name), []);
 
   return (
-    <Ctx.Provider value={{ allCategories, customCategories, kinds, addCategory, deleteCategory, isCustom, defaultColour }}>
+    <Ctx.Provider value={{ allCategories, customCategories, kinds, refreshCategories, addCategory, deleteCategory, isCustom, defaultColour }}>
       {children}
     </Ctx.Provider>
   );

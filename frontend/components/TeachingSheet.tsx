@@ -365,7 +365,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   // matches no MOVEMENT_PATTERN and would otherwise infer discretionary.
   const kindOf = (c: string) => kinds[c] ?? inferCategoryKind(c);
   const spendPickable = allCategories.filter(
-    (c) => c !== "Other" && c !== "Income" && kindOf(c) !== "movement" && kindOf(c) !== "income",
+    (c) => c !== "Other" && c !== "Income" && kindOf(c) !== "movement" && kindOf(c) !== "income" && kindOf(c) !== "excluded",
   );
   const orderedSpend = [
     ...spendPickable.filter((c) => customCategories.includes(c)),

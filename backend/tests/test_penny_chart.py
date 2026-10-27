@@ -294,6 +294,10 @@ def test_search_donut_groups_by_category(monkeypatch):
 
 
 def _category_world(monkeypatch):
+    async def kinds(uid):
+        from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
+        return CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
+    monkeypatch.setattr(penny_tools_module, "get_category_kinds", kinds)
     rows = [
         {"user_id": UID, "transaction_type": "debit", "amount": 12.0, "currency": "GBP",
          "date": datetime(2026, 10, 2), "category": "Eating Out", "custom_category": "", "merchant_name": "Pret"},

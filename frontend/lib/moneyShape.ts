@@ -27,6 +27,7 @@ import { api, type MoneyShape } from "@/lib/api";
 export const MONEY_SHAPE_TTL_MS = 90_000;
 let cachedEntry: { data: MoneyShape; at: number } | null = null;
 let inFlightMoneyShape: Promise<MoneyShape> | null = null;
+let generation = 0;
 
 function freshMoneyShape(): MoneyShape | null {
   return cachedEntry && Date.now() - cachedEntry.at < MONEY_SHAPE_TTL_MS ? cachedEntry.data : null;
@@ -36,14 +37,18 @@ export function loadMoneyShape(): Promise<MoneyShape> {
   const fresh = freshMoneyShape();
   if (fresh) return Promise.resolve(fresh);
   if (!inFlightMoneyShape) {
-    inFlightMoneyShape = api.getMoneyShape()
+    const requestGeneration = generation;
+    const request: Promise<MoneyShape> = api.getMoneyShape()
       .then((shape) => {
-        cachedEntry = { data: shape, at: Date.now() };
-        return shape;
+        if (requestGeneration === generation) cachedEntry = { data: shape, at: Date.now() };
+        // A caller awaiting a pre-invalidation request must not paint its
+        // old result after a category-group write. Join the current request.
+        return requestGeneration === generation ? shape : loadMoneyShape();
       })
       .finally(() => {
-        inFlightMoneyShape = null;
+        if (requestGeneration === generation && inFlightMoneyShape === request) inFlightMoneyShape = null;
       });
+    inFlightMoneyShape = request;
   }
   return inFlightMoneyShape;
 }
@@ -65,6 +70,7 @@ export function peekMoneyShape(): MoneyShape | null {
  *  path, so a different user signing in on the same tab never paints the
  *  previous user's money shape for a moment before the refetch lands. */
 export function invalidateMoneyShapeCache() {
+  generation += 1;
   cachedEntry = null;
   inFlightMoneyShape = null;
 }

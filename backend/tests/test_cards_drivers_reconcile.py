@@ -235,3 +235,27 @@ def test_drivers_reconcile_when_five_or_fewer_spend_categories(monkeypatch):
     assert story["movement"]["new_spend"] == expected_new_spend
     drivers_sum = round(sum(d["total"] for d in drivers), 2)
     assert drivers_sum == expected_new_spend
+
+
+def test_not_counted_card_activity_stays_in_balance_change_not_spend_or_transfers(monkeypatch):
+    async def excluded_kinds(uid):
+        return CategoryKinds({**BUILTIN_CATEGORY_KINDS, "Business": "excluded"})
+    monkeypatch.setattr(f"{__name__}._fake_get_category_kinds", excluded_kinds)
+    txns = [
+        _txn("card", 100, D1, "debit", "Business"),
+        _txn("card", 20, D1, "credit", "Business"),
+        _txn("card", 40, D1, "debit", "Shopping"),
+        _txn("card", 10, D1, "credit", "Shopping"),
+        _txn("card", 70, D1, "debit", "Transfer"),
+        _txn("card", 50, D1, "credit", "Transfer"),
+    ]
+    story = _run(monkeypatch, [_acc("card", "Card", "Bank", -130)], {"card"}, txns)
+    movement = story["movement"]
+    assert movement["new_spend"] == sum(row["total"] for row in story["drivers"]) == 40
+    assert [row["category"] for row in story["drivers"]] == ["Shopping"]
+    assert movement["moved_between_cards"] == 70
+    assert movement["movement_in"] == 50
+    assert movement["not_counted"] == 100
+    assert movement["not_counted_in"] == 20
+    assert movement["payments"] == 80
+    assert movement["delta"] == movement["new_spend"] + movement["moved_between_cards"] + movement["not_counted"] - movement["payments"] == 130

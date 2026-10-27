@@ -121,6 +121,19 @@ function fakeShape(tag) {
   check("a category delete forces BOTH caches to refetch", [verdictCalls, shapeCalls], [2, 2]);
 }
 
+// A response started before a group save must never paint over the new data.
+{
+  invalidateMoneyShapeCache();
+  let finishOld;
+  api.getMoneyShape = () => new Promise(resolve => { finishOld = resolve; });
+  const staleCaller = loadMoneyShape();
+  invalidateMoneyShapeCache();
+  api.getMoneyShape = async () => fakeShape("after-group-save");
+  const freshCaller = loadMoneyShape();
+  finishOld(fakeShape("before-group-save"));
+  check("old and fresh callers both receive the new shape", (await Promise.all([staleCaller, freshCaller])).map(s => s.tag), ["after-group-save", "after-group-save"]);
+}
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);
   process.exit(1);

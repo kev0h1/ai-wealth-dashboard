@@ -13,10 +13,10 @@ import s from "./PaySplitComparison.module.css";
 type Compared = ReturnType<typeof compareShape>;
 
 function PairedBars({ comparison, guide }: { comparison: Compared; guide: Guide }) {
-  if (!guide.shares) return null;
+  if (!guide.shares || comparison.totalOut < comparison.rows.reduce((sum, row) => sum + row.actual, 0) - .005) return null;
   const scale = Math.max(comparison.income, comparison.totalOut);
   const groups = [
-    { label: "Your amounts", parts: comparison.rows.map(row => ({ id: row.id, amount: row.actual })), left: comparison.left },
+    { label: "Your amounts", parts: [...comparison.rows.map(row => ({ id: row.id, amount: row.actual })), ...(shapeNotCounted(comparison) ? [{ id: "excluded", amount: shapeNotCounted(comparison) }] : [])], left: comparison.left },
     { label: guide.name, parts: comparison.rows.map(row => ({ id: row.id, amount: row.guide ?? 0 })), left: 0 },
   ];
   return <div className={s.pairedBars} aria-label="Paired actual and reference bars">
@@ -30,6 +30,10 @@ function PairedBars({ comparison, guide }: { comparison: Compared; guide: Guide 
     </div>)}
     <p>The line marks your income. Both bars use the same pound scale.</p>
   </div>;
+}
+
+function shapeNotCounted(comparison: Compared) {
+  return Math.max(0, comparison.totalOut - comparison.rows.reduce((sum, row) => sum + row.actual, 0));
 }
 
 function reading(row: ComparisonRow): string {

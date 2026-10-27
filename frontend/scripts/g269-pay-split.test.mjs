@@ -53,11 +53,11 @@ for (const [th, out] of [[2100, 1500], [2100, 2100]]) {
 // Source naming, averages, paradox.
 const base = { takeHome: 2100, totalOut: 2710, beyond: 610, cardGrowth: 300, savingsDrawdown: 100, moved: 200, average: false };
 const s = (source, extra = {}) => beyondSentence({ ...base, source, ...extra });
-assert.equal(s("cards"), "You spent £610 more than came in. It came from your cards.");
-assert.equal(s("savings"), "You spent £610 more than came in. It came from your savings.");
-assert.equal(s("cards_and_savings"), "You spent £610 more than came in. It came from your savings and your cards.");
-assert.equal(s(null), "You spent £610 more than came in. Your accounts do not show where it came from.");
-assert.equal(s("cards", { average: true }), "You spent £610 more than came in on average.");
+assert.equal(s("cards"), "£610 more went out than came in. It came from your cards.");
+assert.equal(s("savings"), "£610 more went out than came in. It came from your savings.");
+assert.equal(s("cards_and_savings"), "£610 more went out than came in. It came from your savings and your cards.");
+assert.equal(s(null), "£610 more went out than came in. Your accounts do not show where it came from.");
+assert.equal(s("cards", { average: true }), "£610 more went out than came in on average.");
 assert.equal(beyondSentence({ ...base, beyond: 0, source: null }), null);
 assert.equal(paradoxLine({ ...base, source: "cards", average: true }, true), null, "no paradox on averages");
 assert.equal(paradoxLine({ ...base, source: "cards" }, false), null, "no paradox without consent");

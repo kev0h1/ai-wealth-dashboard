@@ -69,7 +69,10 @@ export function compareShape(shape: MoneyShape, guide: Guide): Comparison {
   const jobs = SECTION_ORDER.map(id => shape.jobs?.find(job => job.id === id));
   if (jobs.some(job => !job || !Number.isFinite(job.amount) || job.amount < 0)) return empty;
   const amounts = jobs.map(job => pennies(job!.amount));
-  const totalPence = amounts.reduce((sum, amount) => sum + amount, 0);
+  const spendingPence = amounts.reduce((sum, amount) => sum + amount, 0);
+  const notCounted = shape.not_counted ?? 0;
+  if (!Number.isFinite(notCounted)) return empty;
+  const totalPence = spendingPence + pennies(notCounted);
   if (shape.total_out !== undefined && (!Number.isFinite(shape.total_out) || Math.abs(pennies(shape.total_out) - totalPence) > 2)) return empty;
   // Keep a complete reference split exact to the penny; the last cost group
   // receives the rounding remainder rather than inventing or losing a penny.

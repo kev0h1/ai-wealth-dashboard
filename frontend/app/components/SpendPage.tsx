@@ -5,7 +5,9 @@ import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
 import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
-import { loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
+import { invalidateMoneyShapeCache, loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
+import { clearHomeCache } from "@/lib/homeCache";
+import { useCategories } from "@/components/CategoriesContext";
 import SpendShapeCard, { hasShapeContent } from "@/components/SpendShapeCard";
 import { useAllTransactions } from "@/lib/useAllTransactions";
 import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/verdictCache";
@@ -110,6 +112,8 @@ function ResolveToast({
     timerRef.current = setTimeout(() => onDoneRef.current(), 5000);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
+
+
 
   const message = answer === "one_off" ? `${category} noted as a one-off.` : `${category} filed as your new normal.`;
 
@@ -236,6 +240,7 @@ function SpendSkeleton() {
 }
 
 export default function SpendPage() {
+  const { refreshCategories } = useCategories();
   const { payPeriodConfig, setPayPeriodConfig, rawPrefs, hideNetWorth, preferencesReady, spendWidgets, showTips } = usePreferences();
   // G306: one flag for every £ figure on this page and the sheets it opens (hidden until preferences resolve, as Home does).
   const balancesHidden = hideNetWorth || !preferencesReady;
@@ -468,6 +473,18 @@ export default function SpendPage() {
       .catch(() => { if (verdictOffsetRef.current === offset && !silent) setVerdict(null); })
       .finally(() => { if (verdictOffsetRef.current === offset) setVerdictLoading(false); });
   }, []);
+  const refreshAfterGroupSave = useCallback(async () => {
+    // The save has succeeded even if a following GET is temporarily unavailable.
+    // Clear every dependent read-model, then retain the prior paint until each
+    // fresh request settles rather than incorrectly reporting an unchanged save.
+    invalidateMoneyShapeCache();
+    clearHomeCache();
+    invalidateVerdictCache();
+    invalidateSignalsCache();
+    refetchSignals(true);
+    fetchVerdict(periodOffset, true);
+    await Promise.all([refreshCategories(), loadMoneyShape().then(setMoneyShape)]);
+  }, [fetchVerdict, periodOffset, refetchSignals, refreshCategories]);
   // G83 fix-round (2026-09-18 review): `payPeriodConfig` is a dependency —
   // NOT just `periodOffset` — because the two are not interchangeable.
   // Moving payday mid-cycle changes what date range offset 0 actually
@@ -1289,7 +1306,7 @@ export default function SpendPage() {
               {hasShapeContent(moneyShape) && (
                 <section className="relative scroll-mt-24 pb-10">
                   <span aria-hidden="true" className="absolute -left-8 top-1 size-6 rounded-full border-[6px] border-emerald-400 bg-white ring-4 ring-[#f0f2f7] dark:bg-slate-900 dark:ring-[#0f172a] sm:-left-10" />
-                  <SpendShapeCard shape={moneyShape} hideValues={hideNetWorth} onOpen={() => router.push("/spend/shape")} />
+                  <SpendShapeCard shape={moneyShape} hideValues={hideNetWorth} onOpen={() => router.push("/spend/shape")} onGroupsSaved={refreshAfterGroupSave} />
                 </section>
               )}
 

@@ -258,6 +258,12 @@ def bucket_transactions(txns: list[dict], kind_map: dict) -> tuple[dict, dict, f
                 bucket.setdefault("categories", set()).add(cat)
             continue
 
+        # G347: only spend/refund flows belong in Out and its category rows.
+        # Not counted stays in the ledger and Money Shape cash reconciliation,
+        # but must not fall through here or be relabelled as a transfer.
+        if flow.kind not in (SPEND, REFUND):
+            continue
+
         # Real spend (discretionary/commitment, incl. "Other" — carved out of
         # notables/majority downstream, but its arithmetic lives here too so
         # the reconciliation invariant holds without a special case).

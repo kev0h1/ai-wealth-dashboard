@@ -44,7 +44,7 @@ export const providerLogoUrl = (providerId: string) =>
 /** What a category *means*. Mirrors backend/app/services/categories.py.
  *  "income" is backend-internal (only ever seen on the built-in Income
  *  category) and is not offerable when creating a custom category. */
-export type CategoryKind = "discretionary" | "commitment" | "movement" | "income";
+export type CategoryKind = "discretionary" | "commitment" | "movement" | "excluded" | "income";
 
 export interface CategoriesResponse {
   builtin: string[];
@@ -52,6 +52,26 @@ export interface CategoriesResponse {
   all: string[];
   /** Kind for every category, built-in and custom — one source of truth. */
   kinds: Record<string, CategoryKind>;
+}
+
+export interface CategoryGroupRow {
+  name: string;
+  kind: CategoryKind;
+  default_kind: CategoryKind;
+  editable: boolean;
+  reason: string | null;
+  amount: number | null;
+  editable_amount: number | null;
+  contributions: { fixed: number | null; moved: number | null; free: number | null; excluded: number | null; income: number | null };
+  allowed_kinds: CategoryKind[];
+}
+
+export interface CategoryGroupsResponse {
+  revision: string;
+  period: { start: string; end: string; label: string } | null;
+  rows: CategoryGroupRow[];
+  spending_total: number | null;
+  changed_count: number;
 }
 
 export interface PagedTransactions {
@@ -2340,6 +2360,19 @@ async function post<T>(path: string, body?: unknown, extraHeaders?: HeadersInit)
   return res.json();
 }
 
+async function patch<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    reportIfUnauthorized(res);
+    throw await apiErrorFromResponse(res);
+  }
+  return res.json();
+}
+
 async function del<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
@@ -2525,7 +2558,7 @@ export type CardsStoryCard = {
 export type CardsStory = {
   status: string;
   period: { start: string; end: string; days_elapsed: number };
-  movement: { delta: number; new_spend: number; payments: number; moved_between_cards: number };
+  movement: { delta: number; new_spend: number; payments: number; moved_between_cards: number; not_counted?: number; not_counted_in?: number };
   per_card: CardsStoryCard[];
   drivers: { category: string; total: number }[];
   pattern_line: string | null;
@@ -3591,6 +3624,9 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => toJson<{ hide_net_worth: boolean; show_tips?: boolean; open_last_chat?: boolean; dark_mode?: boolean; version?: number }>(r)),
   getCategories: () => get<CategoriesResponse>("/categories"),
+  getCategoryGroups: () => get<CategoryGroupsResponse>("/categories/groups"),
+  saveCategoryGroup: (name: string, kind: CategoryKind, revision: string) => patch<{ saved: true }>("/categories/group", { name, kind, revision }),
+  resetCategoryGroups: (revision: string) => post<{ saved: true }>("/categories/groups/reset", { revision }),
   addCategory: (name: string, kind: CategoryKind = "discretionary") =>
     post<CategoriesResponse>("/categories", { name, kind }),
   deleteCategory: (name: string) =>
