@@ -113,26 +113,26 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 5126),
-    ("app/services/penny_tools.py", 5291),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 5131),
+    ("app/services/penny_tools.py", 5296),  # ValueError from compute_intent_preview, see above
     # G341 adds five lines for the legacy explainer alias; each entry still
     # points to the identical authored return expression, verified against
     # the pre-change source. No handler or exception policy changed.
     # G296 and A170 shift these same authored HTTPException forwards;
     # no handlers or exceptions changed. Entries map to identical source lines.
-    ("app/services/penny_tools.py", 5812),
-    ("app/services/penny_tools.py", 5832),
-    ("app/services/penny_tools.py", 5868),
-    ("app/services/penny_tools.py", 5891),
-    ("app/services/penny_tools.py", 6033),
+    ("app/services/penny_tools.py", 5817),
+    ("app/services/penny_tools.py", 5837),
+    ("app/services/penny_tools.py", 5873),
+    ("app/services/penny_tools.py", 5896),
     ("app/services/penny_tools.py", 6038),
     ("app/services/penny_tools.py", 6043),
-    ("app/services/penny_tools.py", 6141),
+    ("app/services/penny_tools.py", 6048),
     ("app/services/penny_tools.py", 6146),
     ("app/services/penny_tools.py", 6151),
-    ("app/services/penny_tools.py", 7092),
-    ("app/services/penny_tools.py", 7747),
-    ("app/services/penny_tools.py", 7761),
+    ("app/services/penny_tools.py", 6156),
+    ("app/services/penny_tools.py", 7097),
+    ("app/services/penny_tools.py", 7752),
+    ("app/services/penny_tools.py", 7766),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
