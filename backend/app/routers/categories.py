@@ -396,6 +396,9 @@ async def add_rule(body: dict, user: dict = Depends(current_user)):
     # response can carry exactly which sibling rows it recategorised —
     # TeachingSheet's "Undo" reverts each one by id (fix-round HIGH finding).
     affected = await apply_single_rule(uid, pattern.lower(), category)
+    # G358: wipe the response caches now (the bulk task below only bumps the
+    # data version later), so a refetch straight after this response is fresh.
+    await response_cache.ainvalidate(uid)
 
     async def _apply_rules_bulk_and_bump(u: str) -> None:
         await apply_rules_bulk(u)
@@ -407,6 +410,7 @@ async def add_rule(body: dict, user: dict = Depends(current_user)):
     return {
         "id": rule_id, "description": description, "pattern": pattern.lower(), "category": category,
         "affected": affected,
+        "affected_ids": [a["id"] for a in affected],
     }
 
 
