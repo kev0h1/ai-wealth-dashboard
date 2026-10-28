@@ -85,7 +85,7 @@ def _bill(name, days_away, amount, account_id, kind="commitment", dest_account_i
     return {
         "name": name, "days_away": days_away, "amount": amount,
         "account_id": account_id, "account_balance": 1.0, "is_credit_card": False,
-        "kind": kind, "expected_date": "2026-08-29",
+        "kind": kind, "expected_date": (date.today() + timedelta(days=days_away)).isoformat(),
         "dest_account_id": dest_account_id,
         "dest_account_spendable": True if dest_account_id else None,
     }
@@ -138,8 +138,14 @@ def _run(monkeypatch, *, accounts, bills, income, days_to_pay=20):
     recipe as test_payday_plan_fixes.py's FIX B test."""
     today_d = date.today()
     pay_period = _base_patch(monkeypatch, accounts=accounts, bills=bills, income=income)
-    monkeypatch.setattr(pay_period, "get_pay_period_for_date",
-                         lambda ref, cfg: (today_d - timedelta(days=20), today_d + timedelta(days=days_to_pay)))
+    # G354: the preview plan prices the period that starts on the next
+    # payday, so the stub must answer for a date after today as well.
+    def _period(ref, cfg):
+        if ref <= today_d + timedelta(days=days_to_pay - 1):
+            return (today_d - timedelta(days=20), today_d + timedelta(days=days_to_pay - 1))
+        return (today_d + timedelta(days=days_to_pay), today_d + timedelta(days=days_to_pay + 29))
+
+    monkeypatch.setattr(pay_period, "get_pay_period_for_date", _period)
     monkeypatch.setattr(pay_period, "_next_payday", lambda today, cfg: today_d + timedelta(days=days_to_pay))
     items = asyncio.run(companion.compute_today_items(UID, payday_preview=True, persist=False))
     return _payday_plan(items)
