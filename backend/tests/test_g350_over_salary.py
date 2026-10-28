@@ -22,58 +22,40 @@ POT_A = "pot-a"
 POT_B = "pot-b"
 
 
-def _alloc(name, pot, amount):
-    return {
-        "id": "al-" + name, "name": name, "active": True, "completed": False,
-        "pending": False, "recurrence": "every_period", "tracking_mode": "existing_payment",
-        "fill_account_id": pot, "amount_per_period": amount, "period_amount": amount,
-        "remaining": amount, "source_account_id": None,
-    }
+def _needs_on_bill_account():
+    """A £120 set-aside and an £80 goal whose SOURCE is the bills account."""
+    return {BILL: {"amount": 200.0, "source_assumed": False, "reasons": [
+        {"name": "Saving Challenge", "kind": "set_aside", "amount": 120.0, "source_assumed": False, "to": [POT_A]},
+        {"name": "Japan", "kind": "goal", "amount": 80.0, "source_assumed": False, "to": [POT_B]},
+    ]}}
 
 
-def _plan(monkeypatch, *, accounts, bills, allocs=(), slices=None):
+def _plan(monkeypatch, *, accounts, bills, needs=None):
     today = timeutil.user_today()
     pay_period, _ = _base_patch(monkeypatch, accounts=accounts, bills=bills, income=[_salary(0, 2000.0)])
     monkeypatch.setattr(pay_period, "get_pay_period_for_date",
                         lambda _d, _c: (today, today + timedelta(days=29)))
     monkeypatch.setattr(pay_period, "_next_payday", lambda _d, _c: today + timedelta(days=30))
 
-    async def listed(_uid):
-        return list(allocs)
+    async def stub(*_a, **_k):
+        return needs or {}
 
-    async def source(_uid, alloc, _i, _m):
-        return SALARY_ACCT if alloc.get("fill_account_id") else None
-
-    async def goal_slices(*_a):
-        return slices or {}
-
-    monkeypatch.setattr(companion, "list_active_allocations", listed)
-    monkeypatch.setattr(companion, "_allocation_funding_source", source)
-    monkeypatch.setattr(companion, "_active_commitment_slices", goal_slices)
+    monkeypatch.setattr(companion, "_plan_source_needs", stub)
     items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=False))
     plan = _payday_plan(items)
     assert plan is not None
     return plan
 
 
-def _sav(acct, name):
-    return {**_account(acct, 0.0, name), "subtype": "SAVINGS_ACCOUNT"}
-
-
 def _accounts(salary_balance):
-    return [
-        _account(SALARY_ACCT, salary_balance), _account(BILL, 0.0, "Everyday"),
-        _sav(POT_A, "Pot A"), _sav(POT_B, "Pot B"),
-    ]
+    return [_account(SALARY_ACCT, salary_balance), _account(BILL, 0.0, "Everyday")]
 
 
 _BILLS = [_bill("Council Tax", 2, 200.0, account_id=BILL, account_balance=0.0)]
-_GOAL = {POT_B: {"slice_total": 80.0, "names": ["Japan"]}}
 
 
 def test_bills_floor_alone_over_pay_lists_dropped_legs_largest_first(monkeypatch):
-    plan = _plan(monkeypatch, accounts=_accounts(100.0), bills=_BILLS,
-                 allocs=[_alloc("Saving Challenge", POT_A, 120.0)], slices=_GOAL)
+    plan = _plan(monkeypatch, accounts=_accounts(100.0), bills=_BILLS, needs=_needs_on_bill_account())
     assert [(l["name"], l["kind"], l["amount"]) for l in plan["left_out"]] == [
         ("Saving Challenge", "set_aside", 120.0), ("Japan", "goal", 80.0),
     ]
@@ -86,31 +68,31 @@ def test_bills_floor_alone_over_pay_lists_dropped_legs_largest_first(monkeypatch
         "These moves add up to £200, more than the ~£2,000 pay expected. "
         "£150 would need to come from other accounts."
     )
-    assert all(_d["move"] == 0 for _d in plan["dests"] if _d["account_id"] in (POT_A, POT_B))
+    assert "reasons" not in next(d for d in plan["dests"] if d["account_id"] == BILL)
 
 
 def test_dropping_one_set_aside_makes_it_fit(monkeypatch):
-    plan = _plan(monkeypatch, accounts=_accounts(330.0), bills=_BILLS,
-                 allocs=[_alloc("Saving Challenge", POT_A, 120.0)], slices=_GOAL)
+    plan = _plan(monkeypatch, accounts=_accounts(330.0), bills=_BILLS, needs=_needs_on_bill_account())
     assert plan["over_salary"] is None
     assert plan["left_out"] == [{"name": "Saving Challenge", "kind": "set_aside", "amount": 120.0}]
     assert plan["covered"] is True
     assert plan["total"] == 280
     assert plan["body"] == "£280 distributed. Some moves were left out this month."
+    d = next(d for d in plan["dests"] if d["account_id"] == BILL)
+    assert [r["name"] for r in d["reasons"]] == ["Japan"]
 
 
 def test_last_leg_can_be_reduced_partially(monkeypatch):
-    plan = _plan(monkeypatch, accounts=_accounts(350.0), bills=_BILLS,
-                 allocs=[_alloc("Saving Challenge", POT_A, 120.0)], slices=_GOAL)
+    plan = _plan(monkeypatch, accounts=_accounts(350.0), bills=_BILLS, needs=_needs_on_bill_account())
     assert plan["over_salary"] is None
     assert plan["left_out"] == [{"name": "Saving Challenge", "kind": "set_aside", "amount": 100.0}]
     assert plan["total"] == 300
-    assert next(d for d in plan["dests"] if d["account_id"] == POT_A)["move"] == 20
+    d = next(d for d in plan["dests"] if d["account_id"] == BILL)
+    assert [(r["name"], r["amount"]) for r in d["reasons"]] == [("Saving Challenge", 20.0), ("Japan", 80.0)]
 
 
 def test_buffer_only_trim_is_trimmed_not_left_out(monkeypatch):
-    plan = _plan(monkeypatch, accounts=_accounts(450.0), bills=_BILLS,
-                 allocs=[_alloc("Saving Challenge", POT_A, 120.0)], slices=_GOAL)
+    plan = _plan(monkeypatch, accounts=_accounts(450.0), bills=_BILLS, needs=_needs_on_bill_account())
     assert plan["trimmed"] is True
     assert plan["left_out"] == []
     assert plan["over_salary"] is None

@@ -447,6 +447,9 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         "current_period_contribution": current_contribution,
         "fill_account_id":     doc.get("fill_account_id"),
         "source_account_id":   doc.get("source_account_id"),
+        # G350: whether the field is stored at all, so a deliberate null
+        # ("Not set") is told apart from a legacy plan that never had one.
+        "source_set":          "source_account_id" in doc,
         "match_type":          doc.get("match_type"),
         "match_value":         doc.get("match_value"),
         "fill_display_name":   doc.get("fill_display_name"),

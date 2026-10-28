@@ -1202,7 +1202,7 @@ def _gbp(x: float) -> str:
     return f"{int(x):,}" if x == int(x) else f"{x:,.2f}"
 
 
-async def _active_allocation_slices(
+async def _plan_source_needs(
     uid: str,
     pay_cfg: dict,
     live_balances: dict[str, float],
@@ -1212,59 +1212,67 @@ async def _active_allocation_slices(
     account_map: dict[str, dict] | None = None,
     internal_inflows: list[dict] | None = None,
 ) -> dict[str, dict]:
-    """Per-destination payday legs for recurring SET-ASIDES (allocations) whose
-    money is held in a separate pot (G350, Kevin 2026-10-28): a set-aside kept
-    in a pot becomes a suggested move to that pot on payday, worded like a
-    goal leg. One kept in the paying account needs no move.
+    """What the user's goals and recurring set-asides need to find at each
+    SOURCE account this pay period (G350, Kevin 2026-10-28).
 
-    Returns {dest_account_id: {"slice_total", "names", "allocation_ids",
-    "source_ids", "items": [{"name", "slice", "id", "source_id"}],
-    "reserved_on_salary"}}, `{}` on any failure (the plan then builds as it
-    did before).
+    Goal and set-aside money is tracked where it LEAVES from, never at the pot
+    it ends up in: the payday plan routes pay to the accounts that pay things
+    out, so a goal or set-aside is never a plan destination by itself.
 
-    Rules (documented contract):
-    - Pot destination = `fill_account_id` for an existing-payment set-aside,
-      else `destination_account_id` (or the category destination) for a
-      manual one. A manual set-aside with no destination is "Kept in paying
-      account": no leg. A destination that is the salary account, a credit
-      card, or not a known connected account: no leg.
-    - Amount: live plan (payday window) = `remaining` (what is still unfilled
-      this period); preview = `period_amount` (what the coming period asks
-      for, including any G318 override; falls back to `amount_per_period`).
-    - `once` set-asides only count in the live plan, when not completed and
-      still owed (`remaining` > 0, so completed/pending fall out). A preview
-      prices the NEXT period, which a once-off already scoped to the current
-      one never covers, so it is skipped there.
-    - `source_ids`: the explicit `source_account_id` when it is usable, else
-      the learned funding source (`_allocation_funding_source`, the SAME one
-      the envelope reservation uses), else the salary account is assumed.
-    - `reserved_on_salary`: how much `_reserved_for_allocations` already
-      reserved on the SALARY account for these legs (their `remaining`,
-      attributed by the same derivation), so the caller can add it back to
-      `distributable` instead of counting the money twice.
+    Returns {source_account_id: {"amount", "source_assumed", "reasons":
+    [{"name", "kind": "goal"|"set_aside", "amount", "source_assumed",
+    "to": [pot ids]}]}}; `{}` on any failure (the plan then builds with no
+    source needs).
+
+    Amounts: a goal is its `per_period_slice` (`_pot_progress_and_slice`, the
+    one slice computation Planning also uses); a set-aside is `remaining` in
+    the live plan and `period_amount` (falling back to `amount_per_period`)
+    in a preview. A `once` set-aside only counts in the live plan. Every
+    active set-aside counts, including one kept in the paying account (a
+    manual one with no destination): that is money which must stay there.
+
+    Source resolution, in order:
+    1. the stored `source_account_id` when it is still usable;
+    2. detected from history: a goal via `resolve_goal_source` (regular
+       own-account transfers out of an account into its pot), a set-aside via
+       `_allocation_funding_source` (learned internal inflows, then direct
+       fill-leg pairing, `_modal_account` votes);
+    3. otherwise the salary account, flagged `source_assumed`.
+    A deliberate "Not set" (`source_unset` on a goal, an explicit null on a
+    set-aside) and an explicit-but-unusable stored account are never guessed:
+    they count nowhere.
     """
+    amap = account_map or {}
+    inflows = internal_inflows or []
+    pence_by_source: dict[str, int] = {}
+    reasons_by_source: dict[str, list[dict]] = {}
+
+    def _add(source: str, name: str, kind: str, amount: float, assumed: bool, to: list[str]) -> None:
+        pence = int(round(float(amount) * 100))
+        if pence <= 0 or not source:
+            return
+        pence_by_source[source] = pence_by_source.get(source, 0) + pence
+        reasons_by_source.setdefault(source, []).append({
+            "name": name, "kind": kind, "amount": round(pence / 100, 2),
+            "source_assumed": bool(assumed), "to": to,
+        })
+
+    # ── Set-asides ─────────────────────────────────────────────────────────
     try:
         allocations = await list_active_allocations(uid)
     except Exception:
-        log.exception("_active_allocation_slices: failed to load allocations for %s", uid)
-        return {}
-    if not allocations:
-        return {}
-    amap = account_map or {}
-    inflows = internal_inflows or []
-    out: dict[str, dict] = {}
+        log.exception("_plan_source_needs: failed to load allocations for %s", uid)
+        allocations = []
     for alloc in allocations:
         try:
             if not alloc.get("active", True) or alloc.get("completed"):
                 continue
-            recurrence = alloc.get("recurrence", "every_period")
-            if recurrence == "once" and preview:
+            if alloc.get("recurrence", "every_period") == "once" and preview:
                 continue
-            remaining = float(alloc.get("remaining") or 0.0)
             if preview:
                 amount = float(alloc.get("period_amount") or alloc.get("amount_per_period") or 0.0)
             else:
-                amount = remaining
+                amount = float(alloc.get("remaining") or 0.0)
             if amount <= 0:
                 continue
             if alloc.get("tracking_mode") == "manual":
@@ -1275,48 +1283,88 @@ async def _active_allocation_slices(
             else:
                 dest = alloc.get("fill_account_id")
             dest = str(dest or "")
-            if not dest or dest == (salary_acct or ""):
-                continue  # kept in the paying account, or no destination
-            dest_acc = amap.get(dest)
-            if dest_acc is None or is_credit_card_account(dest_acc):
-                continue
-            source = alloc.get("source_account_id")
-            source = str(source) if source and str(source) in amap and str(source) != dest else None
-            derived = None
-            if remaining > 0:
-                derived = await _allocation_funding_source(uid, alloc, inflows, amap)
-            if source is None:
-                source = derived or (salary_acct or "")
-            name = str(alloc.get("name") or "").strip()
-            entry = out.setdefault(dest, {
-                "slice_total_pence": 0, "names": [], "allocation_ids": [], "source_ids": [],
-                "items": [], "reserved_on_salary_pence": 0,
-            })
-            pence = int(round(amount * 100))
-            entry["slice_total_pence"] += pence
-            if name:
-                entry["names"].append(name)
-            entry["allocation_ids"].append(str(alloc.get("id") or ""))
-            entry["source_ids"].append(source)
-            entry["items"].append({
-                "name": name, "slice": round(pence / 100, 2),
-                "id": str(alloc.get("id") or ""), "source_id": source,
-            })
-            if derived is not None and derived == (salary_acct or "") and remaining > 0:
-                entry["reserved_on_salary_pence"] += int(round(remaining * 100))
+            explicit = alloc.get("source_account_id")
+            assumed = False
+            if explicit:
+                source = str(explicit)
+                src_acc = amap.get(source)
+                if source == dest or (amap and (src_acc is None or is_credit_card_account(src_acc))):
+                    continue  # explicit but unusable: never guess
+            elif alloc.get("source_set") is True:
+                continue  # an explicit null is the user's "Not set"
+            else:
+                source = await _allocation_funding_source(uid, alloc, inflows, amap)
+                if source is None or source == dest:
+                    source, assumed = (salary_acct or ""), True
+            _add(source, str(alloc.get("name") or "").strip() or "Set-aside", "set_aside",
+                 amount, assumed, [dest] if dest else [])
         except Exception:
-            log.exception("_active_allocation_slices: skipped one allocation for %s", uid)
-            continue
+            log.exception("_plan_source_needs: skipped one set-aside for %s", uid)
+
+    # ── Goals ──────────────────────────────────────────────────────────────
+    try:
+        from app.db.collections import commitments_col
+        from app.routers.commitments import (
+            _doc_pots,
+            _pot_progress_and_slice,
+            compute_pot_ledger,
+        )
+        from app.services.account_plan_sources import needs_inference, resolve_goal_source
+
+        today_d = timeutil.user_today()
+        docs = await commitments_col.find(
+            {"user_id": uid, "status": "active"},
+            {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
+             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
+             "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
+             "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
+             "fill_rule": 1},
+        ).to_list(None)
+        if docs:
+            ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
+            wanted = {
+                str(c["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(c)})
+                for c in docs
+                if needs_inference(c, {str(p["account_id"]) for p in _doc_pots(c)})
+            }
+            prefetched: dict[str, str | None] = {}
+            if wanted and amap:
+                try:
+                    prefetched = await infer_plan_sources_batch(uid, wanted, amap)
+                except Exception:
+                    log.exception("_plan_source_needs: batched goal source inference failed")
+            for c in docs:
+                try:
+                    pots = _doc_pots(c)
+                    dest_ids = {str(p["account_id"]) for p in pots}
+                    if not dest_ids:
+                        continue  # an unlinked goal moves nothing through the plan
+                    try:
+                        slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
+                    except Exception:
+                        continue
+                    source, inferred = await resolve_goal_source(
+                        uid, c, amap, dest_ids, prefetched=prefetched,
+                    )
+                    assumed = False
+                    if source is None:
+                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
+                            continue  # "Not set", or a stored account that is no longer usable
+                        source, assumed = (salary_acct or ""), True
+                    _add(source, str(c.get("name") or "").strip() or "Goal", "goal",
+                         float(slice_info["per_period_slice"]), assumed, sorted(dest_ids))
+                except Exception:
+                    log.exception("_plan_source_needs: skipped one goal for %s", uid)
+    except Exception:
+        log.exception("_plan_source_needs: goals unavailable for %s", uid)
+
     return {
-        dest: {
-            "slice_total": round(e["slice_total_pence"] / 100, 2),
-            "names": e["names"],
-            "allocation_ids": e["allocation_ids"],
-            "source_ids": e["source_ids"],
-            "items": e["items"],
-            "reserved_on_salary": round(e["reserved_on_salary_pence"] / 100, 2),
+        source: {
+            "amount": round(pence / 100, 2),
+            "source_assumed": any(r["source_assumed"] for r in reasons_by_source[source]),
+            "reasons": reasons_by_source[source],
         }
-        for dest, e in out.items()
+        for source, pence in pence_by_source.items()
     }
 
 
@@ -3639,14 +3687,11 @@ async def compute_today_items(
             recurring_keys = {r.get("key") for r in (cached.get("recurring_spend") or []) if r.get("key")}
             everyday_spend = await _per_account_everyday_spend(uid, recurring_keys)
             usual_moves = await _usual_payday_moves(uid, salary_acct, pay_cfg)
-            # Active commitments lift their destination pot's move to at least
-            # the sum of their per-period slices ({} on any failure). Each
-            # goal's whole slice routes to its FIRST CONNECTED pot; manual
-            # (offline) pots never appear as keys — they aren't plan dests.
-            commitment_slices = await _active_commitment_slices(uid, pay_cfg, live_balances)
-            # G350: recurring set-asides held in a separate pot become legs
-            # too (worded like goal legs). Kept-in-paying-account ones don't.
-            allocation_slices = await _active_allocation_slices(
+            # G350: goals and set-asides are tracked at their SOURCE account,
+            # never at the pot they end up in. The salary account's share is
+            # money the plan keeps there; any other source's share is added to
+            # that account's move, with the reasons attached.
+            source_needs = await _plan_source_needs(
                 uid, pay_cfg, live_balances, salary_acct, bool(payday_preview),
                 account_map=_account_map, internal_inflows=resp["internal_inflows"],
             )
@@ -3693,7 +3738,11 @@ async def compute_today_items(
 
             _salary_bills_total, _ = _salary_bills_excl_own_dests(salary_acct)
             _salary_spend_typical = int(everyday_spend.get(salary_acct, 0))
-            _salary_target = _salary_bills_total + _salary_spend_typical + payday_buffer
+            _salary_keeps = source_needs.get(salary_acct) or {}
+            _salary_keeps_total = round(float(_salary_keeps.get("amount") or 0.0), 2)
+            _salary_target = (
+                _salary_bills_total + _salary_spend_typical + payday_buffer + _salary_keeps_total
+            )
             # Envelope reservation (owner fix, 2026-08-31): the salary
             # account is itself a SOURCE for this plan's own legs, so it
             # reserves the same unfilled allocation remainder any other
@@ -3703,15 +3752,11 @@ async def compute_today_items(
             # arithmetic below (Phase 1/Phase 2) consume the reduced pot
             # exactly as it already does for any other overage, rather than
             # special-casing allocations.
-            _salary_envelope_reserved = reserved_by_source.get(salary_acct, 0.0)
-            # G350 double-count guard: a set-aside that is now a plan leg
-            # shows up as a MOVE (which reduces what stays), so its
-            # reservation on the salary account is added back to
-            # `distributable`. Reservations for set-asides that did NOT become
-            # legs (kept in the paying account, no destination) stay.
-            _salary_envelope_reserved = max(0.0, _salary_envelope_reserved - sum(
-                float(v.get("reserved_on_salary") or 0.0) for v in allocation_slices.values()
-            ))
+            # G350: the set-aside reservation on the salary account is now
+            # part of `_salary_keeps_total` inside `_salary_target` (goals and
+            # set-asides sourced from the salary account, kept there), so it
+            # is not subtracted a second time here.
+            _salary_envelope_reserved = 0.0
             distributable = _bal(salary_acct) - _salary_target - _salary_envelope_reserved
 
             dests: list[dict] = []
@@ -3727,6 +3772,16 @@ async def compute_today_items(
                 bills_total, bill_count, own_transfers_skipped = _acct_bills(acct_id)
                 balance = _bal(acct_id)
                 usual = usual_moves.get(acct_id)  # int or None — None means "no usual pattern seen"
+                # G350: a habitual top-up from the salary account into a pot
+                # that a salary-sourced goal/set-aside feeds IS that need, which
+                # the plan keeps in the salary account instead of routing it, so
+                # it is netted off here (Kevin: no "Personal GBP, funds Japan").
+                _sink_keeps = sum(
+                    r["amount"] for r in _salary_keeps.get("reasons", []) if acct_id in (r.get("to") or [])
+                )
+                if usual is not None and _sink_keeps > 0:
+                    _usual_left = usual - _sink_keeps
+                    usual = max(0, int(round(_usual_left))) or None
                 _dest_is_savings = _is_savings(acc)
                 if _dest_is_savings:
                     # Savings pots: the user's saving intent is theirs (Grow
@@ -3749,31 +3804,24 @@ async def compute_today_items(
                     target = bills_total + spend_typical + buffer
                     move_raw = max(0.0, target - balance)
                     move = _ceil5(move_raw) if move_raw > 0 else 0
-                _nat_move = move  # the move before any goal/set-aside floor (G350)
-                # Commitments routed to this pot: the move becomes at least
-                # the sum of their per-period slices (never lowered).
-                _commit = commitment_slices.get(acct_id)
-                if _commit:
-                    _c_slice = round(float(_commit.get("slice_total") or 0), 2)
-                    if _c_slice > 0 and move < _c_slice:
-                        move = _c_slice
-                        if _dest_is_savings:
-                            target = move + bills_total
-                # Set-asides held in this pot (G350). Goals and set-asides are
-                # different pots of money going to the SAME account, so the
-                # move must cover BOTH: the floor is goal slice + set-aside
-                # slice (summed), applied as a floor like a goal alone (never
-                # lowered, so a habitual top-up that already covers them is
-                # not doubled).
-                _alloc = allocation_slices.get(acct_id)
-                _a_slice = round(float(_alloc.get("slice_total") or 0), 2) if _alloc else 0.0
-                if _a_slice > 0:
-                    _c_part = round(float(_commit.get("slice_total") or 0), 2) if _commit else 0.0
-                    _floor_all = round(_c_part + _a_slice, 2)
-                    if move < _floor_all:
-                        move = _floor_all
-                        if _dest_is_savings:
-                            target = move + bills_total
+                _nat_move = move  # the move before any source need (G350)
+                # G350: this account is the SOURCE of goal/set-aside money,
+                # so the plan must leave it enough to cover those needs: they
+                # raise its target (and its move), with the reasons attached.
+                _need = source_needs.get(acct_id)
+                _need_total = round(float(_need.get("amount") or 0.0), 2) if _need else 0.0
+                if _need_total > 0:
+                    # The need is added in full (exact pennies) on top of the
+                    # natural move, less any balance already sitting above
+                    # this account's own target.
+                    if _dest_is_savings:
+                        _surplus = max(0.0, balance - bills_total)
+                        move = round(move + max(0.0, _need_total - _surplus), 2)
+                        target = move + bills_total
+                    else:
+                        _surplus = max(0.0, balance - target)
+                        move = round(move + max(0.0, _need_total - _surplus), 2)
+                        target = bills_total + spend_typical + buffer + _need_total
                 if not (move > 0 or usual is not None):
                     continue
                 # G129 fix: a savings pot with no bills owed but a habitual
@@ -3821,30 +3869,26 @@ async def compute_today_items(
                     # only — PaydayPlanCard doesn't render this yet.
                     "own_transfers_skipped": int(round(own_transfers_skipped)),
                 }
-                if _commit and _commit.get("names"):
-                    _dest_entry["commitment_names"] = list(_commit["names"])
-                if _alloc and _alloc.get("names"):
-                    _dest_entry["allocation_names"] = list(_alloc["names"])
-                # Deferrable legs on this destination (G350), used only when
-                # the plan is over the pay: a goal leg (one per pot, named by
-                # its goals) and one leg per set-aside. Internal, not shipped.
-                _legs: list[dict] = []
-                _c_leg = round(float(_commit.get("slice_total") or 0), 2) if _commit else 0.0
-                if _c_leg > 0:
-                    _legs.append({
-                        "kind": "goal",
-                        "name": ", ".join(_commit.get("names") or []) or _dest_entry["name"],
-                        "amount": _c_leg,
-                    })
-                for _it in (_alloc.get("items") or []) if _alloc else []:
-                    if float(_it.get("slice") or 0) > 0:
-                        _legs.append({
-                            "kind": "set_aside",
-                            "name": _it.get("name") or _dest_entry["name"],
-                            "amount": round(float(_it["slice"]), 2),
-                        })
-                if _legs:
-                    _leg_meta[acct_id] = {"nat": _nat_move, "legs": _legs}
+                # Deferrable source-need legs on this destination (G350): the
+                # part of the move that exists only because of goal/set-aside
+                # needs, split across its reasons largest first. Used only when
+                # the plan is over the pay. `_legs` is internal, `reasons` ships.
+                _contrib = round(max(0.0, move - _nat_move), 2)
+                if _need and _contrib > 0:
+                    _left = _contrib
+                    _legs: list[dict] = []
+                    for _r in sorted(_need["reasons"], key=lambda r: r["amount"], reverse=True):
+                        _eff = round(min(_r["amount"], _left), 2)
+                        if _eff <= 0:
+                            break
+                        _legs.append({"kind": _r["kind"], "name": _r["name"], "amount": _eff})
+                        _left = round(_left - _eff, 2)
+                    _leg_meta[acct_id] = {"nat": _nat_move, "legs": _legs, "need": _need_total}
+                if _need:
+                    _dest_entry["reasons"] = [
+                        {"name": r["name"], "kind": r["kind"], "amount": r["amount"]}
+                        for r in _need["reasons"]
+                    ]
                 dests.append(_dest_entry)
 
             dests.sort(key=lambda d: d["move"], reverse=True)
@@ -3894,7 +3938,7 @@ async def compute_today_items(
                             weight = d["spend_typical"] / _pool
                             share = overage * weight
                             floor = max(0.0, d["bills_total"] - d["balance"])
-                            max_cut = max(0.0, d["move"] - max(floor, _leg_floor(d)))
+                            max_cut = max(0.0, d["move"] - (floor + _leg_floor(d)))
                             cut = min(share, d["spend_typical"], max_cut)
                             if cut <= 0:
                                 continue
@@ -3925,13 +3969,16 @@ async def compute_today_items(
                     floor = max(0.0, d["bills_total"] - d["balance"])
                     floor_ceil = _ceil5(floor) if floor > 0 else 0
                     move_ceil = _ceil5(d["move"]) if d["move"] > 0 else 0
-                    d["move"] = max(move_ceil, floor_ceil, round(_leg_floor(d), 2))
+                    d["move"] = max(move_ceil, round(floor_ceil + _leg_floor(d), 2))
                     d["buffer"] = int(round(d["buffer"]))
                     d["spend_typical"] = int(round(d["spend_typical"]))
                     if d.get("destination_kind") == "savings":
                         d["target"] = d["move"] + int(round(d["bills_total"]))
                     else:
-                        d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
+                        d["target"] = round(
+                            int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
+                            + (_leg_meta.get(d["account_id"]) or {}).get("need", 0.0), 2,
+                        )
 
                 total = sum(d["move"] for d in dests)
             else:
@@ -3959,6 +4006,21 @@ async def compute_today_items(
                 d["move"] = round(d["move"] - cut, 2)
                 if d.get("destination_kind") == "savings":
                     d["target"] = round(d["move"] + int(round(d["bills_total"])), 2)
+                else:
+                    d["target"] = round(d["target"] - cut, 2)
+
+            def _drop_reason(d: dict, leg: dict, cut: float) -> None:
+                # Keep the shipped `reasons` honest: a dropped leg disappears,
+                # a partly reduced one shows what is left.
+                for r in list(d.get("reasons") or []):
+                    if r["name"] == leg["name"] and r["kind"] == leg["kind"]:
+                        if cut >= r["amount"] - _eps:
+                            d["reasons"].remove(r)
+                        else:
+                            r["amount"] = round(r["amount"] - cut, 2)
+                        break
+                if not d.get("reasons"):
+                    d.pop("reasons", None)
 
             if total > 0 and _over > _eps:
                 _pending = []
@@ -3976,12 +4038,13 @@ async def compute_today_items(
                     _nat = _ceil5(_nat) if _nat > 0 else 0
                     _bf = max(0.0, d["bills_total"] - d["balance"])
                     _bf = _ceil5(_bf) if _bf > 0 else 0
-                    _freed = d["move"] - max(_nat, _others, _bf)
+                    _freed = d["move"] - (max(_nat, _bf) + _others)
                     _m["legs"].remove(_l)
                     if _freed <= _eps:
                         continue  # the habitual move already covers it: nothing to leave out
                     _cut = min(_freed, _over)
                     _cut_move(d, _cut)
+                    _drop_reason(d, _l, _cut)
                     _over -= _cut
                     left_out.append({"name": _l["name"], "kind": _l["kind"], "amount": round(_cut, 2)})
                 if _over > _eps:
@@ -3992,7 +4055,7 @@ async def compute_today_items(
                             continue
                         _bf = max(0.0, d["bills_total"] - d["balance"])
                         _bf = _ceil5(_bf) if _bf > 0 else 0
-                        _freed = d["move"] - max(_bf, _leg_floor(d))
+                        _freed = d["move"] - (_bf + _leg_floor(d))
                         if _freed <= _eps:
                             continue
                         _cut = min(_freed, _over)
@@ -4164,6 +4227,13 @@ async def compute_today_items(
                         "provider": _salary_provider,
                         "amount": int(salary_amount),
                         "stays": stays,
+                        # G350: goal/set-aside money sourced from this account
+                        # that the plan keeps here rather than moving.
+                        "keeps": [
+                            {"name": r["name"], "kind": r["kind"], "amount": r["amount"],
+                             "source_assumed": bool(r.get("source_assumed"))}
+                            for r in _salary_keeps.get("reasons", [])
+                        ],
                     },
                     "dests": dests,
                     "over_salary": over_salary,

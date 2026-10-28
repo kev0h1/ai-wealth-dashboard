@@ -174,10 +174,15 @@ def test_payday_plan_move_target_and_total_keep_the_chosen_pennies(monkeypatch):
     monkeypatch.setattr(pay_period, "get_pay_period_for_date", lambda _day, _cfg: (today, today + timedelta(days=29)))
     monkeypatch.setattr(pay_period, "_next_payday", lambda _day, _cfg: today + timedelta(days=30))
 
-    async def slices(*_args):
-        return {"pot": {"slice_total": 100.25, "names": ["Japan"]}}
+    # G350: the payday plan reads goal money at its SOURCE account through
+    # `_plan_source_needs` (it no longer lifts the destination pot). The
+    # account that must find the goal's pennies keeps them exactly.
+    async def needs(*_args, **_kwargs):
+        return {"pot": {"amount": 100.25, "source_assumed": False, "reasons": [
+            {"name": "Japan", "kind": "goal", "amount": 100.25, "source_assumed": False, "to": []},
+        ]}}
 
-    monkeypatch.setattr(companion, "_active_commitment_slices", slices)
+    monkeypatch.setattr(companion, "_plan_source_needs", needs)
     plan = _payday_plan(run(companion.compute_today_items(UID, persist=False)))
     assert plan is not None
     dest = next(d for d in plan["dests"] if d["account_id"] == "pot")
