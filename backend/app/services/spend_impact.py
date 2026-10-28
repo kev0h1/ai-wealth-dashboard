@@ -634,7 +634,12 @@ async def _goal_horizon(uid: str, delta: float, pay_cfg: dict) -> dict | None:
                 # Can't project a finite ETA at this rate — no fabricated
                 # promise, silently skip this goal rather than guess.
                 continue
-            new_periods = math.ceil(remaining / adjusted_slice)
+            if info.get("scheduled_later_pence") is not None:
+                # G351: a scheduled goal's horizon is the schedule's own end,
+                # not remaining / slice, so one period's spend never moves it.
+                new_periods = info["periods_left"]
+            else:
+                new_periods = math.ceil(remaining / adjusted_slice)
             if new_periods > GOAL_HORIZON_MAX_PERIODS:
                 # A near-zero adjusted slice can blow this up arbitrarily
                 # (bad/thin data) — cap it rather than let `_advance_periods`

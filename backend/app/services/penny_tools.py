@@ -3604,6 +3604,16 @@ async def _exec_get_goals(uid: str) -> dict:
                 for p in (g.get("funding_pots") or [])
             ],
         })
+    for goal, g in zip(goals, items):
+        # G351: a goal on a contribution schedule carries the server's own
+        # sentence and figures. Quote them, never work them out.
+        if g.get("schedule_label"):
+            goal["schedule_label"] = g["schedule_label"]
+            goal["this_period_amount"] = _money(g.get("this_period_amount"))
+            goal["next_periods"] = [
+                {"start": n.get("start"), "end": n.get("end"), "amount": _money(n.get("amount"))}
+                for n in (g.get("next_periods") or [])
+            ]
     result = {"goals": goals}
     capped = len(items) - len(goals)
     if capped > 0:

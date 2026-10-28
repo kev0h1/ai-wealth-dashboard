@@ -126,6 +126,7 @@ def move_date(target: date, periods: int, cfg: dict) -> date:
 
 def ease_options(
     *, remaining: float, later_periods: int, usual: int, contribution: int, target: date, cfg: dict,
+    scheduled_later: int | None = None,
 ) -> dict:
     """Both ways of making up an easing to `contribution` (whole pounds) this
     period, each with its figure or the reason it is refused. The caller has
@@ -135,6 +136,19 @@ def ease_options(
     through the target date, which is exactly what the engine will divide by
     when it next sizes a slice, so the figures here are the engine's own."""
     later_n = max(0, later_periods)
+    if scheduled_later is not None:
+        # G351: a scheduled goal's later periods follow the schedule. Easing
+        # lowers this period only, the shortfall stays in what is left, and the
+        # date never moves (it is the schedule's own end).
+        refused = MSG_NO_LATER if later_n <= 0 or scheduled_later <= 0 else None
+        option = {
+            "later_slice": None if refused else scheduled_later / 100,
+            "date_moves_periods": 0,
+            "target_date": target.isoformat(),
+            "refused": refused,
+        }
+        return {"contribution": contribution, "usual_slice": usual,
+                "keep_date": dict(option), "keep_amount": dict(option)}
     kd_slice = later_slice(remaining, contribution, later_n)
     if kd_slice is None:
         kd_refused = MSG_NO_LATER

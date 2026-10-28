@@ -921,7 +921,23 @@ export type AllocationContributionPreview = {
   preview_token: string;
 };
 
+/** G351: a goal's contribution schedule. Amounts are integer pence, dates ISO. */
+export type GoalSchedule =
+  | { type: "equal" }
+  | { type: "arithmetic"; start_pence: number; step_pence: number; step_unit: "day" | "week" | "period"; start_date: string; count: number | null; end_date: string | null }
+  | { type: "fixed"; start_date: string; amounts_pence: number[]; unit: "period" }
+  | { type: "percent_of_pay"; percent: number; start_date: string; expected_pay_pence: number | null; count: number | null; end_date: string | null };
+
+export type GoalSchedulePeriod = { start: string; end: string; amount: number };
+
 export type Commitment = {
+  /** G351: present only on a goal with a contribution schedule. Pounds, from the server. */
+  schedule?: GoalSchedule | null;
+  schedule_label?: string;
+  this_period_amount?: number;
+  next_periods?: GoalSchedulePeriod[];
+  scheduled_total?: number;
+  planned_to_date?: number;
   /** A reservation intention for this live pay period, never saved progress. */
   current_period_contribution?: Omit<GoalContributionPreview, "preview_token"> | null;
   category_tracking?: PlanCategoryTracking | null;
@@ -3322,6 +3338,8 @@ export const api = {
     name: string;
     amount: number;
     target_date: string;
+    /** G351: when present the server derives amount and target_date from it. */
+    schedule?: GoalSchedule;
     /** Goals v2 — multiple pots, each with a count-existing choice. */
     funding_pots?: { account_id: string; count_existing: boolean }[];
     /** @deprecated Single-pot shape — prefer funding_pots. */
@@ -3337,6 +3355,8 @@ export const api = {
     name?: string;
     amount?: number;
     target_date?: string;
+    /** G351: replaces the schedule; null returns to equal amounts. */
+    schedule?: GoalSchedule | null;
     /** Goals v2 — replaces the pot set; baselines re-capture server-side. */
     funding_pots?: { account_id: string; count_existing: boolean }[];
     /** @deprecated Single-pot shape — prefer funding_pots. */
