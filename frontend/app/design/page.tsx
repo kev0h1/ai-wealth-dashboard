@@ -103,18 +103,18 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "goal-schedules",
-    name: "Goals with a contribution schedule · G351",
+    name: "Goals that grow with you · G351",
     description:
-      "G351 design round, impeccable · Kevin 2026-10-28: a goal can follow a schedule other than equal amounts (his 4p challenge: 4p on day one, rising by 4p a day for 365 days, total £2,671.80), set up with Penny, who only phrases what the server works out · three art directions for the Penny confirmation card and View plan: A Ledger (mono rows, a ladder with this pay period highlighted) / B Sentence first (the schedule in words, one figure, the rest a whisper) / C Sparkline (A plus a small rising step line and a bar against the schedule, indigo ink only) · every card shows where the money leaves from with a Change control, and the Convert toggle shows the offer to replace a set-aside (pauses it only on confirm) · View plan uses the production PlanRecordView, the confirm state shows today's production ProposalConfirmCard for comparison; the new card, ladder, sparkline and editor are hand-authored because no production schedule piece exists yet · fixtures only, nothing recalculates · ?variant=a|b|c&state=confirm|plan|edit&mode=light|dark&convert=1",
+      "G351 design round 2, impeccable · A This period first / B Compact overview / C Step by step. Interactive Penny setup, View plan and a recalculating schedule editor. Try daily, weekly, custom amounts or a share of pay; choose a source account, replace a set-aside, hide figures and try a failed confirmation. Synthetic monthly periods as at 28 October 2026; nothing is saved. Both themes. ?variant=a|b|c&state=confirm|plan|edit&mode=light|dark&convert=1",
     states: [
-      { label: "Penny confirmation card", value: "confirm" },
-      { label: "View plan with a schedule", value: "plan" },
-      { label: "Edit the schedule", value: "edit" },
+      { label: "Penny setup", value: "confirm" },
+      { label: "View plan", value: "plan" },
+      { label: "Edit schedule", value: "edit" },
     ],
     variants: [
-      { label: "A Ledger", value: "a" },
-      { label: "B Sentence first", value: "b" },
-      { label: "C Sparkline", value: "c" },
+      { label: "A This period first", value: "a" },
+      { label: "B Compact overview", value: "b" },
+      { label: "C Step by step", value: "c" },
     ],
   },
   {
