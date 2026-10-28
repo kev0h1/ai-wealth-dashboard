@@ -45,7 +45,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 | `plan_consolidation(target_account_id_or_name, amount?, include_savings?, exclude_account_ids_or_names?)` | read (G334) | `build_today_payload` account eligibility, the move planner |
 | `get_payday_plan` | read (B60) | `app.services.companion.compute_today_items` (the live payday plan item, else the preview, never persisted) |
 | `get_pay_split(reference?)` | read (B60) | `app.services.money_shape.get_money_shape_cached` + the `pay_split_reference` preference |
-| `preview_goal_schedule(description?, start_amount?, step_amount?, step_unit?, count?, end_date?, start_date?, percent?, pay_amount?, amounts?, funding_pot?, source_account_id_or_name?, goal_ref?)` | read (G351) | `app.services.goal_schedule` (the schedule engine) via `penny_goal_schedule.py`; also reports the source account suggestion |
+| `preview_goal_schedule(description?, start_amount?, step_amount?, step_unit?, count?, end_date?, start_date?, percent?, pay_amount?, amounts?, funding_pot?, source_account_id_or_name?, goal_ref?, name?, ask_date?)` | read (G351, G355) | `app.services.goal_schedule` (the schedule engine) via `penny_goal_schedule.py`; also reports the source account suggestion |
 | `check_affordability(amount, timeframe?)` | read | `app.services.affordability` |
 | `get_category_spend(category?, months?)` | read | `compute_spend_verdict` + raw txn rows |
 | `get_insights` | read | `savings_insights_col` ordered as `GET /savings-insights` (G283: facts only, no saving figures) |
@@ -92,7 +92,7 @@ reconciled against that real total. B60 (2026-10-25) added three more (`propose_
 | `propose_add_planned(name, amount, date, account_id?)` | propose | `app.routers.planned.create_planned_expense` (`POST /planned`) |
 | `propose_create_allocation(name, amount_per_period, fill_account_id, match_type, match_value, recurrence, effective_from?)` | propose | `app.routers.allocations.create_allocation` (`POST /allocations`) |
 | `propose_create_commitment(name, amount, target_date, funding_pots?)` | propose | `app.routers.commitments.create_commitment` (`POST /commitments`) |
-| `propose_create_scheduled_goal(name, description?, schedule fields?, funding_pot?, source_account_id_or_name?, use_detected_source?, convert_from_set_aside?)` | propose (G351) | `app.routers.commitments.create_commitment` (`POST /commitments` with a `schedule` and a source account); a replaced set-aside is paused on the same confirmation |
+| `propose_create_scheduled_goal(name, description?, schedule fields?, funding_pot?, source_account_id_or_name?, use_detected_source?, convert_from_set_aside?, create_alongside?)` | propose (G351, G355) | `app.routers.commitments.create_commitment` (`POST /commitments` with a `schedule` and a source account); a replaced set-aside is paused on the same confirmation |
 | `propose_recategorise_transaction(transaction_id or merchant+date+amount, new_category, scope)` | propose | `app.routers.transactions.update_transaction` (`scope="just_once"`), + `app.routers.categories.add_rule` (`scope="always"`) |
 | `propose_set_card_apr(card_ref, apr_pct)` | propose | `app.routers.card_terms.save_card_terms` (read-modify-write, only `apr_pct` changes) |
 | `propose_update_planned(planned_ref, name?, amount?, date?)` | propose (B14) | `app.routers.planned.update_planned_expense` (`PATCH /planned/{id}`, name/amount/date only, not `account_id`) |

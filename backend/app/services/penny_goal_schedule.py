@@ -979,14 +979,6 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
             extra["convert_from_set_aside"] = str(set_aside["id"])
         elif alongside:
             extra["create_alongside"] = True
-        else:
-            match = await existing_match(uid, [n for n in (name, suggested) if n])
-            if match:
-                extra["convert_candidate"] = match
-                return _with_draft({
-                    "needs": ["convert_decision"], "candidate": match,
-                    "summary": f"{built['summary']} {convert_sentence(match)}",
-                }, args, _next_draft(old, built, name=name, extra=extra))
 
         pot_ref = args.get("funding_pot") or (old or {}).get("into_id")
         if not pot_ref and set_aside:
@@ -998,14 +990,28 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
         if found.get("blocked"):
             return _with_draft(found["blocked"], args, _next_draft(old, built, name=name, into=found.get("into"), extra=extra))
         source = found.get("source")
+        into = found.get("into")
+
+        # Everything still open is reported at once, and what is settled is kept in the draft.
+        needs: list[str] = []
+        out: dict = {}
+        match = None
+        if not convert_ref and not alongside:
+            match = await existing_match(uid, [n for n in (name, suggested) if n])
+            if match:
+                extra["convert_candidate"] = match
+                needs.append("convert_decision")
+                out.update({"candidate": match, "summary": f"{built['summary']} {convert_sentence(match)}"})
         if source is None or (source["basis"] in ("recent-transfers", "assumed", "model") and not args.get("use_detected_source")):
             # A detected or model-picked account is only a suggestion until the user agrees to it.
-            draft = _next_draft(old, built, name=name, source=source, into=found.get("into"), extra=extra)
-            return _with_draft({"needs": ["source_account"], "suggested_source": source, "into": found.get("into"),
-                                "summary": built["summary"]}, args, draft)
+            needs.append("source_account")
+            out.update({"suggested_source": source, "into": into})
+            out.setdefault("summary", built["summary"])
+        if needs:
+            draft = _next_draft(old, built, name=name, source=source, into=into, extra=extra)
+            return _with_draft({"needs": needs, **out}, args, draft)
 
         pots = []
-        into = found.get("into")
         if into:
             pots = [{"account_id": into["account_id"], "count_existing": False}]
         total = built["total"]["formatted"]
