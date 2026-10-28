@@ -149,8 +149,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/services/penny_goal_schedule.py", 437),
     ("app/services/penny_goal_schedule.py", 919),
     ("app/services/penny_goal_schedule.py", 967),
-    ("app/services/penny_goal_schedule.py", 1039),
-    ("app/services/penny_goal_schedule.py", 1080),
+    ("app/services/penny_goal_schedule.py", 1045),
+    ("app/services/penny_goal_schedule.py", 1086),
 }
 
 
