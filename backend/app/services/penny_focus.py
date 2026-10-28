@@ -34,6 +34,14 @@ KIND_BY_TOOL = {
     "get_recurring_payments": "recurring",
 }
 
+# G355: a goal draft rides on the focus record as `draft` (see clean_draft), so it
+# survives the 6-turn model history. A focus whose kind is `goal_draft` holds only
+# the draft (a tool of this name produced it); a draft with no content is the
+# tombstone left when the proposal is created, so an older draft is not revived.
+DRAFT_TOOL = "preview_goal_schedule"
+DRAFT_KIND = "goal_draft"
+DRAFT_TOOLS = frozenset({"preview_goal_schedule", "propose_create_scheduled_goal", "propose_update_commitment"})
+
 # propose tool -> (reference argument, kinds it can resolve from)
 REF_ARG_BY_TOOL = {
     "propose_recategorise_transaction": ("transaction_id", ("transaction",)),
@@ -71,6 +79,13 @@ def clean_focus(raw) -> dict | None:
     if not isinstance(raw, dict):
         return None
     tool = raw.get("tool")
+    if tool == DRAFT_TOOL and raw.get("kind") == DRAFT_KIND:
+        draft = clean_draft(raw.get("draft"))
+        out = {"tool": tool, "kind": DRAFT_KIND, "args": {}, "ids": ["draft"],
+               "labels": {"draft": _clean_label((draft or {}).get("name") or "goal draft")}}
+        if draft:
+            out["draft"] = draft
+        return out
     kind = raw.get("kind") or KIND_BY_TOOL.get(tool)
     if tool not in KIND_BY_TOOL or kind != KIND_BY_TOOL[tool]:
         return None
@@ -91,7 +106,89 @@ def clean_focus(raw) -> dict | None:
     for k, v in (raw_labels.items() if isinstance(raw_labels, dict) else []):
         if isinstance(k, str) and k[:_ID_MAX] in ids and isinstance(v, str) and v.strip():
             labels[k[:_ID_MAX]] = _clean_label(v)
-    return {"tool": tool, "kind": kind, "args": args, "ids": ids, "labels": labels}
+    out = {"tool": tool, "kind": kind, "args": args, "ids": ids, "labels": labels}
+    draft = clean_draft(raw.get("draft"))
+    if draft:
+        out["draft"] = draft
+    return out
+
+
+# ── G355: the goal draft ─────────────────────────────────────────────────────
+
+_DRAFT_STR = {"name": 80, "source_account_id": 64, "source_account_name": 80, "into_id": 64, "into_name": 80,
+              "convert_from_set_aside": 64}
+_DRAFT_INT = ("start_pence", "step_pence", "count", "expected_pay_pence")
+_DRAFT_BASES = ("stated", "stored", "recent-transfers", "assumed", "model")
+_DRAFT_INT_MAX = 100_000_000
+
+
+def _iso_or_none(value) -> str | None:
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(str(value)[:10]).isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+def clean_draft(raw) -> dict | None:
+    """Validate a goal draft read from storage or built by the schedule tools.
+    Only known keys, typed and capped; None when nothing usable is left."""
+    if not isinstance(raw, dict):
+        return None
+    out: dict = {}
+    for key, cap in _DRAFT_STR.items():
+        v = raw.get(key)
+        if isinstance(v, str) and v.strip():
+            out[key] = _clean_label(v)[:cap]
+    for key in ("start_date", "end_date"):
+        v = _iso_or_none(raw.get(key)) if raw.get(key) else None
+        if v:
+            out[key] = v
+    for key in _DRAFT_INT:
+        v = raw.get(key)
+        if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= _DRAFT_INT_MAX:
+            out[key] = v
+    pct = raw.get("percent")
+    if isinstance(pct, (int, float)) and not isinstance(pct, bool) and 0 < pct <= 100:
+        out["percent"] = round(float(pct), 2)
+    if raw.get("step_unit") in ("day", "week", "period"):
+        out["step_unit"] = raw["step_unit"]
+    if raw.get("source_basis") in _DRAFT_BASES:
+        out["source_basis"] = raw["source_basis"]
+    amounts = raw.get("amounts_pence")
+    if isinstance(amounts, list) and 0 < len(amounts) <= 120 and all(
+            isinstance(a, int) and not isinstance(a, bool) and 0 < a <= _DRAFT_INT_MAX for a in amounts):
+        out["amounts_pence"] = list(amounts)
+    if raw.get("create_alongside") is True:
+        out["create_alongside"] = True
+    cand = raw.get("convert_candidate")
+    if isinstance(cand, dict) and cand.get("kind") in ("set_aside", "goal") and isinstance(cand.get("id"), str):
+        out["convert_candidate"] = {"kind": cand["kind"], "id": cand["id"][:64], "name": _clean_label(cand.get("name"))}
+    return out or None
+
+
+def draft_of(last_result) -> dict | None:
+    """The goal draft a stored focus carries, or None."""
+    focus = clean_focus(last_result)
+    return (focus or {}).get("draft")
+
+
+def with_draft(focus: dict | None, draft: dict | None, *, tombstone: bool = False) -> dict | None:
+    """`focus` carrying `draft`. With no other focus a draft-only focus is made;
+    a cleared draft with no other focus leaves a tombstone only when asked (the
+    proposal was created), so an older stored draft is not found again."""
+    focus = clean_focus(focus)
+    draft = clean_draft(draft)
+    if focus and focus["kind"] == DRAFT_KIND:
+        focus = None  # the draft record is rebuilt below
+    if focus is None:
+        if draft or tombstone:
+            return clean_focus({"tool": DRAFT_TOOL, "kind": DRAFT_KIND, "draft": draft})
+        return None
+    focus = {k: v for k, v in focus.items() if k != "draft"}
+    if draft:
+        focus["draft"] = draft
+    return focus
 
 
 def transaction_labels(result: dict) -> dict:
@@ -149,6 +246,9 @@ def focus_block(focus: dict | None) -> str:
     focus = clean_focus(focus)
     if not focus:
         return ""
+    draft_note = draft_block((focus or {}).get("draft"))
+    if focus["kind"] == DRAFT_KIND:
+        return draft_note
     shown = focus["ids"][:10]
     items = "; ".join(f"{focus['labels'].get(i, i)} [id {i}]" for i in shown)
     more = f" (and {len(focus['ids']) - len(shown)} more)" if len(focus["ids"]) > len(shown) else ""
@@ -157,7 +257,20 @@ def focus_block(focus: dict | None) -> str:
         "A follow-up such as 'just this one', 'change it back', 'put it under X', 'this one' or "
         "'that pot' means one of them: pass its id to the tool, never search again by a rounded "
         "figure, and never say you cannot find something you reported in the last few turns."
-    )
+    ) + draft_note
+
+
+def draft_block(draft: dict | None) -> str:
+    """Model-facing note holding the goal draft. Built by penny_goal_schedule
+    (which owns the schedule wording); empty when there is no draft."""
+    if not draft:
+        return ""
+    try:
+        from app.services.penny_goal_schedule import draft_sentence
+        return "\n\n" + draft_sentence(draft)
+    except Exception:
+        logger.exception("penny_focus: draft sentence failed")
+        return ""
 
 
 _STOPWORDS = frozenset({

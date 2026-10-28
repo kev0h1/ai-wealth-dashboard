@@ -120,19 +120,19 @@ ALLOWLIST: set[tuple[str, int]] = {
     # the pre-change source. No handler or exception policy changed.
     # G296 and A170 shift these same authored HTTPException forwards;
     # no handlers or exceptions changed. Entries map to identical source lines.
-    ("app/services/penny_tools.py", 5817),
-    ("app/services/penny_tools.py", 5837),
-    ("app/services/penny_tools.py", 5873),
-    ("app/services/penny_tools.py", 5896),
-    ("app/services/penny_tools.py", 6038),
-    ("app/services/penny_tools.py", 6043),
-    ("app/services/penny_tools.py", 6048),
-    ("app/services/penny_tools.py", 6146),
-    ("app/services/penny_tools.py", 6151),
-    ("app/services/penny_tools.py", 6156),
-    ("app/services/penny_tools.py", 7097),
-    ("app/services/penny_tools.py", 7752),
-    ("app/services/penny_tools.py", 7766),
+    ("app/services/penny_tools.py", 5838),
+    ("app/services/penny_tools.py", 5858),
+    ("app/services/penny_tools.py", 5894),
+    ("app/services/penny_tools.py", 5917),
+    ("app/services/penny_tools.py", 6059),
+    ("app/services/penny_tools.py", 6064),
+    ("app/services/penny_tools.py", 6069),
+    ("app/services/penny_tools.py", 6167),
+    ("app/services/penny_tools.py", 6172),
+    ("app/services/penny_tools.py", 6177),
+    ("app/services/penny_tools.py", 7118),
+    ("app/services/penny_tools.py", 7773),
+    ("app/services/penny_tools.py", 7787),
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
@@ -146,11 +146,11 @@ ALLOWLIST: set[tuple[str, int]] = {
     # forwarded to the user as a 400 or a Penny tool error; the HTTPException
     # sites below carry commitments._validate_name's authored detail.
     ("app/routers/commitments.py", 1222),
-    ("app/services/penny_goal_schedule.py", 423),
-    ("app/services/penny_goal_schedule.py", 590),
-    ("app/services/penny_goal_schedule.py", 629),
-    ("app/services/penny_goal_schedule.py", 683),
-    ("app/services/penny_goal_schedule.py", 719),
+    ("app/services/penny_goal_schedule.py", 437),
+    ("app/services/penny_goal_schedule.py", 919),
+    ("app/services/penny_goal_schedule.py", 967),
+    ("app/services/penny_goal_schedule.py", 1039),
+    ("app/services/penny_goal_schedule.py", 1080),
 }
 
 

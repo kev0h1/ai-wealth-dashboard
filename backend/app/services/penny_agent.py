@@ -641,7 +641,13 @@ _WRITE_TOOLS_ADDENDUM = (
     "propose_create_scheduled_goal; it will not create a goal without a name and a source account, "
     "and the user confirms on the card. Nothing moves until the user moves it. Never do date, weekday "
     "or amount arithmetic yourself: ask preview_goal_schedule with ask_date for the amount on a date, "
-    "and copy its weekday and day number."
+    "and copy its weekday and day number. The server keeps the draft between turns (the DRAFT note): "
+    "never re-ask a field the draft already holds, and treat a one-word answer such as 'Daily' or "
+    "'Monzo' as changing that one field only, passing just that field to the tool. A bank, product "
+    "or kind in the user's words ('my Monzo current account') is a valid account reference: pass it "
+    "as it was said. Never choose the source account yourself and never say the user chose something "
+    "they did not say. When the tool returns `convert_decision` or `existing_match`, offer to convert "
+    "the existing set-aside (or change the existing goal) and wait for the answer before calling again."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up
@@ -1026,6 +1032,7 @@ async def run_penny_agent(
     date_grounding += _last_result_block(last_result)
     focus_in = penny_focus.clean_focus(last_result)
     last_ids = list(focus_in["ids"]) if focus_in and focus_in["kind"] == "transaction" else []
+    draft_in = penny_focus.draft_of(last_result)  # G355: the goal draft carried across turns
 
     # Prompt caching (2026-09): the static system prompt (rules + write-tools
     # addendum, ~8,500 tokens together with the tool schemas above — comfortably
@@ -1083,6 +1090,14 @@ async def run_penny_agent(
         periods: list[dict] = []  # G265: every labelled period the tools returned
         new_last_result: dict | None = None
         focus_cleared = False
+        draft_cur: dict | None = draft_in  # G355: the goal draft as the schedule tools last left it
+        draft_ever = draft_in is not None
+
+        def _focus_out(base: dict | None) -> dict | None:
+            """The focus to store: `base` with the current goal draft on it. A draft that
+            was spent (proposal created) leaves a tombstone, so an older one is not revived."""
+            return penny_focus.with_draft(base, draft_cur, tombstone=draft_ever and draft_cur is None)
+
         repaired = False
         rounds = 0
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
@@ -1194,10 +1209,21 @@ async def run_penny_agent(
                             call_args = {**call_args, "_ids_ok": True}
                             if last_ids:
                                 call_args["_last_result_ids"] = last_ids
+                        if name in penny_focus.DRAFT_TOOLS and isinstance(call_args, dict):
+                            # G355: the draft and the user's own words come from the server, never
+                            # from the model's JSON (so an account is "stated" only if the user said it).
+                            call_args = {**call_args, "_draft": draft_cur, "_user_texts": [
+                                m.get("content") for m in messages
+                                if m.get("role") == "user" and isinstance(m.get("content"), str)
+                            ]}
                         if name in PROPOSE_TOOL_NAMES and isinstance(call_args, dict) and focus_in:
                             call_args = {**call_args, "_focus": focus_in}  # B59
                         t0 = time.monotonic()
                         result = await execute_tool(uid, name, call_args)
+                        if name in penny_focus.DRAFT_TOOLS and isinstance(result, dict) and "_draft" in result:
+                            result = dict(result)
+                            draft_cur = penny_focus.clean_draft(result.pop("_draft"))
+                            draft_ever = draft_ever or draft_cur is not None
                         if isinstance(result, dict) and "_result_ids" in result:
                             result = dict(result)
                             ids = [str(i) for i in (result.pop("_result_ids") or []) if i][:200]
@@ -1244,7 +1270,7 @@ async def run_penny_agent(
                             plan_results.append(result)
                         logger.info(
                             "penny_agent: tool=%s args=%s ms=%d uid=%s",
-                            name, {k: v for k, v in call_args.items() if k not in ("_last_result_ids", "_focus")}, dt_ms, uid,
+                            name, {k: v for k, v in call_args.items() if k not in ("_last_result_ids", "_focus", "_draft", "_user_texts")}, dt_ms, uid,
                         )
                         if isinstance(result, dict) and result.get("proposal") is True:
                             # Penny Agent Mode v1: a propose-only write tool
@@ -1257,7 +1283,7 @@ async def run_penny_agent(
                                 result.get("kind"), result.get("proposal_id"), name, uid, rounds,
                             )
                             # B59: the focus rides through a proposal unchanged.
-                            carried = new_last_result or (None if focus_cleared else focus_in)
+                            carried = _focus_out(new_last_result or (None if focus_cleared else focus_in))
                             return {"proposal": result, **({"last_result": carried} if carried else {})}
                         messages.append({
                             "role": "tool",
@@ -1317,8 +1343,8 @@ async def run_penny_agent(
                         prose = _weekday_fixed(_move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results), today, uid)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
-                        if new_last_result or (focus_in and not focus_cleared):
-                            done["last_result"] = new_last_result or focus_in
+                        if (carried := _focus_out(new_last_result or (None if focus_cleared else focus_in))):
+                            done["last_result"] = carried
                         return done
                     return {"loop_failed": True}
                 headline, reply = parsed
@@ -1338,8 +1364,8 @@ async def run_penny_agent(
                     done["chart"] = chart_block
                 if move_plan_block:
                     done["move_plan"] = move_plan_block
-                if new_last_result or (focus_in and not focus_cleared):
-                    done["last_result"] = new_last_result or focus_in  # B59: carried when nothing new
+                if (carried := _focus_out(new_last_result or (None if focus_cleared else focus_in))):
+                    done["last_result"] = carried  # B59: carried when nothing new (G355: with the goal draft)
                 return done
 
     try:

@@ -8520,6 +8520,9 @@ async def _update_commitment_entry(uid: str, args: dict) -> dict:
 
     if any(args.get(k) not in (None, "", []) for k in UPDATE_SCHEDULE_PROPERTIES):
         return await exec_propose_update_schedule(uid, args)
+    if args.get("_draft") and not any(args.get(k) not in (None, "") for k in ("name", "amount", "target_date")):
+        # G355: "put that plan on my existing goal": the draft is the schedule.
+        return await exec_propose_update_schedule(uid, args)
     return await _exec_propose_update_commitment(
         uid, args.get("commitment_ref"), args.get("name"), args.get("amount"), args.get("target_date"),
     )
