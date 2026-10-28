@@ -58,6 +58,11 @@ def world(monkeypatch):
         return {"cur": {"name": "Monzo Current Account", "provider": "Monzo", "type": "BANK", "account_subtype": "TRANSACTION"},
                 "pot": {"name": "Saving Challenge", "provider": "Monzo", "type": "BANK", "account_subtype": "SAVINGS_ACCOUNT"}}
 
+    async def no_items(user):  # G355: the same-name lookup never reaches a real collection
+        return {"items": []}
+
+    monkeypatch.setattr(allocations_module, "list_allocations", no_items)
+    monkeypatch.setattr(commitments_module, "list_commitments", no_items)
     monkeypatch.setattr(penny_tools_module, "_resolve_account_for_propose", resolve)
     monkeypatch.setattr(plan_sources, "owned_account_map", owned)
     state = {"found": "cur"}

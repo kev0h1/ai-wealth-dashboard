@@ -11,6 +11,7 @@ Two guards, both pure (no I/O, no logging of amounts):
   move is replaced with the one true sentence. Independent of tools.
 """
 import re
+from datetime import date, timedelta
 
 UNCHANGED_SENTENCE = "Moving money between your own accounts does not change your left to spend."
 
@@ -134,3 +135,118 @@ def fix_unchanged_claim(reply: str) -> tuple[str, bool]:
         final.append(s)
     text = "".join(final).strip()
     return text, True
+
+
+# ── G355: weekday corrections ────────────────────────────────────────────────
+# A model that works out a weekday itself gets it wrong ("29 Oct (Friday)" when
+# 29 Oct 2026 is a Thursday). The calendar is not a judgement call, so this
+# guard rewrites ONLY the weekday word that sits next to a date, and nothing
+# else. It runs on every reply.
+
+_WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+_WD = r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)"
+_MON = r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+_DM = r"(\d{1,2})(?:st|nd|rd|th)?\s+" + _MON + r"(?:,?\s+(\d{4}))?"
+_MONTH_NUM = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))}
+
+# "29 Oct (Friday)", "Friday, 30 Oct 2026", "Fri 30 Oct", "Friday (30 Oct)"
+_AFTER_RE = re.compile(r"(?<![A-Za-z])" + _DM + r"(\s*[(\[]\s*|\s+)" + _WD + r"(?![A-Za-z])")
+_BEFORE_RE = re.compile(r"(?<![A-Za-z])" + _WD + r"(,?\s*\(?\s*)" + _DM + r"(?![A-Za-z0-9])")
+
+
+NEAR_DAYS = 45
+
+
+def _valid(day: str, mon: str, year: str | None) -> bool:
+    """A real calendar day in at least one year (31 Feb is not a date)."""
+    month = _MONTH_NUM.get(mon[:3].lower())
+    if month is None:
+        return False
+    for y in ([int(year)] if year else [2024, 2025, 2026, 2027]):
+        try:
+            date(y, month, int(day))
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _candidates(day: str, month: int, today: date) -> list[date]:
+    out = []
+    for y in (today.year - 1, today.year, today.year + 1):
+        try:
+            out.append(date(y, month, int(day)))
+        except ValueError:
+            continue
+    return out
+
+
+def _real_weekday(day: str, mon: str, year: str | None, said: str, today: date) -> int | None:
+    """The weekday index a claimed weekday should be corrected to, or None to leave
+    the text alone. With a year the date is exact. Without one the year is unknown,
+    so the guard is conservative: a date within NEAR_DAYS of today is read as its
+    nearest year and corrected if the weekday is wrong; a farther date is corrected
+    only when the claimed weekday fits no year from last year to next year, and then
+    to the nearest year's weekday."""
+    month = _MONTH_NUM.get(mon[:3].lower())
+    if month is None:
+        return None
+    said_idx = next((i for i, n in enumerate(_WEEKDAY_NAMES) if n[:3].lower() == said[:3].lower()), None)
+    if said_idx is None:
+        return None
+    if year:
+        try:
+            wd = date(int(year), month, int(day)).weekday()
+        except ValueError:
+            return None
+        return wd if wd != said_idx else None
+    cands = _candidates(day, month, today)
+    if not cands:
+        return None
+    nearest = min(cands, key=lambda d: (abs((d - today).days), d.year != today.year))
+    if abs((nearest - today).days) <= NEAR_DAYS:
+        return nearest.weekday() if nearest.weekday() != said_idx else None
+    if any(d.weekday() == said_idx for d in cands):
+        return None
+    return nearest.weekday()
+
+
+def _same_style(original: str, real_full: str) -> str:
+    if len(original) <= 3:
+        return real_full[:3]
+    return real_full
+
+
+def fix_weekday_claims(reply: str, today: date) -> tuple[str, int]:
+    """(reply, corrections). A weekday written next to a date that cannot be that
+    date's weekday is replaced (see `_real_weekday` for the year rules: exact with
+    a year, conservative without one). A weekday word that sits between two dates
+    belongs to the one before it ("3 Nov Tue, 4 Nov")."""
+    if not reply:
+        return reply, 0
+    claimed: list[tuple[int, int]] = []  # weekday spans already tied to a date
+    edits: list[tuple[int, int, str]] = []
+
+    def consider(span: tuple[int, int], said: str, real: int | None, valid: bool) -> None:
+        if not valid or any(span[0] < b and a < span[1] for a, b in claimed):
+            return
+        claimed.append(span)
+        if real is not None:
+            edits.append((span[0], span[1], _same_style(said, _WEEKDAY_NAMES[real])))
+
+    # A weekday immediately before a date belongs to that date, so those matches go first.
+    after_spans = {m.span(5) for m in _AFTER_RE.finditer(reply)}
+    for m in _BEFORE_RE.finditer(reply):
+        if "," in m.group(2) and m.span(1) in after_spans:
+            continue  # "3 Nov Tue, 4 Nov": the weekday is already tied to the date before it
+        real = _real_weekday(m.group(3), m.group(4), m.group(5), m.group(1), today)
+        consider(m.span(1), m.group(1), real, _valid(m.group(3), m.group(4), m.group(5)))
+    for m in _AFTER_RE.finditer(reply):
+        real = _real_weekday(m.group(1), m.group(2), m.group(3), m.group(5), today)
+        consider(m.span(5), m.group(5), real, _valid(m.group(1), m.group(2), m.group(3)))
+    if not edits:
+        return reply, 0
+    out = reply
+    for a, b, new in sorted(edits, reverse=True):
+        out = out[:a] + new + out[b:]
+    return out, len(edits)

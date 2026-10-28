@@ -108,6 +108,11 @@ ROUTING_CASES = [
          question="I'm doing the 4p challenge, starting at 4p and adding 4p a day for a year", expect_any=None),
     dict(id="route-36-set-that-up-as-a-goal", screen="planning", first="propose_create_scheduled_goal", required=["propose_create_scheduled_goal"],
          question="Yes, set that up as a goal, it leaves from my Monzo current account", expect_any=None),
+    # G355: a date question is answered by the server's own per-day figure, and a bank plus kind names the source.
+    dict(id="route-37-friday-first-transaction", screen="planning", first="preview_goal_schedule", required=["preview_goal_schedule"],
+         question="So on Friday the first transaction will be how much", expect_any=None),
+    dict(id="route-38-source-by-bank-and-kind", screen="planning", first="propose_create_scheduled_goal", required=["propose_create_scheduled_goal"],
+         question="My Monzo current account, daily, and yes set it up as that goal", expect_any=None),
 ]
 
 # category -> {this period, last-n-months} fixtures
@@ -188,6 +193,7 @@ def fake_execute_factory(real_execute, base_fixtures, verdict_by_offset, categor
         if name == "preview_goal_schedule":
             return {"schedule_label": "4p a day, rising by 4p a day, from 28 Oct 2026 for 365 days", "total": _money(2671.80, 2),
                     "this_period_amount": _money(30.20, 2), "next_periods": [], "summary": "Quote the server's summary.",
+                    "on_date": {"date": "2026-10-30", "weekday": "Friday", "label": "Fri 30 Oct 2026", "day_number": 1, "amount": _money(0.04, 2)},
                     "source": {"name": "Monzo current account", "basis": "recent-transfers"}}
         if name == "get_set_asides":
             pots = [("a1", "Saving Challenge (2026)", 50), ("a2", "Holiday", 120), ("a3", "Digital saver", 30)]

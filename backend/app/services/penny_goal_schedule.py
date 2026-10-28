@@ -61,12 +61,15 @@ PREVIEW_GOAL_SCHEDULE_SCHEMA = {
             "`description` and the server reads them, or pass explicit fields. It returns the schedule, a "
             "plain-English `schedule_label`, the `total`, this pay period's amount, the next three pay "
             "periods, the end date, a `source` suggestion (the account the money leaves from) and a "
-            "`summary` sentence. Quote `summary` and every figure verbatim and NEVER add up, multiply or "
+            "`summary` sentence. The server keeps the draft between turns: an argument you leave out "
+            "stays as already agreed, an argument you pass changes only that field. Quote `summary` and every figure verbatim and NEVER add up, multiply or "
             "round schedule figures yourself. If `needs` is not empty, ask the user for exactly those "
-            "things. This only previews: it creates nothing and moves no money. After the user agrees, "
-            "call propose_create_scheduled_goal."
+            "things. Every date comes with its real weekday, and `today` and `current_period` are in every "
+            "result: copy them, never work out a weekday, a day number or an amount for a date yourself, "
+            "pass `ask_date` instead. This only previews: it creates nothing and moves no money. After the "
+            "user agrees, call propose_create_scheduled_goal."
         ),
-        "parameters": {"type": "object", "properties": {**_FIELDS, **_SOURCE_FIELDS, "goal_ref": {"type": "string", "description": "Optional: an existing goal (id or name) whose stored source account should be reported."}}, "required": []},
+        "parameters": {"type": "object", "properties": {**_FIELDS, **_SOURCE_FIELDS, "goal_ref": {"type": "string", "description": "Optional: an existing goal (id or name) whose stored source account should be reported."}, "name": {"type": "string", "description": "Optional: a short label for the goal (40 characters or fewer), once the user has named it."}, "ask_date": {"type": "string", "description": "Optional: a date (ISO, or a word such as today, tomorrow or Friday) to ask what the schedule asks for that day. The result's `on_date` has the real weekday, day number and amount; copy them, never work them out."}}, "required": []},
     },
 }
 
@@ -80,10 +83,12 @@ PROPOSE_CREATE_SCHEDULED_GOAL_SCHEMA = {
             "the user has seen the preview and asked you to set it up. It needs a name and the account "
             "the money leaves from: pass `source_account_id_or_name` when the user named it, or "
             "`use_detected_source` true when the user agreed to the detected account in the preview. "
-            "Without a source it returns `needs` and creates nothing. `convert_from_set_aside` (an id or "
-            "name from get_set_asides) offers to replace that set-aside with the goal: it is paused only "
-            "when the user confirms the card, and its past fills are not carried over. The totals and "
-            "periods come from the server, never from you."
+            "Without a source it returns `needs` and creates nothing. When a set-aside or goal of the same name "
+            "already exists it returns `needs` `convert_decision` with the candidate: offer the conversion and "
+            "wait. `convert_from_set_aside` (an id or name from get_set_asides) replaces that set-aside with the "
+            "goal: it is paused only when the user confirms the card, and its past fills are not carried over; "
+            "`create_alongside` true keeps both. Pass only what the user has just changed: the draft holds the "
+            "rest. The totals and periods come from the server, never from you."
         ),
         "parameters": {
             "type": "object",
@@ -93,6 +98,7 @@ PROPOSE_CREATE_SCHEDULED_GOAL_SCHEMA = {
                 **_SOURCE_FIELDS,
                 "use_detected_source": {"type": "boolean", "description": "True when the user agreed to the account the preview detected."},
                 "convert_from_set_aside": {"type": "string", "description": "Optional: a set-aside's id or name this goal replaces."},
+                "create_alongside": {"type": "boolean", "description": "True only when the user said to create the goal as well as an existing set-aside or goal of the same name, not instead of it."},
             },
             "required": [],
         },
@@ -380,6 +386,14 @@ def merge_fields(args: dict, today: date, base: dict | None = None) -> dict:
     amounts = args.get("amounts")
     if isinstance(amounts, list) and amounts:
         fields["amounts_pence"] = [_pence_arg(a) for a in amounts]
+    if base:
+        # G355: a length given in one way replaces the other way from the base, so a
+        # draft's "79 days" is not silently capped by an old end date, or the reverse.
+        said = {k for k, v in {**parsed["fields"], **explicit}.items() if v is not None}
+        if "count" in said and "end_date" not in said:
+            fields.pop("end_date", None)
+        elif "end_date" in said and "count" not in said:
+            fields.pop("count", None)
     parsed["fields"] = fields
     return parsed
 
@@ -423,6 +437,26 @@ def _check(schedule: dict) -> tuple[dict | None, str | None]:
         return None, str(exc)
 
 
+def _dated(iso: str | None) -> dict:
+    """{"date", "weekday", "label"} for an ISO date: the weekday always comes from
+    the server, so the model never works one out."""
+    if not iso:
+        return {}
+    d = date.fromisoformat(str(iso)[:10])
+    return {"date": d.isoformat(), "weekday": gs.weekday_name(d), "label": gs.fmt_date_wd(d)}
+
+
+def today_and_period(today: date, cfg: dict) -> dict:
+    """`today` and the live pay period with their weekdays, for every preview."""
+    ps, pe = _period_bounds(today, cfg)
+    return {
+        "today": _dated(today.isoformat()),
+        "current_period": {"start": ps.isoformat(), "end": pe.isoformat(),
+                           "start_weekday": gs.weekday_name(ps), "end_weekday": gs.weekday_name(pe),
+                           "weekday_end": gs.weekday_name(pe), "end_label": gs.fmt_date_wd(pe)},
+    }
+
+
 def _figures(clean: dict, cfg: dict, today: date) -> dict:
     total = gs.total_pence(clean, cfg)
     end = gs.end_date(clean, cfg)
@@ -430,26 +464,83 @@ def _figures(clean: dict, cfg: dict, today: date) -> dict:
     this_period = gs.period_amount(clean, ps, pe, cfg)
     nxt = gs.next_periods(clean, today, cfg, 3)
     label = gs.schedule_label(clean)
+    label_wd = gs.schedule_label(clean, weekdays=True)
     start = date.fromisoformat(clean["start_date"])
     if this_period > 0:
         lead = f"This pay period it asks for {gs.fmt_money(this_period)}"
     elif start > pe:
-        lead = f"Nothing is due this pay period, because it starts on {gs.fmt_date(start)}"
+        lead = f"Nothing is due this pay period, because it starts on {gs.fmt_date_wd(start)}"
     else:
         lead = "Nothing is due this pay period"
     if nxt:
         lead += ", then " + ", ".join(gs.fmt_money(n["amount"]) for n in nxt) + " over the next pay periods"
-    summary = f"{label[:1].upper()}{label[1:]} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date(end) if end else 'later'}. {lead}, on your current pay periods."
+    summary = f"{label_wd[:1].upper()}{label_wd[1:]} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date_wd(end) if end else 'later'}. {lead}, on your current pay periods."
     return {
         "schedule": clean, "schedule_label": label, "total": _money2(total),
         "this_period_amount": _money2(this_period),
-        "next_periods": [{"start": n["start"], "end": n["end"], "amount": _money2(n["amount"])} for n in nxt],
+        "next_periods": [
+            {"start": n["start"], "start_weekday": gs.weekday_name(date.fromisoformat(n["start"])),
+             "end": n["end"], "end_weekday": gs.weekday_name(date.fromisoformat(n["end"])),
+             "amount": _money2(n["amount"])}
+            for n in nxt
+        ],
+        "start_date": start.isoformat(), "start_weekday": gs.weekday_name(start), "start_label": gs.fmt_date_wd(start),
         "end_date": end.isoformat() if end else None,
+        "end_weekday": gs.weekday_name(end) if end else None,
+        "end_label": gs.fmt_date_wd(end) if end else None,
         "periods_count": gs.periods_count(clean, cfg),
         "summary": summary,
         "estimated": clean["type"] == "percent_of_pay",
         "_total_pence": total, "_this_period_pence": this_period,
     }
+
+
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_WEEKDAY_INDEX = {**{n: i for i, n in enumerate(_WEEKDAYS)}, **{n[:3]: i for i, n in enumerate(_WEEKDAYS)},
+                  "tues": 1, "weds": 2, "thur": 3, "thurs": 3}
+
+
+def parse_ask_date(text, today: date) -> date | None:
+    """An ISO date, "today", "tomorrow", a weekday word ("Friday", "next Friday",
+    "on fri": the next such day, today included unless "next" is said) or a
+    day-month date. None when it cannot be read."""
+    t = " ".join(str(text or "").lower().replace(",", " ").split())
+    if not t:
+        return None
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", t[:10]) if len(t) >= 10 else None
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+    if t in ("today", "now"):
+        return today
+    if t == "tomorrow":
+        return today + timedelta(days=1)
+    words = t.split()
+    for w in words:
+        i = _WEEKDAY_INDEX.get(w)
+        if i is not None:
+            ahead = (i - today.weekday()) % 7
+            if ahead == 0 and "next" in words:
+                ahead = 7
+            return today + timedelta(days=ahead)
+    return _parse_date(t, today)
+
+
+def on_date_figures(clean: dict, cfg: dict, ask: date, today: date) -> dict:
+    """What the schedule asks for on one day, with its weekday and day number."""
+    found = gs.amount_on(clean, ask, cfg)
+    out = {**_dated(ask.isoformat())}
+    if found is None:
+        start = date.fromisoformat(clean["start_date"])
+        out["amount"] = None
+        out["note"] = ("Nothing is due on that day, because the schedule has not started." if ask < start
+                       else "Nothing is due on that day.")
+        return out
+    out.update({"day_number": found["day_number"], "of_total": found["of_total"],
+                "days_left": found["days_left"], "amount": _money2(found["amount_pence"])})
+    return out
 
 
 def _period_bounds(today: date, cfg: dict) -> tuple[date, date]:
@@ -467,7 +558,8 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
     assumptions = list(parsed["assumptions"])
     if not parsed["fields"].get("start_date"):
         assumptions.append("I have taken today as the start date.")
-    out: dict = {"assumptions": assumptions, "suggested_name": parsed["suggested_name"]}
+    out: dict = {"assumptions": assumptions, "suggested_name": parsed["suggested_name"],
+                 "_fields": {k: v for k, v in parsed["fields"].items() if v is not None}}
     if raw is None:
         if not parsed["fields"]:
             needs = ["description"]
@@ -486,6 +578,162 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
     return out
 
 
+# ── The goal draft (G355) ────────────────────────────────────────────────────
+# A draft is the schedule and choices agreed so far in a chat, kept on the
+# stored turn (penny_focus.clean_draft) and handed back to both tools, so an
+# argument the model leaves out comes from the draft and an argument it gives
+# changes only that field. The agent loop injects `_draft` (even when empty)
+# and `_user_texts`; neither is model-suppliable. A direct call without them
+# behaves as before and returns no draft.
+
+FIELD_KEYS = ("start_date", "start_pence", "step_pence", "step_unit", "count", "end_date", "percent",
+              "expected_pay_pence", "amounts_pence")
+_GENERIC_NAME_WORDS = frozenset({"saving", "goal", "plan", "fund", "pot", "set", "aside", "money", "new", "pay", "period"})
+_BASIS_WORDS = {
+    "stated": "stated by the user",
+    "model": "picked by Penny, not yet confirmed by the user",
+    "recent-transfers": "detected from recent transfers, needs the user's OK",
+    "assumed": "assumed because it is the only current account, needs the user's OK",
+    "stored": "already set on the goal",
+}
+
+
+def draft_sentence(draft: dict) -> str:
+    """The FOCUS note for a draft: what is settled, so nothing is asked twice."""
+    fields = {k: draft[k] for k in FIELD_KEYS if k in draft}
+    today = timeutil.user_today()
+    try:
+        raw, needs = build_schedule(fields, today)
+    except Exception:
+        raw, needs = None, []
+    if raw is not None:
+        try:
+            what = gs.schedule_label(raw, weekdays=True)
+        except Exception:
+            what = "a schedule"
+    else:
+        what = "a schedule still missing " + (", ".join(needs) if needs else "details")
+    parts = [f"DRAFT goal: {what}"]
+    if draft.get("name"):
+        parts.append(f"named {draft['name']}")
+    if draft.get("source_account_name"):
+        parts.append(f"source {draft['source_account_name']} ({_BASIS_WORDS.get(draft.get('source_basis'), 'unconfirmed')})")
+    if draft.get("into_name"):
+        parts.append(f"into {draft['into_name']}")
+    text = ", ".join(parts) + "."
+    cand = draft.get("convert_candidate")
+    if draft.get("convert_from_set_aside"):
+        text += " The user chose to convert the existing set-aside into this goal."
+    elif draft.get("create_alongside"):
+        text += " The user chose to create it alongside the existing one."
+    elif cand:
+        text += f" An existing {cand['kind'].replace('_', '-')} called {cand.get('name')} may be the same thing: offer to convert it and wait for the user's decision."
+    return (text + " Change only what the user changes; never re-ask a settled field. "
+            "A one-word answer such as 'Daily' or 'Monzo' updates that one field only.")
+
+
+def _norm_words(text) -> set[str]:
+    from app.services import penny_account_match as pam
+    return {w for w in pam.words(text) if w not in pam.STOPWORDS and w not in _GENERIC_NAME_WORDS and not w.isdigit()}
+
+
+def _same_goal(a, b) -> bool:
+    """Two names are one goal when the words of one are all in the other
+    ("savings challenge" and "Saving Challenge (2026)")."""
+    wa, wb = _norm_words(a), _norm_words(b)
+    return bool(wa and wb) and (wa <= wb or wb <= wa)
+
+
+def _base_for(args: dict, draft: dict | None, suggested: str | None = None) -> dict | None:
+    """The draft's schedule fields to merge under this call, or None when there
+    is no draft or the user has moved on to a different goal (the name changed)."""
+    if not draft:
+        return None
+    new_name = args.get("name") or suggested
+    if new_name and draft.get("name") and not _same_goal(new_name, draft["name"]):
+        return None
+    return {k: draft[k] for k in FIELD_KEYS if k in draft}
+
+
+def _suggested(args: dict) -> str | None:
+    if not args.get("description"):
+        return None
+    return parse_description(str(args["description"]), timeutil.user_today())["suggested_name"]
+
+
+def _with_draft(result: dict, args: dict, draft: dict | None) -> dict:
+    """Hand the draft back to the agent loop, but only when it asked for one
+    (it passes `_draft`); `None` clears it."""
+    if "_draft" in args and isinstance(result, dict):
+        return {**result, "_draft": draft}
+    return result
+
+
+def _fields_for_draft(built: dict) -> dict:
+    out = {k: v for k, v in (built.get("_fields") or {}).items() if k in FIELD_KEYS and v is not None}
+    if built.get("schedule"):
+        out["start_date"] = built["schedule"]["start_date"]
+    return out
+
+
+def _next_draft(old: dict | None, built: dict, *, name=None, source=None, into=None, extra: dict | None = None) -> dict | None:
+    from app.services import penny_focus
+
+    draft = {k: v for k, v in (old or {}).items() if k not in FIELD_KEYS}
+    draft.update(_fields_for_draft(built))
+    if name:
+        draft["name"] = str(name)
+    if source:
+        draft["source_account_id"] = source["account_id"]
+        draft["source_account_name"] = source.get("name")
+        draft["source_basis"] = source["basis"]
+    if into:
+        draft["into_id"] = into["account_id"]
+        draft["into_name"] = into.get("name")
+    draft.update(extra or {})
+    return penny_focus.clean_draft(draft)
+
+
+# ── Existing goal or set-aside with the same name (G355) ─────────────────────
+
+async def existing_match(uid: str, names: list) -> dict | None:
+    """An active set-aside (preferred) or goal sharing a distinctive word with the
+    draft's name, so the user can convert it rather than count it twice. Best
+    effort: a failed lookup is no match."""
+    wanted: set[str] = set()
+    for n in names:
+        wanted |= _norm_words(n)
+    if not wanted:
+        return None
+    try:
+        from app.routers.allocations import list_allocations
+        resp = await list_allocations(user={"email": uid})
+        for a in resp.get("items") or []:
+            if a.get("active", True) and _norm_words(a.get("name")) & wanted:
+                return {"kind": "set_aside", "id": str(a.get("id")), "name": a.get("name"),
+                        "amount_per_period": _money2(round(float(a.get("amount_per_period") or 0) * 100))}
+    except Exception:
+        logger.exception("penny_goal_schedule: set-aside lookup failed for %s", uid)
+    try:
+        from app.routers.commitments import list_commitments
+        resp = await list_commitments(user={"email": uid})
+        for c in resp.get("items") or []:
+            if _norm_words(c.get("name")) & wanted:
+                return {"kind": "goal", "id": str(c.get("id")), "name": c.get("name"),
+                        "schedule_label": c.get("schedule_label") or "Equal amounts each pay period"}
+    except Exception:
+        logger.exception("penny_goal_schedule: goal lookup failed for %s", uid)
+    return None
+
+
+def convert_sentence(match: dict) -> str:
+    if match["kind"] == "set_aside":
+        return (f"You already have a set-aside called {match['name']}. I can convert it into this goal "
+                "so it is not counted twice.")
+    return (f"You already have a goal called {match['name']}. I can change its schedule instead "
+            "so it is not counted twice.")
+
+
 # ── Source account ───────────────────────────────────────────────────────────
 
 async def _resolve(uid: str, ref):
@@ -498,15 +746,37 @@ async def _account_view(uid: str, account) -> dict:
     return {"account_id": account.id, "name": await _source_display_name(uid, {"name": account.name, "provider": account.provider})}
 
 
-async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=None, set_aside: dict | None = None) -> dict:
+def stated_by_user(account, texts) -> bool:
+    """G355: the user's own words name this account: its bank, or a distinctive
+    word of its name (not "current", "account" or the like). `texts` None means
+    the caller gave no conversation to check, so nothing is second-guessed."""
+    if texts is None:
+        return True
+    from app.services import penny_account_match as pam
+    from app.services.account_names import display_account_name
+
+    said: set[str] = set()
+    for t in texts:
+        said |= set(pam.words(t))
+    generic = pam.STOPWORDS | set(pam._KIND_BY_WORD)
+    product = {w for w in set(pam.words(account.name)) | set(pam.words(display_account_name(account.name))) if w not in generic}
+    return bool((pam.bank_words(getattr(account, "provider", None)) | product) & said)
+
+
+async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=None, set_aside: dict | None = None,
+                         draft: dict | None = None, texts=None) -> dict:
     """The account the money would leave from, with how we know. Returns
-    {"source": {...} | None, "into": {...} | None, "needs": [...], "ambiguous"?: ...}."""
+    {"source": {...} | None, "into": {...} | None, "needs": [...], "ambiguous"?: ...}.
+    `basis` is "stated" only when the user's own words (`texts`) name the account;
+    an account the model picked on its own is "model"."""
     from app.services.account_plan_sources import owned_account_map
     from app.services.account_kinds import is_current_account
     from app.services.companion import infer_plan_sources_batch
 
+    draft = draft or {}
     out: dict = {"source": None, "into": None, "needs": []}
     pot = None
+    pot_ref = pot_ref or draft.get("into_id")
     if pot_ref:
         res = await _resolve(uid, pot_ref)
         if res.get("ambiguous") or res.get("error"):
@@ -519,8 +789,18 @@ async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=No
         if res.get("ambiguous") or res.get("error"):
             return {**out, "blocked": res}
         if res.get("account") is not None:
-            out["source"] = {**await _account_view(uid, res["account"]), "basis": "stated"}
+            basis = "stated" if stated_by_user(res["account"], texts) else "model"
+            out["source"] = {**await _account_view(uid, res["account"]), "basis": basis}
             return out
+    if draft.get("source_account_id"):
+        basis = draft.get("source_basis") or "model"
+        name = draft.get("source_account_name")
+        if basis == "model" and texts is not None:
+            res = await _resolve(uid, draft["source_account_id"])
+            if res.get("account") is not None and stated_by_user(res["account"], texts):
+                basis = "stated"
+        out["source"] = {"account_id": draft["source_account_id"], "name": name, "basis": basis}
+        return out
     if goal_ref:
         from app.services.penny_tools import _resolve_commitment_for_propose
         res = await _resolve_commitment_for_propose(uid, str(goal_ref))
@@ -567,30 +847,79 @@ def _public(built: dict) -> dict:
     return {k: v for k, v in built.items() if not k.startswith("_")}
 
 
+def source_sentence(src: dict) -> str:
+    """One sentence on where the money leaves from. "As you said" only ever
+    follows an account the user named (basis "stated")."""
+    if src["basis"] == "model":
+        return f"I have picked {src['name']} as the account the money leaves from, please check it. {NOTHING_MOVES}"
+    how = {"stated": "as you said", "stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
+    return f"The money would leave from {src['name']} ({how}). {NOTHING_MOVES}"
+
+
+async def _add_calendar(uid: str, out: dict, built: dict, args: dict) -> None:
+    """G355: today, the live pay period and (when asked) one day's amount, all
+    from the server, on every preview result."""
+    from app.routers.commitments import _pay_cfg
+
+    today = timeutil.user_today()
+    cfg = await _pay_cfg(uid)
+    out.update(today_and_period(today, cfg))
+    ask = args.get("ask_date")
+    if ask:
+        asked = parse_ask_date(ask, today)
+        if asked is None:
+            out["on_date"] = {"error": "I could not read that date. Ask for a date such as 30 Oct 2026 or a weekday."}
+        elif built.get("schedule"):
+            out["on_date"] = on_date_figures(built["schedule"], cfg, asked, today)
+        else:
+            out["on_date"] = {**_dated(asked.isoformat()), "note": "Needs the schedule first."}
+
+
 async def exec_preview_goal_schedule(uid: str, args: dict) -> dict:
+    draft_in = None
     try:
-        built = await build(uid, args)
+        from app.services import penny_focus
+
+        draft_in = penny_focus.clean_draft(args.get("_draft")) if "_draft" in args else None
+        texts = args.get("_user_texts")
+        suggested = _suggested(args)
+        base = _base_for(args, draft_in, suggested)
+        old = draft_in if base is not None else None
+        built = await build(uid, args, base=base)
         out = _public(built)
+        await _add_calendar(uid, out, built, args)
+        name = args.get("name") or (old or {}).get("name") or suggested
+        source = into = None
+        convert_extra: dict = {}
         if built.get("schedule"):
-            found = await suggest_source(uid, source_ref=args.get("source_account_id_or_name"), goal_ref=args.get("goal_ref"), pot_ref=args.get("funding_pot"))
+            found = await suggest_source(
+                uid, source_ref=args.get("source_account_id_or_name"), goal_ref=args.get("goal_ref"),
+                pot_ref=args.get("funding_pot"), draft=old, texts=texts,
+            )
             if found.get("blocked"):
                 out["source_problem"] = found["blocked"]
-            out["source"] = found.get("source")
-            out["into"] = found.get("into")
-            if found.get("source"):
-                out["source_basis"] = found["source"]["basis"]
+            source, into = found.get("source"), found.get("into")
+            out["source"] = source
+            out["into"] = into
+            if source:
+                out["source_basis"] = source["basis"]
+                out["source_sentence"] = source_sentence(source)
             elif not found.get("blocked"):
                 out["needs"] = [*out.get("needs", []), *found["needs"]]
-            if found.get("source"):
-                src = found["source"]
-                how = {"stated": "as you said", "stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
-                out["source_sentence"] = f"The money would leave from {src['name']} ({how}). {NOTHING_MOVES}"
-        return out
+            decided = (old or {}).get("convert_from_set_aside") or (old or {}).get("create_alongside")
+            match = await existing_match(uid, [n for n in (name, suggested) if n])
+            if match:
+                out["existing_match"] = match
+                convert_extra["convert_candidate"] = match
+                if not decided:
+                    out["summary"] = f"{out['summary']} {convert_sentence(match)}"
+        draft = _next_draft(old, built, name=name, source=source, into=into, extra=convert_extra)
+        return _with_draft(out, args, draft)
     except HTTPException as e:
-        return {"error": str(e.detail)}
+        return _with_draft({"error": str(e.detail)}, args, draft_in)
     except Exception:
         logger.exception("penny_goal_schedule: preview failed for %s", uid)
-        return {"error": "schedule preview failed"}
+        return _with_draft({"error": "schedule preview failed"}, args, draft_in)
 
 
 async def _resolve_set_aside(uid: str, ref: str) -> dict:
@@ -612,46 +941,77 @@ async def _resolve_set_aside(uid: str, ref: str) -> dict:
 
 async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
     from app.routers.commitments import _pay_cfg, _validate_name
+    from app.services import penny_focus
     from app.services.penny_tools import _create_proposal
 
+    draft_in = None
     try:
-        built = await build(uid, args)
+        draft_in = penny_focus.clean_draft(args.get("_draft")) if "_draft" in args else None
+        texts = args.get("_user_texts")
+        suggested = _suggested(args)
+        base = _base_for(args, draft_in, suggested)
+        old = draft_in if base is not None else None
+        built = await build(uid, args, base=base)
         if built.get("error"):
-            return {"error": built["error"]}
+            return _with_draft({"error": built["error"]}, args, old)
+        name_hint = args.get("name") or (old or {}).get("name") or built.get("suggested_name")
         if built.get("needs"):
-            return {"needs": built["needs"], "assumptions": built.get("assumptions", []), "parsed": built.get("parsed")}
-        raw_name = args.get("name") or built.get("suggested_name")
+            draft = _next_draft(old, built, name=name_hint)
+            return _with_draft({"needs": built["needs"], "assumptions": built.get("assumptions", []), "parsed": built.get("parsed")}, args, draft)
+        raw_name = name_hint
         if not raw_name or not str(raw_name).strip():
-            return {"needs": ["name"], "summary": built["summary"]}
+            return _with_draft({"needs": ["name"], "summary": built["summary"]}, args, _next_draft(old, built))
         try:
             name = _validate_name(raw_name)
         except HTTPException as e:
-            return {"error": str(e.detail)}
+            return _with_draft({"error": str(e.detail)}, args, old)
 
+        # Convert, create alongside, or ask: an existing thing of the same name is never duplicated silently.
+        convert_ref = args.get("convert_from_set_aside") or (old or {}).get("convert_from_set_aside")
+        alongside = args.get("create_alongside") is True or bool((old or {}).get("create_alongside"))
         set_aside = None
-        if args.get("convert_from_set_aside"):
-            res = await _resolve_set_aside(uid, str(args["convert_from_set_aside"]).strip())
+        extra: dict = {}
+        if convert_ref:
+            res = await _resolve_set_aside(uid, str(convert_ref).strip())
             if res.get("ambiguous") or res.get("error"):
-                return res
+                return _with_draft(res, args, _next_draft(old, built, name=name))
             set_aside = res["set_aside"]
+            extra["convert_from_set_aside"] = str(set_aside["id"])
+        elif alongside:
+            extra["create_alongside"] = True
 
-        pot_ref = args.get("funding_pot")
+        pot_ref = args.get("funding_pot") or (old or {}).get("into_id")
         if not pot_ref and set_aside:
             pot_ref = set_aside.get("fill_account_id") or set_aside.get("destination_account_id")
         found = await suggest_source(
             uid, source_ref=args.get("source_account_id_or_name"), pot_ref=pot_ref, set_aside=set_aside,
+            draft=old, texts=texts,
         )
         if found.get("blocked"):
-            return found["blocked"]
+            return _with_draft(found["blocked"], args, _next_draft(old, built, name=name, into=found.get("into"), extra=extra))
         source = found.get("source")
-        if source is None or (source["basis"] in ("recent-transfers", "assumed") and not args.get("use_detected_source")
-                              and not args.get("source_account_id_or_name")):
-            # A detected account is only a suggestion until the user agrees to it.
-            return {"needs": ["source_account"], "suggested_source": source, "into": found.get("into"),
-                    "summary": built["summary"]}
+        into = found.get("into")
+
+        # Everything still open is reported at once, and what is settled is kept in the draft.
+        needs: list[str] = []
+        out: dict = {}
+        match = None
+        if not convert_ref and not alongside:
+            match = await existing_match(uid, [n for n in (name, suggested) if n])
+            if match:
+                extra["convert_candidate"] = match
+                needs.append("convert_decision")
+                out.update({"candidate": match, "summary": f"{built['summary']} {convert_sentence(match)}"})
+        if source is None or (source["basis"] in ("recent-transfers", "assumed", "model") and not args.get("use_detected_source")):
+            # A detected or model-picked account is only a suggestion until the user agrees to it.
+            needs.append("source_account")
+            out.update({"suggested_source": source, "into": into})
+            out.setdefault("summary", built["summary"])
+        if needs:
+            draft = _next_draft(old, built, name=name, source=source, into=into, extra=extra)
+            return _with_draft({"needs": needs, **out}, args, draft)
 
         pots = []
-        into = found.get("into")
         if into:
             pots = [{"account_id": into["account_id"], "count_existing": False}]
         total = built["total"]["formatted"]
@@ -675,15 +1035,17 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
             summary += f", replacing the '{set_aside.get('name')}' set-aside"
             consequence += f" Confirming also pauses the '{set_aside.get('name')}' set-aside. {HISTORY_NOTE}"
         after = f"Total {total}, from {source['name']}"  # the card caps this line at 80 characters
-        return await _create_proposal(
+        result = await _create_proposal(
             uid, "create_commitment", params, summary, consequence,
             before="No goal", after=after, entity=name,
         )
+        # The proposal exists, so the draft is spent.
+        return _with_draft(result, args, None)
     except HTTPException as e:
-        return {"error": str(e.detail)}
+        return _with_draft({"error": str(e.detail)}, args, draft_in)
     except Exception:
         logger.exception("penny_goal_schedule: propose_create_scheduled_goal failed for %s", uid)
-        return {"error": "scheduled goal proposal failed"}
+        return _with_draft({"error": "scheduled goal proposal failed"}, args, draft_in)
 
 
 async def exec_propose_update_schedule(uid: str, args: dict) -> dict:
@@ -700,21 +1062,26 @@ async def exec_propose_update_schedule(uid: str, args: dict) -> dict:
         if resolved.get("error"):
             return {"error": resolved["error"]}
         doc = resolved["commitment"]
-        base = fields_from_schedule(doc.get("schedule"))
+        from app.services import penny_focus
+        draft = penny_focus.clean_draft(args.get("_draft")) if "_draft" in args else None
+        applying_draft = bool(draft) and not any(args.get(k) not in (None, "", []) for k in UPDATE_SCHEDULE_PROPERTIES)
+        base = {k: draft[k] for k in FIELD_KEYS if k in draft} if applying_draft else fields_from_schedule(doc.get("schedule"))
         built = await build(uid, args, base=base)
         if built.get("error"):
-            return {"error": built["error"]}
+            return _with_draft({"error": built["error"]}, args, draft)
         if built.get("needs"):
-            return {"needs": built["needs"], "assumptions": built.get("assumptions", [])}
+            return _with_draft({"needs": built["needs"], "assumptions": built.get("assumptions", [])}, args, draft)
         before = doc.get("schedule_label") or "Equal amounts each pay period"
         total = built["total"]["formatted"]
         after = f"Total {total}: {built['schedule_label']}"  # the card caps this line at 80 characters
         summary = f"Change the {doc['name']} goal to {built['schedule_label']}, total {total}"
         consequence = f"This period's amount becomes {built['this_period_amount']['formatted']}, and each later period follows the schedule. {NOTHING_MOVES}"
-        return await _create_proposal(
+        result = await _create_proposal(
             uid, "update_commitment", {"commitment_id": doc["id"], "schedule": built["schedule"]}, summary, consequence,
             before=before, after=after, entity=doc.get("name"),
         )
+        # An applied draft is spent; a draft the user did not use stays as it was.
+        return _with_draft(result, args, None if applying_draft else draft)
     except HTTPException as e:
         return {"error": str(e.detail)}
     except Exception:
