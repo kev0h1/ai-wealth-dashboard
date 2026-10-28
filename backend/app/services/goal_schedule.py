@@ -40,7 +40,9 @@ class GoalSchedulePreview(TypedDict):
     label: str
     total: float
     start_date: str
+    start_weekday: str
     end_date: str
+    end_weekday: str
     estimated: bool
     current_period: dict
     periods: list[dict]
@@ -233,6 +235,26 @@ def planned_to_date(schedule: dict, today: date, cfg: dict) -> int:
     return sum(a for due, a in _events(schedule, cfg) if due <= today)
 
 
+def amount_on(schedule: dict, d: date, cfg: dict) -> dict | None:
+    """G355: what the schedule asks for on one calendar day, from the same
+    events everything else reads: {"day_number", "amount_pence", "of_total",
+    "days_left"} or None when nothing is due that day. `day_number` counts the
+    schedule's own blocks from 1 (Friday's first block is day 1), `days_left`
+    counts blocks from that one to the end, itself included."""
+    if not is_scheduled(schedule):
+        return None
+    events = sorted(_events(schedule, cfg))
+    due_idx = [i for i, (due, _a) in enumerate(events) if due == d]
+    if not due_idx:
+        return None
+    return {
+        "day_number": due_idx[0] + 1,
+        "amount_pence": sum(events[i][1] for i in due_idx),
+        "of_total": len(events),
+        "days_left": len(events) - due_idx[0],
+    }
+
+
 def next_periods(schedule: dict, today: date, cfg: dict, n: int = 3) -> list[dict]:
     """The `n` pay periods after the live one, as {start, end, amount (pence)},
     stopping once the schedule has run out."""
@@ -274,7 +296,9 @@ def preview(schedule: dict, cfg: dict, today: date) -> GoalSchedulePreview:
         "label": schedule_label(clean),
         "total": total_pence(clean, cfg) / 100,
         "start_date": start.isoformat(),
+        "start_weekday": weekday_name(start),
         "end_date": last.isoformat(),
+        "end_weekday": weekday_name(last),
         "estimated": clean["type"] == "percent_of_pay",
         "current_period": {
             "start": current_start.isoformat(), "end": current_end.isoformat(),
@@ -303,11 +327,24 @@ def fmt_date(d: date) -> str:
     return f"{d.day} {d.strftime('%b %Y')}"
 
 
+def weekday_name(d: date) -> str:
+    """G355: the real weekday of a date, always computed here, never by the model."""
+    return d.strftime("%A")
+
+
+def fmt_date_wd(d: date) -> str:
+    """"Fri 30 Oct 2026": a date with its weekday, for anything Penny quotes."""
+    return f"{d.strftime('%a')} {fmt_date(d)}"
+
+
 def _plural(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
-def schedule_label(schedule: dict) -> str:
+def schedule_label(schedule: dict, weekdays: bool = False) -> str:
+    """Plain-English label. `weekdays` adds the weekday to every date (Penny's
+    own sentences); the stored and card label stays without."""
+    fd = fmt_date_wd if weekdays else fmt_date
     kind = (schedule or {}).get("type")
     if kind == "equal" or not kind:
         return "Equal amounts each pay period"
@@ -316,22 +353,22 @@ def schedule_label(schedule: dict) -> str:
         amts = schedule["amounts_pence"]
         shown = ", ".join(fmt_pence(a) for a in amts[:4])
         more = f" and {len(amts) - 4} more" if len(amts) > 4 else ""
-        return f"{shown}{more}, one a pay period from {fmt_date(start)}"
+        return f"{shown}{more}, one a pay period from {fd(start)}"
     tail = ""
     if schedule.get("count"):
         unit = "pay period" if kind == "percent_of_pay" else _UNIT_NOUN[schedule["step_unit"]]
         tail = f" for {_plural(int(schedule['count']), unit)}"
     elif schedule.get("end_date"):
-        tail = f" until {fmt_date(date.fromisoformat(str(schedule['end_date'])[:10]))}"
+        tail = f" until {fd(date.fromisoformat(str(schedule['end_date'])[:10]))}"
     if kind == "percent_of_pay":
         pct = schedule["percent"]
         pct_s = f"{pct:g}"
-        return f"{pct_s}% of pay each pay period, from {fmt_date(start)}{tail}"
+        return f"{pct_s}% of pay each pay period, from {fd(start)}{tail}"
     unit = schedule["step_unit"]
     per = "pay period" if unit == "period" else unit
     first = f"{fmt_pence(schedule['start_pence'])} a {per}"
     rise = f", rising by {fmt_pence(schedule['step_pence'])} a {per}" if schedule.get("step_pence") else ""
-    return f"{first}{rise}, from {fmt_date(start)}{tail}"
+    return f"{first}{rise}, from {fd(start)}{tail}"
 
 
 def public_schedule(schedule: dict) -> dict:

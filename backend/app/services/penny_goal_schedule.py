@@ -63,10 +63,12 @@ PREVIEW_GOAL_SCHEDULE_SCHEMA = {
             "periods, the end date, a `source` suggestion (the account the money leaves from) and a "
             "`summary` sentence. Quote `summary` and every figure verbatim and NEVER add up, multiply or "
             "round schedule figures yourself. If `needs` is not empty, ask the user for exactly those "
-            "things. This only previews: it creates nothing and moves no money. After the user agrees, "
-            "call propose_create_scheduled_goal."
+            "things. Every date comes with its real weekday, and `today` and `current_period` are in every "
+            "result: copy them, never work out a weekday, a day number or an amount for a date yourself, "
+            "pass `ask_date` instead. This only previews: it creates nothing and moves no money. After the "
+            "user agrees, call propose_create_scheduled_goal."
         ),
-        "parameters": {"type": "object", "properties": {**_FIELDS, **_SOURCE_FIELDS, "goal_ref": {"type": "string", "description": "Optional: an existing goal (id or name) whose stored source account should be reported."}}, "required": []},
+        "parameters": {"type": "object", "properties": {**_FIELDS, **_SOURCE_FIELDS, "goal_ref": {"type": "string", "description": "Optional: an existing goal (id or name) whose stored source account should be reported."}, "ask_date": {"type": "string", "description": "Optional: a date (ISO, or a word such as today, tomorrow or Friday) to ask what the schedule asks for that day. The result's `on_date` has the real weekday, day number and amount; copy them, never work them out."}}, "required": []},
     },
 }
 
@@ -423,6 +425,26 @@ def _check(schedule: dict) -> tuple[dict | None, str | None]:
         return None, str(exc)
 
 
+def _dated(iso: str | None) -> dict:
+    """{"date", "weekday", "label"} for an ISO date: the weekday always comes from
+    the server, so the model never works one out."""
+    if not iso:
+        return {}
+    d = date.fromisoformat(str(iso)[:10])
+    return {"date": d.isoformat(), "weekday": gs.weekday_name(d), "label": gs.fmt_date_wd(d)}
+
+
+def today_and_period(today: date, cfg: dict) -> dict:
+    """`today` and the live pay period with their weekdays, for every preview."""
+    ps, pe = _period_bounds(today, cfg)
+    return {
+        "today": _dated(today.isoformat()),
+        "current_period": {"start": ps.isoformat(), "end": pe.isoformat(),
+                           "start_weekday": gs.weekday_name(ps), "end_weekday": gs.weekday_name(pe),
+                           "weekday_end": gs.weekday_name(pe), "end_label": gs.fmt_date_wd(pe)},
+    }
+
+
 def _figures(clean: dict, cfg: dict, today: date) -> dict:
     total = gs.total_pence(clean, cfg)
     end = gs.end_date(clean, cfg)
@@ -430,26 +452,83 @@ def _figures(clean: dict, cfg: dict, today: date) -> dict:
     this_period = gs.period_amount(clean, ps, pe, cfg)
     nxt = gs.next_periods(clean, today, cfg, 3)
     label = gs.schedule_label(clean)
+    label_wd = gs.schedule_label(clean, weekdays=True)
     start = date.fromisoformat(clean["start_date"])
     if this_period > 0:
         lead = f"This pay period it asks for {gs.fmt_money(this_period)}"
     elif start > pe:
-        lead = f"Nothing is due this pay period, because it starts on {gs.fmt_date(start)}"
+        lead = f"Nothing is due this pay period, because it starts on {gs.fmt_date_wd(start)}"
     else:
         lead = "Nothing is due this pay period"
     if nxt:
         lead += ", then " + ", ".join(gs.fmt_money(n["amount"]) for n in nxt) + " over the next pay periods"
-    summary = f"{label[:1].upper()}{label[1:]} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date(end) if end else 'later'}. {lead}, on your current pay periods."
+    summary = f"{label_wd[:1].upper()}{label_wd[1:]} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date_wd(end) if end else 'later'}. {lead}, on your current pay periods."
     return {
         "schedule": clean, "schedule_label": label, "total": _money2(total),
         "this_period_amount": _money2(this_period),
-        "next_periods": [{"start": n["start"], "end": n["end"], "amount": _money2(n["amount"])} for n in nxt],
+        "next_periods": [
+            {"start": n["start"], "start_weekday": gs.weekday_name(date.fromisoformat(n["start"])),
+             "end": n["end"], "end_weekday": gs.weekday_name(date.fromisoformat(n["end"])),
+             "amount": _money2(n["amount"])}
+            for n in nxt
+        ],
+        "start_date": start.isoformat(), "start_weekday": gs.weekday_name(start), "start_label": gs.fmt_date_wd(start),
         "end_date": end.isoformat() if end else None,
+        "end_weekday": gs.weekday_name(end) if end else None,
+        "end_label": gs.fmt_date_wd(end) if end else None,
         "periods_count": gs.periods_count(clean, cfg),
         "summary": summary,
         "estimated": clean["type"] == "percent_of_pay",
         "_total_pence": total, "_this_period_pence": this_period,
     }
+
+
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_WEEKDAY_INDEX = {**{n: i for i, n in enumerate(_WEEKDAYS)}, **{n[:3]: i for i, n in enumerate(_WEEKDAYS)},
+                  "tues": 1, "weds": 2, "thur": 3, "thurs": 3}
+
+
+def parse_ask_date(text, today: date) -> date | None:
+    """An ISO date, "today", "tomorrow", a weekday word ("Friday", "next Friday",
+    "on fri": the next such day, today included unless "next" is said) or a
+    day-month date. None when it cannot be read."""
+    t = " ".join(str(text or "").lower().replace(",", " ").split())
+    if not t:
+        return None
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", t[:10]) if len(t) >= 10 else None
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+    if t in ("today", "now"):
+        return today
+    if t == "tomorrow":
+        return today + timedelta(days=1)
+    words = t.split()
+    for w in words:
+        i = _WEEKDAY_INDEX.get(w)
+        if i is not None:
+            ahead = (i - today.weekday()) % 7
+            if ahead == 0 and "next" in words:
+                ahead = 7
+            return today + timedelta(days=ahead)
+    return _parse_date(t, today)
+
+
+def on_date_figures(clean: dict, cfg: dict, ask: date, today: date) -> dict:
+    """What the schedule asks for on one day, with its weekday and day number."""
+    found = gs.amount_on(clean, ask, cfg)
+    out = {**_dated(ask.isoformat())}
+    if found is None:
+        start = date.fromisoformat(clean["start_date"])
+        out["amount"] = None
+        out["note"] = ("Nothing is due on that day, because the schedule has not started." if ask < start
+                       else "Nothing is due on that day.")
+        return out
+    out.update({"day_number": found["day_number"], "of_total": found["of_total"],
+                "days_left": found["days_left"], "amount": _money2(found["amount_pence"])})
+    return out
 
 
 def _period_bounds(today: date, cfg: dict) -> tuple[date, date]:
@@ -567,10 +646,30 @@ def _public(built: dict) -> dict:
     return {k: v for k, v in built.items() if not k.startswith("_")}
 
 
+async def _add_calendar(uid: str, out: dict, built: dict, args: dict) -> None:
+    """G355: today, the live pay period and (when asked) one day's amount, all
+    from the server, on every preview result."""
+    from app.routers.commitments import _pay_cfg
+
+    today = timeutil.user_today()
+    cfg = await _pay_cfg(uid)
+    out.update(today_and_period(today, cfg))
+    ask = args.get("ask_date")
+    if ask:
+        asked = parse_ask_date(ask, today)
+        if asked is None:
+            out["on_date"] = {"error": "I could not read that date. Ask for a date such as 30 Oct 2026 or a weekday."}
+        elif built.get("schedule"):
+            out["on_date"] = on_date_figures(built["schedule"], cfg, asked, today)
+        else:
+            out["on_date"] = {**_dated(asked.isoformat()), "note": "Needs the schedule first."}
+
+
 async def exec_preview_goal_schedule(uid: str, args: dict) -> dict:
     try:
         built = await build(uid, args)
         out = _public(built)
+        await _add_calendar(uid, out, built, args)
         if built.get("schedule"):
             found = await suggest_source(uid, source_ref=args.get("source_account_id_or_name"), goal_ref=args.get("goal_ref"), pot_ref=args.get("funding_pot"))
             if found.get("blocked"):

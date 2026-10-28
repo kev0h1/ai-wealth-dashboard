@@ -639,7 +639,9 @@ _WRITE_TOOLS_ADDENDUM = (
     "returns `needs`, ask the user for exactly those things. Say where the money would leave from "
     "(its `source`, hedged when it was detected) and wait for the user to agree. Only then call "
     "propose_create_scheduled_goal; it will not create a goal without a name and a source account, "
-    "and the user confirms on the card. Nothing moves until the user moves it."
+    "and the user confirms on the card. Nothing moves until the user moves it. Never do date, weekday "
+    "or amount arithmetic yourself: ask preview_goal_schedule with ask_date for the amount on a date, "
+    "and copy its weekday and day number."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up
@@ -930,6 +932,20 @@ def _move_guarded(reply: str, plan_results: list[dict], uid: str, all_results: l
     except Exception:
         logger.exception("penny_reply_guards error at call site for %s", uid)
         return reply
+
+
+def _weekday_fixed(text: str, today, uid: str) -> str:
+    """G355: a weekday the model wrote next to a date is replaced with the real
+    one. A factual correction for every reply (it touches only weekday words
+    beside dates). Never raises; logs a count only."""
+    try:
+        fixed, count = penny_reply_guards.fix_weekday_claims(text, today)
+        if count:
+            logger.warning("penny_agent: reply for %s carried %d wrong weekday(s); corrected", uid, count)
+        return fixed
+    except Exception:
+        logger.exception("penny_reply_guards weekday error at call site for %s", uid)
+        return text
 
 
 def _guarded(text: str, periods: list[dict], uid: str) -> str:
@@ -1298,7 +1314,7 @@ async def run_penny_agent(
                         continue
                     prose = safe_prose(content)
                     if prose:
-                        prose = _move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results)
+                        prose = _weekday_fixed(_move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results), today, uid)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
                         if new_last_result or (focus_in and not focus_cleared):
@@ -1310,6 +1326,7 @@ async def run_penny_agent(
                 # backs is replaced with the tool's own label.
                 headline, reply = _guarded_pair(headline, reply, periods, uid)
                 reply = _move_guarded(reply, plan_results, uid, all_results)
+                headline, reply = _weekday_fixed(headline, today, uid), _weekday_fixed(reply, today, uid)
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,
