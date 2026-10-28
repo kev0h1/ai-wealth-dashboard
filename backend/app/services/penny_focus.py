@@ -159,6 +159,11 @@ def clean_draft(raw) -> dict | None:
     if isinstance(amounts, list) and 0 < len(amounts) <= 120 and all(
             isinstance(a, int) and not isinstance(a, bool) and 0 < a <= _DRAFT_INT_MAX for a in amounts):
         out["amounts_pence"] = list(amounts)
+    cands = raw.get("source_candidates")
+    if isinstance(cands, list):
+        ids = [str(c)[:64] for c in cands if isinstance(c, (str, int)) and not isinstance(c, bool) and str(c).strip()][:8]
+        if ids:
+            out["source_candidates"] = ids
     if raw.get("create_alongside") is True:
         out["create_alongside"] = True
     cand = raw.get("convert_candidate")

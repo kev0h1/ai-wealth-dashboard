@@ -5412,7 +5412,7 @@ async def revoke_agent_consent(uid: str) -> dict:
     return {"penny_agent_consent": None, "proposals_cancelled": cancelled}
 
 
-async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None) -> dict:
+async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None, within: list | None = None) -> dict:
     """Same id-or-name resolution `get_account_activity` already uses,
     reused here (not reimplemented) for every write tool that takes an
     account: id match short-circuits (ids are unique, always unambiguous),
@@ -5429,7 +5429,7 @@ async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None)
     if target is None:
         # G355: bank, product word, nickname and kind ("my Monzo current account"),
         # with the old raw-name phrase match kept as the strongest signal.
-        matches = pam.pick(str(account_id_or_name), accs, _account_kind, _name_matches)
+        matches = pam.pick(str(account_id_or_name), accs, _account_kind, _name_matches, within=within)
         if len(matches) > 1:
             tokens = await _safe_name_tokens(uid)
             return {

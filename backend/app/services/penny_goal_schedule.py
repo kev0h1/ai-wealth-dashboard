@@ -660,7 +660,7 @@ FIELD_KEYS = ("start_date", "start_pence", "step_pence", "step_unit", "count", "
               "expected_pay_pence", "amounts_pence", "day_number", "last_day")
 _GENERIC_NAME_WORDS = frozenset({"saving", "goal", "plan", "fund", "pot", "set", "aside", "money", "new", "pay", "period"})
 _BASIS_WORDS = {
-    "stated": "stated by the user",
+    "stated": "stated, settled",
     "model": "picked by Penny, not yet confirmed by the user",
     "recent-transfers": "detected from recent transfers, needs the user's OK",
     "assumed": "assumed because it is the only current account, needs the user's OK",
@@ -746,6 +746,16 @@ def _fields_for_draft(built: dict) -> dict:
     return out
 
 
+def _candidates_extra(blocked) -> dict:
+    """G356: the accounts an ambiguous reference matched, kept in the draft so a
+    kind-only answer ("the current account") resolves within them."""
+    if isinstance(blocked, dict) and blocked.get("ambiguous"):
+        ids = [str(m["id"]) for m in blocked.get("matches") or [] if isinstance(m, dict) and m.get("id")]
+        if ids:
+            return {"source_candidates": ids}
+    return {}
+
+
 def _next_draft(old: dict | None, built: dict, *, name=None, source=None, into=None, extra: dict | None = None) -> dict | None:
     from app.services import penny_focus
 
@@ -754,6 +764,7 @@ def _next_draft(old: dict | None, built: dict, *, name=None, source=None, into=N
     if name:
         draft["name"] = str(name)
     if source:
+        draft.pop("source_candidates", None)
         draft["source_account_id"] = source["account_id"]
         draft["source_account_name"] = source.get("name")
         draft["source_basis"] = source["basis"]
@@ -806,8 +817,10 @@ def convert_sentence(match: dict) -> str:
 
 # ── Source account ───────────────────────────────────────────────────────────
 
-async def _resolve(uid: str, ref):
+async def _resolve(uid: str, ref, within=None):
     from app.services.penny_tools import _resolve_account_for_propose
+    if within:
+        return await _resolve_account_for_propose(uid, ref, within=list(within))
     return await _resolve_account_for_propose(uid, ref)
 
 
@@ -855,12 +868,14 @@ async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=No
         if pot is not None:
             out["into"] = await _account_view(uid, pot)
     if source_ref:
-        res = await _resolve(uid, source_ref)
+        res = await _resolve(uid, source_ref, draft.get("source_candidates"))
         if res.get("ambiguous") or res.get("error"):
             return {**out, "blocked": res}
         if res.get("account") is not None:
             basis = "stated" if stated_by_user(res["account"], texts) else "model"
             out["source"] = {**await _account_view(uid, res["account"]), "basis": basis}
+            if basis == "stated":
+                out["source"]["confirmed"] = True  # G356: a stated reference that resolved to one account is settled
             return out
     if draft.get("source_account_id"):
         basis = draft.get("source_basis") or "model"
@@ -870,6 +885,8 @@ async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=No
             if res.get("account") is not None and stated_by_user(res["account"], texts):
                 basis = "stated"
         out["source"] = {"account_id": draft["source_account_id"], "name": name, "basis": basis}
+        if basis == "stated":
+            out["source"]["confirmed"] = True
         return out
     if goal_ref:
         from app.services.penny_tools import _resolve_commitment_for_propose
@@ -920,6 +937,8 @@ def _public(built: dict) -> dict:
 def source_sentence(src: dict) -> str:
     """One sentence on where the money leaves from. "As you said" only ever
     follows an account the user named (basis "stated")."""
+    if src["basis"] == "stated":
+        return f"The money leaves from {src['name']}."
     if src["basis"] == "model":
         return f"I have picked {src['name']} as the account the money leaves from, please check it. {NOTHING_MOVES}"
     how = {"stated": "as you said", "stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
@@ -983,6 +1002,7 @@ async def exec_preview_goal_schedule(uid: str, args: dict) -> dict:
                 convert_extra["convert_candidate"] = match
                 if not decided:
                     out["summary"] = f"{out['summary']} {convert_sentence(match)}"
+        convert_extra.update(_candidates_extra(out.get("source_problem")))
         draft = _next_draft(old, built, name=name, source=source, into=into, extra=convert_extra)
         return _with_draft(out, args, draft)
     except HTTPException as e:
@@ -1061,6 +1081,7 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
             draft=old, texts=texts,
         )
         if found.get("blocked"):
+            extra.update(_candidates_extra(found["blocked"]))
             return _with_draft(found["blocked"], args, _next_draft(old, built, name=name, into=found.get("into"), extra=extra))
         source = found.get("source")
         into = found.get("into")
