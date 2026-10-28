@@ -31,7 +31,7 @@ export interface Bank {
 export type DisclosurePlacement = "footer" | "list-end" | "expandable" | "header";
 
 const DISCLOSURE_ID = "bank-picker-disclosure";
-const SOURCE_LINE = "Secure open banking · Powered by Finexer";
+export const SOURCE_LINE = "Secure open banking · Powered by Finexer";
 const CAPTION_INK = "text-xs leading-5 text-slate-600 dark:text-slate-300";
 
 interface BankPickerSheetProps {

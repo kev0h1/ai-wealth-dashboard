@@ -837,6 +837,19 @@ export interface SubscriptionInfo {
    *  client running against an older backend degrades to not showing the
    *  temporary-state note at all. */
   billing_live?: boolean;
+  /** C37: which payment channels are live. `billing_live` above is Stripe web
+   *  ONLY; use this (or `billing_live_any`) to decide what a given client can
+   *  buy: `stripe_web` on the web, `apple` in the iOS app, `google` in the
+   *  Android app. */
+  billing_channels?: { stripe_web: boolean; apple: boolean; google: boolean };
+  /** C37: any channel in `billing_channels` is live. */
+  billing_live_any?: boolean;
+  /** C37: where the plan came from. "default" is the server fallback with no
+   *  subscription at all, which must never be labelled "Current plan". Null
+   *  when the server could not tell. */
+  tier_source?: "default" | "free_selected" | "manual" | "stripe" | "apple" | "google" | null;
+  /** C37: true when `tier_source` is "default". */
+  is_default_tier?: boolean;
   /** F9: this month's MCP connector call allowance. Optional for the same
    *  older-backend reason as `billing_live`. */
   mcp?: SubscriptionMcpAllowance;
