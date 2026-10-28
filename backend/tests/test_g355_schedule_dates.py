@@ -84,12 +84,19 @@ def test_ask_date_before_the_start_and_unreadable():
     ("on 29 Oct, Friday is payday", "on 29 Oct, Friday is payday", 0),
     ("29 Oct (Friday)", "29 Oct (Thursday)", 1),
     ("29 Oct Friday", "29 Oct Thursday", 1),
+    ("paid on 12 Aug (Wednesday)", "paid on 12 Aug (Wednesday)", 0),  # a correct weekday on a past date
+    ("paid on 12 Aug (Thursday)", "paid on 12 Aug (Thursday)", 0),  # far, and 12 Aug 2027 is a Thursday
+    ("3 Jan (Saturday)", "3 Jan (Saturday)", 0),  # far, and 3 Jan 2026 was a Saturday
+    ("15 Nov (Monday)", "15 Nov (Sunday)", 1),  # near, 15 Nov 2026 is a Sunday
+    ("12 Aug (Monday)", "12 Aug (Wednesday)", 1),  # far, fits no year: nearest year's weekday
+    ("29 Oct 2027 (Thursday)", "29 Oct 2027 (Friday)", 1),  # an explicit year is always exact
+    ("12 Aug 2026 (Thursday)", "12 Aug 2026 (Wednesday)", 1),
 ])
 def test_fix_weekday_claims(text, fixed, n):
     assert guards.fix_weekday_claims(text, TODAY) == (fixed, n)
 
 
 def test_weekday_guard_year_rollover():
-    # 15 Jan with no year, asked in late October, is next year's: 15 Jan 2027 is a Friday
+    # 15 Jan, far from today, fits no year with Monday: the nearest year (2027) gives Friday
     assert guards.fix_weekday_claims("15 Jan (Monday)", TODAY) == ("15 Jan (Friday)", 1)
     assert guards.fix_weekday_claims("", TODAY) == ("", 0)
