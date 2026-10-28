@@ -41,7 +41,14 @@ def _tier_source(doc: dict | None, sub) -> str:
     if sub.status == "expired" and not getattr(sub, "has_paid_subscription", False):
         return "default"
     provider = doc.get("provider")
-    return provider if provider in ("stripe", "apple", "google") else "unknown"
+    if provider in ("stripe", "apple", "google"):
+        return provider
+    # Core treats a document with provider None as Stripe (the filter is
+    # provider in ("stripe", None)); only call it Stripe when it carries a
+    # Stripe marker, otherwise nothing identifies its provider.
+    if provider is None and (doc.get("stripe_subscription_id") or doc.get("source") == "stripe"):
+        return "stripe"
+    return "unknown"
 
 
 @router.get("/subscription")

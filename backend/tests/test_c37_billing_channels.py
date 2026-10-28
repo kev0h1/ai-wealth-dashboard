@@ -154,3 +154,12 @@ def test_tier_source_unknown_when_doc_names_no_provider(monkeypatch):
     info = _info(monkeypatch)
     assert info["tier_source"] == "unknown"
     assert info["is_default_tier"] is False
+
+
+def test_tier_source_legacy_stripe_doc_without_provider(monkeypatch):
+    _set(monkeypatch)
+    _subs(monkeypatch, [{"user_id": UID, "tier": "plus", "status": "active",
+                         "source": "stripe", "stripe_subscription_id": "sub_1"}])
+    info = _info(monkeypatch)
+    assert info["tier_source"] == "stripe"
+    assert info["is_default_tier"] is False
