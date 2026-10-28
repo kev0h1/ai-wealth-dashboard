@@ -181,7 +181,9 @@ def _run_trim_scenario(monkeypatch):
     """One trimmed-month payday plan with a savings destination (habitual
     £100 top-up, no bills owed) and a bill destination (£200 owed) whose
     combined moves (£350, before trimming) exceed what SALARY_ACCT can
-    distribute (£100 balance, minus its own £50 buffer = £50) — forcing
+    distribute (£350 balance, minus its own £50 buffer = £300; G350 raised this
+    from £100 so the trim stays buffer-only and the habitual savings top-up
+    is not left out, which is what the over-pay path now does) — forcing
     `trimmed = True` and exercising the re-derive block defect (1) lives in.
     The salary income (£999) is kept deliberately different from `total`
     (£300, after trimming) so defect (2)'s headline bug is unambiguous
@@ -190,7 +192,7 @@ def _run_trim_scenario(monkeypatch):
     pay_period, companion_items_col = _base_patch(
         monkeypatch,
         accounts=[
-            _account(SALARY_ACCT, 100.0, "Salary Account"),
+            _account(SALARY_ACCT, 350.0, "Salary Account"),
             _account(SAVINGS_ACCT, 0.0, "Personal GBP", subtype="SAVINGS"),
             _account(BILL_ACCT, 0.0, "Everyday"),
         ],

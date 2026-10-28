@@ -1195,6 +1195,13 @@ async def _active_commitment_slices(
         return {}
 
 
+def _gbp(x: float) -> str:
+    """Whole pounds without a decimal point, otherwise two places (G350 copy
+    helper, so a fractional leg never reads "£120.0")."""
+    x = round(float(x), 2)
+    return f"{int(x):,}" if x == int(x) else f"{x:,.2f}"
+
+
 async def _active_allocation_slices(
     uid: str,
     pay_cfg: dict,
@@ -3708,6 +3715,7 @@ async def compute_today_items(
             distributable = _bal(salary_acct) - _salary_target - _salary_envelope_reserved
 
             dests: list[dict] = []
+            _leg_meta: dict[str, dict] = {}
             for acc in all_uk_accounts:
                 acct_id = acc["_str_id"]
                 if is_credit_card_account(acc):
@@ -3741,6 +3749,7 @@ async def compute_today_items(
                     target = bills_total + spend_typical + buffer
                     move_raw = max(0.0, target - balance)
                     move = _ceil5(move_raw) if move_raw > 0 else 0
+                _nat_move = move  # the move before any goal/set-aside floor (G350)
                 # Commitments routed to this pot: the move becomes at least
                 # the sum of their per-period slices (never lowered).
                 _commit = commitment_slices.get(acct_id)
@@ -3816,10 +3825,38 @@ async def compute_today_items(
                     _dest_entry["commitment_names"] = list(_commit["names"])
                 if _alloc and _alloc.get("names"):
                     _dest_entry["allocation_names"] = list(_alloc["names"])
+                # Deferrable legs on this destination (G350), used only when
+                # the plan is over the pay: a goal leg (one per pot, named by
+                # its goals) and one leg per set-aside. Internal, not shipped.
+                _legs: list[dict] = []
+                _c_leg = round(float(_commit.get("slice_total") or 0), 2) if _commit else 0.0
+                if _c_leg > 0:
+                    _legs.append({
+                        "kind": "goal",
+                        "name": ", ".join(_commit.get("names") or []) or _dest_entry["name"],
+                        "amount": _c_leg,
+                    })
+                for _it in (_alloc.get("items") or []) if _alloc else []:
+                    if float(_it.get("slice") or 0) > 0:
+                        _legs.append({
+                            "kind": "set_aside",
+                            "name": _it.get("name") or _dest_entry["name"],
+                            "amount": round(float(_it["slice"]), 2),
+                        })
+                if _legs:
+                    _leg_meta[acct_id] = {"nat": _nat_move, "legs": _legs}
                 dests.append(_dest_entry)
 
             dests.sort(key=lambda d: d["move"], reverse=True)
+            # G350: destinations beyond the cap are never dropped silently;
+            # they are reported in `left_out` below.
+            _cap_dropped = [d for d in dests[10:] if d["move"] > 0]
             dests = dests[:10]
+
+            def _leg_floor(d: dict) -> float:
+                _m = _leg_meta.get(d["account_id"])
+                return sum(l["amount"] for l in _m["legs"]) if _m else 0.0
+            _cut_by: dict[str, float] = {}
 
             total_moves = sum(d["move"] for d in dests)
             trimmed = False
@@ -3834,9 +3871,12 @@ async def compute_today_items(
                 for d in sorted(dests, key=lambda d: d["move"], reverse=True):
                     if overage <= 0:
                         break
-                    cut = min(d["buffer"], overage)
+                    # A goal or set-aside leg is never eaten by a buffer cut
+                    # (G350): those are dropped explicitly and reported.
+                    cut = min(d["buffer"], overage, max(0.0, d["move"] - _leg_floor(d)))
                     if cut <= 0:
                         continue
+                    _cut_by[d["account_id"]] = _cut_by.get(d["account_id"], 0.0) + cut
                     d["buffer"] -= cut
                     d["target"] -= cut
                     d["move"] = max(0.0, d["move"] - cut)
@@ -3854,10 +3894,11 @@ async def compute_today_items(
                             weight = d["spend_typical"] / _pool
                             share = overage * weight
                             floor = max(0.0, d["bills_total"] - d["balance"])
-                            max_cut = max(0.0, d["move"] - floor)
+                            max_cut = max(0.0, d["move"] - max(floor, _leg_floor(d)))
                             cut = min(share, d["spend_typical"], max_cut)
                             if cut <= 0:
                                 continue
+                            _cut_by[d["account_id"]] = _cut_by.get(d["account_id"], 0.0) + cut
                             d["spend_typical"] -= cut
                             d["target"] -= cut
                             d["move"] = max(floor, d["move"] - cut)
@@ -3884,7 +3925,7 @@ async def compute_today_items(
                     floor = max(0.0, d["bills_total"] - d["balance"])
                     floor_ceil = _ceil5(floor) if floor > 0 else 0
                     move_ceil = _ceil5(d["move"]) if d["move"] > 0 else 0
-                    d["move"] = max(move_ceil, floor_ceil)
+                    d["move"] = max(move_ceil, floor_ceil, round(_leg_floor(d), 2))
                     d["buffer"] = int(round(d["buffer"]))
                     d["spend_typical"] = int(round(d["spend_typical"]))
                     if d.get("destination_kind") == "savings":
@@ -3896,12 +3937,83 @@ async def compute_today_items(
             else:
                 total = total_moves
 
+            # ── G350: never an over-pay plan shown silently ────────────────
+            # Buffers and spending top-ups are "trimmed" above (they are
+            # padding). If the moves STILL add up to more than can be
+            # distributed, deferrable legs are left out, largest first (the
+            # last may be reduced rather than dropped): set-aside and goal
+            # legs, then habitual top-ups to savings pots above their bills
+            # floor. A destination's bills floor is never cut. Each cut is
+            # recorded in `left_out`; what remains over after that is
+            # `over_salary`. Destinations past the 10-row cap are always
+            # listed (kind "destination").
+            left_out: list[dict] = [
+                {"name": d["name"], "kind": "destination", "amount": round(d["move"], 2)}
+                for d in _cap_dropped
+            ]
+            over_salary = None
+            _over = total - distributable
+            _eps = 0.005
+
+            def _cut_move(d: dict, cut: float) -> None:
+                d["move"] = round(d["move"] - cut, 2)
+                if d.get("destination_kind") == "savings":
+                    d["target"] = round(d["move"] + int(round(d["bills_total"])), 2)
+
+            if total > 0 and _over > _eps:
+                _pending = []
+                for d in dests:
+                    _m = _leg_meta.get(d["account_id"])
+                    for _l in (_m["legs"] if _m else []):
+                        _pending.append((d, _l))
+                _pending.sort(key=lambda t: t[1]["amount"], reverse=True)
+                for d, _l in _pending:
+                    if _over <= _eps:
+                        break
+                    _m = _leg_meta[d["account_id"]]
+                    _others = sum(x["amount"] for x in _m["legs"] if x is not _l)
+                    _nat = max(0.0, _m["nat"] - _cut_by.get(d["account_id"], 0.0))
+                    _nat = _ceil5(_nat) if _nat > 0 else 0
+                    _bf = max(0.0, d["bills_total"] - d["balance"])
+                    _bf = _ceil5(_bf) if _bf > 0 else 0
+                    _freed = d["move"] - max(_nat, _others, _bf)
+                    _m["legs"].remove(_l)
+                    if _freed <= _eps:
+                        continue  # the habitual move already covers it: nothing to leave out
+                    _cut = min(_freed, _over)
+                    _cut_move(d, _cut)
+                    _over -= _cut
+                    left_out.append({"name": _l["name"], "kind": _l["kind"], "amount": round(_cut, 2)})
+                if _over > _eps:
+                    for d in sorted(dests, key=lambda d: d["move"], reverse=True):
+                        if _over <= _eps:
+                            break
+                        if d.get("destination_kind") != "savings" or not d.get("usual"):
+                            continue
+                        _bf = max(0.0, d["bills_total"] - d["balance"])
+                        _bf = _ceil5(_bf) if _bf > 0 else 0
+                        _freed = d["move"] - max(_bf, _leg_floor(d))
+                        if _freed <= _eps:
+                            continue
+                        _cut = min(_freed, _over)
+                        _cut_move(d, _cut)
+                        _over -= _cut
+                        left_out.append({"name": d["name"], "kind": "usual", "amount": round(_cut, 2)})
+                total = round(sum(d["move"] for d in dests), 2)
+                if total - distributable > _eps:
+                    over_salary = {
+                        "total": total,
+                        "pay": int(salary_amount),
+                        "short": round(total - distributable, 2),
+                    }
+                trimmed = True
+
             # Every destination this plan is ACTUALLY funding this window
             # (move > 0) — see the unfunded_move owner-extension (5d) below.
             _pp_dest_ids_final = {d["account_id"] for d in dests if d["move"] > 0}
 
             n_moves = len([d for d in dests if d["move"] > 0])
-            covered = bool(total <= distributable)
+            covered = bool(round(total, 2) <= round(distributable, 2))
             stays = int(distributable - total) if (distributable - total) >= 0 else 0
 
             if total > 0:
@@ -3925,10 +4037,20 @@ async def compute_today_items(
             _salary_name = _clean_name(_salary_acc_obj.get("name") if _salary_acc_obj else None, salary_acct)
             _salary_provider = _provider_of(_salary_acc_obj) if _salary_acc_obj else "Bank"
 
-            if covered:
+            if over_salary is not None:
+                body = (
+                    f"These moves add up to £{_gbp(over_salary['total'])}, more than the "
+                    f"~£{over_salary['pay']:,} pay expected. "
+                    f"£{_gbp(over_salary['short'])} would need to come from other accounts."
+                )
+            elif left_out and covered:
+                body = f"£{_gbp(total)} distributed. Some moves were left out this month."
+            elif covered and trimmed:
+                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp(total)} distributed."
+            elif covered:
                 body = f"£{total:,} distributed, £{stays:,} stays in {_salary_name}."
             elif trimmed:
-                body = f"A tight month: buffers trimmed so every payment is covered. £{total:,} distributed."
+                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp(total)} distributed."
             else:
                 body = f"£{total:,} distributed across {n_moves} accounts."
 
@@ -4044,6 +4166,8 @@ async def compute_today_items(
                         "stays": stays,
                     },
                     "dests": dests,
+                    "over_salary": over_salary,
+                    "left_out": left_out,
                     "estimated": False,
                     "action": {"label": "See what's due", "route": "/upcoming"},
                 }
@@ -4096,6 +4220,8 @@ async def compute_today_items(
                         "dests": dests,
                         "salary": payday_plan_item["salary"],
                         "trimmed": bool(trimmed),
+                        "over_salary": over_salary,
+                        "left_out": left_out,
                     }
                     if persist:
                         await companion_items_col.update_one(
