@@ -70,7 +70,7 @@ export default function GoalSchedulesClient() {
     if (timer.current) clearTimeout(timer.current);
     setSaving(false); setCreated(false); setNotice(""); setCancelled(false); setSaveError(false); setStep(1); setChoosing(false);
   }
-  function confirm() {
+  function createPreviewGoal() {
     if (!source || saving) return;
     setSaving(true); setSaveError(false);
     timer.current = setTimeout(() => {
@@ -201,7 +201,7 @@ export default function GoalSchedulesClient() {
                   {saveError && <p role="alert" className={`text-sm ${muted}`}>The goal could not be created. Nothing changed. Try again.</p>}
                 </>}
                 <div className="flex gap-2 pt-1">
-                  {variant === "c" && step < 3 ? <button type="button" className={`${primary} flex-1`} disabled={step === 2 && !source} onClick={() => { setStep(step + 1); setChoosing(false); }}>Continue<ArrowRight size={16} aria-hidden="true" /></button> : <button type="button" className={`${primary} flex-1`} disabled={!source || saving} onClick={confirm}>{saving ? "Creating goal…" : saveError ? "Try again" : convert ? "Create goal & pause set-aside" : "Create goal"}</button>}
+                  {variant === "c" && step < 3 ? <button type="button" className={`${primary} flex-1`} disabled={step === 2 && !source} onClick={() => { setStep(step + 1); setChoosing(false); }}>Continue<ArrowRight size={16} aria-hidden="true" /></button> : <button type="button" className={`${primary} flex-1`} disabled={!source || saving} onClick={createPreviewGoal}>{saving ? "Creating goal…" : saveError ? "Try again" : convert ? "Create goal & pause set-aside" : "Create goal"}</button>}
                   <button type="button" disabled={saving} className={`${action} ${muted}`} onClick={() => { if (variant === "c" && step > 1) setStep(step - 1); else setCancelled(true); }}>{variant === "c" && step > 1 ? "Back" : "Cancel"}</button>
                 </div>
                 {(variant !== "c" || step === 1) && <button type="button" disabled={saving} onClick={edit} className={`${quiet} w-full`}>Edit schedule</button>}
