@@ -7,18 +7,13 @@ type SpendFromAccountListProps = {
   entries: SpendFromAccount[];
   pool: number | null;
   amount: (value: number) => string;
+  /** Legacy display context. Limits already include cover-move reserves. */
   coverMoveVisible: boolean;
   reserveByAccount?: Record<string, number>;
   destinationsByAccount?: Record<string, string[]>;
   onLogoError: (logoSrc: string) => void;
   kind: "bank-rail" | "name-fallback";
 };
-
-function joinDestinationLabels(labels: string[]) {
-  if (labels.length < 2) return labels[0] ?? "";
-  if (labels.length === 2) return labels.join(" and ");
-  return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
-}
 
 /**
  * The approved G320 B treatment. Account limits are independent ceilings on
@@ -28,9 +23,6 @@ export default function SpendFromAccountList({
   entries,
   pool,
   amount,
-  coverMoveVisible,
-  reserveByAccount,
-  destinationsByAccount,
   onLogoError,
   kind,
 }: SpendFromAccountListProps) {
@@ -39,7 +31,6 @@ export default function SpendFromAccountList({
   const hasLowerLimit = entries.some((entry) =>
     !hasKnownPool || Math.round(entry.headroom) < Math.round(pool),
   );
-  const hasReserveSource = entries.some((entry) => (reserveByAccount?.[entry.accountId] ?? 0) > 0);
 
   return (
     <section
@@ -53,10 +44,7 @@ export default function SpendFromAccountList({
         {entries.map((entry) => {
           const brand = accountBrand(entry.account);
           const showLimit = !hasKnownPool || Math.round(entry.headroom) < Math.round(pool);
-          const reserve = reserveByAccount?.[entry.accountId] ?? 0;
           const sameBank = brands.filter((label) => label === brand.label).length > 1;
-          const destinations = destinationsByAccount?.[entry.accountId] ?? [];
-          const sourceLabel = sameBank ? `${brand.label} ${displayAccountName(entry.name)}` : brand.label;
 
           return (
             <li
@@ -81,18 +69,10 @@ export default function SpendFromAccountList({
                   up to <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span>
                 </span>
               )}
-              {coverMoveVisible && reserve > 0 && (
-                <p className="col-span-2 col-start-2 mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                  <MoneyText text={`${amount(reserve)} already held back in ${sourceLabel} for the ${destinations.length > 0 ? `move to ${joinDestinationLabels(destinations)}` : "move shown above"}.`} />
-                </p>
-              )}
             </li>
           );
         })}
       </ul>
-      {coverMoveVisible && !hasReserveSource && (
-        <p className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300">The move above is already held back.</p>
-      )}
       {entries.length > 0 && (
         <p className={`${entries.length > 1 ? "mt-3" : "mt-2"} text-[12px] leading-5 text-slate-600 dark:text-slate-300`}>
           {entries.length > 1

@@ -49,7 +49,7 @@ for(const example of ACCOUNT_EXAMPLES){
   assert.match(hero,/data-spend-from-layout="account-list"/,'accounts always visible within the hero');
   if(example.id==='whole')assert.doesNotMatch(hero,/£261 held/,'whole estimate never repeated as an account amount');
   if(example.id==='same-bank'||example.id==='long')assert.match(hero,/Bills account|Joint household bills/,'same-bank accounts remain identifiable');
-  if(example.id==='standard'){assert.match(plain(hero),/Each amount is the most that account could cover\. Don't add them together/);assert.match(plain(hero),/Showing your top 2 accounts/);assert.match(plain(hero),/£25 already held back in NatWest for the move to Barclays Bills account/);}
+  if(example.id==='standard'){assert.match(plain(hero),/Each amount is the most that account could cover\. Don't add them together/);assert.match(plain(hero),/Showing your top 2 accounts/);assert.doesNotMatch(plain(hero),/already held back|for the move/);assert.match(plain(hero),/up to £146/);}
   assert.doesNotMatch(hero,/<a[^>]+data-spend-from-account/,'bank rows are plain, not extra links');
   cases++;
 }
@@ -61,7 +61,7 @@ assert.doesNotMatch(maskedPace,/£\d/);
 const pace=plain(renderScenario({patch:{pace:{state:'on_pace',sustainable:37.29}}}));
 assert.match(pace,/About £37 a day/,'pace uses server-authored sustainable amount');
 const hiddenMove=renderScenario({props:{coverMoveVisible:false}});
-assert.doesNotMatch(hiddenMove,/already held back in NatWest/,'dismissing a move removes the note without changing limits');
+assert.doesNotMatch(hiddenMove,/already held back in NatWest/,'a dismissed move adds no repeated reserve copy');
 assert.match(hiddenMove,/£146/);
 for(const reason of ['error','missing','loading']){
   const html=renderScenario({props:{spendFrom:{kind:'unavailable',reason}}});
