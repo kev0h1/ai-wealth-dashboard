@@ -1453,6 +1453,10 @@ export type PaydayPlanOverSalary = {
   total: number;
   pay: number;
   short: number;
+  /** True when the moves exceed the pay; false when they fit the pay but the salary account cannot spare them. */
+  over_pay?: boolean;
+  /** Whole pounds the salary account can spare after what it keeps for its own bills. */
+  spare?: number;
 };
 
 export type PaydayPlanSalary = {

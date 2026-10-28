@@ -44,6 +44,15 @@ function keepsText(keeps: { name: string; amount: number }[]): string {
   return `keeps ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
 }
 
+// Over-pay line: "more than the pay" only when the moves really exceed it.
+function overSalaryText(o: { total: number; pay: number; short: number; over_pay?: boolean; spare?: number }, name: string): string {
+  const gbp = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
+  const short = `${gbp(o.short)} would need to come from other accounts.`;
+  if (o.over_pay !== false) return `These moves add up to ${gbp(o.total)}, more than the ~${gbp(o.pay)} pay expected. ${short}`;
+  const spare = o.spare ?? 0;
+  return `These moves add up to ${gbp(o.total)}, but ${name} ${spare > 0 ? `can only spare ${gbp(spare)}` : "has nothing to spare"} after what it keeps for its own bills. ${short}`;
+}
+
 // "Left out this month: A £x, B £y and N more" (max three named).
 function leftOutText(items: { name: string; amount: number }[]): string {
   const shown = items.slice(0, 3).map((l) => `${l.name} £${Math.round(l.amount).toLocaleString("en-GB")}`);
@@ -193,7 +202,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
           <span>
             <MoneyText
               text={maskAmounts(
-                `These moves add up to £${Math.round(item.over_salary.total).toLocaleString("en-GB")}, more than the ~£${Math.round(item.over_salary.pay).toLocaleString("en-GB")} pay expected. £${Math.round(item.over_salary.short).toLocaleString("en-GB")} would need to come from other accounts.`
+                overSalaryText(item.over_salary, item.salary?.name ?? "Your account")
               )}
             />
           </span>

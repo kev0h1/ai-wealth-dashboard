@@ -4371,6 +4371,8 @@ def _shape_payday_plan(item: dict) -> dict:
                 "total": _money(item["over_salary"].get("total")),
                 "pay": _money(item["over_salary"].get("pay")),
                 "short": _money(item["over_salary"].get("short")),
+                "over_pay": bool(item["over_salary"].get("over_pay")),
+                "spare": _money(item["over_salary"].get("spare")),
             }
             if item.get("over_salary") else None
         ),

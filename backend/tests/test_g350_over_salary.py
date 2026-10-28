@@ -30,9 +30,9 @@ def _needs_on_bill_account():
     ]}}
 
 
-def _plan(monkeypatch, *, accounts, bills, needs=None):
+def _plan(monkeypatch, *, accounts, bills, needs=None, income=2000.0):
     today = timeutil.user_today()
-    pay_period, _ = _base_patch(monkeypatch, accounts=accounts, bills=bills, income=[_salary(0, 2000.0)])
+    pay_period, _ = _base_patch(monkeypatch, accounts=accounts, bills=bills, income=[_salary(0, income)])
     monkeypatch.setattr(pay_period, "get_pay_period_for_date",
                         lambda _d, _c: (today, today + timedelta(days=29)))
     monkeypatch.setattr(pay_period, "_next_payday", lambda _d, _c: today + timedelta(days=30))
@@ -61,13 +61,15 @@ def test_bills_floor_alone_over_pay_lists_dropped_legs_largest_first(monkeypatch
     ]
     # Bills floor (200) stays; distributable is 100 - 50 buffer = 50.
     assert plan["total"] == 200
-    assert plan["over_salary"] == {"total": 200, "pay": 2000, "short": 150}
+    assert plan["over_salary"] == {"total": 200, "pay": 2000, "short": 150, "over_pay": False, "spare": 50}
     assert plan["covered"] is False
     assert plan["salary"]["stays"] == 0
     assert plan["body"] == (
-        "These moves add up to £200, more than the ~£2,000 pay expected. "
+        "These moves add up to £200, but Salary Account can only spare £50 "
+        "after what it keeps for its own bills. "
         "£150 would need to come from other accounts."
     )
+    assert plan["over_salary"]["over_pay"] is False and plan["over_salary"]["spare"] == 50
     assert "reasons" not in next(d for d in plan["dests"] if d["account_id"] == BILL)
 
 
@@ -137,3 +139,22 @@ def test_habitual_savings_top_up_is_left_out_after_the_legs(monkeypatch):
     assert plan["over_salary"]["short"] == 150
     assert next(d for d in plan["dests"] if d["account_id"] == SAVINGS_ACCT)["move"] == 0
     assert next(d for d in plan["dests"] if d["account_id"] == BILL_ACCT)["move"] == 200
+
+
+def test_total_above_the_pay_says_more_than_the_pay(monkeypatch):
+    plan = _plan(monkeypatch, accounts=_accounts(100.0), bills=_BILLS,
+                 needs=_needs_on_bill_account(), income=150.0)
+    assert plan["over_salary"]["over_pay"] is True
+    assert plan["body"] == (
+        "These moves add up to £200, more than the ~£150 pay expected. "
+        "£150 would need to come from other accounts."
+    )
+
+
+def test_nothing_to_spare_wording(monkeypatch):
+    plan = _plan(monkeypatch, accounts=_accounts(20.0), bills=_BILLS)
+    assert plan["over_salary"]["over_pay"] is False and plan["over_salary"]["spare"] == 0
+    assert plan["body"] == (
+        "These moves add up to £200, but Salary Account has nothing to spare "
+        "after what it keeps for its own bills. £230 would need to come from other accounts."
+    )

@@ -4068,6 +4068,11 @@ async def compute_today_items(
                         "total": total,
                         "pay": int(salary_amount),
                         "short": round(total - distributable, 2),
+                        # True gap vs the pay: false means the moves fit within
+                        # the pay but the salary account cannot spare them
+                        # after what it keeps for its own bills (`spare`).
+                        "over_pay": bool(total > salary_amount),
+                        "spare": int(max(0.0, distributable)),
                     }
                 trimmed = True
 
@@ -4101,11 +4106,22 @@ async def compute_today_items(
             _salary_provider = _provider_of(_salary_acc_obj) if _salary_acc_obj else "Bank"
 
             if over_salary is not None:
-                body = (
-                    f"These moves add up to £{_gbp_num(over_salary['total'])}, more than the "
-                    f"~£{over_salary['pay']:,} pay expected. "
-                    f"£{_gbp_num(over_salary['short'])} would need to come from other accounts."
-                )
+                if over_salary["over_pay"]:
+                    body = (
+                        f"These moves add up to £{_gbp_num(over_salary['total'])}, more than the "
+                        f"~£{over_salary['pay']:,} pay expected. "
+                        f"£{_gbp_num(over_salary['short'])} would need to come from other accounts."
+                    )
+                else:
+                    _spare_txt = (
+                        f"can only spare £{over_salary['spare']:,}" if over_salary["spare"] > 0
+                        else "has nothing to spare"
+                    )
+                    body = (
+                        f"These moves add up to £{_gbp_num(over_salary['total'])}, but {_salary_name} "
+                        f"{_spare_txt} after what it keeps for its own bills. "
+                        f"£{_gbp_num(over_salary['short'])} would need to come from other accounts."
+                    )
             elif left_out and covered:
                 body = f"£{_gbp_num(total)} distributed. Some moves were left out this month."
             elif covered and trimmed:

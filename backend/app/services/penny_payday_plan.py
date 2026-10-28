@@ -87,11 +87,20 @@ def _summary(plan: dict, split: dict | None, risk: dict | None) -> str:
         parts.append(f"The plan keeps {kept}{more} in {plan['salary']['name']}.")
     over = plan.get("over_salary")
     if over:
-        parts.append(
-            f"These moves add up to {_gbp(over['total']['raw'])}, more than the "
-            f"~{_gbp(over['pay']['raw'])} pay expected; {_gbp(over['short']['raw'])} "
-            "would need to come from other accounts."
-        )
+        if over.get("over_pay"):
+            parts.append(
+                f"These moves add up to {_gbp(over['total']['raw'])}, more than the "
+                f"~{_gbp(over['pay']['raw'])} pay expected. {_gbp(over['short']['raw'])} "
+                "would need to come from other accounts."
+            )
+        else:
+            spare = over["spare"]["raw"]
+            spare_txt = f"can only spare {_gbp(spare)}" if spare > 0 else "has nothing to spare"
+            parts.append(
+                f"These moves add up to {_gbp(over['total']['raw'])}, but {plan['salary']['name']} "
+                f"{spare_txt} after what it keeps for its own bills. "
+                f"{_gbp(over['short']['raw'])} would need to come from other accounts."
+            )
     left_out = plan.get("left_out") or []
     if left_out:
         listed = ", ".join(f"{l['name']} {_gbp(l['amount']['raw'])}" for l in left_out[:3])

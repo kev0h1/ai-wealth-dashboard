@@ -263,7 +263,7 @@ export const PAYDAY_PLAN_OVER_ITEM: CompanionItem = {
     PAYDAY_DESTINATIONS[1],
   ],
   payday_split: { total: 2906, count: 5, expected_in: 2960, accounts: [] },
-  over_salary: { total: 3070, pay: 2960, short: 110 },
+  over_salary: { total: 3070, pay: 2960, short: 110, over_pay: true, spare: 0 },
   left_out: [
     { name: "Kitchen fund", kind: "goal", amount: 200 },
     { name: "Saving Challenge", kind: "set_aside", amount: 120 },
