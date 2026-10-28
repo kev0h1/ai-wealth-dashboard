@@ -282,7 +282,7 @@ def parse_description(text: str, today: date, period_end: date | None = None) ->
             fields["end_date"] = end.isoformat()
 
     # Unit: after the step amount, then after the start amount, then anywhere.
-    step_m = re.search(r"(?:add(?:ing|s)?|rising by|rises by|rise by|going up by|goes up by|go up by|increas(?:ing|es|e) by|up by|increment(?:ing|s)? by|plus|extra)\s*(?:another\s+)?" + _MONEY_RE, t)
+    step_m = re.search(r"(?:add(?:ing|s)?|(?:rising|rises|rise|going up|goes up|go up|increas(?:ing|es|e)|increment(?:ing|s)?)(?:\s+by)?|up by|plus|extra)\s*(?:another\s+)?" + _MONEY_RE, t)
     step_pence = None
     step_end = None
     if step_m:
@@ -312,6 +312,11 @@ def parse_description(text: str, today: date, period_end: date | None = None) ->
         bare = re.search(r"\b(?:figure|amount|sum)\s+of\s+£?(\d+(?:\.\d{1,2})?)\b", t)
         if bare:
             start_pence, start_end = round(float(bare.group(1)) * 100), bare.end()
+    if start_pence is None and not pct:
+        # G356: "11.48 rising 4p a day", "start 11.48 then 4p more": a bare number before the step word.
+        lead = re.search(r"(?<![\w.])£?(\d+(?:\.\d{1,2})?)\s+(?:rising|rises|increasing|increases|going up|goes up|then)\b", t)
+        if lead:
+            start_pence, start_end = round(float(lead.group(1)) * 100), lead.end()
     if start_pence is None and not pct:
         for s0, e0, p0 in tokens:
             if step_m and step_m.start() <= s0 < step_m.end():
@@ -935,13 +940,13 @@ def _public(built: dict) -> dict:
 
 
 def source_sentence(src: dict) -> str:
-    """One sentence on where the money leaves from. "As you said" only ever
-    follows an account the user named (basis "stated")."""
+    """One sentence on where the money leaves from. A stated source is
+    settled and carries no question; the rest are hedged."""
     if src["basis"] == "stated":
         return f"The money leaves from {src['name']}."
     if src["basis"] == "model":
         return f"I have picked {src['name']} as the account the money leaves from, please check it. {NOTHING_MOVES}"
-    how = {"stated": "as you said", "stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
+    how = {"stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
     return f"The money would leave from {src['name']} ({how}). {NOTHING_MOVES}"
 
 

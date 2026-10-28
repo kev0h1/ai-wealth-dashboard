@@ -290,5 +290,5 @@ def fix_premature_setup_claims(reply: str, created: bool) -> str:
     if changed:
         stripped = _LEAD_FILLER_RE.sub("", out, count=1)
         if stripped.strip():
-            out = stripped
+            out = stripped[:1].upper() + stripped[1:]
     return out

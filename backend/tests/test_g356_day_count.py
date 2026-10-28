@@ -87,3 +87,16 @@ def test_preview_summary_is_grounded_as_a_plan_to_confirm():
         "start_amount": 11.48, "step_amount": 0.04, "step_unit": "day", "count": 79, "start_date": "2026-10-30"}))
     assert out["summary"].startswith("Here is the plan: ")
     assert "Confirm the card to set it up." in out["summary"]
+
+
+@pytest.mark.parametrize("text", [
+    "start 11.48 rising 4p a day", "£11.48 rising 4p a day", "11.48 going up 4p each day", "start 11.48 increasing by 4p a day",
+])
+def test_bare_start_and_step_phrases(text):
+    f = pgs.parse_description(text, TODAY)["fields"]
+    assert (f["start_pence"], f["step_pence"], f["step_unit"]) == (1148, 4, "day")
+
+
+def test_four_pence_a_day_for_a_year_is_still_a_challenge():
+    parsed = pgs.parse_description("4p a day for a year", TODAY)
+    assert parsed["fields"].get("start_pence") == 4 and parsed["fields"].get("count") == 365

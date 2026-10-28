@@ -38,3 +38,7 @@ def test_untouched_when_a_proposal_was_created():
 ])
 def test_unrelated_text_untouched(text):
     assert guards.fix_premature_setup_claims(text, False) == text
+
+
+def test_first_letter_is_capitalised_after_stripping_filler():
+    assert guards.fix_premature_setup_claims("Perfect. I've set up your plan.", False) == "Your plan is ready to confirm."
