@@ -1534,7 +1534,7 @@ async def revise_scheduled_goal_proposal(proposal_id: str, body: dict, user: dic
         summary += f", replacing the '{allocation_name}' set-aside"
         consequence += f" Confirming also pauses the '{allocation_name}' set-aside."
 
-    now = datetime.now()
+    now = datetime.now()  # naive-ok: proposal TTL and cancellation timestamps use the existing naive storage convention
     superseded = await penny_proposals_col.find_one_and_update(
         {"_id": proposal_id, "user_id": uid, "kind": "create_commitment", "executed_at": None,
          "cancelled_at": None, "execution_claim": None, "expires_at": {"$gte": now}},
@@ -1547,7 +1547,7 @@ async def revise_scheduled_goal_proposal(proposal_id: str, body: dict, user: dic
             raise HTTPException(404, "proposal not found")
         if current.get("execution_claim"):
             raise HTTPException(409, "This proposal has already been submitted. Check the app for its result.")
-        if current.get("expires_at") and datetime.now() > current["expires_at"]:
+        if current.get("expires_at") and datetime.now() > current["expires_at"]:  # naive-ok: compare the existing naive proposal TTL timestamp
             raise HTTPException(410, "proposal expired")
         raise HTTPException(409, "This proposal changed. Ask Penny for a new proposal.")
     try:
