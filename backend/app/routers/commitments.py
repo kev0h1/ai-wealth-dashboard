@@ -83,7 +83,7 @@ from app.db.collections import (
     yapily_accounts_col,
 )
 from app.routers.savings import _cashflow, _current_savings
-from app.services import goal_contribution, plan_easing, response_cache, plan_tracking
+from app.services import goal_contribution, goal_schedule, plan_easing, response_cache, plan_tracking
 from app.services.plan_fulfilment import fill_candidates as _plan_fill_candidates, validate_fill_rule
 from app.services.debt_plan import (
     DAYS_PER_MONTH,
@@ -450,7 +450,18 @@ async def _pot_progress_and_slice(
     # starts after today lost that slot midway through a period (G318).
     _start, _end = get_pay_period_for_date(today, cfg)
     periods_left = 1 + _later_periods(doc, cfg, _end)
-    per_period_slice = goal_contribution.schedule(round(remaining * 100), periods_left)[0] / 100
+    # G351: a goal with a contribution schedule asks for what the schedule says
+    # is due in this pay period (capped at what is left), not an equal share.
+    sched = doc.get("schedule")
+    scheduled = goal_schedule.is_scheduled(sched)
+    scheduled_later_pence = None
+    if scheduled:
+        due_pence = goal_schedule.period_amount(sched, _start, _end, cfg)
+        per_period_slice = round(min(remaining, due_pence / 100), 2)
+        nxt = goal_schedule.next_periods(sched, today, cfg, 1)
+        scheduled_later_pence = nxt[0]["amount"] if nxt else 0
+    else:
+        per_period_slice = goal_contribution.schedule(round(remaining * 100), periods_left)[0] / 100
     planned_per_period_slice = per_period_slice
     # Pausing is not cancellation: keep the goal ACTIVE in the pot ledger so
     # its already-saved pounds cannot be reassigned to another goal. Only its
@@ -506,6 +517,7 @@ async def _pot_progress_and_slice(
             later_periods=_later_periods(doc, cfg, _end), usual=usual_slice,
             period_start=_start.isoformat(), period_end=_end.isoformat(),
             target_date=str(doc["target_date"])[:10],
+            scheduled_later_pence=scheduled_later_pence,
         )
         planned_per_period_slice = current_contribution["contribution"]
     return {
@@ -519,6 +531,7 @@ async def _pot_progress_and_slice(
         "planned_per_period_slice": planned_per_period_slice,
         "fulfilment_expected": fulfilment_expected,
         "current_period_contribution": current_contribution,
+        "scheduled_later_pence": scheduled_later_pence,
     }
 
 
@@ -883,6 +896,12 @@ def _apply_pace_notes(items: list[dict], docs: list[dict], pace_ctx: dict | None
 def _later_periods(doc: dict, cfg: dict, period_end: date) -> int:
     """Pay-period starts from the period after `period_end` through the target:
     the divisor the engine will use when it next sizes this plan's slice."""
+    sched = doc.get("schedule")
+    if goal_schedule.is_scheduled(sched):
+        last = goal_schedule.end_date(sched, cfg)
+        if last is None:
+            return 0
+        return _period_starts_between(period_end + timedelta(days=1), last, cfg)
     target = date.fromisoformat(str(doc["target_date"])[:10])
     return _period_starts_between(period_end + timedelta(days=1), target, cfg)
 
@@ -896,7 +915,10 @@ def _ease_fields(doc: dict, cfg: dict, slice_info: dict, today: date) -> dict:
     eased = slice_info.get("eased_this_period")
     entry = plan_easing.live_entry(doc.get("period_eased"), live_key) if eased is not None else None
     later = None
-    if eased is not None:
+    if slice_info.get("scheduled_later_pence") is not None:
+        # G351: later periods follow the schedule, an easing never reshapes them.
+        later = slice_info["scheduled_later_pence"] / 100 if _later_periods(doc, cfg, end) > 0 else None
+    elif eased is not None:
         later = plan_easing.later_slice(slice_info["remaining"], eased, _later_periods(doc, cfg, end))
     else:
         later = slice_info["usual_slice"]
@@ -989,6 +1011,23 @@ async def _serialise(
     elapsed = min(total, max(0, total_raw - left_raw))
     elapsed_fraction = min(1.0, max(0.0, elapsed / total))
     on_track = doc.get("paused") is True or progress >= amount * elapsed_fraction
+    schedule_fields: dict = {}
+    sched = doc.get("schedule")
+    if goal_schedule.is_scheduled(sched):
+        # On track against the schedule: what it has asked for up to today.
+        planned_pence = goal_schedule.planned_to_date(sched, today, cfg)
+        on_track = doc.get("paused") is True or round(progress * 100) >= min(planned_pence, round(amount * 100))
+        _ps, _pe = get_pay_period_for_date(today, cfg)
+        schedule_fields = {
+            "schedule":          goal_schedule.public_schedule(sched),
+            "schedule_label":    goal_schedule.schedule_label(sched),
+            "this_period_amount": goal_schedule.period_amount(sched, _ps, _pe, cfg) / 100,
+            "next_periods": [
+                {**n, "amount": n["amount"] / 100} for n in goal_schedule.next_periods(sched, today, cfg, 3)
+            ],
+            "scheduled_total":   goal_schedule.total_pence(sched, cfg) / 100,
+            "planned_to_date":   min(planned_pence, round(amount * 100)) / 100,
+        }
 
     return {
         "id":                  cid,
@@ -1016,6 +1055,7 @@ async def _serialise(
         **ease_fields,
         "period_label":        period_rhythm_label(cfg),
         "on_track":            on_track,
+        **schedule_fields,
         "feasibility":         None,
         "shared_pot_goals":    [],
         # Penny Agent Mode v1 origin badge (owner decision, 2026-08-30):
@@ -1025,6 +1065,24 @@ async def _serialise(
         # CommitmentSheet save.
         "created_via":         doc.get("created_via"),
     }
+
+
+async def _source_display_name(uid: str, account: dict | None) -> str | None:
+    """G337 label for an account in a card or sentence; falls back to the plain
+    display name if the labeller is unavailable."""
+    if not account:
+        return None
+    try:
+        from app.services.account_names import display_account_name
+        from app.services.notifications import _user_name_tokens
+        from app.services.penny_consolidation import source_label
+
+        tokens = await _user_name_tokens(uid)
+        return source_label(display_account_name(account.get("name")), account.get("provider"), tokens)
+    except Exception:
+        logger.warning("commitments: source label unavailable", exc_info=True)
+        from app.services.account_plan_sources import account_label
+        return account_label(account)
 
 
 async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None:
@@ -1071,6 +1129,10 @@ async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None
         item["source_account_name"] = (
             account_label(account_map.get(source_id)) if source_id else None
         )
+        # G351: the label a sentence or card uses (holder-named accounts never
+        # by name, G337) and whether the source is assumed rather than chosen.
+        item["source_name"] = await _source_display_name(uid, account_map.get(source_id)) if source_id else None
+        item["source_assumed"] = bool(source_id and inferred)
 
 
 async def _serialise_all(
@@ -1146,6 +1208,27 @@ def _validate_target_date(raw) -> str:
     if target < timeutil.user_today():
         raise HTTPException(400, "target_date must not be in the past")
     return target.isoformat()
+
+
+async def _validate_schedule_body(raw, uid: str) -> tuple[dict | None, float | None, str | None]:
+    """G351: (clean schedule, total in pounds, end date) for a request's
+    `schedule`, or (None, None, None) for absent / null / equal amounts."""
+    if raw is None or (isinstance(raw, dict) and raw.get("type") in (None, "equal")):
+        return None, None, None
+    try:
+        clean = goal_schedule.validate(raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    if clean["type"] == "percent_of_pay" and not clean.get("expected_pay_pence"):
+        raise HTTPException(400, "Say roughly what your pay is, so a percentage can be turned into pounds.")
+    cfg = await _pay_cfg(uid)
+    total = goal_schedule.total_pence(clean, cfg)
+    last = goal_schedule.end_date(clean, cfg)
+    if total <= 0 or last is None:
+        raise HTTPException(400, goal_schedule.INVALID)
+    if last < timeutil.user_today():
+        raise HTTPException(400, "That schedule has already finished. Choose a later start or a longer run.")
+    return clean, total / 100, last.isoformat()
 
 
 async def _capture_baseline(fid: str, uid: str) -> float:
@@ -1314,8 +1397,13 @@ async def create_commitment(
 ):
     uid = user["email"]
     name = _validate_name(body.get("name"))
-    amount = _validate_amount(body.get("amount"))
-    target_date = _validate_target_date(body.get("target_date"))
+    sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
+    if sched:
+        amount = _validate_amount(sched_total)
+        target_date = sched_end
+    else:
+        amount = _validate_amount(body.get("amount"))
+        target_date = _validate_target_date(body.get("target_date"))
 
     source = body.get("source") or "manual"
     if source not in _SOURCES:
@@ -1372,6 +1460,8 @@ async def create_commitment(
         "created_at":   datetime.now(timezone.utc),
         "idempotency_key": idempotency_key,
     }
+    if sched:
+        doc["schedule"] = sched
     # G230: a plan with no stored source (absent, or the null every plan had
     # before G230) is inferred from recent transfers on read. Only a plan
     # saved with `source_unset: true` is a deliberate "Not set".
@@ -1416,8 +1506,13 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     its own prior self). Lenient by design — unreadable pots/accounts just
     contribute 0."""
     uid = user["email"]
-    amount = _validate_amount(body.get("amount"))
-    target_date = _validate_target_date(body.get("target_date"))
+    sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
+    if sched:
+        amount = _validate_amount(sched_total)
+        target_date = sched_end
+    else:
+        amount = _validate_amount(body.get("amount"))
+        target_date = _validate_target_date(body.get("target_date"))
 
     self_oid = None
     raw_cid = body.get("commitment_id")
@@ -1481,6 +1576,7 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
         "target_date":  target_date,
         "contributed":  float((original or {}).get("contributed") or 0.0),
         "funding_pots": draft_pots,
+        **({"schedule": sched} if sched else {}),
     }
 
     cfg = await _pay_cfg(uid)
@@ -1640,7 +1736,23 @@ async def update_commitment(
         updates["status"] = target_status
     if "name" in body:
         updates["name"] = _validate_name(body.get("name"))
-    if "amount" in body:
+    sched_set = False
+    if "schedule" in body:
+        if target_status != "active":
+            raise HTTPException(409, f"cannot change schedule on a commitment with status '{target_status}'")
+        sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
+        updates["schedule"] = sched
+        if sched:
+            sched_set = True
+            updates["amount"] = _validate_amount(sched_total)
+            updates["target_date"] = sched_end
+    elif goal_schedule.is_scheduled(doc.get("schedule")):
+        if ("amount" in body and round(float(body.get("amount") or 0), 2) != round(float(doc.get("amount") or 0), 2)) or (
+            "target_date" in body and str(body.get("target_date"))[:10] != str(doc.get("target_date"))[:10]
+        ):
+            raise HTTPException(400, "This goal follows a schedule. Change the schedule instead.")
+        body = {k: v for k, v in body.items() if k not in ("amount", "target_date")}
+    if "amount" in body and not sched_set:
         # A86: a resulting-terminal commitment's amount is frozen — changing
         # it would rewrite a finished/cancelled goal's completion maths in
         # the same call the transition happened in.
@@ -1650,7 +1762,7 @@ async def update_commitment(
                 f"cannot change amount on a commitment with status '{target_status}'",
             )
         updates["amount"] = _validate_amount(body.get("amount"))
-    if "target_date" in body:
+    if "target_date" in body and not sched_set:
         if target_status != "active":
             raise HTTPException(
                 409,
@@ -1766,6 +1878,7 @@ async def update_commitment(
     if (
         ("amount" in updates and round(float(updates["amount"]), 2) != round(float(doc.get("amount") or 0), 2))
         or ("target_date" in updates and str(updates["target_date"])[:10] != str(doc.get("target_date"))[:10])
+        or ("schedule" in updates and updates["schedule"] != doc.get("schedule"))
     ):
         if doc.get("period_eased") or doc.get("period_contributions"):
             _cfg_e = await _pay_cfg(uid)
@@ -1776,7 +1889,7 @@ async def update_commitment(
                 contribution_clear_key = _live
         # A concurrent period choice must not survive an amount/date edit
         # computed from the older goal, nor be silently overwritten by it.
-        update_filter.update(source_link_snapshot(doc, "period_eased", "period_contributions", "amount", "target_date"))
+        update_filter.update(source_link_snapshot(doc, "period_eased", "period_contributions", "amount", "target_date", "schedule"))
 
     # A86: when this request depends on the status it read (a transition, a
     # contribution, or both), the write is a compare-and-set against that
@@ -1831,6 +1944,7 @@ async def _ease_context(uid: str, doc: dict) -> dict:
         "period_start": start, "live_key": end.isoformat(),
         "target": date.fromisoformat(str(doc["target_date"])[:10]),
         "later_periods": _later_periods(doc, cfg, end),
+        "scheduled_later": info.get("scheduled_later_pence"),
     }
 
 
@@ -1866,6 +1980,7 @@ async def preview_ease(commitment_id: str, contribution_pence: int, user: dict =
     options = plan_easing.ease_options(
         remaining=info["remaining"], later_periods=ctx["later_periods"], usual=usual,
         contribution=pounds, target=ctx["target"], cfg=ctx["cfg"],
+        scheduled_later=ctx["scheduled_later"],
     )
     options["blocked_reason"] = blocked
     options["later_periods"] = ctx["later_periods"]
@@ -1897,6 +2012,7 @@ async def ease_commitment(commitment_id: str, body: dict, user: dict = Depends(c
     options = plan_easing.ease_options(
         remaining=info["remaining"], later_periods=ctx["later_periods"], usual=usual,
         contribution=pounds, target=ctx["target"], cfg=ctx["cfg"],
+        scheduled_later=ctx["scheduled_later"],
     )
     chosen = options[mode]
     if chosen["refused"]:
@@ -1908,7 +2024,7 @@ async def ease_commitment(commitment_id: str, body: dict, user: dict = Depends(c
     note = f"Eased to £{pounds} for the period ending {live_key}, keeping the {'date' if mode == 'keep_date' else 'amount'}."
     entry = {
         "contribution_pence": pounds * 100,
-        "usual_pence": usual * 100,
+        "usual_pence": int(round(usual * 100)),
         "mode": mode,
         "noted_at": now.isoformat(),
         "note": note,
@@ -1978,7 +2094,7 @@ async def _contribution_preview(uid: str, doc: dict, contribution_pence: int) ->
             preview["remaining_after"] = round(max(0, ctx["info"]["remaining"] - preview["reserved"]), 2)
             slots = goal_contribution.schedule(round(ctx["info"]["remaining"] * 100), ctx["info"]["periods_left"])
             preview["later_contribution"] = slots[1] / 100 if len(slots) > 1 else (0 if preview["remaining_after"] == 0 else None)
-            if ctx["info"].get("eased_this_period") is not None:
+            if ctx["info"].get("eased_this_period") is not None or ctx["info"].get("scheduled_later_pence") is not None:
                 preview["later_contribution"] = _ease_fields(doc, ctx["cfg"], ctx["info"], ctx["today"])["later_slice"]
             preview["covers_remaining"] = preview["remaining_after"] == 0
             preview["blocked_reason"] = None

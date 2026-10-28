@@ -44,7 +44,8 @@ def schedule(remaining_pence: int, periods: int) -> tuple[int, ...]:
 def projection(*, requested_pence: int, remaining: float, reserved: float,
                matched_pence: int, later_periods: int, usual: float,
                period_start: str, period_end: str, target_date: str,
-               replaces_easing: bool = False) -> dict:
+               replaces_easing: bool = False,
+               scheduled_later_pence: int | None = None) -> dict:
     """All money is reconciled in pennies, then exposed as pounds for the UI.
 
     Progress may already include a matched transfer. Cap the *unpaid* reserve
@@ -58,6 +59,9 @@ def projection(*, requested_pence: int, remaining: float, reserved: float,
     # Reuse the normal allocator, rather than a second rounded average.
     later = schedule(after, later_periods)
     later_pence = later[0] if later else 0 if not after else None
+    if scheduled_later_pence is not None and later_periods > 0:
+        # G351: a scheduled goal's later periods follow its schedule.
+        later_pence = min(after, max(0, scheduled_later_pence))
     return {
         "period_start": period_start, "period_end": period_end,
         "target_date": target_date,

@@ -564,7 +564,7 @@ _SYSTEM_PROMPT = (
 # group claims lands in "other".
 _PROPOSE_GROUPS = (
     ("set-asides (allocations)", ("allocation",)),
-    ("plans and aims", ("commitment", "checkpoint")),
+    ("plans and aims", ("commitment", "checkpoint", "scheduled_goal")),
     ("one-offs", ("planned",)),
     ("upcoming payments", ("occurrence", "clear_override")),
     ("recurring payments", ("recurring",)),
@@ -630,7 +630,16 @@ _WRITE_TOOLS_ADDENDUM = (
     "erasing data (Settings), and turning consent on or off (Settings). For those, say "
     "exactly which screen does it. If consent is off, say how to turn it on in Settings "
     "rather than saying you cannot. "
-    "To connect a bank, call propose_connect_bank; the user taps Continue to Finexer on the card."
+    "To connect a bank, call propose_connect_bank; the user taps Continue to Finexer on the card.\n"
+    "22. A goal whose contribution is not the same every pay period (a challenge that rises by a "
+    "fixed step each day, amounts that change each period, a percentage of pay) is set up in two "
+    "steps. First call preview_goal_schedule with the user's own words as `description`; the "
+    "server reads them and works out the total and each pay period's amount. Quote its `summary` "
+    "and figures verbatim and NEVER add up, multiply or round schedule figures yourself. If it "
+    "returns `needs`, ask the user for exactly those things. Say where the money would leave from "
+    "(its `source`, hedged when it was detected) and wait for the user to agree. Only then call "
+    "propose_create_scheduled_goal; it will not create a goal without a name and a source account, "
+    "and the user confirms on the card. Nothing moves until the user moves it."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up

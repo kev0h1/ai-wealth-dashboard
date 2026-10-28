@@ -392,7 +392,9 @@ export default function CommitmentSheet({
   const remaining = amountValid
     ? Math.max(0, parsedAmount - estimatedProgress)
     : null;
-  const slice = periods != null && remaining != null ? ceil5(remaining / periods) : null;
+  // G351: a goal on a contribution schedule never shows the equal-amounts
+  // estimate. Its figures come from the server (this_period_amount, next_periods).
+  const slice = commitment?.schedule ? null : periods != null && remaining != null ? ceil5(remaining / periods) : null;
 
   // Load a single sensible suggestion before showing the summary, rather
   // than making users open the raw picker to discover it. Never apply a
@@ -444,12 +446,13 @@ export default function CommitmentSheet({
       if (commitment) {
         const body: Parameters<CommitmentSheetOperations["updateCommitment"]>[1] = {
           name: name.trim(),
-          amount: parsedAmount,
+          // A scheduled goal's amount and date are the schedule's own totals.
+          ...(commitment.schedule ? {} : { amount: parsedAmount }),
         };
         // Only send the date when it changed — the backend rejects a
         // target_date in the past even when it is the stored one, which
         // would lock editing once a plan's month arrives.
-        if (target_date !== commitment.target_date.slice(0, 10)) {
+        if (!commitment.schedule && target_date !== commitment.target_date.slice(0, 10)) {
           body.target_date = target_date;
         }
         // Only send the pots when they changed — a PATCH re-captures the
@@ -635,6 +638,7 @@ export default function CommitmentSheet({
                 target={{ amount: commitment.amount, month: new Date(`${commitment.target_date.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) }}
                 progress={commitment.progress}
                 currentPeriod={commitment.current_period_contribution ?? null}
+                nextPeriods={commitment.schedule ? commitment.next_periods?.map(n => n.amount) : undefined}
                 sourceAccount={accountList.find(account => account.id === commitment.source_account_id)}
                 sourceSuggested={sourceInferred}
                 sourceUnavailable={Boolean(commitment.source_account_id) && !accountList.some(account => account.id === commitment.source_account_id)}

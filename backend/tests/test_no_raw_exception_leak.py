@@ -141,6 +141,16 @@ ALLOWLIST: set[tuple[str, int]] = {
     # silently skipped; tighten this if the webhook response is ever
     # surfaced anywhere a person reads it.
     ("app/services/billing.py", 554),
+    # G351: goal_schedule.validate raises ValueError with messages authored in
+    # app/services/goal_schedule.py ("The end date is before the start date."),
+    # forwarded to the user as a 400 or a Penny tool error; the HTTPException
+    # sites below carry commitments._validate_name's authored detail.
+    ("app/routers/commitments.py", 1221),
+    ("app/services/penny_goal_schedule.py", 423),
+    ("app/services/penny_goal_schedule.py", 590),
+    ("app/services/penny_goal_schedule.py", 629),
+    ("app/services/penny_goal_schedule.py", 675),
+    ("app/services/penny_goal_schedule.py", 711),
 }
 
 

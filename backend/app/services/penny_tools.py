@@ -3604,7 +3604,7 @@ async def _exec_get_goals(uid: str) -> dict:
                 for p in (g.get("funding_pots") or [])
             ],
         })
-    result = {"goals": goals}
+    result = {"goals": _goals_with_schedules(goals, items)}  # G351
     capped = len(items) - len(goals)
     if capped > 0:
         result["capped"] = capped
@@ -8171,8 +8171,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "propose_delete_allocation":
             return await _exec_propose_delete_allocation(uid, args.get("allocation_ref"))
         if name == "propose_update_commitment":
-            return await _exec_propose_update_commitment(
-                uid, args.get("commitment_ref"), args.get("name"), args.get("amount"), args.get("target_date"),
+            return await _update_commitment_entry(
+                uid, args,
             )
         if name == "propose_delete_commitment":
             return await _exec_propose_delete_commitment(uid, args.get("commitment_ref"))
@@ -8304,6 +8304,12 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "get_pay_split":
             from app.services.penny_pay_split import exec_get_pay_split
             return await exec_get_pay_split(uid, args.get("reference"))
+        if name == "preview_goal_schedule":
+            from app.services.penny_goal_schedule import exec_preview_goal_schedule
+            return await exec_preview_goal_schedule(uid, args)
+        if name == "propose_create_scheduled_goal":
+            from app.services.penny_goal_schedule import exec_propose_create_scheduled_goal
+            return await exec_propose_create_scheduled_goal(uid, args)
         return _tool_error(f"unknown tool: {name}")
     except Exception:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
@@ -8466,3 +8472,28 @@ def _occurrence_change_text(key: str, occ: dict | None, date_str: str, new_date,
         before.append(date.fromisoformat(date_str).strftime("%-d %b"))
         after.append(date.fromisoformat(str(new_date)).strftime("%-d %b"))
     return {"before": _join_change(before), "after": _join_change(after), "entity": key}
+
+
+# G351: goal contribution schedules, appended last so no line above moves. The
+# tools live in penny_goal_schedule.py.
+from app.services.penny_goal_schedule import (  # noqa: E402
+    PREVIEW_GOAL_SCHEDULE_SCHEMA, PROPOSE_CREATE_SCHEDULED_GOAL_SCHEMA, add_schedule_to_update_schema,
+    goals_with_schedules as _goals_with_schedules,
+)
+
+TOOL_SCHEMAS.append(PREVIEW_GOAL_SCHEDULE_SCHEMA)
+PROPOSE_TOOL_SCHEMAS.append(PROPOSE_CREATE_SCHEDULED_GOAL_SCHEMA)
+add_schedule_to_update_schema(next(t for t in PROPOSE_TOOL_SCHEMAS if t["function"]["name"] == "propose_update_commitment"))
+PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)  # rebuilt after the G351 append
+
+
+async def _update_commitment_entry(uid: str, args: dict) -> dict:
+    """propose_update_commitment: a `schedule` change goes to the schedule module,
+    everything else to the original name/amount/date executor."""
+    from app.services.penny_goal_schedule import UPDATE_SCHEDULE_PROPERTIES, exec_propose_update_schedule
+
+    if any(args.get(k) not in (None, "", []) for k in UPDATE_SCHEDULE_PROPERTIES):
+        return await exec_propose_update_schedule(uid, args)
+    return await _exec_propose_update_commitment(
+        uid, args.get("commitment_ref"), args.get("name"), args.get("amount"), args.get("target_date"),
+    )

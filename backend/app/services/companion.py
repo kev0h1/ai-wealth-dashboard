@@ -1152,7 +1152,7 @@ async def _active_commitment_slices(
              "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
              "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
              "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
-             "fill_rule": 1},
+             "fill_rule": 1, "schedule": 1},
         ).to_list(None)
         if not docs:
             return {}
