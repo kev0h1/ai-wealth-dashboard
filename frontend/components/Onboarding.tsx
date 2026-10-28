@@ -1,11 +1,11 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { Wallet, ChevronRight, Check, Building2, ShieldCheck, Upload } from "lucide-react";
+import { Wallet, ChevronRight, Check, Building2, ShieldCheck, Upload, Lock, XCircle } from "lucide-react";
 import { api, type SubscriptionInfo } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import PlanPicker from "@/components/PlanPicker";
-import { isNativePlatform } from "@/lib/nativeAuth";
+import { isNativePlatform, usePurchaseChannel } from "@/lib/nativeAuth";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
 import { createSerialQueue } from "@/lib/serialQueue";
 import {
@@ -15,7 +15,7 @@ import {
 } from "@/lib/biometrics";
 import PayPeriodPicker from "@/components/PayPeriodPicker";
 import { DEFAULT_DRAFT, configFromDraft, type PayPeriodDraft } from "@/lib/payPeriodDraft";
-import BankPickerSheet from "@/components/BankPickerSheet";
+import BankPickerSheet, { SOURCE_LINE } from "@/components/BankPickerSheet";
 import { getSubscriptionCached, useOpenBankingAccess } from "@/lib/openBankingAccess";
 import ActionLabel from "@/components/ActionLabel";
 
@@ -118,17 +118,53 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       .catch(() => setPlanInfo(null));
   }, [planInfo]);
 
-  // D12: while billing is not live nobody is on a purchasable plan, and every
-  // user sits on the server's default tier. The plan step used to preselect
-  // Statements and POST /subscription/select-free, which wrote a Statements
-  // document over that default and removed Add bank. Skip the step entirely so
-  // onboarding never writes a subscription while billing is off.
-  const billingOff = !!planInfo && planInfo.billing_live !== true;
+  // D12 (per channel, C37): a plan can only be bought through the channel this
+  // client actually uses (Stripe on the web, StoreKit on iOS, Google Play on
+  // Android). While THAT channel is not live nobody is on a purchasable plan
+  // and every user sits on the server's default tier. The plan step used to
+  // preselect Statements and POST /subscription/select-free, which wrote a
+  // Statements document over that default and removed Add bank. So skip the
+  // step, and write no subscription, only for a channel known to be off.
+  // While the channel is still "unknown" (pre-mount) or the plan info is
+  // loading, never jump: the step shows its checking state instead. A failed
+  // plan-info load does not jump either: the step offers Try again, so a
+  // network blip cannot silently drop the plan choice.
+  const purchaseChannel = usePurchaseChannel();
+  const channelKey = purchaseChannel === "stripe_web" ? "stripe_web"
+    : purchaseChannel === "storekit" ? "apple"
+    : purchaseChannel === "play" ? "google"
+    : null;
+  const channelKnown = purchaseChannel !== "unknown";
+  // An older API without `billing_channels` (the frontend can reach Vercel
+  // before the backend reaches Railway): Stripe falls back to `billing_live`,
+  // and the store channels count as live, so the step is SHOWN (the safe
+  // direction; the picker's own store checks still gate any purchase).
+  const channelLive = channelKey === null ? false
+    : planInfo?.billing_channels ? planInfo.billing_channels[channelKey] === true
+    : channelKey === "stripe_web" ? planInfo?.billing_live === true
+    : true;
+  const channelOff = !!planInfo && channelKnown && !channelLive;
   useEffect(() => {
-    if (step !== "plan" || !billingOff) return;
+    if (step !== "plan" || !channelOff) return;
     localStorage.removeItem("wealth_onboarding_resume");
     setStep("income");
-  }, [step, billingOff]);
+  }, [step, channelOff]);
+
+  // Which tier a user lands on when they leave the plan step without paying:
+  // with any channel live, Continue with Statements (and this skip) writes
+  // the free Statements plan through POST /subscription/select-free; with no
+  // channel live (or unknown, because the plan info did not load) nothing is
+  // written and they stay on the server default tier (Plus today).
+  // The channel-off jump above never writes anything (a web user with only
+  // Google live stays on the server default). Only this explicit skip, with
+  // any channel live, writes Statements.
+  async function skipPlanStep() {
+    if (planInfo?.billing_live_any === true) {
+      try { await api.selectFreePlan(); } catch {}
+    }
+    localStorage.removeItem("wealth_onboarding_resume");
+    setStep("income");
+  }
 
   function setBiometrics(enabled: boolean) {
     if (isNativePlatform()) {
@@ -168,9 +204,9 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     else finish();
   }
 
-  // Billing off skips the plan step, so its dot goes too (known from mount: the
-  // subscription is fetched up front, through the shared cache).
-  const dots = billingOff ? STEP_DOTS.filter((d) => d !== "plan") : STEP_DOTS;
+  // A channel that is off skips the plan step, so its dot goes too (known once the
+  // subscription and the purchase channel have resolved).
+  const dots = channelOff ? STEP_DOTS.filter((d) => d !== "plan") : STEP_DOTS;
   const dotIndex = dots.indexOf(step);
 
   async function finish() {
@@ -485,9 +521,9 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Could not load the plans</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Check your connection, then try again. No plan has been selected.</p>
             <button type="button" onClick={() => setPlanInfo(undefined)} className="mt-3 min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:text-slate-200">Try again</button>
-            <button type="button" onClick={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} className="ml-2 mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-slate-600 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">Continue without choosing</button>
+            <button type="button" onClick={() => { void skipPlanStep(); }} className="ml-2 mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-slate-600 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">Continue without choosing</button>
           </div>
-        ) : billingOff ? (
+        ) : channelOff || !channelKnown ? (
           <div className="rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm dark:bg-slate-800 dark:text-slate-400">Checking plan availability…</div>
         ) : (
           <PlanPicker info={planInfo} context="onboarding" onContinue={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} />
@@ -606,13 +642,13 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
           }
         </div>
         <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-          {bankAdded ? "Bank connected!" : canConnectBank ? "Connect your first bank" : "Add your first statement"}
+          {bankAdded ? "Bank connected" : canConnectBank ? "Connect your first bank" : "Add your first statement"}
         </h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
           {bankAdded
             ? "Your transactions are syncing in the background."
             : canConnectBank
-              ? "Link your account in seconds via secure open banking. Wealth can only read data, it can never move your money."
+              ? "Link your account in seconds via secure open banking. Sorted can only read your data, it can never move your money."
               : "Your plan works from statements you upload. Tap Upload a statement on Home to add your first one."
           }
         </p>
@@ -621,12 +657,12 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       {!bankAdded && canConnectBank && (
         <div className="grid grid-cols-3 gap-2 mb-6">
           {[
-            { badge: "🔒", text: "Read-only access" },
-            { badge: "🏦", text: "Bank-grade encryption" },
-            { badge: "✕",  text: "Revoke anytime" },
-          ].map(({ badge, text }) => (
+            { Icon: Lock, text: "Read-only access" },
+            { Icon: Building2, text: SOURCE_LINE },
+            { Icon: XCircle, text: "Revoke any time" },
+          ].map(({ Icon, text }) => (
             <div key={text} className="bg-white dark:bg-slate-800 rounded-2xl p-3 text-center shadow-sm">
-              <p className="text-lg mb-1">{badge}</p>
+              <Icon size={20} aria-hidden="true" className="mx-auto mb-1 text-slate-500 dark:text-slate-400" />
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-tight">{text}</p>
             </div>
           ))}

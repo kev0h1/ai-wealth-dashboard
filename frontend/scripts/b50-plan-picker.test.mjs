@@ -119,4 +119,26 @@ assert.match(unknownEligibility, />Choose [^<]+<\/button>/, "unknown eligibility
 assert.match(pickerSource, /billing_period:\s*effectivePeriod/, "checkout receives the effective selected period");
 assert.match(pickerSource, /trial:\s*trialActive/, "checkout receives the same trial decision the offer displays");
 
+// C37: a plan held only by the server default is never labelled "Current plan",
+// and the user is told they are not subscribed.
+const defaultTier = render(infoFor({ tier: paidTier, has_paid_subscription: false, tier_source: "default", is_default_tier: true }));
+assert.doesNotMatch(defaultTier, /Current plan/, "a default-only plan is never labelled Current plan");
+assert.match(defaultTier, /Your plan today, by default/, "the default plan is named as today's plan by default");
+assert.match(defaultTier, /You are not subscribed yet\./, "the not-subscribed note is shown");
+const subscribed = render(infoFor({ has_paid_subscription: true, tier_source: "stripe", is_default_tier: false }));
+assert.match(subscribed, /Current plan/, "a real subscription keeps the Current plan label");
+assert.doesNotMatch(subscribed, /not subscribed yet/, "a real subscription shows no not-subscribed note");
+
+// C37: with Stripe off but Google Play live, the Play channel is enabled.
+const playLive = renderToStaticMarkup(React.createElement(PlanPicker, {
+  info: infoFor({ billing_live: false, billing_channels: { stripe_web: false, apple: false, google: true }, billing_live_any: true }),
+  context: "settings", previewOnly: true, channelOverride: "play",
+}));
+assert.doesNotMatch(playLive, /Paid plans are not available yet/, "a live Google channel is not reported as unavailable");
+const playOff = renderToStaticMarkup(React.createElement(PlanPicker, {
+  info: infoFor({ billing_live: false, billing_channels: { stripe_web: false, apple: false, google: false }, billing_live_any: false }),
+  context: "settings", previewOnly: true, channelOverride: "play",
+}));
+assert.match(playOff, /Paid plans are not available yet/, "a Google channel that is off fails closed");
+
 console.log("B50 production picker: compact selection, selected offer, periods, native gate and purchase safety passed");

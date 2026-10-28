@@ -34,10 +34,21 @@ assert.ok(!/!profile\.onboarding_complete/.test(auth), "no falsy check on the pr
 assert.equal((auth.match(/setNeedsOnboarding\(true\)/g) || []).length, 1, "one path into onboarding");
 assert.match(read("app/settings/SettingsPage.tsx"), /clearOnboarded\(localStorage/);
 
-// Billing off: the plan step is skipped and PlanPicker never renders.
+// C37: the plan step is skipped only for a purchase channel known to be off
+// (D12 per channel); PlanPicker never renders for it and never while the
+// channel is still unknown.
 const ob = read("components/Onboarding.tsx");
-assert.match(ob, /const billingOff = !!planInfo && planInfo\.billing_live !== true;/);
-assert.match(ob, /if \(step !== "plan" \|\| !billingOff\) return;[\s\S]{0,120}setStep\("income"\)/);
+assert.match(ob, /const purchaseChannel = usePurchaseChannel\(\);/);
+assert.match(ob, /const channelKnown = purchaseChannel !== "unknown";/);
+assert.match(ob, /const channelLive = channelKey === null \? false\s*: planInfo\?\.billing_channels \? planInfo\.billing_channels\[channelKey\] === true\s*: channelKey === "stripe_web" \? planInfo\?\.billing_live === true\s*: true;/, "older API without billing_channels: Stripe uses billing_live, store channels show the step");
+assert.match(ob, /const channelOff = !!planInfo && channelKnown && !channelLive;/);
+assert.match(ob, /if \(step !== "plan" \|\| !channelOff\) return;[\s\S]{0,120}setStep\("income"\)/);
+assert.ok(!/billingOff/.test(ob), "the Stripe-only billingOff gate is gone");
 const planBlock = ob.slice(ob.indexOf('if (step === "plan")'), ob.indexOf('if (step === "income")'));
-assert.ok(planBlock.indexOf("billingOff ?") > 0 && planBlock.indexOf("billingOff ?") < planBlock.indexOf("<PlanPicker"), "PlanPicker only after the billingOff branch");
+const gateAt = planBlock.indexOf("channelOff || !channelKnown ?");
+assert.ok(gateAt > 0 && gateAt < planBlock.indexOf("<PlanPicker"), "PlanPicker only after the channel gate");
+assert.match(ob, /billing_live_any === true[\s\S]{0,80}api\.selectFreePlan\(\)/, "skip writes Statements only when a channel is live");
+assert.ok(!/Wealth/.test(ob), "the app is Sorted, never Wealth, in onboarding copy");
+assert.ok(!/\p{Extended_Pictographic}/u.test(ob.replace(/[\u2190-\u21FF]/g, "")), "no emoji in Onboarding.tsx");
+assert.ok(!ob.split("\n").some((l) => l.includes("\u2014") && !/^\s*(\/\/|\*|\/\*)/.test(l)), "no em dash in Onboarding.tsx copy (comments aside)");
 console.log("ok  onboarding-gate");

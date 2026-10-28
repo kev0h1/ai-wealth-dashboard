@@ -190,6 +190,7 @@ export default function PlanPicker({
   onContinue,
   previewOnly = false,
   nativeOverride,
+  channelOverride,
 }: {
   info: SubscriptionInfo;
   context: "settings" | "onboarding";
@@ -203,6 +204,10 @@ export default function PlanPicker({
    * untouched; the preview alone passes `true`/`false` to force the branch
    * it wants to screenshot. */
   nativeOverride?: boolean;
+  /** C37: design-preview and test escape hatch for the purchase channel, for
+   * the same reason as `nativeOverride` (the hook reads the real Capacitor
+   * runtime). Leave undefined in every production call site. */
+  channelOverride?: "stripe_web" | "storekit" | "play" | "none";
 }) {
   const current = info.tier;
   const [selected, setSelected] = useState<SubscriptionTier>(() => context === "onboarding" ? "statements" : (info?.tier ?? "statements"));
@@ -227,7 +232,13 @@ export default function PlanPicker({
   const chargeDateText = info.trial_charge_on ? displayIsoDate(info.trial_charge_on) : null;
   const trialChargeTiming = chargeDateText ? `on ${chargeDateText}` : `after your ${trialDays}-day trial`;
   const cancelByText = chargeDateText ? `before ${chargeDateText}` : "before your trial ends";
-  const billingLive = info.billing_live ?? false;
+  // C37: `billing_live` is Stripe web only. Newer servers also send
+  // `billing_channels`, one flag per channel; the Stripe path reads its own.
+  const billingLive = info.billing_channels ? info.billing_channels.stripe_web === true : (info.billing_live ?? false);
+  // C37: a plan the user only has by the server default (no subscription) is
+  // never labelled "Current plan".
+  const isDefaultTier = info.is_default_tier === true;
+  const currentLabel = isDefaultTier ? "Your plan today, by default" : "Current plan";
   const hasPaidSubscription = info.has_paid_subscription === true;
   const managedPaidSubscription = hasPaidSubscription && ["active", "trialing", "past_due"].includes(info.status);
   // C21: an Apple-sourced plan never goes to the Stripe portal (that account
@@ -253,7 +264,17 @@ export default function PlanPicker({
   // so this starts (and, on the server, stays) "unknown" — never "web" —
   // until an effect resolves it against the real Capacitor bridge after
   // mount; see that hook's own comment.
-  const channel = usePurchaseChannel();
+  const hookChannel = usePurchaseChannel();
+  const channel = channelOverride ?? hookChannel;
+  // C37: the live flag of THIS client's own channel. An older server without
+  // `billing_channels` is not treated as "off" for the store channels, whose
+  // own config endpoints still decide.
+  const channelLive = !info.billing_channels
+    ? (channel === "stripe_web" ? (info.billing_live ?? false) : true)
+    : channel === "stripe_web" ? info.billing_channels.stripe_web === true
+    : channel === "storekit" ? info.billing_channels.apple === true
+    : channel === "play" ? info.billing_channels.google === true
+    : false;
   const purchasingAllowed = nativeOverride === undefined ? channel === "stripe_web" : !nativeOverride;
   // C21: the iOS build buys through StoreKit, never Stripe. `storekit` is only
   // true in a real iOS binary that contains the plugin (see
@@ -553,8 +574,9 @@ export default function PlanPicker({
     if (appleManaged || playManaged) return "Manage plan and renewal";
     if (billingChangeInPortal) return info.status === "past_due" ? "Fix payment in billing" : "Manage plan and renewal";
     if (selected === "statements") {
-      return context === "onboarding" ? "Continue with Statements" : current === "statements" ? "Current plan" : "Choose Statements";
+      return context === "onboarding" ? "Continue with Statements (free)" : current === "statements" ? currentLabel : "Choose Statements";
     }
+    if ((storeBuy || playBuy) && !channelLive) return "Paid plans are not available yet";
     if (storeBuy && !storeReady && iapState !== "failed") {
       if (iap && !iap.purchase_allowed) return "Manage in Your plan";
       return storePrice === "unavailable" ? "Price unavailable" : "Loading plans…";
@@ -611,7 +633,8 @@ export default function PlanPicker({
   return (
     <div className="space-y-3" data-plan-picker="focused">
       <div className="text-sm text-slate-900 dark:text-slate-100">
-        <p className="font-semibold">Current plan: {TIERS.find(tier => tier.id === current)?.name ?? current}</p>
+        <p className="font-semibold">{isDefaultTier ? "Your plan today" : "Current plan"}: {TIERS.find(tier => tier.id === current)?.name ?? current}{isDefaultTier ? ", by default" : ""}</p>
+        {isDefaultTier && <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">You are not subscribed yet.</p>}
         {info.cancel_at_period_end ? <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Renewal cancelled. {accessEnds ? `Access ends on ${accessEnds}.` : "Access continues until your current period ends."}</p>
           : info.status === "trialing" ? <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{trialEnds ? `Free until ${trialEnds}.` : "Your free trial is active."} Choosing a plan here does not restart it.</p>
           : managedPaidSubscription && info.status === "active" && renewsOn ? <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Your current renewal is on {renewsOn}. Comparing plans does not change it.</p> : null}
@@ -637,7 +660,7 @@ export default function PlanPicker({
                 className={`min-h-11 touch-manipulation rounded-xl border px-3 text-sm font-semibold outline-none transition-colors hover:opacity-80 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 motion-reduce:transition-none ${active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 text-slate-700 dark:border-slate-500 dark:text-slate-200"}`}
               >
                 {tier.name}
-                {tier.id === current && <span className="sr-only">, current plan</span>}
+                {tier.id === current && <span className="sr-only">{isDefaultTier ? ", your plan today by default" : ", current plan"}</span>}
               </button>
           );
         })}
@@ -646,7 +669,7 @@ export default function PlanPicker({
       <section aria-label="Selected plan and offer" className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 aria-live="polite" className="text-[19px] font-bold leading-snug text-slate-900 dark:text-slate-100">{chosen.name}</h3>
-          {selected === current && <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-white/[0.07] dark:text-slate-300">Current plan</span>}
+          {selected === current && <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-white/[0.07] dark:text-slate-300">{currentLabel}</span>}
         </div>
         <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{chosen.lead}</p>
         <ul className="my-3 space-y-2">
@@ -801,7 +824,7 @@ export default function PlanPicker({
         </summary>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           {TIERS.map(tier => <article key={tier.id} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-slate-800 dark:shadow-none dark:ring-white/[0.07]">
-            <h4 className="text-base font-bold text-slate-900 dark:text-slate-100">{tier.name}{tier.id === current && <span className="ml-2 text-xs font-normal text-slate-600 dark:text-slate-300">Current plan</span>}</h4>
+            <h4 className="text-base font-bold text-slate-900 dark:text-slate-100">{tier.name}{tier.id === current && <span className="ml-2 text-xs font-normal text-slate-600 dark:text-slate-300">{currentLabel}</span>}</h4>
             <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{tier.lead}</p>
             <ul className="mt-3 list-disc space-y-1 pl-4 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{tier.includes.map(item => <li key={item}>{item}</li>)}</ul>
           </article>)}
