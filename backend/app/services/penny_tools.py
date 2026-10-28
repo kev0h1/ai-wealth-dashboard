@@ -5423,19 +5423,40 @@ async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None)
     if not account_id_or_name or not str(account_id_or_name).strip():
         return {"account": None}
     from app.routers.accounts import get_accounts as _route_get_accounts
+    from app.services import penny_account_match as pam
     accs = await _route_get_accounts(user={"email": uid})
     target = next((a for a in accs if a.id == account_id_or_name), None)
     if target is None:
-        matches = [a for a in accs if _name_matches(account_id_or_name, a.name)]
+        # G355: bank, product word, nickname and kind ("my Monzo current account"),
+        # with the old raw-name phrase match kept as the strongest signal.
+        matches = pam.pick(str(account_id_or_name), accs, _account_kind, _name_matches)
         if len(matches) > 1:
+            tokens = await _safe_name_tokens(uid)
             return {
                 "ambiguous": True,
-                "matches": [{"id": a.id, "name": display_account_name(a.name), "provider": a.provider} for a in matches],
+                "matches": [
+                    {"id": a.id, "name": pam.safe_label(a, _account_kind(a), tokens), "provider": a.provider}
+                    for a in matches[:8]
+                ],
             }
         target = matches[0] if matches else None
     if target is None:
-        return {"error": f"no account matching '{account_id_or_name}'", "available": [a.name for a in accs]}
+        tokens = await _safe_name_tokens(uid)
+        labels, more = pam.labelled(accs, _account_kind, tokens)
+        out = {"error": f"no account matching '{account_id_or_name}'", "available": labels}
+        if more:
+            out["available_more"] = more
+        return out
     return {"account": target}
+
+
+async def _safe_name_tokens(uid: str) -> list[str]:
+    """The user's own name words, for keeping holder names out of lists. [] when unreadable."""
+    try:
+        from app.services.notifications import _user_name_tokens
+        return await _user_name_tokens(uid)
+    except Exception:
+        return []
 
 
 async def _resolve_mirror_trait(uid: str, trait_id_or_title: str) -> dict:
