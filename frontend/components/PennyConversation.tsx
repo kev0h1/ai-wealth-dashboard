@@ -151,6 +151,7 @@ import {
   openMoreMessagesSheet,
 } from "@/components/PennySheetProvider";
 import { getPennyScreenConfig, type PennyChip } from "@/lib/pennyScreenConfig";
+import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from "@/lib/cacheInvalidation";
 
 // B60: the bank picker is a 53KB chunk, only loaded when a connect_bank card is confirmed.
 const BankPickerSheet = lazy(() => import("@/components/BankPickerSheet"));
@@ -1458,7 +1459,16 @@ export default function PennyConversation({
       ),
     }));
     api.executePennyProposal(proposalId)
-      .then(() => {
+      .then((exec) => {
+        // G358: a confirmed recategorisation changes rows other surfaces hold.
+        if (current.proposal.kind === "recategorise_transaction") {
+          const r = (exec?.result ?? {}) as { affected_ids?: string[]; category?: string };
+          invalidateAfterTransactionCorrection(
+            typeof current.proposal.params?.transaction_id === "string" ? current.proposal.params.transaction_id : "",
+            { newCategory: r.category },
+          );
+          notifyTransactionsChanged(r.affected_ids ?? [], r.category);
+        }
         // B60: the confirm recorded the tap; the bank picker, and the normal
         // Finexer consent flow inside it, is what actually connects.
         if (current.proposal.kind === CONNECT_BANK_KIND) setConnectBank({ bank: connectBankName(current.proposal) });

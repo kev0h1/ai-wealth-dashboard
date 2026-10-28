@@ -83,3 +83,12 @@ export function invalidateAfterTransactionCorrection(
   invalidateSignalsCache();
   clearHomeCache();
 }
+
+// G358: other mounted lists (the Search screen) refresh from this event. `ids`
+// empty means "something changed, refetch" (e.g. a category group change).
+export const TRANSACTIONS_CHANGED_EVENT = "sorted:transactions-changed";
+
+export function notifyTransactionsChanged(ids: string[] = [], category?: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(TRANSACTIONS_CHANGED_EVENT, { detail: { ids, category } }));
+}

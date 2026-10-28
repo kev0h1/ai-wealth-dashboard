@@ -155,6 +155,11 @@ def is_card_repayment(
 
 
 #: Display-ordered built-in names. Single source of truth for the router.
+# G358: manual categories that are a "not sure" bucket rather than a specific
+# choice. A row hand-filed to one of these (or to "") must not block a rule:
+# the user's SPECIFIC manual category always wins, a generic one does not.
+GENERIC_MANUAL_CATEGORIES = ("Other", "Uncategorised")
+
 BUILTIN_CATEGORIES = list(BUILTIN_CATEGORY_KINDS)
 
 #: Names that some backend code paths recognise and others do not. Creating one

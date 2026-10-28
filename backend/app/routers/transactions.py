@@ -25,9 +25,9 @@ from app.services.categorisation import (
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
     canonical_merchant_key, cache_merchant, user_allowed_categories,
     strip_date_fragments, LEADING_DATE_RE, build_rule_pattern,
-    teaching_decision_times,
+    teaching_decision_times, count_rule_matches,
 )
-from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categories import get_category_kinds, is_non_spend, GENERIC_MANUAL_CATEGORIES
 from app.services.categorisation import user_identity
 from app.services.spending import SpendingContext, load_card_accounts, txn_flow
 from app.services import response_cache
@@ -540,6 +540,7 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     )
     merchant_key    = ""
     matches_past    = 0
+    matches_past_total = 0
     rule_suggestion = None
     if primary_doc:
         merchant_key = primary_doc.get("merchant_key") or canonical_merchant_key(
@@ -553,14 +554,26 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
                 {"$set": {"merchant_key": merchant_key}},
             )
         if merchant_key:
+            # G358: `matches_past` is what "Always" will really change: the
+            # same candidate definition the rule engine uses (rows with a
+            # SPECIFIC manual category are excluded). `matches_past_total` is
+            # the old every-merchant_key-match number.
+            matches_past_total = await transactions_col.count_documents({
+                "user_id": user["email"], "merchant_key": merchant_key,
+                "_id": {"$ne": transaction_id},
+            })
             matches_past = await transactions_col.count_documents({
                 "user_id": user["email"], "merchant_key": merchant_key,
                 "_id": {"$ne": transaction_id},
+                "custom_category": {"$in": [None, "", *GENERIC_MANUAL_CATEGORIES]},
             })
             if is_valid or is_custom:
                 pattern = build_rule_pattern(merchant_key)
                 if pattern:
                     rule_suggestion = {"pattern": pattern, "category": category}
+                    matches_past = await count_rule_matches(
+                        user["email"], pattern, category, exclude_id=transaction_id,
+                    )
 
     # Category changes move money in/out of the Transfer exclusion and the
     # trusted recurring categories — refresh the upcoming-payments cache in the
@@ -595,7 +608,9 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     return {
         "updated": transaction_id, "custom_category": category, "bulk_count": bulk_count,
         "merchant_key": merchant_key, "matches_past": matches_past,
+        "matches_past_total": matches_past_total,
         "rule_suggestion": rule_suggestion,
+        "affected_ids": [transaction_id, *[i for i in additional_ids if i != transaction_id]],
     }
 
 

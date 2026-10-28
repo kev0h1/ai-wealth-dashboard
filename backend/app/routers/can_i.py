@@ -963,8 +963,8 @@ async def _execute_recategorise_transaction(uid: str, params: dict) -> dict:
     the rule — the same two-call sequence TeachingSheet's own
     `commitSpend` (PATCH) followed by `handleAlways` (POST /rules) already
     follows, never a single combined step. This matters beyond just fidelity
-    to the real flow: `add_rule`'s bulk pass only touches rows whose
-    `custom_category` is still `None`, so PATCHing the primary row first is
+    to the real flow: `add_rule`'s bulk pass only touches rows with no SPECIFIC manual
+    category (G358: None, "" or a generic Other/Uncategorised), so PATCHing the primary row first is
     what correctly excludes it from that bulk pass (it's handled directly,
     not swept up as one of the "past" matches) — see
     `penny_tools._exec_propose_recategorise_transaction`'s own `exclude_id`
@@ -975,7 +975,9 @@ async def _execute_recategorise_transaction(uid: str, params: dict) -> dict:
         from app.routers.transactions import update_transaction as _route_update_transaction
 
         body = {"category": params["new_category"]}
-        return await _route_update_transaction(params["transaction_id"], body, user={"email": uid})
+        result = await _route_update_transaction(params["transaction_id"], body, user={"email": uid})
+        # G358: the client refreshes any mounted list from these ids.
+        return {**result, "category": params["new_category"]}
 
     if scope == "always":
         from app.routers.categories import add_rule as _route_add_rule
@@ -990,7 +992,14 @@ async def _execute_recategorise_transaction(uid: str, params: dict) -> dict:
             "category": params["new_category"],
         }
         rule_result = await _route_add_rule(body, user={"email": uid})
-        return {"transaction": patch_result, "rule": rule_result}
+        affected_ids = list(dict.fromkeys([
+            *(patch_result.get("affected_ids") or [params["transaction_id"]]),
+            *(rule_result.get("affected_ids") or []),
+        ]))
+        return {
+            "transaction": patch_result, "rule": rule_result,
+            "affected_ids": affected_ids, "category": params["new_category"],
+        }
 
     raise HTTPException(500, f"unknown recategorise_transaction scope '{scope}'")
 

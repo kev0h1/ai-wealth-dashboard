@@ -105,6 +105,7 @@
     "check:g192-sheet-anatomy": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g192-sheet-anatomy.test.mjs",
     "check:spend-from-account": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/spend-from-account.test.mjs",
     "check:verdict-cache": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/verdict-cache.test.mjs",
+    "check:g358-transactions-refresh": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/g358-transactions-refresh.test.mjs",
     "check:category-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/category-mutations.test.mjs",
     "check:account-mutations": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/account-mutations.test.mjs",
     "check:correction-cache-clear": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/correction-cache-clear.test.mjs",

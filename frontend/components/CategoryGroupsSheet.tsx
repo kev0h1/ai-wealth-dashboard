@@ -5,6 +5,8 @@ import { ArrowLeft, Check, ChevronRight, LockKeyhole, Search } from "lucide-reac
 import { ApiError, api, type CategoryGroupRow, type CategoryGroupsResponse, type CategoryKind } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
+import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { notifyTransactionsChanged } from "@/lib/cacheInvalidation";
 import { maskMoneyText, useBalancesHidden } from "@/lib/balancesHidden";
 
 type View = "list" | "edit" | "reset";
@@ -69,6 +71,9 @@ export default function CategoryGroupsSheet({ onClose, onSaved }: { onClose: () 
         } else setError(restore ? "Could not confirm the reset. Reload groups to check before trying again." : "Could not confirm this change. Reload groups to check before trying again.");
         return;
       }
+      // G358: a confirmed group change; cached transaction lists and any mounted list refetch.
+      invalidateTransactionsCache();
+      notifyTransactionsChanged();
       setSaved(restore ? "Original groups restored." : `${selected!.name} now counts as ${label[draft]}.`);
       setView("list"); setSelected(null);
       let refreshed = true;

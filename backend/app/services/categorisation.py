@@ -15,7 +15,7 @@ from app.db.collections import (
     merchant_categories_col, confirmed_transfer_pairs_col,
     statement_transactions_col, teaching_events_col,
 )
-from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
+from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS, GENERIC_MANUAL_CATEGORIES
 # G39: the mortgage/car-finance savings insights (app.routers.savings_insights)
 # already maintain a merchant-keyword trigger list per category, built to
 # detect these two payment types by lender name. Importing it here (rather
@@ -1503,9 +1503,14 @@ async def _rule_match_candidates(
     preview count honestly matching what execute will really do, rather
     than double-counting the primary transaction as one of the "past"
     ones."""
+    # G358: a row is a candidate when it has no manual category, or only a
+    # GENERIC one ("", "Other", "Uncategorised": the user said "not sure",
+    # e.g. an undo that PATCHed the original Other back). A SPECIFIC manual
+    # category is never overridden. Scope: `transactions_col` only; statement
+    # and Yapily rows are outside the rule engine today.
     candidates = await transactions_col.find(
-        {"user_id": user_id, "custom_category": None},
-        {"_id": 1, "merchant_name": 1, "description": 1, "category": 1},
+        {"user_id": user_id, "custom_category": {"$in": [None, "", *GENERIC_MANUAL_CATEGORIES]}},
+        {"_id": 1, "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1},
     ).to_list(None)
     matched: list[dict] = []
     for t in candidates:
@@ -1514,7 +1519,8 @@ async def _rule_match_candidates(
         text = " ".join(filter(None, [t.get("merchant_name"), t.get("description")])).lower()
         if not compiled.search(text):
             continue
-        prev = t.get("category")
+        # Effective category before the change (custom_category || category).
+        prev = t.get("custom_category") or t.get("category")
         if prev == category:
             continue
         matched.append({"id": t["_id"], "previous_category": prev})
@@ -1538,8 +1544,15 @@ async def apply_single_rule(user_id: str, pattern: str, category: str) -> list[d
     except re.error:
         return []
     matched = await _rule_match_candidates(user_id, compiled, category)
+    stamp = datetime.utcnow()  # naive-ok: UTC instant compared only against other stamps
     for m in matched:
-        await transactions_col.update_one({"_id": m["id"]}, {"$set": {"category": category}})
+        # Set the rule's category AND clear any generic manual category so the
+        # rule's category is the effective one (custom_category_at is kept as
+        # history; rule_applied_at records this change).
+        await transactions_col.update_one(
+            {"_id": m["id"]},
+            {"$set": {"category": category, "custom_category": None, "rule_applied_at": stamp}},
+        )
     return matched
 
 
