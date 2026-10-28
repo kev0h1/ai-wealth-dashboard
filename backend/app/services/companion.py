@@ -2470,7 +2470,7 @@ async def compute_today_items(
     # Payday Plan window — the moment to distribute the month. Position within
     # the CURRENT pay period (distinct from `next_pay`, which describes the
     # upcoming payday, not where `today_d` sits in the period that's live now).
-    from app.services.pay_period import get_pay_period_for_date as _pp_get_period
+    from app.services.pay_period import get_pay_period_for_date as _pp_get_period, period_facts as _period_facts
     _pstart, _pend = _pp_get_period(today_d, pay_cfg)
     days_into_period = (today_d - _pstart).days + 1
     payday_window = days_into_period <= 3  # payday + 2 days: the moment to distribute the month
@@ -3647,14 +3647,51 @@ async def compute_today_items(
             # they must land here instead of being silently dropped —
             # `not _in_window(...)` (rather than the old `> days_to_pay`)
             # is what pulls them in.
+            #
+            # G354 (Kevin, 2026-10-28): a plan covers EXACTLY ONE pay period,
+            # payday to the day before the next expected payday, so each
+            # monthly bill appears once. The upcoming-bills feed reaches 35
+            # days ahead, so an unbounded "everything from payday on" set
+            # stacked two months of a mortgage and car finance onto one
+            # salary. The plan's own window is [plan_start, plan_end]:
+            # preview prices the period that STARTS on `next_pay`; live mode
+            # prices the current period (`window_bills`, which already
+            # equals the current period: `_in_window` bounds it strictly
+            # before the next payday, same definition as Spend/Upcoming).
+            if payday_preview:
+                _plan_start = next_pay
+                _plan_end = _pp_get_period(_plan_start, pay_cfg)[1]
+                _following = _get_confirmed_payday(prefs, _plan_start)
+                if _following and _following[0] > _plan_start:
+                    _plan_end = _following[0] - timedelta(days=1)
+            else:
+                _plan_start, _plan_end = _pstart, _pend
+
+            def _bill_date(b: dict) -> date:
+                _ed = str(b.get("expected_date") or "")[:10]
+                try:
+                    return date.fromisoformat(_ed)
+                except ValueError:
+                    return today_d + timedelta(days=int(b.get("days_away", 0) or 0))
+
+            # A bill ON payday is the first day of the plan period, so it is
+            # counted once, here. `payday_split` (section 5c) lists the same
+            # bill for visibility only: it is never read by the destination
+            # loop, so it cannot drive a second move.
             _plan_bills = (
                 [
                     b for b in resp["upcoming_bills"]
-                    if not b.get("is_credit_card") and not _in_window(b.get("days_away", 0), days_to_pay)
+                    if not b.get("is_credit_card") and _plan_start <= _bill_date(b) <= _plan_end
                 ]
                 if payday_preview
                 else window_bills
             )
+            _plan_period = _period_facts(_plan_start, _plan_end, today_d)
+            _plan_period_out = {
+                "start": _plan_period["start"],
+                "end": _plan_period["end"],
+                "label": _plan_period["label"],
+            }
 
             def _acct_bills(acct_id: str) -> tuple[float, int, float]:
                 """Sum/count of THIS account's bills from `_plan_bills` (ALL
@@ -4254,6 +4291,7 @@ async def compute_today_items(
                     "dests": dests,
                     "over_salary": over_salary,
                     "left_out": left_out,
+                    "plan_period": _plan_period_out,
                     "estimated": False,
                     "action": {"label": "See what's due", "route": "/upcoming"},
                 }
@@ -4308,6 +4346,7 @@ async def compute_today_items(
                         "trimmed": bool(trimmed),
                         "over_salary": over_salary,
                         "left_out": left_out,
+                    "plan_period": _plan_period_out,
                     }
                     if persist:
                         await companion_items_col.update_one(

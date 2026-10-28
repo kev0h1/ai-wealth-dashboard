@@ -216,7 +216,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
 
       {item.salary && !isSet && (
         <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
-          Here’s one way to split your next pay.
+          Here’s one way to split your next pay{item.plan_period?.label ? `, ${item.plan_period.label}` : ""}.
         </p>
       )}
 

@@ -1806,6 +1806,8 @@ export type CompanionItem = {
   over_salary?: PaydayPlanOverSalary | null;
   /** G350: moves left out of this month's plan (empty when nothing was). */
   left_out?: PaydayPlanLeftOut[];
+  /** G354: the one pay period this plan covers (ISO start/end, short label). */
+  plan_period?: { start: string; end: string; label: string };
   payday_split?: PaydaySplit;
   payday_split_risk?: PaydaySplitRisk;
   // payload — present when type === "rhythm"; carries category, multiple, spent, period_end, dominant

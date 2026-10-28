@@ -13,6 +13,7 @@ def _item(**over):
     base = {
         "id": "payday_plan:x", "type": "payday_plan", "headline": "h", "body": "b", "covered": True,
         "total": 450.0, "trimmed": False, "preview": True, "next_pay": "2026-10-30", "estimated": False,
+        "plan_period": {"start": "2026-10-30", "end": "2026-11-26", "label": "30 Oct to 26 Nov"},
         "salary": {"account_id": "a1", "name": "NatWest Select", "provider": "natwest", "amount": 2000, "stays": 1550},
         "dests": [
             {"account_id": "a2", "name": "Monzo Bills", "bills_total": 300, "bill_count": 4,
@@ -57,6 +58,8 @@ def test_payday_plan_falls_back_to_preview_and_never_persists(monkeypatch):
                                    "accounts": [{"name": "Monzo Bills", "out": 300}]}
     assert res["summary"].startswith("Your next pay is expected around 30 Oct.")
     assert "£450 to Monzo Bills" in res["summary"]
+    assert res["plan_period"]["label"] == "30 Oct to 26 Nov"
+    assert "The plan covers 30 Oct to 26 Nov." in res["summary"]
     assert "will" not in res["summary"].split()
 
 

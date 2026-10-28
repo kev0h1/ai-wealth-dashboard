@@ -245,6 +245,7 @@ export const PAYDAY_PLAN_ITEM: CompanionItem = {
   },
   dests: PAYDAY_DESTINATIONS,
   next_pay: "2026-10-28",
+  plan_period: { start: "2026-10-28", end: "2026-11-26", label: "28 Oct to 26 Nov" },
 };
 
 // G350: the suggested moves add up to more than the expected pay, so the card
