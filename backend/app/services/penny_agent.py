@@ -954,6 +954,25 @@ def _weekday_fixed(text: str, today, uid: str) -> str:
         return text
 
 
+_SCHEDULE_TOOLS = frozenset({"preview_goal_schedule", "propose_create_scheduled_goal", "propose_update_commitment"})
+
+
+def _setup_fixed(text: str, tools_used: list[str], all_results: list[dict], uid: str) -> str:
+    """G356: after a goal schedule preview and no proposal in this turn, "your plan
+    is set up" becomes "is ready to confirm". Never raises."""
+    try:
+        if not text or not _SCHEDULE_TOOLS.intersection(tools_used):
+            return text
+        created = any(isinstance(r, dict) and r.get("proposal") is True for r in all_results)
+        fixed = penny_reply_guards.fix_premature_setup_claims(text, created)
+        if fixed != text:
+            logger.warning("penny_agent: reply for %s claimed a plan was set up before the card was confirmed; reworded", uid)
+        return fixed
+    except Exception:
+        logger.exception("penny_reply_guards setup-claim error at call site for %s", uid)
+        return text
+
+
 def _guarded(text: str, periods: list[dict], uid: str) -> str:
     return _guarded_pair("", text, periods, uid)[1]
 
@@ -1341,6 +1360,7 @@ async def run_penny_agent(
                     prose = safe_prose(content)
                     if prose:
                         prose = _weekday_fixed(_move_guarded(_guarded(prose, periods, uid), plan_results, uid, all_results), today, uid)
+                        prose = _setup_fixed(prose, tools_used, all_results, uid)
                         logger.warning("penny_agent: showing the model's prose for %s after a failed repair", uid)
                         done = {"headline": "", "reply": prose, "tools_used": tools_used, "prose_fallback": True}
                         if (carried := _focus_out(new_last_result or (None if focus_cleared else focus_in))):
@@ -1353,6 +1373,7 @@ async def run_penny_agent(
                 headline, reply = _guarded_pair(headline, reply, periods, uid)
                 reply = _move_guarded(reply, plan_results, uid, all_results)
                 headline, reply = _weekday_fixed(headline, today, uid), _weekday_fixed(reply, today, uid)
+                headline, reply = _setup_fixed(headline, tools_used, all_results, uid), _setup_fixed(reply, tools_used, all_results, uid)
                 logger.info(
                     "penny_agent: uid=%s rounds=%d tools=%s total_ms=%d",
                     uid, rounds, tools_used, total_ms,

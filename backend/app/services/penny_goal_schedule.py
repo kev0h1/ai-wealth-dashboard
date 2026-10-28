@@ -537,7 +537,8 @@ def _figures(clean: dict, cfg: dict, today: date) -> dict:
         lead = "Nothing is due this pay period"
     if nxt:
         lead += ", then " + ", ".join(gs.fmt_money(n["amount"]) for n in nxt) + " over the next pay periods"
-    summary = f"{label_wd[:1].upper()}{label_wd[1:]} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date_wd(end) if end else 'later'}. {lead}, on your current pay periods."
+    summary = (f"Here is the plan: {label_wd} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date_wd(end) if end else 'later'}. "
+               f"{lead}, on your current pay periods. Confirm the card to set it up.")
     return {
         "schedule": clean, "schedule_label": label, "total": _money2(total),
         "this_period_amount": _money2(this_period),

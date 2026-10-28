@@ -250,3 +250,45 @@ def fix_weekday_claims(reply: str, today: date) -> tuple[str, int]:
     for a, b, new in sorted(edits, reverse=True):
         out = out[:a] + new + out[b:]
     return out, len(edits)
+
+
+# ── G356: nothing is "set up" until the user confirms the card ───────────────
+
+_SETUP_CLAIM_RE = re.compile(
+    r"\b(plan|goal|schedule|challenge|contributions?)\b([^.!?]{0,60}?)\b(is|are|has been|have been|is now|are now)\s+"
+    r"(?:now\s+|all\s+)?(?:set up|setup|created|saved|done|all set|in place)\b",
+    re.I,
+)
+_SETUP_I_RE = re.compile(r"\bI(?:'ve| have)\s+(?:now\s+)?(?:set up|created|saved)\s+(your|the)\s+(plan|goal|schedule|challenge)\b", re.I)
+_LEAD_FILLER_RE = re.compile(r"^\s*(?:perfect|done|all set|great|brilliant|lovely)[.!]+\s*", re.I)
+READY_PHRASE = "ready to confirm"
+
+
+def fix_premature_setup_claims(reply: str, created: bool) -> str:
+    """When no proposal was created this turn, a sentence claiming the plan or goal
+    "is set up" (or created, saved, done, all set) becomes "is ready to confirm",
+    keeping the rest of the sentence. A leading "Perfect." or "Done." is dropped, but
+    only when a claim was rewritten. Untouched when a proposal was created."""
+    if created or not reply:
+        return reply
+    changed = False
+
+    def claim(m: re.Match) -> str:
+        nonlocal changed
+        changed = True
+        verb = "are" if m.group(3).lower().startswith(("are", "have")) else "is"
+        return f"{m.group(1)}{m.group(2)}{verb} {READY_PHRASE}"
+
+    def said_i(m: re.Match) -> str:
+        nonlocal changed
+        changed = True
+        lead = m.group(1).capitalize() if m.start() == 0 else m.group(1).lower()
+        return f"{lead} {m.group(2).lower()} is {READY_PHRASE}"
+
+    out = _SETUP_CLAIM_RE.sub(claim, reply)
+    out = _SETUP_I_RE.sub(said_i, out)
+    if changed:
+        stripped = _LEAD_FILLER_RE.sub("", out, count=1)
+        if stripped.strip():
+            out = stripped
+    return out

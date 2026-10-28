@@ -80,3 +80,10 @@ def test_for_365_days_and_end_dates_unchanged():
     f = pgs.parse_description("start at 4p add 4p a day until 31 December", TODAY)["fields"]
     assert f["end_date"] == "2026-12-31" and "last_day" not in f
     assert pgs._day_numbers("until day 365, the day of the year") == (None, None)
+
+
+def test_preview_summary_is_grounded_as_a_plan_to_confirm():
+    out = run(execute_tool(UID, "preview_goal_schedule", {
+        "start_amount": 11.48, "step_amount": 0.04, "step_unit": "day", "count": 79, "start_date": "2026-10-30"}))
+    assert out["summary"].startswith("Here is the plan: ")
+    assert "Confirm the card to set it up." in out["summary"]
