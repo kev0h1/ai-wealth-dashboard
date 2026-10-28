@@ -1020,6 +1020,7 @@ async def _serialise(
         _ps, _pe = get_pay_period_for_date(today, cfg)
         schedule_fields = {
             "schedule":          goal_schedule.public_schedule(sched),
+            "schedule_preview":  goal_schedule.preview(sched, cfg, today),
             "schedule_label":    goal_schedule.schedule_label(sched),
             "this_period_amount": goal_schedule.period_amount(sched, _ps, _pe, cfg) / 100,
             "next_periods": [
@@ -1229,6 +1230,15 @@ async def _validate_schedule_body(raw, uid: str) -> tuple[dict | None, float | N
     if last < timeutil.user_today():
         raise HTTPException(400, "That schedule has already finished. Choose a later start or a longer run.")
     return clean, total / 100, last.isoformat()
+
+
+@router.post("/commitments/schedule-preview")
+async def schedule_preview(body: dict, user: dict = Depends(current_user)):
+    """Validate and render a schedule without persisting a commitment."""
+    clean, _total, _end = await _validate_schedule_body(body.get("schedule"), user["email"])
+    if clean is None:
+        raise HTTPException(400, goal_schedule.INVALID)
+    return goal_schedule.preview(clean, await _pay_cfg(user["email"]), timeutil.user_today())
 
 
 async def _capture_baseline(fid: str, uid: str) -> float:

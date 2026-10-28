@@ -611,7 +611,7 @@ async def _resolve_set_aside(uid: str, ref: str) -> dict:
 
 
 async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
-    from app.routers.commitments import _validate_name
+    from app.routers.commitments import _pay_cfg, _validate_name
     from app.services.penny_tools import _create_proposal
 
     try:
@@ -660,7 +660,15 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
         into_text = f" into {into['name']}" if into else ""
         summary = f"Start the '{name}' goal: {label}, from {source['name']}{into_text}, total {total}"
         consequence = f"Creates the goal and reserves this period's {this_period}. {NOTHING_MOVES}"
-        params: dict = {"name": name, "schedule": built["schedule"], "funding_pots": pots, "source_account_id": source["account_id"]}
+        params: dict = {
+            "name": name,
+            "schedule": built["schedule"],
+            "schedule_preview": gs.preview(built["schedule"], await _pay_cfg(uid), timeutil.user_today()),
+            "funding_pots": pots,
+            "source_account_id": source["account_id"],
+            "source_account_name": source["name"],
+            "destination_names": [into["name"]] if into else [],
+        }
         if set_aside:
             params["deactivate_allocation_id"] = set_aside["id"]
             params["deactivate_allocation_name"] = set_aside.get("name")

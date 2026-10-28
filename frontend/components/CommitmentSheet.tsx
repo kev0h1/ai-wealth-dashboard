@@ -12,6 +12,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { periodRhythmLabel } from "@/lib/payPeriod";
 import { periodsLeftFrom, pickServerPeriod, type ServerPeriodBounds } from "@/lib/serverPeriodWindow";
 import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
+import { useBalancesHidden } from "@/lib/balancesHidden";
 import MoneyText from "@/components/MoneyText";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -25,6 +26,8 @@ import { PlanTrackingMethod } from "@/components/plans/PlanTrackingMethod";
 import { EditorError, useEditorRequest } from "@/components/upcoming/editorSupport";
 import PlanEditorFlow, { PlanEditorActions, PLAN_EDITOR_STEPS, type PlanEditorStep } from "@/components/plans/PlanEditorFlow";
 import GoalContributionEditor from "@/components/plans/GoalContributionEditor";
+import GoalScheduleEditor from "@/components/plans/GoalScheduleEditor";
+import { GoalScheduleDetails } from "@/components/plans/GoalScheduleDetails";
 
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
@@ -98,7 +101,7 @@ interface CommitmentSheetProps {
  * fixtures without changing production behaviour. */
 export type CommitmentSheetOperations = Pick<typeof api,
   "accounts" | "previewCommitment" | "createCommitment" | "updateCommitment" | "cancelCommitment">
-  & Partial<Pick<typeof api, "planFillCandidates" | "previewGoalContribution" | "setGoalContribution">>;
+  & Partial<Pick<typeof api, "planFillCandidates" | "previewGoalContribution" | "setGoalContribution" | "previewGoalSchedule">>;
 
 /** "1 Oct" from an ISO date. */
 function shortDate(iso: string): string {
@@ -138,6 +141,7 @@ export default function CommitmentSheet({
   embedded,
 }: CommitmentSheetProps) {
   const { payPeriodConfig } = usePreferences();
+  const balancesHidden = useBalancesHidden();
   const { allCategories } = useCategories();
   const router = useRouter();
   const monthInputRef = useRef<HTMLButtonElement>(null);
@@ -191,6 +195,7 @@ export default function CommitmentSheet({
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [viewing, setViewing] = useState(Boolean(commitment && initialMode === "view"));
   const [contributionMode, setContributionMode] = useState(Boolean(commitment && initialMode === "contribution"));
+  const [scheduleEditing, setScheduleEditing] = useState(false);
   const [contributionFooterHost, setContributionFooterHost] = useState<HTMLDivElement | null>(null);
   const [reviewEditing, setReviewEditing] = useState(false);
   const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
@@ -214,6 +219,7 @@ export default function CommitmentSheet({
     setReviewEditing(false);
     setEditorView("purpose");
     setViewing(true);
+    setScheduleEditing(false);
   };
   const createPrevious = () => {
     setSaveError(false);
@@ -322,7 +328,7 @@ export default function CommitmentSheet({
   // amount/month change. Failure-tolerant: any error just hides the line.
   const [preview, setPreview] = useState<CommitmentPreview | null>(null);
   const [previewFor, setPreviewFor] = useState("");
-  const previewKey = JSON.stringify([parsedAmount, month, pots, commitment?.id]);
+  const previewKey = JSON.stringify([parsedAmount, month, pots, commitment?.id, commitment?.schedule]);
   const activePreview = previewFor === previewKey ? preview : null;
   useEffect(() => {
     if (!amountValid || !monthValid) {
@@ -331,7 +337,7 @@ export default function CommitmentSheet({
     }
     let stale = false;
     const timer = setTimeout(() => {
-      operations.previewCommitment(parsedAmount, `${month}-01`, pots, commitment?.id)
+      operations.previewCommitment(parsedAmount, `${month}-01`, pots, commitment?.id, commitment?.schedule)
         .then((p) => { if (!stale) { setPreview(p); setPreviewFor(previewKey); } })
         .catch(() => { if (!stale) setPreview(null); });
     }, 400);
@@ -542,6 +548,11 @@ export default function CommitmentSheet({
     setEditorView("purpose");
     setViewing(false);
   };
+  const startScheduleEditing = () => {
+    setConfirmingCancel(false);
+    setScheduleEditing(true);
+    setViewing(false);
+  };
   const leaveContribution = () => {
     if (embedded) { embedded.onCancel(); return; }
     setContributionMode(false);
@@ -575,6 +586,7 @@ export default function CommitmentSheet({
   const renderActions = ({ close, closeThen }: HostControls): ReactNode => {
         if (needsRefresh) return <button type="button" disabled={saving} onClick={event => { event.preventDefault(); void retryCommittedRefresh(); }} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Refreshing…" : "Retry refresh"}</button>;
         if (contributionMode) return <div ref={setContributionFooterHost} />;
+        if (scheduleEditing && commitment?.schedule) return null;
         if (viewing && commitment) {
           if (confirmingCancel) return <div className="space-y-2"><p className="text-sm leading-5 text-slate-700 dark:text-slate-200">Delete this plan? Money already set aside stays where it is. This only stops tracking it.</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmingCancel(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold dark:border-slate-600">Keep plan</button><button type="button" disabled={saving} onClick={() => void handleCancelCommitment(() => close())} className="min-h-11 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? "Deleting…" : "Delete plan"}</button></div></div>;
           const paused = Boolean((commitment as Commitment & { paused?: boolean }).paused);
@@ -601,7 +613,22 @@ export default function CommitmentSheet({
   };
   const renderBody = ({ close }: Pick<HostControls, "close">): ReactNode => <>
     <EditorError message={normalRequest.error} />
-            {contributionMode && commitment ? (
+            {scheduleEditing && commitment?.schedule ? (
+              <GoalScheduleEditor
+                schedule={commitment.schedule}
+                previewSchedule={operations.previewGoalSchedule ?? api.previewGoalSchedule}
+                busy={saving || needsRefresh}
+                onCancel={returnToSavedView}
+                onSave={async schedule => {
+                  let item: Commitment;
+                  await normalRequest.run(async () => {
+                    item = await operations.updateCommitment(commitment.id, { schedule });
+                    invalidateVerdictCache();
+                  }, returnToSavedView, undefined, async () => { await onSaved?.(item); });
+                }}
+                renderActions={needsRefresh ? () => null : embedded?.renderActions}
+              />
+            ) : contributionMode && commitment ? (
               <GoalContributionEditor
                 commitment={commitment}
                 services={contributionServices}
@@ -630,6 +657,46 @@ export default function CommitmentSheet({
                   </p>
                 )}
               </div>
+            ) : viewing && commitment?.schedule && commitment.schedule_preview ? (
+              <GoalScheduleDetails
+                preview={commitment.schedule_preview}
+                name={commitment.name}
+                progress={commitment.progress}
+                paused={Boolean(commitment.paused)}
+                onEdit={startScheduleEditing}
+              >
+                <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                  {commitment.source_account_id && <p>Money comes from {tidyAccountName(accountList.find(account => account.id === commitment.source_account_id)?.name ?? "your selected account")}.</p>}
+                  {potsFromCommitment(commitment).length > 0 && <p>Saved in {potsFromCommitment(commitment).map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "your savings pot")).join(", ")}.</p>}
+                  {commitment.current_period_contribution && commitment.current_period_contribution.contribution !== commitment.schedule_preview.current_period.amount && <p><MoneyText text={`Your contribution this pay period: £${commitment.current_period_contribution.contribution.toLocaleString("en-GB")}.`} /></p>}
+                  <details className="pt-3"><summary className="min-h-11 cursor-pointer rounded-md py-3 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Plan details</summary>
+              <PlanRecordView
+                kind="goal"
+                contribution={commitment.paused ? 0 : commitment.current_period_contribution?.contribution ?? commitment.planned_per_period_slice ?? commitment.usual_slice ?? commitment.per_period_slice}
+                cadence={commitment.current_period_contribution ? "this pay period" : "estimated each pay period"}
+                target={{ amount: commitment.amount, month: new Date(`${commitment.target_date.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) }}
+                progress={commitment.progress}
+                currentPeriod={commitment.current_period_contribution ?? null}
+                nextPeriods={commitment.schedule ? commitment.next_periods?.map(n => n.amount) : undefined}
+                sourceAccount={accountList.find(account => account.id === commitment.source_account_id)}
+                sourceSuggested={sourceInferred}
+                sourceUnavailable={Boolean(commitment.source_account_id) && !accountList.some(account => account.id === commitment.source_account_id)}
+                destinationUnavailable={potsFromCommitment(commitment).some(pot => !accountList.some(account => account.id === pot.account_id))}
+                destinationAccounts={potsFromCommitment(commitment).map(pot => accountList.find(account => account.id === pot.account_id)).filter((account): account is Account => Boolean(account))}
+                trackingLabel={(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ? `${(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking?.category} category activity` : commitment.fill_rule?.match_value ? commitment.fill_rule.match_value : "Not tracking a payment"}
+                paused={Boolean((commitment as Commitment & { paused?: boolean }).paused)}
+                periodNote={commitment.fulfilment ? `£${(commitment.fulfilment.matched_pence / 100).toLocaleString("en-GB")} paid this period` : undefined}
+              >
+                {saveError && !needsRefresh && <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">That did not save. Please try again.</p>}
+                {(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking && <PlanCategoryTracking kind="goal" sourceAccountId={commitment.source_account_id ?? ""} destinationAccountIds={potsFromCommitment(commitment).map(pot => pot.account_id)} value={(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking ?? null} onChange={() => {}} commitmentId={commitment.id} readOnly />}
+
+              </PlanRecordView>
+                  </details>
+                  {(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking && <p>Tracking {(commitment as Commitment & { category_tracking?: PlanCategoryTrackingValue }).category_tracking?.category} category activity.</p>}
+                  {commitment.fill_rule?.match_value && <p>Tracking {commitment.fill_rule.match_value}.</p>}
+                  {saveError && !needsRefresh && <p role="alert">That did not save. Please try again.</p>}
+                </div>
+              </GoalScheduleDetails>
             ) : viewing && commitment ? (
               <PlanRecordView
                 kind="goal"
@@ -701,7 +768,7 @@ export default function CommitmentSheet({
               </>}
 
               {/* Amount */}
-              {editorView === "details" && <>
+              {editorView === "details" && commitment?.schedule && commitment.schedule.type !== "equal" ? <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300"><p>The total and date come from your schedule. To change them, open Edit schedule from the plan.</p><p><MoneyText text={`£${commitment.amount.toLocaleString("en-GB")} by ${new Date(`${commitment.target_date.slice(0,10)}T12:00:00Z`).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric",timeZone:"UTC"})}`} /></p></div> : editorView === "details" && <>
               <div>
                 <label htmlFor="commitment-amount" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
                   Total amount
@@ -933,14 +1000,14 @@ export default function CommitmentSheet({
   return (
     <SheetFrame
       key={sheetHistoryGeneration}
-      title={contributionMode ? "Change this period" : commitment ? viewing ? commitment.name : "Edit plan" : "Create a goal"}
+      title={contributionMode ? "Change this period" : scheduleEditing ? "Edit schedule" : commitment ? viewing ? balancesHidden ? "Your goal" : commitment.name : "Edit plan" : "Create a goal"}
       description={contributionMode ? "Choose this goal's total contribution for the current pay period." : commitment && viewing ? "Your goal" : commitment ? undefined : "A goal you set money aside for, separate from single bills."}
       onClose={handleSheetClose}
       dismissDisabled={saving}
-      onEscape={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
-      onBack={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onEscape={contributionMode ? leaveContribution : scheduleEditing ? returnToSavedView : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onBack={contributionMode ? leaveContribution : scheduleEditing ? returnToSavedView : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
       backLabel="Back to plan"
-      onHistoryBack={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onHistoryBack={contributionMode ? leaveContribution : scheduleEditing ? returnToSavedView : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
       footer={renderActions}
     >
       {renderBody}

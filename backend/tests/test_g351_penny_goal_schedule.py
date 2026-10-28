@@ -1,8 +1,9 @@
 """G351 step 3: Penny builds a scheduled goal from words, the server does the sums."""
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 
 import app.db.collections as collections_module
 import app.routers.allocations as allocations_module
@@ -12,6 +13,7 @@ import app.services.account_plan_sources as plan_sources
 import app.services.companion as companion_module
 import app.services.penny_goal_schedule as pgs
 import app.services.penny_tools as penny_tools_module
+import app.services.penny_conversations as conversations_module
 from app.core import timeutil
 from app.core.models import Account
 from app.services.penny_tools import PROPOSE_TOOL_NAMES, TOOL_SCHEMAS, execute_tool
@@ -363,3 +365,130 @@ def test_registration_and_consent_gating():
     assert "step_amount" in schema["function"]["parameters"]["properties"]
     from app.services.penny_agent import _propose_tool_catalogue
     assert "propose_create_scheduled_goal" in _propose_tool_catalogue().split("plans and aims:")[1].split(";")[0]
+
+
+# ── Revision lifecycle ──────────────────────────────────────────────────────
+
+def _scheduled_proposal(*, proposal_id="old", expires_at=None, conversation_id=None):
+    doc = {
+        "_id": proposal_id, "user_id": UID, "kind": "create_commitment",
+        "params": {"name": "Challenge", "schedule": {"type": "fixed", "start_date": "2026-10-28", "amounts_pence": [1000]},
+                   "funding_pots": [{"account_id": "pot", "count_existing": False}], "source_account_id": "cur",
+                   "source_account_name": "Monzo Current Account", "destination_names": ["Saving Challenge"]},
+        "summary": "old", "consequence": "old", "before": "No goal", "after": "old", "entity": "Challenge",
+        "created_at": datetime.now(), "expires_at": expires_at or datetime.now() + timedelta(minutes=15),
+        "executed_at": None, "cancelled_at": None, "execution_claim": None,
+    }
+    if conversation_id:
+        doc["conversation_id"] = conversation_id
+    return doc
+
+
+def _revision_world(monkeypatch, doc):
+    proposals = FakeCol([doc])
+    prefs = FakeCol([{"user_id": UID, "penny_agent_consent": "yes", "penny_consent_generation": 0}])
+    monkeypatch.setattr(can_i_module, "penny_proposals_col", proposals)
+    monkeypatch.setattr(can_i_module, "preferences_col", prefs)
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", proposals)
+    monkeypatch.setattr(penny_tools_module, "preferences_col", prefs)
+    async def eligible_accounts(_uid):
+        return {
+            "cur": {"name": "Monzo Current Account", "type": "BANK", "account_subtype": "TRANSACTION", "currency": "GBP"},
+            "pot": {"name": "Saving Challenge", "type": "BANK", "account_subtype": "SAVINGS_ACCOUNT", "currency": "GBP"},
+        }
+    monkeypatch.setattr(plan_sources, "owned_account_map", eligible_accounts)
+    return proposals
+
+
+def _revision_body(source="cur"):
+    return {"source_account_id": source, "schedule": {"type": "fixed", "start_date": "2026-10-28", "amounts_pence": [1500, 2500]}}
+
+
+def test_revision_replaces_pending_proposal_and_old_id_cannot_execute(monkeypatch):
+    proposals = _revision_world(monkeypatch, _scheduled_proposal())
+    fresh = run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body(), {"email": UID}))
+    assert fresh["proposal_id"] != "old" and "proposal" not in fresh
+    assert fresh["params"]["source_account_name"] == "Monzo Current Account"
+    assert fresh["params"]["destination_names"] == ["Saving Challenge"]
+    assert fresh["params"]["schedule_preview"]["periods"][0]["amount"] == 15
+    old = run(proposals.find_one({"_id": "old"}))
+    assert old["cancelled_at"] is not None and old["superseded_reason"] == "scheduled_goal_revision"
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.execute_proposal("old", {"email": UID}))
+    assert exc.value.status_code == 410
+
+
+def test_revision_rejects_unowned_or_malformed_input_without_superseding(monkeypatch):
+    proposals = _revision_world(monkeypatch, _scheduled_proposal())
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body("not-owned"), {"email": UID}))
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body("pot"), {"email": UID}))
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.revise_scheduled_goal_proposal("old", {"source_account_id": "cur", "schedule": {"type": "fixed"}}, {"email": UID}))
+    assert exc.value.status_code == 400
+    assert run(proposals.find_one({"_id": "old"}))["cancelled_at"] is None
+
+
+def test_revision_loses_to_execution_claim_and_expiry(monkeypatch):
+    claimed = _scheduled_proposal()
+    claimed["execution_claim"] = "confirm-won"
+    _revision_world(monkeypatch, claimed)
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body(), {"email": UID}))
+    assert exc.value.status_code == 409
+
+    expired = _scheduled_proposal(expires_at=datetime.now() - timedelta(seconds=1))
+    _revision_world(monkeypatch, expired)
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body(), {"email": UID}))
+    assert exc.value.status_code == 410
+
+
+def test_revision_fails_closed_after_supersession_if_fresh_creation_fails(monkeypatch):
+    proposals = _revision_world(monkeypatch, _scheduled_proposal())
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(penny_tools_module, "_create_proposal", fail)
+    with pytest.raises(HTTPException) as exc:
+        run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body(), {"email": UID}))
+    assert exc.value.status_code == 409
+    assert run(proposals.find_one({"_id": "old"}))["cancelled_at"] is not None
+    assert len(proposals.docs) == 1
+
+
+def test_revision_moves_the_stored_conversation_reference_to_the_fresh_card(monkeypatch):
+    _revision_world(monkeypatch, _scheduled_proposal(conversation_id="chat-1"))
+    calls = []
+
+    async def link(uid, cid, proposal_id):
+        calls.append(("link", uid, cid, proposal_id))
+
+    async def replace(uid, old_id, fresh):
+        calls.append(("replace", uid, old_id, fresh["proposal_id"], fresh["params"]["schedule_preview"]))
+
+    monkeypatch.setattr(can_i_module.penny_conversations, "link_proposal", link)
+    monkeypatch.setattr(can_i_module.penny_conversations, "replace_pending_proposal", replace)
+    fresh = run(can_i_module.revise_scheduled_goal_proposal("old", _revision_body(), {"email": UID}))
+    assert calls[0] == ("link", UID, "chat-1", fresh["proposal_id"])
+    assert calls[1][0:4] == ("replace", UID, "old", fresh["proposal_id"])
+    assert calls[1][4]["schedule"] == fresh["params"]["schedule"]
+
+
+def test_restored_superseded_card_follows_fresh_pending_proposal_with_safe_params(monkeypatch):
+    old = _scheduled_proposal()
+    old.update({"cancelled_at": datetime.now(), "superseded_by": "fresh"})
+    fresh = _scheduled_proposal(proposal_id="fresh")
+    fresh["params"]["schedule_preview"] = {"schedule": fresh["params"]["schedule"], "periods": []}
+    proposals = FakeCol([old, fresh])
+    monkeypatch.setattr(conversations_module, "penny_proposals_col", proposals)
+    doc = {"turns": [{"proposal": {"proposal_id": "old", "kind": "create_commitment", "summary": "old", "consequence": "old", "status": "pending"}}]}
+    run(conversations_module._live_proposal_statuses(UID, doc))
+    block = doc["turns"][0]["proposal"]
+    assert block["proposal_id"] == "fresh" and block["status"] == "pending"
+    assert block["params"]["schedule_preview"] == fresh["params"]["schedule_preview"]
+    assert set(block["params"]) <= {"schedule_preview", "schedule", "name", "source_account_id", "source_account_name", "destination_names", "funding_pots", "deactivate_allocation_id", "deactivate_allocation_name"}

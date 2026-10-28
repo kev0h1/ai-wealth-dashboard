@@ -930,7 +930,21 @@ export type GoalSchedule =
 
 export type GoalSchedulePeriod = { start: string; end: string; amount: number };
 
+/** Authoritative schedule figures for the user's pay periods. Money is pounds. */
+export type GoalSchedulePreview = {
+  schedule: GoalSchedule;
+  label: string;
+  total: number;
+  start_date: string;
+  end_date: string;
+  estimated: boolean;
+  current_period: GoalSchedulePeriod;
+  periods: GoalSchedulePeriod[];
+  planned_to_date: number;
+};
+
 export type Commitment = {
+  schedule_preview?: GoalSchedulePreview | null;
   /** G351: present only on a goal with a contribution schedule. Pounds, from the server. */
   schedule?: GoalSchedule | null;
   schedule_label?: string;
@@ -1349,6 +1363,8 @@ export type PennyProposal = {
 /** B59: the compact proposal block stored on an assistant turn, so a restored
  * chat rebuilds the card. `status` is the proposal's live state at read time. */
 export type PennyStoredProposal = {
+  /** Safe scheduled-goal display fields, read from the live pending envelope. */
+  params?: Record<string, unknown>;
   proposal_id: string;
   kind: string;
   summary: string;
@@ -3348,6 +3364,10 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ penny_agent_consent: null; proposals_cancelled: number }>(r)),
+  previewGoalSchedule: (schedule: GoalSchedule) =>
+    post<GoalSchedulePreview>("/commitments/schedule-preview", { schedule }),
+  reviseScheduledGoalProposal: (id: string, body: { schedule: GoalSchedule; source_account_id: string }) =>
+    post<PennyProposal>(`/penny/proposals/${encodeURIComponent(id)}/scheduled-goal-revision`, body),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
   getCommitment: (id: string) => get<Commitment>(`/commitments/${encodeURIComponent(id)}`),
   previewGoalContribution: (id: string, contributionPence: number) =>
@@ -3416,12 +3436,14 @@ export const api = {
     target_date: string,
     funding_pots?: { account_id: string; count_existing: boolean }[],
     commitment_id?: string,
+    schedule?: GoalSchedule | null,
   ) =>
     post<CommitmentPreview>("/commitments/preview", {
       amount,
       target_date,
       ...(funding_pots !== undefined ? { funding_pots } : {}),
       ...(commitment_id ? { commitment_id } : {}),
+      ...(schedule ? { schedule } : {}),
     }),
   cancelCommitment: (id: string) =>
     fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}`, {

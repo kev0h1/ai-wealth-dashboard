@@ -1,36 +1,23 @@
-# G351 scheduled goals design round
+# G351 approved schedule layout
 
-Mode: Operate. Extends Sorted's established Calm Cockpit system. These are temporary, coded previews; production calculations and components are unchanged. Synthetic monthly pay periods, as at 28 October 2026, are explicit. Impeccable context launcher was unavailable; PRODUCT.md and DESIGN.md were read directly.
+Kevin chose B, Compact overview, on 28 October 2026, with equal space above and below “See full schedule”. Impeccable guided the fold-in, with PRODUCT.md and DESIGN.md authoritative.
 
-## Direction contract
+## Production implementation
 
-THESIS: Show the cost of a changing goal clearly enough to confirm it without decoding a schedule. One primary figure, named dates, an explicit funding account and an honest conversion explanation.
+Penny confirms a scheduled goal with its total, deadline, contribution rule, current pay period, full schedule disclosure and explicit source/destination. Create goal and Cancel precede Edit schedule. Conversion explains that the existing set-aside is paused and past transfers are not imported. Sorted tracks the plan; existing bank transfers continue until the user changes them.
 
-OWN-WORLD: Existing Figtree, mono money, slate cards and ink figures in both themes. Indigo identifies actions, not decoration. No invented chart or new visual system.
+The disclosure uses a single border on each side and a centred 48px row with equal vertical padding. The source block starts below it with one 16px gap. Amounts stay in ink and use money typography. Hidden figures mask the goal name, rule and values; editing asks the user to show figures first.
 
-STORY: Penny proposes a schedule; the user checks its cost and account, confirms, then can inspect or edit it. A names this period first. B gives a compact overview with the full schedule disclosed. C separates schedule, account and final review into steps.
+View plan separates saved progress, planned-to-date and the scheduled period amount. A custom current-period contribution is identified separately. Existing source, destination, tracking and matched-payment details remain under Plan details. Metadata editing stays available; totals and deadlines are controlled by Edit schedule.
 
-FIRST VIEWPORT: A short preview toolbar precedes one phone-width working surface. A leads with October's amount, B with the full goal total, C with the schedule being reviewed. Source and primary action follow without a floating preview toolbar obscuring them. Desktop puts controls alongside the working surface.
+The editor supports daily, weekly and pay-period steps, a fixed list, and a percentage of expected pay. It uses the server preview and the user's actual pay-period configuration. First period-based contributions fall on the chosen start date; later ones fall on pay-period starts. Percentage figures are estimates. When both count and end date are present, the earlier limit applies. Stale replies cannot enable saving a different draft.
 
-FORM: Three code-led alternatives, per repository protocol. No seed: local extension of an established interface. The signature interaction is a locally recalculating editor with explicit save/cancel; no decorative motion.
+Changing a pending Penny proposal supersedes the old envelope and creates a new ID. A simultaneous confirmation can claim the old ID or the revision can supersede it, but neither can execute unseen changed parameters. Source ownership and source/destination separation are checked before supersession. Restored chat carries only the whitelisted schedule display fields. Execution still uses the existing consent gate.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+## Verification
 
-## Acceptance
+Focused backend coverage exercises the schedule preview, pay-period boundaries, source ownership, destination exclusion, immutable revision, execution races, expiry, failed replacement and restored proposal metadata. The frontend gate renders the production confirmation and checks financial distinctions, estimates, masking and restoration.
 
-- Confirm, plan and edit, each with working local actions and no authenticated requests.
-- Daily, weekly, custom-per-period and percentage examples; percentage amounts labelled estimates.
-- Explicit source account. Conversion says past fills stay with the set-aside and progress starts today.
-- Masked figures, missing account, retryable save failure, mobile/desktop and both themes.
-- Dated contributions; saved, planned-to-date and current-period figures are distinct.
-- Independent review and screenshots before finishing for UAT review. Existing DESIGN.md stays authoritative; the chosen option is not implemented in production until approved.
+The optional browser fixture in frontend/scripts/fixtures/g351-goal-flow.tsx mounts production components with synthetic responses. It covers 320px, 390px and desktop layouts, both themes, measured disclosure spacing, source changes, out-of-order previews, explicit confirmation, failed writes and refresh-only retries. Evidence is stored outside the repository at /tmp/g351-fold-evidence. The temporary QA route is removed before delivery.
 
-## Review and delivery evidence
-
-The context launcher was not executable on this host, so the project documents and Impeccable craft floor were applied manually; no detector result is claimed. Web Interface Guidelines were fetched on 28 October 2026 and reviewed with the project-specific copy and typography rules taking precedence.
-
-Independent review preferred B for compact confirmation, A for current-period emphasis, and C for staged review. Its corrections label percentage-derived period amounts as estimates and hide the monetary goal name while figures are hidden. The editor explains that custom and percentage contributions after the first fall on pay-period starts. This matches the production engine, including a mid-period first contribution; it does not preserve an arbitrary monthly day.
-
-Local calculations were compared with the production pure schedule functions for daily, weekly, custom and percentage examples: total, October contribution, planned-to-date and schedule end all match. Non-daily schedule deadlines use the end of the final pay period, matching the engine. The browser checks cover source selection and keyboard focus, missing source, retry, conversion, edit/save/cancel, all schedule types, invalid inputs and masked figures. No API requests occur. Screenshot evidence lives outside the repository in /tmp/g351-design-evidence.
-
-The existing DESIGN.md remains authoritative. No new design-system tokens or production components were introduced. These previews remain pending Kevin's choice; delete the preview and index entry in the subsequent approved fold-in.
+Independent production diff review passed. The old design-round directory and index entry are removed under H113. No permanent preview or user data is shipped.

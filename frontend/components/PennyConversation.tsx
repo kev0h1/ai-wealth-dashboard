@@ -118,7 +118,8 @@ import { useRouter } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import PennyStarterState from "@/components/PennyStarterState";
 import { answerText, proposalMsgFromTurn } from "@/lib/pennyProposalRestore";
-import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLimitError, PennyProposal } from "@/lib/api";
+import ScheduledGoalProposalCard, { isScheduledGoalProposal } from "@/components/plans/ScheduledGoalProposalCard";
+import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLimitError, PennyProposal, type GoalSchedule } from "@/lib/api";
 import type { PennyChatSession } from "@/lib/usePennyChatSession";
 import { PENNY_FULL_ACTION, PENNY_FULL_NOTICE, PENNY_MAX_TURNS } from "@/lib/pennyConversationSession";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -231,7 +232,7 @@ export type ProposalMsg = {
   role: "assistant";
   kind: "proposal";
   proposal: PennyProposal;
-  status: "pending" | "executing" | "done" | "cancelled" | "error";
+  status: "pending" | "executing" | "revising" | "done" | "cancelled" | "error";
   /** Set only on `status === "error"` — the backend's own human `detail`
    * string (expired/cancelled/etc, see api.executePennyProposal), rendered
    * verbatim rather than a generic "something went wrong". */
@@ -526,8 +527,10 @@ export function ProposalConfirmCard({
   onConfirm,
   onCancel,
   onOpenDone,
+  onRevise,
 }: {
   msg: ProposalMsg;
+  onRevise?: (schedule: GoalSchedule, sourceId: string) => Promise<void>;
   onConfirm: () => void;
   onCancel: () => void;
   /** Fired when the user taps a resolved "Done ..." row. Every v1 artefact
@@ -602,7 +605,10 @@ export function ProposalConfirmCard({
     );
   }
 
-  const busy = status === "executing";
+  const busy = status === "executing" || status === "revising";
+  if (onRevise && isScheduledGoalProposal(proposal)) {
+    return <ScheduledGoalProposalCard proposal={proposal} busy={busy} onConfirm={onConfirm} onCancel={onCancel} onRevise={onRevise} />;
+  }
   return (
     <div className="glass-card rounded-2xl p-4 w-full">
       <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words">
@@ -1444,7 +1450,7 @@ export default function PennyConversation({
     const current = bucketsRef.current[screen].messages.find(
       (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
     );
-    if (!current || current.status !== "pending") return;
+    if (!current || current.status !== "pending" || current.proposal.proposal_id !== proposalId) return;
     setBucket(screen, (prev) => ({
       ...prev,
       messages: prev.messages.map((m) =>
@@ -1479,6 +1485,33 @@ export default function PennyConversation({
       });
   }
 
+  async function reviseGoalProposal(screen: BucketKey, msgId: number, schedule: GoalSchedule, sourceId: string) {
+    const current = bucketsRef.current[screen].messages.find(
+      (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
+    );
+    if (!current || current.status !== "pending") throw new Error("This proposal is already being updated.");
+    // Lock synchronously, just like confirm: no competing tap can execute
+    // the old envelope while a replacement is being prepared.
+    setBucket(screen, prev => ({ ...prev, messages: prev.messages.map(m =>
+      m.role === "assistant" && m.kind === "proposal" && m.id === msgId ? { ...m, status: "revising" as const } : m
+    ) }));
+    try {
+      const proposal = await api.reviseScheduledGoalProposal(current.proposal.proposal_id, { schedule, source_account_id: sourceId });
+      setBucket(screen, prev => ({ ...prev, messages: prev.messages.map(m =>
+        m.role === "assistant" && m.kind === "proposal" && m.id === msgId && m.proposal.proposal_id === current.proposal.proposal_id
+          ? { ...m, proposal, status: "pending" as const, errorDetail: undefined } : m
+      ) }));
+    } catch (error) {
+      // A lost response may mean the old proposal was already superseded.
+      // Never restore its Confirm button after an uncertain revision.
+      setBucket(screen, prev => ({ ...prev, messages: prev.messages.map(m =>
+        m.role === "assistant" && m.kind === "proposal" && m.id === msgId && m.proposal.proposal_id === current.proposal.proposal_id
+          ? { ...m, status: "error" as const, errorDetail: error instanceof Error ? error.message : "The proposal could not be updated." } : m
+      ) }));
+      throw error;
+    }
+  }
+
   /** Cancel — same "pending only" guard as confirmProposal, fire-and-forget
    * on the network call: the card already reflects "cancelled" the instant
    * the user taps it (nothing to wait on, cancelling can't meaningfully
@@ -1489,7 +1522,7 @@ export default function PennyConversation({
     const current = bucketsRef.current[screen].messages.find(
       (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
     );
-    if (!current || current.status !== "pending") return;
+    if (!current || current.status !== "pending" || current.proposal.proposal_id !== proposalId) return;
     setBucket(screen, (prev) => ({
       ...prev,
       messages: prev.messages.map((m) =>
@@ -2135,6 +2168,7 @@ export default function PennyConversation({
               <ProposalConfirmCard
                 key={m.id}
                 msg={m}
+                onRevise={(schedule, sourceId) => reviseGoalProposal(bucketKey, m.id, schedule, sourceId)}
                 onConfirm={() => confirmProposal(bucketKey, m.id, m.proposal.proposal_id)}
                 onCancel={() => cancelProposal(bucketKey, m.id, m.proposal.proposal_id)}
                 onOpenDone={() => m.proposal.kind === CONNECT_BANK_KIND

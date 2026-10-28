@@ -1,0 +1,84 @@
+{
+  "schedule": {
+    "type": "arithmetic",
+    "start_date": "2026-01-01",
+    "count": 365,
+    "end_date": null,
+    "start_pence": 4,
+    "step_pence": 4,
+    "step_unit": "day"
+  },
+  "label": "4p a day, rising by 4p a day, from 1 Jan 2026 for 365 days",
+  "total": 2671.8,
+  "start_date": "2026-01-01",
+  "end_date": "2026-12-31",
+  "estimated": false,
+  "current_period": {
+    "start": "2026-10-01",
+    "end": "2026-10-31",
+    "amount": 358.36
+  },
+  "periods": [
+    {
+      "start": "2026-01-01",
+      "end": "2026-01-31",
+      "amount": 19.84
+    },
+    {
+      "start": "2026-02-01",
+      "end": "2026-02-28",
+      "amount": 50.96
+    },
+    {
+      "start": "2026-03-01",
+      "end": "2026-03-31",
+      "amount": 93.0
+    },
+    {
+      "start": "2026-04-01",
+      "end": "2026-04-30",
+      "amount": 126.6
+    },
+    {
+      "start": "2026-05-01",
+      "end": "2026-05-31",
+      "amount": 168.64
+    },
+    {
+      "start": "2026-06-01",
+      "end": "2026-06-30",
+      "amount": 199.8
+    },
+    {
+      "start": "2026-07-01",
+      "end": "2026-07-31",
+      "amount": 244.28
+    },
+    {
+      "start": "2026-08-01",
+      "end": "2026-08-31",
+      "amount": 282.72
+    },
+    {
+      "start": "2026-09-01",
+      "end": "2026-09-30",
+      "amount": 310.2
+    },
+    {
+      "start": "2026-10-01",
+      "end": "2026-10-31",
+      "amount": 358.36
+    },
+    {
+      "start": "2026-11-01",
+      "end": "2026-11-30",
+      "amount": 383.4
+    },
+    {
+      "start": "2026-12-01",
+      "end": "2026-12-31",
+      "amount": 434.0
+    }
+  ],
+  "planned_to_date": 1818.04
+}
