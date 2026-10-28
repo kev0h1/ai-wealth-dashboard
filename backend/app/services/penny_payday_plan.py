@@ -71,6 +71,9 @@ def _summary(plan: dict, split: dict | None, risk: dict | None) -> str:
     next_pay = _parse_day(plan.get("next_pay"))
     if next_pay:
         parts.append(f"Your next pay is expected around {penny_period.fmt_day(next_pay)}.")
+    period = plan.get("plan_period") or {}
+    if period.get("label"):
+        parts.append(f"The plan covers {period['label']}.")
     dests = [d for d in plan.get("dests") or [] if (d.get("move") or {}).get("raw")]
     total = (plan.get("total") or {}).get("raw") or 0
     if dests:

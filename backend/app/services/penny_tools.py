@@ -4380,6 +4380,11 @@ def _shape_payday_plan(item: dict) -> dict:
             {"name": l.get("name"), "kind": l.get("kind"), "amount": _money(l.get("amount"))}
             for l in (item.get("left_out") or [])
         ],
+        "plan_period": (
+            {"start": item["plan_period"].get("start"), "end": item["plan_period"].get("end"),
+             "label": item["plan_period"].get("label")}
+            if item.get("plan_period") else None
+        ),
     }
 
 
