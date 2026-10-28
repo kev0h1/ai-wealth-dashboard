@@ -87,6 +87,12 @@ def score(ref: str, account, kind: str, legacy_hit: bool) -> int:
 def pick(ref: str, accounts: list, kind_of, name_matches) -> list:
     """The best-scoring accounts for a reference: one means resolved, several
     means a tie, none means no match."""
+    tokens = reference_tokens(ref)
+    if tokens and all(t in _KIND_BY_WORD and t != "isa" for t in tokens):  # "isa" is also a product word in names
+        # Only kind words ("current account", "my savings"): no bank or product named,
+        # so every account of that kind fits equally and none is picked by its raw name.
+        return [a for a in accounts if any(kind_of(a) in _KIND_BY_WORD[t] for t in tokens)
+                and all(kind_of(a) in _KIND_BY_WORD[t] for t in tokens)]
     scored = []
     for a in accounts:
         s = score(ref, a, kind_of(a), bool(name_matches(ref, a.name)))

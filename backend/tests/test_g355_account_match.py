@@ -95,3 +95,24 @@ def test_available_is_capped_at_eight(monkeypatch):
 def test_empty_reference_is_no_account():
     assert resolve("") == {"account": None}
     assert resolve("my account")["error"].startswith("no account matching")
+
+
+def test_kind_words_alone_never_pick_by_raw_name(monkeypatch):
+    accs = [
+        Account(id="bar", name="Premier Current Account", type="transaction", balance=1.0, provider="ob-barclays"),
+        Account(id="san", name="Current Account", type="transaction", balance=1.0, provider="ob-santander"),
+        Account(id="mon", name=HOLDER, type="transaction", balance=1.0, provider="monzo"),
+        Account(id="sp", name="Savings Pot", type="savings", balance=1.0, provider="monzo"),
+        Account(id="es", name="Easy Saver", type="savings", balance=1.0, provider="ob-hsbc"),
+    ]
+
+    async def accounts(user):
+        return accs
+
+    monkeypatch.setattr(accounts_module, "get_accounts", accounts)
+    res = resolve("current account")
+    assert res["ambiguous"] is True and {m["id"] for m in res["matches"]} == {"bar", "san", "mon"}
+    assert "Maingi" not in " ".join(m["name"] for m in res["matches"])
+    res = resolve("my savings account")
+    assert res["ambiguous"] is True and {m["id"] for m in res["matches"]} == {"sp", "es"}
+    assert resolve("Monzo current account")["account"].id == "mon"

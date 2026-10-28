@@ -150,7 +150,7 @@ _DM = r"(\d{1,2})(?:st|nd|rd|th)?\s+" + _MON + r"(?:,?\s+(\d{4}))?"
 _MONTH_NUM = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))}
 
 # "29 Oct (Friday)", "Friday, 30 Oct 2026", "Fri 30 Oct", "Friday (30 Oct)"
-_AFTER_RE = re.compile(r"(?<![A-Za-z])" + _DM + r"(\s*[(\[,]?\s*)" + _WD + r"(?![A-Za-z])")
+_AFTER_RE = re.compile(r"(?<![A-Za-z])" + _DM + r"(\s*[(\[]\s*|\s+)" + _WD + r"(?![A-Za-z])")
 _BEFORE_RE = re.compile(r"(?<![A-Za-z])" + _WD + r"(,?\s*\(?\s*)" + _DM + r"(?![A-Za-z0-9])")
 
 
@@ -193,10 +193,14 @@ def fix_weekday_claims(reply: str, today: date) -> tuple[str, int]:
         if said.lower()[:3] != real[:3].lower():
             edits.append((span[0], span[1], _same_style(said, real)))
 
+    # A weekday immediately before a date belongs to that date, so those matches go first.
+    after_spans = {m.span(5) for m in _AFTER_RE.finditer(reply)}
+    for m in _BEFORE_RE.finditer(reply):
+        if "," in m.group(2) and m.span(1) in after_spans:
+            continue  # "3 Nov Tue, 4 Nov": the weekday is already tied to the date before it
+        consider(m.span(1), m.group(1), _real_date(m.group(3), m.group(4), m.group(5), today))
     for m in _AFTER_RE.finditer(reply):
         consider(m.span(5), m.group(5), _real_date(m.group(1), m.group(2), m.group(3), today))
-    for m in _BEFORE_RE.finditer(reply):
-        consider(m.span(1), m.group(1), _real_date(m.group(3), m.group(4), m.group(5), today))
     if not edits:
         return reply, 0
     out = reply

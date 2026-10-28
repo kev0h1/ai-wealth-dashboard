@@ -79,6 +79,11 @@ def test_ask_date_before_the_start_and_unreadable():
     ("It is 12 Dec (Monday)", "It is 12 Dec (Saturday)", 1),
     ("No dates here on Friday", "No dates here on Friday", 0),
     ("31 Feb (Friday)", "31 Feb (Friday)", 0),
+    ("Friday 30 Oct, Saturday 31 Oct", "Friday 30 Oct, Saturday 31 Oct", 0),
+    ("Fri 30 Oct, Sat 31 Oct, Sun 1 Nov", "Fri 30 Oct, Sat 31 Oct, Sun 1 Nov", 0),
+    ("on 29 Oct, Friday is payday", "on 29 Oct, Friday is payday", 0),
+    ("29 Oct (Friday)", "29 Oct (Thursday)", 1),
+    ("29 Oct Friday", "29 Oct Thursday", 1),
 ])
 def test_fix_weekday_claims(text, fixed, n):
     assert guards.fix_weekday_claims(text, TODAY) == (fixed, n)
