@@ -4340,6 +4340,12 @@ def _shape_payday_plan(item: dict) -> dict:
             "name": salary.get("name"),
             "amount": _money(salary.get("amount")),
             "stays": _money(salary.get("stays")),
+            # G350: goal and set-aside money the plan keeps in this account.
+            "keeps": [
+                {"name": k.get("name"), "kind": k.get("kind"), "amount": _money(k.get("amount")),
+                 "source_assumed": bool(k.get("source_assumed"))}
+                for k in (salary.get("keeps") or [])
+            ],
         },
         "dests": [
             {
@@ -4350,8 +4356,27 @@ def _shape_payday_plan(item: dict) -> dict:
                 "buffer": _money(d.get("buffer")),
                 "move": _money(d.get("move")),
                 "usual": _money(d.get("usual")) if d.get("usual") is not None else None,
+                # G350: goals and set-asides whose money leaves from this account.
+                "reasons": [
+                    {"name": r.get("name"), "kind": r.get("kind"), "amount": _money(r.get("amount"))}
+                    for r in (d.get("reasons") or [])
+                ],
             }
             for d in (item.get("dests") or [])
+        ],
+        # G350: set only when the moves exceed the expected pay, and the moves
+        # the plan left out this month (names and kinds, never a buffer).
+        "over_salary": (
+            {
+                "total": _money(item["over_salary"].get("total")),
+                "pay": _money(item["over_salary"].get("pay")),
+                "short": _money(item["over_salary"].get("short")),
+            }
+            if item.get("over_salary") else None
+        ),
+        "left_out": [
+            {"name": l.get("name"), "kind": l.get("kind"), "amount": _money(l.get("amount"))}
+            for l in (item.get("left_out") or [])
         ],
     }
 

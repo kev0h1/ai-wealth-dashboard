@@ -222,11 +222,12 @@ const PAYDAY_DESTINATIONS: PaydayPlanDest[] = [
     account_id: "g295-monthly-bills", name: "Monthly bills", provider: "Barclays", balance: 180,
     bills_total: 760, bill_count: 3, spend_typical: 340, buffer: 120, target: 1220, move: 1040, usual: 1040,
     destination_kind: "spend",
+    reasons: [{ name: "Saving Challenge", kind: "set_aside", amount: 120 }],
   },
   {
     account_id: "g295-holiday-pot", name: "Holiday pot", provider: "Monzo", balance: 90,
     bills_total: 0, bill_count: 0, spend_typical: 0, buffer: 0, target: 560, move: 470, usual: 470,
-    destination_kind: "savings", habitual_top_up: true, commitment_names: ["Summer break"],
+    destination_kind: "savings", habitual_top_up: true,
   },
 ];
 
@@ -238,9 +239,37 @@ export const PAYDAY_PLAN_ITEM: CompanionItem = {
   action: null,
   estimated: true,
   total: 1510,
-  salary: { account_id: "g295-salary", name: "Salary account", provider: "Starling", amount: 2960, stays: 1450 },
+  salary: {
+    account_id: "g295-salary", name: "Salary account", provider: "Starling", amount: 2960, stays: 1350,
+    keeps: [{ name: "Summer break", kind: "goal", amount: 100 }],
+  },
   dests: PAYDAY_DESTINATIONS,
   next_pay: "2026-10-28",
+};
+
+// G350: the suggested moves add up to more than the expected pay, so the card
+// says so at the top and lists what was left out (stays is 0, total > pay).
+export const PAYDAY_PLAN_OVER_ITEM: CompanionItem = {
+  ...PAYDAY_PLAN_ITEM,
+  id: "g295-payday-plan-over",
+  total: 3070,
+  trimmed: true,
+  salary: {
+    account_id: "g295-salary", name: "Salary account", provider: "Starling", amount: 2960, stays: 0,
+    keeps: [{ name: "Summer break", kind: "goal", amount: 100 }],
+  },
+  dests: [
+    { ...PAYDAY_DESTINATIONS[0], target: 2780, move: 2600 },
+    PAYDAY_DESTINATIONS[1],
+  ],
+  payday_split: { total: 2906, count: 5, expected_in: 2960, accounts: [] },
+  over_salary: { total: 3070, pay: 2960, short: 110 },
+  left_out: [
+    { name: "Kitchen fund", kind: "goal", amount: 200 },
+    { name: "Saving Challenge", kind: "set_aside", amount: 120 },
+    { name: "Rainy day", kind: "usual", amount: 50 },
+    { name: "Spare pot", kind: "destination", amount: 40 },
+  ],
 };
 
 export const PAYDAY_PLAN_SETTLED_ITEM: CompanionItem = {

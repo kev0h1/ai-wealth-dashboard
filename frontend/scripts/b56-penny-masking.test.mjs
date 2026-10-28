@@ -93,7 +93,14 @@ const bubble = (hidden, extra) => wrap(hidden, h(VerdictBubble, { msg: verdict(e
   assert.match(wrap(false, h(PaydayPlanCard, props())), /£\d/, "Payday Plan visible when balances shown");
   const body = (hidden) => wrap(hidden, h(BriefBody, { items: [F.PAYDAY_PLAN_ITEM], safeToSpend: null, router, onRefresh: noop }));
   assert.doesNotMatch(body(true), RAW, "BriefBody (Penny's brief) masks with the provider and no prop");
-  renders += 3;
+  // G350: the over-pay line and the left-out list mask like every other figure.
+  const overProps = { item: F.PAYDAY_PLAN_OVER_ITEM, router, hideNetWorth: false, maskAmounts: (t) => t, dismissible: false };
+  const overHidden = wrap(true, h(PaydayPlanCard, overProps));
+  assert.match(overHidden, /data-over-salary/, "over-pay line renders");
+  assert.match(overHidden, /data-left-out/, "left-out line renders");
+  assert.doesNotMatch(overHidden, RAW, "Payday Plan over-pay line and left-out list are masked");
+  assert.match(wrap(false, h(PaydayPlanCard, overProps)), /£3,070/, "over-pay line visible when balances shown");
+  renders += 5;
 }
 
 // 5. Proposal card, suggestion chip (Can I chip).

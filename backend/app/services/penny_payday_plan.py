@@ -80,6 +80,23 @@ def _summary(plan: dict, split: dict | None, risk: dict | None) -> str:
         )
     else:
         parts.append("The plan expects every account to cover itself, so no moves are needed.")
+    keeps = (plan.get("salary") or {}).get("keeps") or []
+    if keeps:
+        kept = ", ".join(f"{_gbp(k['amount']['raw'])} for {k['name']}" for k in keeps[:3])
+        more = f" and {len(keeps) - 3} more" if len(keeps) > 3 else ""
+        parts.append(f"The plan keeps {kept}{more} in {plan['salary']['name']}.")
+    over = plan.get("over_salary")
+    if over:
+        parts.append(
+            f"These moves add up to {_gbp(over['total']['raw'])}, more than the "
+            f"~{_gbp(over['pay']['raw'])} pay expected; {_gbp(over['short']['raw'])} "
+            "would need to come from other accounts."
+        )
+    left_out = plan.get("left_out") or []
+    if left_out:
+        listed = ", ".join(f"{l['name']} {_gbp(l['amount']['raw'])}" for l in left_out[:3])
+        more = f" and {len(left_out) - 3} more" if len(left_out) > 3 else ""
+        parts.append(f"Left out this month: {listed}{more}.")
     if split:
         parts.append(
             f"Around {_gbp(split['total'])} of bills ({split['count']}) is due on payday itself, "
@@ -115,6 +132,12 @@ async def exec_get_payday_plan(uid: str) -> dict:
     plan["salary"]["name"] = label(salary.get("account_id"), salary.get("name"), salary.get("provider"))
     for shaped, raw in zip(plan["dests"], item.get("dests") or []):
         shaped["name"] = label(raw.get("account_id"), raw.get("name"))
+    # Left-out names for an account follow the same G337 label as the legs.
+    _acct_by_name = {d.get("name"): d.get("account_id") for d in item.get("dests") or []}
+    for entry in plan["left_out"]:
+        if entry["kind"] in ("usual", "destination"):
+            acct_id = _acct_by_name.get(entry["name"])
+            entry["name"] = label(acct_id, entry["name"]) if acct_id else display_account_name(entry["name"])
     plan["estimated"] = bool(item.get("estimated", False))
     plan["next_pay"] = item.get("next_pay")
     next_pay = _parse_day(item.get("next_pay"))

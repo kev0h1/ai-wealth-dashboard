@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 import { ProductionCard, examplesFor, renderHomeBrief } from "./fixtures/g295-home-brief-cards.tsx";
 import * as F from "./fixtures/g295-home-brief-anatomy.ts";
+import PaydayPlanCard from "../components/PaydayPlanCard.tsx";
 
 const noop = () => {};
 const router = { bfcacheId: "g295-home-brief-regression", push: noop, replace: noop, refresh: noop, back: noop, forward: noop, prefetch: async () => {} };
@@ -71,8 +72,30 @@ assert.match(spotlightSource, /flex size-4 shrink-0 items-center justify-center 
 assert.doesNotMatch(spotlightSource, /w-6 h-6 rounded-lg bg-indigo-50/, "tip no longer restores a tinted topic tile");
 
 assert.equal(F.PAYDAY_PLAN_ITEM.dests.reduce((sum, destination) => sum + destination.move, 0), F.PAYDAY_PLAN_ITEM.total, "payday destinations reconcile to the moving total");
-assert.equal(F.PAYDAY_PLAN_ITEM.total + F.PAYDAY_PLAN_ITEM.salary.stays, F.PAYDAY_PLAN_ITEM.salary.amount, "payday total and stays reconcile to expected pay");
+const keptTotal = (item) => (item.salary.keeps ?? []).reduce((sum, keep) => sum + keep.amount, 0);
+assert.equal(F.PAYDAY_PLAN_ITEM.total + keptTotal(F.PAYDAY_PLAN_ITEM) + F.PAYDAY_PLAN_ITEM.salary.stays, F.PAYDAY_PLAN_ITEM.salary.amount, "payday moves, kept goal money and stays reconcile to expected pay (holds only when over_salary is absent)");
 for (const destination of F.PAYDAY_PLAN_ITEM.dests) assert.equal(destination.balance + destination.move, destination.target, "payday destination figures reconcile");
+assert.equal(F.PAYDAY_PLAN_ITEM.over_salary ?? null, null, "a plan within the pay carries no over-salary flag");
+{
+  const over = F.PAYDAY_PLAN_OVER_ITEM;
+  assert.equal(over.dests.reduce((sum, destination) => sum + destination.move, 0), over.total, "over-pay destinations reconcile to the moving total");
+  for (const destination of over.dests) assert.equal(destination.balance + destination.move, destination.target, "over-pay destination figures reconcile");
+  // total + stays == pay only holds without over_salary; with it the plan asks for more than the pay.
+  assert.equal(over.salary.stays, 0, "an over-pay plan leaves nothing in the salary account");
+  assert.ok(over.total > over.salary.amount, "an over-pay plan's moves exceed the expected pay");
+  assert.equal(over.over_salary.short, over.total - over.salary.amount, "short is the gap between the moves and the pay");
+  const html = render(h(PaydayPlanCard, { item: over, router, hideNetWorth: false, maskAmounts: (t) => t, dismissible: false }));
+  const text = html.replace(/<[^>]+>/g, "");
+  assert.match(text, /These moves add up to £3,070, more than the ~£2,960 pay expected\. £110 would need to come from other accounts\./, "over-pay line leads the plan");
+  assert.match(text, /Left out this month: Kitchen fund £200, Saving Challenge £120, Rainy day £50 and 1 more/, "left-out line names three then counts the rest");
+  assert.match(html, /Spending top-ups trimmed to fit this month\./, "trimmed notice names spending top-ups");
+  assert.match(text, /covers your Saving Challenge set-aside/, "a source row says why its move includes set-aside money");
+  assert.match(text, /keeps £100 for Summer break/, "the salary ledger says what it keeps for goals");
+  assert.doesNotMatch(text, /funds Summer break/, "a goal is never described as funding its pot");
+  assert.match(text, /Due on payday itself/, "payday-day payments are not called moves");
+  assert.doesNotMatch(html, /buffer/i, "the per-destination buffer is no longer spelled out");
+  assert.doesNotMatch(html, /text-red|bg-red/, "over-pay warning is amber, never red");
+}
 assert.equal(F.ALLOCATION_ITEM.allocation_shortfall.moves.reduce((sum, move) => sum + move.amount, 0), F.ALLOCATION_ITEM.allocation_shortfall.shortfall, "allocation movement reconciles to its shortfall");
 assert.equal(2100 + 504, 2604, "trajectory fixture's rate-known and unclear balances reconcile");
 assert.match(F.TRAJECTORY_ITEM.brief_lead.companion, /more than 3 months ago/, "trajectory lead remains a flow, not a stock balance");
