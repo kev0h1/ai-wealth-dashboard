@@ -107,3 +107,44 @@ def test_risk_copy_never_falls_back_to_the_engines_raw_copy(monkeypatch):
     res = asyncio.run(execute_tool(UID, "get_payday_plan", {}))
     copy = res["payday_split_risk"]["copy"]
     assert "Maingi" not in copy and copy == "£120 leaves your NatWest account on payday and nothing expected in covers it."
+
+
+def test_payday_plan_says_when_over_pay_and_what_was_left_out(monkeypatch):
+    """G350: the over-pay sentence and the left-out list reach Penny, hedged."""
+    item = _item(
+        total=2300.0,
+        over_salary={"total": 2300, "pay": 2000, "short": 300, "over_pay": True, "spare": 0},
+        left_out=[
+            {"name": "Saving Challenge", "kind": "set_aside", "amount": 120},
+            {"name": "Japan", "kind": "goal", "amount": 80},
+            {"name": "Monzo Bills", "kind": "usual", "amount": 50},
+            {"name": "Spare pot", "kind": "destination", "amount": 40},
+        ],
+    )
+    item["dests"][0].update({"move": 2300, "reasons": [{"name": "Saving Challenge", "kind": "set_aside", "amount": 120}]})
+    item["salary"]["keeps"] = [{"name": "Japan", "kind": "goal", "amount": 100, "source_assumed": True}]
+    _world(monkeypatch, preview=item)
+    res = asyncio.run(execute_tool(UID, "get_payday_plan", {}))
+    assert res["over_salary"]["short"]["formatted"] == "£300"
+    assert res["dests"][0]["reasons"][0]["name"] == "Saving Challenge"
+    assert res["salary"]["keeps"][0]["name"] == "Japan" and res["salary"]["keeps"][0]["source_assumed"] is True
+    assert "The plan keeps £100 for Japan in NatWest Select." in res["summary"]
+    assert ("These moves add up to £2,300, more than the ~£2,000 pay expected. £300 "
+            "would need to come from other accounts.") in res["summary"]
+    assert "Left out this month: Saving Challenge £120, Japan £80, Monzo Bills £50 and 1 more." in res["summary"]
+    assert "will" not in res["summary"].split()
+
+
+def test_payday_plan_without_over_pay_has_no_over_salary_or_left_out(monkeypatch):
+    _world(monkeypatch, preview=_item())
+    res = asyncio.run(execute_tool(UID, "get_payday_plan", {}))
+    assert res["over_salary"] is None and res["left_out"] == []
+    assert "Left out" not in res["summary"] and "more than" not in res["summary"]
+
+
+def test_payday_plan_over_spare_but_within_pay_wording(monkeypatch):
+    item = _item(total=900.0, over_salary={"total": 900, "pay": 2000, "short": 400, "over_pay": False, "spare": 500})
+    _world(monkeypatch, preview=item)
+    res = asyncio.run(execute_tool(UID, "get_payday_plan", {}))
+    assert ("These moves add up to £900, but NatWest Select can only spare £500 after what it keeps "
+            "for its own bills. £400 would need to come from other accounts.") in res["summary"]

@@ -27,6 +27,39 @@ function resolveBankChip(provider: string) {
   };
 }
 
+// Sub-line saying why a destination's move includes goal or set-aside money
+// that leaves from it, e.g. "covers your Saving Challenge set-aside".
+function reasonLabel(dest: PaydayPlanDest): string | null {
+  const reasons = dest.reasons ?? [];
+  if (reasons.length === 0) return null;
+  const named = reasons.slice(0, 2).map((r) => `${r.name} ${r.kind === "goal" ? "goal" : "set-aside"}`);
+  const more = reasons.length - named.length;
+  return `covers your ${named.join(" and ")}${more > 0 ? ` +${more} more` : ""}`;
+}
+
+// "keeps £100 for Japan, £120 for Saving Challenge" for the salary ledger.
+function keepsText(keeps: { name: string; amount: number }[]): string {
+  const shown = keeps.slice(0, 3).map((k) => `£${Math.round(k.amount).toLocaleString("en-GB")} for ${k.name}`);
+  const more = keeps.length - shown.length;
+  return `keeps ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+}
+
+// Over-pay line: "more than the pay" only when the moves really exceed it.
+function overSalaryText(o: { total: number; pay: number; short: number; over_pay?: boolean; spare?: number }, name: string): string {
+  const gbp = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
+  const short = `${gbp(o.short)} would need to come from other accounts.`;
+  if (o.over_pay !== false) return `These moves add up to ${gbp(o.total)}, more than the ~${gbp(o.pay)} pay expected. ${short}`;
+  const spare = o.spare ?? 0;
+  return `These moves add up to ${gbp(o.total)}, but ${name} ${spare > 0 ? `can only spare ${gbp(spare)}` : "has nothing to spare"} after what it keeps for its own bills. ${short}`;
+}
+
+// "Left out this month: A £x, B £y and N more" (max three named).
+function leftOutText(items: { name: string; amount: number }[]): string {
+  const shown = items.slice(0, 3).map((l) => `${l.name} £${Math.round(l.amount).toLocaleString("en-GB")}`);
+  const more = items.length - shown.length;
+  return `Left out this month: ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+}
+
 interface PaydayPlanCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
@@ -159,6 +192,28 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
       {/* This is a recommendation for the user's next pay, not a promise that
           income will land on a modelled date. Keep the same date-neutral
           framing in preview and live salary-backed plans. */}
+      {/* G350: an over-pay plan is never shown silently. Amber dot, never
+          red (a plan that asks for more than the pay is a heads-up, not a
+          loss; DESIGN.md Red Is Risk Rule). Figures go through
+          maskAmounts/MoneyText so Hide balances masks them. */}
+      {item.over_salary && (
+        <p data-over-salary className="flex items-start gap-1.5 text-[13px] text-slate-700 dark:text-slate-200 leading-snug mb-2">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[6px] bg-amber-500" aria-hidden="true" />
+          <span>
+            <MoneyText
+              text={maskAmounts(
+                overSalaryText(item.over_salary, item.salary?.name ?? "Your account")
+              )}
+            />
+          </span>
+        </p>
+      )}
+      {item.left_out && item.left_out.length > 0 && (
+        <p data-left-out className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
+          <MoneyText text={maskAmounts(leftOutText(item.left_out))} />
+        </p>
+      )}
+
       {item.salary && !isSet && (
         <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
           Here’s one way to split your next pay.
@@ -204,12 +259,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
         </p>
       )}
 
-      {/* Trimmed notice — amber (not red): buffers were reduced to make the
+      {/* Trimmed notice — amber (not red): spending top-ups were reduced to make the
           plan fit this month, informational not alarming. */}
       {item.trimmed && (
         <p className="flex items-start gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
-          <span>Buffers trimmed to fit this month.</span>
+          <span>Spending top-ups trimmed to fit this month.</span>
         </p>
       )}
 
@@ -226,8 +281,8 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
         <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">
           <MoneyText
             text={maskAmounts(
-              `Payday split: £${Math.round(item.payday_split.total).toLocaleString("en-GB")} across ${item.payday_split.count} ${
-                item.payday_split.count === 1 ? "move" : "moves"
+              `Due on payday itself: £${Math.round(item.payday_split.total).toLocaleString("en-GB")} across ${item.payday_split.count} ${
+                item.payday_split.count === 1 ? "payment" : "payments"
               }, funded by your ~£${Math.round(item.payday_split.expected_in).toLocaleString("en-GB")} expected pay.`
             )}
           />
@@ -276,6 +331,13 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
           <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
             expected
           </p>
+          {/* G350: goal and set-aside money that leaves from this account stays
+              here (never moved to its pot), said once in the ledger. */}
+          {item.salary.keeps && item.salary.keeps.length > 0 && (
+            <p data-salary-keeps className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug pl-[46px]">
+              <MoneyText text={maskAmounts(keepsText(item.salary.keeps))} />
+            </p>
+          )}
           {!isSet && (
             <>
               <div className="flex justify-center py-1" aria-hidden="true">
@@ -290,11 +352,10 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
                   const breakdownParts: string[] = [];
                   if (dest.bills_total > 0) breakdownParts.push(`£${Math.round(dest.bills_total).toLocaleString("en-GB")} payments`);
                   if (dest.spend_typical > 0) breakdownParts.push(`~£${Math.round(dest.spend_typical).toLocaleString("en-GB")} spending`);
-                  if (dest.buffer > 0) breakdownParts.push(`£${Math.round(dest.buffer).toLocaleString("en-GB")} buffer`);
                   const showUsual = dest.usual != null && Math.abs(dest.usual - dest.move) > 25;
                   return <div key={dest.account_id ?? di} data-destination-row data-destination-move={dest.move} className="flex min-h-12 items-center gap-2.5 py-2">
                     <span className="flex-shrink-0"><BankBadge logoSrc={destChip.logoSrc} initials={destChip.initials} initialsSize={destChip.initialsSize} altText={destChip.label} brandBg={destChip.bg} /></span>
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">{dest.name}</span>{breakdownParts.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400"><MoneyText text={maskAmounts(breakdownParts.join(" · "))} /></span>}{showUsual && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)} /></span>}{dest.commitment_names && dest.commitment_names.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500">{`funds ${dest.commitment_names[0]}${dest.commitment_names.length > 1 ? ` +${dest.commitment_names.length - 1} more` : ""}`}</span>}</span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">{dest.name}</span>{breakdownParts.length > 0 && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400"><MoneyText text={maskAmounts(breakdownParts.join(" · "))} /></span>}{showUsual && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)} /></span>}{reasonLabel(dest) && <span className="mt-0.5 block truncate text-[12px] leading-snug text-slate-400 dark:text-slate-500">{reasonLabel(dest)}</span>}</span>
                     <span className="money shrink-0 text-sm font-semibold text-slate-900 dark:text-slate-100"><AmountText text={hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`} /></span>
                   </div>;
                 })}
@@ -324,9 +385,6 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
             }
             if (dest.spend_typical > 0) {
               breakdownParts.push(`~£${Math.round(dest.spend_typical).toLocaleString("en-GB")} spending`);
-            }
-            if (dest.buffer > 0) {
-              breakdownParts.push(`£${Math.round(dest.buffer).toLocaleString("en-GB")} buffer`);
             }
             const showUsual = dest.usual != null && Math.abs(dest.usual - dest.move) > 25;
             return (
@@ -366,11 +424,9 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
                     account's own bills/spend/buffer sizing (2026-08-29 FIX
                     C: previously an unexplained leg, e.g. £500 to Saving
                     Challenge with no stated reason). */}
-                {dest.commitment_names && dest.commitment_names.length > 0 && (
+                {reasonLabel(dest) && (
                   <p className="mt-0.5 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
-                    {`funds ${dest.commitment_names[0]}${
-                      dest.commitment_names.length > 1 ? ` +${dest.commitment_names.length - 1} more` : ""
-                    }`}
+                    {reasonLabel(dest)}
                   </p>
                 )}
               </div>

@@ -1434,12 +1434,39 @@ export type ConfirmPaydayResponse = {
   period: { start: string; end: string };
 };
 
+/** A goal or set-aside whose money leaves from an account (G350). */
+export type PaydayPlanReason = {
+  name: string;
+  kind: "goal" | "set_aside";
+  amount: number;
+};
+
+/** One move the plan left out this month (G350). */
+export type PaydayPlanLeftOut = {
+  name: string;
+  kind: "set_aside" | "goal" | "usual" | "destination";
+  amount: number;
+};
+
+/** Set when the moves still add up to more than the pay after leaving legs out (G350). */
+export type PaydayPlanOverSalary = {
+  total: number;
+  pay: number;
+  short: number;
+  /** True when the moves exceed the pay; false when they fit the pay but the salary account cannot spare them. */
+  over_pay?: boolean;
+  /** Whole pounds the salary account can spare after what it keeps for its own bills. */
+  spare?: number;
+};
+
 export type PaydayPlanSalary = {
   account_id: string;
   name: string;
   provider: string;
   amount: number;
   stays: number;
+  /** G350: goal and set-aside money sourced from this account that the plan keeps here rather than moving. */
+  keeps?: (PaydayPlanReason & { source_assumed?: boolean })[];
 };
 
 export type PaydayPlanDest = {
@@ -1480,7 +1507,14 @@ export type PaydayPlanDest = {
    * `_active_commitment_slices` and the `_dest_entry["commitment_names"]`
    * assignment in the payday-plan dest-building loop.
    */
-  commitment_names?: string[];
+  commitment_names?: string[]; // no longer emitted (G350); kept for frozen fixtures
+  /**
+   * Goals and set-asides this account is the SOURCE of (G350): their money
+   * leaves from here, so this row's move includes them. Absent when none.
+   * Goal and set-aside money is tracked at its source, never at the pot it
+   * ends up in. See `_plan_source_needs` in backend/app/services/companion.py.
+   */
+  reasons?: PaydayPlanReason[];
   /**
    * Sum of MOVEMENT bills on this account excluded from `bills_total`
    * because their learned destination is one of the user's own accounts
@@ -1736,6 +1770,10 @@ export type CompanionItem = {
   dests?: PaydayPlanDest[];
   salary?: PaydayPlanSalary;
   trimmed?: boolean;
+  /** G350: present only when the suggested moves exceed the expected pay. */
+  over_salary?: PaydayPlanOverSalary | null;
+  /** G350: moves left out of this month's plan (empty when nothing was). */
+  left_out?: PaydayPlanLeftOut[];
   payday_split?: PaydaySplit;
   payday_split_risk?: PaydaySplitRisk;
   // payload — present when type === "rhythm"; carries category, multiple, spent, period_end, dominant

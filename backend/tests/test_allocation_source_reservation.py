@@ -727,7 +727,12 @@ def test_payday_plan_distributable_shrinks_by_the_salary_accounts_own_reservatio
     }])
     assert plan_without is not None
     assert plan_with is not None
-    # `stays` (distributable - total, floored at 0) must be exactly £230
-    # lower with the reservation in play, everything else about the
-    # destinations' own needs being identical between the two runs.
-    assert plan_without["salary"]["stays"] - plan_with["salary"]["stays"] == 230
+    # G350 rework: set-aside money is tracked at its SOURCE. The learned
+    # drip pairs this set-aside with the salary account, so the plan KEEPS its
+    # period ask there (`salary.keeps`, in the salary target) instead of
+    # reserving the £230 remainder; the preview prices the coming period's ask
+    # (`amount_per_period` 266 here, no `period_amount` on this fixture).
+    # `stays` is therefore £266 lower, counted once, and nothing moves to the
+    # pot (Premier keeps its own £50 buffer move in both runs).
+    assert [k["name"] for k in plan_with["salary"]["keeps"]] == ["Set-aside"]
+    assert plan_without["salary"]["stays"] - plan_with["salary"]["stays"] == 266
