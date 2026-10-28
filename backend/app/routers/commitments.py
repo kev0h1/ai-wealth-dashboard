@@ -1067,6 +1067,24 @@ async def _serialise(
     }
 
 
+async def _source_display_name(uid: str, account: dict | None) -> str | None:
+    """G337 label for an account in a card or sentence; falls back to the plain
+    display name if the labeller is unavailable."""
+    if not account:
+        return None
+    try:
+        from app.services.account_names import display_account_name
+        from app.services.notifications import _user_name_tokens
+        from app.services.penny_consolidation import source_label
+
+        tokens = await _user_name_tokens(uid)
+        return source_label(display_account_name(account.get("name")), account.get("provider"), tokens)
+    except Exception:
+        logger.warning("commitments: source label unavailable", exc_info=True)
+        from app.services.account_plan_sources import account_label
+        return account_label(account)
+
+
 async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None:
     """G230: add source_account_id (explicit or inferred), source_inferred and
     source_account_name to each serialised plan. Read-only; never persisted.
@@ -1111,6 +1129,10 @@ async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None
         item["source_account_name"] = (
             account_label(account_map.get(source_id)) if source_id else None
         )
+        # G351: the label a sentence or card uses (holder-named accounts never
+        # by name, G337) and whether the source is assumed rather than chosen.
+        item["source_name"] = await _source_display_name(uid, account_map.get(source_id)) if source_id else None
+        item["source_assumed"] = bool(source_id and inferred)
 
 
 async def _serialise_all(
