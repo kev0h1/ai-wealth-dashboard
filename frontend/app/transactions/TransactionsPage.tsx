@@ -9,7 +9,7 @@
 // time, unlike Spend's period-scoped view. Category correction goes through
 // TeachingSheet, same as everywhere else in Spend.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, Transaction, Account, type SavingsInsight } from "@/lib/api";
@@ -25,6 +25,8 @@ import { FilterChips, FilterTrigger } from "@/components/TransactionFilterChips"
 import FilterSheet, { draftFromFilters, type FilterDraft } from "@/components/TransactionFilterSheet";
 import type { SearchFilters } from "@/lib/transactionFilters";
 import { groupByDay } from "@/lib/transactionGrouping";
+import { applyCategoryChange } from "@/lib/transactionsListUpdate";
+import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
 
 const PAGE_SIZE = 20;
 
@@ -88,6 +90,9 @@ export default function TransactionsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  // G358: bumped after a re-file so the current page refetches from the server.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reloadSeen = useRef(0);
   // G242: true once the first list has painted, so the aim block is never inserted above a
   // list that has not settled yet, and stays mounted (editor open) across later reloads.
   const [listSettled, setListSettled] = useState(false);
@@ -177,7 +182,9 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    // A re-file reload settles quietly: the optimistic list stays on screen.
+    if (reloadSeen.current === reloadKey) setLoading(true);
+    reloadSeen.current = reloadKey;
     api.transactionsSearch({
       q: debouncedQuery || undefined,
       // `categories` (repeated-param, exact-match list) wins when present —
@@ -207,7 +214,7 @@ export default function TransactionsPage() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, page]);
+  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, page, reloadKey]);
 
   // Rebuilds the URL from whichever filters remain after one is cleared —
   // every clear*Filter below keeps the others (an insight deep-link, or a
@@ -336,13 +343,33 @@ export default function TransactionsPage() {
     setFilterOpen(false);
   }
 
+  // G358: patch every touched row, drop rows that no longer match the active
+  // category filter, then refetch the current page (authoritative; fills the
+  // gap a removed row leaves and settles counts and pagination).
+  const applyChange = useCallback((ids: string[], category: string) => {
+    const cats = categoriesFilter && categoriesFilter.length > 0
+      ? categoriesFilter
+      : categoryFilter ? [categoryFilter] : null;
+    const r = applyCategoryChange(items, total, { ids, category }, { categories: cats });
+    setItems(r.items);
+    setTotal(r.total);
+    setReloadKey((k) => k + 1);
+  }, [items, total, categoriesFilter, categoryFilter]);
+
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
-    setItems((prev) => prev.map((t) => {
-      if (t.id === updated.id) return { ...t, category: updated.category };
-      if (additionalIds?.includes(t.id)) return { ...t, category: updated.category };
-      return t;
-    }));
+    if (!updated.category) { setReloadKey((k) => k + 1); return; }
+    applyChange([updated.id, ...(additionalIds ?? [])], updated.category);
   }
+
+  useEffect(() => {
+    function onChanged(e: Event) {
+      const detail = (e as CustomEvent<{ ids?: string[]; category?: string }>).detail || {};
+      if (detail.ids && detail.ids.length > 0 && detail.category) applyChange(detail.ids, detail.category);
+      else setReloadKey((k) => k + 1);
+    }
+    window.addEventListener(TRANSACTIONS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(TRANSACTIONS_CHANGED_EVENT, onChanged);
+  }, [applyChange]);
 
   const hasPeriodFilter = Boolean(periodFrom || periodTo);
   // With a period chip applied the line must not claim "all time" — the chip

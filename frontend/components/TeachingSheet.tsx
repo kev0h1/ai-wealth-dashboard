@@ -38,7 +38,7 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
-import { invalidateAfterTransactionCorrection } from "@/lib/cacheInvalidation";
+import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from "@/lib/cacheInvalidation";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
 
@@ -198,7 +198,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
         return;
       }
       const res = await api.patchTransaction(transaction.id, { category });
-      notifyUpdated({ ...transaction, category });
+      notifyUpdated(
+        { ...transaction, category },
+        res.affected_ids?.filter((id) => id !== transaction.id),
+      );
       if (res.matches_past > 0 && res.rule_suggestion) {
         setProposal({ category, matchesPast: res.matches_past, pattern: res.rule_suggestion.pattern });
         setStep("propose-rule");
@@ -323,6 +326,12 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       // invalidator `notifyUpdated` does above, not the narrower verdict-
       // only clear this used before that item.
       invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: proposal.category });
+      // G358: tell the host list every row the rule re-filed, so a filtered
+      // list drops them and counts settle without a full reload.
+      onUpdated(
+        { ...transaction, category: proposal.category },
+        (saved.affected_ids ?? (saved.affected || []).map((a) => a.id)).filter((id) => id !== transaction.id),
+      );
       finish("Filed and rule saved. Undo", async () => {
         await undoToSpend(proposal.category);
         try { await api.deleteRule(saved.id); } catch { /* best-effort */ }
@@ -338,6 +347,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               }),
             ),
         );
+        notifyTransactionsChanged();
       });
     } catch {
       // Rule save failed (e.g. free-tier gate) — the categorisation itself

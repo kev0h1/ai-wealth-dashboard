@@ -573,6 +573,10 @@ export type PatchTransactionResult = {
   merchant_key: string;
   matches_past: number;
   rule_suggestion: { pattern: string; category: string } | null;
+  // G358: ids the PATCH touched (primary first); matches_past counts only the
+  // rows "Always" would really change (no specific manual category).
+  affected_ids?: string[];
+  matches_past_total?: number;
 };
 
 export type ResolveMovementResult = {
@@ -3343,7 +3347,7 @@ export const api = {
     fetch(`${API_BASE}/penny/proposals/${encodeURIComponent(proposalId)}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-    }).then((r) => toJson<{ ok: boolean; result?: unknown }>(r)),
+    }).then((r) => toJson<{ ok: boolean; result?: unknown; kind?: string }>(r)),
   cancelPennyProposal: (proposalId: string) =>
     fetch(`${API_BASE}/penny/proposals/${encodeURIComponent(proposalId)}/cancel`, {
       method: "POST",
@@ -3995,6 +3999,7 @@ export const api = {
     post<{
       id: string; description: string; pattern: string; category: string;
       affected: { id: string; previous_category: string | null }[];
+      affected_ids?: string[];
     }>("/rules", { description, pattern, category }),
   setTransactionPlanned: (id: string, planned: boolean) =>
     fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}/planned`, {
