@@ -28,6 +28,7 @@ from app.services import goal_schedule as gs
 logger = logging.getLogger(__name__)
 
 NOTHING_MOVES = "Nothing moves until you move it."
+DAY_NUMBER_QUESTION = "Which day of the challenge is the first day?"
 HISTORY_NOTE = "Progress starts from today; the set-aside's past fills stay where they are."
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -196,9 +197,46 @@ def _unit_of(word: str) -> tuple[str, str | None]:
 
 # ── The parser ───────────────────────────────────────────────────────────────
 
-def parse_description(text: str, today: date) -> dict:
+_WD_RE = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|weds?|thurs?|thu|fri|sat|sun)"
+
+
+def _weekday_start(t: str, today: date, period_end: date | None) -> date | None:
+    """G356: "the first day will be on Friday the next period": the weekday on or
+    after today, or, with "next (pay) period", on or after the next pay period's
+    first day (the next such weekday when that day is not the weekday said)."""
+    m = re.search(r"\b(?:first day|start(?:s|ing)?|begin(?:s|ning)?|from)\s+(?:(?:will be|is|on|the)\s+)*" + _WD_RE + r"\b", t)
+    if not m:
+        return None
+    idx = _WEEKDAY_INDEX[m.group(1)]
+    floor = today
+    if period_end is not None and re.search(r"\bnext\s+(?:pay\s*)?period\b", t):
+        floor = period_end + timedelta(days=1)
+    return floor + timedelta(days=(idx - floor.weekday()) % 7)
+
+
+def _day_numbers(t: str) -> tuple[int | None, int | None]:
+    """G356: (N, M) from "day 287/365", "day 287 of 365", "on day 287" and "until
+    day 365". Never the calendar day of the year."""
+    if re.search(r"day of the year|31\s*dec", t):
+        return None, None
+    n = m_total = None
+    pair = re.search(r"\bday\s*(\d{1,3})\s*(?:/|of|out of)\s*(\d{1,3})\b", t)
+    if pair:
+        n, m_total = int(pair.group(1)), int(pair.group(2))
+    else:
+        on = re.search(r"\b(?:on|at)\s+day\s+(\d{1,3})\b", t)
+        if on:
+            n = int(on.group(1))
+    until = re.search(r"\b(?:until|till|through|to|up to)\s+day\s+(\d{1,3})\b", t)
+    if until:
+        m_total = int(until.group(1))
+    return n, m_total
+
+
+def parse_description(text: str, today: date, period_end: date | None = None) -> dict:
     """Read common phrasings into schedule fields. Returns {"fields", "assumptions",
-    "suggested_name"}. Unreadable parts are simply absent: `build` reports them as needs."""
+    "suggested_name"}. Unreadable parts are simply absent: `build` reports them as needs.
+    `period_end` (the live pay period's last day) lets "next period" be read."""
     t = " ".join(str(text or "").lower().replace("’", "'").split())
     fields: dict = {}
     assumptions: list[str] = []
@@ -222,9 +260,16 @@ def parse_description(text: str, today: date) -> dict:
             start = _parse_date(chunk, today)
         if start:
             break
+    if start is None:
+        start = _weekday_start(t, today, period_end)
     if start:
         fields["start_date"] = start.isoformat()
     base_start = start or today
+    day_n, day_m = _day_numbers(t)
+    if day_n is not None:
+        fields["day_number"] = day_n
+    if day_m is not None:
+        fields["last_day"] = day_m
 
     # End: "until December", "by 31 Dec 2026".
     em = re.search(r"\b(?:until|till|through|by(?:\s+the\s+end\s+of)?|to\s+the\s+end\s+of)\s+(?!£|\d+\s?p\b)(.+?)(?:[,.]|$)", t)
@@ -263,6 +308,10 @@ def parse_description(text: str, today: date) -> dict:
             inner = re.search(_MONEY_RE, m.group(0))
             start_pence = _pence(inner)
             start_end = m.end()
+    if start_pence is None and not pct:
+        bare = re.search(r"\b(?:figure|amount|sum)\s+of\s+£?(\d+(?:\.\d{1,2})?)\b", t)
+        if bare:
+            start_pence, start_end = round(float(bare.group(1)) * 100), bare.end()
     if start_pence is None and not pct:
         for s0, e0, p0 in tokens:
             if step_m and step_m.start() <= s0 < step_m.end():
@@ -363,10 +412,10 @@ def fields_from_schedule(sched: dict | None) -> dict:
     return out
 
 
-def merge_fields(args: dict, today: date, base: dict | None = None) -> dict:
+def merge_fields(args: dict, today: date, base: dict | None = None, period_end: date | None = None) -> dict:
     """Parse `description`, then let explicit fields win. Returns the parse result
     with the merged "fields"."""
-    parsed = parse_description(args.get("description") or "", today) if args.get("description") else {
+    parsed = parse_description(args.get("description") or "", today, period_end) if args.get("description") else {
         "fields": {}, "assumptions": [], "suggested_name": None}
     fields = dict(base or {})
     fields.update(parsed["fields"])
@@ -386,6 +435,20 @@ def merge_fields(args: dict, today: date, base: dict | None = None) -> dict:
     amounts = args.get("amounts")
     if isinstance(amounts, list) and amounts:
         fields["amounts_pence"] = [_pence_arg(a) for a in amounts]
+    # G356: a day number N and a last day M mean the schedule runs M - N + 1 days from
+    # the start date, so day M is start + (M - N) days. Only when this call brings the
+    # day numbers and the user gave no other length.
+    said_explicit = {k for k, v in explicit.items() if v is not None}
+    if ("day_number" in parsed["fields"] or "last_day" in parsed["fields"]) and not said_explicit & {"count", "end_date"} \
+            and "end_date" not in parsed["fields"]:
+        n_day, m_day = fields.get("day_number"), fields.get("last_day")
+        if n_day is not None and m_day is not None and m_day >= n_day:
+            fields["count"] = m_day - n_day + 1
+            parsed["fields"]["count"] = fields["count"]
+            first = date.fromisoformat(fields["start_date"]) if fields.get("start_date") else today
+            last = first + timedelta(days=m_day - n_day)
+            parsed["assumptions"] = [*parsed["assumptions"],
+                                     f"I have counted from your day {n_day}, so day {m_day} is {gs.fmt_date_wd(last)}."]
     if base:
         # G355: a length given in one way replaces the other way from the base, so a
         # draft's "79 days" is not silently capped by an old end date, or the reverse.
@@ -421,7 +484,7 @@ def build_schedule(fields: dict, today: date) -> tuple[dict | None, list[str]]:
     if not fields.get("step_unit"):
         needs.append("step_unit")
     if fields.get("count") is None and not fields.get("end_date"):
-        needs.append("length")
+        needs.append("day_number" if fields.get("last_day") and fields.get("day_number") is None else "length")
     if needs:
         return None, needs
     return {"type": "arithmetic", "start_pence": fields["start_pence"], "step_pence": fields.get("step_pence") or 0,
@@ -553,7 +616,11 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
     from app.routers.commitments import _pay_cfg
 
     today = timeutil.user_today()
-    parsed = merge_fields(args, today, base)
+    try:
+        period_end = _period_bounds(today, await _pay_cfg(uid))[1]
+    except Exception:
+        period_end = None
+    parsed = merge_fields(args, today, base, period_end)
     raw, needs = build_schedule(parsed["fields"], today)
     assumptions = list(parsed["assumptions"])
     if not parsed["fields"].get("start_date"):
@@ -564,6 +631,8 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
         if not parsed["fields"]:
             needs = ["description"]
         out["needs"] = needs
+        if "day_number" in needs:
+            out["needs_questions"] = {"day_number": DAY_NUMBER_QUESTION}
         out["parsed"] = {k: v for k, v in parsed["fields"].items() if v is not None}
         return out
     clean, problem = _check(raw)
@@ -587,7 +656,7 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
 # behaves as before and returns no draft.
 
 FIELD_KEYS = ("start_date", "start_pence", "step_pence", "step_unit", "count", "end_date", "percent",
-              "expected_pay_pence", "amounts_pence")
+              "expected_pay_pence", "amounts_pence", "day_number", "last_day")
 _GENERIC_NAME_WORDS = frozenset({"saving", "goal", "plan", "fund", "pot", "set", "aside", "money", "new", "pay", "period"})
 _BASIS_WORDS = {
     "stated": "stated by the user",
@@ -957,7 +1026,10 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
         name_hint = args.get("name") or (old or {}).get("name") or built.get("suggested_name")
         if built.get("needs"):
             draft = _next_draft(old, built, name=name_hint)
-            return _with_draft({"needs": built["needs"], "assumptions": built.get("assumptions", []), "parsed": built.get("parsed")}, args, draft)
+            res = {"needs": built["needs"], "assumptions": built.get("assumptions", []), "parsed": built.get("parsed")}
+            if built.get("needs_questions"):
+                res["needs_questions"] = built["needs_questions"]
+            return _with_draft(res, args, draft)
         raw_name = name_hint
         if not raw_name or not str(raw_name).strip():
             return _with_draft({"needs": ["name"], "summary": built["summary"]}, args, _next_draft(old, built))

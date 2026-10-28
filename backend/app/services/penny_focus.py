@@ -117,7 +117,7 @@ def clean_focus(raw) -> dict | None:
 
 _DRAFT_STR = {"name": 80, "source_account_id": 64, "source_account_name": 80, "into_id": 64, "into_name": 80,
               "convert_from_set_aside": 64}
-_DRAFT_INT = ("start_pence", "step_pence", "count", "expected_pay_pence")
+_DRAFT_INT = ("start_pence", "step_pence", "count", "expected_pay_pence", "day_number", "last_day")
 _DRAFT_BASES = ("stated", "stored", "recent-transfers", "assumed", "model")
 _DRAFT_INT_MAX = 100_000_000
 
