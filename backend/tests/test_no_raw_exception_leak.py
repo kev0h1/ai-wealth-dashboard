@@ -147,10 +147,10 @@ ALLOWLIST: set[tuple[str, int]] = {
     # sites below carry commitments._validate_name's authored detail.
     ("app/routers/commitments.py", 1221),
     ("app/services/penny_goal_schedule.py", 423),
-    ("app/services/penny_goal_schedule.py", 587),
-    ("app/services/penny_goal_schedule.py", 626),
-    ("app/services/penny_goal_schedule.py", 671),
-    ("app/services/penny_goal_schedule.py", 707),
+    ("app/services/penny_goal_schedule.py", 590),
+    ("app/services/penny_goal_schedule.py", 629),
+    ("app/services/penny_goal_schedule.py", 675),
+    ("app/services/penny_goal_schedule.py", 711),
 }
 
 

@@ -271,6 +271,43 @@ def test_conversion_pauses_the_named_set_aside_only_on_execute(world, monkeypatc
     assert paused == [("a1", {"active": False})] and "deactivate_allocation_id" not in created
 
 
+def test_a_failed_pause_is_surfaced_after_the_goal_is_created(world, monkeypatch):
+    async def listing(user):
+        return {"items": [{"id": "a1", "name": "Saving Challenge (2026)", "active": True, "fill_account_id": "pot", "source_account_id": "cur", "source_name": "Monzo Current Account"}]}
+
+    monkeypatch.setattr(allocations_module, "list_allocations", listing)
+    run(execute_tool(UID, "propose_create_scheduled_goal", {"name": "4p challenge", "description": KEVIN_WORDS, "convert_from_set_aside": "Saving Challenge"}))
+    _patch_consented_prefs(monkeypatch)
+    created = {}
+
+    async def fake_create(body, user):
+        created.update(body)
+        return {"id": "c1", "name": body["name"]}
+
+    async def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    class Col:
+        async def update_one(self, *a, **k):
+            return None
+
+    monkeypatch.setattr(commitments_module, "create_commitment", fake_create)
+    monkeypatch.setattr(allocations_module, "update_allocation", boom)
+    monkeypatch.setattr(collections_module, "commitments_col", Col())
+    result = run(can_i_module.execute_proposal(world["proposals"].docs[0]["_id"], user={"email": UID}))["result"]
+    assert result["set_aside_paused"] is False
+    assert result["message"] == ("The goal is set up, but the 'Saving Challenge (2026)' set-aside could not be paused; "
+                                 "pause it from Upcoming so it is not counted twice.")
+    assert "deactivate_allocation_name" not in created and "deactivate_allocation_id" not in created
+
+
+def test_start_date_default_is_stated_as_an_assumption():
+    out = run(execute_tool(UID, "preview_goal_schedule", {"description": KEVIN_WORDS}))
+    assert "I have taken today as the start date." in out["assumptions"]
+    out = run(execute_tool(UID, "preview_goal_schedule", {"description": KEVIN_WORDS + " from 1 January 2026"}))
+    assert "I have taken today as the start date." not in out["assumptions"]
+
+
 def test_conversion_ambiguous_set_aside_returns_matches(monkeypatch):
     async def listing(user):
         return {"items": [{"id": "a1", "name": "Saving A", "active": True}, {"id": "a2", "name": "Saving B", "active": True}]}

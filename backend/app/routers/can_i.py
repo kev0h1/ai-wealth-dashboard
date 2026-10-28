@@ -927,7 +927,8 @@ async def _execute_create_commitment(uid: str, params: dict) -> dict:
     # G351: a set-aside being replaced is paused here, on this same confirmation,
     # never by Penny on her own. It is not part of the goal itself.
     deactivate_id = params.get("deactivate_allocation_id")
-    body = {**{k: v for k, v in params.items() if k != "deactivate_allocation_id"}, "source": "can_i"}
+    paused_name = params.get("deactivate_allocation_name") or "replaced"
+    body = {**{k: v for k, v in params.items() if k not in ("deactivate_allocation_id", "deactivate_allocation_name")}, "source": "can_i"}
     result = await _route_create_commitment(body, user={"email": uid})
     await _stamp_created_via(_commitments_col_execute, result["id"], result)
     if deactivate_id:
@@ -938,6 +939,10 @@ async def _execute_create_commitment(uid: str, params: dict) -> dict:
         except Exception:
             logger.exception("can_i: pausing the replaced set-aside failed for %s", uid)
             result["set_aside_paused"] = False
+            result["message"] = (
+                f"The goal is set up, but the '{paused_name}' set-aside could not be paused; "
+                "pause it from Upcoming so it is not counted twice."
+            )
     return result
 
 

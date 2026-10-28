@@ -464,7 +464,10 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
     today = timeutil.user_today()
     parsed = merge_fields(args, today, base)
     raw, needs = build_schedule(parsed["fields"], today)
-    out: dict = {"assumptions": parsed["assumptions"], "suggested_name": parsed["suggested_name"]}
+    assumptions = list(parsed["assumptions"])
+    if not parsed["fields"].get("start_date"):
+        assumptions.append("I have taken today as the start date.")
+    out: dict = {"assumptions": assumptions, "suggested_name": parsed["suggested_name"]}
     if raw is None:
         if not parsed["fields"]:
             needs = ["description"]
@@ -660,6 +663,7 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
         params: dict = {"name": name, "schedule": built["schedule"], "funding_pots": pots, "source_account_id": source["account_id"]}
         if set_aside:
             params["deactivate_allocation_id"] = set_aside["id"]
+            params["deactivate_allocation_name"] = set_aside.get("name")
             summary += f", replacing the '{set_aside.get('name')}' set-aside"
             consequence += f" Confirming also pauses the '{set_aside.get('name')}' set-aside. {HISTORY_NOTE}"
         after = f"Total {total}, from {source['name']}"  # the card caps this line at 80 characters

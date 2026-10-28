@@ -45,6 +45,11 @@ function Fig({ children, className = "" }: { children: string; className?: strin
   return <span className={`tabular-nums ${className}`}><MoneyText text={children} /></span>;
 }
 
+/** Pence figures (4p, 8p) are money: mono, like every other figure. */
+function Pence({ text }: { text: string }) {
+  return <>{text.split(/(\b\d+p\b)/).map((part, i) => /^\d+p$/.test(part) ? <span key={i} className="money tabular-nums">{part}</span> : <span key={i}>{part}</span>)}</>;
+}
+
 function PennyLead({ children }: { children: ReactNode }) {
   return (
     <div className="flex justify-start">
@@ -109,23 +114,6 @@ function Sparkline({ className = "" }: { className?: string }) {
   );
 }
 
-/** Progress against the schedule, not a straight line: the tick is what has fallen due so far. */
-function ScheduleBar() {
-  const fill = (SAVED / TOTAL) * 100, due = (DUE_SO_FAR / TOTAL) * 100;
-  return (
-    <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
-        <span>On schedule</span>
-        <span><Fig>{money(SAVED)}</Fig> set aside, <Fig>{money(DUE_SO_FAR)}</Fig> due so far</span>
-      </div>
-      <div className="relative mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700" role="progressbar" aria-label="Set aside against the schedule" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fill)} aria-valuetext={`${money(SAVED)} set aside, ${money(DUE_SO_FAR)} due so far, of ${money(TOTAL)}`}>
-        <span className="block h-full rounded-full bg-indigo-600" style={{ width: `${fill}%` }} />
-        <span aria-hidden="true" className="absolute -top-1 h-3.5 w-0.5 rounded-full bg-slate-900 dark:bg-slate-100" style={{ left: `calc(${due}% - 1px)` }} />
-      </div>
-    </div>
-  );
-}
-
 // ── Variant A / C ledger rows ────────────────────────────────────────────────
 
 function ConfirmRows() {
@@ -152,7 +140,7 @@ function ConfirmCard({ variant, convert }: { variant: Variant; convert: boolean 
       <p className={LABEL}>New goal</p>
       {variant === "b" ? (
         <>
-          <p className="mt-1 text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100">Save 4p on day one, then 4p more each day, for 365 days.</p>
+          <p className="mt-1 text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100"><Pence text="Save 4p on day one, then 4p more each day, for 365 days." /></p>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{NAME}, from 1 Jan 2026</p>
           <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">This pay period ({THIS_PERIOD.label})</p>
           <p className="text-[30px] font-bold leading-tight tracking-tight text-slate-900 dark:text-slate-100"><Fig>{money(THIS_PERIOD.amount)}</Fig></p>
@@ -163,7 +151,7 @@ function ConfirmCard({ variant, convert }: { variant: Variant; convert: boolean 
       ) : (
         <>
           <p className="mt-1 text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100">{NAME}</p>
-          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-300">{SENTENCE}</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-slate-600 dark:text-slate-300"><Pence text={SENTENCE} /></p>
           {variant === "c" && <Sparkline className="mt-3" />}
           <ConfirmRows />
         </>
@@ -213,7 +201,7 @@ function PlanSchedule({ variant, onEdit }: { variant: Variant; onEdit: () => voi
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className={LABEL}>Schedule</p>
-          <p className="mt-1 text-[13px] leading-5 text-slate-700 dark:text-slate-200">{SENTENCE}</p>
+          <p className="mt-1 text-[13px] leading-5 text-slate-700 dark:text-slate-200"><Pence text={SENTENCE} /></p>
         </div>
         <button type="button" onClick={onEdit} className={QUIET}>Edit</button>
       </div>
@@ -230,7 +218,7 @@ function PlanSchedule({ variant, onEdit }: { variant: Variant; onEdit: () => voi
         </>
       ) : (
         <>
-          {variant === "c" && <><Sparkline /><ScheduleBar /></>}
+          {variant === "c" && <Sparkline />}
           <Ladder foldEarlier />
           <p className="text-xs leading-5 text-slate-600 dark:text-slate-300"><Fig>{money(TOTAL)}</Fig> in total, finishing {END_LABEL}.</p>
         </>
@@ -273,7 +261,7 @@ function ScheduleEditor({ variant, onCancel }: { variant: Variant; onCancel: () 
         <Field id="sched-from" label="Starts on" value="1 Jan 2026" />
       </div>
       {variant === "b" ? (
-        <p className="border-y border-slate-200 py-3 text-[14px] font-semibold leading-snug text-slate-900 dark:border-slate-700 dark:text-slate-100">Save 4p on day one, then 4p more each {unit}, for 365 {unit === "pay period" ? "pay periods" : `${unit}s`}.<span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-300"><Fig>{money(TOTAL)}</Fig> in total. This pay period <Fig>{money(THIS_PERIOD.amount)}</Fig>.</span></p>
+        <p className="border-y border-slate-200 py-3 text-[14px] font-semibold leading-snug text-slate-900 dark:border-slate-700 dark:text-slate-100"><Pence text={`Save 4p on day one, then 4p more each ${unit}, for 365 ${unit === "pay period" ? "pay periods" : `${unit}s`}.`} /><span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-300"><Fig>{money(TOTAL)}</Fig> in total. This pay period <Fig>{money(THIS_PERIOD.amount)}</Fig>.</span></p>
       ) : (
         <>
           {variant === "c" && <Sparkline />}
@@ -330,11 +318,11 @@ export default function GoalSchedulesClient() {
 
           {state === "confirm" && (
             <section aria-label="Penny thread" className="mt-6 space-y-3">
-              <PennyLead>I have worked out the schedule. {NAME}: {SENTENCE}. It comes to <Fig>{money(TOTAL)}</Fig> in total, on your current pay periods. Check where it leaves from, then confirm if it looks right.</PennyLead>
+              <PennyLead>I have worked out the schedule. {NAME}: <Pence text={SENTENCE} />. It comes to <Fig>{money(TOTAL)}</Fig> in total, on your current pay periods. Check where it leaves from, then confirm if it looks right.</PennyLead>
               <ConfirmCard variant={variant} convert={convert} />
               <details className="rounded-2xl border border-slate-200 p-3 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
                 <summary className="min-h-11 cursor-pointer py-3 font-semibold">Today&apos;s card for the same proposal, for comparison</summary>
-                <div className="pointer-events-none mt-2" aria-hidden="true"><ProposalConfirmCard msg={todaysCard} onConfirm={() => undefined} onCancel={() => undefined} onOpenDone={() => undefined} /></div>
+                <div inert className="pointer-events-none mt-2"><ProposalConfirmCard msg={todaysCard} onConfirm={() => undefined} onCancel={() => undefined} onOpenDone={() => undefined} /></div>
               </details>
             </section>
           )}
@@ -351,6 +339,9 @@ export default function GoalSchedulesClient() {
                     cadence="this pay period, set by your schedule"
                     target={{ amount: TOTAL, month: "December 2026" }}
                     progress={SAVED}
+                    periodNote={`${money(DUE_SO_FAR)} has fallen due so far on your schedule.`}
+                    currentPeriod={{ contribution: THIS_PERIOD.amount, reserved: THIS_PERIOD.amount, matched_this_period: 0, later_contribution: NEXT[0].amount, later_periods: NEXT.length }}
+                    nextPeriods={NEXT.map(n => n.amount)}
                     sourceAccount={SOURCE_ACCOUNT}
                     destinationAccounts={[POT_ACCOUNT]}
                     trackingLabel="Not tracking a payment"
@@ -374,6 +365,7 @@ export default function GoalSchedulesClient() {
           <div className="flex flex-wrap items-center justify-center gap-0.5">
             {VARIANTS.map(v => <a key={v.key} href={href(v.key, state, mode)} aria-current={v.key === variant ? "page" : undefined} className={chip(v.key === variant)}>{v.label}</a>)}
           </div>
+          {variant === "b" && <p className="mx-2 mt-1 max-w-[340px] text-center text-[11px] leading-4 text-white/70">B repeats this period&apos;s figure in the sentence and the hero; say if you want one dropped.</p>}
           <div className="mt-0.5 flex flex-wrap items-center justify-center gap-0.5">
             {STATES.map(s => <a key={s.key} href={href(variant, s.key, mode)} aria-current={s.key === state ? "page" : undefined} className={chip(s.key === state)}>{s.label}</a>)}
             <span className="mx-0.5 h-6 w-px bg-white/15" aria-hidden="true" />
