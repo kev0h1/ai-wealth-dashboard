@@ -91,6 +91,16 @@ def test_planned_to_date_and_next_periods():
     assert [n["start"] for n in tail] == ["2026-12-01"]
 
 
+def test_preview_is_complete_and_uses_non_calendar_pay_periods():
+    preview = gs.preview(KEVIN, {"type": "last_friday"}, date(2026, 2, 10))
+    assert preview["schedule"] == KEVIN
+    assert preview["estimated"] is False
+    assert preview["current_period"] == {"start": "2026-01-30", "end": "2026-02-26", "amount": 4 * sum(range(30, 58)) / 100}
+    assert preview["periods"][0]["start"] == "2025-12-26"
+    assert preview["periods"][-1]["end"] == "2027-01-28"
+    assert preview["planned_to_date"] == 4 * sum(range(1, 42)) / 100
+
+
 def test_label_and_money():
     assert gs.schedule_label(KEVIN) == "4p a day, rising by 4p a day, from 1 Jan 2026 for 365 days"
     assert gs.fmt_money(267_180) == "£2,671.80"

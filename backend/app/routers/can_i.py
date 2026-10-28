@@ -43,6 +43,7 @@ from app.services.affordability import _nothing_spare_line
 from app.services.categories import get_category_kinds, is_discretionary
 from app.services.penny_agent import run_penny_agent
 from app.services.penny_tools import revoke_agent_consent
+from app.services import goal_schedule
 from app.services.penny_execution import consent_generation_query
 
 # Same convention as app.routers.analytics (this module's own neighbour,
@@ -1474,6 +1475,106 @@ def _proposal_execution_outcome(doc: dict | None) -> dict | None:
     if doc.get("expires_at") and datetime.now() > doc["expires_at"]:  # naive-ok: existing naive proposal TTL
         raise HTTPException(410, "proposal expired")
     return None
+
+
+@router.post("/penny/proposals/{proposal_id}/scheduled-goal-revision")
+async def revise_scheduled_goal_proposal(proposal_id: str, body: dict, user: dict = Depends(current_user)):
+    """Replace, never mutate, a pending scheduled-goal proposal.
+
+    A mounted or restored card can safely keep showing the old proposal: once
+    this endpoint wins its pending CAS, that old id cannot execute changed
+    parameters. The fresh proposal keeps the ordinary explicit-confirm step.
+    """
+    uid = user["email"]
+    raw_source = body.get("source_account_id")
+    if not isinstance(raw_source, str) or not raw_source.strip():
+        raise HTTPException(400, "source_account_id is required")
+    original = await penny_proposals_col.find_one({"_id": proposal_id, "user_id": uid})
+    if not original:
+        raise HTTPException(404, "proposal not found")
+    if original.get("kind") != "create_commitment" or not goal_schedule.is_scheduled((original.get("params") or {}).get("schedule")):
+        raise HTTPException(409, "This proposal is not a scheduled goal")
+
+    # Do every fallible validation before superseding the original. There is
+    # no financial write here, only proposal-envelope lifecycle state.
+    from app.routers.commitments import _source_display_name, _validate_schedule_body
+    from app.services.account_plan_sources import owned_account_map, validate_source_account
+    from app.services.penny_tools import _create_proposal
+    clean, _total, _end = await _validate_schedule_body(body.get("schedule"), uid)
+    if clean is None:
+        raise HTTPException(400, goal_schedule.INVALID)
+    account_map = await owned_account_map(uid)
+    destination_ids = {
+        str(p.get("account_id")) for p in (original.get("params") or {}).get("funding_pots", [])
+        if isinstance(p, dict) and p.get("account_id")
+    }
+    source_id = validate_source_account(raw_source.strip(), account_map, destination_ids)
+    if source_id is None:
+        raise HTTPException(400, "source_account_id is required")
+    source_name = await _source_display_name(uid, account_map[source_id])
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+    preview = goal_schedule.preview(clean, cfg, timeutil.user_today())
+    old_params = original.get("params") or {}
+    params = dict(old_params)
+    params.update({
+        "schedule": clean, "schedule_preview": preview,
+        "source_account_id": source_id, "source_account_name": source_name,
+    })
+    # Keep destination labels originally resolved by Penny. The revision body
+    # deliberately cannot alter the goal's destination or conversion choice.
+    params.setdefault("destination_names", [])
+    name = str(params.get("name") or "this")
+    total_text = goal_schedule.fmt_money(round(preview["total"] * 100))
+    current_text = goal_schedule.fmt_money(round(preview["current_period"]["amount"] * 100))
+    summary = f"Start the '{name}' goal: {preview['label']}, from {source_name}, total {total_text}"
+    consequence = f"Creates the goal and reserves this period's {current_text}. Nothing moves until you move it."
+    if params.get("deactivate_allocation_name"):
+        allocation_name = params["deactivate_allocation_name"]
+        summary += f", replacing the '{allocation_name}' set-aside"
+        consequence += f" Confirming also pauses the '{allocation_name}' set-aside."
+
+    now = datetime.now()  # naive-ok: proposal TTL and cancellation timestamps use the existing naive storage convention
+    superseded = await penny_proposals_col.find_one_and_update(
+        {"_id": proposal_id, "user_id": uid, "kind": "create_commitment", "executed_at": None,
+         "cancelled_at": None, "execution_claim": None, "expires_at": {"$gte": now}},
+        {"$set": {"cancelled_at": now, "superseded_at": now, "superseded_reason": "scheduled_goal_revision"}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if superseded is None:
+        current = await penny_proposals_col.find_one({"_id": proposal_id, "user_id": uid})
+        if not current:
+            raise HTTPException(404, "proposal not found")
+        if current.get("execution_claim"):
+            raise HTTPException(409, "This proposal has already been submitted. Check the app for its result.")
+        if current.get("expires_at") and datetime.now() > current["expires_at"]:  # naive-ok: compare the existing naive proposal TTL timestamp
+            raise HTTPException(410, "proposal expired")
+        raise HTTPException(409, "This proposal changed. Ask Penny for a new proposal.")
+    try:
+        fresh = await _create_proposal(
+            uid, "create_commitment", params, summary, consequence,
+            before=original.get("before"), after=f"Total {total_text}, from {source_name}", entity=original.get("entity") or name,
+        )
+    except Exception:
+        logger.exception("can_i: scheduled goal revision replacement failed uid=%s id=%s", uid, proposal_id)
+        raise HTTPException(409, "The original proposal was superseded. Ask Penny for a new proposal.")
+    await penny_proposals_col.update_one(
+        {"_id": proposal_id, "user_id": uid, "superseded_at": {"$exists": True}},
+        {"$set": {"superseded_by": fresh["proposal_id"]}},
+    )
+    conversation_id = original.get("conversation_id")
+    if conversation_id:
+        try:
+            await penny_conversations.link_proposal(uid, conversation_id, fresh["proposal_id"])
+            await penny_conversations.replace_pending_proposal(uid, proposal_id, fresh)
+        except Exception:
+            # The fresh envelope is valid even if this optional chat-history
+            # projection races a deletion or retention trim.
+            logger.exception("can_i: could not move revised proposal into conversation uid=%s id=%s", uid, proposal_id)
+    # `_create_proposal` also carries an internal truthy marker used by the
+    # agent loop. HTTP clients receive exactly PennyProposal's public shape.
+    fresh.pop("proposal", None)
+    return fresh
 
 
 @router.post("/penny/proposals/{proposal_id}/execute")

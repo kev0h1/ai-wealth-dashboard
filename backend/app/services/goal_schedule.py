@@ -19,6 +19,7 @@ sum of the events due inside it. Totals, ends, on-track targets and the next
 few periods all read the same events, so none of them can drift apart.
 """
 from datetime import date, timedelta
+from typing import TypedDict
 
 from app.services.pay_period import get_pay_period_for_date
 
@@ -31,6 +32,19 @@ _UNIT_NOUN = {"day": "day", "week": "week", "period": "pay period"}
 _TYPES = ("equal", "arithmetic", "fixed", "percent_of_pay")
 
 INVALID = "Choose a schedule with amounts above £0, a start date and a clear end."
+
+
+class GoalSchedulePreview(TypedDict):
+    """Server-authored schedule display data, with every money figure in pounds."""
+    schedule: dict
+    label: str
+    total: float
+    start_date: str
+    end_date: str
+    estimated: bool
+    current_period: dict
+    periods: list[dict]
+    planned_to_date: float
 
 
 def is_scheduled(schedule) -> bool:
@@ -241,6 +255,34 @@ def periods_count(schedule: dict, cfg: dict) -> int:
         return 0
     first, last = min(d for d, _a in ev), max(d for d, _a in ev)
     return sum(1 for _ in enumerate_periods(first, last, cfg))
+
+
+def preview(schedule: dict, cfg: dict, today: date) -> GoalSchedulePreview:
+    """Full, API-safe schedule view. Callers validate first; this is pure."""
+    clean = public_schedule(schedule)
+    last = end_date(clean, cfg)
+    if last is None:
+        raise ValueError(INVALID)
+    start = date.fromisoformat(clean["start_date"])
+    period_rows = [
+        {"start": ps.isoformat(), "end": pe.isoformat(), "amount": period_amount(clean, ps, pe, cfg) / 100}
+        for ps, pe in enumerate_periods(start, last, cfg)
+    ]
+    current_start, current_end = get_pay_period_for_date(today, cfg)
+    return {
+        "schedule": clean,
+        "label": schedule_label(clean),
+        "total": total_pence(clean, cfg) / 100,
+        "start_date": start.isoformat(),
+        "end_date": last.isoformat(),
+        "estimated": clean["type"] == "percent_of_pay",
+        "current_period": {
+            "start": current_start.isoformat(), "end": current_end.isoformat(),
+            "amount": period_amount(clean, current_start, current_end, cfg) / 100,
+        },
+        "periods": period_rows,
+        "planned_to_date": planned_to_date(clean, today, cfg) / 100,
+    }
 
 
 # ── Plain English ────────────────────────────────────────────────────────────

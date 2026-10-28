@@ -102,22 +102,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "goal-schedules",
-    name: "Goals that grow with you · G351",
-    description:
-      "G351 design round 2, impeccable · A This period first / B Compact overview / C Step by step. Interactive Penny setup, View plan and a recalculating schedule editor. Try daily, weekly, custom amounts or a share of pay; choose a source account, replace a set-aside, hide figures and try a failed confirmation. Synthetic monthly periods as at 28 October 2026; nothing is saved. Both themes. ?variant=a|b|c&state=confirm|plan|edit&mode=light|dark&convert=1",
-    states: [
-      { label: "Penny setup", value: "confirm" },
-      { label: "View plan", value: "plan" },
-      { label: "Edit schedule", value: "edit" },
-    ],
-    variants: [
-      { label: "A This period first", value: "a" },
-      { label: "B Compact overview", value: "b" },
-      { label: "C Step by step", value: "c" },
-    ],
-  },
-  {
     slug: "plan-deferral",
     name: "Ease a goal plan for one period · G228 · shipped look",
     description:

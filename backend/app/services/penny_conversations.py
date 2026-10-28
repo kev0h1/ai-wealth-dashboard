@@ -106,7 +106,7 @@ def _short(value, limit: int) -> str | None:
 
 def clean_proposal(raw) -> dict | None:
     """B59: the compact proposal block kept on an assistant turn so a restored
-    chat still shows the card. Display text only: never the params."""
+    chat still shows the card. Only safe scheduled-goal display fields accompany text."""
     if not isinstance(raw, dict):
         return None
     proposal_id = _short(raw.get("proposal_id"), 64)
@@ -115,7 +115,7 @@ def clean_proposal(raw) -> dict | None:
     if not proposal_id or not summary or not consequence:
         return None
     status = raw.get("status")
-    return {
+    out = {
         "proposal_id": proposal_id, "kind": _short(raw.get("kind"), 60) or "",
         "summary": summary, "consequence": consequence,
         "before": _short(raw.get("before"), 80), "after": _short(raw.get("after"), 80),
@@ -123,6 +123,27 @@ def clean_proposal(raw) -> dict | None:
         "destructive": bool(raw.get("destructive")),
         "status": status if status in PROPOSAL_STATUSES else "pending",
     }
+    display = _scheduled_display_params(raw)
+    if display:
+        out["params"] = display
+    return out
+
+
+def _scheduled_display_params(row: dict) -> dict | None:
+    """Only display metadata required to restore a scheduled-goal card.
+
+    Proposal params normally remain executor-private. This allow-list is kept
+    deliberately narrow so a restored chat cannot turn into a generic raw
+    mutation-parameter API.
+    """
+    if row.get("kind") != "create_commitment":
+        return None
+    params = row.get("params")
+    if not isinstance(params, dict) or not isinstance(params.get("schedule_preview"), dict):
+        return None
+    keys = ("schedule_preview", "schedule", "name", "source_account_id", "source_account_name",
+            "destination_names", "funding_pots", "deactivate_allocation_id", "deactivate_allocation_name")
+    return {key: params[key] for key in keys if key in params}
 
 
 def clean_turn(role, text, proposal_id=None, table=None, chart=None, last_result=None, move_plan=None, proposal=None) -> dict | None:
@@ -205,12 +226,23 @@ async def _live_proposal_statuses(uid: str, doc: dict) -> None:
         row = rows.get(pid)
         if row is None:
             block["status"] = "expired"
+        elif row.get("cancelled_at") and row.get("superseded_by"):
+            replacement = await penny_proposals_col.find_one({"_id": row["superseded_by"], "user_id": uid})
+            if replacement and not replacement.get("cancelled_at") and not replacement.get("executed_at") and not replacement.get("execution_claim") and not (replacement.get("expires_at") and now > replacement["expires_at"]):
+                block.update(clean_proposal({"proposal_id": replacement["_id"], **replacement, "status": "pending"}) or {})
+                block["status"] = "pending"
+            else:
+                block["status"] = "cancelled"
         elif row.get("executed_at"):
             block["status"] = "executed"
         elif row.get("cancelled_at"):
             block["status"] = "cancelled"
         elif row.get("expires_at") and now > row["expires_at"]:
             block["status"] = "expired"
+        else:
+            display = _scheduled_display_params(row)
+            if display:
+                block["params"] = display
 
 
 async def get_conversation(uid: str, cid: str) -> dict:
@@ -296,6 +328,24 @@ async def link_proposal(uid: str, cid: str, proposal_id: str) -> None:
     await penny_proposals_col.update_one(
         {"_id": proposal_id, "user_id": uid}, {"$set": {"conversation_id": cid}},
     )
+
+
+async def replace_pending_proposal(uid: str, old_id: str, fresh: dict) -> None:
+    """Move a stored confirm card onto its immutable replacement proposal.
+
+    This is deliberately best effort: the proposal row remains authoritative,
+    and a chat may have been deleted or trimmed between the two operations.
+    """
+    try:
+        block = clean_proposal(fresh)
+        if not block:
+            return
+        await penny_conversations_col.update_one(
+            {"user_id": uid, "turns.proposal.proposal_id": old_id},
+            {"$set": {"turns.$.proposal": block, "turns.$.proposal_id": fresh["proposal_id"], "updated_at": _now()}},
+        )
+    except Exception:
+        logger.exception("penny_conversations: could not replace stored proposal")
 
 
 async def export_conversations(uid: str) -> list[dict]:

@@ -382,3 +382,7 @@ A merged single-sheet step (A159 B) was trialled on UAT and reverted on 2026-10-
 Not counted is separate from Moved. Its signed amount is shown quietly beside the pay split and in the comparison; when positive it has a neutral segment in the actual bar, never in a reference guide. It is excluded from spending comparisons but retained in cash outflow, so Left does not grow when a category is excluded. The original four-group presentation remains unchanged when no user-excluded amount exists. Temporary previews are removed on fold-in under H113.
 
 G347 signed refund exception: a negative Not counted cash total remains visible as a signed amount and share. Stacked bars are omitted for this selection because a negative segment would misrepresent the cash; the numeric jobs and comparison rows remain visible.
+
+### Scheduled goal overview (G351, approved B, 2026-10-28)
+
+Scheduled goals lead with the goal total at confirmation and saved progress in View plan. Keep the deadline, rule, dated current-period amount and funding account readable before confirmation. Full contributions sit behind “See full schedule”: a centred 48px disclosure row with equal vertical padding and one border on each side. Its source block has one 16px gap, with no added margin inside the disclosure. Create goal / Cancel precede Edit schedule. Saved progress, the planned schedule, current-period overrides and matched payments remain distinct. Percentage-based amounts say estimated.

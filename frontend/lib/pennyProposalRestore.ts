@@ -40,7 +40,7 @@ export function proposalMsgFromTurn(t: PennyConversationTurn, id: number): Propo
   if (!p) return null;
   const proposal: PennyProposal = {
     proposal_id: p.proposal_id, kind: p.kind, summary: p.summary, consequence: p.consequence,
-    params: {}, before: p.before, after: p.after, entity: p.entity, destructive: p.destructive,
+    params: p.params ?? {}, before: p.before, after: p.after, entity: p.entity, destructive: p.destructive,
   };
   const base = { id, role: "assistant" as const, kind: "proposal" as const, proposal, restored: true };
   if (p.status === "executed") return { ...base, status: "done" };
