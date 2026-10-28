@@ -1004,10 +1004,10 @@ export default function CommitmentSheet({
       description={contributionMode ? "Choose this goal's total contribution for the current pay period." : commitment && viewing ? "Your goal" : commitment ? undefined : "A goal you set money aside for, separate from single bills."}
       onClose={handleSheetClose}
       dismissDisabled={saving}
-      onEscape={contributionMode ? leaveContribution : scheduleEditing ? returnToSavedView : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
-      onBack={contributionMode ? leaveContribution : scheduleEditing ? returnToSavedView : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onEscape={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onBack={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
       backLabel="Back to plan"
-      onHistoryBack={contributionMode ? leaveContribution : scheduleEditing ? returnToSavedView : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
+      onHistoryBack={contributionMode ? leaveContribution : showConsent ? returnToDraft : commitment && !viewing ? returnToSavedView : !commitment && editorView !== "purpose" ? createPrevious : undefined}
       footer={renderActions}
     >
       {renderBody}
