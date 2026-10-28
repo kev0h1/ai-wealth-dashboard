@@ -146,11 +146,11 @@ ALLOWLIST: set[tuple[str, int]] = {
     # forwarded to the user as a 400 or a Penny tool error; the HTTPException
     # sites below carry commitments._validate_name's authored detail.
     ("app/routers/commitments.py", 1222),
-    ("app/services/penny_goal_schedule.py", 437),
-    ("app/services/penny_goal_schedule.py", 919),
-    ("app/services/penny_goal_schedule.py", 967),
-    ("app/services/penny_goal_schedule.py", 1045),
-    ("app/services/penny_goal_schedule.py", 1086),
+    ("app/services/penny_goal_schedule.py", 500),
+    ("app/services/penny_goal_schedule.py", 1009),
+    ("app/services/penny_goal_schedule.py", 1060),
+    ("app/services/penny_goal_schedule.py", 1139),
+    ("app/services/penny_goal_schedule.py", 1180),
 }
 
 
