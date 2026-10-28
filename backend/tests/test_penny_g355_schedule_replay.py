@@ -323,3 +323,91 @@ def test_a_different_goal_starts_fresh(world, monkeypatch):
     d = draft_of(world)
     assert d["name"] == "Holiday" and d["start_date"] == "2026-10-28" and d["start_pence"] == 5000 and "into_id" not in d
     assert "existing_match" not in tool_result(world)
+
+
+# ── G356: Kevin's 28 Oct 2026 17:30 thread ───────────────────────────────────
+
+KEVIN_1730 = ("Okay I want to set up a plan to contribute to my savings challenge, the first day will be on Friday the next "
+              "period, a figure of 11.48 and will increase by 4p everyday, I will be on day 287/365 on Friday so come up with "
+              "a plan for contributions I will need to make until day 365")
+
+
+@pytest.fixture
+def world3(world, monkeypatch):
+    """Three Monzo accounts (the holder-named current account, the challenge pot and a
+    holiday pot) and no existing set-aside, as in the 17:30 thread."""
+    accs = [*ACCOUNTS, Account(id="hol", name="Holiday", type="savings", subtype="SAVINGS_ACCOUNT", balance=5.0, provider="monzo")]
+
+    async def accounts(user):
+        return list(accs)
+
+    async def none(user):
+        return {"items": []}
+
+    async def last_friday(_uid):
+        return {"type": "last_friday"}  # Kevin's real periods: the live one ends Thu 29 Oct
+
+    monkeypatch.setattr(accounts_module, "get_accounts", accounts)
+    monkeypatch.setattr(allocations_module, "list_allocations", none)
+    monkeypatch.setattr(commitments_module, "_pay_cfg", last_friday)
+    return world
+
+
+def _first_turn(world, monkeypatch):
+    return ask(world, monkeypatch, KEVIN_1730, [
+        _tool_call_payload("preview_goal_schedule", {"description": KEVIN_1730, "funding_pot": NAME, "name": "Savings challenge"}),
+        reply_from(lambda t: f"HEADLINE: Your plan\nREPLY: Perfect. Your plan is set up: {t['summary']} Which account should this money leave from?"),
+    ])
+
+
+def test_1730_turn_one_counts_days_and_does_not_claim_the_plan_is_set_up(world3, monkeypatch):
+    out = _first_turn(world3, monkeypatch)
+    t = tool_result(world3)
+    assert t["start_date"] == "2026-10-30" and t["end_date"] == "2027-01-16" and t["periods_count"] is not None
+    assert t["schedule"]["count"] == 79 and t["total"]["formatted"] == "£1,030.16"
+    assert t["summary"].startswith("Here is the plan")
+    assert "I have counted from your day 287, so day 365 is Sat 16 Jan 2027." in t["assumptions"]
+    assert [p["amount"]["formatted"] for p in t["next_periods"]][:3] == ["£336.56", "£367.92", "£325.68"]
+    assert "is ready to confirm" in out["reply"] and "is set up" not in out["reply"] and not out["reply"].startswith("Perfect")
+    d = draft_of(world3)
+    assert d["count"] == 79 and "end_date" not in d
+    assert d["day_number"] == 287 and d["last_day"] == 365 and d["start_date"] == "2026-10-30"
+
+
+def test_1730_stated_source_is_settled_and_the_card_matches_the_draft(world3, monkeypatch):
+    _first_turn(world3, monkeypatch)
+    second = ask(world3, monkeypatch, "It will leave from my Monzo current account", [
+        _tool_call_payload("preview_goal_schedule", {"source_account_id_or_name": "It will leave from my Monzo current account"}),
+        reply_from(lambda t: f"HEADLINE: Source\nREPLY: {t['source_sentence']}"),
+    ])
+    t = tool_result(world3)
+    assert t["source"]["account_id"] == "mon" and t["source"]["confirmed"] is True and t["source_basis"] == "stated"
+    assert t["source_sentence"].startswith("The money leaves from ") and t["source_sentence"].endswith(".")
+    assert "?" not in second["reply"] and "source_account" not in t.get("needs", [])
+    assert "source_candidates" not in draft_of(world3)
+    final = ask(world3, monkeypatch, "Yes please", [propose_call(name="Savings challenge")])
+    params = final["proposal"]["params"]
+    assert params["source_account_id"] == "mon"
+    assert params["schedule"] == {"type": "arithmetic", "start_pence": 1148, "step_pence": 4, "step_unit": "day",
+                                  "start_date": "2026-10-30", "count": 79, "end_date": None}
+    assert params["schedule_preview"]["start_date"] == "2026-10-30" and params["schedule_preview"]["end_date"] == "2027-01-16"
+
+
+def test_1730_monzo_alone_is_ambiguous_then_the_current_account_resolves_within_it(world3, monkeypatch):
+    _first_turn(world3, monkeypatch)
+    ask(world3, monkeypatch, "Monzo", [
+        _tool_call_payload("preview_goal_schedule", {"source_account_id_or_name": "Monzo"}),
+        reply_from(lambda t: "HEADLINE: Which one\nREPLY: Do you mean " + " or ".join(m["name"] for m in t["source_problem"]["matches"]) + "?"),
+    ])
+    t = tool_result(world3)
+    assert t["source_problem"]["ambiguous"] is True and len(t["source_problem"]["matches"]) == 3
+    assert sorted(draft_of(world3)["source_candidates"]) == ["hol", "mon", "pot"]
+    ask(world3, monkeypatch, "The current account", [
+        _tool_call_payload("preview_goal_schedule", {"source_account_id_or_name": "The current account"}),
+        reply_from(lambda t: f"HEADLINE: Source\nREPLY: {t['source_sentence']}"),
+    ])
+    t = tool_result(world3)
+    assert t["source"]["account_id"] == "mon" and t["source"]["confirmed"] is True
+    d = draft_of(world3)
+    assert d["source_account_id"] == "mon" and "source_candidates" not in d
+    assert (d["start_date"], d["count"]) == ("2026-10-30", 79)

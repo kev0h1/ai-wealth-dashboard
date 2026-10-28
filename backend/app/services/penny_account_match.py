@@ -1,8 +1,10 @@
 """G355: match "my Monzo current account" to one of the user's accounts.
 
 Pure scoring, no I/O. A reference is split into words, filler words dropped
-("my", "the", "account", "bank"), and every remaining word must be explained by
-the account: its bank (from the provider), a word of its raw or tidied name, or
+("my", "the", "account", "bank"), and only its ACCOUNT words count (G356): a
+word of any account's bank, product name or kind. Verbs and pronouns ("it will
+leave from") are ignored; each account word said must be explained by the
+account: its bank (from the provider), a word of its raw or tidied name, or
 its kind (current, savings, credit, investment, offline). The highest score
 wins when it is unique, a tie is ambiguous. A holder-named account ("Kevin
 Mbithi Maingi") is therefore reachable by its bank and kind.
@@ -56,10 +58,22 @@ def bank_words(provider) -> set[str]:
     return set(words(raw.replace("_", " ").replace("-", " ")))
 
 
-def score(ref: str, account, kind: str, legacy_hit: bool) -> int:
+def _own_words(account) -> tuple[set[str], set[str]]:
+    from app.services.account_names import display_account_name
+
+    product = set(words(account.name)) | set(words(display_account_name(account.name)))
+    return product, bank_words(getattr(account, "provider", None))
+
+
+def score(ref: str, account, kind: str, legacy_hit: bool, known: set[str] | None = None) -> int:
     """0 when the account does not fit the reference, else a score (higher is
     a closer fit). `legacy_hit` is the old raw-name substring match, kept as
-    the strongest signal so every phrasing that used to work still does."""
+    the strongest signal so every phrasing that used to work still does.
+
+    G356: a reference resolves on its ACCOUNT words only. `known` is every bank,
+    product and kind word of any account; a token outside it (a verb, a pronoun,
+    "leave", "will", "it") is ignored. At least one account word must match this
+    account, every bank word said must be its bank, every kind word said its kind."""
     from app.services.account_names import display_account_name
 
     tokens = reference_tokens(ref)
@@ -69,8 +83,8 @@ def score(ref: str, account, kind: str, legacy_hit: bool) -> int:
         return _LEGACY + bonus
     if not tokens:
         return 0
-    product = set(words(account.name)) | set(words(display_account_name(account.name)))
-    bank = bank_words(getattr(account, "provider", None))
+    product, bank = _own_words(account)
+    known = (known if known is not None else set()) | product | bank | set(_KIND_BY_WORD)
     total = 0
     for t in tokens:
         if t in product:
@@ -79,23 +93,44 @@ def score(ref: str, account, kind: str, legacy_hit: bool) -> int:
             total += 2
         elif kind in _KIND_BY_WORD.get(t, ()):
             total += 1
-        else:
+        elif t in known:
             return 0
     return total
 
 
-def pick(ref: str, accounts: list, kind_of, name_matches) -> list:
+def known_words(accounts: list) -> set[str]:
+    out: set[str] = set()
+    for a in accounts:
+        product, bank = _own_words(a)
+        out |= product | bank
+    return out
+
+
+def pick(ref: str, accounts: list, kind_of, name_matches, within: list | None = None) -> list:
     """The best-scoring accounts for a reference: one means resolved, several
-    means a tie, none means no match."""
+    means a tie, none means no match. `within` (account ids, the candidates of an
+    earlier ambiguous answer) is tried first, so "the current account" narrows
+    them; when nothing there fits, every account is considered."""
+    if within:
+        keep = {str(i) for i in within}
+        narrowed = [a for a in accounts if str(a.id) in keep]
+        if narrowed:
+            found = _pick(ref, narrowed, kind_of, name_matches, known_words(accounts))
+            if found:
+                return found
+    return _pick(ref, accounts, kind_of, name_matches, known_words(accounts))
+
+
+def _pick(ref: str, accounts: list, kind_of, name_matches, known: set[str]) -> list:
     tokens = reference_tokens(ref)
-    if tokens and all(t in _KIND_BY_WORD and t != "isa" for t in tokens):  # "isa" is also a product word in names
+    account_tokens = [t for t in tokens if t in known or t in _KIND_BY_WORD]
+    if account_tokens and all(t in _KIND_BY_WORD and t != "isa" for t in account_tokens):
         # Only kind words ("current account", "my savings"): no bank or product named,
         # so every account of that kind fits equally and none is picked by its raw name.
-        return [a for a in accounts if any(kind_of(a) in _KIND_BY_WORD[t] for t in tokens)
-                and all(kind_of(a) in _KIND_BY_WORD[t] for t in tokens)]
+        return [a for a in accounts if all(kind_of(a) in _KIND_BY_WORD[t] for t in account_tokens)]
     scored = []
     for a in accounts:
-        s = score(ref, a, kind_of(a), bool(name_matches(ref, a.name)))
+        s = score(ref, a, kind_of(a), bool(name_matches(ref, a.name)), known)
         if s:
             scored.append((s, a))
     if not scored:

@@ -28,6 +28,7 @@ from app.services import goal_schedule as gs
 logger = logging.getLogger(__name__)
 
 NOTHING_MOVES = "Nothing moves until you move it."
+DAY_NUMBER_QUESTION = "Which day of the challenge is the first day?"
 HISTORY_NOTE = "Progress starts from today; the set-aside's past fills stay where they are."
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -196,9 +197,46 @@ def _unit_of(word: str) -> tuple[str, str | None]:
 
 # ── The parser ───────────────────────────────────────────────────────────────
 
-def parse_description(text: str, today: date) -> dict:
+_WD_RE = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|weds?|thurs?|thu|fri|sat|sun)"
+
+
+def _weekday_start(t: str, today: date, period_end: date | None) -> date | None:
+    """G356: "the first day will be on Friday the next period": the weekday on or
+    after today, or, with "next (pay) period", on or after the next pay period's
+    first day (the next such weekday when that day is not the weekday said)."""
+    m = re.search(r"\b(?:first day|start(?:s|ing)?|begin(?:s|ning)?|from)\s+(?:(?:will be|is|on|the)\s+)*" + _WD_RE + r"\b", t)
+    if not m:
+        return None
+    idx = _WEEKDAY_INDEX[m.group(1)]
+    floor = today
+    if period_end is not None and re.search(r"\bnext\s+(?:pay\s*)?period\b", t):
+        floor = period_end + timedelta(days=1)
+    return floor + timedelta(days=(idx - floor.weekday()) % 7)
+
+
+def _day_numbers(t: str) -> tuple[int | None, int | None]:
+    """G356: (N, M) from "day 287/365", "day 287 of 365", "on day 287" and "until
+    day 365". Never the calendar day of the year."""
+    if re.search(r"day of the year|31\s*dec", t):
+        return None, None
+    n = m_total = None
+    pair = re.search(r"\bday\s*(\d{1,3})\s*(?:/|of|out of)\s*(\d{1,3})\b", t)
+    if pair:
+        n, m_total = int(pair.group(1)), int(pair.group(2))
+    else:
+        on = re.search(r"\b(?:on|at)\s+day\s+(\d{1,3})\b", t)
+        if on:
+            n = int(on.group(1))
+    until = re.search(r"\b(?:until|till|through|to|up to)\s+day\s+(\d{1,3})\b", t)
+    if until:
+        m_total = int(until.group(1))
+    return n, m_total
+
+
+def parse_description(text: str, today: date, period_end: date | None = None) -> dict:
     """Read common phrasings into schedule fields. Returns {"fields", "assumptions",
-    "suggested_name"}. Unreadable parts are simply absent: `build` reports them as needs."""
+    "suggested_name"}. Unreadable parts are simply absent: `build` reports them as needs.
+    `period_end` (the live pay period's last day) lets "next period" be read."""
     t = " ".join(str(text or "").lower().replace("’", "'").split())
     fields: dict = {}
     assumptions: list[str] = []
@@ -222,9 +260,16 @@ def parse_description(text: str, today: date) -> dict:
             start = _parse_date(chunk, today)
         if start:
             break
+    if start is None:
+        start = _weekday_start(t, today, period_end)
     if start:
         fields["start_date"] = start.isoformat()
     base_start = start or today
+    day_n, day_m = _day_numbers(t)
+    if day_n is not None:
+        fields["day_number"] = day_n
+    if day_m is not None:
+        fields["last_day"] = day_m
 
     # End: "until December", "by 31 Dec 2026".
     em = re.search(r"\b(?:until|till|through|by(?:\s+the\s+end\s+of)?|to\s+the\s+end\s+of)\s+(?!£|\d+\s?p\b)(.+?)(?:[,.]|$)", t)
@@ -237,7 +282,7 @@ def parse_description(text: str, today: date) -> dict:
             fields["end_date"] = end.isoformat()
 
     # Unit: after the step amount, then after the start amount, then anywhere.
-    step_m = re.search(r"(?:add(?:ing|s)?|rising by|rises by|rise by|going up by|goes up by|go up by|increas(?:ing|es|e) by|up by|increment(?:ing|s)? by|plus|extra)\s*(?:another\s+)?" + _MONEY_RE, t)
+    step_m = re.search(r"(?:add(?:ing|s)?|(?:rising|rises|rise|going up|goes up|go up|increas(?:ing|es|e)|increment(?:ing|s)?)(?:\s+by)?|up by|plus|extra)\s*(?:another\s+)?" + _MONEY_RE, t)
     step_pence = None
     step_end = None
     if step_m:
@@ -263,6 +308,15 @@ def parse_description(text: str, today: date) -> dict:
             inner = re.search(_MONEY_RE, m.group(0))
             start_pence = _pence(inner)
             start_end = m.end()
+    if start_pence is None and not pct:
+        bare = re.search(r"\b(?:figure|amount|sum)\s+of\s+£?(\d+(?:\.\d{1,2})?)\b", t)
+        if bare:
+            start_pence, start_end = round(float(bare.group(1)) * 100), bare.end()
+    if start_pence is None and not pct:
+        # G356: "11.48 rising 4p a day", "start 11.48 then 4p more": a bare number before the step word.
+        lead = re.search(r"(?<![\w.])£?(\d+(?:\.\d{1,2})?)\s+(?:rising|rises|increasing|increases|going up|goes up|then)\b", t)
+        if lead:
+            start_pence, start_end = round(float(lead.group(1)) * 100), lead.end()
     if start_pence is None and not pct:
         for s0, e0, p0 in tokens:
             if step_m and step_m.start() <= s0 < step_m.end():
@@ -363,10 +417,10 @@ def fields_from_schedule(sched: dict | None) -> dict:
     return out
 
 
-def merge_fields(args: dict, today: date, base: dict | None = None) -> dict:
+def merge_fields(args: dict, today: date, base: dict | None = None, period_end: date | None = None) -> dict:
     """Parse `description`, then let explicit fields win. Returns the parse result
     with the merged "fields"."""
-    parsed = parse_description(args.get("description") or "", today) if args.get("description") else {
+    parsed = parse_description(args.get("description") or "", today, period_end) if args.get("description") else {
         "fields": {}, "assumptions": [], "suggested_name": None}
     fields = dict(base or {})
     fields.update(parsed["fields"])
@@ -386,6 +440,20 @@ def merge_fields(args: dict, today: date, base: dict | None = None) -> dict:
     amounts = args.get("amounts")
     if isinstance(amounts, list) and amounts:
         fields["amounts_pence"] = [_pence_arg(a) for a in amounts]
+    # G356: a day number N and a last day M mean the schedule runs M - N + 1 days from
+    # the start date, so day M is start + (M - N) days. Only when this call brings the
+    # day numbers and the user gave no other length.
+    said_explicit = {k for k, v in explicit.items() if v is not None}
+    if ("day_number" in parsed["fields"] or "last_day" in parsed["fields"]) and not said_explicit & {"count", "end_date"} \
+            and "end_date" not in parsed["fields"]:
+        n_day, m_day = fields.get("day_number"), fields.get("last_day")
+        if n_day is not None and m_day is not None and m_day >= n_day:
+            fields["count"] = m_day - n_day + 1
+            parsed["fields"]["count"] = fields["count"]
+            first = date.fromisoformat(fields["start_date"]) if fields.get("start_date") else today
+            last = first + timedelta(days=m_day - n_day)
+            parsed["assumptions"] = [*parsed["assumptions"],
+                                     f"I have counted from your day {n_day}, so day {m_day} is {gs.fmt_date_wd(last)}."]
     if base:
         # G355: a length given in one way replaces the other way from the base, so a
         # draft's "79 days" is not silently capped by an old end date, or the reverse.
@@ -421,7 +489,7 @@ def build_schedule(fields: dict, today: date) -> tuple[dict | None, list[str]]:
     if not fields.get("step_unit"):
         needs.append("step_unit")
     if fields.get("count") is None and not fields.get("end_date"):
-        needs.append("length")
+        needs.append("day_number" if fields.get("last_day") and fields.get("day_number") is None else "length")
     if needs:
         return None, needs
     return {"type": "arithmetic", "start_pence": fields["start_pence"], "step_pence": fields.get("step_pence") or 0,
@@ -474,7 +542,8 @@ def _figures(clean: dict, cfg: dict, today: date) -> dict:
         lead = "Nothing is due this pay period"
     if nxt:
         lead += ", then " + ", ".join(gs.fmt_money(n["amount"]) for n in nxt) + " over the next pay periods"
-    summary = f"{label_wd[:1].upper()}{label_wd[1:]} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date_wd(end) if end else 'later'}. {lead}, on your current pay periods."
+    summary = (f"Here is the plan: {label_wd} comes to {gs.fmt_money(total)} in total, finishing {gs.fmt_date_wd(end) if end else 'later'}. "
+               f"{lead}, on your current pay periods. Confirm the card to set it up.")
     return {
         "schedule": clean, "schedule_label": label, "total": _money2(total),
         "this_period_amount": _money2(this_period),
@@ -553,7 +622,11 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
     from app.routers.commitments import _pay_cfg
 
     today = timeutil.user_today()
-    parsed = merge_fields(args, today, base)
+    try:
+        period_end = _period_bounds(today, await _pay_cfg(uid))[1]
+    except Exception:
+        period_end = None
+    parsed = merge_fields(args, today, base, period_end)
     raw, needs = build_schedule(parsed["fields"], today)
     assumptions = list(parsed["assumptions"])
     if not parsed["fields"].get("start_date"):
@@ -564,6 +637,8 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
         if not parsed["fields"]:
             needs = ["description"]
         out["needs"] = needs
+        if "day_number" in needs:
+            out["needs_questions"] = {"day_number": DAY_NUMBER_QUESTION}
         out["parsed"] = {k: v for k, v in parsed["fields"].items() if v is not None}
         return out
     clean, problem = _check(raw)
@@ -587,10 +662,10 @@ async def build(uid: str, args: dict, *, base: dict | None = None) -> dict:
 # behaves as before and returns no draft.
 
 FIELD_KEYS = ("start_date", "start_pence", "step_pence", "step_unit", "count", "end_date", "percent",
-              "expected_pay_pence", "amounts_pence")
+              "expected_pay_pence", "amounts_pence", "day_number", "last_day")
 _GENERIC_NAME_WORDS = frozenset({"saving", "goal", "plan", "fund", "pot", "set", "aside", "money", "new", "pay", "period"})
 _BASIS_WORDS = {
-    "stated": "stated by the user",
+    "stated": "stated, settled",
     "model": "picked by Penny, not yet confirmed by the user",
     "recent-transfers": "detected from recent transfers, needs the user's OK",
     "assumed": "assumed because it is the only current account, needs the user's OK",
@@ -676,6 +751,16 @@ def _fields_for_draft(built: dict) -> dict:
     return out
 
 
+def _candidates_extra(blocked) -> dict:
+    """G356: the accounts an ambiguous reference matched, kept in the draft so a
+    kind-only answer ("the current account") resolves within them."""
+    if isinstance(blocked, dict) and blocked.get("ambiguous"):
+        ids = [str(m["id"]) for m in blocked.get("matches") or [] if isinstance(m, dict) and m.get("id")]
+        if ids:
+            return {"source_candidates": ids}
+    return {}
+
+
 def _next_draft(old: dict | None, built: dict, *, name=None, source=None, into=None, extra: dict | None = None) -> dict | None:
     from app.services import penny_focus
 
@@ -684,6 +769,7 @@ def _next_draft(old: dict | None, built: dict, *, name=None, source=None, into=N
     if name:
         draft["name"] = str(name)
     if source:
+        draft.pop("source_candidates", None)
         draft["source_account_id"] = source["account_id"]
         draft["source_account_name"] = source.get("name")
         draft["source_basis"] = source["basis"]
@@ -736,8 +822,10 @@ def convert_sentence(match: dict) -> str:
 
 # ── Source account ───────────────────────────────────────────────────────────
 
-async def _resolve(uid: str, ref):
+async def _resolve(uid: str, ref, within=None):
     from app.services.penny_tools import _resolve_account_for_propose
+    if within:
+        return await _resolve_account_for_propose(uid, ref, within=list(within))
     return await _resolve_account_for_propose(uid, ref)
 
 
@@ -785,12 +873,14 @@ async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=No
         if pot is not None:
             out["into"] = await _account_view(uid, pot)
     if source_ref:
-        res = await _resolve(uid, source_ref)
+        res = await _resolve(uid, source_ref, draft.get("source_candidates"))
         if res.get("ambiguous") or res.get("error"):
             return {**out, "blocked": res}
         if res.get("account") is not None:
             basis = "stated" if stated_by_user(res["account"], texts) else "model"
             out["source"] = {**await _account_view(uid, res["account"]), "basis": basis}
+            if basis == "stated":
+                out["source"]["confirmed"] = True  # G356: a stated reference that resolved to one account is settled
             return out
     if draft.get("source_account_id"):
         basis = draft.get("source_basis") or "model"
@@ -800,6 +890,8 @@ async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=No
             if res.get("account") is not None and stated_by_user(res["account"], texts):
                 basis = "stated"
         out["source"] = {"account_id": draft["source_account_id"], "name": name, "basis": basis}
+        if basis == "stated":
+            out["source"]["confirmed"] = True
         return out
     if goal_ref:
         from app.services.penny_tools import _resolve_commitment_for_propose
@@ -848,11 +940,13 @@ def _public(built: dict) -> dict:
 
 
 def source_sentence(src: dict) -> str:
-    """One sentence on where the money leaves from. "As you said" only ever
-    follows an account the user named (basis "stated")."""
+    """One sentence on where the money leaves from. A stated source is
+    settled and carries no question; the rest are hedged."""
+    if src["basis"] == "stated":
+        return f"The money leaves from {src['name']}."
     if src["basis"] == "model":
         return f"I have picked {src['name']} as the account the money leaves from, please check it. {NOTHING_MOVES}"
-    how = {"stated": "as you said", "stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
+    how = {"stored": "as already set on this goal", "recent-transfers": "from recent transfers, so please check it", "assumed": "assumed because it is your only current account, so please check it"}[src["basis"]]
     return f"The money would leave from {src['name']} ({how}). {NOTHING_MOVES}"
 
 
@@ -913,6 +1007,7 @@ async def exec_preview_goal_schedule(uid: str, args: dict) -> dict:
                 convert_extra["convert_candidate"] = match
                 if not decided:
                     out["summary"] = f"{out['summary']} {convert_sentence(match)}"
+        convert_extra.update(_candidates_extra(out.get("source_problem")))
         draft = _next_draft(old, built, name=name, source=source, into=into, extra=convert_extra)
         return _with_draft(out, args, draft)
     except HTTPException as e:
@@ -957,7 +1052,10 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
         name_hint = args.get("name") or (old or {}).get("name") or built.get("suggested_name")
         if built.get("needs"):
             draft = _next_draft(old, built, name=name_hint)
-            return _with_draft({"needs": built["needs"], "assumptions": built.get("assumptions", []), "parsed": built.get("parsed")}, args, draft)
+            res = {"needs": built["needs"], "assumptions": built.get("assumptions", []), "parsed": built.get("parsed")}
+            if built.get("needs_questions"):
+                res["needs_questions"] = built["needs_questions"]
+            return _with_draft(res, args, draft)
         raw_name = name_hint
         if not raw_name or not str(raw_name).strip():
             return _with_draft({"needs": ["name"], "summary": built["summary"]}, args, _next_draft(old, built))
@@ -988,6 +1086,7 @@ async def exec_propose_create_scheduled_goal(uid: str, args: dict) -> dict:
             draft=old, texts=texts,
         )
         if found.get("blocked"):
+            extra.update(_candidates_extra(found["blocked"]))
             return _with_draft(found["blocked"], args, _next_draft(old, built, name=name, into=found.get("into"), extra=extra))
         source = found.get("source")
         into = found.get("into")

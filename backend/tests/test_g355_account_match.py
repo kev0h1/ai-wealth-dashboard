@@ -116,3 +116,49 @@ def test_kind_words_alone_never_pick_by_raw_name(monkeypatch):
     res = resolve("my savings account")
     assert res["ambiguous"] is True and {m["id"] for m in res["matches"]} == {"sp", "es"}
     assert resolve("Monzo current account")["account"].id == "mon"
+
+
+# ── G356: account words only, and narrowing within earlier candidates ────────
+
+@pytest.fixture
+def three_monzo(monkeypatch):
+    accounts = [
+        ACCOUNTS[1],  # the holder-named Monzo current account
+        ACCOUNTS[2],  # Saving Challenge (2026), a Monzo pot
+        Account(id="hol", name="Holiday", type="savings", subtype="SAVINGS_ACCOUNT", balance=5.0, provider="monzo"),
+        ACCOUNTS[0],
+    ]
+
+    async def get(user):
+        return list(accounts)
+
+    monkeypatch.setattr(accounts_module, "get_accounts", get)
+
+
+def test_verbs_and_pronouns_are_ignored(three_monzo):
+    res = resolve("It will leave from my Monzo current account")
+    assert res["account"].id == "mon"
+
+
+def test_bank_alone_still_lists_three(three_monzo):
+    res = resolve("Monzo")
+    assert res["ambiguous"] is True
+    assert {m["id"] for m in res["matches"]} == {"mon", "pot", "hol"}
+
+
+def test_kind_only_answer_resolves_within_candidates(three_monzo):
+    # Without candidates "the current account" matches Barclays and Monzo
+    assert resolve("The current account")["ambiguous"] is True
+    res = asyncio.run(_resolve_account_for_propose(UID, "The current account", within=["mon", "pot", "hol"]))
+    assert res["account"].id == "mon"
+
+
+def test_within_falls_back_when_nothing_there_fits(three_monzo):
+    res = asyncio.run(_resolve_account_for_propose(UID, "barclays", within=["mon", "pot", "hol"]))
+    assert res["account"].id == "bar"
+
+
+def test_a_reference_with_no_account_word_matches_nothing(three_monzo):
+    assert resolve("it will leave from somewhere")["error"].startswith("no account matching")
+    # a bank word of another account is a mismatch, not noise
+    assert resolve("Barclays savings").get("account") is None

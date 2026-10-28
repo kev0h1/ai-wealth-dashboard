@@ -96,7 +96,7 @@ def test_draft_sentence_and_focus_block():
     _out, draft = call("preview_goal_schedule", {**PLAN, "funding_pot": "Saving Challenge", "source_account_id_or_name": "Monzo Current"})
     text = focus.focus_block({"tool": "preview_goal_schedule", "kind": "goal_draft", "draft": draft})
     assert text.startswith("\n\nDRAFT goal: £11.48 a day, rising by 4p a day, from Fri 30 Oct 2026 for 79 days")
-    assert "source Monzo Current Account (stated by the user)" in text and "into Saving Challenge" in text
+    assert "source Monzo Current Account (stated, settled)" in text and "into Saving Challenge" in text
     assert "never re-ask a settled field" in text and "'Daily' or 'Monzo'" in text
 
 
@@ -161,8 +161,8 @@ def test_generic_words_are_not_evidence():
 
 
 @pytest.mark.parametrize("basis,has_as_you_said", [
-    ("stated", True), ("model", False), ("stored", False), ("recent-transfers", False), ("assumed", False)])
-def test_as_you_said_only_follows_a_stated_source(basis, has_as_you_said):
+    ("stated", False), ("model", False), ("stored", False), ("recent-transfers", False), ("assumed", False)])
+def test_as_you_said_never_appears(basis, has_as_you_said):
     sentence = pgs.source_sentence({"name": "Monzo", "basis": basis})
     assert ("as you said" in sentence) is has_as_you_said
 
