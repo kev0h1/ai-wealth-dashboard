@@ -10,7 +10,7 @@ from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS, SUBSCRIPTION_TRIAL_PERIODS,
     TIER_BILLING_PRICES_GBP, TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
-    billing_period_detail, get_subscription, grant_pack, mcp_allowance,
+    billing_period_detail, get_subscription, grant_pack, pick_subscription_doc, mcp_allowance,
     penny_allowance,
 )
 from app.db.collections import subscriptions_col
@@ -24,6 +24,23 @@ from app.db.collections import subscriptions_col
 # ConnectedAssistantsCard, the "Your plan" Settings card).
 
 router = APIRouter(tags=["subscription"])
+
+
+def _tier_source(doc: dict | None, sub) -> str:
+    """C37: "default" (no subscription, the DEFAULT_TIER fallback),
+    "free_selected" (chose Statements), "manual" (owner or allow-list seed or
+    admin set), else the provider that owns the document."""
+    if not doc:
+        return "default"
+    managed = doc.get("managed_by")
+    if managed == "manual":
+        return "manual"
+    if managed == "self":
+        return "free_selected"
+    if sub.status == "expired" and not getattr(sub, "has_paid_subscription", False):
+        return "default"
+    provider = doc.get("provider") or "stripe"
+    return provider if provider in ("stripe", "apple", "google") else "stripe"
 
 
 @router.get("/subscription")
@@ -109,6 +126,16 @@ async def get_subscription_info(user: dict = Depends(current_user)):
     except Exception:
         trial_eligible = None
 
+    # C37: per-channel availability and where the plan came from, so the
+    # client never labels a plan the user only has by default as "Current".
+    from app.services.billing_channels import billing_channels as _billing_channels
+    channels = await _billing_channels(BILLING_ENABLED)
+    try:
+        docs = [d async for d in subscriptions_col.find({"user_id": email})]
+        tier_source = _tier_source(pick_subscription_doc(docs)[0], sub)
+    except Exception:
+        tier_source = None  # unknown: the client then shows the plain label
+
     return {
         "trial_eligible": trial_eligible,
         "tier":         sub.tier_name,
@@ -140,7 +167,12 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "grace_days": BILLING_PAST_DUE_GRACE_DAYS,
         "grace_until": sub.grace_until.isoformat() if getattr(sub, "grace_until", None) else None,
         "open_banking_paused": (getattr(sub, "limits", None) or {}).get("open_banking") is False,
+        # Stripe web checkout only. Use billing_channels for the real answer.
         "billing_live": BILLING_ENABLED,
+        "billing_channels": {k: v for k, v in channels.items() if k != "any_live"},
+        "billing_live_any": channels["any_live"],
+        "tier_source": tier_source,
+        "is_default_tier": tier_source == "default",
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.
         "topup":        PENNY_TOPUP,
@@ -159,12 +191,14 @@ async def select_free_tier(user: dict = Depends(current_user)):
     An active Stripe subscription must be cancelled in Stripe's portal so
     changing an app document can never leave a paid renewal running unseen.
 
-    D12: refused while billing is not live. With BILLING_ENABLED false every
-    user sits on the DEFAULT_TIER fallback (max); writing a Statements
-    document here would silently override that fallback and remove Add bank,
-    so even a stale client cannot do it.
+    D12: refused while NO payment channel is live (C37: Stripe web, Apple or
+    Google Play, see services.billing_channels). With none live every user
+    sits on the DEFAULT_TIER fallback (plus); writing a Statements document
+    here would silently override that fallback and remove Add bank, so even a
+    stale client cannot do it.
     """
-    if not BILLING_ENABLED:
+    from app.services.billing_channels import billing_channels as _billing_channels
+    if not (await _billing_channels(BILLING_ENABLED))["any_live"]:
         raise HTTPException(409, "Plans are not available yet, so there is nothing to select")
     email = user["email"]
     # C21: the per-user slot this writes is the provider="stripe" one (manual
@@ -180,6 +214,9 @@ async def select_free_tier(user: dict = Depends(current_user)):
     apple = await subscriptions_col.find_one({"user_id": email, "provider": "apple"})
     if apple and apple.get("status") in {"active", "trialing", "past_due"}:
         raise HTTPException(409, "Cancel your paid subscription in iOS Settings first")
+    google = await subscriptions_col.find_one({"user_id": email, "provider": "google"})
+    if google and google.get("status") in {"active", "trialing", "past_due"}:
+        raise HTTPException(409, "Cancel your paid subscription in Google Play first")
 
     now = datetime.now(timezone.utc)
     await subscriptions_col.update_one(
