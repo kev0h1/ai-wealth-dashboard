@@ -1210,7 +1210,7 @@ def _validate_target_date(raw) -> str:
     return target.isoformat()
 
 
-def _validate_schedule_body(raw, cfg: dict) -> tuple[dict | None, float | None, str | None]:
+async def _validate_schedule_body(raw, uid: str) -> tuple[dict | None, float | None, str | None]:
     """G351: (clean schedule, total in pounds, end date) for a request's
     `schedule`, or (None, None, None) for absent / null / equal amounts."""
     if raw is None or (isinstance(raw, dict) and raw.get("type") in (None, "equal")):
@@ -1221,6 +1221,7 @@ def _validate_schedule_body(raw, cfg: dict) -> tuple[dict | None, float | None, 
         raise HTTPException(400, str(exc)) from None
     if clean["type"] == "percent_of_pay" and not clean.get("expected_pay_pence"):
         raise HTTPException(400, "Say roughly what your pay is, so a percentage can be turned into pounds.")
+    cfg = await _pay_cfg(uid)
     total = goal_schedule.total_pence(clean, cfg)
     last = goal_schedule.end_date(clean, cfg)
     if total <= 0 or last is None:
@@ -1396,7 +1397,7 @@ async def create_commitment(
 ):
     uid = user["email"]
     name = _validate_name(body.get("name"))
-    sched, sched_total, sched_end = _validate_schedule_body(body.get("schedule"), await _pay_cfg(uid))
+    sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
     if sched:
         amount = _validate_amount(sched_total)
         target_date = sched_end
@@ -1505,7 +1506,7 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     its own prior self). Lenient by design — unreadable pots/accounts just
     contribute 0."""
     uid = user["email"]
-    sched, sched_total, sched_end = _validate_schedule_body(body.get("schedule"), await _pay_cfg(uid))
+    sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
     if sched:
         amount = _validate_amount(sched_total)
         target_date = sched_end
@@ -1739,7 +1740,7 @@ async def update_commitment(
     if "schedule" in body:
         if target_status != "active":
             raise HTTPException(409, f"cannot change schedule on a commitment with status '{target_status}'")
-        sched, sched_total, sched_end = _validate_schedule_body(body.get("schedule"), await _pay_cfg(uid))
+        sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
         updates["schedule"] = sched
         if sched:
             sched_set = True
