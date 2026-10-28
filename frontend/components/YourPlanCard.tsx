@@ -63,6 +63,10 @@ function planReading(info: SubscriptionInfo): { title: string; detail: string; p
   if (info.status === "expired") {
     return { title, detail: "Your paid plan has ended.", price: null, period: null, attention: false };
   }
+  if (!info.has_paid_subscription && info.is_default_tier === true) {
+    // C37: no subscription at all, the plan is only the server default.
+    return { title: `${tier}, by default`, detail: "No paid subscription. You are not subscribed yet.", price: null, period: null, attention: false };
+  }
   if (!info.has_paid_subscription) {
     return { title: info.tier === "plus" ? "Plus access" : title, detail: info.tier === "plus" ? "No paid subscription." : "Free access with no automatic renewal.", price: null, period: null, attention: false };
   }
