@@ -1195,7 +1195,7 @@ async def _active_commitment_slices(
         return {}
 
 
-def _gbp(x: float) -> str:
+def _gbp_num(x: float) -> str:
     """Whole pounds without a decimal point, otherwise two places (G350 copy
     helper, so a fractional leg never reads "£120.0")."""
     x = round(float(x), 2)
@@ -4102,18 +4102,18 @@ async def compute_today_items(
 
             if over_salary is not None:
                 body = (
-                    f"These moves add up to £{_gbp(over_salary['total'])}, more than the "
+                    f"These moves add up to £{_gbp_num(over_salary['total'])}, more than the "
                     f"~£{over_salary['pay']:,} pay expected. "
-                    f"£{_gbp(over_salary['short'])} would need to come from other accounts."
+                    f"£{_gbp_num(over_salary['short'])} would need to come from other accounts."
                 )
             elif left_out and covered:
-                body = f"£{_gbp(total)} distributed. Some moves were left out this month."
+                body = f"£{_gbp_num(total)} distributed. Some moves were left out this month."
             elif covered and trimmed:
-                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp(total)} distributed."
+                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp_num(total)} distributed."
             elif covered:
                 body = f"£{total:,} distributed, £{stays:,} stays in {_salary_name}."
             elif trimmed:
-                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp(total)} distributed."
+                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp_num(total)} distributed."
             else:
                 body = f"£{total:,} distributed across {n_moves} accounts."
 
