@@ -214,15 +214,14 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("G320: unknown banks use the existing badge fallback", noLogo.includes("Zzyzx Bank") && !noLogo.includes("/banks/zzyzx"));
 
   const withReserve = renderList({ coverMoveVisible: true, reserveByAccount: { b2: 12 } });
-  check("G324: a visible move names its source reserve without inventing a destination", textOf(withReserve).includes("£12 already held back in Barclays Maingi K M for the move shown above.") && !withReserve.includes("The move above is already held back."));
-  check("G324: reserve metadata does not deduct from the account limit", textOf(withReserve).includes("up to £30") && (withReserve.match(/already held back/g) ?? []).length === 1);
+  check("G353: a reserved move adds no per-account copy", !textOf(withReserve).includes("already held back"));
+  check("G353: reserve metadata leaves account limits and all markup unchanged", withReserve === markup && textOf(withReserve).includes("up to £30"));
   const withoutReserve = renderList({ coverMoveVisible: true });
-  check("G320: a visible move without source metadata keeps the neutral reconciliation", withoutReserve.includes("The move above is already held back."));
-  check("G320: no move renders neither reserve note", !markup.includes("held back for the move") && !markup.includes("The move above is already held back."));
-  check("G320: hiding a move suppresses stale reserve metadata", !renderList({ coverMoveVisible: false, reserveByAccount: { b2: 12 } }).includes("already held back"));
+  check("G353: a visible move without metadata adds no generic reserve note", withoutReserve === markup && !withoutReserve.includes("The move above is already held back."));
+  check("G353: hiding a move leaves the same list and limits", renderList({ coverMoveVisible: false, reserveByAccount: { b2: 12 } }) === markup);
 
   const namedDestination = renderList({ coverMoveVisible: true, reserveByAccount: { b2: 12 }, destinationsByAccount: { b2: ["Monzo Everyday", "Chase Flex Current"] } });
-  check("G324: a visible move names each real destination", textOf(namedDestination).includes("£12 already held back in Barclays Maingi K M for the move to Monzo Everyday and Chase Flex Current."));
+  check("G353: destination metadata adds no repeated move explanation", namedDestination === markup);
 
   const masked = renderToStaticMarkup(React.createElement(BalancesHiddenContext.Provider, { value: true }, React.createElement(SpendFromAccountList, {
     entries, pool: 120, amount, coverMoveVisible: true, reserveByAccount: { b2: 12 }, onLogoError: noop, kind: "bank-rail",
@@ -236,7 +235,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   );
   const treatmentMarkup = renderToStaticMarkup(React.createElement(React.Fragment, null, treatment?.heroAside ?? null, treatment?.body ?? null));
   check("G320: healthy treatment returns the list as its body, not a hero aside", treatment?.heroAside == null && treatmentMarkup.includes('data-spend-from-layout="account-list"'));
-  check("G320: the renderer forwards reserve metadata after onRetry", textOf(treatmentMarkup).includes("£12 already held back"));
+  check("G353: the full treatment keeps limits without reserve restatements", !textOf(treatmentMarkup).includes("already held back") && textOf(treatmentMarkup).includes("up to £30"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

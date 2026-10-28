@@ -49,12 +49,11 @@ interface SafeToSpendCardProps {
   spendFrom?: SpendFromResult | null;
   /**
    * True only while a cover-plan move card is visibly rendered above this
-   * hero on Home. G114 has already deducted that move from the figures; this
-   * flag lets the supporting copy make that reconciliation explicit without
-   * claiming there is a card above after the user hides it.
+   * hero on Home. Lets the no-cash state point to the move as the next action
+   * without pointing to a card after the user hides it.
    */
   coverMoveVisible?: boolean;
-  /** Visible funded transfer legs, for disclosure only. Already in headroom. */
+  /** Legacy presentation metadata. Reserves are already included in headroom. */
   coverMoveReserves?: Record<string, number>;
   coverMoveDestinations?: Record<string, string[]>;
   /**
