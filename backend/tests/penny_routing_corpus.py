@@ -103,6 +103,11 @@ ROUTING_CASES = [
          question="Connect my Monzo account", expect_any=None),
     dict(id="route-34-add-another-bank", screen="accounts", first="propose_connect_bank", required=["propose_connect_bank"],
          question="Add another bank", expect_any=None),
+    # G351: a goal whose contribution changes each step, previewed by the server first.
+    dict(id="route-35-four-p-challenge", screen="planning", first="preview_goal_schedule", required=["preview_goal_schedule"],
+         question="I'm doing the 4p challenge, starting at 4p and adding 4p a day for a year", expect_any=None),
+    dict(id="route-36-set-that-up-as-a-goal", screen="planning", first="propose_create_scheduled_goal", required=["propose_create_scheduled_goal"],
+         question="Yes, set that up as a goal, it leaves from my Monzo current account", expect_any=None),
 ]
 
 # category -> {this period, last-n-months} fixtures
@@ -180,6 +185,10 @@ def fake_execute_factory(real_execute, base_fixtures, verdict_by_offset, categor
             return {"summary": "You could move up to £200.00 into your Barclays account: £146.00 from NatWest and £54.00 from Starling. Each account keeps enough for its own bills and set-asides. Moving money between your own accounts does not change your left to spend.",
                     "left_to_spend_unchanged": True, "pool": _money(236, 2), "total": _money(200, 2), "legs": [{"name": "NatWest", "amount": _money(146, 2)},
                                                       {"name": "Starling", "amount": _money(54, 2)}]}
+        if name == "preview_goal_schedule":
+            return {"schedule_label": "4p a day, rising by 4p a day, from 28 Oct 2026 for 365 days", "total": _money(2671.80, 2),
+                    "this_period_amount": _money(30.20, 2), "next_periods": [], "summary": "Quote the server's summary.",
+                    "source": {"name": "Monzo current account", "basis": "recent-transfers"}}
         if name == "get_set_asides":
             pots = [("a1", "Saving Challenge (2026)", 50), ("a2", "Holiday", 120), ("a3", "Digital saver", 30)]
             return {"set_asides": [{"id": i, "name": n, "target": _money(v, 2), "filled": _money(0, 2), "remaining": _money(v, 2),

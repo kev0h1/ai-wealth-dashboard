@@ -924,9 +924,20 @@ async def _execute_create_commitment(uid: str, params: dict) -> dict:
     # source="can_i" — the existing commitments.py source enum already
     # anticipates a Penny-originated commitment; created_via="penny" (below)
     # is the separate, more specific origin-badge stamp the owner asked for.
-    body = {**params, "source": "can_i"}
+    # G351: a set-aside being replaced is paused here, on this same confirmation,
+    # never by Penny on her own. It is not part of the goal itself.
+    deactivate_id = params.get("deactivate_allocation_id")
+    body = {**{k: v for k, v in params.items() if k != "deactivate_allocation_id"}, "source": "can_i"}
     result = await _route_create_commitment(body, user={"email": uid})
     await _stamp_created_via(_commitments_col_execute, result["id"], result)
+    if deactivate_id:
+        try:
+            from app.routers.allocations import update_allocation as _route_pause_allocation
+
+            await _route_pause_allocation(str(deactivate_id), {"active": False}, user={"email": uid})
+        except Exception:
+            logger.exception("can_i: pausing the replaced set-aside failed for %s", uid)
+            result["set_aside_paused"] = False
     return result
 
 

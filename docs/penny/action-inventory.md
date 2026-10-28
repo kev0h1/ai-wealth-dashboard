@@ -14,7 +14,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 
 | Capability | View tool | Write tool | Status | Notes |
 |---|---|---|---|---|
-| Goals | `get_goals` | `propose_create_commitment`, `propose_update_commitment`, `propose_delete_commitment` | covered | name, amount and target date; funding pots and contributions stay in the app (partial rows in section 2) |
+| Goals | `get_goals`, `preview_goal_schedule` (G351) | `propose_create_commitment`, `propose_create_scheduled_goal` (G351), `propose_update_commitment`, `propose_delete_commitment` | covered | name, amount and target date; funding pots and contributions stay in the app (partial rows in section 2) |
 | Set-asides | `get_set_asides` (B59) | `propose_create_allocation`, `propose_update_allocation`, `propose_delete_allocation` | covered | edit covers name, amount, recurrence and paused; the fill account and match rule stay in the app |
 | Payday plan | `get_payday_plan` (B60), `get_today_brief` | none | covered (view) | a recommendation with no lifecycle (G172): nothing to confirm, verify or celebrate, so there is no write to propose |
 | Pay split versus the conscious spending plan | `get_pay_split` (B60) | none | covered (view), write gap | Penny compares against any of the three references on request; saving the selected reference (`pay_split_reference`) is a gap, low value |
@@ -28,7 +28,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 
 ## 1. Penny tool list
 
-### Read tools, 25, all in `TOOL_SCHEMAS`
+### Read tools, 26, all in `TOOL_SCHEMAS`
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
@@ -45,6 +45,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 | `plan_consolidation(target_account_id_or_name, amount?, include_savings?, exclude_account_ids_or_names?)` | read (G334) | `build_today_payload` account eligibility, the move planner |
 | `get_payday_plan` | read (B60) | `app.services.companion.compute_today_items` (the live payday plan item, else the preview, never persisted) |
 | `get_pay_split(reference?)` | read (B60) | `app.services.money_shape.get_money_shape_cached` + the `pay_split_reference` preference |
+| `preview_goal_schedule(description?, start_amount?, step_amount?, step_unit?, count?, end_date?, start_date?, percent?, pay_amount?, amounts?, funding_pot?, source_account_id_or_name?, goal_ref?)` | read (G351) | `app.services.goal_schedule` (the schedule engine) via `penny_goal_schedule.py`; also reports the source account suggestion |
 | `check_affordability(amount, timeframe?)` | read | `app.services.affordability` |
 | `get_category_spend(category?, months?)` | read | `compute_spend_verdict` + raw txn rows |
 | `get_insights` | read | `savings_insights_col` ordered as `GET /savings-insights` (G283: facts only, no saving figures) |
@@ -58,7 +59,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 | `calculate(expression)` | read | `app.services.safe_calc.evaluate` (AST whitelist, never `eval`) |
 | `preview_trend_intent(category, answer)` | read (B17) | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`), `answer='one_off'` short-circuits without an engine call |
 
-### Propose/write tools, 49, in `PROPOSE_TOOL_SCHEMAS`
+### Propose/write tools, 50, in `PROPOSE_TOOL_SCHEMAS`
 
 B14 (2026-09-08, B12 stage 1 shipped) added the ten edit/delete twins below
 the original eight, for the covered creates only (planned, allocation,
@@ -91,13 +92,14 @@ reconciled against that real total. B60 (2026-10-25) added three more (`propose_
 | `propose_add_planned(name, amount, date, account_id?)` | propose | `app.routers.planned.create_planned_expense` (`POST /planned`) |
 | `propose_create_allocation(name, amount_per_period, fill_account_id, match_type, match_value, recurrence, effective_from?)` | propose | `app.routers.allocations.create_allocation` (`POST /allocations`) |
 | `propose_create_commitment(name, amount, target_date, funding_pots?)` | propose | `app.routers.commitments.create_commitment` (`POST /commitments`) |
+| `propose_create_scheduled_goal(name, description?, schedule fields?, funding_pot?, source_account_id_or_name?, use_detected_source?, convert_from_set_aside?)` | propose (G351) | `app.routers.commitments.create_commitment` (`POST /commitments` with a `schedule` and a source account); a replaced set-aside is paused on the same confirmation |
 | `propose_recategorise_transaction(transaction_id or merchant+date+amount, new_category, scope)` | propose | `app.routers.transactions.update_transaction` (`scope="just_once"`), + `app.routers.categories.add_rule` (`scope="always"`) |
 | `propose_set_card_apr(card_ref, apr_pct)` | propose | `app.routers.card_terms.save_card_terms` (read-modify-write, only `apr_pct` changes) |
 | `propose_update_planned(planned_ref, name?, amount?, date?)` | propose (B14) | `app.routers.planned.update_planned_expense` (`PATCH /planned/{id}`, name/amount/date only, not `account_id`) |
 | `propose_delete_planned(planned_ref)` | propose (B14) | `app.routers.planned.delete_planned_expense` (`DELETE /planned/{id}`) |
 | `propose_update_allocation(allocation_ref, name?, amount_per_period?, recurrence?, paused?)` | propose (B14) | `app.routers.allocations.update_allocation` (`PATCH /allocations/{id}`, name/amount_per_period/recurrence/active only, not `fill_account_id`/match rule/`effective_from`) |
 | `propose_delete_allocation(allocation_ref)` | propose (B14) | `app.routers.allocations.delete_allocation` (`DELETE /allocations/{id}`) |
-| `propose_update_commitment(commitment_ref, name?, amount?, target_date?)` | propose (B14) | `app.routers.commitments.update_commitment` (`PATCH /commitments/{id}`, name/amount/target_date only, not `funding_pots`/`status`/`contribute_delta`) |
+| `propose_update_commitment(commitment_ref, name?, amount?, target_date?, schedule fields?)` | propose (B14, G351) | `app.routers.commitments.update_commitment` (`PATCH /commitments/{id}`, name/amount/target_date only, not `funding_pots`/`status`/`contribute_delta`) |
 | `propose_delete_commitment(commitment_ref)` | propose (B14) | `app.routers.commitments.delete_commitment` (`DELETE /commitments/{id}`, a soft cancel — sets `status: "cancelled"`) |
 | `propose_delete_checkpoint(checkpoint_ref)` | propose (B14) | `app.routers.checkpoints.delete_checkpoint` (`DELETE /checkpoints/{id}`; no PATCH exists on this object, delete is the only twin) |
 | `propose_skip_occurrence(key_or_name, date)` | propose (B14) | `app.routers.analytics.skip_occurrence` (`POST /cashflow/skip-occurrence`) |
