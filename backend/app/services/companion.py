@@ -960,6 +960,58 @@ async def _pair_credits_to_source(
     return _modal_account(votes)
 
 
+async def _allocation_funding_source(
+    uid: str, alloc: dict, internal_inflows: list[dict], account_map: dict[str, dict],
+) -> str | None:
+    """Dominant own account that funds one allocation's fill account (learned
+    transfer mirror first, direct fill-leg pairing as the fallback), or None
+    when neither channel finds a source. Extracted from
+    `_reserved_for_allocations` (G350) so the payday plan's set-aside legs use
+    the SAME source the envelope reservation does."""
+    fill_acct = alloc.get("fill_account_id")
+    if not fill_acct:
+        return None
+    counts: dict[str, int] = {}
+    for inflow in internal_inflows:
+        if inflow.get("account_id") != fill_acct:
+            continue
+        src = inflow.get("source_account_id")
+        if not src:
+            continue
+        counts[src] = counts.get(src, 0) + 1
+    dominant = _modal_account(counts)
+
+    if dominant is None:
+        # Primary channel found nothing for THIS allocation — fall back
+        # to direct fill-leg pairing (see `_direct_fill_leg_source`'s
+        # docstring: exactly the case a sub-week cadence like the
+        # owner's daily drip needs, since it never reaches
+        # `internal_inflows` at all).
+        try:
+            period_start_raw = alloc.get("period_start")
+            period_end_raw = alloc.get("period_end")
+            if not period_start_raw or not period_end_raw:
+                raise ValueError("allocation has no period window")
+            p_start = date.fromisoformat(period_start_raw)
+            p_end = date.fromisoformat(period_end_raw)
+            effective_from_raw = alloc.get("effective_from")
+            window_start = (
+                max(p_start, date.fromisoformat(effective_from_raw))
+                if effective_from_raw else p_start
+            )
+            dominant = await _direct_fill_leg_source(
+                uid, fill_acct, alloc.get("match_type"), alloc.get("match_value", ""),
+                window_start, p_end, account_map,
+            )
+        except Exception:
+            log.exception(
+                "_reserved_for_allocations: fallback fill-leg pairing failed for %s/%s",
+                uid, fill_acct,
+            )
+            dominant = None
+    return dominant
+
+
 async def _reserved_for_allocations(
     uid: str, internal_inflows: list[dict], account_map: dict[str, dict],
 ) -> dict[str, float]:
@@ -1051,48 +1103,7 @@ async def _reserved_for_allocations(
         remaining = float(alloc.get("remaining") or 0.0)
         if remaining <= 0:
             continue  # completed/pending/fully-filled this period — nothing to reserve
-        fill_acct = alloc.get("fill_account_id")
-        if not fill_acct:
-            continue
-        counts: dict[str, int] = {}
-        for inflow in internal_inflows:
-            if inflow.get("account_id") != fill_acct:
-                continue
-            src = inflow.get("source_account_id")
-            if not src:
-                continue
-            counts[src] = counts.get(src, 0) + 1
-        dominant = _modal_account(counts)
-
-        if dominant is None:
-            # Primary channel found nothing for THIS allocation — fall back
-            # to direct fill-leg pairing (see `_direct_fill_leg_source`'s
-            # docstring: exactly the case a sub-week cadence like the
-            # owner's daily drip needs, since it never reaches
-            # `internal_inflows` at all).
-            try:
-                period_start_raw = alloc.get("period_start")
-                period_end_raw = alloc.get("period_end")
-                if not period_start_raw or not period_end_raw:
-                    raise ValueError("allocation has no period window")
-                p_start = date.fromisoformat(period_start_raw)
-                p_end = date.fromisoformat(period_end_raw)
-                effective_from_raw = alloc.get("effective_from")
-                window_start = (
-                    max(p_start, date.fromisoformat(effective_from_raw))
-                    if effective_from_raw else p_start
-                )
-                dominant = await _direct_fill_leg_source(
-                    uid, fill_acct, alloc.get("match_type"), alloc.get("match_value", ""),
-                    window_start, p_end, account_map,
-                )
-            except Exception:
-                log.exception(
-                    "_reserved_for_allocations: fallback fill-leg pairing failed for %s/%s",
-                    uid, fill_acct,
-                )
-                dominant = None
-
+        dominant = await _allocation_funding_source(uid, alloc, internal_inflows, account_map)
         if dominant is None:
             continue  # no derivable funding source via either channel — fail-open
         reserved[dominant] = reserved.get(dominant, 0.0) + remaining
@@ -1182,6 +1193,124 @@ async def _active_commitment_slices(
         }
     except Exception:
         return {}
+
+
+async def _active_allocation_slices(
+    uid: str,
+    pay_cfg: dict,
+    live_balances: dict[str, float],
+    salary_acct: str | None,
+    preview: bool,
+    *,
+    account_map: dict[str, dict] | None = None,
+    internal_inflows: list[dict] | None = None,
+) -> dict[str, dict]:
+    """Per-destination payday legs for recurring SET-ASIDES (allocations) whose
+    money is held in a separate pot (G350, Kevin 2026-10-28): a set-aside kept
+    in a pot becomes a suggested move to that pot on payday, worded like a
+    goal leg. One kept in the paying account needs no move.
+
+    Returns {dest_account_id: {"slice_total", "names", "allocation_ids",
+    "source_ids", "items": [{"name", "slice", "id", "source_id"}],
+    "reserved_on_salary"}}, `{}` on any failure (the plan then builds as it
+    did before).
+
+    Rules (documented contract):
+    - Pot destination = `fill_account_id` for an existing-payment set-aside,
+      else `destination_account_id` (or the category destination) for a
+      manual one. A manual set-aside with no destination is "Kept in paying
+      account": no leg. A destination that is the salary account, a credit
+      card, or not a known connected account: no leg.
+    - Amount: live plan (payday window) = `remaining` (what is still unfilled
+      this period); preview = `period_amount` (what the coming period asks
+      for, including any G318 override; falls back to `amount_per_period`).
+    - `once` set-asides only count in the live plan, when not completed and
+      still owed (`remaining` > 0, so completed/pending fall out). A preview
+      prices the NEXT period, which a once-off already scoped to the current
+      one never covers, so it is skipped there.
+    - `source_ids`: the explicit `source_account_id` when it is usable, else
+      the learned funding source (`_allocation_funding_source`, the SAME one
+      the envelope reservation uses), else the salary account is assumed.
+    - `reserved_on_salary`: how much `_reserved_for_allocations` already
+      reserved on the SALARY account for these legs (their `remaining`,
+      attributed by the same derivation), so the caller can add it back to
+      `distributable` instead of counting the money twice.
+    """
+    try:
+        allocations = await list_active_allocations(uid)
+    except Exception:
+        log.exception("_active_allocation_slices: failed to load allocations for %s", uid)
+        return {}
+    if not allocations:
+        return {}
+    amap = account_map or {}
+    inflows = internal_inflows or []
+    out: dict[str, dict] = {}
+    for alloc in allocations:
+        try:
+            if not alloc.get("active", True) or alloc.get("completed"):
+                continue
+            recurrence = alloc.get("recurrence", "every_period")
+            if recurrence == "once" and preview:
+                continue
+            remaining = float(alloc.get("remaining") or 0.0)
+            if preview:
+                amount = float(alloc.get("period_amount") or alloc.get("amount_per_period") or 0.0)
+            else:
+                amount = remaining
+            if amount <= 0:
+                continue
+            if alloc.get("tracking_mode") == "manual":
+                dest = alloc.get("destination_account_id") or next(
+                    iter((alloc.get("category_tracking") or {}).get("destination_account_ids") or []),
+                    None,
+                )
+            else:
+                dest = alloc.get("fill_account_id")
+            dest = str(dest or "")
+            if not dest or dest == (salary_acct or ""):
+                continue  # kept in the paying account, or no destination
+            dest_acc = amap.get(dest)
+            if dest_acc is None or is_credit_card_account(dest_acc):
+                continue
+            source = alloc.get("source_account_id")
+            source = str(source) if source and str(source) in amap and str(source) != dest else None
+            derived = None
+            if remaining > 0:
+                derived = await _allocation_funding_source(uid, alloc, inflows, amap)
+            if source is None:
+                source = derived or (salary_acct or "")
+            name = str(alloc.get("name") or "").strip()
+            entry = out.setdefault(dest, {
+                "slice_total_pence": 0, "names": [], "allocation_ids": [], "source_ids": [],
+                "items": [], "reserved_on_salary_pence": 0,
+            })
+            pence = int(round(amount * 100))
+            entry["slice_total_pence"] += pence
+            if name:
+                entry["names"].append(name)
+            entry["allocation_ids"].append(str(alloc.get("id") or ""))
+            entry["source_ids"].append(source)
+            entry["items"].append({
+                "name": name, "slice": round(pence / 100, 2),
+                "id": str(alloc.get("id") or ""), "source_id": source,
+            })
+            if derived is not None and derived == (salary_acct or "") and remaining > 0:
+                entry["reserved_on_salary_pence"] += int(round(remaining * 100))
+        except Exception:
+            log.exception("_active_allocation_slices: skipped one allocation for %s", uid)
+            continue
+    return {
+        dest: {
+            "slice_total": round(e["slice_total_pence"] / 100, 2),
+            "names": e["names"],
+            "allocation_ids": e["allocation_ids"],
+            "source_ids": e["source_ids"],
+            "items": e["items"],
+            "reserved_on_salary": round(e["reserved_on_salary_pence"] / 100, 2),
+        }
+        for dest, e in out.items()
+    }
 
 
 # ── Module-level account classifiers ────────────────────────────────────────
@@ -3508,6 +3637,12 @@ async def compute_today_items(
             # goal's whole slice routes to its FIRST CONNECTED pot; manual
             # (offline) pots never appear as keys — they aren't plan dests.
             commitment_slices = await _active_commitment_slices(uid, pay_cfg, live_balances)
+            # G350: recurring set-asides held in a separate pot become legs
+            # too (worded like goal legs). Kept-in-paying-account ones don't.
+            allocation_slices = await _active_allocation_slices(
+                uid, pay_cfg, live_balances, salary_acct, bool(payday_preview),
+                account_map=_account_map, internal_inflows=resp["internal_inflows"],
+            )
 
             def _salary_bills_excl_own_dests(acct_id: str) -> tuple[float, int]:
                 """Like `_acct_bills`, but excludes predicted bills that
@@ -3562,6 +3697,14 @@ async def compute_today_items(
             # exactly as it already does for any other overage, rather than
             # special-casing allocations.
             _salary_envelope_reserved = reserved_by_source.get(salary_acct, 0.0)
+            # G350 double-count guard: a set-aside that is now a plan leg
+            # shows up as a MOVE (which reduces what stays), so its
+            # reservation on the salary account is added back to
+            # `distributable`. Reservations for set-asides that did NOT become
+            # legs (kept in the paying account, no destination) stay.
+            _salary_envelope_reserved = max(0.0, _salary_envelope_reserved - sum(
+                float(v.get("reserved_on_salary") or 0.0) for v in allocation_slices.values()
+            ))
             distributable = _bal(salary_acct) - _salary_target - _salary_envelope_reserved
 
             dests: list[dict] = []
@@ -3605,6 +3748,21 @@ async def compute_today_items(
                     _c_slice = round(float(_commit.get("slice_total") or 0), 2)
                     if _c_slice > 0 and move < _c_slice:
                         move = _c_slice
+                        if _dest_is_savings:
+                            target = move + bills_total
+                # Set-asides held in this pot (G350). Goals and set-asides are
+                # different pots of money going to the SAME account, so the
+                # move must cover BOTH: the floor is goal slice + set-aside
+                # slice (summed), applied as a floor like a goal alone (never
+                # lowered, so a habitual top-up that already covers them is
+                # not doubled).
+                _alloc = allocation_slices.get(acct_id)
+                _a_slice = round(float(_alloc.get("slice_total") or 0), 2) if _alloc else 0.0
+                if _a_slice > 0:
+                    _c_part = round(float(_commit.get("slice_total") or 0), 2) if _commit else 0.0
+                    _floor_all = round(_c_part + _a_slice, 2)
+                    if move < _floor_all:
+                        move = _floor_all
                         if _dest_is_savings:
                             target = move + bills_total
                 if not (move > 0 or usual is not None):
@@ -3656,6 +3814,8 @@ async def compute_today_items(
                 }
                 if _commit and _commit.get("names"):
                     _dest_entry["commitment_names"] = list(_commit["names"])
+                if _alloc and _alloc.get("names"):
+                    _dest_entry["allocation_names"] = list(_alloc["names"])
                 dests.append(_dest_entry)
 
             dests.sort(key=lambda d: d["move"], reverse=True)

@@ -727,7 +727,12 @@ def test_payday_plan_distributable_shrinks_by_the_salary_accounts_own_reservatio
     }])
     assert plan_without is not None
     assert plan_with is not None
-    # `stays` (distributable - total, floored at 0) must be exactly £230
-    # lower with the reservation in play, everything else about the
-    # destinations' own needs being identical between the two runs.
-    assert plan_without["salary"]["stays"] - plan_with["salary"]["stays"] == 230
+    # G350: this set-aside's money is held in a separate pot (DEST_ACCT), so
+    # it is now a plan LEG: the salary account's £230 reservation is added
+    # back to `distributable` and the money shows as a move instead. The
+    # preview prices the coming period's ask (`amount_per_period` 266 here,
+    # no `period_amount` on this fixture). The leg is a FLOOR on Premier's
+    # move, which was already £50 (its own spend buffer) without it, so the
+    # move rises £50 -> £266 and `stays` is £216 lower, counted once (not
+    # £230 reserved plus a £266 move).
+    assert plan_without["salary"]["stays"] - plan_with["salary"]["stays"] == 216
