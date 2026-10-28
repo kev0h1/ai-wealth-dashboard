@@ -135,7 +135,14 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     : purchaseChannel === "play" ? "google"
     : null;
   const channelKnown = purchaseChannel !== "unknown";
-  const channelLive = channelKey !== null && planInfo?.billing_channels?.[channelKey] === true;
+  // An older API without `billing_channels` (the frontend can reach Vercel
+  // before the backend reaches Railway): Stripe falls back to `billing_live`,
+  // and the store channels count as live, so the step is SHOWN (the safe
+  // direction; the picker's own store checks still gate any purchase).
+  const channelLive = channelKey === null ? false
+    : planInfo?.billing_channels ? planInfo.billing_channels[channelKey] === true
+    : channelKey === "stripe_web" ? planInfo?.billing_live === true
+    : true;
   const channelOff = !!planInfo && channelKnown && !channelLive;
   useEffect(() => {
     if (step !== "plan" || !channelOff) return;
@@ -148,6 +155,9 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // the free Statements plan through POST /subscription/select-free; with no
   // channel live (or unknown, because the plan info did not load) nothing is
   // written and they stay on the server default tier (Plus today).
+  // The channel-off jump above never writes anything (a web user with only
+  // Google live stays on the server default). Only this explicit skip, with
+  // any channel live, writes Statements.
   async function skipPlanStep() {
     if (planInfo?.billing_live_any === true) {
       try { await api.selectFreePlan(); } catch {}

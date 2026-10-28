@@ -40,7 +40,7 @@ assert.match(read("app/settings/SettingsPage.tsx"), /clearOnboarded\(localStorag
 const ob = read("components/Onboarding.tsx");
 assert.match(ob, /const purchaseChannel = usePurchaseChannel\(\);/);
 assert.match(ob, /const channelKnown = purchaseChannel !== "unknown";/);
-assert.match(ob, /const channelLive = channelKey !== null && planInfo\?\.billing_channels\?\.\[channelKey\] === true;/);
+assert.match(ob, /const channelLive = channelKey === null \? false\s*: planInfo\?\.billing_channels \? planInfo\.billing_channels\[channelKey\] === true\s*: channelKey === "stripe_web" \? planInfo\?\.billing_live === true\s*: true;/, "older API without billing_channels: Stripe uses billing_live, store channels show the step");
 assert.match(ob, /const channelOff = !!planInfo && channelKnown && !channelLive;/);
 assert.match(ob, /if \(step !== "plan" \|\| !channelOff\) return;[\s\S]{0,120}setStep\("income"\)/);
 assert.ok(!/billingOff/.test(ob), "the Stripe-only billingOff gate is gone");

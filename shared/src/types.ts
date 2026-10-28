@@ -847,7 +847,7 @@ export interface SubscriptionInfo {
   /** C37: where the plan came from. "default" is the server fallback with no
    *  subscription at all, which must never be labelled "Current plan". Null
    *  when the server could not tell. */
-  tier_source?: "default" | "free_selected" | "manual" | "stripe" | "apple" | "google" | null;
+  tier_source?: "default" | "free_selected" | "manual" | "stripe" | "apple" | "google" | "unknown" | null;
   /** C37: true when `tier_source` is "default". */
   is_default_tier?: boolean;
   /** F9: this month's MCP connector call allowance. Optional for the same

@@ -120,3 +120,37 @@ def test_select_free_refused_with_live_google_subscription(monkeypatch):
     assert exc.value.status_code == 409
     assert "Google Play" in exc.value.detail
     assert len(fake.docs) == 1
+
+
+def _boom(*a, **k):
+    raise RuntimeError("boom")
+
+
+def test_thrown_apple_check_is_false(monkeypatch):
+    _set(monkeypatch, apple=True, google=True)
+    monkeypatch.setattr(channels_module, "apple_live", _boom)
+    out = _run(channels_module.billing_channels(False))
+    assert out["apple"] is False and out["google"] is True
+
+
+def test_thrown_google_check_is_false(monkeypatch):
+    _set(monkeypatch, apple=True)
+    monkeypatch.setattr(play_billing, "play_enabled", _boom)
+    out = _run(channels_module.billing_channels(False))
+    assert out["google"] is False and out["apple"] is True
+
+
+def test_apple_enabled_without_products_is_false(monkeypatch):
+    from app.services import apple_billing
+
+    _set(monkeypatch, apple=True)
+    monkeypatch.setattr(apple_billing, "client_products", lambda: {})
+    assert _run(channels_module.billing_channels(False))["apple"] is False
+
+
+def test_tier_source_unknown_when_doc_names_no_provider(monkeypatch):
+    _set(monkeypatch)
+    _subs(monkeypatch, [{"user_id": UID, "tier": "plus", "status": "active"}])
+    info = _info(monkeypatch)
+    assert info["tier_source"] == "unknown"
+    assert info["is_default_tier"] is False

@@ -29,7 +29,8 @@ router = APIRouter(tags=["subscription"])
 def _tier_source(doc: dict | None, sub) -> str:
     """C37: "default" (no subscription, the DEFAULT_TIER fallback),
     "free_selected" (chose Statements), "manual" (owner or allow-list seed or
-    admin set), else the provider that owns the document."""
+    admin set), the provider that owns the document, or "unknown" when the
+    document names none."""
     if not doc:
         return "default"
     managed = doc.get("managed_by")
@@ -39,8 +40,8 @@ def _tier_source(doc: dict | None, sub) -> str:
         return "free_selected"
     if sub.status == "expired" and not getattr(sub, "has_paid_subscription", False):
         return "default"
-    provider = doc.get("provider") or "stripe"
-    return provider if provider in ("stripe", "apple", "google") else "stripe"
+    provider = doc.get("provider")
+    return provider if provider in ("stripe", "apple", "google") else "unknown"
 
 
 @router.get("/subscription")
