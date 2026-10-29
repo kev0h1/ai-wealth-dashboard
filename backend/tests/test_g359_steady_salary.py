@@ -28,7 +28,7 @@ from app.routers.analytics import _steady_salary_candidate, income_credit_basis,
 from app.services.categories import MOVEMENT
 
 UID = "g359-user"
-TODAY = date(2026, 10, 29)
+TODAY = date(2026, 10, 27)  # G360: no payday lookahead, so the walk window is 27 to 29 Oct
 PAY_CFG = {"type": "last_friday"}
 BC, BP, ST, MZ = "acc-barclays-current", "acc-barclays-pot", "acc-starling", "acc-monzo"
 SALARY_KEY = "Goldman Sachs Pay"
@@ -165,9 +165,9 @@ def _bills(*, extra=()):
            ("Chase", 50.0), ("Foris", 25.0), ("Revolut", 20.0)]
     out = [_bill(n, a, 1, kind=MOVEMENT, dest=f"own-{n}") for n, a in own]
     out += [
-        _bill("Vanguard", 400.0, 4, kind=MOVEMENT),
-        _bill("Avios fee", 12.0, 4),
-        _bill("Digital Ocean", 4.0, 4),
+        _bill("Vanguard", 400.0, 2, kind=MOVEMENT),
+        _bill("Avios fee", 12.0, 2),
+        _bill("Digital Ocean", 4.0, 2),
     ]
     return out + list(extra)
 
@@ -349,7 +349,7 @@ def test_payday_standing_orders_never_drive_a_cover_move_when_pay_is_expected(mo
     assert note["income_note_kind"] == "payday_funds_moves"
     assert note["action"] is None
     assert note["income_note"] == (
-        "These moves usually come out of your pay, expected around 30 Oct, so no move "
+        "These moves usually come out of your pay, expected around 28 Oct, so no move "
         "is suggested."
     )
 
@@ -376,7 +376,7 @@ def test_confirm_salary_reuses_the_proposal_backed_payday_ask(monkeypatch):
     assert ask["proposal"] == proposal
     assert ask["action"]["kind"] == "confirm_payday"
     assert ask["body"] == (
-        "Sorted is counting your £4,798 pay expected around 30 Oct. "
+        "Sorted is counting your £4,798 pay expected around 28 Oct. "
         "Confirm it so this stays reliable."
     )
 

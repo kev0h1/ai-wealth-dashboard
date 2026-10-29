@@ -382,7 +382,15 @@ async def _cashflow_window(uid: str) -> dict | None:
     # for one either — see the comment block above `walk_sort_key` in
     # services/companion.py for why a lapsed inflow is already spoken for
     # by its source-side pending copy.
-    for n in window_inflows:
+    #
+    # G360: credited only when the inflow's SOURCE account is itself covered
+    # that day (`funded_inflows`, the one rule shared by every walk).
+    from app.services.inflow_credit import funded_inflows
+    _funded = funded_inflows(
+        window_inflows, assessable_bills, window_income, {**live_balances, **balances},
+        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
+    )
+    for n in _funded:
         acct = str(n.get("account_id") or "")
         if acct in balances:
             events.append((n["days_away"], acct, float(n["amount"]), True, n))
