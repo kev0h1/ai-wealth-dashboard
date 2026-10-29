@@ -41,6 +41,13 @@
 // (`usage.penny_packs_bought_this_month`), the Move to Plus row leads and
 // the packs render below it instead of above.
 //
+// C38: the iOS build buys packs through StoreKit consumables (lib/storekit.ts
+// purchasePack), never Stripe. Config and product ids come from GET
+// /billing/apple/account-token, the price shown is the store's own, an
+// interrupted purchase is recovered by syncUnfinishedTransactions on open, and
+// there is no Move to Plus row (plan changes happen in Your plan). Any other
+// channel, including "unknown", still fails closed.
+//
 // Copy rules: no em dashes, British English, "Move to Plus" not "upgrade"
 // (Kevin's framing, see the design preview's own header comment for why).
 
@@ -52,6 +59,10 @@ import { usePurchaseAvailability, usePurchaseChannel, PURCHASE_UNAVAILABLE_LABEL
 import {
   loadPlayConfig, loadPlayPackProducts, purchasePlayPack, type PlayBillingConfig, type PlayProductView,
 } from "@/lib/playBilling";
+import {
+  loadIapConfig, loadStorePackProducts, purchasePack, syncUnfinishedTransactions,
+  type AppleIapConfig, type StoreProductView,
+} from "@/lib/storekit";
 import type { SubscriptionTopupPack } from "@wealth/shared";
 
 const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
@@ -194,12 +205,52 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
     return () => { live = false; };
   }, [play]);
   const playReady = Boolean(play && playCfg?.enabled && !playCfg.purchase_blocked && playState === "ready");
+  // C38: iOS packs are StoreKit consumables; same shape as the Play block.
+  const storekit = usePurchaseChannel() === "storekit";
+  const [iapCfg, setIapCfg] = useState<AppleIapConfig | null>(null);
+  const [iapState, setIapState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [storeProducts, setStoreProducts] = useState<Record<string, StoreProductView>>({});
+  useEffect(() => {
+    if (!storekit) return;
+    let live = true;
+    setIapState("loading");
+    (async () => {
+      try {
+        const config = await loadIapConfig();
+        if (!live) return;
+        setIapCfg(config);
+        if (!config.enabled) { setIapState("failed"); return; }
+        // A pack whose verification was interrupted is still queued in StoreKit.
+        try {
+          if (await syncUnfinishedTransactions(config)) void refreshPennyUsage();
+        } catch {
+          /* left queued: tried again next time */
+        }
+        if (!live) return;
+        const ids = Object.entries(config.products ?? {}).filter(([key]) => key.startsWith("penny_")).map(([, id]) => id);
+        const views = await loadStorePackProducts(ids);
+        if (!live) return;
+        setStoreProducts(views);
+        setIapState("ready");
+      } catch {
+        if (live) setIapState("failed");
+      }
+    })();
+    return () => { live = false; };
+  }, [storekit]);
+  const storekitReady = Boolean(storekit && iapCfg?.enabled && iapCfg.purchase_allowed && iapState === "ready");
   const rowStatus: PurchaseRowStatus = play
     ? (playReady ? "buy" : playState === "failed" || playCfg?.purchase_blocked ? "unavailable" : "soon")
+    : storekit
+    ? (storekitReady ? "buy" : iapState === "failed" || (iapCfg && !iapCfg.purchase_allowed) ? "unavailable" : "soon")
     : !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
   const playPriceLabel = (packId: string): string | undefined => {
     const id = playCfg?.products?.[`penny_${packId}`];
     return id ? playProducts[id]?.priceString : undefined;
+  };
+  const storePriceLabel = (packId: string): string | undefined => {
+    const id = iapCfg?.products?.[`penny_${packId}`];
+    return id ? storeProducts[id]?.priceString : undefined;
   };
   // Hide the Plus row entirely once the user is already on it — there is
   // nothing to move to.
@@ -227,6 +278,21 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
     }
   }
 
+  async function buyOnStoreKit(packId: string) {
+    if (pendingId || !storekitReady || !iapCfg) return;
+    setErrorMsg(null);
+    setNotice(null);
+    setPendingId(packId);
+    const outcome = await purchasePack(`penny_${packId}`, iapCfg);
+    setPendingId(null);
+    if (outcome.ok) {
+      setNotice("Your messages have been added.");
+      void refreshPennyUsage();
+    } else if (!outcome.cancelled) {
+      setErrorMsg(outcome.message);
+    }
+  }
+
   async function buy(kind: "subscription" | "pack", target: string) {
     if (pendingId || !purchasingAllowed) return;
     setErrorMsg(null);
@@ -242,7 +308,8 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
 
   // C24: no Move to Plus row on Android: a plan change there is made in Your
   // plan, and the plugin cannot upgrade a live Play subscription in place.
-  const plusRow = !onPlus && !play && (
+  // C38: the same rule on iOS.
+  const plusRow = !onPlus && !play && !storekit && (
     rowStatus === "buy" ? (
       <button
         type="button"
@@ -271,8 +338,8 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
       pack={pack}
       status={rowStatus}
       busy={pendingId === pack.id}
-      onBuy={() => (play ? buyOnPlay(pack.id) : buy("pack", pack.id))}
-      priceLabel={play ? playPriceLabel(pack.id) : undefined}
+      onBuy={() => (play ? buyOnPlay(pack.id) : storekit ? buyOnStoreKit(pack.id) : buy("pack", pack.id))}
+      priceLabel={play ? playPriceLabel(pack.id) : storekit ? storePriceLabel(pack.id) : undefined}
     />
   ));
 

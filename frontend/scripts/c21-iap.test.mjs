@@ -28,7 +28,11 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { resolvePurchaseChannel } from "../lib/purchaseChannel.ts";
 import { purchaseChannel, usePurchaseChannel, canPurchaseInApp } from "../lib/nativeAuth.ts";
-import { describeFreeTrial, periodText, hasStoreKitPlugin, toProductView } from "../lib/storekit.ts";
+import {
+  describeFreeTrial, periodText, hasStoreKitPlugin, toProductView, purchasePack, executePackPurchase,
+  PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE, PACK_REFUNDED_REASON,
+} from "../lib/storekit.ts";
+import { api as apiClient } from "../lib/api.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -131,6 +135,93 @@ const billingRouter = read("../backend/app/routers/billing.py");
 check("B31 backstop still guards checkout and portal and still names ios", /_reject_native_platform\(request, user, endpoint="POST \/billing\/checkout"\)/.test(billingRouter)
   && /_reject_native_platform\(request, user, endpoint="POST \/billing\/portal"\)/.test(billingRouter) && /_NATIVE_PLATFORM_VALUES = \{"ios", "android", "native"\}/.test(billingRouter));
 check("the client still sends the platform header on the Stripe routes", /startCheckout:[\s\S]{0,400}platformHeaders\(\)/.test(api) && /openBillingPortal:[^\n]*platformHeaders\(\)/.test(api));
+
+// ── C38: Penny pack consumables ──────────────────────────────────────────────
+const cfg = (over = {}) => ({
+  enabled: true, app_account_token: "tok-1", products: { penny_small: "store.pack.small" },
+  purchase_allowed: true, blocked_reason: null, blocked_message: null, ...over,
+});
+const refused = async (c, key = "penny_small") => {
+  const out = await purchasePack(key, c);
+  return out.ok === false && out.cancelled === false && out.message.length > 0 ? out.message : null;
+};
+check("a pack is refused when billing is not enabled", (await refused(cfg({ enabled: false }))) !== null);
+check("a pack is refused with no app account token", (await refused(cfg({ app_account_token: null }))) !== null);
+check("a pack is refused when its product id is missing", (await refused(cfg(), "penny_large")) !== null);
+check("a pack is refused while purchase_allowed is false and says the server's blocked message",
+  (await refused(cfg({ purchase_allowed: false, blocked_message: "Blocked by the server." }))) === "Blocked by the server.");
+check("a pack refusal with no blocked message still gives a message", (await refused(cfg({ purchase_allowed: false }))) !== null);
+
+const fakeSk = ({ purchase, finish }) => ({
+  subs: "subs", inapp: "inapp",
+  plugin: {
+    purchaseProduct: purchase,
+    finishTransaction: finish,
+  },
+});
+const realVerify = apiClient.verifyAppleTransaction;
+async function runPack({ purchase, verify }) {
+  const calls = { purchase: [], finished: [], order: [] };
+  apiClient.verifyAppleTransaction = async (jws) => { calls.order.push("verify"); return verify(jws); };
+  const sk = fakeSk({
+    purchase: async (args) => { calls.purchase.push(args); return purchase(args); },
+    finish: async (args) => { calls.finished.push(args); calls.order.push("finish"); },
+  });
+  const out = await executePackPurchase(sk, "store.pack.small", cfg());
+  apiClient.verifyAppleTransaction = realVerify;
+  return { out, calls };
+}
+const goodTx = async () => ({ jwsRepresentation: "jws-1", transactionId: "t-1" });
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: true }) });
+  check("a handled pack verify finishes the transaction after the verify, and succeeds", out.ok === true && calls.order.join(",") === "verify,finish" && calls.finished[0].transactionId === "t-1");
+  check("a pack is bought as an in-app product with the account token and auto-acknowledge off",
+    calls.purchase[0].productType === "inapp" && calls.purchase[0].appAccountToken === "tok-1" && calls.purchase[0].autoAcknowledgePurchases === false && calls.purchase[0].productIdentifier === "store.pack.small");
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false }) });
+  check("a not-handled pack verify leaves the transaction unfinished and returns the recorded message",
+    out.ok === false && out.cancelled === false && out.message === PURCHASE_RECORDED_MESSAGE && calls.finished.length === 0);
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => { throw new Error("network down"); } });
+  check("a verify that throws after the charge leaves it unfinished and says recorded, never 'not charged'",
+    out.ok === false && out.message === PURCHASE_RECORDED_MESSAGE && calls.finished.length === 0);
+}
+{
+  const { out } = await runPack({ purchase: async () => { throw new Error("User cancelled the purchase"); }, verify: async () => ({ ok: true, handled: true }) });
+  check("a cancelled pack purchase returns cancelled with no message", out.ok === false && out.cancelled === true && out.message === "");
+}
+{
+  const { out, calls } = await runPack({ purchase: async () => { throw new Error("store unavailable"); }, verify: async () => ({ ok: true, handled: true }) });
+  check("a failure before the charge returns the failed copy and finishes nothing", out.ok === false && out.cancelled === false && out.message === PURCHASE_FAILED_MESSAGE && calls.finished.length === 0);
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: true, duplicate: true }) });
+  check("a duplicate handled pack verify finishes the transaction", out.ok === true && calls.finished.length === 1);
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false, reason: "transaction was refunded" }) });
+  check("a refunded pack (terminal) is finished and returns the recorded message",
+    PACK_REFUNDED_REASON === "transaction was refunded" && out.ok === false && out.message === PURCHASE_RECORDED_MESSAGE && calls.finished.length === 1);
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false, reason: "unknown product" }) });
+  check("a not-handled pack verify with any other reason stays unfinished", out.ok === false && calls.finished.length === 0);
+}
+check("purchasePack without the plugin (plain Node) fails before charge, not as a crash", (await purchasePack("penny_small", cfg())).message === PURCHASE_FAILED_MESSAGE);
+
+const sheetSrc = stripComments(read("components/MoreMessagesSheet.tsx"));
+check("storekit.ts loads packs as INAPP and finishes a pack only through verifyAndFinish", /export async function loadStorePackProducts/.test(storekit) && /inapp: mod\.PURCHASE_TYPE\.INAPP/.test(storekit)
+  && (storekit.match(/finishTransaction/g) ?? []).length === 2);
+check("the sheet's StoreKit branch keys on the storekit channel and reads pack ids from config.products",
+  /usePurchaseChannel\(\) === "storekit"/.test(sheetSrc) && /iapCfg\?\.products\?\.\[`penny_\$\{packId\}`\]/.test(sheetSrc) && !/sorted\.(lite|standard|plus|max|penny)/.test(sheetSrc));
+check("the sheet is ready on StoreKit only when enabled, purchase_allowed and products loaded", /storekitReady = Boolean\(storekit && iapCfg\?\.enabled && iapCfg\.purchase_allowed && iapState === "ready"\)/.test(sheetSrc));
+check("the sheet row is unavailable on StoreKit when the config failed or is disabled", /iapState === "failed" \|\| \(iapCfg && !iapCfg\.purchase_allowed\) \? "unavailable"/.test(sheetSrc) && /if \(!config\.enabled\) \{ setIapState\("failed"\); return; \}/.test(sheetSrc));
+check("the sheet syncs unfinished transactions once and refreshes usage if it synced any", /syncUnfinishedTransactions\(config\)\) void refreshPennyUsage\(\)/.test(sheetSrc));
+check("no Move to Plus row on StoreKit, and the unknown channel still fails closed", /const plusRow = !onPlus && !play && !storekit &&/.test(sheetSrc) && /const purchasingAllowed = usePurchaseAvailability\(\) === "web"/.test(sheetSrc));
+check("the StoreKit buy handler is gated on storekitReady and adds the messages notice", /async function buyOnStoreKit[\s\S]{0,200}!storekitReady[\s\S]{0,500}Your messages have been added\./.test(sheetSrc));
+check("the sheet never reaches Stripe from the StoreKit branch", /storekit \? buyOnStoreKit\(pack\.id\) : buy\("pack", pack\.id\)/.test(sheetSrc));
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);

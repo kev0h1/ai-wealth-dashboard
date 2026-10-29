@@ -168,7 +168,7 @@ check("a Google-sourced plan never opens the Stripe portal", /billingChangeInPor
 check("the picker has no \"14 days\" text in its Play branches", !/playBuy[^;\n]*14|14[- ]day[^;\n]*playBuy/.test(picker)
   && /\$\{trial\.periodText\} free, then \$\{selectedPlayView\.priceString\}/.test(picker));
 check("the packs sheet buys through Play only on the play channel and keeps its Stripe path behind purchasingAllowed",
-  /usePurchaseChannel\(\) === "play"/.test(sheet) && /onBuy=\{\(\) => \(play \? buyOnPlay\(pack\.id\) : buy\("pack", pack\.id\)\)\}/.test(sheet)
+  /usePurchaseChannel\(\) === "play"/.test(sheet) && /onBuy=\{\(\) => \(play \? buyOnPlay\(pack\.id\) : storekit \? buyOnStoreKit\(pack\.id\) : buy\("pack", pack\.id\)\)\}/.test(sheet)
   && /if \(pendingId \|\| !purchasingAllowed\) return;/.test(sheet));
 check("Your plan shows no Stripe fix-payment button for a Google plan", /channel === "stripe_web" && !appleSourced && !googleSourced/.test(yourPlan) && /googleManageLine/.test(yourPlan));
 check("purchaseChannel in nativeAuth passes the Play plugin flag", /playPluginPresent: native && hasPlayPlugin\(\)/.test(nativeAuth));
