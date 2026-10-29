@@ -1022,15 +1022,16 @@ async def _reserved_for_allocations(
     uid: str, internal_inflows: list[dict], account_map: dict[str, dict],
 ) -> dict[str, float]:
     """Per-source-account £ reserved this period for allocations (envelopes,
-    e.g. "Saving Challenge") that account funds. SET-ASIDES ONLY: goals are
-    reserved separately by `_reserved_for_goals` (G352) and the two are summed
-    per source in `compute_today_items`. The payday plan reads neither, it
-    uses `_plan_source_needs`, so nothing is double counted there.
-    — the owner fix (2026-08-31,
+    e.g. "Saving Challenge") that account funds — the owner fix (2026-08-31,
     verbatim): "does it take account [of] what has been set aside on the
     envelope? ... it is focused on the transaction that enters the savings
     challenge account, but is dependent on the [source] account we are
     taking [money] from... would there be enough for this envelope?"
+
+    SET-ASIDES ONLY (G352): goals are reserved separately by
+    `_reserved_for_goals` and the two are summed per source in
+    `compute_today_items`. The payday plan reads neither, it uses
+    `_plan_source_needs`, so nothing is double counted there.
 
     LOCKSTEP DISCLAIMER (this is companion-local, not a shared-walk change):
     `_source_min_running`'s own comment (below, in `compute_today_items`)
@@ -1302,14 +1303,19 @@ async def _reserved_for_goals(
     live_balances: dict[str, float],
     salary_acct: str | None,
     account_map: dict[str, dict] | None,
+    *,
+    slices: list[dict] | None = None,
 ) -> dict[str, float]:
     """Per-source-account GBP reserved this period for goals (G352): each
     active goal's `per_period_slice` at its resolved source, summed in pence
     and rounded once at the end. Same resolution as the payday plan's
-    `_plan_source_needs` (via `_goal_source_slices`). Fail-open to {}."""
+    `_plan_source_needs` (via `_goal_source_slices`, or the `slices` already
+    fetched by the caller). Fail-open to {}."""
     try:
         pence: dict[str, int] = {}
-        for g in await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, account_map):
+        if slices is None:
+            slices = await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, account_map)
+        for g in slices:
             p = int(round(float(g["amount"]) * 100))
             if p <= 0 or not g["source"]:
                 continue
@@ -1329,6 +1335,7 @@ async def _plan_source_needs(
     *,
     account_map: dict[str, dict] | None = None,
     internal_inflows: list[dict] | None = None,
+    goal_slices: list[dict] | None = None,
 ) -> dict[str, dict]:
     """What the user's goals and recurring set-asides need to find at each
     SOURCE account this pay period (G350, Kevin 2026-10-28).
@@ -1420,7 +1427,11 @@ async def _plan_source_needs(
             log.exception("_plan_source_needs: skipped one set-aside for %s", uid)
 
     # ── Goals ──────────────────────────────────────────────────────────────
-    for g in await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, amap):
+    # `goal_slices` lets the caller reuse slices it already resolved for the
+    # same salary account (G352 memoisation); None recomputes them.
+    if goal_slices is None:
+        goal_slices = await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, amap)
+    for g in goal_slices:
         _add(g["source"], g["name"], "goal", g["amount"], g["assumed"], g["to"])
 
     return {
@@ -2828,7 +2839,17 @@ async def compute_today_items(
     _early_salary_acct: str | None = (
         (str(_pp_salary_income.get("account_id") or "") or None) if _pp_salary_income else None
     )
-    _goal_reserved = await _reserved_for_goals(uid, pay_cfg, live_balances, _early_salary_acct, _account_map)
+    try:
+        _early_goal_slices: list[dict] | None = await _goal_source_slices(
+            uid, pay_cfg, live_balances, _early_salary_acct, _account_map,
+        )
+    except Exception:
+        log.exception("compute_today_items: goal source slices failed for %s", uid)
+        _early_goal_slices = None
+    _goal_reserved = await _reserved_for_goals(
+        uid, pay_cfg, live_balances, _early_salary_acct, _account_map,
+        slices=_early_goal_slices if _early_goal_slices is not None else [],
+    )
     if _goal_reserved:
         _combined: dict[str, int] = {
             k: int(round(float(v) * 100)) for k, v in reserved_by_source.items()
@@ -3924,6 +3945,12 @@ async def compute_today_items(
             source_needs = await _plan_source_needs(
                 uid, pay_cfg, live_balances, salary_acct, bool(payday_preview),
                 account_map=_account_map, internal_inflows=resp["internal_inflows"],
+                # Reuse the reservation's slices only when both were resolved
+                # against the same salary account; otherwise recompute.
+                goal_slices=(
+                    _early_goal_slices
+                    if (salary_acct or None) == _early_salary_acct else None
+                ),
             )
 
             def _salary_bills_excl_own_dests(acct_id: str) -> tuple[float, int]:
