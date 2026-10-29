@@ -223,6 +223,17 @@ check("no Move to Plus row on StoreKit, and the unknown channel still fails clos
 check("the StoreKit buy handler is gated on storekitReady and adds the messages notice", /async function buyOnStoreKit[\s\S]{0,200}!storekitReady[\s\S]{0,500}Your messages have been added\./.test(sheetSrc));
 check("the sheet never reaches Stripe from the StoreKit branch", /storekit \? buyOnStoreKit\(pack\.id\) : buy\("pack", pack\.id\)/.test(sheetSrc));
 
+// C39: the server's blocked message is shown inline above the pack rows.
+{
+  const note = sheetSrc.match(/const blockedNote[\s\S]*?: null;/)?.[0] ?? "";
+  check("C39: the sheet derives one blockedNote from the server's blocked_message when purchase_allowed is false", /iapCfg && !iapCfg\.purchase_allowed[\s\S]*iapCfg\.blocked_message/.test(note));
+  check("C39: blockedNote is only set on the storekit channel, so the web branch never renders it", /: null;$/.test(note) && /play\s*\?/.test(note) && /storekit\s*\?/.test(note));
+  check("C39: the message renders once, verbatim, only when present, before the pack rows",
+    /\{blockedNote && \(\s*<p[^>]*>\{blockedNote\}<\/p>\s*\)\}/.test(sheetSrc) && ((sheetSrc.match(/\{blockedNote\}/g) ?? []).length === 1)
+    && sheetSrc.indexOf("{blockedNote && (") < sheetSrc.indexOf("{plusLeads ? ("));
+  check("C39: no copy is invented for the blocked note", !/blockedNote[^;]*"[A-Za-z ]{6,}"/.test(note));
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

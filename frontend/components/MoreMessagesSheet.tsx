@@ -48,6 +48,12 @@
 // there is no Move to Plus row (plan changes happen in Your plan). Any other
 // channel, including "unknown", still fails closed.
 //
+// C39: when the server blocks a store purchase (Play `purchase_blocked`, or
+// StoreKit `purchase_allowed` false with a `blocked_message`, for instance
+// because a Stripe subscription is active) the server's own sentence is shown
+// once, verbatim, above the pack rows, mirroring PlanPicker. No sentence from
+// the server means nothing is shown; the web branch never renders it.
+//
 // Copy rules: no em dashes, British English, "Move to Plus" not "upgrade"
 // (Kevin's framing, see the design preview's own header comment for why).
 
@@ -244,6 +250,12 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
     : storekit
     ? (storekitReady ? "buy" : iapState === "failed" || (iapCfg && !iapCfg.purchase_allowed) ? "unavailable" : "soon")
     : !purchasingAllowed ? "unavailable" : billingLive ? "buy" : "soon";
+  // C39: the server's reason a store purchase is blocked, verbatim, or null.
+  const blockedNote: string | null = play
+    ? (playCfg?.purchase_blocked || null)
+    : storekit
+    ? (iapCfg && !iapCfg.purchase_allowed ? (iapCfg.blocked_message || null) : null)
+    : null;
   const playPriceLabel = (packId: string): string | undefined => {
     const id = playCfg?.products?.[`penny_${packId}`];
     return id ? playProducts[id]?.priceString : undefined;
@@ -350,6 +362,10 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
           You have used <span className="money">{used}</span> of <span className="money">{limit}</span> this month.
           Your allowance resets on {resetLabel}.
         </p>
+
+        {blockedNote && (
+          <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">{blockedNote}</p>
+        )}
 
         <div className="space-y-2">
           {plusLeads ? (
