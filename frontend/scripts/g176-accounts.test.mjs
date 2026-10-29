@@ -23,7 +23,14 @@ accounts = summary([bill({ amount: 200 })], [credit()]);
 assert.equal(accounts[0].closing, 0, "Same-day named income funds the payment first");
 assert.equal(accounts[0].status, "covered");
 assert.equal(accounts[0].events[0].name, "Example employer");
-assert.equal(summary([bill()], [], [credit({ source_account_name: "Everyday account" })])[0].closing, 120);
+// G360: an inflow counts only when its source account is itself covered that day.
+const sourceMove = (overrides = {}) => bill({ name: "Move out", account_id: "s", account_balance: 1000, amount: 100, kind: "movement", ...overrides });
+assert.equal(summary([bill(), sourceMove()], [], [credit({ source_account_name: "Everyday account", source_account_id: "s" })])[0].closing, 120);
+assert.equal(summary([bill(), sourceMove({ account_balance: 50 })], [], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: an unfunded source never credits the destination");
+assert.equal(summary([bill()], [], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: an untracked source never credits the destination");
+assert.equal(summary([bill()], [], [credit({ source_account_name: "Everyday account" })])[0].closing, 20, "G360: an unknown source never credits the destination");
+assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: "steady" })], [credit({ source_account_id: "s" })])[0].closing, 120, "G360: a credited salary on the source funds the transfer");
+assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100 })], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: income the server did not credit never funds the source");
 assert.equal(summary([bill({ account_balance: 20 })], [credit({ account_id: "b" })])[0].shortfall, 60, "Other-account income never funds this payment");
 const lateIncome = credit({ expected_date: "2026-10-04", amount: 200 });
 accounts = summary([bill({ amount: 130 }), bill({ amount: 50, expected_date: "2026-10-03" })], [lateIncome]);
@@ -138,7 +145,7 @@ paired = assertAgreement([bill({ amount: 180 })], [credit({ expected_date: "2026
 assert.equal(paired.walk.accounts[0].closing, 20);
 assert.equal(paired.statuses[0].shortfall, 80, "A later credit cannot erase an earlier shortfall");
 assertAgreement([bill({ account_balance: 20 })], [credit({ account_id: "b" })]);
-assertAgreement([bill({ amount: 180 })], [], [credit({ source_account_name: "Savings" })]);
+assertAgreement([bill({ amount: 180 }), sourceMove()], [], [credit({ source_account_name: "Savings", source_account_id: "s" })]);
 assertAgreement([bill({ amount: 0.31, account_balance: 0.3 })]);
 assertAgreement([bill({ kind: "movement", amount: 180 })]);
 assertAgreement([bill({ kind: "movement", amount: 150 }), bill({ name: "Later obligation", expected_date: "2026-10-03" })]);

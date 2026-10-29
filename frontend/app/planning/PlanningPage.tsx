@@ -29,7 +29,7 @@ import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@
 import { isOptionalMove } from "@/lib/cardRepayment";
 import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
-import { paymentsThroughLabel, positionsFromToday, upcomingAccountWindow } from "@/lib/upcomingAccounts";
+import { paymentsThroughLabel, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
@@ -373,7 +373,7 @@ export default function PlanningPage() {
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = paymentsThroughLabel(accountEndMs);
   const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
-  const accountSummaries = withCoverSuggestions((accountWalk?.accounts ?? []).map((account) => accountPositions[account.id] ? { ...account, position: accountPositions[account.id] } : account), todayItems);
+  const accountSummaries = withCoverSuggestions((accountWalk?.accounts ?? []).map((account) => reconcileWithServerPosition(account, accountPositions[account.id])), todayItems);
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
   const paymentDetails: PaymentDetail[] = [];
 
