@@ -99,3 +99,65 @@ def display_account_name(raw: str | None) -> str:
                     parts.append(lead + _cap(rest))
             out.append("-".join(parts))
     return "".join(out)
+
+
+def _account_key(acc: dict) -> str:
+    return str(acc.get("_str_id") or acc.get("_id") or "")
+
+
+def _kind_word(acc: dict) -> str:
+    from app.services.account_kinds import is_credit_card_account, is_current_account, is_savings_account
+
+    st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
+    atype = (acc.get("account_type") or acc.get("type") or "").lower()
+    if is_credit_card_account(acc):
+        return "credit card"
+    if "POT" in st or atype == "pot":
+        return "pot"
+    if is_savings_account(acc):
+        return "savings"
+    if is_current_account(acc):
+        return "current account"
+    return "account"
+
+
+def _base_label(acc: dict, user_tokens: list[str] | None) -> tuple[str, bool]:
+    """(source_label, is_holder_named) for one account."""
+    from app.services.companion import _is_holder_named
+    from app.services.penny_consolidation import source_label
+
+    display = display_account_name(acc.get("name"))
+    holder = bool(display) and _is_holder_named(display, user_tokens)
+    return source_label(display, acc.get("provider"), user_tokens), holder
+
+
+def distinct_account_label(acc: dict, all_accounts: list[dict], user_tokens: list[str] | None = None) -> str:
+    """G359: the sentence label for `acc` that never reads identically to
+    another of the user's accounts. Starts from `source_label` (a holder-named
+    account is "your Barclays account", a bland product name gets its bank).
+    When another account of the SAME bank shares that label, the kind word is
+    added: "your Barclays current account" and "your Barclays savings" for two
+    holder-named accounts, "Barclays Rainy Day savings" otherwise. A lone
+    account keeps its plain label ("your Barclays account"). Lower-case "your":
+    capitalise at the start of a sentence."""
+    label, holder = _base_label(acc, user_tokens)
+    me = _account_key(acc)
+    same = False
+    for other in all_accounts:
+        if _account_key(other) == me:
+            continue
+        o_label, _ = _base_label(other, user_tokens)
+        if o_label.lower() == label.lower():
+            same = True
+            break
+    if not same:
+        return label
+    kind = _kind_word(acc)
+    if holder and label.lower().endswith(" account"):
+        # "your Barclays account" -> "your Barclays current account" / "your Barclays savings"
+        if kind == "account":
+            return label
+        return label[: -len("account")] + kind
+    if kind.lower() in label.lower() or kind == "account":
+        return label
+    return f"{label} {kind}"

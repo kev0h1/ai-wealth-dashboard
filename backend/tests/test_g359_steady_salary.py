@@ -289,6 +289,9 @@ def test_credited_incomes_lists_the_steady_salary_on_a_move_card(monkeypatch):
     assumed = cards[0]["assumed_incomes"]
     assert assumed and assumed[0]["name"] == SALARY_KEY
     assert assumed[0]["basis"] == "steady" and assumed[0]["estimated"] is True
+    to = cards[0]["moves"][0]["move_map"]["to"]
+    assert to["display_label"] == "your Barclays current account"
+    assert cards[0]["plan_dest"]["display_label"] == "your Barclays current account"
 
 
 def test_three_occurrences_is_reliable_not_steady(monkeypatch):
@@ -356,3 +359,54 @@ def test_payday_funds_moves_guard_unit():
     assert companion._payday_funds_moves(BC, 3000.0, [movement], [dict(sal, account_id=BP)]) is None
     # Salary too small to clear the gap.
     assert companion._payday_funds_moves(BC, 3000.0, [movement], [dict(sal, amount=100.0)]) is None
+
+
+# ── Step 3 ──────────────────────────────────────────────────────────────────
+
+def test_steady_candidate_on_the_other_account_is_not_credited_to_the_current_account(monkeypatch):
+    sal = _salary(acct=BP)
+    assert income_credit_basis(sal, BC, frozenset()) is None
+    items = _run(
+        monkeypatch, _bills(), [sal],
+        accounts=_accounts(starling=9000.0),
+    )
+    cards = _moves(items)
+    assert cards, "an honest move is still recommended"
+    note = cards[0].get("income_note") or ""
+    assert "your Barclays savings" in note and "your Barclays current account" in note
+    assert "not Mr Kevin" not in note
+
+
+def test_footnote_never_says_landed_in_a_not_a_for_the_same_account(monkeypatch):
+    # Unsteady salary on the shortfall account itself (40% apart) plus a real
+    # commitment so a move is still recommended.
+    sal = _salary(amounts=[4797.88, 2900.0])
+    big = _bill("Rent", 6000.0, 1)
+    items = _run(monkeypatch, _bills(extra=[big]), [sal], accounts=_accounts(starling=9000.0))
+    cards = _moves(items)
+    assert cards
+    note = cards[0].get("income_note") or ""
+    assert "landed in" not in note
+    assert "hasn't been steady enough" in note
+
+
+def _acct(acct_id, name, provider, subtype):
+    return {"_str_id": acct_id, "name": name, "provider": provider, "subtype": subtype, "type": "BANK"}
+
+
+def test_distinct_labels_for_two_holder_named_accounts_of_one_bank():
+    from app.services.account_names import distinct_account_label
+
+    cur = _acct("a", "MR KEVIN MBITHI MAINGI", "barclays", "TRANSACTION")
+    sav = _acct("b", "MR KEVIN MBITHI MAINGI", "barclays", "SAVINGS")
+    both = [cur, sav]
+    assert distinct_account_label(cur, both) == "your Barclays current account"
+    assert distinct_account_label(sav, both) == "your Barclays savings"
+
+
+def test_a_single_holder_named_account_is_just_your_bank_account():
+    from app.services.account_names import distinct_account_label
+
+    cur = _acct("a", "MR KEVIN MBITHI MAINGI", "barclays", "TRANSACTION")
+    other = _acct("c", "Starling Personal", "starling", "TRANSACTION")
+    assert distinct_account_label(cur, [cur, other]) == "your Barclays account"

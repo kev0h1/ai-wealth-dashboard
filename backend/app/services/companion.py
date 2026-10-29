@@ -36,7 +36,7 @@ from app.routers.analytics import (
     stamp_credit_basis,
 )
 from app.routers.allocations import list_active_allocations
-from app.services.account_names import display_account_name
+from app.services.account_names import display_account_name, distinct_account_label
 from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account as _is_current,
@@ -2727,6 +2727,15 @@ async def compute_today_items(
     # which source funds which envelope. See `_reserved_for_allocations`'s
     # docstring for the derivation + lockstep rationale.
     _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+
+    # G359: names that tell two same-bank accounts apart ("your Barclays
+    # current account" vs "your Barclays savings"), used by the cover plan's
+    # footnote and as `display_label` on the card's route endpoints.
+    _label_accounts = all_uk_accounts + offline_accounts
+
+    def _dl(acct_id: str | None) -> str | None:
+        _acc = _account_map.get(str(acct_id or ""))
+        return distinct_account_label(_acc, _label_accounts) if _acc else None
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
 
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
@@ -3402,6 +3411,7 @@ async def compute_today_items(
                 "name": dest_name,
                 "provider": dest_provider,
                 "balance": float(dest_balance),
+                "display_label": _dl(dest_acct),
                 "needs_total": 0,
                 "needs_by": "",
                 "needs_by_last": "",
@@ -3433,6 +3443,7 @@ async def compute_today_items(
                 "name": dest_name,
                 "provider": dest_provider,
                 "balance": float(dest_balance),
+                "display_label": _dl(dest_acct),
                 "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
                 **_dest_due_range(dest_bills, today_d),
                 "bills": [
@@ -3461,6 +3472,7 @@ async def compute_today_items(
                     "name": src_name,
                     "provider": src_provider,
                     "balance": float(src_balance),
+                    "display_label": _dl(src_id),
                     "safe_note": safe_note,
                     # Surface honesty (owner fix, 2026-08-31): £ already held
                     # back this period for own-account allocations THIS
@@ -3476,6 +3488,7 @@ async def compute_today_items(
                     "name": dest_name,
                     "provider": dest_provider,
                     "balance": float(dest_balance),
+                    "display_label": _dl(dest_acct),
                     "incoming": incoming,
                 },
             }
@@ -3561,15 +3574,18 @@ async def compute_today_items(
         if not _cands:
             continue
         _amt, _inc = max(_cands, key=lambda t: t[0])
-        _dest_nm = _clean_name(
+        _dest_nm = _dl(_dest) or _clean_name(
             next((a.get("name") for a in all_uk_accounts if a["_str_id"] == _dest), None),
             _dest,
         )
         _when = date.fromisoformat(_inc["expected_date"]).strftime("%-d %b")
-        _landing = " ".join(
+        _landing = _dl(_inc.get("account_id")) or " ".join(
             x for x in [_inc.get("account_bank"), _inc.get("account_name")] if x
         ).strip()
-        if str(_inc.get("account_id") or "") and _landing:
+        # G359: "it has landed in A, not B" only when A and B really are
+        # different accounts; an income already attributed to the shortfall
+        # account itself is excluded for reliability, never for landing.
+        if str(_inc.get("account_id") or "") and str(_inc.get("account_id")) != str(_dest) and _landing:
             income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
                 f"around {_when}. It has landed in {_landing}, not {_dest_nm.strip()}. "
