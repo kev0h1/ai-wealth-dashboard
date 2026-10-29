@@ -76,6 +76,13 @@ def test_inferred_source_reserves_its_slice(monkeypatch):
 def test_assumed_source_lands_on_the_salary_account(monkeypatch):
     doc = {**_goal("Japan", 10025), "source_account_id": None}
     assert _reserved(monkeypatch, [doc], salary=DEST_ACCT) == {DEST_ACCT: 100.25}
+    assert _reserved(monkeypatch, [doc], salary=None) == {}
+
+
+def test_no_income_candidate_means_assumed_goal_reserves_nothing_in_headroom(monkeypatch):
+    base = _headroom(monkeypatch, [])[SRC_ACCT]["headroom"]
+    doc = {**_goal("Japan", 10025), "source_account_id": None}
+    assert _headroom(monkeypatch, [doc])[SRC_ACCT]["headroom"] == base
 
 
 def test_not_set_goal_reserves_nothing(monkeypatch):

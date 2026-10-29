@@ -2730,14 +2730,13 @@ async def compute_today_items(
     # later, from the same candidate pool).
     _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
-    if _pp_salary_income:
-        _early_salary_acct: str | None = str(_pp_salary_income.get("account_id") or "") or None
-    else:
-        _early_current = [a for a in all_uk_accounts if not is_credit_card_account(a)]
-        _early_salary_acct = (
-            max(_early_current, key=lambda a: live_balances.get(a["_str_id"], 0.0))["_str_id"]
-            if _early_current else None
-        )
+    # No guess when there is no salary account: an assumed goal (no stored or
+    # inferred source) then reserves nowhere, like `_plan_source_needs` where
+    # `_add` skips an empty source. Picking the richest account would reserve
+    # the goal's money against an account nothing says funds it.
+    _early_salary_acct: str | None = (
+        (str(_pp_salary_income.get("account_id") or "") or None) if _pp_salary_income else None
+    )
     _goal_reserved = await _reserved_for_goals(uid, pay_cfg, live_balances, _early_salary_acct, _account_map)
     if _goal_reserved:
         _combined: dict[str, int] = {
