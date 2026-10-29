@@ -1202,6 +1202,114 @@ def _gbp_num(x: float) -> str:
     return f"{int(x):,}" if x == int(x) else f"{x:,.2f}"
 
 
+async def _goal_source_slices(
+    uid: str,
+    pay_cfg: dict,
+    live_balances: dict[str, float],
+    salary_acct: str | None,
+    account_map: dict[str, dict] | None,
+) -> list[dict]:
+    """Each active goal's per-period slice at its resolved SOURCE account
+    (G350 resolution, shared with G352's per-source reservation).
+
+    Returns [{"source", "name", "amount" (per_period_slice), "assumed",
+    "to" (sorted destination ids)}]. Resolution order: the stored usable
+    `source_account_id`, else `resolve_goal_source` (with the
+    `infer_plan_sources_batch` prefetch), else the salary account flagged
+    `assumed`. A deliberate "Not set" (`source_unset`) or a stored-but-unusable
+    account is never guessed and yields no entry. Fail-open: a goal that
+    errors is skipped, and a failure of the whole lookup returns what was
+    gathered so far.
+    """
+    amap = account_map or {}
+    out: list[dict] = []
+    try:
+        from app.db.collections import commitments_col
+        from app.routers.commitments import (
+            _doc_pots,
+            _pot_progress_and_slice,
+            compute_pot_ledger,
+        )
+        from app.services.account_plan_sources import needs_inference, resolve_goal_source
+
+        today_d = timeutil.user_today()
+        docs = await commitments_col.find(
+            {"user_id": uid, "status": "active"},
+            {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
+             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
+             "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
+             "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
+             "fill_rule": 1},
+        ).to_list(None)
+        if docs:
+            ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
+            wanted = {
+                str(c["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(c)})
+                for c in docs
+                if needs_inference(c, {str(p["account_id"]) for p in _doc_pots(c)})
+            }
+            prefetched: dict[str, str | None] = {}
+            if wanted and amap:
+                try:
+                    prefetched = await infer_plan_sources_batch(uid, wanted, amap)
+                except Exception:
+                    log.exception("_goal_source_slices: batched goal source inference failed")
+            for c in docs:
+                try:
+                    pots = _doc_pots(c)
+                    dest_ids = {str(p["account_id"]) for p in pots}
+                    if not dest_ids:
+                        continue  # an unlinked goal moves nothing through the plan
+                    try:
+                        slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
+                    except Exception:
+                        continue
+                    source, inferred = await resolve_goal_source(
+                        uid, c, amap, dest_ids, prefetched=prefetched,
+                    )
+                    assumed = False
+                    if source is None:
+                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
+                            continue  # "Not set", or a stored account that is no longer usable
+                        source, assumed = (salary_acct or ""), True
+                    out.append({
+                        "source": source,
+                        "name": str(c.get("name") or "").strip() or "Goal",
+                        "amount": float(slice_info["per_period_slice"]),
+                        "assumed": assumed,
+                        "to": sorted(dest_ids),
+                    })
+                except Exception:
+                    log.exception("_goal_source_slices: skipped one goal for %s", uid)
+    except Exception:
+        log.exception("_goal_source_slices: goals unavailable for %s", uid)
+    return out
+
+
+async def _reserved_for_goals(
+    uid: str,
+    pay_cfg: dict,
+    live_balances: dict[str, float],
+    salary_acct: str | None,
+    account_map: dict[str, dict] | None,
+) -> dict[str, float]:
+    """Per-source-account GBP reserved this period for goals (G352): each
+    active goal's `per_period_slice` at its resolved source, summed in pence
+    and rounded once at the end. Same resolution as the payday plan's
+    `_plan_source_needs` (via `_goal_source_slices`). Fail-open to {}."""
+    try:
+        pence: dict[str, int] = {}
+        for g in await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, account_map):
+            p = int(round(float(g["amount"]) * 100))
+            if p <= 0 or not g["source"]:
+                continue
+            pence[g["source"]] = pence.get(g["source"], 0) + p
+        return {k: round(v / 100, 2) for k, v in pence.items()}
+    except Exception:
+        log.exception("_reserved_for_goals: failed for %s", uid)
+        return {}
+
+
 async def _plan_source_needs(
     uid: str,
     pay_cfg: dict,
@@ -1302,61 +1410,8 @@ async def _plan_source_needs(
             log.exception("_plan_source_needs: skipped one set-aside for %s", uid)
 
     # ── Goals ──────────────────────────────────────────────────────────────
-    try:
-        from app.db.collections import commitments_col
-        from app.routers.commitments import (
-            _doc_pots,
-            _pot_progress_and_slice,
-            compute_pot_ledger,
-        )
-        from app.services.account_plan_sources import needs_inference, resolve_goal_source
-
-        today_d = timeutil.user_today()
-        docs = await commitments_col.find(
-            {"user_id": uid, "status": "active"},
-            {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
-             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
-             "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
-             "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
-             "fill_rule": 1},
-        ).to_list(None)
-        if docs:
-            ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
-            wanted = {
-                str(c["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(c)})
-                for c in docs
-                if needs_inference(c, {str(p["account_id"]) for p in _doc_pots(c)})
-            }
-            prefetched: dict[str, str | None] = {}
-            if wanted and amap:
-                try:
-                    prefetched = await infer_plan_sources_batch(uid, wanted, amap)
-                except Exception:
-                    log.exception("_plan_source_needs: batched goal source inference failed")
-            for c in docs:
-                try:
-                    pots = _doc_pots(c)
-                    dest_ids = {str(p["account_id"]) for p in pots}
-                    if not dest_ids:
-                        continue  # an unlinked goal moves nothing through the plan
-                    try:
-                        slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
-                    except Exception:
-                        continue
-                    source, inferred = await resolve_goal_source(
-                        uid, c, amap, dest_ids, prefetched=prefetched,
-                    )
-                    assumed = False
-                    if source is None:
-                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
-                            continue  # "Not set", or a stored account that is no longer usable
-                        source, assumed = (salary_acct or ""), True
-                    _add(source, str(c.get("name") or "").strip() or "Goal", "goal",
-                         float(slice_info["per_period_slice"]), assumed, sorted(dest_ids))
-                except Exception:
-                    log.exception("_plan_source_needs: skipped one goal for %s", uid)
-    except Exception:
-        log.exception("_plan_source_needs: goals unavailable for %s", uid)
+    for g in await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, amap):
+        _add(g["source"], g["name"], "goal", g["amount"], g["assumed"], g["to"])
 
     return {
         source: {
