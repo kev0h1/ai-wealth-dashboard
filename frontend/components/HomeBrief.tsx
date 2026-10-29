@@ -872,14 +872,14 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
         <div className="pr-9">
           <div className="min-w-0 flex-1">
             <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
-            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">Put this move in place</p>
+            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">A move that would cover this</p>
           </div>
         </div>
 
         <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
           <div>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">Suggested move</p>
             <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white"><AmountText text={moveMoney(totalSuggested, hideNetWorth)} /></p>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
           </div>
           <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">{dueCopy}</p>
         </div>
@@ -1193,16 +1193,17 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
     }
   }
 
-  type LegEntry = { provider: string; name: string; amount: number };
+  type LegEntry = { provider: string; name: string; amount: number; display_label?: string | null };
   const legs: LegEntry[] =
     item.moves && item.moves.length > 0
       ? item.moves.map(m => ({
           provider: (m.move_map.from as any)?.provider,
           name: (m.move_map.from as any)?.name,
           amount: m.amount ?? 0,
+          display_label: (m.move_map.from as any)?.display_label,
         }))
       : item.move_map
-      ? [{ provider: (item.move_map.from as any)?.provider, name: (item.move_map.from as any)?.name, amount: item.amount ?? 0 }]
+      ? [{ provider: (item.move_map.from as any)?.provider, name: (item.move_map.from as any)?.name, amount: item.amount ?? 0, display_label: (item.move_map.from as any)?.display_label }]
       : [];
   const totalAmount = legs.reduce((s, l) => s + l.amount, 0);
 
@@ -1257,14 +1258,14 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
         <div className="pr-9">
           <div className="min-w-0 flex-1">
             <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
-            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">Put this move in place</p>
+            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">A move that would cover this</p>
           </div>
         </div>
 
         <div data-move-lead className="mt-3 flex items-baseline justify-between gap-3">
           <div>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">Suggested move</p>
             <p className="money text-[21px] font-bold leading-7 text-slate-950 dark:text-white"><AmountText text={moveMoney(totalAmount, hideNetWorth)} /></p>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400">moving now</p>
           </div>
           <p className="max-w-[170px] text-right text-[12px] leading-5 text-slate-500 dark:text-slate-400">{dueCopy}</p>
         </div>

@@ -20,7 +20,15 @@ export function resolveBankChip(provider: string) {
   };
 }
 
-export type MoveLedgerLeg = { provider: string; name: string; amount: number };
+/** `display_label` (G359) is the server's sentence label that tells two same-bank accounts apart ("your Barclays current account"); the bank icon still keys off provider. */
+export type MoveLedgerLeg = { provider: string; name: string; amount: number; display_label?: string | null };
+
+/** The name an endpoint shows: the server's distinct label when present (first letter capitalised), else the cleaned account name. */
+export function moveAccountLabel(account: { name: string; display_label?: string | null }): string {
+  const label = account.display_label?.trim();
+  if (label) return label.charAt(0).toUpperCase() + label.slice(1);
+  return displayAccountName(account.name);
+}
 
 export function moveMoney(value: number, hideNetWorth: boolean) {
   return hideNetWorth ? "£••••" : `£${Math.round(value).toLocaleString("en-GB")}`;
@@ -87,7 +95,7 @@ export function MoveRouteSummary({
   destination,
 }: {
   sources: readonly MoveLedgerLeg[];
-  destination: { provider: string; name: string };
+  destination: { provider: string; name: string; display_label?: string | null };
 }) {
   const firstSource = sources[0];
   return (
@@ -100,7 +108,7 @@ export function MoveRouteSummary({
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">From</p>
           <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">
-            {sources.length === 1 ? firstSource.name : `${sources.length} accounts`}
+            {sources.length === 1 ? moveAccountLabel(firstSource) : `${sources.length} accounts`}
           </p>
         </div>
       </div>
@@ -111,7 +119,7 @@ export function MoveRouteSummary({
         <MoveAccountIcon account={destination} />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-400 dark:text-slate-500">To</p>
-          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{displayAccountName(destination.name)}</p>
+          <p className="text-[12px] font-semibold leading-4 text-slate-900 dark:text-white">{moveAccountLabel(destination)}</p>
         </div>
       </div>
     </div>
@@ -137,7 +145,7 @@ export function MoveSourcesDisclosure({
         {legs.map((leg, index) => (
           <div key={`${leg.provider}-${leg.name}-${index}`} className="flex min-h-11 items-center gap-2.5 py-1.5">
             <MoveAccountIcon account={leg} size={32} />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{leg.name}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{moveAccountLabel(leg)}</span>
             <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(leg.amount, hideNetWorth)} /></span>
           </div>
         ))}

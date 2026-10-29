@@ -28,9 +28,15 @@ from app.db.collections import (
 )
 
 log = logging.getLogger(__name__)
-from app.routers.analytics import _bank_label, _build_cashflow_response, income_credit_ok, is_assessable_bill
+from app.routers.analytics import (
+    _bank_label,
+    _build_cashflow_response,
+    income_credit_ok,
+    is_assessable_bill,
+    stamp_credit_basis,
+)
 from app.routers.allocations import list_active_allocations
-from app.services.account_names import display_account_name
+from app.services.account_names import display_account_name, distinct_account_label
 from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account as _is_current,
@@ -1445,6 +1451,79 @@ def _is_offline(acc: dict) -> bool:
     return bool(acc.get("_offline"))
 
 
+def confirm_salary_copy(amount: float, expected_date: str) -> str:
+    """G359 copy for the one-off ask to confirm a steady (unconfirmed) salary.
+    Hedged: income is only ever "expected", never promised."""
+    when = date.fromisoformat(str(expected_date)[:10]).strftime("%-d %b")
+    return (
+        f"Sorted is counting your £{int(round(amount)):,} pay expected around {when}. "
+        "Confirm it so this stays reliable."
+    )
+
+
+def payday_funds_moves_copy(expected_date: str) -> str:
+    """G359 copy for a suppressed cover move whose gap is own-account standing
+    orders that normally leave the salary account on payday."""
+    when = date.fromisoformat(str(expected_date)[:10]).strftime("%-d %b")
+    return (
+        f"These moves usually come out of your pay, expected around {when}, so no move "
+        "is suggested."
+    )
+
+
+def _payday_funds_candidate_ok(item: dict, confirmed_keys: set | frozenset) -> bool:
+    if item.get("name") in confirmed_keys or item.get("confirmed_alias") in confirmed_keys:
+        return True
+    if (item.get("occurrences") or 0) < 2:
+        return False
+    amts = [float(a) for a in (item.get("amounts_recent") or []) if a and float(a) > 0]
+    if len(amts) < 2:
+        return False
+    return abs(amts[-1] - amts[-2]) / max(amts[-1], amts[-2]) <= 0.25
+
+
+def _payday_funds_moves(
+    dest_acct: str,
+    deficit: float,
+    bounced: list[dict],
+    expected_incomes: list[dict],
+    confirmed_keys: set | frozenset = frozenset(),
+) -> dict | None:
+    """G359 step 2 guard. Returns the expected salary item when `dest_acct`'s
+    uncovered amount is (>= 80%) own-account standing orders dated on or after
+    a salary expected into that SAME account on or before the first bounce, so
+    no cover move should be suggested; None otherwise. Pure and DB-free.
+
+    A salary here is an income attributed to the account that would, if it
+    lands, clear the deficit and that is either a confirmed stream or has two
+    or more sightings whose last two amounts are within 25% of each other (a
+    single sighting never counts). It does not need to be reliable enough to
+    be credited (the fresh-account case); the guard only withholds a move, it
+    never counts the money.
+    """
+    if deficit <= 0 or not bounced:
+        return None
+    first_bounce = min(int(b.get("days_away") or 0) for b in bounced)
+    cands = [
+        i for i in expected_incomes
+        if str(i.get("account_id") or "") == str(dest_acct)
+        and int(i.get("days_away") or 0) <= first_bounce
+        and float(i.get("amount") or 0) >= deficit
+        and _payday_funds_candidate_ok(i, confirmed_keys)
+    ]
+    if not cands:
+        return None
+    salary = max(cands, key=lambda i: float(i["amount"]))
+    sal_day = int(salary.get("days_away") or 0)
+    funded = sum(
+        float(b["amount"]) for b in bounced
+        if _is_own_transfer_bill(b) and int(b.get("days_away") or 0) >= sal_day
+    )
+    if funded / deficit < 0.8:
+        return None
+    return salary
+
+
 def _is_own_transfer_bill(b: dict) -> bool:
     """True when bill `b` is a MOVEMENT-kind occurrence whose learned
     destination (`dest_account_id`, stamped by
@@ -2525,6 +2604,9 @@ async def compute_today_items(
     else:
         next_pay = _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
+    # G359: idempotent re-stamp, so a response from a patched/older builder
+    # still carries `steady_salary` / `credit_basis` for the walks below.
+    stamp_credit_basis(resp["upcoming_income"], pay_cfg, confirmed_income_keys, today_d)
 
     # Payday Plan window — the moment to distribute the month. Position within
     # the CURRENT pay period (distinct from `next_pay`, which describes the
@@ -2729,6 +2811,15 @@ async def compute_today_items(
     # salary account, resolved early here (the payday plan re-derives its own
     # later, from the same candidate pool).
     _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+
+    # G359: names that tell two same-bank accounts apart ("your Barclays
+    # current account" vs "your Barclays savings"), used by the cover plan's
+    # footnote and as `display_label` on the card's route endpoints.
+    _label_accounts = all_uk_accounts + offline_accounts
+
+    def _dl(acct_id: str | None) -> str | None:
+        _acc = _account_map.get(str(acct_id or ""))
+        return distinct_account_label(_acc, _label_accounts) if _acc else None
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
     # No guess when there is no salary account: an assumed goal (no stored or
     # inferred source) then reserves nowhere, like `_plan_source_needs` where
@@ -2926,9 +3017,20 @@ async def compute_today_items(
     # `bill` is `None` for an OVERDRAFT shortfall — every downstream consumer
     # of `shortfalls` must check for that before reading bill fields.
     shortfalls = []  # (first_bounce_days_away, shortfall_amount, dest_acct, bill | None)
+    # G359: salaries whose payday standing orders explain a would-be cover
+    # move (suppressed below, spoken once by a `payday_funds_moves` note).
+    _payday_funds_salaries: list[dict] = []
     for dest_acct, min_bal in min_running.items():
         if min_bal >= 0 or dest_acct == "__unknown__":
             continue
+        if dest_acct in shortfall_bill and dest_acct not in _overdraft_today:
+            _pf_salary = _payday_funds_moves(
+                dest_acct, abs(min_bal), bounced_bills.get(dest_acct, []),
+                _orig_window_income + _orig_payday_day_income, confirmed_income_keys,
+            )
+            if _pf_salary is not None:
+                _payday_funds_salaries.append(_pf_salary)
+                continue
         _result = _shortfall_for_destination(
             dest_acct, min_bal, shortfall_bill, bounced_bills,
             _overdraft_today, window_income, confirmed_income_keys,
@@ -3408,6 +3510,7 @@ async def compute_today_items(
                 "name": dest_name,
                 "provider": dest_provider,
                 "balance": float(dest_balance),
+                "display_label": _dl(dest_acct),
                 "needs_total": 0,
                 "needs_by": "",
                 "needs_by_last": "",
@@ -3439,6 +3542,7 @@ async def compute_today_items(
                 "name": dest_name,
                 "provider": dest_provider,
                 "balance": float(dest_balance),
+                "display_label": _dl(dest_acct),
                 "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
                 **_dest_due_range(dest_bills, today_d),
                 "bills": [
@@ -3467,6 +3571,7 @@ async def compute_today_items(
                     "name": src_name,
                     "provider": src_provider,
                     "balance": float(src_balance),
+                    "display_label": _dl(src_id),
                     "safe_note": safe_note,
                     # Surface honesty (owner fix, 2026-08-31): £ already held
                     # back this period for own-account allocations THIS
@@ -3482,6 +3587,7 @@ async def compute_today_items(
                     "name": dest_name,
                     "provider": dest_provider,
                     "balance": float(dest_balance),
+                    "display_label": _dl(dest_acct),
                     "incoming": incoming,
                 },
             }
@@ -3567,15 +3673,18 @@ async def compute_today_items(
         if not _cands:
             continue
         _amt, _inc = max(_cands, key=lambda t: t[0])
-        _dest_nm = _clean_name(
+        _dest_nm = _dl(_dest) or _clean_name(
             next((a.get("name") for a in all_uk_accounts if a["_str_id"] == _dest), None),
             _dest,
         )
         _when = date.fromisoformat(_inc["expected_date"]).strftime("%-d %b")
-        _landing = " ".join(
+        _landing = _dl(_inc.get("account_id")) or " ".join(
             x for x in [_inc.get("account_bank"), _inc.get("account_name")] if x
         ).strip()
-        if str(_inc.get("account_id") or "") and _landing:
+        # G359: "it has landed in A, not B" only when A and B really are
+        # different accounts; an income already attributed to the shortfall
+        # account itself is excluded for reliability, never for landing.
+        if str(_inc.get("account_id") or "") and str(_inc.get("account_id")) != str(_dest) and _landing:
             income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
                 f"around {_when}. It has landed in {_landing}, not {_dest_nm.strip()}. "
@@ -5190,7 +5299,15 @@ async def compute_today_items(
             )
 
         assumed_incomes = [
-            {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
+            {
+                "name": i["name"],
+                "amount": round(float(i["amount"]), 2),
+                "expected_date": i["expected_date"],
+                # G359: why it was counted ("confirmed", "reliable" or
+                # "steady"); a steady credit is an estimate, so hedged.
+                "basis": i.get("credit_basis"),
+                "estimated": i.get("credit_basis") == "steady",
+            }
             for i in credited_incomes.get(dest_acct, [])
         ]
         income_note = income_note_by_dest.get(dest_acct)
@@ -5966,6 +6083,50 @@ async def compute_today_items(
                     })
     except Exception as _ct_exc:
         log.warning("ask:card_terms item failed for %s: %s", uid, _ct_exc)
+
+    # ── 8d-bis. G359 asks, appended AFTER the other asks (HomeBrief renders
+    # only the first ask item, so these never displace a "pay changed" or
+    # card-terms ask). `ask:confirm_salary` exists only as the body of the
+    # proposal-backed `ask:payday` card, the one real confirmation (its
+    # "Yes, that's it" button); with no proposal there is nothing to confirm
+    # and no ask is emitted. `ask:payday_funds_moves` is information only: no
+    # button, dismissible.
+    try:
+        if _payday_funds_salaries and "ask:payday_funds_moves" not in dismissed:
+            _pf_sal = max(_payday_funds_salaries, key=lambda i: float(i["amount"]))
+            _pf_copy = payday_funds_moves_copy(_pf_sal["expected_date"])
+            _pf_existing = next((a for a in ask_items if a.get("id") == "ask:payday"), None)
+            if _pf_existing is not None:
+                _pf_existing["body"] = _pf_copy
+            else:
+                ask_items.append({
+                    "id": "ask:payday_funds_moves",
+                    "type": "ask",
+                    "headline": "Check your pay",
+                    "body": _pf_copy,
+                    "income_note": _pf_copy,
+                    "income_note_kind": "payday_funds_moves",
+                    "action": None,
+                    "estimated": True,
+                    "kind_label": "Your pay",
+                    "brief_lead": {
+                        "value": "Pay check",
+                        "companion": f"around £{int(round(float(_pf_sal['amount']))):,} expected, not yet confirmed",
+                    },
+                })
+    except Exception as _pf_exc:
+        log.warning("ask:payday_funds_moves item failed for %s: %s", uid, _pf_exc)
+    try:
+        _steady_credits = [
+            i for lst in credited_incomes.values() for i in lst
+            if i.get("credit_basis") == "steady"
+        ]
+        _payday_ask = next((a for a in ask_items if a.get("id") == "ask:payday"), None)
+        if _steady_credits and _payday_ask is not None and not _payday_funds_salaries:
+            _sc = max(_steady_credits, key=lambda i: float(i["amount"]))
+            _payday_ask["body"] = confirm_salary_copy(float(_sc["amount"]), _sc["expected_date"])
+    except Exception as _cs_exc:
+        log.warning("ask:confirm_salary body failed for %s: %s", uid, _cs_exc)
 
     # ── 8e. CLIFF items (promo rate ending) ────────────────────────────────
     # A confirmed promo ending within 60 days on a card that carries a balance
