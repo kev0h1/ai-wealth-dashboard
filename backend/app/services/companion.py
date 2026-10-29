@@ -1016,7 +1016,11 @@ async def _reserved_for_allocations(
     uid: str, internal_inflows: list[dict], account_map: dict[str, dict],
 ) -> dict[str, float]:
     """Per-source-account £ reserved this period for allocations (envelopes,
-    e.g. "Saving Challenge") that account funds — the owner fix (2026-08-31,
+    e.g. "Saving Challenge") that account funds. SET-ASIDES ONLY: goals are
+    reserved separately by `_reserved_for_goals` (G352) and the two are summed
+    per source in `compute_today_items`. The payday plan reads neither, it
+    uses `_plan_source_needs`, so nothing is double counted there.
+    — the owner fix (2026-08-31,
     verbatim): "does it take account [of] what has been set aside on the
     envelope? ... it is focused on the transaction that enters the savings
     challenge account, but is dependent on the [source] account we are
@@ -2709,13 +2713,39 @@ async def compute_today_items(
     # fallback fill-leg-pairing channel's name-affinity check can reuse this
     # in-memory account listing instead of a second DB round trip), off the
     # FULL (not window-filtered) `internal_inflows` list for the strongest
-    # available derivation signal, and reused by every source-sizing call
-    # site below — Step 2's `source_capacity` and the payday plan's
-    # `distributable` (section 5b) — so the two can never disagree about
-    # which source funds which envelope. See `_reserved_for_allocations`'s
+    # available derivation signal, and reused by every cover-plan
+    # source-sizing call site below (`source_capacity`, `build_move_map`,
+    # `envelope_reserved`), so they can never disagree about which source
+    # funds which envelope. (The payday plan, section 5b, no longer reads it:
+    # since G350 it uses `_plan_source_needs`.) See `_reserved_for_allocations`'s
     # docstring for the derivation + lockstep rationale.
+    #
+    # G352: goals are reserved here too, each goal's per-period slice at its
+    # resolved source (`_reserved_for_goals`, the same resolution as the
+    # payday plan), summed with the set-aside reservation in pence. The
+    # payday plan is NOT double counted: it never reads this dict, it reads
+    # `_plan_source_needs` (goals and set-asides at their source) instead.
+    # A goal with no resolvable source and no "Not set" falls back to the
+    # salary account, resolved early here (the payday plan re-derives its own
+    # later, from the same candidate pool).
     _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
+    if _pp_salary_income:
+        _early_salary_acct: str | None = str(_pp_salary_income.get("account_id") or "") or None
+    else:
+        _early_current = [a for a in all_uk_accounts if not is_credit_card_account(a)]
+        _early_salary_acct = (
+            max(_early_current, key=lambda a: live_balances.get(a["_str_id"], 0.0))["_str_id"]
+            if _early_current else None
+        )
+    _goal_reserved = await _reserved_for_goals(uid, pay_cfg, live_balances, _early_salary_acct, _account_map)
+    if _goal_reserved:
+        _combined: dict[str, int] = {
+            k: int(round(float(v) * 100)) for k, v in reserved_by_source.items()
+        }
+        for k, v in _goal_reserved.items():
+            _combined[k] = _combined.get(k, 0) + int(round(float(v) * 100))
+        reserved_by_source = {k: round(v / 100, 2) for k, v in _combined.items()}
 
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
     running: dict[str, float] = {}
