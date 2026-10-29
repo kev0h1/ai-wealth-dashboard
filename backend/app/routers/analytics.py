@@ -1914,7 +1914,7 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
          Broadcast-crediting predicted income to every account is how a
          self-transfer that historically landed in one bank silently
          underwrote another bank's cover plan.
-      2. Reliability — a user-confirmed income stream (or one aliased to a
+      2. Reliability: a user-confirmed income stream (or one aliased to a
          confirmed stream, G174), a pattern that clears
          `_income_pattern_reliable` (3+ occurrences with stable recent
          amounts), or (G359) a STEADY salary candidate stamped by
