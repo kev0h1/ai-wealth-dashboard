@@ -46,7 +46,8 @@ export function hasStoreKitPlugin(): boolean {
   }
 }
 
-type StoreKitHandle = { plugin: NativePurchasesPlugin; subs: Parameters<NativePurchasesPlugin["getProducts"]>[0]["productType"] };
+type StoreKitProductType = Parameters<NativePurchasesPlugin["getProducts"]>[0]["productType"];
+export type StoreKitHandle = { plugin: NativePurchasesPlugin; subs: StoreKitProductType; inapp: StoreKitProductType };
 
 let configured = false;
 
@@ -55,7 +56,7 @@ let configured = false;
 async function withStoreKit<T>(fn: (sk: StoreKitHandle) => Promise<T>): Promise<T> {
   if (!hasStoreKitPlugin()) throw new Error("In-app purchase is not available in this build.");
   const mod = await import("@capgo/native-purchases");
-  const sk: StoreKitHandle = { plugin: mod.NativePurchases, subs: mod.PURCHASE_TYPE.SUBS };
+  const sk: StoreKitHandle = { plugin: mod.NativePurchases, subs: mod.PURCHASE_TYPE.SUBS, inapp: mod.PURCHASE_TYPE.INAPP };
   if (!configured) {
     // Finish a transaction only after the server has verified it, so a
     // dropped connection leaves it queued for the next launch instead of
@@ -134,6 +135,17 @@ export async function loadStoreProducts(productIds: string[]): Promise<Record<st
   });
 }
 
+/** C38: loads the consumable Penny pack products (one-time, INAPP) by id. */
+export async function loadStorePackProducts(productIds: string[]): Promise<Record<string, StoreProductView>> {
+  if (productIds.length === 0) return {};
+  return withStoreKit(async ({ plugin, inapp }) => {
+    const { products } = await plugin.getProducts({ productIdentifiers: productIds, productType: inapp });
+    const out: Record<string, StoreProductView> = {};
+    for (const p of products) out[p.identifier] = toProductView(p);
+    return out;
+  });
+}
+
 // ── Purchase, restore, manage ────────────────────────────────────────────────
 
 export const PURCHASE_FAILED_MESSAGE = "The purchase did not go through. You have not been charged.";
@@ -195,6 +207,55 @@ export async function purchaseSubscription(productKey: string, config: AppleIapC
   } catch (err) {
     if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
     if (charged) return { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
+  }
+}
+
+/** The purchase step of a Penny pack once the plugin is in hand. Exported so
+ *  the guard-rail test can drive it with a fake handle. A pack is a
+ *  consumable: the server grants the messages on verify (deduped on the
+ *  transaction id) and the transaction is finished only after that. */
+export async function executePackPurchase(sk: StoreKitHandle, productIdentifier: string, config: AppleIapConfig): Promise<PurchaseOutcome> {
+  let charged = false;
+  try {
+    const tx = await sk.plugin.purchaseProduct({
+      productIdentifier,
+      productType: sk.inapp,
+      appAccountToken: config.app_account_token as string,
+      autoAcknowledgePurchases: false,
+    });
+    charged = true;
+    const verified = await verifyAndFinish(sk, tx);
+    return verified
+      ? { ok: true }
+      : { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+  } catch (err) {
+    if (!charged && isCancellation(err)) return { ok: false, cancelled: true, message: "" };
+    if (charged) return { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
+  }
+}
+
+/** Buys one Penny pack (a consumable), carrying the user's appAccountToken,
+ *  then has the server verify the signed transaction. Refused while
+ *  purchase_allowed is false, the same rule as the Play pack flow.
+ *
+ *  Consumables never appear in current entitlements, so restorePurchases()
+ *  (which reads current entitlements) cannot recover a pack. The recovery path
+ *  for a pack whose verification was interrupted is
+ *  syncUnfinishedTransactions(), which has no product-type filter. */
+export async function purchasePack(productKey: string, config: AppleIapConfig): Promise<PurchaseOutcome> {
+  const productIdentifier = config.products[productKey];
+  if (!config.enabled || !config.app_account_token || !productIdentifier) {
+    return { ok: false, cancelled: false, message: "This pack cannot be bought in the app yet." };
+  }
+  if (!config.purchase_allowed) {
+    return { ok: false, cancelled: false, message: config.blocked_message || "Packs cannot be bought right now." };
+  }
+  try {
+    return await withStoreKit((sk) => executePackPurchase(sk, productIdentifier, config));
+  } catch (err) {
+    if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
     return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
   }
 }
