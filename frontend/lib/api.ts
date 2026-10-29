@@ -1391,6 +1391,8 @@ export type MoveMapAccount = {
   name: string;
   provider: string;
   balance: number;
+  /** G359: server sentence label that tells two same-bank accounts apart, e.g. "your Barclays current account". */
+  display_label?: string | null;
 };
 
 export type MoveMap = {
@@ -1428,6 +1430,8 @@ export type PlanDestBill = {
 export type PlanDest = {
   account_id: string;
   name: string;
+  /** G359: see MoveMapAccount.display_label. */
+  display_label?: string | null;
   provider: string;
   balance: number;
   needs_total: number;
@@ -1758,7 +1762,9 @@ export type CompanionItem = {
   residual?: string;
   overflow_note?: string;
   income_note?: string;
-  assumed_incomes?: { name: string; amount: number; expected_date: string }[];
+  assumed_incomes?: { name: string; amount: number; expected_date: string; basis?: "confirmed" | "reliable" | "steady" | null; estimated?: boolean }[];
+  /** G359: set on the ask that carries a hedged income prompt ("confirm_salary" or "payday_funds_moves"). */
+  income_note_kind?: "confirm_salary" | "payday_funds_moves";
   plan_dest?: PlanDest;
   /** G212: account row for a cover plan card with no transfer source (readable name, balance and payments in one line). */
   dest_row?: { title: string; detail: string };

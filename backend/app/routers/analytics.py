@@ -1800,6 +1800,110 @@ def _income_pattern_reliable(item: dict) -> bool:
     return max(amts) / min(amts) <= 1.5
 
 
+# G359: a brand-new account (or one rebuilt after erasure) has no confirmed
+# stream and, on a flat 90-day window, only two sightings of a monthly salary,
+# so `_income_pattern_reliable` (3+) never clears. A STEADY salary is the
+# conservative middle: two sightings, near-identical amounts, the user's own
+# pay rhythm, the largest regular credit on its account, due this window.
+# Interval ranges (days, inclusive) per `period_rhythm_label`, widened by the
+# 3-day tolerance the rhythm allows (monthly 28-31, weekly 7, fortnightly 14).
+_STEADY_INTERVAL_DAYS = {
+    "monthly": (25, 35),
+    "weekly": (4, 10),
+    "every 2 weeks": (11, 17),
+}
+_STEADY_AMOUNT_TOLERANCE = 0.10
+
+
+def _steady_salary_candidate(
+    item: dict,
+    pay_cfg: dict | None,
+    all_income_items: list[dict],
+    today: _date | None = None,
+) -> bool:
+    """True when `item` is a STEADY salary candidate (G359): all of
+
+      - occurrences >= 2 and the last two amounts within 10% of each other;
+      - the series interval (`avg_interval`, which for a two-sighting series is
+        exactly the gap between them) matches the user's pay rhythm within
+        +/-3 days (`period_rhythm_label`: monthly 25-35, weekly 4-10,
+        fortnightly 11-17; no clean rhythm means never steady);
+      - it is the largest regular (2+ occurrences) credit on its account;
+      - its next expected date is on or before the next payday (this window).
+
+    Says nothing about attribution to a given account (`income_credit_ok`
+    applies that) or confirmation. Missing fields (stale cache docs) read as
+    not steady: conservative by construction.
+    """
+    from app.services.pay_period import _next_payday, period_rhythm_label
+
+    if not pay_cfg or not item.get("account_id"):
+        return False
+    if str(item.get("category") or "") == "Transfer":
+        return False
+    if (item.get("occurrences") or 0) < 2:
+        return False
+    amts = [float(a) for a in (item.get("amounts_recent") or []) if a and float(a) > 0]
+    if len(amts) < 2:
+        return False
+    last, prev = amts[-1], amts[-2]
+    if abs(last - prev) / max(last, prev) > _STEADY_AMOUNT_TOLERANCE:
+        return False
+    interval = item.get("avg_interval")
+    bounds = _STEADY_INTERVAL_DAYS.get(period_rhythm_label(pay_cfg) or "")
+    if interval is None or bounds is None or not (bounds[0] <= float(interval) <= bounds[1]):
+        return False
+    try:
+        expected = _date.fromisoformat(str(item.get("expected_date"))[:10])
+    except (TypeError, ValueError):
+        return False
+    _today = today or timeutil.user_today()
+    if expected < _today or expected > _next_payday(_today, pay_cfg):
+        return False
+    mine = float(item.get("amount") or amts[-1])
+    for other in all_income_items:
+        if other is item or other.get("name") == item.get("name"):
+            continue
+        if str(other.get("account_id") or "") != str(item.get("account_id")):
+            continue
+        if (other.get("occurrences") or 0) < 2:
+            continue
+        if float(other.get("amount") or 0) > mine:
+            return False
+    return True
+
+
+def income_credit_basis(item: dict, account_id: str, confirmed_keys: set | frozenset = frozenset()) -> str | None:
+    """Why `item` may be credited to `account_id`'s walk: "confirmed",
+    "reliable", "steady" (G359, needs the `steady_salary` stamp from
+    `stamp_credit_basis`), or None when it may not be credited."""
+    if not account_id or str(item.get("account_id") or "") != str(account_id):
+        return None
+    if item.get("name") in confirmed_keys or item.get("confirmed_alias") in confirmed_keys:
+        return "confirmed"
+    if _income_pattern_reliable(item):
+        return "reliable"
+    if item.get("steady_salary") is True:
+        return "steady"
+    return None
+
+
+def stamp_credit_basis(
+    income_items: list[dict],
+    pay_cfg: dict | None,
+    confirmed_keys: set | frozenset = frozenset(),
+    today: _date | None = None,
+) -> None:
+    """Stamp `steady_salary`, `credit_basis` and (for a steady credit)
+    `estimated: True` on every item, in place. Idempotent."""
+    for it in income_items:
+        acct = str(it.get("account_id") or "")
+        it["steady_salary"] = bool(acct) and _steady_salary_candidate(it, pay_cfg, income_items, today)
+        it["credit_basis"] = income_credit_basis(it, acct, confirmed_keys)
+        if it["credit_basis"] == "steady":
+            it["estimated"] = True
+
+
 def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozenset = frozenset()) -> bool:
     """Whether a predicted income may be credited to `account_id` inside a
     PER-ACCOUNT balance simulation (cover plans, at-risk badge, source walks).
@@ -1810,24 +1914,17 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
          Broadcast-crediting predicted income to every account is how a
          self-transfer that historically landed in one bank silently
          underwrote another bank's cover plan.
-      2. Reliability — a user-confirmed income stream, or a pattern that
-         clears `_income_pattern_reliable` (3+ occurrences with stable
-         recent amounts).
+      2. Reliability: a user-confirmed income stream (or one aliased to a
+         confirmed stream, G174), a pattern that clears
+         `_income_pattern_reliable` (3+ occurrences with stable recent
+         amounts), or (G359) a STEADY salary candidate stamped by
+         `stamp_credit_basis`; see `income_credit_basis`.
 
     Items from stale caches missing this metadata are excluded outright —
     deliberately conservative: per-account arithmetic never leans on money
     that might land elsewhere. POOLED views still count every income.
     """
-    if not account_id or str(item.get("account_id") or "") != str(account_id):
-        return False
-    # G174: `confirmed_alias` (stamped by `_confirmed_income_fallback`'s
-    # dedupe guard) names the confirmed stream a DETECTED series is standing
-    # in for after a payroll reference change -- treat it as confirmed the
-    # same as a direct key match, so a fresh reference never has to
-    # independently clear the reliability floor before the plan trusts it.
-    if item.get("name") in confirmed_keys or item.get("confirmed_alias") in confirmed_keys:
-        return True
-    return _income_pattern_reliable(item)
+    return income_credit_basis(item, account_id, confirmed_keys) is not None
 
 
 def is_assessable_bill(b: dict) -> bool:
@@ -4122,9 +4219,16 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # -- reuse the one guarded builder rather than a second unguarded copy
     # (2026-09-24 review: this site had the same unguarded `s["key"]` bug).
     confirmed_income: dict[str, dict] = {}
+    _steady_pay_cfg: dict | None = None
+    _steady_confirmed_keys: set = set()
     if uid:
         _prefs_doc = prefs if prefs is not None else (await preferences_col.find_one({"user_id": uid}) or {})
         confirmed_income = _build_confirmed_income_map(_prefs_doc.get("income_streams"))
+        _steady_pay_cfg = _prefs_doc.get("pay_period_config") or {"type": "calendar_month"}
+        _steady_confirmed_keys = {
+            s_.get("key") for s_ in (_prefs_doc.get("income_streams") or [])
+            if isinstance(s_, dict) and s_.get("status") == "confirmed"
+        }
 
     # Load user-defined AI recurrence rules (highest priority)
     rules: dict[str, dict] = {}
@@ -4627,8 +4731,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "account_balance": r.get("account_balance"),
                 "occurrences":     r.get("occurrences"),
                 "amounts_recent":  r.get("amounts_recent"),
+                "avg_interval":    r.get("avg_interval"),
             })
     upcoming_income = sorted(raw_income, key=lambda x: x["days_away"])
+    # G359: stamp `steady_salary` / `credit_basis` so every per-account walk
+    # (`income_credit_ok`) sees the same answer.
+    stamp_credit_basis(upcoming_income, _steady_pay_cfg, _steady_confirmed_keys, today_d)
 
     avg_daily = cached.get("avg_daily_spend", 0)
     weeks = []
