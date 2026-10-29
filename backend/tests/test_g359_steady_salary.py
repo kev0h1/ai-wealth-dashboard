@@ -183,7 +183,7 @@ def _salary(*, occurrences=2, amounts=None, acct=BC, interval=28.0):
     }
 
 
-def _run(monkeypatch, bills, income, *, accounts=None, income_streams=None, eligibility=None):
+def _run(monkeypatch, bills, income, *, accounts=None, income_streams=None, eligibility=None, proposal=None):
     import app.services.income as income_mod
     import app.services.pace as pace_module
     import app.services.categories as categories_module
@@ -233,6 +233,11 @@ def _run(monkeypatch, bills, income, *, accounts=None, income_streams=None, elig
         }
 
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
+
+    async def fake_proposal(uid, today_d):
+        return proposal
+
+    monkeypatch.setattr(income_mod, "get_payday_proposal", fake_proposal)
     out = {} if eligibility is None else eligibility
     items = asyncio.run(companion.compute_today_items(UID, persist=False, account_eligibility_out=out))
     return items
@@ -257,24 +262,15 @@ def test_steady_salary_is_credited_and_no_cover_move_for_the_salary_account(monk
     assert sal["credit_basis"] == "steady"
     assert sal["estimated"] is True
     # Starling and Monzo are not reserved for any move.
+    # Standing headroom is balance less the GBP 10 buffer and is untouched by
+    # any move (no move exists); the harness has no plans so the position is
+    # fail-closed and spend_from_headroom reads 0, never negative.
+    assert "headroom" in elig[ST] and "headroom" in elig[MZ]
+    assert elig[ST]["headroom"] == 35.0
+    assert elig[MZ]["headroom"] == 20.0
     for sid in (ST, MZ):
         assert elig[sid]["spend_from_headroom"] >= 0
-        assert elig[sid]["spend_from_headroom"] == pytest.approx(elig[sid].get("headroom", 0.0), abs=50)
     assert not any("landed in" in str(i.get("income_note") or "") for i in items)
-
-
-def test_steady_salary_asks_once_to_confirm_with_hedged_copy(monkeypatch):
-    items = _run(monkeypatch, _bills(), [_salary()])
-    ask = _ask(items, "ask:confirm_salary")
-    assert ask is not None
-    assert ask["income_note_kind"] == "confirm_salary"
-    assert ask["income_note"] == (
-        "Sorted is counting your £4,798 pay expected around 30 Oct. "
-        "Confirm it so this stays reliable."
-    )
-    assert ask["body"] == ask["income_note"]
-    assert ask["action"]["route"] == "/settings"
-    assert "—" not in ask["body"] and "!" not in ask["body"] and "will" not in ask["body"]
 
 
 def test_credited_incomes_lists_the_steady_salary_on_a_move_card(monkeypatch):
@@ -324,6 +320,14 @@ def test_steady_rule_edges():
     assert _steady_salary_candidate(sal, PAY_CFG, [sal], TODAY) is True
     assert _steady_salary_candidate(_salary(occurrences=1), PAY_CFG, [], TODAY) is False
     assert _steady_salary_candidate(_salary(interval=60.0), PAY_CFG, [], TODAY) is False
+    # A two-sighting last-Friday gap (25 Sep to 30 Oct) is 35 days.
+    assert _steady_salary_candidate(_salary(interval=35.0), PAY_CFG, [], TODAY) is True
+    assert _steady_salary_candidate(_salary(interval=36.0), PAY_CFG, [], TODAY) is False
+    # Tie for largest on the account: two series, same amount, two sightings
+    # each. Defined behaviour: both are steady (neither is beaten).
+    twin = dict(_salary(), name="Twin pay")
+    assert _steady_salary_candidate(sal, PAY_CFG, [sal, twin], TODAY) is True
+    assert _steady_salary_candidate(twin, PAY_CFG, [sal, twin], TODAY) is True
     assert _steady_salary_candidate(sal, None, [sal], TODAY) is False
     later = _salary()
     later["expected_date"] = (TODAY + timedelta(days=20)).isoformat()
@@ -335,24 +339,64 @@ def test_steady_rule_edges():
 # ── Step 2 ──────────────────────────────────────────────────────────────────
 
 def test_payday_standing_orders_never_drive_a_cover_move_when_pay_is_expected(monkeypatch):
-    sal = _salary(occurrences=1, amounts=[4797.88], interval=None)
+    # Two sightings 20% apart: not steady (10%), but a credible pay for the guard (25%).
+    sal = _salary(amounts=[4797.88, 4000.0])
     items = _run(monkeypatch, _bills(), [sal])
     assert sal["credit_basis"] is None
     assert _moves(items) == []
     note = _ask(items, "ask:payday_funds_moves")
     assert note is not None
     assert note["income_note_kind"] == "payday_funds_moves"
+    assert note["action"] is None
     assert note["income_note"] == (
-        "These moves usually come out of your pay expected around 30 Oct, so no move "
-        "is suggested. Confirm your pay in Settings so Sorted can count on it."
+        "These moves usually come out of your pay, expected around 30 Oct, so no move "
+        "is suggested."
     )
+
+
+def test_single_sighting_no_longer_suppresses_the_move(monkeypatch):
+    sal = _salary(occurrences=1, amounts=[4797.88], interval=None)
+    items = _run(monkeypatch, _bills(), [sal], accounts=_accounts(starling=9000.0))
+    assert _moves(items)
+    assert _ask(items, "ask:payday_funds_moves") is None
+
+
+def test_two_sightings_forty_percent_apart_still_get_a_move(monkeypatch):
+    sal = _salary(amounts=[4797.88, 2900.0])
+    items = _run(monkeypatch, _bills(), [sal], accounts=_accounts(starling=9000.0))
+    assert _moves(items)
+    assert _ask(items, "ask:payday_funds_moves") is None
+
+
+def test_confirm_salary_reuses_the_proposal_backed_payday_ask(monkeypatch):
+    proposal = {"amount": 4797.88, "merchant": "Goldman Sachs", "payday_phrase": "Fri 30 Oct"}
+    items = _run(monkeypatch, _bills(), [_salary()], proposal=proposal)
+    ask = _ask(items, "ask:payday")
+    assert ask is not None
+    assert ask["proposal"] == proposal
+    assert ask["action"]["kind"] == "confirm_payday"
+    assert ask["body"] == (
+        "Sorted is counting your £4,798 pay expected around 30 Oct. "
+        "Confirm it so this stays reliable."
+    )
+
+
+def test_no_proposal_means_no_confirm_ask(monkeypatch):
+    items = _run(monkeypatch, _bills(), [_salary()])
+    assert _ask(items, "ask:confirm_salary") is None
+    assert _ask(items, "ask:payday") is None
 
 
 def test_payday_funds_moves_guard_unit():
     movement = _bill("HSBC", 3000.0, 1, kind=MOVEMENT, dest="own")
     other = _bill("Rent", 900.0, 1)
     sal = {"account_id": BC, "days_away": 1, "amount": 5000.0}
+    sal = dict(sal, occurrences=2, amounts_recent=[5000.0, 5000.0])
     assert companion._payday_funds_moves(BC, 3000.0, [movement], [sal]) is sal
+    # Confirmed streams need no sighting history.
+    bare = {"account_id": BC, "days_away": 1, "amount": 5000.0, "name": "K"}
+    assert companion._payday_funds_moves(BC, 3000.0, [movement], [bare], {"K"}) is bare
+    assert companion._payday_funds_moves(BC, 3000.0, [movement], [bare]) is None
     # Less than 80% own-account movements: the guard stays out of the way.
     assert companion._payday_funds_moves(BC, 3900.0, [movement, other], [sal]) is None
     # Salary into a different account does not explain this account's gap.

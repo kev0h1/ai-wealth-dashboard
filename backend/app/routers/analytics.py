@@ -1808,7 +1808,7 @@ def _income_pattern_reliable(item: dict) -> bool:
 # Interval ranges (days, inclusive) per `period_rhythm_label`, widened by the
 # 3-day tolerance the rhythm allows (monthly 28-31, weekly 7, fortnightly 14).
 _STEADY_INTERVAL_DAYS = {
-    "monthly": (25, 34),
+    "monthly": (25, 35),
     "weekly": (4, 10),
     "every 2 weeks": (11, 17),
 }
@@ -1826,7 +1826,7 @@ def _steady_salary_candidate(
       - occurrences >= 2 and the last two amounts within 10% of each other;
       - the series interval (`avg_interval`, which for a two-sighting series is
         exactly the gap between them) matches the user's pay rhythm within
-        +/-3 days (`period_rhythm_label`: monthly 25-34, weekly 4-10,
+        +/-3 days (`period_rhythm_label`: monthly 25-35, weekly 4-10,
         fortnightly 11-17; no clean rhythm means never steady);
       - it is the largest regular (2+ occurrences) credit on its account;
       - its next expected date is on or before the next payday (this window).
