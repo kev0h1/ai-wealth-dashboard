@@ -743,7 +743,10 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                         "Finexer returned no transactions for a %s account with a non-zero balance (consent %s)",
                         acc_class or "unknown", consent_id,
                     )
-            await accounts_col.update_one({"_id": account_id}, {"$set": diag_set})
+            try:
+                await accounts_col.update_one({"_id": account_id}, {"$set": diag_set})
+            except Exception:
+                logger.exception("Finexer transaction diagnostics write failed for %s", account_id)
 
     # A renewed consent should clear the "needs reconnecting" banner on the
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse

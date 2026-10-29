@@ -7,16 +7,16 @@ import type { Account } from "@wealth/shared";
 export const NO_BANK_TRANSACTIONS = "No transactions have arrived from this bank connection yet. The balance still updates.";
 export const SAVINGS_NOT_COUNTED = "Savings are not counted in Left to spend.";
 
-/** Mirrors the backend rule (analytics._account_pool_kind): a subtype or type
- *  containing "saving" is a savings account. Credit cards are never savings. */
+/** Matches "saving" in subtype or type. That is a superset of the backend's
+ *  subtype rule (analytics._account_pool_kind); harmless because it only picks
+ *  which line the sheet shows and never changes any stored value. Credit cards
+ *  are never savings. */
 export function isSavingsAccount(a: Pick<Account, "type" | "subtype">): boolean {
   const type = (a.type ?? "").toLowerCase();
   const sub = (a.subtype ?? "").toLowerCase();
   if (type.includes("credit") || sub.includes("credit")) return false;
   return sub.includes("saving") || type.includes("saving");
 }
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "Bank data updated 2 hours ago", or "Bank data updated 29 Oct" once a week old. */
 export function bankDataUpdatedLine(iso: string | null | undefined, now: number = Date.now()): string | undefined {
@@ -30,8 +30,8 @@ export function bankDataUpdatedLine(iso: string | null | undefined, now: number 
   const days = Math.floor(hours / 24);
   if (days === 1) return "Bank data updated yesterday";
   if (days < 7) return `Bank data updated ${days} days ago`;
-  const d = new Date(t);
-  return `Bank data updated ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  const date = new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+  return `Bank data updated ${date}`;
 }
 
 export interface BankEmptyState {

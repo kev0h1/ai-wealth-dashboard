@@ -22,8 +22,10 @@ Monzo Open Banking documentation, https://docs.monzo.com/open-banking, read
 - Otherwise pots come from the separate `/aisp/pots` endpoint, which carries
   name, balance, goal and lock status but no transactions.
 
-This matches production exactly: Finexer lists the pot with its balance and
-returns no history, while TrueLayer asks for pots as accounts.
+This is consistent with production: Finexer lists the pot with its balance and
+returns no history. UAT via TrueLayer shows the pot's daily history, so
+TrueLayer reads pots as accounts by whichever means; how it does so is not
+sourced.
 
 Finexer's own API documentation sits behind the dashboard login, so it was not
 read. Anything about their refresh cadence, on-demand refresh, pending support
@@ -76,15 +78,15 @@ Where they show:
 
 ## Savings pots and Left to spend
 
-An account whose subtype contains "saving" is always in the savings pool and is
-never spendable, whatever `include_in_safe_to_spend` says
-(`analytics._account_pool_kind`). The flag only changes whether the account's
-bills, income and inbound mirrored transfers are dropped, and inbound transfers
-feed set-aside and goal source detection. Switching it off for a pot would
-therefore quietly break plan source detection while changing nothing about
-spendable cash. So the stored flag is never changed for pots, and the account
-sheet shows the line "Savings are not counted in Left to spend." in place of the
-switch.
+An account whose subtype contains "saving" is in the savings pool and is never
+spendable (`analytics._account_pool_kind`). The flag does still matter for a
+savings account: `_account_pool_kind` returns None when
+`include_in_safe_to_spend` is false, so the account then drops out of the
+savings pool and out of transfer and source detection, which set-aside and goal
+source detection rely on. That is exactly why the build never changes the flag
+for pots. The account sheet shows "Savings are not counted in Left to spend."
+in place of the switch, unless the flag is already false, in which case the
+switch stays so it can be turned back on.
 
 ## Checks for Kevin in production
 
@@ -99,11 +101,12 @@ switch.
 
 ## Questions to send Finexer
 
-1. Are Monzo pots read through the Pots endpoint, or as accounts with the
-   `X-Open-Banking-Pots-As-Accounts` header?
-2. Are pot transactions supported today, and from 23 November 2026?
-3. Is transaction data fetched live from the bank on each request, or cached,
-   and at what refresh cadence?
-4. Can we request a refresh on demand?
-5. Are pending transactions returned?
-6. Is any extra consent scope needed for pot transactions?
+1. Yes or no: do you send `X-Open-Banking-Pots-As-Accounts: true` to Monzo
+   today?
+2. Yes or no: will pot transactions be returned from 23 November 2026 without
+   any change on our side?
+3. Yes or no: is transaction data served from a cache? If yes, what is the
+   refresh interval?
+4. Yes or no: can a client request a refresh for a consent?
+5. Yes or no: are pending transactions returned?
+6. Yes or no: is an extra consent scope needed for pots?

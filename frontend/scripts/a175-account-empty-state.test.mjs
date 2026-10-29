@@ -52,6 +52,9 @@ html = render(React.createElement(AccountCountRow, { account: { type: "bank", su
 assert.match(html, /Savings are not counted in Left to spend\./);
 assert.doesNotMatch(html, new RegExp(COUNT_TOWARDS_LABEL));
 assert.doesNotMatch(html, /role="switch"|<button|checkbox/);
+html = render(React.createElement(AccountCountRow, { account: { type: "bank", subtype: "SAVINGS" }, counted: false, onChange: noop }));
+assert.match(html, new RegExp(COUNT_TOWARDS_LABEL), "savings already switched off keeps the switch");
+assert.doesNotMatch(html, /Savings are not counted/);
 html = render(React.createElement(AccountCountRow, { account: { type: "bank", subtype: "TRANSACTION" }, ...row }));
 assert.match(html, new RegExp(COUNT_TOWARDS_LABEL));
 assert.doesNotMatch(html, /Savings are not counted/);
