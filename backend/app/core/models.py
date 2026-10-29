@@ -29,6 +29,12 @@ class Account(BaseModel):
     # G231: false when the user has chosen not to count this account towards
     # Safe to Spend. Absent on the document means counted.
     include_in_safe_to_spend: bool = True
+    # A175: when the last successful transaction walk finished (ISO, UTC) and
+    # how many rows the bank returned in it. Null on rows that predate the
+    # diagnostics, on manual and statement accounts, and on providers that do
+    # not record them.
+    transactions_synced_at: Optional[str] = None
+    transactions_last_count: Optional[int] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.

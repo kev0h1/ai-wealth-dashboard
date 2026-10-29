@@ -87,6 +87,19 @@ def _engine_source_eligible(acc: dict) -> bool:
     return is_current_account(acc) or is_savings_account(acc)
 
 
+def _transaction_diagnostics(d: dict) -> dict:
+    """A175: the two per-account transaction sync diagnostics as API values."""
+    at = d.get("transactions_synced_at")
+    if isinstance(at, datetime):
+        at = at.isoformat() + ("Z" if at.tzinfo is None else "")
+    elif not isinstance(at, str):
+        at = None
+    count = d.get("transactions_last_count")
+    if isinstance(count, bool) or not isinstance(count, int):
+        count = None
+    return {"transactions_synced_at": at, "transactions_last_count": count}
+
+
 def _manual_to_account(a: dict, currency: str) -> Account:
     at = a.get("account_type", "savings")
     if at == "credit_card":
@@ -132,7 +145,8 @@ async def get_accounts(user: dict = Depends(current_user)):
     result = [
         Account(
             id=d["_id"],
-            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused"}},
+            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused", "transactions_synced_at", "transactions_last_count"}},
+            **_transaction_diagnostics(d),
             paused=paused,
             # G55: `_engine_source_eligible` is companion.py's OWN
             # source_capacity predicate (credit-card exclusion AND the
