@@ -62,7 +62,7 @@ def _salary(amount, days_away, today, *, acct=BC):
     }
 
 
-def _run(monkeypatch, today, bills, income, inflows, balances):
+def _run(monkeypatch, today, bills, income, inflows, balances, preview=False):
     import app.services.income as income_mod
     import app.services.pace as pace_module
     import app.services.categories as categories_module
@@ -124,7 +124,7 @@ def _run(monkeypatch, today, bills, income, inflows, balances):
 
     monkeypatch.setattr(income_mod, "get_payday_proposal", fake_proposal)
     elig: dict = {}
-    items = asyncio.run(companion.compute_today_items(UID, persist=False, account_eligibility_out=elig))
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=preview, persist=False, account_eligibility_out=elig))
     return items, elig
 
 
@@ -153,7 +153,10 @@ def test_kevin_hsbc_case_payday_eve(monkeypatch):
     assert not _short(h), "payments warning must not fire"
     assert h["spend_from_headroom"] == pytest.approx(11.39), "not floored by next-period bills"
     assert h["uncertain"] is False
-    assert not _short(elig[BC]) or elig[BC]["after_payments"] is not None
+    # Barclays has nothing inside this period: its standing order and the pay
+    # both sit on payday, so its figures are exactly its balance.
+    assert elig[BC]["after_payments"] == pytest.approx(500.0)
+    assert elig[BC]["low_point"] == pytest.approx(500.0)
 
 
 def test_next_period_bills_absent_from_window(monkeypatch):
@@ -175,6 +178,85 @@ def test_next_period_bills_absent_from_window(monkeypatch):
     _run(monkeypatch, today, bills, [], [], {HS: (150.76, "hsbc")})
     names = [e[4]["name"] for e in seen["events"]]
     assert names == ["Novuna"]
+
+
+def test_kevin_hsbc_case_mid_window_funded_rule(monkeypatch):
+    """Same accounts, but the standing order and the pay land mid-window
+    (days_to_pay 10, transfer and Barclays salary on day 3)."""
+    today = date(2026, 10, 20)
+    bills = [
+        _bill("Novuna", 139.37, 0, today, acct=HS, balance=150.76),
+        _bill("Mortgage", 1353.30, 5, today, acct=HS, balance=150.76),
+        _bill("M&S Loans", 200.0, 5, today, acct=HS, balance=150.76),
+        _bill("To HSBC", 1886.0, 3, today, acct=BC, balance=500.0, kind=MOVEMENT),
+    ]
+    income = [_salary(4800.0, 3, today)]
+    inflows = [_inflow(1886.0, 3, today)]
+    _, elig = _run(monkeypatch, today, bills, income, inflows,
+                   {HS: (150.76, "hsbc"), BC: (500.0, "barclays")})
+    h = elig[HS]
+    # 150.76 - 139.37 + 1886 - 1553.30: the 1,886 is in BOTH walks.
+    assert h["after_payments"] == pytest.approx(344.09)
+    assert h["low_point"] == pytest.approx(11.39), "low point is the day-0 dip; the inflow lands after it"
+    assert not _short(h)
+    # Barclays: same-day pay lands before the standing order leaves.
+    assert elig[BC]["after_payments"] == pytest.approx(500.0 - 1886.0 + 4800.0)
+    assert elig[BC]["low_point"] == pytest.approx(500.0)
+
+
+def test_funded_inflow_into_account_with_no_bills_seeds_the_closing_walk(monkeypatch):
+    today = date(2026, 10, 10)
+    bills = [_bill("To Pot", 100.0, 2, today, acct=BC, balance=500.0, kind=MOVEMENT)]
+    inflows = [_inflow(100.0, 2, today, dest=HS)]
+    _, elig = _run(monkeypatch, today, bills, [], inflows,
+                   {HS: (50.0, "hsbc"), BC: (500.0, "barclays")})
+    assert elig[HS]["after_payments"] == pytest.approx(150.0)
+    # The low point is a running minimum that starts at the opening balance (50),
+    # so it cannot read above it; the inflow is credited in both walks.
+    assert elig[HS]["low_point"] == pytest.approx(50.0)
+
+
+def test_payday_eve_spend_from_not_floored_by_next_period_bills(monkeypatch):
+    today = date(2026, 10, 29)  # days_to_pay 1
+    bills = [
+        _bill("Small HS", 10.0, 0, today, acct=HS, balance=200.0),
+        _bill("Small BC", 10.0, 0, today, acct=BC, balance=300.0),
+        _bill("Big HS", 1000.0, 4, today, acct=HS, balance=200.0),
+        _bill("Big BC", 1000.0, 4, today, acct=BC, balance=300.0),
+    ]
+    _, elig = _run(monkeypatch, today, bills, [], [],
+                   {HS: (200.0, "hsbc"), BC: (300.0, "barclays")})
+    companion.cap_spend_from_to_pool(elig, 500.0)
+    assert elig[HS]["spend_from_headroom"] > 0
+    assert elig[BC]["spend_from_headroom"] > 0
+
+
+def test_payday_eve_tomorrow_lands_in_payday_slice_not_window(monkeypatch):
+    today = date(2026, 10, 29)
+    seen = {}
+    orig = companion._walk_events
+
+    def spy(events, balances):
+        seen["events"] = list(events)
+        return orig(events, balances)
+
+    monkeypatch.setattr(companion, "_walk_events", spy)
+    bills = [
+        _bill("Novuna", 139.37, 0, today, acct=HS, balance=150.76),
+        _bill("Tomorrow bill", 50.0, 1, today, acct=HS, balance=150.76),
+        _bill("To HSBC", 1886.0, 1, today, acct=BC, balance=500.0, kind=MOVEMENT),
+    ]
+    income = [_salary(4800.0, 1, today)]
+    inflows = [_inflow(1886.0, 1, today)]
+    items, _ = _run(monkeypatch, today, bills, income, inflows,
+                    {HS: (150.76, "hsbc"), BC: (500.0, "barclays")}, preview=True)
+    # Only today's bill is in the window; "Pay" is the preview's own payday event.
+    assert [e[4]["name"] for e in seen["events"]] == ["Novuna", "Pay"]
+    plan = next((i for i in items if i.get("type") == "payday_plan"), None)
+    assert plan is not None, "payday plan shown on payday eve"
+    split = plan["payday_split"]
+    assert split["count"] == 2  # tomorrow's bill and the standing order
+    assert split["total"] == round(50.0 + 1886.0)
 
 
 # ── 2. Mid-period: both walks credit or neither does ───────────────────────

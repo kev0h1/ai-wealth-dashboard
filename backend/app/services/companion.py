@@ -2803,6 +2803,11 @@ async def compute_today_items(
     )
     for n in funded_window_inflows:
         acct = str(n.get("account_id") or "")
+        # G360: a funded inflow into an account with no bill of its own still
+        # counts, seeded at its live balance exactly as the preview salary is,
+        # so after_payments and low_point consume identical events.
+        if acct and acct not in running and acct in live_balances:
+            running[acct] = live_balances[acct]
         if acct in running:
             events.append((n["days_away"], acct, float(n["amount"]), True, n))
 
