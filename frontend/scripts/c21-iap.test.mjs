@@ -30,7 +30,7 @@ import { resolvePurchaseChannel } from "../lib/purchaseChannel.ts";
 import { purchaseChannel, usePurchaseChannel, canPurchaseInApp } from "../lib/nativeAuth.ts";
 import {
   describeFreeTrial, periodText, hasStoreKitPlugin, toProductView, purchasePack, executePackPurchase,
-  PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE,
+  PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE, PACK_REFUNDED_REASON,
 } from "../lib/storekit.ts";
 import { api as apiClient } from "../lib/api.ts";
 
@@ -196,11 +196,24 @@ const goodTx = async () => ({ jwsRepresentation: "jws-1", transactionId: "t-1" }
   const { out, calls } = await runPack({ purchase: async () => { throw new Error("store unavailable"); }, verify: async () => ({ ok: true, handled: true }) });
   check("a failure before the charge returns the failed copy and finishes nothing", out.ok === false && out.cancelled === false && out.message === PURCHASE_FAILED_MESSAGE && calls.finished.length === 0);
 }
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: true, duplicate: true }) });
+  check("a duplicate handled pack verify finishes the transaction", out.ok === true && calls.finished.length === 1);
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false, reason: "transaction was refunded" }) });
+  check("a refunded pack (terminal) is finished and returns the recorded message",
+    PACK_REFUNDED_REASON === "transaction was refunded" && out.ok === false && out.message === PURCHASE_RECORDED_MESSAGE && calls.finished.length === 1);
+}
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false, reason: "unknown product" }) });
+  check("a not-handled pack verify with any other reason stays unfinished", out.ok === false && calls.finished.length === 0);
+}
 check("purchasePack without the plugin (plain Node) fails before charge, not as a crash", (await purchasePack("penny_small", cfg())).message === PURCHASE_FAILED_MESSAGE);
 
 const sheetSrc = stripComments(read("components/MoreMessagesSheet.tsx"));
 check("storekit.ts loads packs as INAPP and finishes a pack only through verifyAndFinish", /export async function loadStorePackProducts/.test(storekit) && /inapp: mod\.PURCHASE_TYPE\.INAPP/.test(storekit)
-  && (storekit.match(/finishTransaction/g) ?? []).length === 1);
+  && (storekit.match(/finishTransaction/g) ?? []).length === 2);
 check("the sheet's StoreKit branch keys on the storekit channel and reads pack ids from config.products",
   /usePurchaseChannel\(\) === "storekit"/.test(sheetSrc) && /iapCfg\?\.products\?\.\[`penny_\$\{packId\}`\]/.test(sheetSrc) && !/sorted\.(lite|standard|plus|max|penny)/.test(sheetSrc));
 check("the sheet is ready on StoreKit only when enabled, purchase_allowed and products loaded", /storekitReady = Boolean\(storekit && iapCfg\?\.enabled && iapCfg\.purchase_allowed && iapState === "ready"\)/.test(sheetSrc));

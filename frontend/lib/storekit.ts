@@ -160,11 +160,27 @@ function isCancellation(err: unknown): boolean {
   return /cancel/i.test(text);
 }
 
+/** COUPLING: this exact string is the backend's reason for a refunded pack,
+ *  backend/app/services/apple_billing.py (`"reason": "transaction was
+ *  refunded"`, in the pack branch near line 424). If the backend wording
+ *  changes, change this too, or refunded packs stay queued. */
+export const PACK_REFUNDED_REASON = "transaction was refunded";
+
 async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<boolean> {
   if (!tx.jwsRepresentation) return false;
   const res = await api.verifyAppleTransaction(tx.jwsRepresentation);
   // Finish only once the server has actually applied it; an unhandled answer
-  // leaves the transaction queued for syncUnfinishedTransactions.
+  // leaves the transaction queued for syncUnfinishedTransactions. The one
+  // exception is a refunded pack, which is terminal: finish it so it is not
+  // re-posted on every launch, but still report not-applied (false).
+  if (res.ok && !res.handled && res.reason === PACK_REFUNDED_REASON) {
+    try {
+      await sk.plugin.finishTransaction({ transactionId: tx.transactionId });
+    } catch {
+      /* already finished */
+    }
+    return false;
+  }
   if (!res.ok || !res.handled) return false;
   try {
     await sk.plugin.finishTransaction({ transactionId: tx.transactionId });
