@@ -28,7 +28,13 @@ from app.db.collections import (
 )
 
 log = logging.getLogger(__name__)
-from app.routers.analytics import _bank_label, _build_cashflow_response, income_credit_ok, is_assessable_bill
+from app.routers.analytics import (
+    _bank_label,
+    _build_cashflow_response,
+    income_credit_ok,
+    is_assessable_bill,
+    stamp_credit_basis,
+)
 from app.routers.allocations import list_active_allocations
 from app.services.account_names import display_account_name
 from app.services.account_kinds import (
@@ -1386,6 +1392,64 @@ def _is_offline(acc: dict) -> bool:
     return bool(acc.get("_offline"))
 
 
+def confirm_salary_copy(amount: float, expected_date: str) -> str:
+    """G359 copy for the one-off ask to confirm a steady (unconfirmed) salary.
+    Hedged: income is only ever "expected", never promised."""
+    when = date.fromisoformat(str(expected_date)[:10]).strftime("%-d %b")
+    return (
+        f"Sorted is counting your £{int(round(amount)):,} pay expected around {when}. "
+        "Confirm it so this stays reliable."
+    )
+
+
+def payday_funds_moves_copy(expected_date: str) -> str:
+    """G359 copy for a suppressed cover move whose gap is own-account standing
+    orders that normally leave the salary account on payday."""
+    when = date.fromisoformat(str(expected_date)[:10]).strftime("%-d %b")
+    return (
+        f"These moves usually come out of your pay expected around {when}, so no move "
+        "is suggested. Confirm your pay in Settings so Sorted can count on it."
+    )
+
+
+def _payday_funds_moves(
+    dest_acct: str,
+    deficit: float,
+    bounced: list[dict],
+    expected_incomes: list[dict],
+) -> dict | None:
+    """G359 step 2 guard. Returns the expected salary item when `dest_acct`'s
+    uncovered amount is (>= 80%) own-account standing orders dated on or after
+    a salary expected into that SAME account on or before the first bounce, so
+    no cover move should be suggested; None otherwise. Pure and DB-free.
+
+    A salary here is the largest income attributed to the account that would,
+    if it lands, clear the deficit; it does not need to be reliable enough to
+    be credited (that is exactly the fresh-account case), the guard only
+    withholds a move, it never counts the money.
+    """
+    if deficit <= 0 or not bounced:
+        return None
+    first_bounce = min(int(b.get("days_away") or 0) for b in bounced)
+    cands = [
+        i for i in expected_incomes
+        if str(i.get("account_id") or "") == str(dest_acct)
+        and int(i.get("days_away") or 0) <= first_bounce
+        and float(i.get("amount") or 0) >= deficit
+    ]
+    if not cands:
+        return None
+    salary = max(cands, key=lambda i: float(i["amount"]))
+    sal_day = int(salary.get("days_away") or 0)
+    funded = sum(
+        float(b["amount"]) for b in bounced
+        if _is_own_transfer_bill(b) and int(b.get("days_away") or 0) >= sal_day
+    )
+    if funded / deficit < 0.8:
+        return None
+    return salary
+
+
 def _is_own_transfer_bill(b: dict) -> bool:
     """True when bill `b` is a MOVEMENT-kind occurrence whose learned
     destination (`dest_account_id`, stamped by
@@ -2466,6 +2530,9 @@ async def compute_today_items(
     else:
         next_pay = _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
+    # G359: idempotent re-stamp, so a response from a patched/older builder
+    # still carries `steady_salary` / `credit_basis` for the walks below.
+    stamp_credit_basis(resp["upcoming_income"], pay_cfg, confirmed_income_keys, today_d)
 
     # Payday Plan window — the moment to distribute the month. Position within
     # the CURRENT pay period (distinct from `next_pay`, which describes the
@@ -2842,9 +2909,20 @@ async def compute_today_items(
     # `bill` is `None` for an OVERDRAFT shortfall — every downstream consumer
     # of `shortfalls` must check for that before reading bill fields.
     shortfalls = []  # (first_bounce_days_away, shortfall_amount, dest_acct, bill | None)
+    # G359: salaries whose payday standing orders explain a would-be cover
+    # move (suppressed below, spoken once by a `payday_funds_moves` note).
+    _payday_funds_salaries: list[dict] = []
     for dest_acct, min_bal in min_running.items():
         if min_bal >= 0 or dest_acct == "__unknown__":
             continue
+        if dest_acct in shortfall_bill and dest_acct not in _overdraft_today:
+            _pf_salary = _payday_funds_moves(
+                dest_acct, abs(min_bal), bounced_bills.get(dest_acct, []),
+                _orig_window_income + _orig_payday_day_income,
+            )
+            if _pf_salary is not None:
+                _payday_funds_salaries.append(_pf_salary)
+                continue
         _result = _shortfall_for_destination(
             dest_acct, min_bal, shortfall_bill, bounced_bills,
             _overdraft_today, window_income, confirmed_income_keys,
@@ -5106,7 +5184,15 @@ async def compute_today_items(
             )
 
         assumed_incomes = [
-            {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
+            {
+                "name": i["name"],
+                "amount": round(float(i["amount"]), 2),
+                "expected_date": i["expected_date"],
+                # G359: why it was counted ("confirmed", "reliable" or
+                # "steady"); a steady credit is an estimate, so hedged.
+                "basis": i.get("credit_basis"),
+                "estimated": i.get("credit_basis") == "steady",
+            }
             for i in credited_incomes.get(dest_acct, [])
         ]
         income_note = income_note_by_dest.get(dest_acct)
@@ -5720,6 +5806,67 @@ async def compute_today_items(
                 })
     except Exception as _ask_exc:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
+
+    # ── 8c-ter. G359: ask once to confirm a salary Sorted is counting on a
+    # STEADY basis (two sightings, never confirmed). Reuses the existing
+    # `ask:payday` card when that one is showing (body swapped for the
+    # hedged confirm copy); otherwise a generic ask carrying the same copy
+    # as an `income_note` of kind `confirm_salary`. Never shown once the
+    # stream is confirmed (a confirmed credit has basis "confirmed").
+    try:
+        if _payday_funds_salaries and "ask:payday_funds_moves" not in dismissed:
+            _pf_sal = max(_payday_funds_salaries, key=lambda i: float(i["amount"]))
+            _pf_copy = payday_funds_moves_copy(_pf_sal["expected_date"])
+            _pf_existing = next((a for a in ask_items if a.get("id") == "ask:payday"), None)
+            if _pf_existing is not None:
+                _pf_existing["body"] = _pf_copy
+            else:
+                ask_items.append({
+                    "id": "ask:payday_funds_moves",
+                    "type": "ask",
+                    "headline": "Check your pay",
+                    "body": _pf_copy,
+                    "income_note": _pf_copy,
+                    "income_note_kind": "payday_funds_moves",
+                    "action": {"label": "Confirm my pay", "route": "/settings", "kind": "set_payday"},
+                    "estimated": True,
+                    "kind_label": "Your pay",
+                    "brief_lead": {
+                        "value": "Pay check",
+                        "companion": f"around £{int(round(float(_pf_sal['amount']))):,} expected, not yet confirmed",
+                    },
+                })
+    except Exception as _pf_exc:
+        log.warning("ask:payday_funds_moves item failed for %s: %s", uid, _pf_exc)
+    try:
+        _steady_credits = [
+            i for lst in credited_incomes.values() for i in lst
+            if i.get("credit_basis") == "steady"
+        ]
+        if _steady_credits and "ask:confirm_salary" not in dismissed:
+            _sc = max(_steady_credits, key=lambda i: float(i["amount"]))
+            _sc_copy = confirm_salary_copy(float(_sc["amount"]), _sc["expected_date"])
+            _payday_ask = next((a for a in ask_items if a.get("id") == "ask:payday"), None)
+            if _payday_ask is not None:
+                _payday_ask["body"] = _sc_copy
+            else:
+                ask_items.append({
+                    "id": "ask:confirm_salary",
+                    "type": "ask",
+                    "headline": "Confirm your pay",
+                    "body": _sc_copy,
+                    "income_note": _sc_copy,
+                    "income_note_kind": "confirm_salary",
+                    "action": {"label": "Confirm my pay", "route": "/settings", "kind": "set_payday"},
+                    "estimated": True,
+                    "kind_label": "Your pay",
+                    "brief_lead": {
+                        "value": "Pay check",
+                        "companion": f"around £{int(round(float(_sc['amount']))):,} expected, not yet confirmed",
+                    },
+                })
+    except Exception as _cs_exc:
+        log.warning("ask:confirm_salary item failed for %s: %s", uid, _cs_exc)
 
     # ── 8c-bis. ASK items (has your pay changed? / your pay moved) ─────────
     # G157 build step 4: a confirmed income stream never silently drops to
