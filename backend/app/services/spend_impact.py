@@ -298,8 +298,8 @@ def _ordinal(n: int) -> str:
 def _humanise_bill_date(d: date, today: date) -> str:
     """"the 24th" while the bill still falls inside the CURRENT calendar
     month (the common case — a bills-risk window is almost always inside
-    the live pay period), "Tue 24 Aug" once it doesn't (the last-day
-    lookahead into next period's first few days) — an ordinal alone would
+    the live pay period), "Tue 24 Aug" once it doesn't (a bill
+    dated past the current month's end) — an ordinal alone would
     misread as "this month" for a date that's actually weeks off."""
     if d.year == today.year and d.month == today.month:
         return f"the {_ordinal(d.day)}"
@@ -340,8 +340,8 @@ async def _cashflow_window(uid: str) -> dict | None:
     # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
     # decision — see app/services/pay_period.py's in_current_window
     # docstring): a bill/income/inflow scheduled ON payday belongs to the
-    # NEXT pay period, not this bills-risk walk. Last-day lookahead
-    # (days_to_pay <= 1) is unchanged, encoded inside the helper.
+    # NEXT pay period, not this bills-risk walk. No last-day lookahead
+    # (G360): the window is strictly before payday for every days_to_pay.
     from app.services.pay_period import in_current_window as _in_window
     window_bills = [b for b in resp["upcoming_bills"] if _in_window(b["days_away"], days_to_pay)]
     window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], days_to_pay)]

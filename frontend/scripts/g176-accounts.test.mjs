@@ -50,8 +50,9 @@ assert.equal(accounts[0].closing, 20, "Unassigned income is never duplicated acr
 assert.equal(accounts[1].status, "unknown", "Unassigned income leaves a possible deficit unverified");
 for (const overrides of [{ is_credit_card: true }, { observed_pending: true }, { expected_date: "2026-10-30" }]) assert.equal(summary([bill(overrides)]).length, 0);
 const end = Date.parse("2026-10-29");
-assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-28T23:50Z")), Date.parse("2026-10-30") - 1, "Two calendar days away must not start final-day lookahead");
-assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z")), Date.parse("2026-11-04"));
+assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-28T23:50Z")), Date.parse("2026-10-30") - 1, "Two calendar days away has no lookahead");
+assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z")), Date.parse("2026-10-30") - 1, "G360: no final-day lookahead either");
+assert.equal(upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z"), 0), Date.parse("2026-10-30") - 1, "G360: payday itself has no lookahead");
 assert.equal(summary([bill({ expected_date: "2026-10-30" })], [], [], upcomingAccountWindow(end, Date.parse("2026-10-28"))).length, 0, "Payday is outside the current period");
 
 // Rejection regression: the actual row adapter and card must reconcile on
@@ -127,10 +128,9 @@ const normalCutoff = upcomingAccountWindow(end, Date.parse("2026-10-28T23:50Z"))
 paired = assertAgreement([bill({ expected_date: "2026-10-29", amount: 130 }), bill({ name: "Payday bill", expected_date: "2026-10-30" })], [credit({ expected_date: "2026-10-30" })], [], normalCutoff);
 assert.deepEqual(paired.statuses.map((status) => status.label), ["short", "Next period"]);
 assert.equal(paired.walk.accounts[0].shortfall, 30, "Payday income cannot cover the previous period");
-const lookahead = upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z"));
-paired = assertAgreement([bill({ expected_date: "2026-10-30" }), bill({ name: "Boundary", expected_date: "2026-11-04" }), bill({ name: "Outside", expected_date: "2026-11-05" })], [], [], lookahead);
-assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "short", "Next period"]);
-assert.equal(paired.walk.accounts[0].shortfall, 60);
+const finalDay = upcomingAccountWindow(end, Date.parse("2026-10-29T10:00Z"));
+paired = assertAgreement([bill({ expected_date: "2026-10-30" }), bill({ name: "Boundary", expected_date: "2026-11-04" }), bill({ name: "Outside", expected_date: "2026-11-05" })], [], [], finalDay);
+assert.deepEqual(paired.statuses.map((status) => status.label), ["Next period", "Next period", "Next period"], "G360: next-period bills never count on the final day");
 
 paired = assertAgreement([bill({ amount: 180 })], [credit()]);
 assert.equal(paired.statuses[0].kind, "covered", "Same-day income arrives before cash debits in both views");

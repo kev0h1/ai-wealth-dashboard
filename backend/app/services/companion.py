@@ -2566,8 +2566,8 @@ async def compute_today_items(
     # days_to_pay) belongs to the NEXT pay period's arithmetic, not this
     # one — it drops into `payday_day_*` below instead, which stays VISIBLE
     # via the payday_plan card's `payday_split` payload (section 5c) but is
-    # never counted toward at-risk/shortfall/to-last. Last-day lookahead
-    # (days_to_pay <= 1) is unchanged, encoded inside the helper — see
+    # never counted toward at-risk/shortfall/to-last. No last-day lookahead
+    # (G360): strictly before payday for every days_to_pay — see
     # app/services/pay_period.py's in_current_window/is_payday_day
     # docstrings. Must stay in lockstep with the same boundary in
     # analytics.at_risk_count and spend_impact._cashflow_window.

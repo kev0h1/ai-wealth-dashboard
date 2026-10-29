@@ -3349,8 +3349,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
     # decision — see app/services/pay_period.py's in_current_window
     # docstring): a bill/income/inflow scheduled ON payday belongs to the
-    # NEXT pay period's arithmetic, not this badge's. Last-day lookahead
-    # (days_to_pay <= 1) is unchanged, encoded inside the helper.
+    # NEXT pay period's arithmetic, not this badge's. No last-day lookahead
+    # (G360): strictly before payday for every days_to_pay.
     from app.services.pay_period import in_current_window as _in_window
     window_bills  = [b for b in resp["upcoming_bills"]  if _in_window(b["days_away"], _days_to_pay)]
     window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], _days_to_pay)]

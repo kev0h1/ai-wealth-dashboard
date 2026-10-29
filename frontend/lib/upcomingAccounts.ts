@@ -49,19 +49,11 @@ export type UpcomingAccountSummary = {
   position?: UpcomingAccountPosition;
 };
 
-/** Shared coverage boundary: before payday, with the established final-day lookahead. */
-export function upcomingAccountWindow(periodEndMs: number, nowMs: number, daysToPayday?: number): number {
-  const day = 86400000;
-  const payday = periodEndMs + day;
-  // G327: callers holding the server period pass its days-to-payday (London day),
-  // so the final-day test agrees with the hero and never depends on the client's UTC clock.
-  let days = daysToPayday;
-  if (days === undefined) {
-    const now = new Date(nowMs);
-    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    days = Math.round((payday - today) / day);
-  }
-  return days <= 1 ? payday + 5 * day : payday - 1;
+/** Shared coverage boundary: the day before payday, always. G360 removed the
+ * final-day lookahead, so next-period bills never count against this period.
+ * `nowMs` and `daysToPayday` are kept so existing callers stay valid. */
+export function upcomingAccountWindow(periodEndMs: number, _nowMs?: number, _daysToPayday?: number): number {
+  return periodEndMs + 86400000 - 1;
 }
 
 /** Convenience for consumers needing only the card; no second calculation. */
