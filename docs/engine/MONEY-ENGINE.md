@@ -1,0 +1,347 @@
+# MONEY-ENGINE: where every money figure comes from
+
+Status: code-accurate map, G363 deliverable 1. No production code changed by this document.
+
+Written against `origin/main` at commit `f94a154fbd9c9d5251d9da1030e0a6bd9760c58c` (short `f94a154f`), 2026-10-30. Every `path:line` below is a line number at that commit. Backend paths are relative to `backend/app/`, frontend paths relative to `frontend/`. Open branches are described in their own section (5) and are NOT reflected in the line numbers, except where stated.
+
+How to read it: section 1 lists the shared building blocks and every separate walk and period definition. Section 2 is one table per surface. Section 3 covers Penny tools and the MCP connector. Section 4 lists every pair of figures that can disagree. Section 5 says what the three open branches change. Section 6 is the proposed consolidation order. Section 7 lists what could not be determined from the code.
+
+Column legend for the surface tables: Figure (what the user sees, screen and component); Computing function (server `path:line`, and `Client:` where the browser recomputes or reframes); Window (which helper decides what counts); Income credit; Own-account transfers; Card reserve; Set-aside and goal source; Cache; Diverges from (D-numbers in section 4).
+
+---
+
+## 1. Shared building blocks
+
+### 1.1 Single input builder
+
+`routers/analytics.py:4108` `_build_cashflow_response(cached, uid, prefs)` is the one builder of `upcoming_bills`, `upcoming_income`, `internal_inflows`, `observed_pending_bills` and `late_income`. It is rebuilt on every call from the stored patterns in `cashflow_cache_col`, using the live London day (`today` at `routers/analytics.py:4119`), so `days_away` is never stale. Everything downstream reads this one shape. What it does and does not do:
+
+- Bills: an occurrence is closed when a matching debit landed (`_match_observed`, `routers/analytics.py:4242`, tolerance max(2, 15 percent), lookback `OBSERVATION_LOOKBACK_DAYS = 6`, `routers/analytics.py:75`). One debit closes at most one occurrence.
+- Income: `raw_income` (`routers/analytics.py:4702`) keeps every occurrence dated today or later. It has NO equivalent of `_match_observed`, so an income occurrence whose money already landed is still listed (this is G362, see 4 and 5).
+- Own-account transfers: each outbound movement bill with a learned destination is mirrored into `internal_inflows` (`routers/analytics.py:4547`), carrying `source_account_id` and `destination_spendable`.
+- Credit basis: `stamp_credit_basis` (`routers/analytics.py:1891`) runs at `routers/analytics.py:4739`, and companion re-stamps at `services/companion.py:2550`.
+- Exclusions: `drop_excluded_items` (`services/counted_accounts.py:58`) is applied at `routers/analytics.py:4800` when `uid` is given. The notification caller passes no `uid`, so it skips this (D12).
+
+### 1.2 Period and window definitions (nine of them)
+
+| Id | Definition | Where | Used by |
+|---|---|---|---|
+| P1 | `get_pay_period_for_date(today, config)` start and end | `services/pay_period.py:56` | Spend (`services/pace.py:1432`), `current_period_facts` (`services/pay_period.py:185`, used at `routers/analytics.py:4928` and `routers/analytics.py:5452`), `/account-plans` (`routers/allocations.py:603`), notification dedupe (`services/notifications.py:501`), payday plan live window (`services/companion.py:2556`) |
+| P2 | `get_confirmed_payday`: earliest next occurrence across all confirmed income streams, strictly after today (`next_occurrence`, `services/income.py:61`) | `services/income.py:147` | Left to spend `days_until_payday` (`routers/analytics.py:5092`), at-risk badge (`routers/analytics.py:3343`), cover plan (`services/companion.py:2542`), spend impact (`services/spend_impact.py:337`), `GET /cashflow` `next_payday` (`routers/analytics.py:4913`), pace `days_left` (`services/pace.py:491`), Penny `days_until_payday` |
+| P3 | `_next_payday` = period end + 1, the fallback when nothing is confirmed | `services/pay_period.py:71` | same sites as P2, as fallback |
+| P4 | `in_current_window(days_away, days_to_pay)` and `is_payday_day`. Exclusive of payday, but widened to `days_to_pay + 5` inclusive when `days_to_pay <= 1` (the 2026-08-28 last-day lookahead) | `services/pay_period.py:132`, `services/pay_period.py:143` | cover plan (`services/companion.py:2576`), at-risk badge (`routers/analytics.py:3355`), spend impact (`services/spend_impact.py:348`), account positions, notifications via positions |
+| P5 | Strict `0 <= days_away < days_until_payday`, never widened | inline at `routers/analytics.py:5157`, `routers/analytics.py:5190` | Left to spend |
+| P6 | Client: server `cashflow.period` (G327) once loaded, client config only as loading seed | `lib/upcomingPeriod.ts:27` | Upcoming hero window (`app/planning/PlanningPage.tsx:264`) |
+| P7 | Client account window: day before payday, widened by 5 days when `daysToPayday <= 1` | `lib/upcomingAccounts.ts:53` (call at `app/planning/PlanningPage.tsx:368`) | by-account walk, sheet "Payments through", plan overlap |
+| P8 | Payday plan window: live `[_pstart, _pend]` (P1), preview `[next_pay, period end]` with a P2 override of the end | `services/companion.py:3771` to `services/companion.py:3777` | payday plan |
+| P9 | `_steady_salary_candidate` tests "due on or before the next payday" with P3 | `routers/analytics.py:1861` | G359 steady credit |
+
+Note on `days_to_pay == 0`: P2 and P3 are both strictly after today, so `days_to_pay` is at least 1 for every caller that derives it from them. The `days_to_pay == 0` branches of P4 are unreachable from those callers on main.
+
+### 1.3 Income credit rules
+
+- C1 `income_credit_basis` / `income_credit_ok` (`routers/analytics.py:1876`, `routers/analytics.py:1907`): the income must be attributed to the account (`account_id` match), and be "confirmed" (own key or `confirmed_alias`), "reliable" (`_income_pattern_reliable`, `routers/analytics.py:1779`: 3 or more sightings, amounts within 1.5x) or "steady" (G359, `_steady_salary_candidate`, `routers/analytics.py:1818`: 2 sightings within 10 percent, interval matches the pay rhythm, largest regular credit on its account, due by next payday). Used by every per-account walk and by payday-plan salary selection (`services/companion.py:2609`).
+- C2 "all income": every `upcoming_income` item counts, attributed or not, reliable or not. Used by Left to spend (`routers/analytics.py:5190`), the client Upcoming runway (`app/planning/PlanningPage.tsx:764`) and the client by-account walk (`lib/upcomingAccountWalk.ts:47`, `lib/upcomingAccountWalk.ts:66`).
+- C3 Landed-income checks, three separate ones: `_income_credit_landed` (`routers/analytics.py:1579`, lapse signal), `_pp_salary_observed` (`services/companion.py:1507`, ends the live payday plan), and nothing at all in the walks (G362).
+
+### 1.4 Walk inventory (every separate computation of a running balance or sizing)
+
+| Id | Walk | Where | Credits |
+|---|---|---|---|
+| W1 | Pooled Left to spend low point | `routers/analytics.py:2065`, called at `routers/analytics.py:5203` | C2, debit before income on a shared day |
+| W2 | Per-account closing walk `_walk_events`: gives `running` (After payments) and `min_running` (shortfall, move cards) | `services/companion.py:1583`, called at `services/companion.py:2840` | C1 plus every window inflow unconditionally (`services/companion.py:2795`), plus preview salary (`services/companion.py:2822`); credits before debits (`walk_sort_key`, `services/companion.py:1557`) |
+| W3 | `_source_min_running`: per-account low point (feeds `low_point`, source capacity, "sources_safe") | `services/companion.py:2970` | C1 only, never inflows |
+| W4 | `_walk_min`: would an excluded income help this destination | `services/companion.py:3564` | C1 only |
+| W5 | At-risk badge loop | `routers/analytics.py:3444` to `routers/analytics.py:3465` | C1 plus every window inflow unconditionally (`routers/analytics.py:3430`) |
+| W6 | Spend impact bills risk: calls W2 twice, baseline and paced | `services/spend_impact.py:430`, `services/spend_impact.py:451` over events built at `services/spend_impact.py:309` | C1 plus inflows unconditionally (`services/spend_impact.py:385`) |
+| W7 | Client by-account walk | `lib/upcomingAccountWalk.ts:36` | C2 plus every inflow |
+| W8 | Client pooled runway | `app/planning/PlanningPage.tsx:724` to `app/planning/PlanningPage.tsx:796` | C2 |
+| W9 | Notification bill shortfall: no walk, one bill against its account snapshot balance | `services/notifications.py:333` to `services/notifications.py:340` | none |
+| W10 | Payday plan sizing (target minus balance, not a walk) | `services/companion.py:3889` to `services/companion.py:4060` | salary only |
+| W11 | Allocation shortfall gaps over the W2 closing | `services/allocation_shortfall.py:64`, call at `services/companion.py:5345` | via W2 |
+
+### 1.5 Own-account transfer rules
+
+- Pooled: a movement bill whose `dest_account_spendable is True` is removed entirely, both legs (`_is_pooled_spendable_transfer`, `routers/analytics.py:2097`; filter at `routers/analytics.py:5169`). Savings destinations and untraced movements stay as debits. Client mirror: `isPooledNoOp` / `doesNotTouchCash` (`lib/cashWalk.ts:25`, `lib/cashWalk.ts:46`).
+- Per-account: the source leg debits the source (bill) and the mirrored `internal_inflows` leg credits the destination, with no condition on main.
+- Card charges are out of the pooled walk (`_touches_pooled_cash`, `routers/analytics.py:2108`) and out of every per-account walk (`is_assessable_bill`, `routers/analytics.py:1930`).
+
+### 1.6 Reservation sources (set-asides and goals), five of them
+
+| Id | Function | Where | Attributes to |
+|---|---|---|---|
+| R1 | `total_reserved_slices` (goals, all active) | `routers/commitments.py:1163` | pool only |
+| R2 | `total_reserved_remaining` (set-asides, remaining) | `routers/allocations.py:491` | pool only |
+| R3 | `_reserved_for_allocations` (set-asides at a derived source: learned inflows, then fill-leg pairing) | `services/companion.py:1021` | cover-plan source capacity only; set-asides only on main |
+| R4 | `_plan_source_needs` (G350: set-asides and goals at their source; falls back to the salary account flagged assumed) | `services/companion.py:1211`, goals loop `services/companion.py:1310` | payday plan |
+| R5 | `list_account_plans` rows (G230: `chosen_source`, `_direct_fill_leg_source`, `resolve_goal_source`), fed to `compute_account_positions` | `routers/allocations.py:590`, `services/account_position.py:93` | account positions; unassigned plans stay pool-only (`services/account_position.py:14`) |
+
+### 1.7 Caches
+
+- Response cache: Mongo-backed, two layers, valid when data version, London day, shape version and 6 hour TTL all match (`services/response_cache.py:67` `TTL_SECONDS`, `services/response_cache.py:101` `SHAPE_VERSION = 6`, `services/response_cache.py:109` `local_day`, write contract pinned via `snapshot`). Names used for money: `safe_to_spend` / `safe_to_spend_series` (`routers/analytics.py:5564`), `today` (`routers/companion.py:106`), `grow` (`routers/grow.py:265`), `spend_verdict:{offset}` (`routers/spend_verdict.py:30`), `category_signals:{offset}` (`services/spend_verdict.py:1092`).
+- Cashflow cache: `cashflow_cache_col`, patterns only, refreshed in the background when older than `_CACHE_TTL_HOURS = 6` (`routers/analytics.py:4810`), rebuilt on read when marked dirty by a sync (`recompute_if_dirty_for_read`, `routers/analytics.py:3211`), version gated by `PATTERNS_VERSION = 14` (`routers/analytics.py:170`), writer `compute_and_cache_cashflow` (`routers/analytics.py:3247`).
+- Calculation version: `SAFE_TO_SPEND_CALCULATION_VERSION = 2` (`routers/analytics.py:17`); an older persisted payload is rejected (`routers/analytics.py:5535`).
+- Warm-up prefills `today` and `safe_to_spend` after sync (`services/warmup.py:33`, `services/warmup.py:47`).
+- Not cached: at-risk badge, `GET /cashflow` as a whole (only its inputs are), spend impact walk, notifications.
+
+---
+
+## 2. Surface tables
+
+### S1. Home: Left to spend hero and Full calculation ledger
+
+Component: `components/SafeToSpendCard.tsx`. Endpoint: `GET /safe-to-spend` (`routers/analytics.py:5564`), computed by `compute_safe_to_spend` (`routers/analytics.py:5033`).
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S1.1 Hero "Estimated left to spend" (`safe_to_spend`) | Server: low point W1 (`routers/analytics.py:5203`) minus buffer pref `safe_to_spend_buffer` (`routers/analytics.py:5208`), minus commitments (`routers/analytics.py:5220`), minus allocations (`routers/analytics.py:5242`), minus card reserve (`routers/analytics.py:5317`), clamped to 0 or below when any reserve failed (`routers/analytics.py:5363`). Client: `components/SafeToSpendCard.tsx:480` reads it; `deriveSafeToSpendHeadline` (`lib/pennyScreenViews.ts:69`) reframes the state only | P5 with `days_until_payday` from P2 (`routers/analytics.py:5092` to `routers/analytics.py:5097`) | C2, all income in window, no attribution (`routers/analytics.py:5190`) | Pooled rule (1.5): both legs dropped when destination spendable; `internal_inflows` unused | Charges on cards out of the walk; repayments debit; reserve = min(net card growth, unlearned growth) + unposted future charges on unlearned cards (`routers/analytics.py:5296` to `routers/analytics.py:5317`, `services/net_position.py:95`). `card_growth_unpaid` (`services/net_position.py:52`) has no production caller | R1 and R2 as pooled totals, no per-source attribution | `safe_to_spend` response cache, 6h, version pinned (`routers/analytics.py:5572` to `routers/analytics.py:5581`); inputs rebuilt live from cashflow cache | D1, D2, D5, D7, D17, D24 |
+| S1.2 Status word (Looks on track, Tight, Check card bill, Short) | Server `state` (`routers/analytics.py:5376`): short at or below 0, tight below max(100, 10 percent of 90 day monthly spend), else comfortable; `short_reason_for` (`services/net_position.py:270`); `plans_only_short_for` (`services/net_position.py:293`). Client: `deriveSafeToSpendHeadline` (`lib/pennyScreenViews.ts:69`) demotes short to tight when the figure is not negative; `homeForecastPresentation` (`lib/pennyScreenViews.ts:96`) recomputes `end = spendable_now + income_before_payday - bills_total - allocations - commitments` and picks "Plans gap", "Below buffer", "No headroom"; `isPlansOnlyShort` (`lib/pennyScreenViews.ts:57`) is a client twin of the server flag | same as S1.1 | same | same | same | same | same | D19 |
+| S1.3 Ledger "Cash available now" (`spendable_now`) | `_live_pool_balances` (`routers/analytics.py:2034`) via `_split_balances` (`routers/analytics.py:2006`): GBP, non-credit, non-savings (`_account_pool_kind`, `routers/analytics.py:1972`), counted accounts, negative balances skipped (`routers/analytics.py:2025`, `routers/analytics.py:5151`); accounts from `_safe_to_spend_accounts` (`routers/analytics.py:2158`, Yapily only while consent AUTHORIZED) | now | n/a | n/a | n/a | n/a | live per request inside compute | D2 |
+| S1.4 Ledger "Bills before payday" (`bills_total`) and `window_bills` | `routers/analytics.py:5169` after pooled-transfer and card-charge removal | P5 | n/a | pooled rule; `pooled_transfers_excluded` shown separately (`components/SafeToSpendCard.tsx:713`) | card charges excluded | n/a | as S1.1 | D1, D2 |
+| S1.5 Ledger "Income before payday" (`income_before_payday`), "Pay of about X due" (`payday_income`) | `routers/analytics.py:5196`, `payday_income` = income at `days_away == days_until_payday` (`routers/analytics.py:5197`) | P5 | C2 | n/a | n/a | n/a | as S1.1 | D7 |
+| S1.6 Ledger "Plans reserved", "Set-asides reserved", "Safety buffer", card hold line | `commitments_reserved`, `allocations_reserved`, `buffer`, `card_growth_reserved` in the response (`routers/analytics.py:5436` onwards); rows at `components/SafeToSpendCard.tsx:680` to `components/SafeToSpendCard.tsx:692`. Client gate `canShowLedgerBreakdown` (`components/SafeToSpendCard.tsx:588`) hides the bill and income rows unless `spendable_now - bills + income` equals `lowest_projected_balance` within 2p | n/a | n/a | n/a | held only for unlearned cards | R1, R2 | as S1.1 | D1, D24 |
+| S1.7 "About X a day until Y" | `compute_pace` (`services/pace.py:447`), `sustainable = round(safe_to_spend / max(days_left, 1), 2)` (`services/pace.py:562`), `days_left = days_until_payday` (P2). Shown at `components/SafeToSpendCard.tsx:542` | P2 | n/a | n/a | n/a | n/a | rides the `safe_to_spend` cache entry (`routers/analytics.py:5543`) | D5, D14 |
+
+### S2. Home: Spend from rows
+
+Component: `components/SafeToSpendCard.tsx:367` (`spendFromTreatmentPlan`, `lib/spendFromAccount.ts:469`), data `GET /today` `account_eligibility` (`routers/companion.py:23`).
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S2.1 Per-account "Spend from" (`spend_from_headroom`) | Server: seed `seed_spend_from` (`services/account_position.py:144`) = min(`after_payments_and_plans`, `low_point_and_plans`) from `compute_account_positions` (`services/account_position.py:93`, call at `services/companion.py:3134`); minus the legs of move cards actually shown (`reserved_by_live_move`, `services/companion.py:4563` to `services/companion.py:4577`); then `cap_spend_from_to_pool` (`services/companion.py:2417`, called at `routers/companion.py:67`): min(raw, pooled Left to spend), floored at 0, raw kept as `account_headroom_raw`. Pool read by `_pooled_safe_to_spend` (`routers/companion.py:71`) via `get_cached_safe_to_spend` (`routers/analytics.py:5506`). Client: `bestSpendAccount` (`lib/spendFromAccount.ts:172`) ranks current accounts, floor 5 (`lib/spendFromAccount.ts:52`), reads the value as is (`lib/spendFromAccount.ts:127`) | P4 via `window_bills` (`services/companion.py:2576`), eve lookahead on main | closing and low point both C1 | closing credits every inflow (`services/companion.py:2795`); low point credits none (W3) | card charges not assessable; no growth hold, only the pool cap brings the hold in indirectly | R5 (plans attributed to this account; uncertain overlap makes the figure 0) | `today` cache (`routers/companion.py:106` to `routers/companion.py:112`), stored only when eligibility present; shape 6 | D1, D2, D3, D8, D9 |
+| S2.2 Combined line when figures would sum above the pool (G300) | Client only: `spendFromIsCombined` (`lib/spendFromAccount.ts:262`) sums displayed whole pounds against the pool. No server counterpart | n/a | n/a | n/a | n/a | n/a | n/a | D1 |
+| S2.3 Standing `headroom` and `short` flag (Settings cover-plan sources card, `GET /today/cover-plan`, `routers/companion.py:117`) | `_account_headroom` (`services/companion.py:3026`) = `source_capacity - 10`; `source_capacity = source_min_run - reserved_by_source` (`services/companion.py:3017`); `short = not _account_usable_by_finder` (`services/companion.py:3089` to `services/companion.py:3113`) | P4 | C1 | W3 never credits inflows | not assessable | R3 only (set-asides; goals only on the G352 branch) | not cached (cover-plan endpoint), `today` payload carries it | D3, D8 |
+
+### S3. Home: cover plan move cards
+
+Component `components/HomeBrief.tsx` (MoveCard); items from `compute_today_items` (`services/companion.py:2446`).
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S3.1 Shortfall to cover per destination account | `amount_needed = _ceil5(abs(min_running[dest])) + 10` (`services/companion.py:3395`); `min_running` from W2 (`services/companion.py:2840`); overdraft route sized off the live balance (`_overdraft_deficits`, `services/companion.py:1714`; `_shortfall_for_destination`, `services/companion.py:1754`); suppressed when the salary landing the same day explains it (`_payday_funds_moves`, `services/companion.py:1426`, G359) | P4 (`services/companion.py:2576`) | C1 (`services/companion.py:2772`) | every window inflow credited unconditionally (`services/companion.py:2795`) | card charges excluded by `is_assessable_bill` | none on the destination | `today` cache; per-item state persisted when `persist` is true | D2, D3, D6 |
+| S3.2 Leg amounts and which sources fund them | `_find_legs_for_destination` (`services/companion.py:3201`): current accounts first, then savings; leg capped by remaining `source_capacity`, floor 5 (`_account_usable_by_finder`); `_build_move_map` (`services/companion.py:3471`) | P4 | C1 via W3 | W3 never credits inflows | n/a | R3: `reserved_by_source` set-asides at a derived source, subtracted in `source_capacity` (`services/companion.py:3017`) and disclosed as `reserved_for_allocations` | `today` cache | D8, D9 |
+| S3.3 "The source still covers its own bills (and set-asides)" (`sources_safe`) | `source_min_run - total contribution >= 10` (`services/companion.py:3552`) | P4 | C1 via W3 | none | none | R3 | `today` cache | D3 |
+| S3.4 Unfunded move card | section 5d (`services/companion.py:4477` onwards) over `bounced_bills` | P4 | C1 | W2 | n/a | n/a | `today` cache | D3 |
+| S3.5 Set-aside shortfall card (G217) and plan easing (G228) | `compute_allocation_gaps` (`services/allocation_shortfall.py:64`) over `_ap_closing` = W2 `running` (`services/companion.py:5332`) and `_load_account_plans(uid)` (`services/companion.py:6591`, set-asides only unless `goals=True`); easing at `services/companion.py:6476` | P4 | via W2 | via W2 (credits inflows) | n/a | R5 rows; overlap skip duplicated in `services/allocation_shortfall.py:64` | `today` cache | D3, D9, D11 |
+
+### S4. Home: the payday plan
+
+Section 5b of `compute_today_items` (`services/companion.py:3642`). Item emitted at `services/companion.py:4378`; Penny preview path `?payday_preview=1` is never cached (`routers/companion.py:97` to `routers/companion.py:105`).
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S4.1 Per-account move ("move X to account Y") | target = account bills (`_acct_bills`) + typical everyday spend (`_per_account_everyday_spend`, `services/companion.py:628`) + `payday_buffer` pref (default 50, `services/companion.py:2531`) + source needs; move = `_ceil5(max(0, target - balance))` (`services/companion.py:3911` to `services/companion.py:4055`). Balance is live (live plan) or W2 `running` (preview, `services/companion.py:3708`). Savings pots mirror usual moves (`_usual_payday_moves`, `services/companion.py:777`) | P8: bills from `window_bills` (live) or from `[_plan_start, _plan_end]` (preview, `services/companion.py:3790`); G354 one-period rule | salary only: `_pp_salary_income` (`services/companion.py:2631`), chosen from C1 candidates in window plus payday day (`services/companion.py:2609`), confirmed preferred (G174), largest; live plan ends once `_pp_salary_observed` (`services/companion.py:1507`) finds the credit | own-transfer bills excluded from target (`_is_own_transfer_bill`, `services/companion.py:1468`; `_salary_bills_excl_own_dests` dedups against usual moves) | card bills excluded from `_plan_bills`; no growth hold | R4 at source (`services/companion.py:3840`); `_salary_envelope_reserved` fixed at 0 (`services/companion.py:3905`) because R4 already counts them | `today` cache; preview uncached | D2, D9, D24, D25 |
+| S4.2 "Stays in the pay account", distributable, `over_salary` ("moves add up to more than the pay") | `distributable = _bal(salary_acct) - _salary_target - _salary_envelope_reserved` (`services/companion.py:3906`); trim at `services/companion.py:4055`; `over_salary` at `services/companion.py:4147` to `services/companion.py:4228` | P8 | salary only | as S4.1 | none | R4 | as S4.1 | D24, D25 |
+| S4.3 Payday-day split ("bills due on payday against pay expected") | `payday_split` (`services/companion.py:4298` onwards) from `payday_day_bills`, `payday_day_income`, `payday_day_inflows` (`services/companion.py:2584`; `is_payday_day`, `services/pay_period.py:143`); visibility only, never in the walk, except the preview salary credited at payday (`services/companion.py:2822`) | P4 payday-day slice | C1 | visible only | n/a | n/a | `today` cache | D6 |
+| S4.4 Plan period label | `period_facts` (`services/pay_period.py:164`) at `services/companion.py:3798` | P8 | n/a | n/a | n/a | n/a | n/a | D5 |
+
+### S5. Upcoming: runway hero and its Full calculation ledger
+
+Component `components/upcoming/UpcomingHeroCard.tsx`, computed inline in `app/planning/PlanningPage.tsx`. No server function computes this figure.
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S5.1 "Projected at payday / month end" (`runway`) | Client: `forecastPence(spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal)` (`app/planning/PlanningPage.tsx:788`). `spendableNow = cashflow.spendable_balance` (`app/planning/PlanningPage.tsx:690`), the live pool overlay (`routers/analytics.py:4894` to `routers/analytics.py:4897`) | P6: items before `period.payday` (`app/planning/PlanningPage.tsx:736`, `lib/upcomingPeriod.ts:27`); `rawItems` pulls items up to payday + 5 days for display (`app/planning/PlanningPage.tsx:646` to `app/planning/PlanningPage.tsx:648`) | C2 (`app/planning/PlanningPage.tsx:764`) | `doesNotTouchCash` (`lib/cashWalk.ts:46`) mirrors the server pooled rule | none; no card hold | `cashflow.allocations` remaining (`routers/analytics.py:4972`) and `plans_reserved` = R1 (`routers/analytics.py:4985`) | `GET /cashflow` not response cached; cashflow cache patterns only | D1, D5, D7, D17 |
+| S5.2 Status label ("Short", "Earlier gap", "No headroom", Home-derived labels) and lowest cash | Client: `lowestCash` (`app/planning/PlanningPage.tsx:796`), `upcomingForecastPresentation` (`lib/cashForecastStatus.ts:48`) which borrows Home's `GET /safe-to-spend` through `useForecastContext` (`lib/useForecastContext.ts:8`) and returns neutral "Check forecast" when Home's `next_payday` differs from the period payday, when `lowest_projected_balance < 0`, or when evidence is stale | as S5.1 | C2 | as S5.1 | none | none | `safe_to_spend` cache for the Home side | D1, D5 |
+| S5.3 Ledger lines (cash, income, bills, set-asides, plans) | `components/upcoming/UpcomingHeroCard.tsx:128` to `components/upcoming/UpcomingHeroCard.tsx:190`, from the S5.1 inputs | as S5.1 | C2 | as S5.1 | none | as S5.1 | n/a | D1 |
+| S5.4 Days to payday, payday label, "Pay expected X" | `daysToPayday = length_days - day_number + 1` (`lib/upcomingPeriod.ts:39`); `payExpectedLabel` (`lib/upcomingPeriod.ts:66`) shown only when a confirmed salary date differs from the period payday (`current_period_facts`, `services/pay_period.py:185`) | P1 then P6 | n/a | n/a | n/a | n/a | n/a | D5 |
+
+### S6. Upcoming: by-account rows and the account sheet
+
+Components `components/upcoming/UpcomingAccountsCard.tsx`, `components/upcoming/UpcomingAccountDetails.tsx`; assembled at `app/planning/PlanningPage.tsx:368` to `app/planning/PlanningPage.tsx:376`.
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S6.1 Row status and amount ("Short for payments", "Short for transfers", "Left after payments or plans") | Client W7 `walkUpcomingAccounts` (`lib/upcomingAccountWalk.ts:36`, status at `lib/upcomingAccountWalk.ts:124`), labelled by `statusFor` (`lib/upcomingAccountStatus.ts:14`). Seeds from the first bill's `account_balance` (snapshot overlaid live at `routers/analytics.py:4897`) or the plan source balance | P7 (eve lookahead on main) | C2: all income attributed to the account (`lib/upcomingAccountWalk.ts:66`), no reliability gate | every inflow credited, no gate (`lib/upcomingAccountWalk.ts:67`) | card charges and observed-pending bills excluded (`lib/upcomingAccountWalk.ts:46`) | none in the walk | not cached; `GET /cashflow` live | D2, D3, D4, D6 |
+| S6.2 Sheet headline "After payments and plans" and `plan_gap` ("more needed for plans") | Server position when present (`positionsFromToday`, `lib/upcomingAccounts.ts:78`, attached at `app/planning/PlanningPage.tsx:376`): `accountPlan` (`lib/upcomingPlans.ts:111`) takes `after_payments`, `plans_reserved`, `after_payments_and_plans` from `GET /today`; falls back to client arithmetic (`lib/upcomingPlans.ts:128` to `lib/upcomingPlans.ts:148`, marked TODO G238); `planGap` at `lib/upcomingPlans.ts:147` | server W2 closing, P4 | server C1 | server W2 credits inflows | none | R5 | `today` cache | D3, D4, D9 |
+| S6.3 Sheet ledger "How this adds up" | `components/upcoming/UpcomingAccountDetails.tsx:70` to `components/upcoming/UpcomingAccountDetails.tsx:77`: cash now, income, transfers in, payments from the client walk; allocations and goals from client `Plan` rows; the "After payments" total is the server figure, so the lines need not sum to it | P7 | C2 on the lines, C1 in the total | all inflows on the line, W2 in the total | none | R5 | n/a | D4 |
+| S6.4 Sheet verdict (short, unfunded, covered, plans gap) | `Verdict` (`components/upcoming/UpcomingAccountDetails.tsx:39`) reads client `account.status` for short or covered and server numbers for plans | P7 | C2 | all inflows | none | R5 | n/a | D3, D4 |
+| S6.5 Sheet "Spend from" | `result.spendFromPence` = server `spend_from_headroom` for current accounts (`lib/upcomingAccounts.ts:98`, `lib/upcomingPlans.ts:144`) | as S2.1 | C1 | as S2.1 | none | R5 | `today` cache | D8 |
+| S6.6 Per-payment coverage and at-risk marks on bill rows | `upcomingAccountAssessment` (`lib/upcomingAccountWalk.ts:135`) from the W7 coverage map; used at `app/planning/PlanningPage.tsx:885` | P7 | C2 | all inflows | card excluded | none | n/a | D3, D4 |
+| S6.7 "Payments through Thu 29 Oct" | `paymentsThroughLabel` (`lib/upcomingAccounts.ts:106`) from the P7 end | P7 | n/a | n/a | n/a | n/a | n/a | D5, D6 |
+| S6.8 "Moving X in from Y would cover it" | `withCoverSuggestions` (`lib/coverSuggestion.ts:10`) attaches `GET /today` move legs to a client-short account; computes only a sum of leg amounts | n/a | n/a | n/a | n/a | n/a | `today` cache | D4 |
+
+### S7. Accounts page and Home accounts list
+
+Components `app/components/AccountsPage.tsx` (fetch at `app/components/AccountsPage.tsx:667`), `components/HomeEstateSection.tsx:84`, `components/AccountLedgerRow.tsx`. Reader: `accountAvailability` (`lib/accountAvailability.ts:21`). All figures are read from `GET /today` `account_eligibility`; the client does no arithmetic.
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S7.1 "Available" | `position.spend_from_headroom` (`lib/accountAvailability.ts:30`, shown at `app/components/AccountsPage.tsx:2375`); same as S2.1 including the pool cap. Only for connected, unpaused, GBP, counted, non-manual current accounts (`lib/accountAvailability.ts:25` to `lib/accountAvailability.ts:27`) | as S2.1 | as S2.1 | as S2.1 | as S2.1 | R5 | `today` cache | D1, D2, D3, D8 |
+| S7.2 "After payments and plans" | `after_payments_and_plans` (`app/components/AccountsPage.tsx:2376`) = W2 closing minus R5 reserved (`services/account_position.py:126`) | P4 | C1 | credits every inflow | none | R5 | `today` cache | D3 |
+| S7.3 "Lowest after plans" | `low_point_and_plans` (`app/components/AccountsPage.tsx:2377`) = W3 low point minus R5 reserved (`services/account_position.py:130`) | P4 | C1 | credits no inflow | none | R5 | `today` cache | D3 |
+| S7.4 List warning ("Payments look short this pay period", "Short after plans") | `lib/accountAvailability.ts:32` to `lib/accountAvailability.ts:38`: payments warning when `low_point` or `after_payments` below zero; plans warning when the two "and plans" figures are below zero | P4 | C1 | mixed (S7.2 versus S7.3) | none | R5 | `today` cache | D3, D4 |
+
+### S8. At-risk badge
+
+`GET /cashflow/at-risk-count` (`routers/analytics.py:3313`), read by `components/BottomNav.tsx:25`.
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S8.1 Count of bills the account cannot cover (amber dot on Upcoming) | W5: bounced bills, excluding a movement bill unless it is a card repayment (`routers/analytics.py:3464`); seeds from live balances of `accounts_col` and Yapily (`routers/analytics.py:3376` to `routers/analytics.py:3393`), else the cache snapshot | P2 then P4 (`routers/analytics.py:3343` to `routers/analytics.py:3355`) | C1 (`routers/analytics.py:3414`) | every window inflow credited (`routers/analytics.py:3430`) | card bills not assessable | none: plans are not reserved | none; recompute only when the cashflow cache is dirty or stale (`routers/analytics.py:3326`) | D2, D3, D5, D6, D12 |
+
+### S9. Spend impact (consequence line on Spend)
+
+`services/spend_impact.py:726` `compute_spend_impact`.
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S9.1 Bills risk ("this pace could leave X short") | `_bills_risk` (`services/spend_impact.py:400`) over `_cashflow_window` (`services/spend_impact.py:309`), W6; live balances from `accounts_col` only (`services/spend_impact.py:276`) | P2 then P4 (`services/spend_impact.py:337` to `services/spend_impact.py:348`) | C1 (`services/spend_impact.py:372`) | inflows unconditional | card not assessable | none | none | D2, D3, D5, D12, D22 |
+| S9.2 Headroom cap for the permission consequence | `max(0, safe_to_spend)` read from the `safe_to_spend` cache, else `compute_safe_to_spend` (`services/spend_impact.py:793` to `services/spend_impact.py:800`); only evaluated when spending is under usual (`services/spend_impact.py:821`) | P5 | C2 | pooled | pooled | R1, R2 | `safe_to_spend` cache | D1 |
+
+### S10. Spend: hero figures and period
+
+`GET /spend/verdict` (`routers/spend_verdict.py:20`), `compute_spend_verdict` (`services/spend_verdict.py:1075`). Client reads `verdict.pills` and `verdict.period` (`app/components/SpendPage.tsx:429`, `app/components/SpendPage.tsx:1164`, `app/components/SpendPage.tsx:1231`).
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S10.1 Spent, In (pills), notables, majority, moved | `assemble_verdict` (`services/spend_verdict.py:601`) over `bucket_transactions` (`services/spend_verdict.py:213`) on `_load_period_txns` (`services/spend_verdict.py:142`); own moves and card repayments classified by `services/spending.py:442` and filed as moved money | P1 with offset (`services/pace.py:1432`) | actual credits, no prediction | excluded from Out (G268) | card repayments excluded from Out | none | `spend_verdict:{offset}` response cache (`routers/spend_verdict.py:30`) | D5 |
+| S10.2 Usual by now, excess, pace series | `compute_pace_totals` (`services/spend_verdict.py:674`), `build_pace_series` (`services/spend_verdict.py:743`) | P1 | n/a | n/a | n/a | n/a | `category_signals:{offset}` (`services/spend_verdict.py:1092`) | D5 |
+| S10.3 Period label, day number, payday | `build_period_payload` (`services/spend_verdict.py:1058`) via `period_facts` (`services/pay_period.py:164`), the same builder as `cashflow.period` (G327) | P1 | n/a | n/a | n/a | n/a | as S10.1 | D5 |
+
+### S11. Planning period gate
+
+`GET /grow` `period_gate` (`routers/grow.py:583`), `_period_gate` (`routers/grow.py:186`), shown by `app/planning/GrowPanel.tsx:538` to `app/planning/GrowPanel.tsx:550` ("X to cover before payday").
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S11.1 `period_gate.short` and `to_cover` | `abs(safe_to_spend)` when `state == "short"` and the figure is negative, from `get_cached_safe_to_spend` (`routers/grow.py:294` to `routers/grow.py:300`); `period_end` is `next_payday` (P2) | P2 (as S1.1) | C2 | pooled | pooled, includes the unlearned-card hold | R1, R2 | `grow` response cache (`routers/grow.py:265`, `routers/grow.py:585`), dropped whenever `safe_to_spend` is written (`routers/analytics.py:5586`) | D1, D5, D17 |
+
+### S12. Notifications that read positions
+
+`services/notifications.py`.
+
+| Figure | Computing function | Window | Income credit | Own-account transfers | Card reserve | Set-aside and goal source | Cache | Diverges from |
+|---|---|---|---|---|---|---|---|---|
+| S12.1 Move recommendation push | `_maybe_move_recommendation` (`services/notifications.py:218`) runs `compute_today_items(user_id, account_eligibility_out=positions_out)` (`services/notifications.py:260`) with default `persist=True`; pushes move items with an amount | P4 | C1 | W2 | none | R3 | none (fresh compute) | D3 |
+| S12.2 Bill shortfall push | `_maybe_bill_shortfall` (`services/notifications.py:304`): any bill due within 7 days whose amount exceeds its account's snapshot balance (`services/notifications.py:333` to `services/notifications.py:340`). `_build_cashflow_response(cached)` is called with no `uid` (`services/notifications.py:329`), so no exclusions, no planned expenses, no live balance overlay. Dedupe by period start (P1) | 7 days from today, not P4 | none | none | none | none | none | D12 |
+| S12.3 Plan shortfall push ("looks about X short of what its plans need") | `_maybe_plan_shortfall` (`services/notifications.py:433`): reads `after_payments`, `after_payments_and_plans`, `low_point` from the same positions; skips uncertain and estimated, skips when payments are already short, minimum `PLAN_SHORTFALL_MIN_GBP` (`services/notifications.py:45`) | P4 | C1 | W2 | none | R5 | none | D3, D9 |
+
+### S13. Other server readers of Left to spend
+
+Can I and planned one-off preview (`routers/planned.py:72`, `routers/planned.py:98`: before and after via `get_cached_safe_to_spend`; `routers/can_i.py:561`, `routers/can_i.py:765`), Penny chips (`services/penny_chips.py:237`), daily history snapshot (`services/safe_to_spend_history.py:89`, direct compute), warm-up (`services/warmup.py:47`). All read S1.1 and inherit its rules and its D-numbers.
+
+---
+
+## 3. Penny tools and the MCP connector
+
+Penny dispatch: `execute_tool` (`services/penny_tools.py:8096`). MCP: `routers/mcp.py:156` `MCP_TOOLS` (all of `TOOL_SCHEMAS` minus `search_transactions`, `routers/mcp.py:124`) with scopes at `routers/mcp.py:132`, calling the same `execute_tool` (`routers/mcp.py:506`). So the MCP read tools are exactly the Penny read tools below, minus `search_transactions`, and add no arithmetic of their own.
+
+Legend for the last column: OK means the tool returns another function's figure unchanged. FLAG means the tool computes arithmetic itself.
+
+| Tool (read) | Defined | Calls | Arithmetic in the tool |
+|---|---|---|---|
+| `get_safe_to_spend` | `services/penny_tools.py:2130` | `compute_safe_to_spend` direct, bypassing the response cache; per-account block from `spend_from_extras` (`services/penny_consolidation.py:444`) which reads the cached `today` payload | FLAG (minor): `held_back = raw_headroom - headroom` in `spend_from_extras`. The two parts of one result can come from different moments (fresh pool, cached `today`), D13 |
+| `get_upcoming_bills` | `services/penny_tools.py:2202` | `_build_cashflow_response` | OK, but returns the first 10 bills and incomes with no period filter and no credit gate, and no in-period flag (D13) |
+| `get_recurring_payments` | `services/penny_tools.py:2286` | cashflow cache patterns | OK |
+| `get_accounts` | `services/penny_tools.py:3205` | `routers/accounts.get_accounts` | OK (balances only) |
+| `get_spend_verdict` | `services/penny_tools.py:3304` | `compute_spend_verdict` (S10) | OK |
+| `get_savings_position` | `services/penny_tools.py:3389` | `savings._cashflow`, `_current_savings`, `_target_amount`, `compute_safe_to_spend` then `grow._period_gate`, `buffer_extras` (`services/penny_buffer.py:87`) | FLAG: `pct_funded = current / target * 100` (`services/penny_tools.py:3407`); `monthly_surplus` is the 90 day smoothed engine in `routers/savings.py`, a different basis from every period figure |
+| `get_debt_position` | `services/penny_tools.py:3452` | `get_debt_plan_cached` (`services/debt_plan.py:1878`) | OK |
+| `get_goals` | `services/penny_tools.py:3557` | `routers/commitments.list_commitments` | FLAG: `remaining = max(amount - progress, 0)` computed in the tool (`services/penny_tools.py:3576`) |
+| `get_investment_value` | `services/penny_tools.py:3620` | investment engines | OK |
+| `check_affordability` | `services/penny_tools.py:3663` | `services/affordability.py:250` over `compute_safe_to_spend` | FLAG: `free_after_spend = round(safe_to_spend - amount)` (`services/affordability.py:278`), `per_day_after` (`services/affordability.py:282`) and `per_day` (`services/affordability.py:337`) divide by `days_until_payday` (P2) |
+| `get_category_spend` | `services/penny_tools.py:4001` | its own transaction aggregation, `classify_flow` | FLAG: `total = sum(...)` (`services/penny_tools.py:4143`), monthly and weekly averages |
+| `get_account_activity` | `services/penny_tools.py:3083` | `_summarise_account_activity` (`services/penny_tools.py:3014`) | FLAG: own totals over the account's rows |
+| `search_transactions` (not on MCP) | `services/penny_tools.py:2427` | `_search_totals` (`services/penny_tools.py:2862`) | FLAG: own totals |
+| `get_insights`, `get_mirror`, `get_tax_position`, `get_fill_candidates`, `preview_trend_intent` | `services/penny_tools.py:4248`, `services/penny_tools.py:4492`, `services/penny_tools.py:5094`, `services/penny_tools.py:5118`, `services/penny_tools.py:5278` | their own engines | OK for position purposes |
+| `get_today_brief` | `services/penny_tools.py:4441` | `compute_today_items(persist=False)` plus a preview call; `_shape_payday_plan` (`services/penny_tools.py:4332`) only reshapes | OK |
+| `get_payday_plan` | `services/penny_payday_plan.py:122` | `compute_today_items` live then preview | OK (`_summary`, `services/penny_payday_plan.py:69`, formats and re-reads the plan's own totals) |
+| `get_set_asides` | `services/penny_set_asides.py:57` | `routers/allocations.list_allocations` | OK |
+| `get_pay_split` | `services/penny_pay_split.py:194` | `money_shape` cache, `compare_shape` (`services/penny_pay_split.py:72`) | FLAG: shape comparison arithmetic, not a position figure |
+| `plan_consolidation` | `services/penny_consolidation.py:353` (planner `services/penny_consolidation.py:231`) | cached `today` `account_eligibility` plus `_pooled_safe_to_spend` | FLAG: sums per-account headroom (`services/penny_consolidation.py:253`), caps to the pool, splits legs. It sums figures that S2.1 says are separate ceilings, though each is already pool capped (G300 concern) |
+| `preview_goal_schedule` | `services/penny_goal_schedule.py:972` | goal schedule engine (G351) | OK for position purposes |
+| `calculate` | `services/penny_tools.py:5237` | `safe_calc` | arithmetic by design |
+
+Screen context: Penny is also given client-derived views (`buildSafeToSpendView`, `lib/pennyScreenViews.ts`, and the Upcoming runway view built from `pennyRunwayRef`, `app/planning/PlanningPage.tsx:814`), which publish the client figures of S1 and S5, so the S5 client arithmetic reaches the model too.
+
+---
+
+## 4. Divergences today
+
+Each entry: the pair, the rule difference, and the board item where one exists.
+
+- D1 Left to spend (S1.1) versus Upcoming "Projected at payday" (S5.1) versus Planning "to cover" (S11.1). Left to spend is the LOW POINT of the walk (`routers/analytics.py:2065`) less buffer (default 0), less pooled plans and set-asides, less an unlearned-card hold. Upcoming is the END balance (`app/planning/PlanningPage.tsx:788`) less set-asides and plans, with no buffer, no card hold and no minimum. Windows differ: Left to spend ends at the confirmed salary stream's next date (P2), Upcoming at the period payday (P6). `upcomingForecastPresentation` (`lib/cashForecastStatus.ts:48`) goes neutral when the two paydays differ, which hides rather than reconciles it. Refs: G361, G329, G327.
+- D2 Pooled Left to spend versus per-account walks. Income: all (C2) versus attributed and gated (C1). Own transfers: both legs dropped when the destination is in the pool versus every inflow credited. Negative-balance accounts: excluded from the pool seed (`routers/analytics.py:2025`) versus seeded negative in W2. Window: P5 strict versus P4 widened on the eve. Reservations: all plans pooled (R1, R2) versus only those attributed to an account (R5). Refs: G359, G360.
+- D3 After payments versus Lowest after plans, Available and the list warning (the HSBC case). Closing walk W2 credits every inbound own-account transfer (`services/companion.py:2795`); low point W3 (`services/companion.py:2970`) never does, and `min_running` (W2) credits them while `source_min_run` (W3) does not. So one account can read After payments positive and Lowest negative. Ref: G360 (open branch, section 5).
+- D4 Client sheet walk versus server position. The client walk credits all attributed income and every inflow (C2, `lib/upcomingAccountWalk.ts:66`), the server credits C1 income and every inflow; the sheet takes short or covered from the client walk but its headline and plans figures from the server, and the "How this adds up" lines come from the client while the total is the server's, so the lines may not sum (`components/upcoming/UpcomingAccountDetails.tsx:70` to `components/upcoming/UpcomingAccountDetails.tsx:77`). Ref: G360.
+- D5 Window end and "days left". Left to spend, at-risk, cover plan, spend impact, pace and `days_until_payday` use the confirmed salary stream's next date (P2); Spend, Upcoming, the sheet, `/account-plans` and the payday plan use the period's own payday (P1). A confirmed side income shortens the server window. The steady rule uses P3 (`routers/analytics.py:1861`). The payday plan preview mixes P1 and P2 (`services/companion.py:3771` to `services/companion.py:3775`). Ref: G361 (open, no branch), G326, G327, G329.
+- D6 Last-day lookahead (main). `in_current_window` widens to payday + 5 days when `days_to_pay <= 1` (`services/pay_period.py:138`), mirrored by the client (`lib/upcomingAccounts.ts:64`), while Left to spend (P5) and the Upcoming hero stay strict. Next-period bills therefore enter every account's low point, and `cap_spend_from_to_pool` floors each Available at the pooled figure, which gave Available 0 everywhere on payday eve. Refs: G360 (removes the lookahead), 2026-08-28 decision.
+- D7 Landed income counted twice (G362). `_build_cashflow_response` never closes an income occurrence that has already landed (`routers/analytics.py:4702`), so on payday the salary is both in the live balance and in `upcoming_income` at `days_away` 0. Left to spend (`routers/analytics.py:5190`), every per-account walk, and the client runway (`app/planning/PlanningPage.tsx:764`) all credit it again. Separately the payday plan has its own landed-salary test (`services/companion.py:1507`), so the plan is right while the walks are wrong. Ref: G362 (uncommitted work, section 5).
+- D8 Spend from versus standing headroom. `spend_from_headroom` = min(after payments and plans, low point and plans) less live moves, pool capped (S2.1). `headroom`, which drives `short`, move legs and the Settings sources card, = low point minus set-asides only minus 10 (S2.3). Goals are reserved in the first, not in the second on main, so a cover move can draw a goal's money from the account that funds it. Ref: G352 (open branch).
+- D9 Set-aside and goal source resolved four ways: R3 (`services/companion.py:1021`), R4 (`services/companion.py:1211`), R5 (`routers/allocations.py:590`) and the pooled R1 and R2. R4 falls back to the salary account flagged assumed; R5 leaves an unresolved plan unassigned and pool-only; R3 fails open to nothing. The same set-aside can be kept at account X by the payday plan, attributed nowhere by positions and reserved at account Y by the cover plan. Refs: G350, G352, G230.
+- D10 Goal slice inputs. R1 calls `compute_pot_ledger(uid, docs=docs)` without balances (`routers/commitments.py:1177`); R4 and R5 pass live or owned balances (`services/companion.py:1330`, `routers/allocations.py:689` to `routers/allocations.py:696`). Whether this ever changes a slice was not determined (section 7).
+- D11 Plan overlap and uncertainty rule exists three times: `assess_overlap` (`services/account_position.py:47`), the skip logic in `compute_allocation_gaps` (`services/allocation_shortfall.py:64`) and `assessPlanOverlap` (`lib/upcomingPlans.ts:94`), kept in step by comment and tests (G235).
+- D12 Notification bill shortfall (S12.2) is a different rule from the at-risk badge (S8.1): single bill against snapshot balance, 7 days, no income, no exclusions, no live overlay. It can fire when the badge reads 0 and the reverse.
+- D13 Penny: `get_safe_to_spend` recomputes fresh while its `spend_from` block and `plan_consolidation` read the cached `today` payload; `get_upcoming_bills` ignores the period. Flagged arithmetic tools are listed in section 3.
+- D14 Pace "per day" (`services/pace.py:562`) and `check_affordability` per day divide by `days_until_payday` (P2) while Spend's hero day count comes from P1 (G326 day numbers).
+- D15 Pooled reservation of buffer: three buffer notions. `safe_to_spend_buffer` (default 0, `routers/analytics.py:5208`), `payday_buffer` (default 50, max 500, `services/companion.py:2531`), and a hard-coded 10 pounds kept on every source (`services/companion.py:3026`, `services/companion.py:3395`).
+- D16 Card hold. Left to spend holds unlearned card growth (S1.1) and can read "Check card bill"; Upcoming, per-account positions and the payday plan carry no hold. Scenario 6 in H140.
+- D17 Reading of "card repayment": pooled walk treats a card repayment as a debit on the paying account and a charge on the card as nothing (`routers/analytics.py:2108`); the client mirrors it (`lib/cashWalk.ts:46`). Consistent, but the same rule is maintained in two languages.
+- D18 Payday plan sizes against typical everyday spend and a buffer (`services/companion.py:3911` onwards); Spend from, Available and Left to spend deduct neither. A plan can ask for money that Available says is not needed, and the reverse.
+- D19 Client-derived status. `homeForecastPresentation` recomputes `end` and chooses the verdict words client-side (`lib/pennyScreenViews.ts:96`); `isPlansOnlyShort` (`lib/pennyScreenViews.ts:57`) duplicates `plans_only_short_for` (`services/net_position.py:293`) for stale caches.
+- D20 Live balance sources. Left to spend filters Yapily by consent (`routers/analytics.py:2158`); cover plan loads Yapily accounts unfiltered (`services/companion.py:2664`); spend impact reads `accounts_col` only (`services/spend_impact.py:276`); at-risk reads accounts by id from both collections without offline accounts. (Yapily removal is H87, unmerged.)
+- D21 Provider data (A175): every walk reads the same inputs, so a missing Monzo pot history or balances that move without transactions makes all figures consistently wrong, not inconsistent. No code path in this map is specific to it.
+- D22 One payday plan bug class already fixed and pinned: monthly bills counted twice (G354, `services/companion.py:3771` window, test `tests/test_g354_plan_period.py`).
+
+---
+
+## 5. Open branches and what each changes in this map
+
+Fetched with `git fetch origin`; diffs read with `git diff origin/main...origin/<branch>`.
+
+### 5.1 G360 `origin/feature-G360-g359-follow-up-one` (in review, tip b747e3d1 which merges main)
+
+19 files, 732 insertions, 107 deletions. Changes to the map:
+
+- P4 loses the lookahead: `in_current_window` is `0 <= days_away < days_to_pay` for every value (`services/pay_period.py:127` on the branch), `is_payday_day` is `days_away == days_to_pay` (`services/pay_period.py:133`). The client mirror becomes the day before payday always (`lib/upcomingAccounts.ts:57` on the branch). Removes D6.
+- New `services/inflow_credit.py` `funded_inflows` (`services/inflow_credit.py:30` on the branch): an inbound own-account transfer counts only when its source account, after its own bills and C1 incomes up to that day, stays at or above zero; one level, unknown or untracked sources never fund. It gates W2 (`services/companion.py:2800`), W3 (`services/companion.py:2984`), W4 (`services/companion.py:3585`), W5 and W6. So W3 now credits funded inflows and W2 and W3 agree: removes D3. A funded inflow into an account with no bill of its own is seeded at its live balance in the closing walk.
+- Client: `walkUpcomingAccounts` gates inflows with the same rule (`lib/upcomingAccountWalk.ts:56` and `lib/upcomingAccountWalk.ts:70` on the branch, using the `credit_basis` the server stamps; `credit_basis` added to `UpcomingBill` in `lib/api.ts`); new `reconcileWithServerPosition` (`lib/upcomingAccounts.ts:77` on the branch) makes the sheet verdict follow the server (`lowPoint` added to the position type): server short is never shown covered and the reverse. Reduces D4 to the ledger lines, which still use ungated income.
+- Left to spend (P5, C2, pooled rule) is NOT changed: D1, D2 (income and pool rules) and D5 remain.
+- Tests added: `backend/tests/test_g360_one_account_walk.py`, `frontend/scripts/g360-one-account-walk.test.mjs`; updated `test_pay_period_window.py`, `test_internal_inflows.py`, `test_g359_steady_salary.py`, `g176-accounts.test.mjs`, `g176-attention.test.mjs`, `g327-upcoming-period.test.mjs`.
+
+### 5.2 G352 `origin/feature-G352-spend-from-headroom-does` (in review, tip aebc1098)
+
+3 files. Adds `_goal_source_slices`, `_reserved_for_goals` (goal slices at their resolved source, summed in pence) and a `goal_slices` argument on `_plan_source_needs`; `reserved_by_source` now carries set-asides and goals, so S2.3 headroom, S3.2 legs and `sources_safe` reserve goals at source (removes the goal half of D8) and the move card says "set-asides and goals" (`components/HomeBrief.tsx`). A goal with no resolvable source and no salary candidate reserves nowhere in headroom while the payday plan still keeps it (documented gap). R3 gains a sibling R3b; R4 shares the goal resolution code with it, which narrows D9. Tests: `backend/tests/test_g352_goal_source_reservation.py`.
+
+### 5.3 G362 `feature-G362-left-to-spend-overstated` (local branch, no commits, not pushed)
+
+`feature-G362-left-to-spend-overstated` has no commits of its own: its tip (c092d98c) is an ancestor of main. The work exists only as UNCOMMITTED changes in `/root/worktrees/feature-G362-left-to-spend-overstated` (read-only inspection with `git diff` and `git status`): modified `backend/app/routers/analytics.py` and `backend/app/services/counted_accounts.py`, new `backend/tests/test_g362_landed_income.py`. What it changes in the map:
+
+- `_build_cashflow_response` (1.1) gains an income-landed closure: it loads credits in the observation lookback, keeps those categorised Income, and `_match_income_landed` closes an income occurrence when a credit within max(2, 15 percent) landed in the same account inside the lookback, one credit closing at most one occurrence, matched on amount and account and never on series key. Closed items go to a new display-only `observed_income` list, never read by any walk.
+- Every consumer of `upcoming_income` (W1, W2, W3, W5, W6, S1.5, S5.1) stops counting the landed salary a second time: removes D7 for the walks. The payday plan keeps its own `_pp_salary_observed` (C3), so two landed-income tests remain (the new one in the builder and the plan's).
+- `drop_excluded_items` also filters `observed_income` (one-line change in `services/counted_accounts.py`).
+- Not yet reviewed, not on the board as review. Its note on the board also lists "Spend from for Barclays shows no amount" as a symptom, which this map explains by D6 and the pool cap but which the diff does not address.
+
+---
+
+## 6. Proposed consolidation order
+
+Principle: derive, never re-compute. Steps are small and separately mergeable; each must pass the existing tests named, then the H140 scenarios named. H140 scenarios (from the item): 1 eve of payday with own-account standing orders funded by salary (G359); 2 payday itself, salary landed but not yet a transaction (G362); 3 monthly bills on the 1st with month-end pay (G354); 4 freshly reconnected account, no confirmed salary; 5 the HSBC case (G360); 6 unconfirmed card bill hold and its release; 7 goal funded from the salary account plus a scheduled goal drawn from another account (G350, G357); 8 set-aside in a pot; 9 Hide balances; 10 Monzo pot with no transactions (A175).
+
+Step 0 (prerequisite, not part of G363 code): land G360, G352 and G362 in that order through the normal review and integrate path. G362 fixes the shared input builder, G360 introduces the one funded-inflow rule and removes the lookahead, G352 completes goal attribution. Re-run this map after they merge.
+
+| Step | What | Replaces | Tests that pin current behaviour | H140 scenarios |
+|---|---|---|---|---|
+| 1 | One period function. Extract from `current_period_facts` (`services/pay_period.py:185`) a single `window(today, config, prefs)` returning start, end, payday and `days_to_pay`, and make every server site call it. Needs Kevin's G361 decision first: period payday for the window, with the confirmed salary date shown only as `payday_observed` | the P2 preambles at `routers/analytics.py:3343`, `routers/analytics.py:5092`, `routers/analytics.py:4913`, `services/companion.py:2542`, `services/spend_impact.py:337`, the pace `days_left` read, and the P9 and P8 side calls | `tests/test_pay_period_window.py`, `tests/test_cashflow_period.py`, `tests/test_g354_plan_period.py`, `tests/test_safe_to_spend_hardening.py`, `frontend/scripts/g327-upcoming-period.test.mjs`, `g326-spend-one-period.test.mjs`, `g329-client-period-leftovers.test.mjs` | 1, 2, 3 |
+| 2 | One window-inputs builder: a function that takes the `_build_cashflow_response` result, prefs and live balances and returns window bills, income, inflows, assessable bills, live balances, confirmed keys (with `stamp_credit_basis` applied and G231 exclusions applied). No behaviour change; the three copies are already described as lockstep | the hand-copied preambles in `routers/analytics.py:3313` to `routers/analytics.py:3405`, `services/companion.py:2542` to `services/companion.py:2754`, `services/spend_impact.py:309` to `services/spend_impact.py:397` | `tests/test_internal_inflows.py`, `tests/test_g359_steady_salary.py`, `tests/test_companion_shortfall.py`, `tests/test_spend_impact.py`, `tests/test_exclude_account.py`, `tests/test_overdraft_bills.py`, `tests/test_companion_patterns_staleness.py` | 1, 4, 5, 10 |
+| 3 | One per-account walk: promote `_walk_events` (`services/companion.py:1583`) to return closing, low point (the minimum over the same events), first short bill and the dated rows with running balance, using the funded-inflow rule once. Callers read it | `_source_min_running` (`services/companion.py:2970`), `_walk_min` (`services/companion.py:3564`), the inline loop in `at_risk_count` (`routers/analytics.py:3444`), the double call in `_bills_risk` (kept as two scenarios over one walk function), `min_running` versus `source_min_run` split | `tests/test_cover_plan_account_eligibility.py`, `tests/test_companion_shortfall.py`, `tests/test_account_position.py`, `tests/test_unfunded_move.py`, `tests/test_spend_impact.py`, `tests/test_g360_one_account_walk.py` (after merge), `tests/test_payday_split.py` | 1, 5, 7 |
+| 4 | Positions derived from the walk output: `compute_account_positions` (`services/account_position.py:93`) takes the walk result, so After payments, Lowest, Available seed, sources_safe and the list warning cannot disagree. Keep `cap_spend_from_to_pool` (`services/companion.py:2417`) as the one pool cap | the separate `_gp_closing` and `low_point_by_account` assembly (`services/companion.py:3130` to `services/companion.py:3138`) | `tests/test_account_position.py`, `tests/test_spend_from_cap.py`, `tests/test_today_payload_shape.py`, `tests/test_warmup_today_cap.py`, `frontend/scripts/g238-account-position.test.mjs`, `g339-account-availability.test.mjs`, `spend-from-account.test.mjs` | 1, 5, 7, 8 |
+| 5 | Pooled view derived from the same events with a policy argument. The pooled walk uses the same bills and income list but credits C2 and drops both legs of a pooled transfer, per the owner rules already in the code; reserve and buffer stay in `compute_safe_to_spend`. Decide separately whether pooled income should move to C1 (a product decision, not a refactor) | `_safe_to_spend_lowest_projected_balance` (`routers/analytics.py:2065`) as a separate loop, the inline window filters at `routers/analytics.py:5157` to `routers/analytics.py:5190` | `tests/test_safe_to_spend_hardening.py`, `tests/test_g109_card_bill_double_count.py`, `tests/test_net_position.py`, `tests/test_cashflow_live_balance_overlay.py`, `tests/test_safe_to_spend_history.py` | 2, 6, 9 |
+| 6 | Server supplies the Upcoming figures: add the runway, lowest cash and per-account rows (closing, low point, status, dated events with running balance, "Payments through" date) to `GET /cashflow`, derived by steps 3 to 5, so the client only renders. Delete the client arithmetic | client W7 (`lib/upcomingAccountWalk.ts:36`), client W8 (`app/planning/PlanningPage.tsx:724` to `app/planning/PlanningPage.tsx:796`), `accountPlan` fallback (`lib/upcomingPlans.ts:128` to `lib/upcomingPlans.ts:148`), `upcomingAccountWindow` (`lib/upcomingAccounts.ts:53`), `reconcileWithServerPosition` and the client funded gate (G360), `homeForecastPresentation` recomputed `end` (`lib/pennyScreenViews.ts:96`) | `frontend/scripts/g176-accounts.test.mjs`, `g176-account-status.test.mjs`, `g229-by-account.test.mjs`, `g235-plan-overlap.test.mjs`, `g287-forecast.test.mjs`, `cash-walk.test.mjs`, `g331-upcoming-zero.test.mjs`, `g327-upcoming-period.test.mjs`, `g322-left-to-spend-copy.test.mjs` | 1 to 9 (every screen) |
+| 7 | One reservation source: a single `plans_by_source(uid)` that resolves each set-aside and goal once (stored, inferred, assumed) and feeds R3, R4, R5 and the pooled totals R1 and R2, with assumed and unassigned handled by one stated rule | `_reserved_for_allocations`, `_goal_source_slices`/`_reserved_for_goals` (G352), the loops in `_plan_source_needs`, the resolution inside `list_account_plans`, and the three overlap implementations (D11) | `tests/test_allocation_source_reservation.py`, `tests/test_g350_source_needs.py`, `tests/test_g350_over_salary.py`, `tests/test_g352_goal_source_reservation.py` (after merge), `tests/test_g176_account_plan_sources.py`, `tests/test_plan_source_account.py`, `tests/test_allocation_shortfall.py`, `tests/test_g317_reservation_readers.py`, `frontend/scripts/g230-plan-source.test.mjs`, `g235-plan-overlap.test.mjs` | 7, 8 |
+| 8 | Peripheral readers read the shared result: notifications bill shortfall (`services/notifications.py:304`) reads the walk output; at-risk count is the count of the walk's bounced non-movement bills; Penny `get_upcoming_bills` takes the in-period flag; `check_affordability`, `get_goals` and `get_savings_position` read the figures instead of recomputing | W9, W5's tail, the FLAG rows in section 3 | `tests/test_notifications.py`, `tests/test_penny_tools.py`, `tests/test_penny_tools_period_gate.py`, `tests/test_can_i.py`, `tests/test_penny_consolidation_g334.py`, `tests/test_spend_impact.py` | 1, 5 |
+| 9 | Gate and delete: make the H140 suite a hard gate in `scripts/integrate.py` and `scripts/release.py`; delete the now-unused walks and the unused `card_growth_unpaid` (`services/net_position.py:52`, no production caller) | leftovers from steps 3, 5, 6 | the full backend suite plus the frontend `check:*` scripts | 1 to 10 |
+
+The payday plan (S4) stays a distinct recommendation by design (typical spend, buffer, usual moves). Under this order it only changes by taking its period from step 1, its salary landed test and credit rule from steps 1 to 2, and its source needs from step 7.
+
+---
+
+## 7. Not determined from the code
+
+- Whether the pooled goal slice (R1, no balances passed to `compute_pot_ledger`) ever differs in practice from the per-account goal slices (R4, R5, balances passed): both call `_pot_progress_and_slice`, but the ledger inputs differ (D10).
+- Whether `GET /cashflow` is ever served stale enough, relative to a fresh `safe_to_spend` cache entry, to show D1 as a visible mismatch rather than a labelled one; depends on sync timing and was not reproduced.
+- How A175 (Finexer versus TrueLayer pot transactions) enters the map: it is a provider-input issue below `_build_cashflow_response` and was not investigated here.
+- G362's final form: only the uncommitted worktree diff exists; the branch has no commits and no review.
+- Which of the three buffer notions (D15) Kevin intends the user to see as one "buffer"; the code has three.
+- Whether the Yapily-unfiltered loads (D20) matter on production now that Finexer is the live provider; H87 (remove Yapily) is unmerged.
