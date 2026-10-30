@@ -344,6 +344,37 @@ def test_verdict_scenario_suite_is_red_on_any_failure_and_green_only_when_both_p
     assert release.has_red([backend_red])
 
 
+def test_run_scenario_suite_forces_a_wealth_test_db_into_the_subprocess_env(monkeypatch, tmp_path):
+    import re
+    seen = []
+
+    def fake_run_ok(cmd, timeout=0, cwd=None, env=None):
+        seen.append((cmd, env))
+        return True, "ok"
+
+    monkeypatch.setattr(release, "_run_ok", fake_run_ok)
+    item = release.run_scenario_suite(tmp_path)
+    assert item.verdict == "green"
+    pytest_cmd, pytest_env = seen[0]
+    assert pytest_cmd[-3:] == ["-m", "pytest", "-q"] or "tests/test_scenarios.py" in pytest_cmd
+    assert pytest_env and re.fullmatch(r"wealth_test_\d+_[0-9a-f]{8}", pytest_env["MONGO_DB"])
+    assert seen[1][0] == ["npm", "run", "-s", "check:scenarios"]
+
+
+def test_run_scenario_suite_is_red_when_the_pytest_half_fails(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(release, "_run_ok", lambda cmd, **k: (calls.append(cmd), (False, "1 failed"))[1])
+    item = release.run_scenario_suite(tmp_path)
+    assert item.verdict == "red" and "backend scenarios failed" in item.message
+    assert len(calls) == 1  # the npm half is not reached
+
+
+def test_run_scenario_suite_is_red_when_the_npm_half_fails(monkeypatch, tmp_path):
+    monkeypatch.setattr(release, "_run_ok", lambda cmd, **k: (cmd[0] != "npm", "AssertionError"))
+    item = release.run_scenario_suite(tmp_path)
+    assert item.verdict == "red" and "frontend scenarios failed" in item.message
+
+
 def test_scenario_db_name_has_the_disposable_test_shape():
     import re
     name = release._scenario_test_db_name()

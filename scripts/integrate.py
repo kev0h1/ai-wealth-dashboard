@@ -694,6 +694,7 @@ def _run_frontend_checks(changed: set[str]) -> None:
         for p in changed
     )
     if not frontend_or_shared:
+        _run_scenario_check(changed)
         return
     print("checking design preview index (frontend/ or shared/ changed)")
     rc, out = _sh(["npm", "run", "-s", "check:design-index"], cwd=REPO_ROOT / "frontend", timeout=60)
@@ -703,6 +704,19 @@ def _run_frontend_checks(changed: set[str]) -> None:
     rc, out = _sh(["npm", "run", "-s", "check:legal-content"], cwd=REPO_ROOT / "frontend", timeout=60)
     if rc != 0:
         raise IntegrateError(f"check:legal-content failed:\n{out}")
+    _run_scenario_check(changed)
+
+
+def _run_scenario_check(changed: set[str]) -> None:
+    """H140: the client replay of the scenario snapshots. The snapshots live
+    under backend/tests, so a backend change can move a figure the client walk
+    must still agree with; run whenever backend/, frontend/ or shared/ changed."""
+    if not any(p.split("/", 1)[0] in ("backend", "frontend", "shared") for p in changed):
+        return
+    print("checking scenario regression suite, client replay (backend/, frontend/ or shared/ changed)")
+    rc, out = _sh(["npm", "run", "-s", "check:scenarios"], cwd=REPO_ROOT / "frontend", timeout=60)
+    if rc != 0:
+        raise IntegrateError(f"check:scenarios failed:\n{out}")
 
 
 def _fresh_test_db_name() -> str:
