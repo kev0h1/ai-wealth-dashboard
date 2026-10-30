@@ -5,7 +5,9 @@ tests/scenarios/README.md). It is seeded into the disposable wealth_test_*
 database and run through the REAL builders and walks, with only "today"
 patched:
 
-  analytics._build_cashflow_response  (the cashflow lists every screen reads)
+  analytics.get_cashflow              (the cashflow lists every screen reads:
+                                       the real builder plus the live-balance
+                                       overlay and period facts)
   analytics.compute_safe_to_spend     (pooled Left to spend)
   analytics.at_risk_count             (the Upcoming badge)
   companion.compute_today_items       (cover plan, payday plan, per-account
@@ -20,7 +22,8 @@ Motor binds a client to the first event loop that touches it, and the shared
 module-level client is spent by the time this test runs (conftest's autouse
 cache cleanup uses asyncio.run). So each scenario opens its OWN guarded client
 inside its own loop and rebinds every `*_col` name in the app modules to it for
-the duration of the test (monkeypatch undoes it). Nothing is faked.
+the duration of the run (restored afterwards, including modules first imported
+during it). Nothing is faked.
 """
 import asyncio
 import json
@@ -46,24 +49,52 @@ def _uid(slug: str) -> str:
     return f"scenario-{slug}@example.test"
 
 
-def _rebind_collections(monkeypatch, client) -> None:
-    """Point every module-level collection handle in the app at `client`."""
+def _app_modules():
+    return [m for n, m in list(sys.modules.items()) if m is not None and (n == "app" or n.startswith("app."))]
+
+
+def _rebind_collections(client):
+    """Point every module-level collection handle in the app at `client`.
+
+    Returns a restore callable. Modules first imported DURING the run (lazy
+    imports inside handlers) bind the new collections at import time, so the
+    restore scans every module again and puts the original handles back by
+    name; nothing is left pointing at a closed client for later tests.
+    """
+    from motor.motor_asyncio import AsyncIOMotorCollection
     from app.core.config import MONGO_DB
 
     assert TEST_DB_NAME_RE.match(MONGO_DB), "scenario suite only runs against a wealth_test_* database"
+    originals = {
+        v.name: v for k, v in vars(dbc).items()
+        if k.endswith("_col") and isinstance(v, AsyncIOMotorCollection)
+    }
+    original_db = dbc.db
     new_db = client[MONGO_DB]
-    swaps: dict[int, object] = {}
-    for name, value in list(vars(dbc).items()):
-        if name.endswith("_col") and hasattr(value, "name") and hasattr(value, "find_one"):
-            swaps[id(value)] = new_db[value.name]
-    swaps[id(dbc.db)] = new_db
-    for mod_name, mod in list(sys.modules.items()):
-        if mod is None or not (mod_name == "app" or mod_name.startswith("app.")):
-            continue
-        for attr, value in list(vars(mod).items()):
-            new = swaps.get(id(value))
-            if new is not None:
-                monkeypatch.setattr(mod, attr, new)
+    new_cols = {name: new_db[name] for name in originals}
+    patched: list[tuple[object, str, object]] = []
+
+    def swap(find, make):
+        for mod in _app_modules():
+            for attr, value in list(vars(mod).items()):
+                new = make(value) if find(value) else None
+                if new is not None:
+                    patched.append((mod, attr, value))
+                    setattr(mod, attr, new)
+
+    swap(lambda v: isinstance(v, AsyncIOMotorCollection) and v.database.name == MONGO_DB and v.name in new_cols,
+         lambda v: new_cols[v.name])
+    swap(lambda v: v is original_db, lambda v: new_db)
+
+    def restore():
+        for mod in _app_modules():
+            for attr, value in list(vars(mod).items()):
+                if isinstance(value, AsyncIOMotorCollection) and value.database is new_db and value.name in originals:
+                    setattr(mod, attr, originals[value.name])
+                elif value is new_db:
+                    setattr(mod, attr, original_db)
+
+    return restore
 
 
 def _dt(iso: str) -> datetime:
@@ -75,6 +106,12 @@ async def _seed(spec: dict, uid: str) -> None:
     from app.routers.analytics import PATTERNS_VERSION
 
     col = dbc
+    # The disposable database is shared by every scenario in the run and fixture
+    # account ids are plain strings, so empty the seeded collections first.
+    # `_rebind_collections` has already asserted this is a wealth_test_* database.
+    for c in (col.preferences_col, col.accounts_col, col.manual_accounts_col, col.cashflow_cache_col,
+              col.transactions_col, col.commitments_col, col.allocations_col, col.card_terms_col):
+        await c.delete_many({})
     await col.preferences_col.insert_one({
         "user_id": uid,
         "pay_period_config": spec["pay_period_config"],
@@ -110,9 +147,8 @@ async def _compute(spec: dict, uid: str) -> dict:
 
     today_d = timeutil.user_today()
     cfg = spec["pay_period_config"]
-    cached = await dbc.cashflow_cache_col.find_one({"_id": uid})
-    prefs = await dbc.preferences_col.find_one({"user_id": uid})
-    resp = await analytics._build_cashflow_response(cached, uid=uid, prefs=prefs)
+    # The real GET /cashflow handler: builder + live balance overlay + period facts.
+    resp = await analytics.get_cashflow({"email": uid})
     sts = await analytics.compute_safe_to_spend(uid)
     at_risk = await analytics.at_risk_count({"email": uid})
     elig: dict = {}
@@ -132,13 +168,18 @@ async def _compute(spec: dict, uid: str) -> dict:
         "days_to_payday": (next_pay - today_d).days,
         "period": {"start": pstart.isoformat(), "end": pend.isoformat()},
         "safe_to_spend": {k: sts.get(k) for k in (
-            "safe_to_spend", "safe_to_spend_cash", "state", "card_growth_reserved",
+            "safe_to_spend", "safe_to_spend_cash", "card_growth_reserved",
             "commitments_reserved", "allocations_reserved", "calculation_status",
         )},
         "at_risk_count": at_risk["count"],
-        "cashflow": {k: resp.get(k, []) for k in (
-            "upcoming_bills", "upcoming_income", "internal_inflows", "observed_pending_bills",
-        )},
+        "cashflow": {
+            **{k: resp.get(k, []) for k in (
+                "upcoming_bills", "upcoming_income", "internal_inflows", "observed_pending_bills",
+            )},
+            "spendable_balance": resp.get("spendable_balance"),
+            "next_payday": resp.get("next_payday"),
+            "period": resp.get("period"),
+        },
         "accounts": sorted(accounts, key=lambda a: a["id"]),
         "account_eligibility": elig,
         "account_plans": plans,
@@ -161,11 +202,12 @@ def _run_scenario(spec: dict, slug: str, monkeypatch) -> dict:
 
     async def go():
         client = make_guarded_client_class()(MONGO_URI, maxPoolSize=5, serverSelectionTimeoutMS=8000)
+        restore = _rebind_collections(client)
         try:
-            _rebind_collections(monkeypatch, client)
             await _seed(spec, uid)
             return await _compute(spec, uid)
         finally:
+            restore()
             client.close()
 
     return asyncio.run(go())
