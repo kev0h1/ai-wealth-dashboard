@@ -1,0 +1,171 @@
+{
+  "name": "Eve of payday, own-account standing orders funded by the salary (G359)",
+  "today": "2026-10-29",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 350.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 60.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 40.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-29",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 900.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER NATWEST STO",
+        "avg_amount": 500.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-nw",
+        "dest_account_name": "NatWest Current",
+        "dest_account_bank": "natwest",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "GYM MEMBERSHIP",
+        "avg_amount": 40.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-03",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 60.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "WATER BILL",
+        "avg_amount": 30.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-04",
+        "account_id": "acc-nw",
+        "account_name": "NatWest Current",
+        "account_bank": "natwest",
+        "account_balance": 40.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 28,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 300.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 200.0,
+        "after_payments": 1800.0,
+        "low_point": 200.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 20.0,
+        "after_payments": 920.0,
+        "low_point": 20.0,
+        "verdict": "covered"
+      },
+      "acc-nw": {
+        "spend_from": 10.0,
+        "after_payments": 510.0,
+        "low_point": 10.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Thu 29 Oct 2026, pay is the last Friday (30 Oct), so payday is tomorrow. Balances: Barclays 350 + HSBC 60 + NatWest 40 = 450 pooled. Left to spend counts only bills strictly before payday: Council tax 150 is due today (Barclays), nothing else is dated today, the two standing orders (900 and 500) and the salary are all dated 30 Oct and so fall in the next period, and a move between two pooled accounts removes neither leg anyway. 450 - 150 = 300, no buffer, no set-asides, no card. Per account walk (last-day lookahead covers 29 Oct to 4 Nov, credits before debits on a shared day). Barclays: 350 - 150 = 200 (today), 30 Oct: salary +3000 (two sightings, equal amounts, monthly rhythm, largest credit on the account, so steady and credited) = 3200, then -900 = 2300, -500 = 1800. After payments 1800, low point 200 (the lowest running balance, the opening 350 included). HSBC: 60, +900 mirrored from the standing order on 30 Oct = 960, gym 40 on 3 Nov = 920 after payments; low point ignores inflows (a later credit must not be assumed): 60 - 40 = 20. NatWest: 40 + 500 = 540, water 30 on 4 Nov = 510 after payments; low point 40 - 30 = 10. Spend from is the smaller of after payments and low point (no plans): 200, 20, 10, each below the pooled 300 so the pool cap does not bind. Nobody goes below zero so no cover move and the cover total is 0. Pay period 26 Sep to 29 Oct is on its 35th day so there is no payday plan yet. At risk count 0: nothing is short."
+  }
+}

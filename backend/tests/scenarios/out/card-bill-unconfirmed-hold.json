@@ -1,0 +1,141 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "account_headroom_raw": 1350.0,
+      "after_payments": 1350.0,
+      "after_payments_and_plans": 1350.0,
+      "estimated": false,
+      "headroom": 1340.0,
+      "low_point": 1350.0,
+      "low_point_and_plans": 1350.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": true,
+      "spend_from_headroom": 430.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": -920.0,
+      "currency": "GBP",
+      "id": "acc-amex",
+      "include_in_safe_to_spend": true,
+      "name": "Amex Gold Card",
+      "provider": "amex",
+      "status": "connected",
+      "subtype": "CREDIT_CARD",
+      "type": "CREDIT"
+    },
+    {
+      "balance": 1500.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-10-30",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 18,
+      "end": "2026-10-29",
+      "label": "25 Sep to 29 Oct",
+      "length_days": 35,
+      "payday": "2026-10-30",
+      "payday_observed": null,
+      "start": "2026-09-25",
+      "type": "last_friday"
+    },
+    "spendable_balance": 1500.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 150.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 8,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "COUNCIL TAX",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 18,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-10-30",
+        "name": "acme|payroll::acc-bc",
+        "occurrences": 3,
+        "rule_label": null,
+        "steady_salary": true
+      }
+    ]
+  },
+  "days_to_payday": 18,
+  "items": [
+    {
+      "id": "trajectory:bad:2026-10",
+      "type": "trajectory"
+    },
+    {
+      "id": "ask:card_terms",
+      "type": "ask"
+    }
+  ],
+  "name": "Unconfirmed card bill hold: card growth with no learned repayment is reserved (fail closed)",
+  "period": {
+    "end": "2026-10-29",
+    "start": "2026-09-25"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "card_growth_reserved": 920.0,
+    "commitments_reserved": 0,
+    "safe_to_spend": 430.0,
+    "safe_to_spend_cash": 1350.0
+  },
+  "today": "2026-10-12"
+}

@@ -1,0 +1,136 @@
+{
+  "name": "Learned card repayment releases the hold: the repayment is a cash payment instead of a reserve",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex",
+      "name": "Amex Gold Card",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -920.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "AMEX PAYMENT",
+        "avg_amount": 400.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-24",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Debt",
+        "card_dest_account_id": "acc-amex",
+        "card_dest_account_name": "Amex Gold Card",
+        "card_dest_account_bank": "amex"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-02",
+      "amount": 500.0,
+      "transaction_type": "debit",
+      "description": "ELECTRONICS RETAILER",
+      "merchant_name": "ELECTRONICS RETAILER",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-05",
+      "amount": 300.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-09",
+      "amount": 120.0,
+      "transaction_type": "debit",
+      "description": "RESTAURANT",
+      "merchant_name": "RESTAURANT",
+      "category": "Eating Out"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 950.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 950.0,
+        "after_payments": 950.0,
+        "low_point": 950.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Mon 12 Oct 2026, pay is the last Friday (30 Oct), so the window is 12 Oct to 29 Oct. Barclays holds 1,500; the Amex card (balance -920) is not spendable cash. Card purchases this period (since 25 Sep): 500 + 300 + 120 = 920 on the card with nothing paid in, so card growth is 920. The only bill in the window is council tax 150 on 20 Oct. This time a monthly repayment of 400 to the card has been learned (24 Oct is a Saturday, so it shows on Mon 26 Oct, inside the window). A learned repayment means the card is being paid on a schedule, so the 920 growth is NOT reserved; the repayment itself is a payment out of Barclays instead. Cash walk: 1,500 - 150 council tax (20 Oct) = 1,350, then - 400 repayment (26 Oct) = 950, lowest point 950. Left to spend 950 with no reserve. Barclays: after payments 950, low point 950, Spend from 950, equal to the pool so it is not capped. The repayment is covered (balance 1,350 before it), so no cover move and at risk 0. Period day 18, so no payday plan."
+  }
+}

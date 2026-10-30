@@ -1,0 +1,113 @@
+{
+  "name": "Freshly reconnected account, one salary sighting: not credited, the mortgage is covered by a move (G359)",
+  "today": "2026-10-29",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 200.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-st",
+      "name": "Starling Personal",
+      "provider": "starling",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1100.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 200.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 28,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 200.0,
+        "category": "Income",
+        "occurrences": 1,
+        "amounts_recent": [
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 2200.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 0.0,
+        "after_payments": -900.0,
+        "low_point": -900.0,
+        "verdict": "short"
+      },
+      "acc-st": {
+        "spend_from": 1090.0,
+        "after_payments": 2000.0,
+        "low_point": 2000.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 910.0,
+      "moves": [
+        {
+          "from": "acc-st",
+          "to": "acc-bc",
+          "amount": 910.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Today is Thu 29 Oct 2026 and pay is the last Friday (30 Oct), so payday is tomorrow. The account was reconnected recently, so there is no confirmed salary stream. Balances: Barclays 200 + Starling 2,000 = 2,200 pooled. Left to spend counts only bills strictly before payday and the only bill, the mortgage of 1,100, is dated 30 Oct (the next period), so nothing comes off: Left to spend is 2,200 in both variants. Per account, with the last-day lookahead (29 Oct to 4 Nov): Starling has no bills, so after payments and low point are both its balance, 2,000. The salary has a single sighting. A steady salary needs two, a reliable one three, and nothing is confirmed, so it is NOT credited to Barclays. Barclays walk: 200 - 1,100 mortgage on 30 Oct = -900: after payments -900 and low point -900, so the verdict is short. At risk count is 1 (the mortgage is a commitment and cannot be covered). The cover plan sizes the move as the shortfall 900 rounded up to the next 5 (900) plus 10 = 910, taken from Starling, which can spare it (2,000 low point, keeping at least 10). Spend from: Barclays is -900, shown as 0 (floored); Starling is 2,000 less the 910 its own live move card reserves = 1,090, under the pool of 2,200. The period is on day 35, so no payday plan."
+  }
+}

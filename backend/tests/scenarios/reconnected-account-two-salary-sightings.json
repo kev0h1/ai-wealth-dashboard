@@ -1,0 +1,117 @@
+{
+  "name": "Freshly reconnected account, no confirmed salary, two salary sightings: the steady rule credits it (G359)",
+  "today": "2026-10-29",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 200.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-st",
+      "name": "Starling Personal",
+      "provider": "starling",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1100.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 200.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 28,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 200.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-28",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 2200.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 200.0,
+        "after_payments": 2100.0,
+        "low_point": 200.0,
+        "verdict": "covered"
+      },
+      "acc-st": {
+        "spend_from": 2000.0,
+        "after_payments": 2000.0,
+        "low_point": 2000.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Thu 29 Oct 2026 and pay is the last Friday (30 Oct), so payday is tomorrow. The account was reconnected recently, so there is no confirmed salary stream. Balances: Barclays 200 + Starling 2,000 = 2,200 pooled. Left to spend counts only bills strictly before payday and the only bill, the mortgage of 1,100, is dated 30 Oct (the next period), so nothing comes off: Left to spend is 2,200 in both variants. Per account, with the last-day lookahead (29 Oct to 4 Nov): Starling has no bills, so after payments and low point are both its balance, 2,000. The salary has two sightings (28 Aug and 25 Sep, 28 days apart, equal amounts), which matches a monthly rhythm within the tolerance and is the largest regular credit on Barclays and due before the next payday, so it is a steady salary and is credited to Barclays on 30 Oct. Barclays walk: 200, then on 30 Oct credits before debits: +3,000 = 3,200, mortgage -1,100 = 2,100. After payments 2,100, low point 200 (the opening balance is the lowest). Spend from is the smaller of 2,100 and 200 = 200; Starling 2,000 is below the pool of 2,200. Nobody is short, so no cover move and at risk 0. The period is on day 35, so no payday plan."
+  }
+}
