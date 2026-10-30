@@ -4215,7 +4215,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # Matched on amount band and account, never series key (G157: a payroll
     # reference change forks the key), mirroring `_income_credit_landed`.
     income_observed: list[dict] = []
-    if uid:
+
+    async def _load_income_observed() -> None:
         _inc_since = today - timedelta(days=OBSERVATION_LOOKBACK_DAYS + 1)
 
         async def _load_recent_income_credits(_col):
@@ -4759,9 +4760,11 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     raw_income = []
     raw_observed_income: list = []
-    # Process occurrences chronologically across patterns so the earliest
-    # occurrence claims a credit first.
-    for r in income_patterns:
+    # Collect every in-window occurrence first, then let the EARLIEST claim a
+    # landed credit (stable on pattern order), whatever order the cache lists
+    # the patterns in.
+    _income_occs: list[tuple] = []
+    for _pi, r in enumerate(income_patterns):
         for occ in _occurrences(r):
             occ_date_str = occ.date().isoformat()
             final_date, final_amount, edited, skipped = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
@@ -4773,28 +4776,35 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             if final_date_obj < today.date():
                 continue
-            _inc_item_closed = bool(uid) and _match_income_landed(r.get("account_id"), final_amount, final_date_obj)
-            (raw_observed_income if _inc_item_closed else raw_income).append({
-                "name":          r["key"],
-                "display_name":  r.get("display_name"),
-                # G174: carried from `_serialise_pattern` so `income_credit_ok`
-                # can see it on the built `upcoming_income`/`payday_income`
-                # item, not just the internal `recurring_income` list.
-                "confirmed_alias": r.get("confirmed_alias"),
-                "amount":        final_amount,
-                "expected_date": final_date,
-                "days_away":     days_away,
-                "category":      r.get("category"),
-                "edited":        edited,
-                "rule_label":    rules.get(r["key"], {}).get("label"),
-                "account_id":      r.get("account_id"),
-                "account_name":    display_account_name(r.get("account_name")) if r.get("account_name") else r.get("account_name"),
-                "account_bank":    _bank_label(r.get("account_bank")),
-                "account_balance": r.get("account_balance"),
-                "occurrences":     r.get("occurrences"),
-                "amounts_recent":  r.get("amounts_recent"),
-                "avg_interval":    r.get("avg_interval"),
-            })
+            _income_occs.append((final_date_obj, _pi, r, final_date, final_amount, edited, days_away))
+    _lo_gate = today_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+    _hi_gate = today_d + timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+    if uid and any(_lo_gate <= o[0] <= _hi_gate for o in _income_occs):
+        await _load_income_observed()
+    _income_occs.sort(key=lambda o: (o[0], o[1]))
+    for final_date_obj, _pi, r, final_date, final_amount, edited, days_away in _income_occs:
+        _inc_item_closed = bool(income_observed) and _match_income_landed(r.get("account_id"), final_amount, final_date_obj)
+        (raw_observed_income if _inc_item_closed else raw_income).append({
+            "name":          r["key"],
+            "display_name":  r.get("display_name"),
+            # G174: carried from `_serialise_pattern` so `income_credit_ok`
+            # can see it on the built `upcoming_income`/`payday_income`
+            # item, not just the internal `recurring_income` list.
+            "confirmed_alias": r.get("confirmed_alias"),
+            "amount":        final_amount,
+            "expected_date": final_date,
+            "days_away":     days_away,
+            "category":      r.get("category"),
+            "edited":        edited,
+            "rule_label":    rules.get(r["key"], {}).get("label"),
+            "account_id":      r.get("account_id"),
+            "account_name":    display_account_name(r.get("account_name")) if r.get("account_name") else r.get("account_name"),
+            "account_bank":    _bank_label(r.get("account_bank")),
+            "account_balance": r.get("account_balance"),
+            "occurrences":     r.get("occurrences"),
+            "amounts_recent":  r.get("amounts_recent"),
+            "avg_interval":    r.get("avg_interval"),
+        })
     upcoming_income = sorted(raw_income, key=lambda x: x["days_away"])
     observed_income = sorted(raw_observed_income, key=lambda x: x["days_away"])
     # G359: stamp `steady_salary` / `credit_basis` so every per-account walk

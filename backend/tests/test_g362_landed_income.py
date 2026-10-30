@@ -226,3 +226,93 @@ def test_companion_walk_does_not_credit_the_landed_salary(monkeypatch):
     sal.update(days_away=0, expected_date=g359.TODAY.isoformat(), amount=SALARY)
     g359._run(monkeypatch, bills, [sal], accounts=accounts, eligibility=elig_open)
     assert elig_open[g359.BC]["after_payments"] > expected + 1000
+
+
+# ── review fixes ────────────────────────────────────────────────────────────
+
+class CountingCol(FakeCol):
+    def __init__(self, docs=None):
+        super().__init__(docs)
+        self.find_calls = 0
+
+    def find(self, query=None, projection=None):
+        self.find_calls += 1
+        return super().find(query, projection)
+
+
+def test_earliest_occurrence_claims_the_credit_whatever_the_cache_order(monkeypatch):
+    b = _income_pattern(TODAY + timedelta(days=3), key="b::pay")
+    a = _income_pattern(TODAY, key="a::pay")
+    resp = _build(monkeypatch, _cached([b, a]), credits=[_credit(TODAY, SALARY)])
+    assert [(i["name"], i["days_away"]) for i in resp["observed_income"]] == [("a::pay", 0)]
+    assert ("b::pay", 3) in [(i["name"], i["days_away"]) for i in resp["upcoming_income"]]
+
+
+def test_early_pay_due_tomorrow_closes_on_todays_credit(monkeypatch):
+    resp = _build(
+        monkeypatch, _cached([_income_pattern(TODAY + timedelta(days=1))]),
+        credits=[_credit(TODAY, SALARY)],
+    )
+    assert not any(i["days_away"] == 1 for i in resp["upcoming_income"])
+    assert [i["days_away"] for i in resp["observed_income"]] == [1]
+
+
+def test_credit_older_than_the_lookback_stays_open(monkeypatch):
+    resp = _build(
+        monkeypatch, _cached([_income_pattern(TODAY)]),
+        credits=[_credit(TODAY - timedelta(days=analytics.OBSERVATION_LOOKBACK_DAYS + 1), SALARY)],
+    )
+    assert any(i["days_away"] == 0 for i in resp["upcoming_income"])
+    assert resp["observed_income"] == []
+
+
+def test_credit_queries_only_run_when_an_occurrence_is_near(monkeypatch):
+    def run(patterns):
+        t, y = CountingCol([_credit(TODAY, SALARY)]), CountingCol([])
+        _build(monkeypatch, _cached([]), credits=[])  # installs the other fakes
+        monkeypatch.setattr(analytics, "transactions_col", t)
+        monkeypatch.setattr(analytics, "yapily_transactions_col", y)
+        asyncio.run(analytics._build_cashflow_response(_cached(patterns), uid=UID))
+        return t.find_calls, y.find_calls
+
+    # The debit observation index always reads each collection once.
+    base = run([])
+    assert run([_income_pattern(TODAY + timedelta(days=20))]) == base
+    near = run([_income_pattern(TODAY)])
+    assert near == (base[0] + 1, base[1] + 1)
+
+
+def test_observed_income_for_an_excluded_account_is_dropped():
+    from app.services.counted_accounts import drop_excluded_items
+
+    resp = {"observed_income": [{"account_id": OTHER_ACC}, {"account_id": SAL_ACC}]}
+    drop_excluded_items(resp, {OTHER_ACC})
+    assert [i["account_id"] for i in resp["observed_income"]] == [SAL_ACC]
+
+
+def test_penny_upcoming_bills_exposes_observed_income_and_walks_never_read_it(monkeypatch):
+    import inspect
+    import app.services.penny_tools as pt
+
+    async def cache(uid):
+        return {"x": 1}
+
+    async def resp(cached, uid=None):
+        return {
+            "upcoming_bills": [], "upcoming_income": [],
+            "observed_income": [{"name": "gs::pay", "display_name": "Goldman Sachs",
+                                 "amount": SALARY, "expected_date": TODAY.isoformat()}],
+        }
+
+    monkeypatch.setattr(pt, "_load_cashflow_cache", cache)
+    monkeypatch.setattr(pt, "_build_cashflow_response", resp)
+    out = asyncio.run(pt._exec_get_upcoming_bills(UID))
+    assert out["observed_income"][0]["display_name"] == "Goldman Sachs"
+    assert out["observed_income"][0]["expected_date"] == TODAY.isoformat()
+
+    import app.services.companion as companion
+    import app.services.spend_impact as spend_impact
+    for mod in (companion, spend_impact):
+        assert "observed_income" not in inspect.getsource(mod)
+    src = inspect.getsource(analytics.compute_safe_to_spend) + inspect.getsource(analytics.at_risk_count)
+    assert "observed_income" not in src
