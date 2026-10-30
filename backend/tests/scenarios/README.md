@@ -56,6 +56,14 @@ which before touching either.
 }
 ```
 
+`expected.frontend_known_gaps` (optional): `{"<frontend check name>": "<reason>"}` for a
+divergence that is a tracked defect. The frontend gate prints the reason on every
+run and skips that check for that scenario only; delete the entry when the defect
+is fixed. Check names are the strings passed to `check(...)` in
+`frontend/scripts/scenarios.test.mjs`. Currently used by
+`reconnected-account-one-salary-sighting` (the client walk credits an income the
+server refuses to credit).
+
 `spend_from` is the figure Home shows (`spend_from_headroom` after the pool
 cap, as the router applies it); `available` is accepted as an alias for older
 wording. `verdict` is "short" exactly when `after_payments < 0` or
@@ -68,6 +76,16 @@ eligibility, accounts, plans) to `out/<slug>.json` and asserts it equals the
 committed file. The frontend gate reads these files. When a code change moves
 a figure on purpose, regenerate with `SCENARIO_WRITE=1` and review the diff:
 a changed figure must be explained by the change, never accepted blindly.
+
+## What is real and what is not
+
+The harness opens its own client on the disposable `wealth_test_*` database,
+rebinds every collection handle for the run and restores it afterwards. Nothing
+the builders read is faked. Only "today" (`timeutil.user_now` / `user_today`) is
+patched. `compute_safe_to_spend`'s wall-clock "last 90 days" read (the tight
+threshold) is not frozen, so the `state` word is deliberately left out of the
+snapshot; every figure is unaffected. Not driven: `spend_impact` (it needs a
+verdict context), Penny and any LLM call.
 
 ## Invariants asserted for every scenario
 

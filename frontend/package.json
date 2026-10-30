@@ -122,6 +122,7 @@
     "check:g233-offline-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g233-offline-account.test.mjs",
     "check:g282-account-names": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g282-account-names.test.mjs",
     "check:g221-home-cleanup": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g221-home-cleanup.test.mjs",
+    "check:scenarios": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/scenarios.test.mjs",
     "check:g238-account-position": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g238-account-position.test.mjs",
     "check:g235-plan-overlap": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g235-plan-overlap.test.mjs",
     "check:g256-plan-fill": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g256-plan-fill.test.mjs",
