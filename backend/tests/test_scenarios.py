@@ -72,19 +72,13 @@ def _rebind_collections(client):
     original_db = dbc.db
     new_db = client[MONGO_DB]
     new_cols = {name: new_db[name] for name in originals}
-    patched: list[tuple[object, str, object]] = []
 
     def swap(find, make):
         for mod in _app_modules():
             for attr, value in list(vars(mod).items()):
                 new = make(value) if find(value) else None
                 if new is not None:
-                    patched.append((mod, attr, value))
                     setattr(mod, attr, new)
-
-    swap(lambda v: isinstance(v, AsyncIOMotorCollection) and v.database.name == MONGO_DB and v.name in new_cols,
-         lambda v: new_cols[v.name])
-    swap(lambda v: v is original_db, lambda v: new_db)
 
     def restore():
         for mod in _app_modules():
@@ -93,6 +87,69 @@ def _rebind_collections(client):
                     setattr(mod, attr, originals[value.name])
                 elif value is new_db:
                     setattr(mod, attr, original_db)
+
+    try:
+        swap(lambda v: isinstance(v, AsyncIOMotorCollection) and v.database.name == MONGO_DB and v.name in new_cols,
+             lambda v: new_cols[v.name])
+        swap(lambda v: v is original_db, lambda v: new_db)
+    except BaseException:
+        restore()  # a mid-swap failure must not leave closed-client handles behind
+        raise
+    return restore
+
+
+def _freeze_clock(fixed_now: datetime):
+    """Replace `datetime` and `date` in every app module with subclasses whose
+    now()/utcnow()/today() return the scenario's day at 09:00 London, so the
+    90-day wall-clock reads in analytics, companion and friends cannot make a
+    snapshot drift. isinstance() still accepts real datetimes (metaclass).
+    Returns a restore callable."""
+    real_dt, real_date = datetime, date
+
+    class _DTMeta(type):
+        def __instancecheck__(cls, obj):
+            return isinstance(obj, real_dt)
+
+    class _DateMeta(type):
+        def __instancecheck__(cls, obj):
+            return isinstance(obj, real_date)
+
+    class FrozenDatetime(real_dt, metaclass=_DTMeta):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+        @classmethod
+        def utcnow(cls):
+            return fixed_now.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+        @classmethod
+        def today(cls):
+            return fixed_now.replace(tzinfo=None)
+
+    class FrozenDate(real_date, metaclass=_DateMeta):
+        @classmethod
+        def today(cls):
+            return fixed_now.date()
+
+    patched: list[tuple[object, str, object]] = []
+    try:
+        for mod in _app_modules():
+            for attr, value in list(vars(mod).items()):
+                if value is real_dt:
+                    patched.append((mod, attr, value))
+                    setattr(mod, attr, FrozenDatetime)
+                elif value is real_date:
+                    patched.append((mod, attr, value))
+                    setattr(mod, attr, FrozenDate)
+    except BaseException:
+        for mod, attr, value in reversed(patched):
+            setattr(mod, attr, value)
+        raise
+
+    def restore():
+        for mod, attr, value in reversed(patched):
+            setattr(mod, attr, value)
 
     return restore
 
@@ -191,22 +248,24 @@ async def _compute(spec: dict, uid: str) -> dict:
     }
 
 
-def _run_scenario(spec: dict, slug: str, monkeypatch) -> dict:
+def _run_scenario(spec: dict, slug: str, monkeypatch, fixed_hour: int = 9) -> dict:
     from app.core.config import MONGO_URI
 
     uid = _uid(slug)
     today_d = date.fromisoformat(spec["today"])
-    fixed_now = datetime(today_d.year, today_d.month, today_d.day, 9, 0, tzinfo=LONDON)
+    fixed_now = datetime(today_d.year, today_d.month, today_d.day, fixed_hour, 0, tzinfo=LONDON)
     monkeypatch.setattr(timeutil, "user_now", lambda: fixed_now)
     monkeypatch.setattr(timeutil, "user_today", lambda: today_d)
 
     async def go():
         client = make_guarded_client_class()(MONGO_URI, maxPoolSize=5, serverSelectionTimeoutMS=8000)
         restore = _rebind_collections(client)
+        unfreeze = _freeze_clock(fixed_now)
         try:
             await _seed(spec, uid)
             return await _compute(spec, uid)
         finally:
+            unfreeze()
             restore()
             client.close()
 
@@ -348,3 +407,27 @@ def test_every_scenario_has_expected_notes():
         assert len((spec["expected"].get("notes") or "").strip()) > 80, (
             f"{path.name}: expected.notes must show the hand computation"
         )
+
+
+def test_frozen_clock_is_what_every_module_sees(monkeypatch):
+    """The wall clock is frozen for the run: every app module that imported
+    `datetime` or `date` sees the scenario's day, whatever the real date is, and
+    the scenario's snapshot does not move with the time of day either."""
+    spec = json.loads((SCEN_DIR / "card-bill-unconfirmed-hold.json").read_text())
+    seen = []
+    import app.routers.analytics as analytics_mod
+    import app.services.companion as companion_mod
+
+    unfreeze = _freeze_clock(datetime(2026, 10, 12, 9, 0, tzinfo=LONDON))
+    try:
+        for mod in (analytics_mod, companion_mod):
+            day = getattr(mod, "date", None) or mod._date
+            seen.append((mod.datetime.now().date(), mod.datetime.utcnow().date(), day.today()))
+        assert isinstance(datetime(2026, 1, 1), analytics_mod.datetime)
+    finally:
+        unfreeze()
+    assert all(row == (date(2026, 10, 12),) * 3 for row in seen)
+    assert analytics_mod.datetime is datetime  # restored
+    early = _json_roundtrip(_run_scenario(spec, "clock-a", monkeypatch, fixed_hour=0))
+    late = _json_roundtrip(_run_scenario(spec, "clock-a", monkeypatch, fixed_hour=22))
+    assert early == late

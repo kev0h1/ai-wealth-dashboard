@@ -3,9 +3,10 @@
 One JSON file per scenario in this directory. Each is a synthetic situation,
 shaped like a real user's data but never copied from it, seeded into the
 disposable `wealth_test_*` database and run through the real functions (no
-fakes for the builders): `analytics._build_cashflow_response`,
+fakes for the builders): `analytics.get_cashflow` (which runs
+`_build_cashflow_response` plus the live-balance overlay and period facts),
 `analytics.compute_safe_to_spend`, `analytics.at_risk_count` and
-`companion.compute_today_items`. Only "today" is patched. The same computed
+`companion.compute_today_items`. Only the clock is patched: `timeutil` and the `datetime`/`date` names in every app module are frozen to the scenario day (09:00 London) for the run. The same computed
 snapshot is then replayed by the frontend (`npm run check:scenarios`), so the
 client walks must agree with the server for every account.
 
@@ -56,11 +57,13 @@ which before touching either.
 }
 ```
 
-`expected.frontend_known_gaps` (optional): `{"<frontend check name>": "<reason>"}` for a
+`expected.frontend_known_gaps` (optional): `{"<assertion key>": "<reason>"}` for a
 divergence that is a tracked defect. The frontend gate prints the reason on every
 run and skips that check for that scenario only; delete the entry when the defect
-is fixed. Check names are the strings passed to `check(...)` in
-`frontend/scripts/scenarios.test.mjs`. Currently used by
+is fixed. Assertion keys are of the form `<check name>: <account id>` (for example
+`walk agrees with server positions: acc-bc`), as passed to `assertKey(...)` in
+`frontend/scripts/scenarios.test.mjs`. A gap whose assertion now passes FAILS the
+run (stale gap). Currently used by
 `reconnected-account-one-salary-sighting` (the client walk credits an income the
 server refuses to credit).
 
@@ -81,10 +84,8 @@ a changed figure must be explained by the change, never accepted blindly.
 
 The harness opens its own client on the disposable `wealth_test_*` database,
 rebinds every collection handle for the run and restores it afterwards. Nothing
-the builders read is faked. Only "today" (`timeutil.user_now` / `user_today`) is
-patched. `compute_safe_to_spend`'s wall-clock "last 90 days" read (the tight
-threshold) is not frozen, so the `state` word is deliberately left out of the
-snapshot; every figure is unaffected. Not driven: `spend_impact` (it needs a
+the builders read is faked. The clock is frozen, including the 90-day wall-clock reads, so snapshots do not
+drift with the real date. The `state` word is still left out of the snapshot. Not driven: `spend_impact` (it needs a
 verdict context), Penny and any LLM call.
 
 ## Invariants asserted for every scenario
