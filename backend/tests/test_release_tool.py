@@ -335,6 +335,22 @@ def test_verdict_env_drift_missing():
     assert "BOT_SECRET" in item.message
 
 
+def test_verdict_scenario_suite_is_red_on_any_failure_and_green_only_when_both_pass():
+    assert release.verdict_scenario_suite(True, "ok", True, "ok").verdict == "green"
+    backend_red = release.verdict_scenario_suite(False, "1 failed", False, "")
+    assert backend_red.verdict == "red" and "backend scenarios failed" in backend_red.message
+    frontend_red = release.verdict_scenario_suite(True, "ok", False, "AssertionError")
+    assert frontend_red.verdict == "red" and "frontend scenarios failed" in frontend_red.message
+    assert release.has_red([backend_red])
+
+
+def test_scenario_db_name_has_the_disposable_test_shape():
+    import re
+    name = release._scenario_test_db_name()
+    assert re.fullmatch(r"wealth_test_\d+_[0-9a-f]{8}", name)
+    assert name != release._scenario_test_db_name()
+
+
 def test_verdict_backlog_skip_is_always_skip():
     assert release.verdict_backlog_skip().verdict == "skip"
 
