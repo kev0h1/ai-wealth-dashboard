@@ -66,7 +66,7 @@ def drop_excluded_items(resp: dict, excluded: set[str]) -> None:
     """
     if not excluded:
         return
-    for key in ("upcoming_bills", "upcoming_income", "observed_pending_bills"):
+    for key in ("upcoming_bills", "upcoming_income", "observed_pending_bills", "observed_income"):
         items = resp.get(key)
         if items:
             resp[key] = [i for i in items if str(i.get("account_id") or "") not in excluded]

@@ -4209,6 +4209,45 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         except Exception:
             pass
 
+    # G362: income credits that already landed, so an income occurrence whose
+    # money is already in the live balance is closed (display-only
+    # `observed_income`) instead of being credited a second time by every walk.
+    # Matched on amount band and account, never series key (G157: a payroll
+    # reference change forks the key), mirroring `_income_credit_landed`.
+    income_observed: list[dict] = []
+    if uid:
+        _inc_since = today - timedelta(days=OBSERVATION_LOOKBACK_DAYS + 1)
+
+        async def _load_recent_income_credits(_col):
+            rows = []
+            try:
+                async for _t in _col.find(
+                    {"user_id": uid, "date": {"$gte": _inc_since}, "transaction_type": "credit"},
+                    {"amount": 1, "date": 1, "category": 1, "custom_category": 1, "account_id": 1},
+                ):
+                    rows.append(_t)
+            except Exception:
+                return []
+            return rows
+
+        _inc_batches = await asyncio.gather(*(
+            _load_recent_income_credits(_col)
+            for _col in [transactions_col, yapily_transactions_col]
+        ))
+        for _batch in _inc_batches:
+            for _t in _batch:
+                if (_t.get("custom_category") or _t.get("category") or "Other") != "Income":
+                    continue
+                _raw_d = _t.get("date")
+                _d_obj = _raw_d.date() if hasattr(_raw_d, "date") else _raw_d
+                income_observed.append({
+                    "date": _d_obj,
+                    "amount": abs(float(_t.get("amount", 0))),
+                    "account_id": str(_t.get("account_id") or ""),
+                    "used": False,
+                })
+        income_observed.sort(key=lambda c: c["date"])
+
     # Load overrides for this user (empty list if no uid provided)
     overrides: list[dict] = []
     if uid:
@@ -4271,6 +4310,25 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             if abs(tx["amount"] - abs(expected_amount)) > tol:
                 continue
             tx["used"] = True   # one pending debit closes at most one occurrence
+            return True
+        return False
+
+    def _match_income_landed(account_id, expected_amount, expected_d):
+        """G362: has a credit already landed for this income occurrence? Same
+        tolerance and one-credit-closes-one-occurrence rule as
+        `_match_observed`, matched on amount and account, not series key."""
+        tol = max(2.0, abs(expected_amount) * 0.15)
+        lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+        for c in income_observed:
+            if c["used"]:
+                continue
+            if not (lo <= c["date"] <= today_d):
+                continue
+            if account_id and c["account_id"] and c["account_id"] != str(account_id):
+                continue
+            if abs(c["amount"] - abs(expected_amount)) > tol:
+                continue
+            c["used"] = True
             return True
         return False
 
@@ -4700,6 +4758,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     observed_pending_bills = sorted(raw_observed_pending_bills, key=lambda x: (x["days_away"], -x["amount"]))
 
     raw_income = []
+    raw_observed_income: list = []
+    # Process occurrences chronologically across patterns so the earliest
+    # occurrence claims a credit first.
     for r in income_patterns:
         for occ in _occurrences(r):
             occ_date_str = occ.date().isoformat()
@@ -4712,7 +4773,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             if final_date_obj < today.date():
                 continue
-            raw_income.append({
+            _inc_item_closed = bool(uid) and _match_income_landed(r.get("account_id"), final_amount, final_date_obj)
+            (raw_observed_income if _inc_item_closed else raw_income).append({
                 "name":          r["key"],
                 "display_name":  r.get("display_name"),
                 # G174: carried from `_serialise_pattern` so `income_credit_ok`
@@ -4734,6 +4796,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "avg_interval":    r.get("avg_interval"),
             })
     upcoming_income = sorted(raw_income, key=lambda x: x["days_away"])
+    observed_income = sorted(raw_observed_income, key=lambda x: x["days_away"])
     # G359: stamp `steady_salary` / `credit_basis` so every per-account walk
     # (`income_credit_ok`) sees the same answer.
     stamp_credit_basis(upcoming_income, _steady_pay_cfg, _steady_confirmed_keys, today_d)
@@ -4776,6 +4839,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # that consumes it); consumers wanting to show "left earlier today,
         # still settling" copy read this list separately.
         "observed_pending_bills": observed_pending_bills,
+        # G362: income occurrences whose credit has already landed (the live
+        # balance contains it). DISPLAY ONLY, never read by any walk.
+        "observed_income":   observed_income,
         "avg_daily_spend":   round(avg_daily, 2),
         "available_balance": cached.get("available_balance", 0),
         # Spendable-cash pool, parity with the Home Safe-to-Spend hero. May be
