@@ -35,6 +35,9 @@ class Account(BaseModel):
     # not record them.
     transactions_synced_at: Optional[str] = None
     transactions_last_count: Optional[int] = None
+    # A176: when the bank's own data was last refreshed (Finexer's sync object
+    # synced_to, ISO UTC). Null where Finexer has not reported one.
+    bank_synced_to: Optional[str] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.

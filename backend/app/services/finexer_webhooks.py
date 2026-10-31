@@ -437,3 +437,97 @@ async def webhook_health(now: Optional[datetime] = None) -> dict:
         "history_syncs_today": int(today.get("history_syncs", 0)),
         "history_syncs_yesterday": int(yesterday.get("history_syncs", 0)),
     }
+
+
+# ── A176: bank sync freshness for /ops/health ─────────────────────────────
+BANK_DATA_STALE_HOURS = 12
+
+
+_SYNC_HEALTH_TTL_S = 60.0
+_sync_health_cache: dict = {"at": None, "payload": None}
+
+
+async def sync_health(now: Optional[datetime] = None) -> dict:
+    """Cached in-process for 60 seconds (the page polls /ops/health) unless a
+    `now` is passed explicitly, which always computes fresh.
+
+    Per authorised consent, when the bank's own data was last refreshed
+    (the newest bank_synced_to across its accounts), how many accounts saw a
+    bank sync 429 or error in the last 24 hours (latest event per account,
+    which is what the account doc keeps), and an alert flag when the newest
+    bank data on any authorised consent is older than BANK_DATA_STALE_HOURS.
+    No ids are returned. A consent with no bank_synced_to yet is counted in
+    `consents_without_bank_data` and does not raise the alert on its own."""
+    import time as _time
+
+    if now is None:
+        at = _sync_health_cache["at"]
+        if at is not None and _time.monotonic() - at < _SYNC_HEALTH_TTL_S and _sync_health_cache["payload"] is not None:
+            return _sync_health_cache["payload"]
+        payload = await _compute_sync_health(datetime.utcnow())  # naive-ok: compared with Mongo's naive UTC datetimes
+        _sync_health_cache.update({"at": _time.monotonic(), "payload": payload})
+        return payload
+    return await _compute_sync_health(now)
+
+
+async def _compute_sync_health(now: datetime) -> dict:
+    from app.db.collections import accounts_col, finexer_consents_col
+
+    day_ago = now - timedelta(hours=24)
+    stale_cut = now - timedelta(hours=BANK_DATA_STALE_HOURS)
+
+    consent_ids = [d["_id"] async for d in finexer_consents_col.find({"status": "authorized"}, {"_id": 1})]
+    newest: dict = {cid: None for cid in consent_ids}
+    n429 = 0
+    n_err = 0
+    if consent_ids:
+        async for a in accounts_col.find(
+            {"connection_id": {"$in": consent_ids}, "source": "finexer"},
+            {"connection_id": 1, "bank_synced_to": 1, "bank_sync_last_429_at": 1,
+             "bank_sync_error": 1, "bank_sync_error_at": 1},
+        ):
+            to = a.get("bank_synced_to")
+            cid = a.get("connection_id")
+            if isinstance(to, datetime) and cid in newest and (newest[cid] is None or to > newest[cid]):
+                newest[cid] = to
+            at429 = a.get("bank_sync_last_429_at")
+            if isinstance(at429, datetime) and at429 >= day_ago:
+                n429 += 1
+            err_at = a.get("bank_sync_error_at")
+            if (isinstance(err_at, datetime) and err_at >= day_ago
+                    and a.get("bank_sync_error") not in (None, "rate_limited")):
+                n_err += 1
+
+    known = [v for v in newest.values() if v is not None]
+    stale = [v for v in known if v < stale_cut]
+    consents = sorted(
+        (
+            {
+                "last_synced_to": v.isoformat() + "Z" if v else None,
+                "age_hours": round((now - v).total_seconds() / 3600, 1) if v else None,
+            }
+            for v in newest.values()
+        ),
+        key=lambda c: (c["last_synced_to"] is not None, c["last_synced_to"] or ""),
+    )[:50]
+    alert = bool(stale)
+    oldest = min(known) if known else None
+    if not known:
+        line = "bank data: no bank sync time reported yet"
+    else:
+        hrs = (now - max(known)).total_seconds() / 3600
+        line = f"bank data: newest {hrs:.1f} h old"
+    if alert:
+        line += f", {len(stale)} consent(s) older than {BANK_DATA_STALE_HOURS} h"
+    return {
+        "alert": alert,
+        "stale_hours": BANK_DATA_STALE_HOURS,
+        "authorized_consents": len(consent_ids),
+        "consents_without_bank_data": len(consent_ids) - len(known),
+        "consents_stale": len(stale),
+        "oldest_bank_data_at": (oldest.isoformat() + "Z") if oldest else None,
+        "sync_429s_24h": n429,
+        "sync_errors_24h": n_err,
+        "consents": consents,
+        "line": line,
+    }

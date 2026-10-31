@@ -8,7 +8,7 @@ import AccountCountRow from "../components/AccountCountRow.tsx";
 import AccountBankEmpty from "../components/AccountBankEmpty.tsx";
 import { COUNT_TOWARDS_LABEL } from "../components/CountTowardsSafeToSpendRow.tsx";
 import {
-  NO_BANK_TRANSACTIONS, SAVINGS_NOT_COUNTED, bankDataUpdatedLine, isSavingsAccount,
+  NO_BANK_TRANSACTIONS, SAVINGS_NOT_COUNTED, bankDataUpdatedLine, bankDataFromLine, bankDataTimeLine, isSavingsAccount,
 } from "../lib/accountSheetNotes.ts";
 
 const now = Date.parse("2026-10-29T12:00:00Z");
@@ -41,6 +41,17 @@ for (const account of [acct(), acct({ transactions_last_count: null }), acct({ t
 }
 assert.equal(bankDataUpdatedLine("not a date", now), undefined);
 assert.equal(bankDataUpdatedLine("2026-10-29T11:59:30Z", now), "Bank data updated just now");
+
+// A176: the bank's own time wins when present, else the A175 field.
+assert.equal(bankDataFromLine("2026-10-29T09:00:00Z", now), "Bank data from 3 hours ago");
+assert.equal(bankDataFromLine(null, now), undefined);
+assert.equal(bankDataTimeLine({ bank_synced_to: "2026-10-29T11:00:00Z", transactions_synced_at: "2026-10-29T10:00:00Z" }, now), "Bank data from 1 hour ago");
+assert.equal(bankDataTimeLine({ bank_synced_to: null, transactions_synced_at: "2026-10-29T10:00:00Z" }, now), "Bank data updated 2 hours ago");
+html = render(React.createElement(AccountBankEmpty, {
+  account: acct({ transactions_last_count: 0, bank_synced_to: "2026-10-29T11:30:00Z", transactions_synced_at: "2026-10-29T10:00:00Z" }), now,
+}));
+assert.match(html, /Bank data from 30 min ago/);
+assert.doesNotMatch(html, /Bank data updated/);
 
 // Savings: no switch, a plain line. Current: switch present.
 assert.equal(isSavingsAccount({ type: "bank", subtype: "SAVINGS" }), true);

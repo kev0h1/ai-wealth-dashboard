@@ -16,6 +16,7 @@ import hmac
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -254,7 +255,9 @@ async def _release_debounce(consent_id: str) -> None:
         logger.exception("Finexer webhook: could not release debounce key")
 
 
-async def _enqueue_sync_debounced(consent_id: str, user_id: str) -> bool:
+async def _enqueue_sync_debounced(
+    consent_id: str, user_id: str, event_kwargs: Optional[dict] = None,
+) -> bool:
     """Coalesce a burst for one consent into a single task_sync_finexer,
     deferred by the debounce window so the sync runs after the burst (trailing
     edge) and sees all of it. Returns True when a job was enqueued."""
@@ -267,7 +270,11 @@ async def _enqueue_sync_debounced(consent_id: str, user_id: str) -> bool:
             await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id,
                            _defer_by=timedelta(seconds=window))
         else:
-            await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id)
+            # A176: with no debounce window the event maps to exactly one job, so
+            # its id can narrow that account's walk. With a window a burst is
+            # coalesced into one job, which must walk everything.
+            await _enqueue("task_sync_finexer", consent_id=consent_id, user_id=user_id,
+                           **(event_kwargs or {}))
     except Exception:
         if window > 0:
             await _release_debounce(consent_id)
@@ -500,7 +507,10 @@ async def finexer_webhook(secret: str, request: Request):
         return {"ok": True}
 
     try:
-        enqueued = await _enqueue_sync_debounced(str(doc["_id"]), user_id)
+        event_kwargs = None
+        if event_id and account_id and str(event_type).strip().lower() == "bank_account.synced":
+            event_kwargs = {"event_id": event_id, "event_account_id": account_id}
+        enqueued = await _enqueue_sync_debounced(str(doc["_id"]), user_id, event_kwargs)
     except Exception:
         logger.exception("Finexer webhook: enqueue failed (type %s)", fxw.safe_type_for_log(event_type))
         # Release the event id so Finexer's retry is processed, not deduped.

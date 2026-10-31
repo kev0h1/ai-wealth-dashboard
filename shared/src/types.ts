@@ -35,6 +35,9 @@ export interface Account {
    *  null on older rows, offline accounts and statements. */
   transactions_synced_at?: string | null;
   transactions_last_count?: number | null;
+  /** A176: the bank's own as-of time for this account's data (Finexer's sync
+   *  object synced_to, ISO UTC). Absent or null where not reported. */
+  bank_synced_to?: string | null;
 }
 
 /** One live bank connection/consent, from GET /connections

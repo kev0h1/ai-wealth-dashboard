@@ -110,3 +110,45 @@ switch stays so it can be turned back on.
 4. Yes or no: can a client request a refresh for a consent?
 5. Yes or no: are pending transactions returned?
 6. Yes or no: is an extra consent scope needed for pots?
+
+## A176 assumptions to confirm against the Finexer dashboard reference
+
+The API reference is behind the dashboard login, and the discovery GET on
+`/bank_accounts/{id}/sync` with the key available on the UAT host returned 401,
+so none of these has been seen in a live response. Everything in A176 is built
+from Kevin's reading of the reference on 2026-10-31. Confirm each in one pass:
+
+1. Sync object field names (`status`, `synced_from`, `synced_to`,
+   `auto_sync_interval`) and the status values `idle` and `running`.
+2. Auto sync setter: sent as POST `/bank_accounts/{id}/sync` with the form field
+   `auto_sync_interval`. The real verb and body are unknown. The code reads the
+   response: an echoed `auto_sync_interval` records `bank_auto_sync_hours` (never
+   on a bare 2xx), and a sync object (`status` idle or running) means the POST
+   also triggered a sync, so the manual trigger is skipped for that account.
+3. Whether the setter POST counts towards the one-call-per-account-per-60-minutes
+   limit. The code assumes it may.
+4. A 429 on a POST means the hourly limit. The next request time comes from
+   `Retry-After`, or 60 minutes when absent.
+5. GET `/bank_accounts/{id}/sync` has no documented hourly limit. It is read once
+   per account after every sync, in every path, so `bank_synced_to` follows the
+   bank's own freshness.
+6. `status=pending` on the transactions endpoint returns only pending rows. Rows
+   with an explicit booked status are dropped, and more than 200 pending rows for
+   one account is treated as the filter being ignored.
+7. The transactions event filter parameter name (`event`) and the account id path
+   in the `bank_account.synced` payload (`data.object.id`). Off by default.
+8. Whether Finexer's own automatic syncs count against the PSD2 four-a-day
+   unattended limit (the default interval is 6 hours).
+9. The backfill script (`backend/scripts/finexer_backfill_auto_sync.py`): dry run,
+   then `--apply --limit 1`, and check the response before the rest.
+10. Whether the sync object is wrapped in a `data` envelope. The parser accepts
+    both shapes.
+11. That pending rows share the booked id shape (the same `id` field), so a
+    pending row and its settled twin can be told apart by id and the replace step
+    supersedes it cleanly.
+12. Whether "Bank data from {time}" should appear beyond the empty state of the
+    account sheet. It shows there only today; the account row header was left
+    alone as a design decision for Kevin.
+13. The 12-hour stale alert threshold on /ops/health, and whether paused or
+    free-tier (Statements) consents should be excluded from it. Today every
+    authorised consent counts.

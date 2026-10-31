@@ -299,7 +299,14 @@ async def ops_health(user: dict = Depends(current_user)):
         finexer_webhooks = await webhook_health()
     except Exception:
         finexer_webhooks = None
-    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks}
+    # A176: how fresh the bank's own data is, per consent. Same rule: a
+    # failure here never blanks the page.
+    try:
+        from app.services.finexer_webhooks import sync_health
+        finexer_sync = await sync_health()
+    except Exception:
+        finexer_sync = None
+    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks, "finexer_sync": finexer_sync}
 
 
 @router.get("/webhooks/recent")
