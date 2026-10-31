@@ -880,9 +880,12 @@ async def apply_decisions_for_user(uid: str) -> int:
             continue
         if key in corrected or _rule_matches(rules, g):
             continue
+        category = cat.automatic_category_for_direction(d["category"], "debit")
+        if category is None:
+            continue
         res = await transactions_col.update_many(
-            {"_id": {"$in": g["ids"]}, "custom_category": None, "category": {"$ne": d["category"]}},
-            {"$set": {"category": d["category"]}},
+            {"_id": {"$in": g["ids"]}, "custom_category": None, "category": {"$ne": category}},
+            {"$set": {"category": category}},
         )
         updated += res.modified_count
     return updated
@@ -992,6 +995,9 @@ async def run_vendor_ladder(
             if not ans:
                 continue
             category, reason = ans
+            category = cat.automatic_category_for_direction(category, "debit")
+            if category is None:
+                continue
             stats["decided_new"] += 1
             if not dry_run:
                 await _store_decision(uid, key, category, reason, allowed, v, now)
@@ -1004,6 +1010,10 @@ async def _apply(uid: str, key: str, g: dict, category: str, vendor: Optional[di
     """Write a decided category onto the merchant's open rows (never a corrected
     row: the filter re-checks custom_category at write time). 'Other' means the
     model had no opinion, so the keyword category stands."""
+    from app.services import categorisation as cat
+    category = cat.automatic_category_for_direction(category, "debit")
+    if category is None:
+        return
     current = g["cats"].most_common(1)[0][0]
     if len(stats["proposals"]) < 500:
         stats["proposals"].append({

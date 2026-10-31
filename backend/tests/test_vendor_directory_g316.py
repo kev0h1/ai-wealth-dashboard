@@ -143,6 +143,60 @@ def test_two_users_same_merchant_different_categories_never_leak(env):
     assert all("Golf," not in p.split("Their categories:")[1].split("\n")[0] for p in env.match_prompts[1:])
 
 
+def test_cached_income_decision_never_files_an_arbitrary_debit_as_income_or_proposes_it(env):
+    tid = env.add_txn(KEVIN, "ARBITRARY HARBOUR SERVICES", category="Other", merchant="Arbitrary Harbour Services")
+    key = cat.canonical_merchant_key("Arbitrary Harbour Services", "ARBITRARY HARBOUR SERVICES")
+    env.decisions.docs[vd.decision_id(KEVIN, key)] = {
+        "_id": vd.decision_id(KEVIN, key), "user_id": KEVIN, "merchant_key": key,
+        "category": "Income", "reason": "Incorrect old decision.",
+        "categories_hash": vd.categories_hash(cat.VALID_CATEGORIES + env.customs[KEVIN]),
+        "vendor_looked_up_at": None,
+    }
+
+    stats = run(vd.run_vendor_ladder(KEVIN, now=NOW))
+
+    assert env.cat_of(tid) == "Other"
+    assert stats["proposals"] == []
+    assert run(vd.apply_decisions_for_user(KEVIN)) == 0
+
+
+def test_fresh_income_answer_never_writes_a_decision_or_proposal_for_an_arbitrary_debit(env):
+    tid = env.add_txn(KEVIN, "ARBITRARY HARBOUR SERVICES", category="Other", merchant="Arbitrary Harbour Services")
+    key = cat.canonical_merchant_key("Arbitrary Harbour Services", "ARBITRARY HARBOUR SERVICES")
+    env.vendors.docs[key] = {
+        "_id": key, "merchant_key": key, "status": "found", "display_name": "Arbitrary Harbour Services",
+        "description": "A business providing harbour-side services.", "type_tags": ["services"],
+        "domain": None, "sources": [], "confidence": "high", "version": 1, "looked_up_at": NOW,
+    }
+
+    async def incorrectly_returns_income(*_args):
+        return {0: ("Income", "Incorrect direction.")}
+
+    stats = run(vd.run_vendor_ladder(KEVIN, now=NOW, match_fn=incorrectly_returns_income))
+
+    assert env.cat_of(tid) == "Other"
+    assert env.decisions.docs == {}
+    assert stats["proposals"] == []
+
+
+def test_vendor_ladder_still_applies_a_normal_category_and_never_touches_manual_choice(env):
+    automatic = env.add_txn(KEVIN, "ARBITRARY HARBOUR SERVICES", category="Other", merchant="Arbitrary Harbour Services")
+    # A manual correction fences only its own merchant. The ladder deliberately
+    # leaves every row with that key alone, so use a separate merchant to prove
+    # both the normal automatic path and the no-override guarantee.
+    manual = env.add_txn(KEVIN, "MANUAL RIVER SERVICES", category="Other", custom="Income", merchant="Manual River Services")
+
+    async def returns_golf(*_args):
+        return {0: ("Golf", "A golf venue.")}
+
+    stats = run(vd.run_vendor_ladder(KEVIN, now=NOW, match_fn=returns_golf))
+
+    assert env.cat_of(automatic) == "Golf"
+    assert env.txns.docs[manual]["category"] == "Other"
+    assert env.txns.docs[manual]["custom_category"] == "Income"
+    assert stats["proposals"][-1]["proposed_category"] == "Golf"
+
+
 def test_directory_document_refuses_a_category_or_user_field():
     with pytest.raises(ValueError):
         vd.assert_directory_doc({"_id": "x", "merchant_key": "x", "category": "Golf"})
