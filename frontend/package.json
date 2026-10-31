@@ -187,7 +187,8 @@
     "check:g330-zero-headroom": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g330-zero-headroom.test.mjs",
     "check:g324-home-declutter": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g324-home-declutter.test.mjs",
     "check:g351-scheduled-goal": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g351-scheduled-goal.test.mjs",
-    "check:g373-pending-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g373-pending-payments.test.mjs"
+    "check:g373-pending-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g373-pending-payments.test.mjs",
+    "check:g379-home-transfers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g379-home-transfers.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
