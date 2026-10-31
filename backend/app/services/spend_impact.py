@@ -317,52 +317,32 @@ async def _cashflow_window(uid: str) -> dict | None:
 
     Returns None when there's nothing to assess (no cashflow cache yet, or
     no bill this user's balance data can price)."""
-    from app.routers.analytics import _build_cashflow_response, income_credit_ok, is_assessable_bill
-    from app.services.income import get_confirmed_payday as _get_confirmed_payday
-    from app.services.pay_period import _next_payday as _calc_next_payday
+    from app.routers.analytics import _build_cashflow_response, income_credit_ok
+    from app.services.window_inputs import LoadedAccounts, build_window_inputs
 
     cached = await cashflow_cache_col.find_one({"_id": uid})
     if not cached:
         return None
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
-    confirmed_income_keys = {
-        s.get("key") for s in (prefs.get("income_streams") or [])
-        if isinstance(s, dict) and s.get("status") == "confirmed"
-    }
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
-    pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today_d = timeutil.user_today()
-    confirmed_result = _get_confirmed_payday(prefs, today_d)
-    next_pay = confirmed_result[0] if confirmed_result else _calc_next_payday(today_d, pay_cfg)
-    days_to_pay = (next_pay - today_d).days
-    # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
-    # decision — see app/services/pay_period.py's in_current_window
-    # docstring): a bill/income/inflow scheduled ON payday belongs to the
-    # NEXT pay period, not this bills-risk walk. No last-day lookahead
-    # (G360): the window is strictly before payday for every days_to_pay.
-    from app.services.pay_period import in_current_window as _in_window
-    window_bills = [b for b in resp["upcoming_bills"] if _in_window(b["days_away"], days_to_pay)]
-    window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], days_to_pay)]
-    window_inflows = [n for n in resp["internal_inflows"] if _in_window(n["days_away"], days_to_pay)]
+    # G364: the shared window-inputs builder (services/window_inputs.py).
+    # This caller's own settings: live balances from `_live_balances_map`
+    # (accounts collection only, user scoped, G231-excluded skipped, `balance`
+    # field only), read only once something is assessable; no re-stamp, no
+    # exclusion re-drop.
+    async def _load_balances(_assessable: list[dict]) -> LoadedAccounts:
+        return LoadedAccounts(live_balances=await _live_balances_map(uid))
 
-    # Same assessability filter as companion.py/analytics.py: no balance
-    # data, or a credit card (credit limit, not available balance), must
-    # never enter the walk. A genuinely overdrawn current account's own
-    # bills stay assessable — see `is_assessable_bill`'s docstring
-    # (2026-09-01 fix) and its sims-lockstep note.
-    assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
+    wi = await build_window_inputs(uid, resp, prefs, load_balances=_load_balances)
+    today_d = wi.today
+    window_income = wi.window_income
+    assessable_bills = wi.assessable_bills
     if not assessable_bills:
         return None
-
-    live_balances = await _live_balances_map(uid)
-
-    balances: dict[str, float] = {}
-    for b in assessable_bills:
-        acct = b["account_id"] or "__unknown__"
-        if acct not in balances:
-            balances[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
+    confirmed_income_keys = wi.confirmed_income_keys
+    balances: dict[str, float] = dict(wi.running_seed)
 
     events: list[tuple[int, str, float, bool, dict]] = []
     for b in assessable_bills:
@@ -385,11 +365,7 @@ async def _cashflow_window(uid: str) -> dict | None:
     #
     # G360: credited only when the inflow's SOURCE account is itself covered
     # that day (`funded_inflows`, the one rule shared by every walk).
-    from app.services.inflow_credit import funded_inflows
-    _funded = funded_inflows(
-        window_inflows, assessable_bills, window_income, {**live_balances, **balances},
-        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
-    )
+    _funded = wi.funded_window_inflows
     for n in _funded:
         acct = str(n.get("account_id") or "")
         if acct in balances:
