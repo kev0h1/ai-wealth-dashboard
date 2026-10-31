@@ -203,6 +203,11 @@ def test_companion_walk_does_not_credit_the_landed_salary(monkeypatch):
 
     import app.db.collections as db_collections
 
+    # Payday itself (last Friday of October), so the next payday is 28 days out
+    # and both bills below sit inside the current period. G360 removed the
+    # payday-eve widening, so the g359 fixture date (the eve) would put them in
+    # the NEXT period and the walk would rightly ignore them.
+    monkeypatch.setattr(g359, "TODAY", date(2026, 10, 30))
     monkeypatch.setattr(timeutil, "user_today", lambda: g359.TODAY)
     monkeypatch.setattr(db_collections, "allocations_col", g359.FakeCol([]))
     bills = [
