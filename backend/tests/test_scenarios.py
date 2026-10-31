@@ -26,6 +26,7 @@ the duration of the run (restored afterwards, including modules first imported
 during it). Nothing is faked.
 """
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -58,13 +59,15 @@ def _app_modules():
 def leaked_test_handles() -> list[str]:
     """H143: module-level `*_col` handles in the app that are not real Motor
     collections (a test's fake bound by a lazy import while db_collections was
-    patched, or a handle left rebound). Empty when the process is clean."""
+    patched, or a handle left rebound). Empty when the process is clean.
+    Functions are exempt by inspect.isroutine (runtime_settings defines
+    `_settings_col()` getters); a Motor handle is checked by isinstance."""
     from motor.motor_asyncio import AsyncIOMotorCollection
 
     bad = []
     for mod in _app_modules():
         for attr, value in list(vars(mod).items()):
-            if attr.endswith("_col") and value is not None and not callable(value) \
+            if attr.endswith("_col") and value is not None and not inspect.isroutine(value) \
                     and not isinstance(value, AsyncIOMotorCollection):
                 bad.append(f"{mod.__name__}.{attr} = {type(value).__module__}.{type(value).__qualname__}")
     return sorted(bad)
