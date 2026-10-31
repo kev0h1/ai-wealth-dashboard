@@ -227,3 +227,159 @@ def test_dump_golden(monkeypatch):
         with monkeypatch.context() as m:
             out[name] = fn(m)
     GOLDEN.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+
+
+# ── the callers still produce exactly what the hand-copied preambles did ─────
+
+@pytest.mark.parametrize("name", sorted(CAPTURES))
+def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
+    golden = json.loads(GOLDEN.read_text())[name]
+    assert CAPTURES[name](monkeypatch) == golden
+
+
+# ── the builder, called directly with each caller's documented settings ──────
+
+_PROJ = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
+         "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
+         "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
+
+
+def _build(monkeypatch, caller, resp=None, **override):
+    from app.services import window_inputs as wim
+
+    _patch_common(monkeypatch)
+    resp = resp if resp is not None else _resp()
+    accounts = FakeCol(ACCOUNTS)
+    yapily = FakeCol(YAPILY)
+    manual = FakeCol(MANUAL)
+    if caller == "at_risk":
+        kw = dict(load_balances=wim.bill_account_loader(accounts, yapily))
+    elif caller == "companion":
+        kw = dict(
+            load_balances=wim.user_accounts_loader(UID, accounts, yapily, manual, _PROJ),
+            stamp_credit_basis=True, reapply_exclusions=True, load_when_no_bills=True,
+        )
+    else:  # spend_impact: its own accounts-collection-only map
+        monkeypatch.setattr(spend_impact, "accounts_col", accounts)
+
+        async def _load(_bills):
+            return wim.LoadedAccounts(live_balances=await spend_impact._live_balances_map(UID))
+
+        kw = dict(load_balances=_load)
+    kw.update(override)
+    return asyncio.run(wim.build_window_inputs(UID, resp, dict(PREFS), **kw))
+
+
+@pytest.mark.parametrize("caller", ["at_risk", "spend_impact", "companion"])
+def test_builder_lists_equal_what_each_caller_computed_before(monkeypatch, caller):
+    golden = json.loads(GOLDEN.read_text())[caller]
+    wi = _build(monkeypatch, caller)
+    fa = golden["funded_args"]
+    assert _norm(wi.window_inflows) == fa["inflows"]
+    assert _norm(wi.assessable_bills) == fa["bills"]
+    assert _norm(wi.window_income) == fa["incomes"]
+    assert _norm({**wi.live_balances, **wi.running_seed}) == fa["balances"]
+    assert _norm(wi.funded_window_inflows) == golden["funded_out"]
+    if caller == "spend_impact":
+        assert _norm(wi.running_seed) == golden["window"]["balances"]
+
+
+def test_builder_shared_window_facts(monkeypatch):
+    wi = _build(monkeypatch, "at_risk")
+    assert wi.today == TODAY and wi.days_to_pay == DAYS_TO_PAY
+    assert wi.next_pay == TODAY + timedelta(days=DAYS_TO_PAY)
+    assert wi.payday_source == "period"
+    assert wi.confirmed_income_keys == {"ACME"}
+    # window is strictly before payday; payday-day items sit in their own slice
+    assert [b["name"] for b in wi.window_bills] == [
+        "Council Tax", "To HSBC", "Gym", "Amex bill", "Unpriced", "Yapily bill",
+    ]
+    assert [b["name"] for b in wi.payday_day_bills] == ["Rent"]
+    assert [i["days_away"] for i in wi.payday_day_income] == [DAYS_TO_PAY]
+    assert [n["days_away"] for n in wi.payday_day_inflows] == [DAYS_TO_PAY]
+    # card and unpriced bills are never assessable
+    assert [b["name"] for b in wi.assessable_bills] == ["Council Tax", "To HSBC", "Gym", "Yapily bill"]
+
+
+def test_builder_confirmed_payday_source(monkeypatch):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(
+        income, "get_confirmed_payday", lambda prefs, today_d: (today_d + timedelta(days=4), {})
+    )
+    from app.services import window_inputs as wim
+    wi = asyncio.run(wim.build_window_inputs(
+        UID, _resp(), dict(PREFS), load_balances=wim.bill_account_loader(FakeCol(ACCOUNTS)),
+    ))
+    assert wi.payday_source == "confirmed" and wi.days_to_pay == 4
+    assert [b["name"] for b in wi.window_bills] == ["To HSBC", "Gym"]
+
+
+# ── differences table: each keyword flips exactly the documented difference ──
+
+def test_w1_w2_w3_loaders_differ_only_in_the_documented_way(monkeypatch):
+    at_risk = _build(monkeypatch, "at_risk")
+    companion_wi = _build(monkeypatch, "companion")
+    spend = _build(monkeypatch, "spend_impact")
+    # W1: bill accounts only (incl. Yapily) / every account + offline / accounts collection only
+    assert at_risk.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "natwest": 90.0, "yap1": 75.0}
+    assert companion_wi.live_balances == {
+        "barclays": 4800.0, "hsbc": 12.0, "nobal": 33.0, "yap1": 75.0, "man1": 250.0,
+    }
+    assert spend.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "nobal": 0.0}
+    # W2: fallback chain (companion) versus `balance` only (spend impact)
+    assert companion_wi.live_balances["nobal"] == 33.0 and spend.live_balances["nobal"] == 0.0
+    # W3: G231 exclusion recorded by the companion loader only
+    assert companion_wi.excluded_account_ids == {"natwest"}
+    assert at_risk.excluded_account_ids == set() and spend.excluded_account_ids == set()
+    assert [a["_str_id"] for a in companion_wi.offline_accounts] == ["man1"]
+    assert at_risk.all_uk_accounts == [] and spend.offline_accounts == []
+
+
+def test_w4_reapply_exclusions_flips_only_the_redrop(monkeypatch):
+    from app.services import window_inputs as wim
+    off = _build(monkeypatch, "companion", reapply_exclusions=False)
+    on = _build(monkeypatch, "companion", reapply_exclusions=True)
+    assert "Gym" in [b["name"] for b in off.window_bills]
+    assert "Gym" not in [b["name"] for b in on.window_bills]
+    assert [b["name"] for b in off.assessable_bills] == ["Council Tax", "To HSBC", "Gym", "Yapily bill"]
+    assert [b["name"] for b in on.assessable_bills] == ["Council Tax", "To HSBC", "Yapily bill"]
+    # inflows, payday-day slices and the pre-drop income snapshot are untouched
+    assert on.window_inflows == off.window_inflows
+    assert on.payday_day_bills == off.payday_day_bills
+    assert on.window_income_before_exclusions == off.window_income_before_exclusions
+    # a response that says exclusions were verified is never re-dropped
+    resp = _resp()
+    resp["exclusions_unverified"] = False
+    verified = _build(monkeypatch, "companion", resp=resp, reapply_exclusions=True)
+    assert "Gym" in [b["name"] for b in verified.window_bills]
+    assert wim  # module imported for the loader factories above
+
+
+def test_w5_stamp_credit_basis_flips_only_the_stamp(monkeypatch):
+    plain = _build(monkeypatch, "at_risk", stamp_credit_basis=False)
+    stamped = _build(monkeypatch, "at_risk", stamp_credit_basis=True)
+    assert all("credit_basis" not in i for i in plain.window_income)
+    assert [i["credit_basis"] for i in stamped.window_income] == ["confirmed"]
+    assert _norm([{k: v for k, v in i.items() if k not in ("credit_basis", "steady_salary")}
+                  for i in stamped.window_income]) == _norm(plain.window_income)
+
+
+def test_w6_load_when_no_bills_flips_only_the_read(monkeypatch):
+    from app.services import window_inputs as wim
+    calls: list = []
+
+    async def loader(bills):
+        calls.append(list(bills))
+        return wim.LoadedAccounts(live_balances={"hsbc": 1.0})
+
+    resp = _resp()
+    resp["upcoming_bills"] = [_bill("Amex bill", 5, 80.0, "amex", None, card=True)]
+    _patch_common(monkeypatch)
+    skipped = asyncio.run(wim.build_window_inputs(UID, resp, dict(PREFS), load_balances=loader))
+    assert calls == [] and skipped.live_balances == {} and skipped.running_seed == {}
+    loaded = asyncio.run(wim.build_window_inputs(
+        UID, resp, dict(PREFS), load_balances=loader, load_when_no_bills=True,
+    ))
+    assert calls == [[]] and loaded.live_balances == {"hsbc": 1.0}
+    # nothing else differs: the lists are identical
+    assert skipped.window_bills == loaded.window_bills and skipped.assessable_bills == loaded.assessable_bills == []
