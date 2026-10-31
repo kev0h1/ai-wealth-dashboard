@@ -1,0 +1,221 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "account_headroom_raw": 2300.0,
+      "after_payments": 2450.0,
+      "after_payments_and_plans": 2300.0,
+      "estimated": true,
+      "headroom": 2290.0,
+      "low_point": 2450.0,
+      "low_point_and_plans": 2300.0,
+      "plans_reserved": 150.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 2300.0,
+      "uncertain": false
+    },
+    "acc-pot": {
+      "account_headroom_raw": 800.0,
+      "after_payments": 800.0,
+      "after_payments_and_plans": 800.0,
+      "estimated": false,
+      "headroom": 790.0,
+      "low_point": 800.0,
+      "low_point_and_plans": 800.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 800.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [
+    {
+      "active": true,
+      "destination": "Holiday Pot",
+      "destination_account_ids": [
+        "acc-pot"
+      ],
+      "filled_amount": 50.0,
+      "id": "allocation:6ae5c9f21dc6c5b30cd04411",
+      "inferred": true,
+      "kind": "allocation",
+      "name": "Holiday set-aside",
+      "period_amount": 200.0,
+      "record_id": "6ae5c9f21dc6c5b30cd04411",
+      "remaining": 150.0,
+      "source_account_id": "acc-bc",
+      "source_account_name": "Barclays Current",
+      "source_basis": "recent-transfers"
+    }
+  ],
+  "accounts": [
+    {
+      "balance": 3000.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 800.0,
+      "currency": "GBP",
+      "id": "acc-pot",
+      "include_in_safe_to_spend": true,
+      "name": "Holiday Pot",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "allocations": [
+      {
+        "active": true,
+        "amount_per_period": 200.0,
+        "completed": false,
+        "created_via": null,
+        "current_period_contribution": null,
+        "effective_from": "2026-09-25",
+        "fill_account_id": "acc-pot",
+        "fill_display_name": "Holiday pot",
+        "filled_this_period": 50.0,
+        "id": "6ae5c9f21dc6c5b30cd04411",
+        "match_type": "description_contains",
+        "match_value": "SET ASIDE",
+        "name": "Holiday set-aside",
+        "pending": false,
+        "period_amount": 200.0,
+        "period_end": "2026-10-29",
+        "period_override": null,
+        "period_start": "2026-09-25",
+        "recurrence": "every_period",
+        "remaining": 150.0,
+        "source_account_id": null,
+        "source_set": false,
+        "tracking_mode": "existing_payment"
+      }
+    ],
+    "internal_inflows": [],
+    "next_payday": "2026-10-30",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 14,
+      "end": "2026-10-29",
+      "label": "25 Sep to 29 Oct",
+      "length_days": 35,
+      "payday": "2026-10-30",
+      "payday_observed": null,
+      "start": "2026-09-25",
+      "type": "last_friday"
+    },
+    "spendable_balance": 3000.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 400.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Debt",
+        "days_away": 7,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-15",
+        "is_card_repayment": true,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "PERSONAL LOAN",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 150.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 12,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "COUNCIL TAX",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 22,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-10-30",
+        "name": "acme|payroll::acc-bc",
+        "occurrences": 4,
+        "rule_label": null,
+        "steady_salary": true
+      }
+    ]
+  },
+  "days_to_payday": 22,
+  "items": [],
+  "name": "A set-aside held in a pot: the unfilled part is reserved at its learned source, and the pot is never spendable (G230, G238)",
+  "period": {
+    "end": "2026-10-29",
+    "start": "2026-09-25"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 150.0,
+    "calculation_status": "complete",
+    "card_growth_reserved": 0.0,
+    "commitments_reserved": 0,
+    "safe_to_spend": 2300.0,
+    "safe_to_spend_cash": 2300.0
+  },
+  "today": "2026-10-08"
+}
