@@ -195,6 +195,17 @@ check("the client still sends the platform header on the Stripe routes", /startC
 const playRouter = read("../backend/app/routers/play_billing.py");
 check("the Play verify route grants nothing itself: it calls the server verifier", /play_billing\.verify_client_purchase\(/.test(playRouter) && !/subscriptions_col|grant_pack|upsert_store_subscription/.test(playRouter));
 
+// C39: the server's blocked message is shown inline above the pack rows.
+{
+  const note = sheet.match(/const blockedNote[\s\S]*?: null;/)?.[0] ?? "";
+  check("C39: the sheet derives one blockedNote from the server's purchase_blocked", /playCfg\?\.purchase_blocked/.test(note));
+  check("C39: blockedNote is only set on the play channel, so the web branch never renders it", /: null;$/.test(note) && /play\s*\?/.test(note) && /storekit\s*\?/.test(note));
+  check("C39: the message renders once, verbatim, only when present, before the pack rows",
+    /\{blockedNote && \(\s*<p[^>]*>\{blockedNote\}<\/p>\s*\)\}/.test(sheet) && ((sheet.match(/\{blockedNote\}/g) ?? []).length === 1)
+    && sheet.indexOf("{blockedNote && (") < sheet.indexOf("{plusLeads ? ("));
+  check("C39: no copy is invented for the blocked note", !/blockedNote[^;]*"[A-Za-z ]{6,}"/.test(note));
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);
