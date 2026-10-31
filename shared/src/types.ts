@@ -92,6 +92,10 @@ export interface Transaction {
   id: string;
   account_id: string;
   date: string;
+  /** Bank posting date remains in date. Activity date is for list display only. */
+  activity_date?: string | null;
+  /** Provisional bank activity, kept separate from booked totals and editing. */
+  is_pending?: boolean | null;
   amount: number;
   currency: string;
   description: string;

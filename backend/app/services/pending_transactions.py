@@ -20,13 +20,15 @@ This is deliberate: every existing consumer of `transactions_col` (recurring
 detection in `_detect_recurring`, the categorisation-cache learner, spend
 history/category totals) is excluded from these rows BY CONSTRUCTION — they
 simply never query this collection — rather than needing an `is_pending`
-filter bolted onto N call sites. The ONLY consumer is the occurrence-matching
+filter bolted onto N call sites. The financial consumer is the occurrence-matching
 choke point in `app/routers/analytics.py::_build_cashflow_response`
 (`_match_pending_observed`), which is itself the single place every
 downstream sim (at_risk_count, companion, spend_impact, the payday plan, the
 frontend walk) inherits from — see that function's docstring for how a
 matched occurrence is excluded from `upcoming_bills` (the walk-facing list)
 without any of those sims needing to know pending transactions exist at all.
+G373 also exposes these rows separately in paginated activity responses; they
+remain excluded from booked totals and charts.
 
 SUPERSESSION (settled twin arrives) — implicit, not reconciled by amount/
 date. `replace_pending_for_account` is called once per account per sync with
@@ -56,6 +58,8 @@ independently, so the backstop holds even when a sync pass never happens
 again for that account. Real banks expire pending authorisations/DDs around
 this horizon.
 """
+import hashlib
+import json
 import logging
 from datetime import datetime, timedelta
 
@@ -69,6 +73,7 @@ PENDING_TXN_MAX_AGE_DAYS = 7  # banks expire pending authorisations/DDs around t
 
 async def replace_pending_for_account(
     rows: list[dict], account_id: str, user_id: str, provider: str,
+    account_currency: str | None = None,
 ) -> None:
     """Wholesale-replace the stored pending set for one account with `rows`
     -- the provider's current, authoritative answer to "what's pending right
@@ -86,14 +91,28 @@ async def replace_pending_for_account(
         txn_id = row.get("transaction_id")
         if not txn_id:
             continue
-        keep_ids.append(txn_id)
+        # Provider transaction IDs are scoped to their owner/account/provider.
+        # Preserve the raw ID separately for exact booked handover matching.
+        storage_id = "pending:" + hashlib.sha256(json.dumps(
+            [user_id, account_id, provider, str(txn_id)], separators=(",", ":")
+        ).encode()).hexdigest()
+        keep_ids.append(storage_id)
+        legacy = await pending_transactions_col.find_one({
+            "_id": txn_id, "user_id": user_id, "account_id": account_id,
+            "provider": provider,
+        }, {"first_seen": 1})
+        first_seen = (legacy or {}).get("first_seen") or now
         description = row.get("description") or ""
         merchant_name = row.get("merchant_name") or ""
         doc = {
+            "source_transaction_id": txn_id,
             "account_id":       account_id,
             "user_id":          user_id,
             "date":             row.get("date") or now,
             "amount":           abs(float(row.get("amount") or 0)),
+            # Some pending feeds omit currency.  The account is authoritative
+            # in that case; GBP is only the legacy final fallback.
+            "currency":         (row.get("currency") or account_currency or "GBP").upper(),
             "description":      description,
             "merchant_name":    merchant_name or None,
             "transaction_type": row.get("transaction_type", "debit"),
@@ -103,14 +122,14 @@ async def replace_pending_for_account(
             "last_seen":        now,
         }
         await pending_transactions_col.update_one(
-            {"_id": txn_id},
-            {"$set": doc, "$setOnInsert": {"_id": txn_id, "first_seen": now}},
+            {"_id": storage_id, "user_id": user_id, "account_id": account_id, "provider": provider},
+            {"$set": doc, "$setOnInsert": {"first_seen": first_seen}},
             upsert=True,
         )
 
     cutoff = now - timedelta(days=PENDING_TXN_MAX_AGE_DAYS)
     await pending_transactions_col.delete_many({
-        "account_id": account_id,
+        "account_id": account_id, "user_id": user_id, "provider": provider,
         "$or": [
             {"_id": {"$nin": keep_ids}},
             {"first_seen": {"$lt": cutoff}},

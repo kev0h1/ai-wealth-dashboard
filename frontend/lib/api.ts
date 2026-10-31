@@ -76,6 +76,11 @@ export interface CategoryGroupsResponse {
 
 export interface PagedTransactions {
   items: Transaction[];
+  /** First-page provisional rows, separate from booked items and pagination. */
+  pending_items?: Transaction[];
+  pending_total?: number;
+  pending_page?: number;
+  pending_pages?: number;
   total: number;
   page: number;
   pages: number;
@@ -3046,6 +3051,8 @@ export const api = {
   transactions: (accountId: string, opts?: {
     page?: number; pageSize?: number; q?: string; category?: string; days?: number;
     txnType?: "debit" | "credit";
+    activityOrder?: boolean;
+    pendingPage?: number;
   }) => {
     const p = new URLSearchParams();
     if (opts?.page) p.set("page", String(opts.page));
@@ -3054,6 +3061,8 @@ export const api = {
     if (opts?.category) p.set("category", opts.category);
     if (opts?.days) p.set("days", String(opts.days));
     if (opts?.txnType) p.set("txn_type", opts.txnType);
+    if (opts?.pendingPage) p.set("pending_page", String(opts.pendingPage));
+    if (opts?.activityOrder) p.set("activity_order", "true");
     const qs = p.toString();
     return get<PagedTransactions>(`/accounts/${accountId}/transactions${qs ? `?${qs}` : ""}`);
   },
@@ -3213,7 +3222,7 @@ export const api = {
   // `from`/`to` (ISO dates) scope to a pay period as a removable chip on the
   // hub — mirrors backend/app/routers/transactions.py's `from`/`to` query
   // params field-for-field. Both optional; omitted means all history.
-  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit" } = {}) => {
+  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit"; activity_order?: boolean; pending_page?: number } = {}) => {
     const p = new URLSearchParams();
     if (params.q) p.set("q", params.q);
     if (params.page) p.set("page", String(params.page));
@@ -3233,6 +3242,8 @@ export const api = {
     if (params.from) p.set("from", params.from);
     if (params.to) p.set("to", params.to);
     if (params.txn_type) p.set("txn_type", params.txn_type);
+    if (params.pending_page) p.set("pending_page", String(params.pending_page));
+    if (params.activity_order) p.set("activity_order", "true");
     const qs = p.toString();
     return get<PagedTransactions>(`/transactions/search${qs ? `?${qs}` : ""}`);
   },
