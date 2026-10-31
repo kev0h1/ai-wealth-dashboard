@@ -47,17 +47,6 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "One large payment", value: "large" }, { label: "Everyday spending", value: "ordinary" }, { label: "Two large payments", value: "multiple" }, { label: "Not counted", value: "not-counted" }, { label: "Incomplete history", value: "sparse" }, { label: "No transactions", value: "empty" }],
     group: "current",
   },
-  {
-    slug: "movement-teaching",
-    name: "Tell me what this was · G376",
-    description: "G376 · impeccable · Clear choices for savings, investments and goals. A keeps choices together; B groups money put aside. Local examples include goal creation, loading, retry and hidden amounts. Production sheet awaits the chosen treatment.",
-    variants: [{ label: "A · Direct choice", value: "a" }, { label: "B · Destination first", value: "b" }],
-    states: [{ label: "Example", value: "ready" }],
-    group: "current",
-  },
-
-
-
 
   {
     slug: "statements-house-ads",

@@ -344,7 +344,7 @@ check(
 // ending in an early `return` before the other can run, so 2 occurrences in
 // its body is "exactly once per execution", not a double-invalidate).
 const FUNCTIONS_CALLING_NOTIFY_ONCE = [
-  ["commitMovement", /async function commitMovement\(\s*resolution: "mine-here" \| "mine-goal" \| "mine-offline",[\s\S]*?successMessage: string,\s*\)\s*/],
+  ["commitMovement", /async function commitMovement\([^)]*\)\s*/],
   ["undoMovement", /async function undoMovement\(\)\s*/],
   ["commitCreditMovement", /async function commitCreditMovement\(category: "Transfer" \| "Income"\)\s*/],
   ["undoCreditMovement", /async function undoCreditMovement\(\)\s*/],

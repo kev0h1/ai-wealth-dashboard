@@ -27,17 +27,20 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { useState, useEffect, useRef, type MutableRefObject } from "react";
-import { Check, Undo2, ChevronRight, ChevronLeft } from "lucide-react";
+import { Check, Undo2, ChevronRight, ChevronLeft, Home, Landmark, PiggyBank, ReceiptText, Target } from "lucide-react";
 import { Transaction, Commitment, Account, api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour, inferCategoryKind, type CategoryKind } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
+import { usePreferences } from "@/components/PreferencesContext";
+import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { useCategories } from "@/components/CategoriesContext";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import CommitmentSheet from "@/components/CommitmentSheet";
 import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from "@/lib/cacheInvalidation";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
@@ -65,6 +68,8 @@ type Step =
   | "spend-root"
   | "spend-naming"
   | "movement-root"
+  | "movement-kind"
+  | "movement-destination"
   | "movement-goal"
   | "movement-offline"
   | "propose-rule"
@@ -91,6 +96,7 @@ interface TeachingSheetProps {
 export default function TeachingSheet({ transaction, onClose, onUpdated, account, forceMovementRoot }: TeachingSheetProps) {
 
   const { colours } = useColours();
+  const { hideNetWorth, preferencesReady } = usePreferences();
   const { icons: iconOverrides } = useCategoryIcons();
   const { allCategories, customCategories, kinds, addCategory } = useCategories();
 
@@ -99,12 +105,6 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   const isMovementRead = originalKind === "movement";
   const isCredit = transaction.transaction_type === "credit";
   const name = transaction.merchant_name || transaction.description || "(no description)";
-  // The ask card's "Tell me what this was" hands off here without any
-  // movement-kind read behind it (the row is genuinely "Other") — asserting
-  // "this looks like money you moved" would be a claim the engine hasn't
-  // earned. Ask the question honestly instead of asserting the answer.
-  const isAskHandoff = forceMovementRoot && !isMovementRead;
-
   const [step, setStep] = useState<Step>(isMovementRead || forceMovementRoot ? "movement-root" : "spend-root");
   // True once the movement fork was reached via the spend fork's escape
   // hatch (not because the row was already filed as movement) — suppresses
@@ -118,8 +118,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   // collapse into the empty-state copy, which would push the user toward
   // creating a duplicate offline pot for a goal that actually exists.
   const [goalsFailed, setGoalsFailed] = useState(false);
-  const [goalFallbackOpen, setGoalFallbackOpen] = useState(false);
-  const [goalFallbackName, setGoalFallbackName] = useState("");
+  const [goalSetupOpen, setGoalSetupOpen] = useState(false);
+  const [goalSetupBusy, setGoalSetupBusy] = useState(false);
   useEffect(() => {
     if (step !== "movement-goal" || goals !== null || goalsFailed) return;
     api.listCommitments()
@@ -128,6 +128,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }, [step, goals, goalsFailed]);
 
   const [offlineName, setOfflineName] = useState("");
+  const [movementKind, setMovementKind] = useState<"Savings" | "Investment">("Savings");
+  const [destinationName, setDestinationName] = useState("");
 
   const [namingText, setNamingText] = useState("");
   const [namingKind, setNamingKind] = useState<CategoryKind>("discretionary");
@@ -180,6 +182,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   function notifyUpdated(tx: Transaction, additionalIds?: string[]) {
     invalidateAfterTransactionCorrection(tx.id, { oldCategory: originalCategory, newCategory: tx.category });
     onUpdated(tx, additionalIds);
+    notifyTransactionsChanged([tx.id, ...(additionalIds ?? [])], tx.category);
   }
 
   // ── Spend fork: existing category or newly-named one ──────────────────
@@ -245,15 +248,20 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   // ── Movement fork: destination resolutions ─────────────────────────────
   async function commitMovement(
-    resolution: "mine-here" | "mine-goal" | "mine-offline",
-    extra: { goal_id?: string; offline_pot_name?: string },
+    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment",
+    extra: { goal_id?: string; offline_pot_name?: string; destination_name?: string },
     successMessage: string,
   ) {
     setBusy(true);
     setError(null);
     try {
-      await api.resolveMovement(transaction.id, { resolution, ...extra });
-      notifyUpdated({ ...transaction, category: "Transfer" });
+      const result = await api.resolveMovement(transaction.id, { resolution, ...extra });
+      const category = resolution === "mine-savings"
+        ? "Savings"
+        : resolution === "mine-investment"
+          ? "Investment"
+          : "Transfer";
+      notifyUpdated({ ...transaction, category: result.custom_category ?? category });
       finish(successMessage, undoMovement);
     } catch (e) {
       setError(saveErrorMessage(e));
@@ -382,15 +390,26 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     ...spendPickable.filter((c) => !customCategories.includes(c)),
   ];
 
+  const amountsHidden = hideNetWorth || !preferencesReady;
+  const returnFromGoalSetup = () => { setGoalSetupOpen(false); setStep("movement-goal"); };
+
   return (
-    <SheetFrame title="Tell me what this was" onClose={onClose}>
+    <SheetFrame
+      title={goalSetupOpen ? "Create a goal" : "Tell me what this was"}
+      onClose={onClose}
+      dismissDisabled={busy || goalSetupBusy}
+      onBack={goalSetupOpen ? returnFromGoalSetup : undefined}
+      onHistoryBack={goalSetupOpen ? returnFromGoalSetup : undefined}
+      onEscape={goalSetupOpen ? returnFromGoalSetup : undefined}
+      backLabel="Back to this payment"
+    >
       {({ close }) => <>
         <SheetCloseBinding closeRef={sheetCloseRef} close={close} />
         <div className="pb-2">
           {/* 1. Transaction header — shared shape across every step */}
           <div className="flex items-center gap-3">
             <span
-              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              className="w-9 h-9 rounded-xl border border-slate-200 dark:border-transparent flex items-center justify-center flex-shrink-0"
               style={{ backgroundColor: `${colour}26` }}
             >
               <CategoryIcon size={16} style={{ color: colour }} />
@@ -399,9 +418,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400 truncate">
                 {name}
               </p>
-              <p className="text-xl font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
-                {isCredit ? "+" : MINUS}
-                {formatCurrency(transaction.amount, transaction.currency)}
+              <p aria-label={amountsHidden ? "Amount hidden" : undefined} className="text-xl font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
+                {amountsHidden ? "£••••" : <>{isCredit ? "+" : MINUS}{formatCurrency(transaction.amount, transaction.currency)}</>}
               </p>
               <p className="text-[13px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 {formatDate(transaction.date)}
@@ -424,6 +442,29 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           </div>
 
           {/* 2/3. The step content */}
+          {goalSetupOpen ? (
+            <BalancesHiddenContext.Provider value={amountsHidden}>
+            <div className="mt-5">
+              <CommitmentSheet
+                commitment={null}
+                onClose={() => { setGoalSetupOpen(false); setStep("movement-goal"); }}
+                onSaved={async (goal) => {
+                  setGoals((current) => [goal, ...(current ?? [])]);
+                  setGoalsFailed(false);
+                  setGoalSetupOpen(false);
+                  setStep("movement-goal");
+                }}
+                embedded={{
+                  renderActions: (actions) => <div className="mt-4">{actions}</div>,
+                  onEdit: () => {},
+                  onCancel: () => { setGoalSetupOpen(false); setStep("movement-goal"); },
+                  onChangeContribution: () => {},
+                  onBusyChange: setGoalSetupBusy,
+                }}
+              />
+            </div>
+            </BalancesHiddenContext.Provider>
+          ) : <>
           {step === "movement-root" && isCredit && (
             <>
               {/* Credit fork (owner review defect 2) — a credit arriving
@@ -492,71 +533,44 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
           {step === "movement-root" && !isCredit && (
             <>
-              <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
-                {viaEscape
-                  ? "Money moved has a destination, not a category. Where did it go?"
-                  : isAskHandoff
-                  ? "I can't place this one yet. I don't know enough to guess, so I'm asking."
-                  : "This looks like money you moved. It left for an account I can't see."}
-              </p>
-              <p className="mt-3 text-[14px] font-semibold text-slate-900 dark:text-slate-100">
-                Is this account yours?
-              </p>
+              <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">Where did this money go?</p>
               <div className="mt-3 space-y-2">
-                {/* Listed first — the most common real case (owner decision
-                    2026-08-23): the transfer matcher already ran at sync and
-                    failed to find a counterpart (descriptions differ between
-                    legs), so this option doesn't search for one either; it
-                    just files the row as a plain Transfer. Same visual tier
-                    as the other destination options below it, no elevation,
-                    despite being the common case — a same-tier list of
-                    destination choices, not a recommendation. */}
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => commitMovement("mine-here", {}, "Filed as a transfer.")}
-                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity disabled:opacity-50"
+                  className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Yes: to another of my accounts here
-                  </span>
-                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                    filed as a transfer
-                  </span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Landmark size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Another of my accounts in Sorted</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("movement-kind")}
+                  className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><PiggyBank size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings or investments</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">For money put aside outside Sorted</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setStep("movement-goal")}
-                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
+                  className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Yes: it funds a goal
-                  </span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Target size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">A goal in Sorted</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setStep("movement-offline")}
-                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
+                  className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Yes: just an account of mine elsewhere
-                  </span>
-                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                    tracked as an offline pot
-                  </span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Home size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">An account Sorted can&apos;t see</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 {!viaEscape && (
                   <button
                     type="button"
                     onClick={() => { setViaEscape(false); setStep("spend-root"); }}
-                    className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
+                    className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
-                    <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                      No: this was spending
-                    </span>
-                    <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                      opens the category picker
-                    </span>
+                    <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><ReceiptText size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Spending</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Choose what you bought</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                   </button>
                 )}
               </div>
@@ -570,6 +584,66 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   Back to categories
                 </button>
               )}
+            </>
+          )}
+
+          {step === "movement-kind" && (
+            <>
+              <button
+                type="button"
+                onClick={() => setStep("movement-root")}
+                className="mt-3 inline-flex min-h-11 items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                Back
+              </button>
+              <p className="mt-1 text-[15px] font-semibold text-slate-900 dark:text-slate-100">What did you put it into?</p>
+              <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Choose the broad type. Name the place next.</p>
+              <div className="mt-3 space-y-2">
+                <button type="button" onClick={() => { setMovementKind("Savings"); setStep("movement-destination"); }} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><PiggyBank size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Cash you&apos;re putting aside</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                </button>
+                <button type="button" onClick={() => { setMovementKind("Investment"); setStep("movement-destination"); }} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Landmark size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Investment</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Funds, shares, crypto or a pension</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === "movement-destination" && (
+            <>
+              <button
+                type="button"
+                onClick={() => setStep("movement-kind")}
+                className="mt-3 inline-flex min-h-11 items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                Back
+              </button>
+              <p className="mt-1 text-[15px] font-semibold text-slate-900 dark:text-slate-100">Name this {movementKind.toLowerCase()}</p>
+              <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">So I can recognise it next time.</p>
+              <label className="mt-3 block text-[12px] font-semibold text-slate-700 dark:text-slate-300" htmlFor="movement-destination-name">Name</label>
+              <input
+                id="movement-destination-name"
+                autoFocus
+                value={destinationName}
+                onChange={(e) => setDestinationName(e.target.value)}
+                placeholder={movementKind === "Investment" ? "e.g. Crypto.com" : "e.g. Premium Bonds"}
+                maxLength={60}
+                className="mt-1 w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[16px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                disabled={busy || !destinationName.trim()}
+                onClick={() => commitMovement(
+                  movementKind === "Savings" ? "mine-savings" : "mine-investment",
+                  { destination_name: destinationName.trim() },
+                  `Filed as ${movementKind.toLowerCase()}.`,
+                )}
+                className="mt-3 w-full min-h-11 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                Save as {movementKind}
+              </button>
             </>
           )}
 
@@ -592,60 +666,44 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               ) : goals === null ? (
                 <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-400">Loading your goals…</p>
               ) : goals.length === 0 ? (
-                <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-400">No active goals yet, name this pot below.</p>
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/70">
+                  <Target size={20} className="text-indigo-600 dark:text-indigo-300" aria-hidden="true" />
+                  <p className="mt-2 text-[13px] font-semibold text-slate-900 dark:text-slate-100">No active goals yet</p>
+                  <p className="mt-1 text-[12px] text-slate-600 dark:text-slate-400">Create one first, then choose it here.</p>
+                  <button
+                    type="button"
+                    onClick={() => setGoalSetupOpen(true)}
+                    className="mt-3 inline-flex min-h-11 items-center justify-center rounded-xl bg-indigo-600 px-4 text-[13px] font-semibold text-white active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    Create a goal
+                  </button>
+                </div>
               ) : (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 space-y-2">
                   {goals.map((g) => (
                     <button
                       key={g.id}
                       type="button"
                       disabled={busy}
                       onClick={() => commitMovement("mine-goal", { goal_id: g.id }, `Filed as money to ${g.name}.`)}
-                      className="min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 active:scale-95 transition-transform disabled:opacity-50"
+                      className="w-full min-h-[56px] px-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 text-left text-[13px] font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-700/60 dark:text-slate-100 active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
-                      {g.name}
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Target size={18} aria-hidden="true" /></span>
+                      <span className="min-w-0 flex-1">{g.name}</span>
+                      <ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" />
                     </button>
                   ))}
                 </div>
               )}
-              {/* Goals-read failure never offers the offline-pot escape as the
-                  primary route — the four-live-goals-collapse-to-zero bug
-                  this guards against would otherwise steer straight into a
-                  duplicate pot. Only a genuinely-empty read (goals.length ===
-                  0) or a successful load offers it. */}
-              {!goalsFailed && (!goalFallbackOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setGoalFallbackOpen(true)}
-                  className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
-                >
-                  My goal isn't listed
-                  <ChevronRight size={13} className="flex-shrink-0" aria-hidden="true" />
+              {!goalsFailed && goals && goals.length > 0 && (
+                <button type="button" disabled={busy} onClick={() => setGoalSetupOpen(true)} className="mt-3 flex min-h-11 items-center rounded-lg px-1 text-sm font-semibold text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 dark:text-indigo-300">
+                  Create a goal
                 </button>
-              ) : (
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    autoFocus
-                    value={goalFallbackName}
-                    onChange={(e) => setGoalFallbackName(e.target.value)}
-                    placeholder="Name this pot"
-                    maxLength={60}
-                    className="flex-1 h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[14px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <button
-                    type="button"
-                    disabled={busy || !goalFallbackName.trim()}
-                    onClick={() => commitMovement("mine-offline", { offline_pot_name: goalFallbackName.trim() }, "Filed as money you moved.")}
-                    className="flex-shrink-0 h-11 px-4 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                </div>
-              ))}
+              )}
               <button
                 type="button"
                 onClick={() => setStep("movement-root")}
-                className="mt-4 inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                className="mt-4 inline-flex min-h-11 items-center gap-0.5 rounded-lg text-[12px] font-semibold text-slate-600 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
                 Back
@@ -856,6 +914,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               I learn from every correction, you shouldn&apos;t have to do this twice.
             </p>
           )}
+          </>}
         </div>
       </>}
     </SheetFrame>
