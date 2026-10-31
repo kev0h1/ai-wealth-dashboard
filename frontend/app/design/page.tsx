@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "home-transfers-check",
+    name: "Home transfer shortcut · G379",
+    description: "G379 · impeccable · A compact notification strip or a clear action card above Home recommendations. Both link straight to the existing transfer-review screen. Includes checked, loading, failure, reconnection and hidden-figure states. Example Home figures; review links open the real app.",
+    variants: [{ label: "A · Notification strip", value: "a" }, { label: "B · Clear action", value: "b" }],
+    states: [{ label: "3 to check", value: "pending" }, { label: "1 to check", value: "single" }, { label: "All checked", value: "checked" }, { label: "Checking", value: "loading" }, { label: "Could not check", value: "error" }],
+    group: "current",
+  },
+  {
     slug: "spend-patterns-charts",
     name: "Clearer Spend patterns · G380",
     description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
