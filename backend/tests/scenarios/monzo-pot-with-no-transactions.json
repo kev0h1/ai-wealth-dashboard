@@ -1,0 +1,106 @@
+{
+  "name": "A Monzo savings pot with a balance and no transactions: savings pool only, empty-state copy, static line instead of the switch (A175)",
+  "today": "2026-10-20",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-monzo",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 900.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true,
+      "transactions_last_count": 12,
+      "transactions_synced_at": "2026-10-20T07:00:00Z"
+    },
+    {
+      "_id": "acc-pot",
+      "name": "Pot Saving Challenge",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 1650.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true,
+      "transactions_last_count": 0,
+      "transactions_synced_at": "2026-10-20T07:00:00Z"
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "MOBILE PHONE",
+        "avg_amount": 35.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-23",
+        "account_id": "acc-monzo",
+        "account_name": "Monzo Current",
+        "account_bank": "monzo",
+        "account_balance": 900.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "GYM",
+        "avg_amount": 30.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-27",
+        "account_id": "acc-monzo",
+        "account_name": "Monzo Current",
+        "account_bank": "monzo",
+        "account_balance": 900.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "expected": {
+    "left_to_spend": 835.0,
+    "spendable_balance": 900.0,
+    "not_spendable": [
+      "acc-pot"
+    ],
+    "account_rows": {
+      "acc-pot": {
+        "pool": "savings",
+        "transactions_last_count": 0,
+        "transactions_synced_at": "2026-10-20T07:00:00Z",
+        "cover_source_eligible": true
+      },
+      "acc-monzo": {
+        "pool": "spendable",
+        "transactions_last_count": 12
+      }
+    },
+    "accounts": {
+      "acc-monzo": {
+        "spend_from": 835.0,
+        "after_payments": 835.0,
+        "low_point": 835.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "A Monzo savings pot the bank connection sent no transactions for (A175): today Tue 20 Oct 2026, pay period last Friday, so the period runs Fri 25 Sep to Thu 29 Oct and payday Fri 30 Oct is 10 days away (window days 0 to 9). Monzo Current holds 900 and has transactions (last sync count 12); Pot Saving Challenge is a savings pot holding 1,650 with a last sync count of 0 and a transaction sync stamp of 07:00 today, and the stored Count towards Left to spend flag is still on, as it is for a real pot. Bills, both on Monzo Current: mobile phone 35 (Fri 23 Oct, day 3) and gym 30 (Tue 27 Oct, day 7). No income expected before payday. Left to spend: pool = counted current accounts only = 900 (the pot is classed savings from its subtype, in the savings pool and never the spendable one, however large its balance); 900 - 35 = 865; - 30 = 835. Lowest point 835, so Left to spend 835, with no buffer or reserve. Monzo Current: after payments 835, low point 835, Spend from 835 (equal to Left to spend). The pot is never spendable: no availability and no Spend from on the client, and the 1,650 is in no pool. Rows: the pot's diagnostics read back as a last transaction count of 0 with the sync stamp, so the sheet shows the honest empty state, No transactions have arrived from this bank connection yet, the balance still updates, with the bank data time line, Bank data updated 1 hour ago (the 07:00 UTC stamp against 09:00 London on the day, which is 08:00 UTC in October); and, because it is savings, the switch is replaced by the static line Savings are not counted in Left to spend. Monzo Current has transactions, so it keeps its switch and shows no empty state. Nobody is short, so no cover move; at risk 0; the period is on day 26, so no payday plan."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": []
+}

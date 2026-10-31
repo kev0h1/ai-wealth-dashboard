@@ -1,0 +1,174 @@
+{
+  "name": "A set-aside held in a pot: the unfilled part is reserved at its learned source, and the pot is never spendable (G230, G238)",
+  "today": "2026-10-08",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 3000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-pot",
+      "name": "Holiday Pot",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 800.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "PERSONAL LOAN",
+        "avg_amount": 400.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-15",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 3000.0,
+        "is_credit_card": false,
+        "category": "Debt"
+      },
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 3000.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 3000.0,
+        "category": "Income",
+        "occurrences": 4,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-07-31",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-28",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-pot",
+      "date": "2026-09-28",
+      "amount": 50.0,
+      "transaction_type": "credit",
+      "description": "SET ASIDE TOP UP",
+      "merchant_name": "SET ASIDE TOP UP",
+      "category": "Transfer"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-28",
+      "amount": 50.0,
+      "transaction_type": "debit",
+      "description": "TO HOLIDAY POT",
+      "merchant_name": "TO HOLIDAY POT",
+      "category": "Transfer"
+    }
+  ],
+  "allocations": [
+    {
+      "_id": "alloc-holiday",
+      "name": "Holiday set-aside",
+      "amount_per_period": 200.0,
+      "fill_account_id": "acc-pot",
+      "match_type": "description_contains",
+      "match_value": "SET ASIDE",
+      "fill_display_name": "Holiday pot",
+      "effective_from": "2026-09-25",
+      "recurrence": "every_period",
+      "active": true,
+      "created_at": "2026-09-01"
+    }
+  ],
+  "expected": {
+    "left_to_spend": 2300.0,
+    "spendable_balance": 3000.0,
+    "allocations_reserved": 150.0,
+    "not_spendable": [
+      "acc-pot"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 2300.0,
+        "after_payments": 2450.0,
+        "low_point": 2450.0,
+        "plans_reserved": 150.0,
+        "after_payments_and_plans": 2300.0,
+        "headroom": 2290.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "A set-aside kept in a pot, mid-period: today Thu 8 Oct 2026, pay period last Friday, so the period runs Fri 25 Sep to Thu 29 Oct and payday Fri 30 Oct is 22 days away (window days 0 to 21). Barclays Current holds 3,000 and the Holiday Pot (savings) 800. Bills: personal loan 400 (Thu 15 Oct, day 7), council tax 150 (Tue 20 Oct, day 12). The salary is due on payday, day 22, outside the window. The set-aside is 200 a period, filled by credits to the pot whose description contains SET ASIDE. One fill has already landed this period: 50 on Mon 28 Sep, paired with the same-day, same-amount 50 debit on Barclays, which is how the source is learned (the transfer source is Barclays, the only other account with that debit). Remaining = 200 - 50 = 150, the unfilled part, never the full 200 on top of an already reduced balance. Left to spend: pool = counted current accounts only = 3,000 (the pot is savings, in no pool, however much it holds). Walk: 3,000 - 400 = 2,600; - 150 = 2,450. Lowest point 2,450; less the 150 set aside, Left to spend is 2,300. Positions: Barclays walk after payments 2,450, low point 2,450; the 150 is reserved at its learned source, so plans reserved 150, after payments and plans 2,300, low point and plans 2,300, and the headroom the cover-plan finder reads is 2,450 - 150 - 10 = 2,290. Spend from min(2,300, 2,300) = 2,300, equal to Left to spend. The pot is never spendable: it is not in the pooled balance (3,000 is exactly the counted accounts), the client shows no availability and no Spend from for it, and it is not a payment source for any walk. Nobody is short, so no cover move; at risk 0. The period began on 25 Sep (day 14 today), so no payday plan."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "card_terms": []
+}
