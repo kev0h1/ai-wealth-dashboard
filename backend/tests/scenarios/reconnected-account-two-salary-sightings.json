@@ -1,8 +1,8 @@
 {
   "name": "Freshly reconnected account, no confirmed salary, two salary sightings: the steady rule credits it (G359)",
-  "today": "2026-10-29",
+  "today": "2026-10-08",
   "pay_period_config": {
-    "type": "last_friday"
+    "type": "calendar_month"
   },
   "confirmed_income_streams": [],
   "accounts": [
@@ -36,7 +36,7 @@
         "key": "MORTGAGE HSBC",
         "avg_amount": 1100.0,
         "avg_interval": 30,
-        "next_date": "2026-10-30",
+        "next_date": "2026-10-16",
         "account_id": "acc-bc",
         "account_name": "Barclays Current",
         "account_bank": "barclays",
@@ -50,8 +50,8 @@
         "key": "acme|payroll::acc-bc",
         "display_name": "Acme Payroll",
         "avg_amount": 3000.0,
-        "avg_interval": 28,
-        "next_date": "2026-10-30",
+        "avg_interval": 31,
+        "next_date": "2026-10-15",
         "account_id": "acc-bc",
         "account_name": "Barclays Current",
         "account_bank": "barclays",
@@ -70,7 +70,7 @@
   "transactions": [
     {
       "account_id": "acc-bc",
-      "date": "2026-08-28",
+      "date": "2026-08-15",
       "amount": 3000.0,
       "transaction_type": "credit",
       "description": "ACME PAYROLL",
@@ -79,7 +79,7 @@
     },
     {
       "account_id": "acc-bc",
-      "date": "2026-09-25",
+      "date": "2026-09-15",
       "amount": 3000.0,
       "transaction_type": "credit",
       "description": "ACME PAYROLL",
@@ -112,6 +112,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 0,
-    "notes": "Today is Thu 29 Oct 2026 and pay is the last Friday (30 Oct), so payday is tomorrow. The account was reconnected recently, so there is no confirmed salary stream. Balances: Barclays 200 + Starling 2,000 = 2,200 pooled. Left to spend counts only bills strictly before payday and the only bill, the mortgage of 1,100, is dated 30 Oct (the next period), so nothing comes off: Left to spend is 2,200 in both variants. Per account, with the last-day lookahead (29 Oct to 4 Nov): Starling has no bills, so after payments and low point are both its balance, 2,000. The salary has two sightings (28 Aug and 25 Sep, 28 days apart, equal amounts), which matches a monthly rhythm within the tolerance and is the largest regular credit on Barclays and due before the next payday, so it is a steady salary and is credited to Barclays on 30 Oct. Barclays walk: 200, then on 30 Oct credits before debits: +3,000 = 3,200, mortgage -1,100 = 2,100. After payments 2,100, low point 200 (the opening balance is the lowest). Spend from is the smaller of 2,100 and 200 = 200; Starling 2,000 is below the pool of 2,200. Nobody is short, so no cover move and at risk 0. The period is on day 35 (25 Sep is day 1); a payday plan only shows when the day of the period is 3 or less (days_into_period <= 3, companion.py:2558), so there is no payday plan."
+    "notes": "Re-derived for G360 with the pay on the 1st (calendar month) and the salary mid-period, so the steady credit sits inside the window. Today is Thu 8 Oct 2026, payday Sun 1 Nov, 24 days away; the window is strictly before payday. The account was reconnected recently, so there is no confirmed salary stream. Balances: Barclays 200 + Starling 2,000 = 2,200 pooled. The salary 3,000 (two sightings, 15 Aug and 15 Sep, 31 days apart, equal amounts: monthly rhythm within tolerance, largest regular credit on Barclays, due before payday) is a steady salary, credited to Barclays on Thu 15 Oct (day 7). The mortgage 1,100 leaves Barclays on Fri 16 Oct (day 8). Left to spend: pooled 2,200, day 7 + 3,000 = 5,200, day 8 - 1,100 = 4,100; the lowest point is the opening 2,200, so Left to spend 2,200. Barclays walk: 200, day 7 + 3,000 = 3,200, day 8 - 1,100 = 2,100. After payments 2,100, low point 200 (the opening balance). Starling has no bills so it is not walked: after payments and low point are its balance, 2,000. Spend from is the smaller of after payments and low point: Barclays 200, Starling 2,000 (below the pool 2,200). Nobody is short: no cover move, at risk 0. The period is on day 8 (1 Oct is day 1), so there is no payday plan (companion.py:2558, days_into_period <= 3)."
   }
 }

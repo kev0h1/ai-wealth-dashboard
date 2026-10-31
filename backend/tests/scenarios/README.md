@@ -99,9 +99,9 @@ verdict context), Penny and any LLM call.
 
 ## Coverage
 
-Step 1 (this directory): eve of payday with own-account standing orders (G359),
+Step 1 (this directory): eve of payday, where everything dated on payday belongs to the next period (G359, G360), the same standing orders funded by a steady salary mid-period (G359, G360 funded-inflow rule),
 monthly bills on the 1st with month-end pay (G354), a reconnected account with
-two salary sightings and its one-sighting variant (G359), the unconfirmed card
+two salary sightings and its one-sighting variant, with the salary mid-period (G359), the unconfirmed card
 bill hold and its release.
 
 Not yet written, to be added once their fixes merge (G360, G362, A175): payday

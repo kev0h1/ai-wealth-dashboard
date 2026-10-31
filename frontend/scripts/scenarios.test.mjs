@@ -27,7 +27,7 @@ const pence = (pounds) => (pounds === null || pounds === undefined ? null : Math
 const money = (pounds) => (pounds === null || pounds === undefined ? null : Math.round(pounds * 100) / 100);
 // Same window rule as the server (pay_period.in_current_window), restated here as an
 // independent check that the client's end-of-window agrees with it.
-const inServerWindow = (daysAway, daysToPay) => (daysToPay <= 1 ? daysAway >= 0 && daysAway <= daysToPay + 5 : daysAway >= 0 && daysAway < daysToPay);
+const inServerWindow = (daysAway, daysToPay) => daysAway >= 0 && daysAway < daysToPay; // G360: strictly before payday, no lookahead
 
 let checked = 0;
 for (const slug of slugs) {

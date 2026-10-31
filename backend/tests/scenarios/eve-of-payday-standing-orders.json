@@ -1,5 +1,5 @@
 {
-  "name": "Eve of payday, own-account standing orders funded by the salary (G359)",
+  "name": "Eve of payday: everything dated on payday belongs to the next period (G359, G360)",
   "today": "2026-10-29",
   "pay_period_config": {
     "type": "last_friday"
@@ -143,20 +143,20 @@
     "accounts": {
       "acc-bc": {
         "spend_from": 200.0,
-        "after_payments": 1800.0,
+        "after_payments": 200.0,
         "low_point": 200.0,
         "verdict": "covered"
       },
       "acc-hsbc": {
-        "spend_from": 20.0,
-        "after_payments": 920.0,
-        "low_point": 20.0,
+        "spend_from": 60.0,
+        "after_payments": 60.0,
+        "low_point": 60.0,
         "verdict": "covered"
       },
       "acc-nw": {
-        "spend_from": 10.0,
-        "after_payments": 510.0,
-        "low_point": 10.0,
+        "spend_from": 40.0,
+        "after_payments": 40.0,
+        "low_point": 40.0,
         "verdict": "covered"
       }
     },
@@ -166,6 +166,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 0,
-    "notes": "Today is Thu 29 Oct 2026, pay is the last Friday (30 Oct), so payday is tomorrow. Balances: Barclays 350 + HSBC 60 + NatWest 40 = 450 pooled. Left to spend counts only bills strictly before payday: Council tax 150 is due today (Barclays), nothing else is dated today, the two standing orders (900 and 500) and the salary are all dated 30 Oct and so fall in the next period, and a move between two pooled accounts removes neither leg anyway. 450 - 150 = 300, no buffer, no set-asides, no card. Per account walk (last-day lookahead covers 29 Oct to 4 Nov, credits before debits on a shared day). Barclays: 350 - 150 = 200 (today), 30 Oct: salary +3000 (two sightings, equal amounts, monthly rhythm, largest credit on the account, so steady and credited) = 3200, then -900 = 2300, -500 = 1800. After payments 1800, low point 200 (the lowest running balance, the opening 350 included). HSBC: 60, +900 mirrored from the standing order on 30 Oct = 960, gym 40 on 3 Nov = 920 after payments; low point ignores inflows (a later credit must not be assumed): 60 - 40 = 20. NatWest: 40 + 500 = 540, water 30 on 4 Nov = 510 after payments; low point 40 - 30 = 10. Spend from is the smaller of after payments and low point (no plans): 200, 20, 10, each below the pooled 300 so the pool cap does not bind. Nobody goes below zero so no cover move and the cover total is 0. The pay period 25 Sep to 29 Oct is on its 35th day (25 Sep is day 1); a payday plan only shows when the day of the period is 3 or less (days_into_period <= 3, companion.py:2558), so there is no payday plan. At risk count 0: no account's running balance goes below zero on any payment."
+    "notes": "Re-derived under G360 (the first version of this note used the old last-day lookahead and gave Barclays 1,800). Today is Thu 29 Oct 2026, pay is the last Friday (30 Oct), so payday is tomorrow and days to payday is 1. Since G360 the period ends the day before the next payday with no lookahead: pay_period.in_current_window is strictly days_away < days_to_pay, so only items dated today (day 0) count. Balances: Barclays 350 + HSBC 60 + NatWest 40 = 450 pooled. Council tax 150 (Barclays) is due today. Everything dated 30 Oct, the salary 3,000, the standing orders 900 (to HSBC) and 500 (to NatWest) that it funds, belongs to the next period and sits in the payday slice, not in this period's after payments or low point. A move between two pooled accounts removes neither leg anyway. Left to spend = 450 - 150 = 300 (no buffer, set-asides, goals or card). Barclays: 350 - 150 = 200, so after payments 200 and low point 200. HSBC and NatWest have no bill before payday, so they are not walked: after payments is the balance now (60 and 40), low point the same (60 and 40), and the inbound standing orders are not credited (dated on payday). Spend from is the smaller of after payments and low point: 200, 60, 40, each below the pooled 300 so the pool cap does not bind. Nobody is short, so no cover move (total 0), at risk 0. The pay period 25 Sep to 29 Oct is on its 35th day (25 Sep is day 1); a payday plan only shows when days_into_period <= 3 (companion.py:2558), so there is none. This fixture no longer exercises the funded-salary rule; standing-orders-funded-mid-period does."
   }
 }

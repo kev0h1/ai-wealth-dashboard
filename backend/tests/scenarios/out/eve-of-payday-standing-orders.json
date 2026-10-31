@@ -2,8 +2,8 @@
   "account_eligibility": {
     "acc-bc": {
       "account_headroom_raw": 200.0,
-      "after_payments": 1800.0,
-      "after_payments_and_plans": 1800.0,
+      "after_payments": 200.0,
+      "after_payments_and_plans": 200.0,
       "estimated": false,
       "headroom": 190.0,
       "low_point": 200.0,
@@ -15,31 +15,31 @@
       "uncertain": false
     },
     "acc-hsbc": {
-      "account_headroom_raw": 20.0,
-      "after_payments": 920.0,
-      "after_payments_and_plans": 920.0,
+      "account_headroom_raw": 60.0,
+      "after_payments": 60.0,
+      "after_payments_and_plans": 60.0,
       "estimated": false,
-      "headroom": 10.0,
-      "low_point": 20.0,
-      "low_point_and_plans": 20.0,
+      "headroom": 50.0,
+      "low_point": 60.0,
+      "low_point_and_plans": 60.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_capped": false,
-      "spend_from_headroom": 20.0,
+      "spend_from_headroom": 60.0,
       "uncertain": false
     },
     "acc-nw": {
-      "account_headroom_raw": 10.0,
-      "after_payments": 510.0,
-      "after_payments_and_plans": 510.0,
+      "account_headroom_raw": 40.0,
+      "after_payments": 40.0,
+      "after_payments_and_plans": 40.0,
       "estimated": false,
-      "headroom": 0.0,
-      "low_point": 10.0,
-      "low_point_and_plans": 10.0,
+      "headroom": 30.0,
+      "low_point": 40.0,
+      "low_point_and_plans": 40.0,
       "plans_reserved": 0.0,
-      "short": true,
+      "short": false,
       "spend_from_capped": false,
-      "spend_from_headroom": 10.0,
+      "spend_from_headroom": 40.0,
       "uncertain": false
     }
   },
@@ -450,7 +450,7 @@
   },
   "days_to_payday": 1,
   "items": [],
-  "name": "Eve of payday, own-account standing orders funded by the salary (G359)",
+  "name": "Eve of payday: everything dated on payday belongs to the next period (G359, G360)",
   "period": {
     "end": "2026-10-29",
     "start": "2026-09-25"

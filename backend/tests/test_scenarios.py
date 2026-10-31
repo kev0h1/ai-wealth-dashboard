@@ -73,25 +73,44 @@ def _rebind_collections(client):
     new_db = client[MONGO_DB]
     new_cols = {name: new_db[name] for name in originals}
 
-    def swap(find, make):
+    def is_old(v):
+        return isinstance(v, AsyncIOMotorCollection) and v.database.name == MONGO_DB and v.name in new_cols \
+            and v.database is not new_db
+
+    def to_new(v):
+        if is_old(v):
+            return new_cols[v.name]
+        if v is original_db:
+            return new_db
+        # A module-level tuple or list of handles (counted_accounts._COLLECTIONS).
+        if type(v) in (tuple, list) and any(is_old(x) for x in v):
+            return type(v)(new_cols[x.name] if is_old(x) else x for x in v)
+        return None
+
+    def to_original(v):
+        def back(x):
+            if isinstance(x, AsyncIOMotorCollection) and x.database is new_db and x.name in originals:
+                return originals[x.name]
+            return x
+        if v is new_db:
+            return original_db
+        if type(v) in (tuple, list) and any(back(x) is not x for x in v):
+            return type(v)(back(x) for x in v)
+        new = back(v)
+        return new if new is not v else None
+
+    def rebind(convert):
         for mod in _app_modules():
             for attr, value in list(vars(mod).items()):
-                new = make(value) if find(value) else None
+                new = convert(value)
                 if new is not None:
                     setattr(mod, attr, new)
 
     def restore():
-        for mod in _app_modules():
-            for attr, value in list(vars(mod).items()):
-                if isinstance(value, AsyncIOMotorCollection) and value.database is new_db and value.name in originals:
-                    setattr(mod, attr, originals[value.name])
-                elif value is new_db:
-                    setattr(mod, attr, original_db)
+        rebind(to_original)
 
     try:
-        swap(lambda v: isinstance(v, AsyncIOMotorCollection) and v.database.name == MONGO_DB and v.name in new_cols,
-             lambda v: new_cols[v.name])
-        swap(lambda v: v is original_db, lambda v: new_db)
+        rebind(to_new)
     except BaseException:
         restore()  # a mid-swap failure must not leave closed-client handles behind
         raise
@@ -353,10 +372,8 @@ def _check_invariants(snap: dict, spec: dict) -> None:
 
 
 def _in_walk_window(snap: dict, bill: dict) -> bool:
-    days = snap["days_to_payday"]
-    if days <= 1:
-        return 0 <= bill["days_away"] <= days + 5
-    return 0 <= bill["days_away"] < days
+    # G360: the period ends the day before payday, no lookahead.
+    return 0 <= bill["days_away"] < snap["days_to_payday"]
 
 
 def _check_each_bill_in_one_walk(snap: dict, where: str) -> None:
