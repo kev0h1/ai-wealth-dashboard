@@ -117,6 +117,13 @@ for (const slug of slugs) {
       if (serverShort) assert.equal(row.label, "Short for payments", `${account.id} By account label`);
       else if (shown.status === "covered" && !plans.some((p) => p.sourceId === account.id)) assert.equal(money(row.amount), money(server.after_payments), `${account.id} By account left figure vs server after payments`);
     });
+    assertKey(`rows agree with shown status: ${account.id}`, () => {
+      // The reconcile must never flip the verdict away from the bill rows unnoticed.
+      const shown = reconcileWithServerPosition(account, positions[account.id]);
+      const gaps = account.events.filter((event) => event.kind === "payment" || event.kind === "movement").map((event) => walk.coverage.get(event.source)?.shortfall ?? 0);
+      if (shown.status === "covered") assert.ok(gaps.every((gap) => gap === 0), `${account.id} shown covered but a bill row is short`);
+      if (shown.status === "short") assert.ok(gaps.some((gap) => gap > 0), `${account.id} shown short but no bill row is short`);
+    });
     assertKey(`account plan agrees with server: ${account.id}`, () => {
       const server = snap.account_eligibility[account.id];
       const withServer = accountPlan({ ...account, position: positions[account.id] }, plans);

@@ -14,12 +14,14 @@ export interface UpcomingAccountDetailsProps { account: UpcomingAccountSummary; 
   onEvent?: (eventId: string) => void; editableEventIds?: ReadonlySet<string>; }
 
 function EventLine({ event, onEvent, align }: { event: UpcomingAccountEvent; onEvent?: (eventId: string) => void; align?: boolean }) {
+  const m = useMaskedMoney();
+  const uncounted = event.credited === false;
   const incoming = event.kind === "income" || event.kind === "inflow";
   const Icon = incoming ? ArrowDownLeft : event.kind === "movement" ? ArrowLeftRight : ReceiptText;
   const content = <>
-    <span className={"flex size-9 items-center justify-center rounded-xl " + (incoming ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300" : "bg-cyan-50 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-300")}><Icon size={18} aria-hidden="true" /></span>
-    <span className="min-w-0"><span className="block break-words text-sm font-medium">{event.name}</span><span className={"mt-0.5 block text-xs " + detailMuted}>{dateLabel(event.date)}</span></span>
-    <span className={"shrink-0 text-right text-sm " + detailInk}>{money(Math.round(event.amount * 100), incoming)}</span>
+    <span className={"flex size-9 items-center justify-center rounded-xl " + (uncounted ? "bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400" : incoming ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300" : "bg-cyan-50 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-300")}><Icon size={18} aria-hidden="true" /></span>
+    <span className="min-w-0"><span className="block break-words text-sm font-medium">{event.name}</span><span className={"mt-0.5 block text-xs " + detailMuted}>{dateLabel(event.date)}{uncounted ? " · Not counted until it is confirmed." : ""}</span></span>
+    <span data-uncredited-income={uncounted ? "true" : undefined} className={"shrink-0 text-right text-sm " + (uncounted ? detailMuted : detailInk)}>{uncounted ? m(Math.round(event.amount * 100), true) : money(Math.round(event.amount * 100), incoming)}</span>
     {onEvent && <ChevronRight size={14} className={detailMuted} aria-hidden="true" />}
   </>;
   return <li>{onEvent
@@ -40,9 +42,11 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   const m = useMaskedMoney();
   const hidden = useBalancesHidden();
   const result = accountPlan(account, plans);
-  if (account.status === "short" && account.shortFor?.cardRepayment) return <div className="space-y-2"><p data-card-repayment-short className="flex items-start gap-2 text-sm font-semibold"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{maskMoneyText(cardRepaymentShortCopy(account), hidden)}</p>{account.coverSuggestion && <p className={"text-xs leading-5 " + detailMuted}>{coverSuggestionSentence(account.coverSuggestion)}</p>}<p className={"text-xs leading-5 " + detailMuted}>A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap.</p></div>;
   const gap = accountPaymentGap(account);
-  if (gap !== null) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{m(Math.round(gap * 100))} needed for payments</p><p className={"text-xs leading-5 " + detailMuted}>{account.firstShortDate ? "First shortfall " + dateLabel(account.firstShortDate) + ". " : ""}Goals and allocations are separate from this bill gap.</p></div>;
+  const uncountedPence = Math.round(account.events.filter((event) => event.credited === false).reduce((sum, event) => sum + event.amount, 0) * 100);
+  const uncountedLine = uncountedPence > 0 ? <p data-uncredited-note className={"text-xs leading-5 " + detailMuted}>Expected {m(uncountedPence)} is not counted until it is confirmed.</p> : null;
+  if (account.status === "short" && account.shortFor?.cardRepayment) return <div className="space-y-2"><p data-card-repayment-short className="flex items-start gap-2 text-sm font-semibold"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{maskMoneyText(cardRepaymentShortCopy(account), hidden)}</p>{account.coverSuggestion && <p className={"text-xs leading-5 " + detailMuted}>{coverSuggestionSentence(account.coverSuggestion)}</p>}<p className={"text-xs leading-5 " + detailMuted}>A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap.</p>{uncountedLine}</div>;
+  if (gap !== null) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{m(Math.round(gap * 100))} needed for payments</p><p className={"text-xs leading-5 " + detailMuted}>{account.firstShortDate ? "First shortfall " + dateLabel(account.firstShortDate) + ". " : ""}Goals and allocations are separate from this bill gap.</p>{uncountedLine}</div>;
   if (account.status === "unknown") return <div className="space-y-2"><h3 className="text-base font-semibold">Balance needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>We can show your plans, but not whether this account can fund them until its balance and incoming money can be verified.</p></div>;
   if (plansStatus !== "ready") return <p className={"text-sm leading-6 " + detailMuted}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</p>;
   if (result.uncertain) return <div className="space-y-2"><h3 className="text-base font-semibold">Calculation needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>{result.assigned.some((plan) => plan.overlapReason === "shared-plan") ? "Plans share a receiving pot. We cannot tell whether they describe the same money, so no combined total is shown." : result.assigned.some((plan) => plan.overlapUncertain) ? "A planned move may also fund one of these plans. No combined total is shown until the overlap is clear." : "A plan amount is unavailable, so no combined total is shown."}</p></div>;

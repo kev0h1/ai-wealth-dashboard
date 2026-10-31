@@ -90,11 +90,14 @@ export function walkUpcomingAccounts(
     const balanceKnown = id !== "__unknown__" && typeof opening === "number" && Number.isFinite(opening)
       && payments.every((bill) => typeof bill.account_balance === "number" && Number.isFinite(bill.account_balance) && pennies(bill.account_balance) === pennies(opening));
     const credits = credited.filter((item) => item.account_id === id);
+    // G372: an uncredited prediction stays visible as a zero-delta event (credited: false).
+    const uncredited = income.filter((item) => item.account_id === id && !item.credit_basis);
     const transfers = inflows.filter((item) => item.account_id === id);
     const rawEvents = [
-      ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
-      ...transfers.map((item, index) => ({ id: `inflow-${index}`, name: item.source_account_name ? `From ${item.source_account_name}` : "Transfer in", expected_date: item.expected_date, type: "inflow" as const, kind: "inflow" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
-      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "bill" as const, kind: isOptionalMove(item) ? "movement" as const : "payment" as const, amount: -pennies(item.amount), bill: item, ref: item as object })),
+      ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), credited: true as boolean, bill: undefined, ref: item as object })),
+      ...uncredited.map((item, index) => ({ id: `uncredited-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), credited: false as boolean, bill: undefined, ref: item as object })),
+      ...transfers.map((item, index) => ({ id: `inflow-${index}`, name: item.source_account_name ? `From ${item.source_account_name}` : "Transfer in", expected_date: item.expected_date, type: "inflow" as const, kind: "inflow" as const, amount: pennies(item.amount), credited: true as boolean, bill: undefined, ref: item as object })),
+      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "bill" as const, kind: isOptionalMove(item) ? "movement" as const : "payment" as const, amount: -pennies(item.amount), credited: true as boolean, bill: item, ref: item as object })),
     ].sort(compareUpcomingEvents);
     const knownWorking = balanceKnown && rawEvents.every((item) => Number.isFinite(item.amount));
     let running = knownWorking ? pennies(opening!) : null;
@@ -106,7 +109,7 @@ export function walkUpcomingAccounts(
     let movementsSince: Movement[] = [];
     const events = rawEvents.map((event): UpcomingAccountEvent => {
       const before = running;
-      if (running !== null) running += event.amount;
+      if (running !== null && event.credited !== false) running += event.amount;
       if (running !== null && event.bill) {
         const shortfall = Math.max(0, -running);
         gap = Math.max(gap, shortfall);
@@ -132,10 +135,10 @@ export function walkUpcomingAccounts(
           }
         }
         if (event.kind === "movement") movementsSince.push({ name: event.bill.name, amount: event.bill.amount, expected_date: event.expected_date });
-      } else if (!event.bill) {
+      } else if (!event.bill && event.credited !== false) {
         movementsSince = [];
       }
-      return { id: event.id, name: event.name, date: event.expected_date, kind: event.kind, amount: event.amount / 100, after: running === null ? null : running / 100, source: event.ref };
+      return { id: event.id, name: event.name, date: event.expected_date, kind: event.kind, amount: event.amount / 100, after: running === null ? null : running / 100, source: event.ref, ...(event.credited === false ? { credited: false } : {}) };
     });
     const verifiable = knownWorking && !(unknownIncome && gap > 0);
     const sum = (values: { amount: number }[]) => values.reduce((total, item) => total + pennies(item.amount), 0) / 100;
