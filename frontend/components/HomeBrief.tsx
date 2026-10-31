@@ -1239,7 +1239,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
 
   if (destination && legs.length > 0) {
     const { clearClause, dueCopy, hasOverdueBills } = paymentCopy!;
-    const safeSuffix = item.envelope_reserved ? " and set-asides" : "";
+    const safeSuffix = item.envelope_reserved ? ", set-asides and goals" : "";
     const safeClause = item.sources_safe
       ? (legs.length === 1
           ? `the source still covers its own bills${safeSuffix}`
@@ -1388,11 +1388,11 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
           {/* Footer — merged assurance line + residual */}
           {(() => {
             const clearClause = paymentCopy?.clearClause ?? null;
-            // "...and envelopes" only appended when true (owner fix,
-            // 2026-08-31): an envelope reservation actually reduced a
+            // "...set-asides and goals" only appended when true (owner fix,
+            // 2026-08-31): a set-aside or goal reservation actually reduced a
             // source's contribution here — see item.envelope_reserved /
             // MoveMap.from.reserved_for_allocations.
-            const safeSuffix = item.envelope_reserved ? " and set-asides" : "";
+            const safeSuffix = item.envelope_reserved ? ", set-asides and goals" : "";
             const safeClause = item.sources_safe
               ? (legs.length === 1
                   ? `the source still covers its own bills${safeSuffix}`

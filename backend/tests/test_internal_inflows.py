@@ -761,6 +761,12 @@ def _bill(name, days_away, amount, account_id, balance, kind="commitment"):
     }
 
 
+def _src_move(days_away, amount):
+    """G360: the source leg of the mirrored inflow. An inflow is credited only
+    when its source account (Barclays) is itself covered that day."""
+    return _bill("To HSBC", days_away, amount, "barclays", 5000.0, kind=MOVEMENT)
+
+
 def _inflow(days_away, amount, account_id):
     return {
         "name": "KEVIN MAINGI HSBC STO", "amount": amount, "days_away": days_away,
@@ -774,7 +780,7 @@ def test_shortfall_covered_by_later_inflow_no_longer_at_risk(monkeypatch):
     STO inflow lands. Crediting the inflow first (it's earlier in the
     walk) means the bill is genuinely covered, and the previously-false
     "at risk" flag must clear."""
-    bills = [_bill("Council Tax", 4, 100.0, "hsbc", 10.0)]
+    bills = [_bill("Council Tax", 4, 100.0, "hsbc", 10.0), _src_move(2, 1758.33)]
     inflows = [_inflow(2, 1758.33, "hsbc")]
     assert _run_at_risk(monkeypatch, bills, inflows) == 0
 
@@ -786,6 +792,7 @@ def test_genuinely_short_account_still_counted_alongside_covered_one(monkeypatch
     bills = [
         _bill("Council Tax", 4, 100.0, "hsbc", 10.0),
         _bill("Gym", 3, 60.0, "natwest", 10.0),
+        _src_move(2, 1758.33),
     ]
     inflows = [_inflow(2, 1758.33, "hsbc")]
     assert _run_at_risk(monkeypatch, bills, inflows) == 1
@@ -881,7 +888,7 @@ def _run_compute_today_items(monkeypatch, bills, inflows):
 
 
 def test_compute_today_items_credits_inflow_into_the_shared_walk(monkeypatch):
-    bills = [_bill("Council Tax", 4, 100.0, "hsbc", 10.0)]
+    bills = [_bill("Council Tax", 4, 100.0, "hsbc", 10.0), _src_move(2, 1758.33)]
     inflow = _inflow(2, 1758.33, "hsbc")
     items, captured, credited_calls = _run_compute_today_items(monkeypatch, bills, [inflow])
 
@@ -936,7 +943,7 @@ def test_cashflow_window_wires_internal_inflow_into_events(monkeypatch):
     `_bills_risk` calls): the same inflow-crediting addition made to
     analytics.at_risk_count and companion.compute_today_items, exercised
     here through its own public entry point rather than by inspection."""
-    bills = [_bill("Council Tax", 4, 100.0, "hsbc", 10.0)]
+    bills = [_bill("Council Tax", 4, 100.0, "hsbc", 10.0), _src_move(2, 1758.33)]
     inflow = _inflow(2, 1758.33, "hsbc")
     window = _run_cashflow_window(monkeypatch, bills, [inflow])
     assert window is not None
@@ -999,7 +1006,7 @@ def test_bills_risk_uses_inflow_corrected_baseline(monkeypatch):
     inflow = _inflow(2, 50.0, "hsbc")
 
     result = _run_bills_risk(
-        monkeypatch, [bill], [inflow],
+        monkeypatch, [bill, _src_move(2, 50.0)], [inflow],
         total_excess=25.0, days_elapsed=5, days_left=3, salary_acct="hsbc",
     )
     assert result is not None

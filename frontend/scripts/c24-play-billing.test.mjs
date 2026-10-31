@@ -168,7 +168,7 @@ check("a Google-sourced plan never opens the Stripe portal", /billingChangeInPor
 check("the picker has no \"14 days\" text in its Play branches", !/playBuy[^;\n]*14|14[- ]day[^;\n]*playBuy/.test(picker)
   && /\$\{trial\.periodText\} free, then \$\{selectedPlayView\.priceString\}/.test(picker));
 check("the packs sheet buys through Play only on the play channel and keeps its Stripe path behind purchasingAllowed",
-  /usePurchaseChannel\(\) === "play"/.test(sheet) && /onBuy=\{\(\) => \(play \? buyOnPlay\(pack\.id\) : buy\("pack", pack\.id\)\)\}/.test(sheet)
+  /usePurchaseChannel\(\) === "play"/.test(sheet) && /onBuy=\{\(\) => \(play \? buyOnPlay\(pack\.id\) : storekit \? buyOnStoreKit\(pack\.id\) : buy\("pack", pack\.id\)\)\}/.test(sheet)
   && /if \(pendingId \|\| !purchasingAllowed\) return;/.test(sheet));
 check("Your plan shows no Stripe fix-payment button for a Google plan", /channel === "stripe_web" && !appleSourced && !googleSourced/.test(yourPlan) && /googleManageLine/.test(yourPlan));
 check("purchaseChannel in nativeAuth passes the Play plugin flag", /playPluginPresent: native && hasPlayPlugin\(\)/.test(nativeAuth));
@@ -194,6 +194,17 @@ check("B31 backstop still guards checkout and portal and names android", /_rejec
 check("the client still sends the platform header on the Stripe routes", /startCheckout:[\s\S]{0,400}platformHeaders\(\)/.test(api) && /openBillingPortal:[^\n]*platformHeaders\(\)/.test(api));
 const playRouter = read("../backend/app/routers/play_billing.py");
 check("the Play verify route grants nothing itself: it calls the server verifier", /play_billing\.verify_client_purchase\(/.test(playRouter) && !/subscriptions_col|grant_pack|upsert_store_subscription/.test(playRouter));
+
+// C39: the server's blocked message is shown inline above the pack rows.
+{
+  const note = sheet.match(/const blockedNote[\s\S]*?: null;/)?.[0] ?? "";
+  check("C39: the sheet derives one blockedNote from the server's purchase_blocked", /playCfg\?\.purchase_blocked/.test(note));
+  check("C39: blockedNote is only set on the play channel, so the web branch never renders it", /: null;$/.test(note) && /play\s*\?/.test(note) && /storekit\s*\?/.test(note));
+  check("C39: the message renders once, verbatim, only when present, before the pack rows",
+    /\{blockedNote && \(\s*<p[^>]*>\{blockedNote\}<\/p>\s*\)\}/.test(sheet) && ((sheet.match(/\{blockedNote\}/g) ?? []).length === 1)
+    && sheet.indexOf("{blockedNote && (") < sheet.indexOf("{plusLeads ? ("));
+  check("C39: no copy is invented for the blocked note", !/blockedNote[^;]*"[A-Za-z ]{6,}"/.test(note));
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed`);

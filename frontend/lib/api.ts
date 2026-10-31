@@ -159,6 +159,8 @@ export type UpcomingBill = {
   account_name?: string | null;
   account_bank?: string | null;
   account_balance?: number | null;
+  /** G359: set on predicted income the server may credit to its account's walk ("confirmed", "reliable" or "steady"). */
+  credit_basis?: "confirmed" | "reliable" | "steady" | null;
   is_credit_card?: boolean;
   category?: string | null;
   edited?: boolean;
@@ -2114,6 +2116,19 @@ export type OpsHealth = {
     user_syncs_yesterday: number;
     history_syncs_today: number;
     history_syncs_yesterday: number;
+  } | null;
+  // A176: how fresh the bank's own data is; null when it could not be built.
+  finexer_sync?: {
+    alert: boolean;
+    stale_hours: number;
+    authorized_consents: number;
+    consents_without_bank_data: number;
+    consents_stale: number;
+    oldest_bank_data_at: string | null;
+    sync_429s_24h: number;
+    sync_errors_24h: number;
+    consents: { last_synced_to: string | null; age_hours: number | null }[];
+    line: string;
   } | null;
 };
 // E9: GET /ops/webhooks/recent (owner-only, allowlist projection).

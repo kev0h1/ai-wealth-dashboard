@@ -30,6 +30,14 @@ export interface Account {
   /** G231: false when the user chose not to count this account towards Safe
    *  to Spend. Absent or true means counted. Balances still show either way. */
   include_in_safe_to_spend?: boolean;
+  /** A175: when the last successful transaction sync for this account
+   *  finished (ISO, UTC) and how many rows the bank returned in it. Absent or
+   *  null on older rows, offline accounts and statements. */
+  transactions_synced_at?: string | null;
+  transactions_last_count?: number | null;
+  /** A176: the bank's own as-of time for this account's data (Finexer's sync
+   *  object synced_to, ISO UTC). Absent or null where not reported. */
+  bank_synced_to?: string | null;
 }
 
 /** One live bank connection/consent, from GET /connections

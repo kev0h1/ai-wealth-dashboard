@@ -3349,8 +3349,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
     # decision — see app/services/pay_period.py's in_current_window
     # docstring): a bill/income/inflow scheduled ON payday belongs to the
-    # NEXT pay period's arithmetic, not this badge's. Last-day lookahead
-    # (days_to_pay <= 1) is unchanged, encoded inside the helper.
+    # NEXT pay period's arithmetic, not this badge's. No last-day lookahead
+    # (G360): strictly before payday for every days_to_pay.
     from app.services.pay_period import in_current_window as _in_window
     window_bills  = [b for b in resp["upcoming_bills"]  if _in_window(b["days_away"], _days_to_pay)]
     window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], _days_to_pay)]
@@ -3427,7 +3427,15 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # for one either — see the comment block above `walk_sort_key` in
     # services/companion.py for why a lapsed inflow is already spoken for
     # by its source-side pending copy.
-    for n in window_inflows:
+    #
+    # G360: credited only when the inflow's SOURCE account is itself covered
+    # that day (`funded_inflows`, the one rule shared by every walk).
+    from app.services.inflow_credit import funded_inflows
+    _funded = funded_inflows(
+        window_inflows, assessable_bills, window_income, {**live_balances, **running},
+        lambda i, a: income_credit_ok(i, a, _confirmed_keys),
+    )
+    for n in _funded:
         acct = str(n.get("account_id") or "")
         if acct in running:
             events.append((n["days_away"], acct, float(n["amount"]), True, None))

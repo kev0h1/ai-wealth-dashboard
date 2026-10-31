@@ -57,7 +57,7 @@ let result = walk([first, second], [credit()]);
 assert.deepEqual(result.coverage.get(first), { before: 200, after: 20, shortfall: 0 }, "Same-day income is credited first");
 assert.deepEqual(result.coverage.get(second), { before: 20, after: -10, shortfall: 10 });
 assert.deepEqual(result.atRisk.map((item) => item.name), ["Second"]);
-assert.equal(walk([first], [], [credit({ destination_spendable: false })]).atRisk.length, 0, "Source-account coverage includes internal inflow even into savings");
+assert.equal(walk([first, bill({ name: "Move out", amount: 100, account_id: "s", account_balance: 1000, kind: "movement" })], [], [credit({ destination_spendable: false, source_account_id: "s" })]).atRisk.length, 0, "Source-account coverage includes internal inflow even into savings");
 assert.equal(walk([first], [credit({ account_id: "b" })]).atRisk.length, 1, "Another account's income cannot cover this one");
 result = walk([first], [credit({ account_id: null })]);
 assert.equal(result.atRisk.length, 0, "Unidentified income leaves a possible deficit unverified, never credited to every account");

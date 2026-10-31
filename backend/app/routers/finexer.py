@@ -231,7 +231,8 @@ async def finexer_callback(
     )
 
     user_id = doc["user_id"]
-    asyncio.create_task(finexer_sync_pipeline(consent_id, user_id))
+    # A176: the first sync after connect asks Finexer to refresh from the bank.
+    asyncio.create_task(finexer_sync_pipeline(consent_id, user_id, request_bank_sync=True))
 
     if doc.get("native"):
         return _bank_page(True, "finexer", consent_id, auto_return=True)

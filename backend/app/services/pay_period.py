@@ -116,40 +116,24 @@ def period_rhythm_label(config: dict) -> str | None:
 # precedent this decision aligns the other three sites to, and it is NOT
 # changed by this decision.
 #
-# The one deliberate exception is the LAST-DAY LOOKAHEAD: once payday is
-# today or tomorrow (`days_to_pay <= 1`), the window still extends through
-# `days_to_pay + 5` INCLUSIVE of payday day itself. That widening exists to
-# assess the next period's first few days at the turn of the period, before
-# the next period's own cache has properly built out — behaviour that
-# predates and is unrelated to the payday-day-visibility decision above, and
-# stays exactly as it was. In that regime there is no separate "payday day"
-# slice: it is simply part of the (widened) current window, so
-# `is_payday_day` always reports False there — the two helpers below stay a
-# clean partition (current / payday-day / strictly-after) in every regime,
-# including the `days_to_pay == 0` edge case (today itself is a confirmed
-# payday) where the ordinary window is correctly empty and today's items
-# read as "payday day".
+# G360 (2026-10-29): the former LAST-DAY LOOKAHEAD (window widened to
+# `days_to_pay + 5` when `days_to_pay <= 1`) is REMOVED. It pulled the next
+# period's bills (and a negative pooled Left to spend) into the period that
+# was ending, so an account read short on payday eve for bills the next pay
+# funds. The period now always ends the day before the next payday, for every
+# `days_to_pay` including 0 (where the ordinary window is empty and today's
+# items read as "payday day"). Anything needing payday-day visibility keeps
+# reading the `payday_day_*` slices.
 def in_current_window(days_away: int, days_to_pay: int) -> bool:
     """True when an item at `days_away` counts in the CURRENT pay period's
-    arithmetic (at-risk, shortfall, move-recommendation, to-last-payday
-    sims). Exclusive of payday day itself, except during the last-day
-    lookahead (`days_to_pay <= 1`), where the widened window still includes
-    it — see the module-level note above."""
-    if days_to_pay <= 1:
-        return 0 <= days_away <= days_to_pay + 5
+    arithmetic: strictly before payday, for every `days_to_pay` (G360)."""
     return 0 <= days_away < days_to_pay
 
 
 def is_payday_day(days_away: int, days_to_pay: int) -> bool:
-    """True when an item falls exactly ON payday — visible (e.g. in
-    companion.py's `payday_split`) but deliberately excluded from
-    `in_current_window` so it stops counting in the period that's ending.
-    Always False during the last-day lookahead regime (`days_to_pay <= 1`),
-    since that widened window already swallows payday day as part of
-    `in_current_window` — see the module-level note above; the two helpers
-    must never both be True for the same item."""
-    if days_to_pay <= 1:
-        return False
+    """True when an item falls exactly ON payday: visible (e.g. in
+    companion.py's `payday_split`) but excluded from `in_current_window`.
+    The two helpers partition current / payday-day / after in every regime."""
     return days_away == days_to_pay
 
 

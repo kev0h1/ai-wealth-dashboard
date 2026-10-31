@@ -193,7 +193,7 @@ def test_webhook_sync_task_marks_stale(_env, monkeypatch):
     async def noop(*_a, **_k):
         return None
 
-    async def fake_consent_sync(consent_id, user_id):
+    async def fake_consent_sync(consent_id, user_id, **_kw):
         new, _ = await finexer_sync._upsert_finexer_transactions([_fx_txn("w1")], "acc-1", user_id)
         return ["acc-1"], len(new)
 
