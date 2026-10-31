@@ -58,6 +58,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
+from app.routers.analytics import income_credit_ok
+
 Event = tuple  # (days_away, account_id, amount, is_income, item)
 
 INCOME_ADMIT = ("seeded", "any")
@@ -169,8 +171,6 @@ def account_events(
         raise ValueError(f"income_admit must be one of {INCOME_ADMIT}, got {income_admit!r}")
     if inflow_admit not in INFLOW_ADMIT:
         raise ValueError(f"inflow_admit must be one of {INFLOW_ADMIT}, got {inflow_admit!r}")
-    from app.routers.analytics import income_credit_ok  # lazy: analytics imports the callers
-
     seeded = sid in inputs.running_seed
     entries: list[tuple[Event, tuple]] = []
     credited: list[dict] = []
@@ -179,7 +179,9 @@ def account_events(
             entries.append(((b["days_away"], sid, float(b["amount"]), False, b), (_P_BILL, pos)))
     if seeded or income_admit == "any":
         for pos, i in enumerate(inputs.window_income):
-            if income_credit_ok(i, sid, inputs.confirmed_income_keys):
+            # `income_credit_ok` requires the income to be attributed to `sid`,
+            # so only those are asked.
+            if str(i.get("account_id") or "") == sid and income_credit_ok(i, sid, inputs.confirmed_income_keys):
                 entries.append(((i["days_away"], sid, float(i["amount"]), True, i), (_P_INCOME, pos)))
                 credited.append(i)
     if inflow_admit == "any":

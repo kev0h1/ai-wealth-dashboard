@@ -268,14 +268,21 @@ def _capture_at_risk(monkeypatch):
     monkeypatch.setattr(analytics, "preferences_col", FakeCol([json.loads(json.dumps(PREFS))]))
     monkeypatch.setattr(analytics, "accounts_col", FakeCol([dict(a) for a in ACCOUNTS]))
     monkeypatch.setattr(analytics, "yapily_accounts_col", FakeCol(YAPILY))
-    real_key = companion.walk_sort_key
+    # The events reach the walk already sorted since G365; compared in walk
+    # order (the golden was captured in insertion order).
+    import app.services.account_walk as account_walk
+    real_walk = account_walk.walk_events
     seen: list = []
 
-    def spy_key(ev):
-        seen.append(ev)
-        return real_key(ev)
+    def spy_walk(events, balances):
+        # the old inline loop carried (kind, is_card_repayment) as the item
+        seen.extend(
+            (d, a, amt, inc, None if inc else (it.get("kind"), bool(it.get("is_card_repayment"))))
+            for d, a, amt, inc, it in events
+        )
+        return real_walk(events, balances)
 
-    monkeypatch.setattr(companion, "walk_sort_key", spy_key)
+    monkeypatch.setattr(account_walk, "walk_events", spy_walk)
     result = asyncio.run(analytics.at_risk_count(user={"email": UID}))
     return _norm({"events_unsorted": list(seen), "result": result})
 
@@ -438,4 +445,10 @@ def test_dump_golden(monkeypatch):
 @pytest.mark.parametrize("name", ["companion", "at_risk"])
 def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
     golden = json.loads(GOLDEN.read_text())[name]
-    assert CAPTURES[name](monkeypatch) == golden
+    got = CAPTURES[name](monkeypatch)
+    if name == "at_risk":
+        golden["events_unsorted"] = sorted(
+            golden["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1)
+        )
+        got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1))
+    assert got == golden
