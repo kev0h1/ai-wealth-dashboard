@@ -1,4 +1,4 @@
-import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
+import { accountPaymentGap, type UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import { shortDayMonth } from "./cardRepayment";
 import { accountPlan, type Plan } from "@/lib/upcomingPlans";
 
@@ -12,8 +12,9 @@ export type AccountStatus = {
 /** Presentation only. Preserve the account calculation's result precedence.
  * A payment gap is the walk's peak shortfall, not its closing balance. */
 export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): AccountStatus {
-  if (account.status === "short" && account.shortfall !== null) {
-    return { amount: account.shortfall, label: "Short for payments", signal: "risk", estimated: false };
+  const gap = accountPaymentGap(account);
+  if (gap !== null) {
+    return { amount: gap, label: "Short for payments", signal: "risk", estimated: false };
   }
   if (account.status === "unfunded" && account.shortfall !== null) {
     return { amount: account.shortfall, label: "Short for transfers", signal: "move", estimated: false };

@@ -1,7 +1,9 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from app.routers.transactions import _search_query, _merge_paginate, _normalise_search_text
+from app.routers.transactions import (
+    _search_query, _merge_paginate, _normalise_search_text, _activity_date,
+)
 
 BASE = datetime(2026, 8, 1)
 
@@ -172,6 +174,24 @@ def test_merge_paginate_missing_date_sorts_last():
     no_date = {"description": "x", "date": None}
     result = _merge_paginate([[txn(1), no_date]], page=1, page_size=2)
     assert result[-1] is no_date
+
+
+# --- G373 activity dates -------------------------------------------------
+
+def test_future_booked_date_uses_first_seen_activity_day_after_it_posts():
+    """A weekend row must not jump forward again once its Monday bank date
+    arrives: first sighting, not today's clock, is the stable activity day."""
+    doc = {
+        "date": datetime(2026, 11, 2, 9),
+        "first_seen": datetime(2026, 10, 31, 14),
+    }
+    assert _activity_date(doc, datetime(2026, 10, 31, 18)) == doc["first_seen"]
+    assert _activity_date(doc, datetime(2026, 11, 3, 9)) == doc["first_seen"]
+
+
+def test_legacy_booked_row_keeps_earlier_bank_date():
+    doc = {"date": datetime(2026, 10, 30), "first_seen": datetime(2026, 10, 31)}
+    assert _activity_date(doc, datetime(2026, 11, 1)) == datetime(2026, 10, 30)
 
 
 # --- A93 follow-up: resolve_movement's mine-offline branch ----------------

@@ -72,7 +72,7 @@ def _wire(monkeypatch, txn_response, accounts=None, **kw):
     async def _upsert(txns, account_id, user_id, identity=None):
         return [t for t in txns if t.get("status") != "pending"], [t for t in txns if t.get("status") == "pending"]
 
-    async def _pending(rows, account_id, user_id, provider=None):
+    async def _pending(rows, account_id, user_id, provider=None, account_currency=None):
         return None
 
     monkeypatch.setattr(finexer_sync, "user_identity", _no_identity)

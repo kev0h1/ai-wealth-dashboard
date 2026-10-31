@@ -13,7 +13,7 @@ import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import { buildForecast, accountSummariesForForecast, SCENARIOS } from "../app/design/g176-upcoming-rows/fixtures.ts";
 
 const bill = (overrides = {}) => ({ name: "Bill", amount: 80, account_id: "a", account_bank: "Barclays", account_name: "Household account", account_balance: 100, expected_date: "2026-10-02", days_away: 1, kind: "commitment", ...overrides });
-const credit = (overrides = {}) => ({ name: "payer::opaque", display_name: "Example employer", amount: 100, account_id: "a", expected_date: "2026-10-02", days_away: 1, ...overrides });
+const credit = (overrides = {}) => ({ name: "payer::opaque", display_name: "Example employer", amount: 100, account_id: "a", expected_date: "2026-10-02", days_away: 1, credit_basis: "confirmed", ...overrides });
 const summary = (bills, income = [], inflows = [], cutoff = Date.parse("2026-10-29")) => buildUpcomingAccountSummaries({ upcoming_bills: bills, upcoming_income: income, internal_inflows: inflows }, cutoff);
 let accounts = summary([bill(), bill({ account_id: "b", account_balance: 20 })]);
 assert.deepEqual(accounts.map(({ status, closing, shortfall }) => ({ status, closing, shortfall })), [
@@ -30,7 +30,7 @@ assert.equal(summary([bill(), sourceMove({ account_balance: 50 })], [], [credit(
 assert.equal(summary([bill()], [], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: an untracked source never credits the destination");
 assert.equal(summary([bill()], [], [credit({ source_account_name: "Everyday account" })])[0].closing, 20, "G360: an unknown source never credits the destination");
 assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: "steady" })], [credit({ source_account_id: "s" })])[0].closing, 120, "G360: a credited salary on the source funds the transfer");
-assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100 })], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: income the server did not credit never funds the source");
+assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: null })], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: income the server did not credit never funds the source");
 assert.equal(summary([bill({ account_balance: 20 })], [credit({ account_id: "b" })])[0].shortfall, 60, "Other-account income never funds this payment");
 const lateIncome = credit({ expected_date: "2026-10-04", amount: 200 });
 accounts = summary([bill({ amount: 130 }), bill({ amount: 50, expected_date: "2026-10-03" })], [lateIncome]);

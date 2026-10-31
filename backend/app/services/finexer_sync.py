@@ -688,10 +688,7 @@ def _parse_date(txn: dict) -> datetime:
         return datetime.utcnow()
     if isinstance(raw, datetime):
         return raw
-    try:
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except ValueError:
-        return datetime.utcnow()
+    return _parse_iso_utc(str(raw)) or datetime.utcnow()  # naive-ok: fallback bank timestamp uses Mongo UTC convention
 
 
 async def _upsert_finexer_transactions(
@@ -728,6 +725,7 @@ async def _upsert_finexer_walk(
     the normalised shape `replace_pending_for_account` expects."""
     new_txns = []
     pending_rows = []
+    now = datetime.utcnow()  # naive-ok: persisted first-seen bank timestamp
     for txn in txns:
         # Defensive field mapping — exact names TBD until first sandbox login
         txn_id = (
@@ -749,6 +747,7 @@ async def _upsert_finexer_walk(
                 "amount":           txn.get("amount", 0),
                 "description":      description,
                 "merchant_name":    merchant,
+                "currency":         txn.get("currency"),
                 "transaction_type": _infer_transaction_type(txn),
             })
             continue
@@ -799,7 +798,11 @@ async def _upsert_finexer_walk(
         # row is told apart from a no-op re-pull (G177).
         before = await transactions_col.find_one_and_update(
             {"_id": txn_id},
-            {"$set": tdoc, "$setOnInsert": {"_id": txn_id, "custom_category": None}},
+            {"$set": tdoc, "$setOnInsert": {
+                "_id": txn_id, "custom_category": None,
+                "first_seen": now,
+                "activity_date": min(tdoc["date"], now),
+            }},
             upsert=True,
             projection=TXN_MATERIAL_PROJECTION,
             return_document=ReturnDocument.BEFORE,
@@ -1229,7 +1232,10 @@ async def sync_finexer_consent(
             # as the balance fetch above). A filtered booked walk is partial
             # for booked rows only; pending comes from its own full fetch.
             if not fetch_failed and not pending_failed:
-                await replace_pending_for_account(list(merged_pending.values()), account_id, user_id, provider="Finexer")
+                await replace_pending_for_account(
+                    list(merged_pending.values()), account_id, user_id, provider="Finexer",
+                    account_currency=currency,
+                )
 
             # A176 (F1): in EVERY sync path, read the sync object once after the
             # walk (a GET, no documented hourly limit) so bank_synced_to tracks

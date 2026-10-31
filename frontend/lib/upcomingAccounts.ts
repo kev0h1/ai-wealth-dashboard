@@ -10,6 +10,8 @@ export type UpcomingAccountEvent = {
   /** Signed pounds: incoming positive, outgoing negative. */
   amount: number;
   after: number | null;
+  /** G372: false for a predicted income the server does not credit (no credit_basis). It shows on the sheet but moves no balance. */
+  credited?: false;
   /** The originating cashflow item (same reference as the list row), so a row can be matched to its editor. Never serialised. */
   source?: object;
 };
@@ -76,18 +78,32 @@ export function buildUpcomingAccountSummaries(
  */
 export function reconcileWithServerPosition(account: UpcomingAccountSummary, position: UpcomingAccountPosition | undefined): UpcomingAccountSummary {
   if (!position) return account;
-  if (position.uncertain) return { ...account, position };
   const figures = [position.afterPayments, position.lowPoint].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (figures.length === 0) return { ...account, position };
   const lowest = Math.min(...figures);
   if (lowest < 0) {
+    // G372: a negative server figure is short even when the server flags the
+    // position uncertain (an uncertain plan overlap says nothing about payments).
     if (account.status === "short" && account.shortfall !== null && account.shortfall > 0) return { ...account, position };
     return { ...account, position, status: "short", shortfall: Math.max(account.shortfall ?? 0, -lowest), firstShortDate: account.firstShortDate ?? account.events.find((event) => event.after !== null && event.after < 0)?.date ?? null, shortFor: account.shortFor ?? null };
   }
+  if (position.uncertain) return { ...account, position };
   if (account.status === "short" || account.status === "unfunded") {
     return { ...account, position, status: "covered", shortfall: 0, firstShortDate: null, shortFor: null, coverSuggestion: null };
   }
   return { ...account, position };
+}
+
+/** G372: the payment gap to show for an account, in pounds, or null when it is
+ * not short. The reconciled status decides; a negative server figure on the
+ * position is also short, so a sheet can never say "covered" beside a negative
+ * After payments whatever path built the summary. */
+export function accountPaymentGap(account: UpcomingAccountSummary): number | null {
+  const figures = [account.position?.afterPayments, account.position?.lowPoint].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const serverGap = figures.length ? Math.max(0, -Math.min(...figures)) : 0;
+  const walkGap = account.status === "short" && account.shortfall !== null ? account.shortfall : 0;
+  const gap = Math.max(serverGap, walkGap);
+  return gap > 0 ? gap : null;
 }
 
 /** G238: map GET /today's `account_eligibility` onto the sheet's position type.

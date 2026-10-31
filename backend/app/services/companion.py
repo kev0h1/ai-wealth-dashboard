@@ -1623,12 +1623,14 @@ async def _pp_salary_observed(
         return False
 
 
-def walk_sort_key(event):
-    """(days_away, credits before debits on a shared day). G163: money a
-    confirmed stream is expected to land in this account on day D covers
-    what leaves it on day D; the day after, if it has not landed, the
-    stream is lapsed and drops out of the window on its own."""
-    return (event[0], 0 if event[3] else 1)
+# G365: `walk_sort_key` and `_walk_events` live in services/account_walk.py (the one
+# per-account walk); the names stay importable from here.
+from app.services.account_walk import (  # noqa: E402
+    walk_events as _walk_events,
+    walk_sort_key,
+    walk_account as _walk_account,
+    window_events as _window_events,
+)
 
 
 # G167: why an internal inflow (a predicted own-account transfer, credited
@@ -1647,72 +1649,6 @@ def walk_sort_key(event):
 # Referenced at every `window_inflows`/`internal_inflows` append site
 # (this function's own walk, `analytics.at_risk_count`, and
 # `spend_impact._bills_risk`) rather than repeated at each.
-
-
-def _walk_events(
-    events: list[tuple[int, str, float, bool, dict]],
-    balances: dict[str, float],
-) -> tuple[dict[str, float], dict[str, float], dict[str, dict], dict[str, list[dict]]]:
-    """The per-account running-balance walk at the heart of the at-risk/
-    shortfall simulation — extracted so `spend_impact._bills_risk` can run
-    the exact same walk (once at usual pace, once with an extra projected
-    outflow layered in) rather than re-implementing it. Behaviour is
-    byte-identical to the inline loop this replaces inside
-    `compute_today_items` — the only change is that the `bal >= amount` /
-    "bill bounces" branches collapsed into one, since both computed the
-    same `new_bal = bal - amount` either way; the old split only mattered
-    for *deciding* whether to touch `shortfall_bill`, which the `new_bal < 0`
-    check below still does identically.
-
-    `events` — (days_away, acct, amount, is_income, item) tuples, already
-    sorted by the caller with `walk_sort_key` (days_away, then credits
-    before debits same-day — G163: a confirmed income stream expected in an
-    account on day D covers what leaves that account on day D, and only
-    lapses, escalating the deficit, the day after it was expected with no
-    matching credit).
-    `balances` — starting balance per account; an account absent from this
-    dict defaults to £0 the first time an event references it (matches the
-    prior inline behaviour, where `running` only ever held keys for
-    accounts that had at least one assessable bill).
-
-    Returns (running, min_running, shortfall_bill, bounced_bills):
-      running        — final balance per account after every event.
-      min_running    — the lowest point each account's balance touched.
-      shortfall_bill — first bill (by walk order) that drove each account
-                        negative, keyed by account id.
-      bounced_bills  — EVERY bill (by walk order, not just the first) that
-                        left an account negative, keyed by account id. A
-                        deficit cascades — once an account is short, every
-                        later bill on it counts until income recovers it —
-                        so this is the full set `shortfall_bill` only takes
-                        the head of. Callers use it to tell whether a
-                        deficit is genuinely caused by an obligation
-                        (commitment/discretionary) or only ever by the
-                        user's own movement (savings/transfer/investment/
-                        debt) — see `compute_today_items`' recommendation
-                        gating, which must not instruct a "move money" fix
-                        for a plan the user made for their own money, but
-                        must still fire when movement merely starves a real
-                        bill further down the same account's timeline.
-    """
-    running: dict[str, float] = dict(balances)
-    min_running: dict[str, float] = dict(balances)
-    shortfall_bill: dict[str, dict] = {}
-    bounced_bills: dict[str, list[dict]] = {}
-
-    for _days_away, acct, amount, is_income, item in events:
-        if is_income:
-            running[acct] = running.get(acct, 0.0) + amount
-        else:
-            new_bal = running.get(acct, 0.0) - amount
-            running[acct] = new_bal
-            min_running[acct] = min(min_running.get(acct, new_bal), new_bal)
-            if new_bal < 0:
-                if acct not in shortfall_bill:
-                    shortfall_bill[acct] = item
-                bounced_bills.setdefault(acct, []).append(item)
-
-    return running, min_running, shortfall_bill, bounced_bills
 
 
 def _gate_recommendation(
@@ -2774,95 +2710,44 @@ async def compute_today_items(
             _combined[k] = _combined.get(k, 0) + int(round(float(v) * 100))
         reserved_by_source = {k: round(v / 100, 2) for k, v in _combined.items()}
 
-    # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
-    running: dict[str, float] = dict(wi.running_seed)
-
+    # ── 4. Running-balance simulation (the one per-account walk) ────────────
+    # G365: the events, their credit rules and their order come from
+    # services/account_walk.py (`window_events`), the same source the at-risk
+    # badge reads. This caller's own settings (the W-differences in that
+    # module's docstring): an inflow also seeds an account that has a live
+    # balance but no bill of its own (`inflow_admit="seed_live"`), and the
+    # PREVIEW's projected salary is injected at the REAL next payday
+    # (`days_to_pay`) when the payday plan is being previewed (2026-08-29
+    # FIX B; see `_pp_salary_income` above), seeding its account at the live
+    # balance when the walk has not touched it.
+    #
     # Income is credited ONLY to the account its history actually landed in,
-    # and only when the prediction is reliable (income_credit_ok) — a cover
-    # plan's arithmetic must never lean on money that might land elsewhere.
-    # credited_incomes records what each account's walk actually assumed, so
-    # plans can disclose it (assumed_incomes) and note what they excluded.
-    events: list[tuple[int, str, float, bool, dict]] = []
-    credited_incomes: dict[str, list[dict]] = {}
-    for b in assessable_bills:
-        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, b))
-    for i in window_income:
-        acct = str(i.get("account_id") or "")
-        if acct in running and income_credit_ok(i, acct, confirmed_income_keys):
-            events.append((i["days_away"], acct, float(i["amount"]), True, i))
-            credited_incomes.setdefault(acct, []).append(i)
-    # Mirror internal transfers into their learned destination account (see
-    # analytics._learn_transfer_destinations / _build_cashflow_response's
-    # `internal_inflows`), exactly as at_risk_count does, so the two walks
-    # stay in lockstep. Deliberately NOT added to `credited_incomes`, since that
-    # dict exists only to disclose ASSUMED INCOME to the user (the payday
-    # plan's "assumed_incomes" reads it), and an internal transfer from the
-    # user's own other account is not income, even though it is credited into
-    # the same walk here. It is also never folded into the preview salary
-    # event below, since that event exists to distribute a RELIABLE SALARY on
-    # payday morning, not to net off the user's own internal movements. Only
-    # credited to an account the walk already tracks (`acct in running`),
-    # same reasoning as at_risk_count: an inflow must never seed a brand-new
-    # account into the simulation.
+    # and only when the prediction is reliable (`income_credit_ok`);
+    # `credited_incomes` records what each account's walk assumed so plans
+    # can disclose it (`assumed_incomes`) and note what they excluded.
+    # Internal inflows are deliberately NOT in `credited_incomes`: that dict
+    # discloses ASSUMED INCOME, and an own-account transfer is not income.
+    # G167: no reliability gate on an inflow and no late-income line for one
+    # (see the comment block above `walk_sort_key`). G360: an inflow counts
+    # only when its SOURCE account is covered that day (`funded_inflows`).
+    # G163: same-day, credits before debits (`walk_sort_key`).
     #
-    # G167: no reliability gate here, and deliberately no late-income line
-    # for one either — see the comment block above `walk_sort_key`, this
-    # function's own file, for why a lapsed inflow is already spoken for by
-    # its source-side pending copy.
-    #
-    # G360: an inflow is credited only when its SOURCE account is itself
-    # covered that day (`funded_inflows`, one rule for every walk).
-    funded_window_inflows = wi.funded_window_inflows
-    for n in funded_window_inflows:
-        acct = str(n.get("account_id") or "")
-        # G360: a funded inflow into an account with no bill of its own still
-        # counts, seeded at its live balance exactly as the preview salary is,
-        # so after_payments and low_point consume identical events.
-        if acct and acct not in running and acct in live_balances:
-            running[acct] = live_balances[acct]
-        if acct in running:
-            events.append((n["days_away"], acct, float(n["amount"]), True, n))
-
-    # PREVIEW's projected salary — dated at the REAL next payday
-    # (`days_to_pay`), not today (2026-08-29 FIX B; see `_pp_salary_income`
-    # above). Entering it as a normal event on this SAME walk means it only
-    # ever lands after every current-window bill between now and payday has
-    # already drained the account, UNLESS it shares a day with one of them —
-    # G163's `walk_sort_key` credits it first on a shared day, same as any
-    # other confirmed income. Seeds the account into `running` at its live
-    # balance first when the walk hasn't already touched it (no bills of its
-    # own in-window), matching the same seeding `_walk_events` gives every
-    # other tracked account.
-    # Tracks whether `_pp_salary_income` was actually injected into `events`
-    # (and therefore into `running`/the walk) just below — payday_split_risk
-    # (section 5c) must not ALSO count it from `_orig_payday_day_income`,
-    # or a confirmed payday-day salary is counted twice (review fix,
-    # 2026-09-25: balance 0, payday-day bills £1,500, confirmed same-account
-    # salary £1,000 on payday read as £2,000 covering it and never fired).
-    _pp_salary_credited_in_walk = False
-    if payday_preview and _pp_salary_income is not None:
-        _pp_sal_acct = str(_pp_salary_income.get("account_id") or "")
-        if _pp_sal_acct:
-            if _pp_sal_acct not in running:
-                running[_pp_sal_acct] = live_balances.get(_pp_sal_acct, 0.0)
-            events.append((days_to_pay, _pp_sal_acct, float(_pp_salary_income["amount"]), True, _pp_salary_income))
-            _pp_salary_credited_in_walk = True
-
-    # G163: same-day, credits before debits (`walk_sort_key`) — a confirmed
-    # income stream expected in an account on day D covers what leaves that
-    # account on day D; it only lapses, and the deficit becomes real, the day
-    # after it was expected with no matching credit (see `_late_confirmed_
-    # income` in routers/analytics.py for the interim lapse signal, and
-    # `walk_sort_key`'s own docstring). Replaces the old two-walk design
-    # (a conservative bills-before-income walk for the at-risk figures, plus
-    # a second optimistic walk consulted only to gate recommendations) — one
-    # walk now serves both, since the same-day-income suppression this used
-    # to need a second walk for is inherent in the ordering itself.
-    events.sort(key=walk_sort_key)
+    # Tracks whether `_pp_salary_income` was actually injected into the walk:
+    # payday_split_risk (section 5c) must not ALSO count it from
+    # `_orig_payday_day_income`, or a confirmed payday-day salary is counted
+    # twice (review fix, 2026-09-25).
+    _pp_salary_credited_in_walk = bool(
+        payday_preview and _pp_salary_income is not None
+        and str(_pp_salary_income.get("account_id") or "")
+    )
+    events, running, credited_incomes = _window_events(
+        wi,
+        inflow_admit="seed_live",
+        preview_salary=_pp_salary_income if payday_preview else None,
+    )
 
     # Walk shared with spend_impact._bills_risk and analytics.at_risk_count
-    # (see _walk_events docstring) — same events, same starting balances,
-    # same result as the inline loop this replaced.
+    # (services/account_walk.walk_events).
     running, min_running, shortfall_bill, bounced_bills = _walk_events(events, running)
 
     # ── 4b. OVERDRAFT SEEDING ────────────────────────────────────────────────
@@ -2994,34 +2879,16 @@ async def compute_today_items(
     # attributed to this source AND reliable (income_credit_ok) — a source's
     # contribution never leans on money that might land elsewhere.
     def _source_min_running(sid: str, start_balance: float) -> float:
-        ev: list[tuple[int, float]] = [
-            (b["days_away"], -float(b["amount"]))
-            for b in assessable_bills
-            if (b["account_id"] or "__unknown__") == sid
-        ]
-        ev += [
-            (i["days_away"], float(i["amount"]))
-            for i in window_income
-            if income_credit_ok(i, sid, confirmed_income_keys)
-        ]
-        # G360: funded inbound own-account transfers, same rule as the
-        # closing walk above, so low_point and after_payments agree.
-        ev += [
-            (n["days_away"], float(n["amount"]))
-            for n in funded_window_inflows
-            if str(n.get("account_id") or "") == sid
-        ]
-        # same-day: inflows before outflows, G163 — the (days_away, delta)
-        # shape here is inline rather than `walk_sort_key` (which expects a
-        # 5-tuple with is_income at index 3), but is the equivalent key:
-        # delta > 0 (income) sorts first on a tie, same as walk_sort_key.
-        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
-        run = start_balance
-        mn = run
-        for _d, delta in ev:
-            run += delta
-            mn = min(mn, run)
-        return mn
+        # G365: the low point is the one per-account walk
+        # (services/account_walk.walk_account), with this caller's rules:
+        # any attributed credit-ok income counts even with no bill on the
+        # account (`income_admit="any"`), every funded inbound own-account
+        # transfer (G360) counts (`inflow_admit="any"`), and the same-day
+        # order is the equivalent inline `(day, delta)` key.
+        return _walk_account(
+            sid, wi, opening=start_balance,
+            income_admit="any", inflow_admit="any", same_day_key="positive_delta",
+        ).low_point
 
     source_capacity: dict[str, float] = {}
     source_min_run: dict[str, float] = {}
@@ -3595,26 +3462,14 @@ async def compute_today_items(
     _excluded_incomes = [i for i in window_income if id(i) not in _credited_ids]
 
     def _walk_min(dest: str, extra_income: dict | None = None) -> float:
-        ev = [
-            (b["days_away"], -float(b["amount"]))
-            for b in assessable_bills
-            if (b["account_id"] or "__unknown__") == dest
-        ]
-        ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
-        ev += [
-            (n["days_away"], float(n["amount"]))
-            for n in funded_window_inflows
-            if str(n.get("account_id") or "") == dest
-        ]
-        if extra_income is not None:
-            ev.append((extra_income["days_away"], float(extra_income["amount"])))
-        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
-        run = live_balances.get(dest, 0.0)
-        mn = run
-        for _d, _delta in ev:
-            run += _delta
-            mn = min(mn, run)
-        return mn
+        # G365: the same one walk, over the incomes the closing walk credited
+        # (`income_admit="seeded"`), every funded inflow (`inflow_admit="any"`)
+        # and, optionally, one excluded income injected at its own day.
+        return _walk_account(
+            dest, wi, opening=live_balances.get(dest, 0.0),
+            income_admit="seeded", inflow_admit="any", same_day_key="positive_delta",
+            extra_income=extra_income,
+        ).low_point
 
     income_note_by_dest: dict[str, str] = {}
     for _da, _sa, _dest, _bill in shortfalls:

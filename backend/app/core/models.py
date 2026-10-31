@@ -60,6 +60,13 @@ class Transaction(BaseModel):
     custom_category: Optional[str] = None
     transaction_type: str
     planned: Optional[bool] = None
+    # Provisional bank entries live outside the settled transaction feeds.
+    # List endpoints return them separately so callers cannot accidentally
+    # include them in historical totals.
+    is_pending: Optional[bool] = None
+    # The customer-facing activity day.  `date` remains the bank's immutable
+    # booked date, which can be a later working day for weekend activity.
+    activity_date: Optional[datetime] = None
     # G268: this row's signed contribution to spending under the one
     # definition (app.services.spending): +payment, -refund, 0 for income,
     # movement, own-account moves and foreign-currency rows. None on routes

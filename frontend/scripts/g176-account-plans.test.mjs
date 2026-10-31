@@ -147,7 +147,7 @@ assert.equal(remaining(apiPlans[0]), 29999, "API remaining is rounded to exact p
 const emptyCashflow = { upcoming_bills: [], upcoming_income: [], internal_inflows: [] };
 const planOnly = walkUpcomingAccounts(emptyCashflow, end, [{ id: "monzo", bank: "Monzo", name: "Everyday", balance: 348 }]);
 assert.equal(planOnly.accounts[0].closing, 348);
-const namedCredit = { name: "Salary", amount: 100, account_id: "monzo", expected_date: "2026-10-02", days_away: 1 };
+const namedCredit = { name: "Salary", amount: 100, account_id: "monzo", expected_date: "2026-10-02", days_away: 1, credit_basis: "confirmed" };
 const withCredit = walkUpcomingAccounts({ ...emptyCashflow, upcoming_income: [namedCredit] }, end, [{ id: "monzo", bank: "Monzo", name: "Everyday", balance: 348 }]);
 assert.equal(withCredit.accounts[0].closing, 448);
 assert.equal(forecastFor("gap").coverage.size, 2, "Plan-source enrichment does not alter original bill coverage maps");

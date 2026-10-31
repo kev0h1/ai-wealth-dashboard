@@ -351,7 +351,7 @@ def _wire_sync(monkeypatch, accts, pending_sink=None):
         return ([t for t in txns if t.get("status") != "pending"],
                 [{"transaction_id": t["id"]} for t in txns if t.get("status") == "pending"])
 
-    async def _replace(rows, account_id, user_id, provider=None):
+    async def _replace(rows, account_id, user_id, provider=None, account_currency=None):
         if pending_sink is not None:
             pending_sink.append([r["transaction_id"] for r in rows])
 
