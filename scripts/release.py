@@ -40,6 +40,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -112,14 +113,19 @@ class RemoteError(RuntimeError):
     pass
 
 
-def _run(cmd: list[str], timeout: int = REMOTE_TIMEOUT, cwd: Optional[Path] = None) -> str:
+def _run(
+    cmd: list[str], timeout: int = REMOTE_TIMEOUT, cwd: Optional[Path] = None,
+    env: Optional[dict[str, str]] = None,
+) -> str:
     """Run a command with a timeout and no stdin, never through a shell.
     Returns combined stdout+stderr; raises RemoteError on non-zero exit,
-    timeout, or a missing binary."""
+    timeout, or a missing binary. `env` entries are added to the inherited
+    environment (H140: the scenario suite needs its own MONGO_DB)."""
     try:
         proc = subprocess.run(
             cmd,
             cwd=cwd,
+            env=None if env is None else {**os.environ, **env},
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -135,10 +141,13 @@ def _run(cmd: list[str], timeout: int = REMOTE_TIMEOUT, cwd: Optional[Path] = No
     return proc.stdout
 
 
-def _run_ok(cmd: list[str], timeout: int = REMOTE_TIMEOUT, cwd: Optional[Path] = None) -> tuple[bool, str]:
+def _run_ok(
+    cmd: list[str], timeout: int = REMOTE_TIMEOUT, cwd: Optional[Path] = None,
+    env: Optional[dict[str, str]] = None,
+) -> tuple[bool, str]:
     """Like _run but never raises; returns (ok, combined_output)."""
     try:
-        return True, _run(cmd, timeout=timeout, cwd=cwd)
+        return True, _run(cmd, timeout=timeout, cwd=cwd, env=env)
     except RemoteError as exc:
         return False, str(exc)
 
@@ -232,6 +241,42 @@ def verdict_backlog_skip() -> CheckItem:
         "backlog", "in-progress items with unmerged branches", "skip",
         "not enforced by this tool (H17 spec: not required); check docs/ops/go-live manually if unsure",
     )
+
+
+# ── (b2) H140 scenario regression suite ──────────────────────────────────
+
+SCENARIO_TIMEOUT = 300
+
+
+def _scenario_test_db_name() -> str:
+    """The same "wealth_test_<epoch seconds>_<8 hex>" shape as
+    scripts/integrate.py's `_fresh_test_db_name` and backend/tests/conftest.py,
+    duplicated rather than imported (this tool must not depend on test code)."""
+    return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+
+def verdict_scenario_suite(backend_ok: bool, backend_out: str, frontend_ok: bool, frontend_out: str) -> CheckItem:
+    """Red on any failure in either half of the H140 scenario suite: the
+    backend scenarios against a disposable database, then the client replay."""
+    label = "scenario regression suite (H140)"
+    if not backend_ok:
+        return CheckItem("scenario_suite", label, "red", f"backend scenarios failed: {backend_out.strip()[-300:]}")
+    if not frontend_ok:
+        return CheckItem("scenario_suite", label, "red", f"frontend scenarios failed: {frontend_out.strip()[-300:]}")
+    return CheckItem("scenario_suite", label, "green", "backend and frontend scenarios pass")
+
+
+def run_scenario_suite(repo_root: Path = REPO_ROOT, timeout: int = SCENARIO_TIMEOUT) -> CheckItem:
+    backend_ok, backend_out = _run_ok(
+        [str(repo_root / "backend" / ".venv" / "bin" / "python"), "-m", "pytest", "-q", "tests/test_scenarios.py"],
+        timeout=timeout, cwd=repo_root / "backend", env={"MONGO_DB": _scenario_test_db_name()},
+    )
+    if not backend_ok:
+        return verdict_scenario_suite(False, backend_out, False, "")
+    frontend_ok, frontend_out = _run_ok(
+        ["npm", "run", "-s", "check:scenarios"], timeout=timeout, cwd=repo_root / "frontend",
+    )
+    return verdict_scenario_suite(True, backend_out, frontend_ok, frontend_out)
 
 
 # ── (c) env_drift ────────────────────────────────────────────────────────
@@ -510,6 +555,11 @@ def run_check(
     items.append(verdict_repo_state(cwd_ok, branch, clean, local_sha, remote_sha))
 
     items.append(verdict_backlog_skip())
+
+    try:
+        items.append(run_scenario_suite(repo_root))
+    except Exception as exc:  # noqa: BLE001 - a crash in the gate is a red row, never a pass
+        items.append(CheckItem("scenario_suite", "scenario regression suite (H140)", "red", f"scenario suite crashed: {exc}"))
 
     try:
         failures = run_env_drift(repo_root, timeout)

@@ -249,13 +249,29 @@ def test_restart_services_swap_oserror_surfaces_as_integrate_error_not_bare_oser
 # fake _sh so no real npm command runs.
 
 
-def test_run_frontend_checks_noop_when_frontend_and_shared_untouched(monkeypatch):
+def test_run_frontend_checks_noop_when_backend_frontend_and_shared_untouched(monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(integrate, "_sh", lambda *a, **k: calls.append((a, k)) or (0, ""))
 
-    integrate._run_frontend_checks({"backend/app/services/x.py"})
+    integrate._run_frontend_checks({"docs/ops/BACKLOG.md", "scripts/x.py"})
 
     assert calls == []
+
+
+def test_backend_change_runs_only_the_scenario_replay(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(integrate, "_sh", lambda cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT: (calls.append(cmd), (0, ""))[1])
+
+    integrate._run_frontend_checks({"backend/app/services/x.py"})
+
+    assert calls == [["npm", "run", "-s", "check:scenarios"]]
+
+
+def test_scenario_replay_failure_blocks_the_merge(monkeypatch):
+    monkeypatch.setattr(integrate, "_sh", lambda cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT: (1, "client disagrees"))
+
+    with pytest.raises(integrate.IntegrateError, match="check:scenarios failed"):
+        integrate._run_frontend_checks({"backend/tests/scenarios/out/x.json"})
 
 
 def test_run_frontend_checks_runs_design_index_then_legal_content_when_frontend_changed(monkeypatch):
@@ -272,6 +288,7 @@ def test_run_frontend_checks_runs_design_index_then_legal_content_when_frontend_
     assert calls == [
         ["npm", "run", "-s", "check:design-index"],
         ["npm", "run", "-s", "check:legal-content"],
+        ["npm", "run", "-s", "check:scenarios"],
     ]
 
 
@@ -281,7 +298,7 @@ def test_run_frontend_checks_runs_when_shared_changed(monkeypatch):
 
     integrate._run_frontend_checks({"shared/types.ts"})
 
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_run_frontend_checks_raises_and_stops_on_design_index_failure(monkeypatch):

@@ -1,0 +1,117 @@
+{
+  "name": "Freshly reconnected account, no confirmed salary, two salary sightings: the steady rule credits it (G359)",
+  "today": "2026-10-08",
+  "pay_period_config": {
+    "type": "calendar_month"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 200.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-st",
+      "name": "Starling Personal",
+      "provider": "starling",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1100.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-16",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 200.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 31,
+        "next_date": "2026-10-15",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 200.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-15",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-15",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 2200.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 200.0,
+        "after_payments": 2100.0,
+        "low_point": 200.0,
+        "verdict": "covered"
+      },
+      "acc-st": {
+        "spend_from": 2000.0,
+        "after_payments": 2000.0,
+        "low_point": 2000.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Re-derived for G360 with the pay on the 1st (calendar month) and the salary mid-period, so the steady credit sits inside the window. Today is Thu 8 Oct 2026, payday Sun 1 Nov, 24 days away; the window is strictly before payday. The account was reconnected recently, so there is no confirmed salary stream. Balances: Barclays 200 + Starling 2,000 = 2,200 pooled. The salary 3,000 (two sightings, 15 Aug and 15 Sep, 31 days apart, equal amounts: monthly rhythm within tolerance, largest regular credit on Barclays, due before payday) is a steady salary, credited to Barclays on Thu 15 Oct (day 7). The mortgage 1,100 leaves Barclays on Fri 16 Oct (day 8). Left to spend: pooled 2,200, day 7 + 3,000 = 5,200, day 8 - 1,100 = 4,100; the lowest point is the opening 2,200, so Left to spend 2,200. Barclays walk: 200, day 7 + 3,000 = 3,200, day 8 - 1,100 = 2,100. After payments 2,100, low point 200 (the opening balance). Starling has no bills so it is not walked: after payments and low point are its balance, 2,000. Spend from is the smaller of after payments and low point: Barclays 200, Starling 2,000 (below the pool 2,200). Nobody is short: no cover move, at risk 0. The period is on day 8 (1 Oct is day 1), so there is no payday plan (companion.py:2558, days_into_period <= 3)."
+  }
+}

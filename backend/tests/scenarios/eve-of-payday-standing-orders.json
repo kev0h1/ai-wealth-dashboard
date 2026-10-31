@@ -1,0 +1,171 @@
+{
+  "name": "Eve of payday: everything dated on payday belongs to the next period (G359, G360)",
+  "today": "2026-10-29",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 350.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 60.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 40.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-29",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 900.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER NATWEST STO",
+        "avg_amount": 500.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-nw",
+        "dest_account_name": "NatWest Current",
+        "dest_account_bank": "natwest",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "GYM MEMBERSHIP",
+        "avg_amount": 40.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-03",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 60.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "WATER BILL",
+        "avg_amount": 30.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-04",
+        "account_id": "acc-nw",
+        "account_name": "NatWest Current",
+        "account_bank": "natwest",
+        "account_balance": 40.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 28,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 300.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 200.0,
+        "after_payments": 200.0,
+        "low_point": 200.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 60.0,
+        "after_payments": 60.0,
+        "low_point": 60.0,
+        "verdict": "covered"
+      },
+      "acc-nw": {
+        "spend_from": 40.0,
+        "after_payments": 40.0,
+        "low_point": 40.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Re-derived under G360 (the first version of this note used the old last-day lookahead and gave Barclays 1,800). Today is Thu 29 Oct 2026, pay is the last Friday (30 Oct), so payday is tomorrow and days to payday is 1. Since G360 the period ends the day before the next payday with no lookahead: pay_period.in_current_window is strictly days_away < days_to_pay, so only items dated today (day 0) count. Balances: Barclays 350 + HSBC 60 + NatWest 40 = 450 pooled. Council tax 150 (Barclays) is due today. Everything dated 30 Oct, the salary 3,000, the standing orders 900 (to HSBC) and 500 (to NatWest) that it funds, belongs to the next period and sits in the payday slice, not in this period's after payments or low point. A move between two pooled accounts removes neither leg anyway. Left to spend = 450 - 150 = 300 (no buffer, set-asides, goals or card). Barclays: 350 - 150 = 200, so after payments 200 and low point 200. HSBC and NatWest have no bill before payday, so they are not walked: after payments is the balance now (60 and 40), low point the same (60 and 40), and the inbound standing orders are not credited (dated on payday). Spend from is the smaller of after payments and low point: 200, 60, 40, each below the pooled 300 so the pool cap does not bind. Nobody is short, so no cover move (total 0), at risk 0. The pay period 25 Sep to 29 Oct is on its 35th day (25 Sep is day 1); a payday plan only shows when days_into_period <= 3 (companion.py:2558), so there is none. This fixture no longer exercises the funded-salary rule; standing-orders-funded-mid-period does."
+  }
+}

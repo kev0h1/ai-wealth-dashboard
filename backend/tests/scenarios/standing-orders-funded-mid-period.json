@@ -1,0 +1,190 @@
+{
+  "name": "Standing orders funded by a steady salary mid-period: funded inflows credited to after payments and low point (G359, G360)",
+  "today": "2026-10-19",
+  "pay_period_config": {
+    "type": "calendar_month"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 350.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 60.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 40.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 900.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-22",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER NATWEST STO",
+        "avg_amount": 500.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-22",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-nw",
+        "dest_account_name": "NatWest Current",
+        "dest_account_bank": "natwest",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 800.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-28",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 60.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      },
+      {
+        "key": "WATER BILL",
+        "avg_amount": 30.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-29",
+        "account_id": "acc-nw",
+        "account_name": "NatWest Current",
+        "account_bank": "natwest",
+        "account_balance": 40.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 31,
+        "next_date": "2026-10-22",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 350.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-22",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-22",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 300.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 200.0,
+        "after_payments": 1800.0,
+        "low_point": 200.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 60.0,
+        "after_payments": 160.0,
+        "low_point": 60.0,
+        "verdict": "covered"
+      },
+      "acc-nw": {
+        "spend_from": 40.0,
+        "after_payments": 510.0,
+        "low_point": 40.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Calendar-month pay (payday Sun 1 Nov), today Mon 19 Oct 2026, so days to payday is 13 and the window is strictly the 13 days before it (days 0 to 12). The salary (3,000, two sightings 22 Aug and 22 Sep, 31 days apart, equal, monthly rhythm, largest credit on Barclays, due before payday) is a steady salary and is credited to Barclays on Thu 22 Oct (day 3), together with two standing orders from Barclays that it funds: 900 to HSBC and 500 to NatWest, also day 3. Bills: council tax 150 (Barclays, Tue 20 Oct, day 1), HSBC mortgage 800 (Wed 28 Oct, day 9), NatWest water 30 (Thu 29 Oct, day 10). Left to spend: pooled 350 + 60 + 40 = 450; the own-account standing orders remove neither leg; day 1: 450 - 150 = 300; day 3: + 3,000 salary = 3,300; day 9: - 800 = 2,500; day 10: - 30 = 2,470. The lowest point is the opening-side 300, so Left to spend 300. Barclays walk (credits before debits on a shared day): 350 - 150 = 200 (day 1); day 3: + 3,000 = 3,200, - 900 = 2,300, - 500 = 1,800. After payments 1,800, low point 200. G360 funded-inflow rule (services/inflow_credit.py): an inbound own-account transfer counts only if its source is covered that day. Barclays after everything up to day 3 is 1,800 >= 0, so both standing orders are funded and credited to their destinations; that holds only because the steady salary is credited (without it Barclays would sit at -1,200 on day 3 and neither would be). HSBC: 60, day 3 + 900 = 960, day 9 mortgage - 800 = 160. After payments 160; low point is the lowest running balance, 60 (the opening balance; the inflow lifts it, so the mortgage never takes it below 60: without the credit it would read 60 - 800 = -740, the HSBC case). NatWest: 40, + 500 = 540, - 30 = 510; after payments 510, low point 40. Spend from is the smaller of after payments and low point: Barclays 200, HSBC 60, NatWest 40, all below the pool 300. Nobody is short: no cover move, at risk 0. The period is on day 19 (1 Oct is day 1), so there is no payday plan (companion.py:2558, days_into_period <= 3)."
+  }
+}
