@@ -42,6 +42,16 @@ const ROUTES: PreviewRoute[] = [
   },
 
   {
+    slug: "cover-plan-move-card",
+    name: "Cover plan move card · G383",
+    description: "G383 · impeccable · Two focused alternatives for one recommended funding move. Each keeps one suggested amount, a From/To route and one progressive disclosure that reconciles funding with the payments it protects. Synthetic examples only, so no transfer is made. ?variant=a|b&state=one|two|overdue|none&mode=light|dark&hidden=1",
+    variants: [{ label: "A · One move, one reason", value: "a" }, { label: "B · Payment-led", value: "b" }],
+    states: [{ label: "One source", value: "one" }, { label: "Two sources", value: "two" }, { label: "Overdue payment", value: "overdue" }, { label: "No move needed", value: "none" }],
+    group: "current",
+  },
+
+
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
