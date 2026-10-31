@@ -907,13 +907,16 @@ async def tavily_lookup_merchants(merchants: list[str]) -> dict[str, str]:
 #   "movement_mine_here"  — POST /transactions/{id}/resolve-movement,
 #   "movement_mine_goal"    each non-no-op outcome of the movement teaching
 #   "movement_mine_offline" sheet that sets custom_category to Transfer (or
+#   "movement_mine_savings" / "movement_mine_investment" set it to a
+#                           private external movement destination), or
 #   "movement_spending"     to a chosen spend category, or clears it).
 # "movement_someone_else" is deliberately excluded — it never writes
 # custom_category at all (see resolve-movement's own docstring), so an event
 # of that type is not evidence of a decision changing.
 _CORRECTION_EVENT_TYPES = {
     "correction", "movement_mine_here", "movement_mine_goal",
-    "movement_mine_offline", "movement_spending",
+    "movement_mine_offline", "movement_mine_savings", "movement_mine_investment",
+    "movement_spending",
 }
 
 
