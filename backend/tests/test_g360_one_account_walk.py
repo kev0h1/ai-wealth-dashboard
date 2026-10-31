@@ -415,9 +415,13 @@ def test_funded_inflows_helper_unit():
 
 def test_every_inflow_walk_goes_through_the_funded_helper():
     root = Path(__file__).resolve().parent.parent / "app"
+    # G364: the gate is applied once, in the shared window-inputs builder; the
+    # three callers read its `funded_window_inflows` rather than calling the
+    # helper themselves.
+    assert "funded_inflows(" in (root / "services/window_inputs.py").read_text()
     for rel in ("services/companion.py", "routers/analytics.py", "services/spend_impact.py"):
         src = (root / rel).read_text()
-        assert "funded_inflows(" in src, rel
+        assert "funded_window_inflows" in src, rel
         # No loop appends a raw window_inflows entry into a walk.
         assert not re.search(r"for\s+\w+\s+in\s+window_inflows\s*:", src), (
             f"{rel}: iterate funded inflows, never raw window_inflows"
