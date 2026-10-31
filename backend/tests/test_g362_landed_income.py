@@ -317,7 +317,15 @@ def test_penny_upcoming_bills_exposes_observed_income_and_walks_never_read_it(mo
 
     import app.services.companion as companion
     import app.services.spend_impact as spend_impact
-    for mod in (companion, spend_impact):
-        assert "observed_income" not in inspect.getsource(mod)
+    assert "observed_income" not in inspect.getsource(spend_impact)
+    # G374: companion reads the list in exactly one place, the payday plan's
+    # landed-salary gate (a suppression check, never a walk input), with no
+    # other use outside comments.
+    code = "\n".join(
+        ln for ln in inspect.getsource(companion).splitlines() if not ln.lstrip().startswith("#")
+    )
+    assert code.count("observed_income") == 2
+    assert code.count('resp.get("observed_income")') == 1
+    assert code.count('resp["observed_income"]') == 1
     src = inspect.getsource(analytics.compute_safe_to_spend) + inspect.getsource(analytics.at_risk_count)
     assert "observed_income" not in src
