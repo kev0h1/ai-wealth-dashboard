@@ -287,6 +287,23 @@ def window_events(
     return [e for e, _o in allentries], opening, credited
 
 
+def _group_by_account(events: list[Event]) -> dict[str, list[tuple[Event, int]]]:
+    by_acct: dict[str, list[tuple[Event, int]]] = {}
+    for idx, ev in enumerate(events):
+        by_acct.setdefault(ev[1], []).append((ev, idx))
+    return by_acct
+
+
+def account_walks(events: list[Event], balances: dict[str, float]) -> dict[str, AccountWalk]:
+    """G366: each walked account's `AccountWalk` over a ready, sorted event
+    list, the same per-account loop `walk_events` runs (its closing is that
+    function's `running`). An account with no event has no entry."""
+    return {
+        acct: _run_account(acct, balances.get(acct), entries)
+        for acct, entries in _group_by_account(events).items()
+    }
+
+
 def walk_events(
     events: list[Event],
     balances: dict[str, float],
@@ -307,9 +324,7 @@ def walk_events(
       bounced_bills  EVERY bill that left an account negative (a deficit
                      cascades), by walk order.
     """
-    by_acct: dict[str, list[tuple[Event, int]]] = {}
-    for idx, ev in enumerate(events):
-        by_acct.setdefault(ev[1], []).append((ev, idx))
+    by_acct = _group_by_account(events)
     walks: dict[str, AccountWalk] = {}
     first_debit: dict[str, int] = {}
     bounce_idx: list[tuple[int, str, dict]] = []
