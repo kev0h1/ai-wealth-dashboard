@@ -48,6 +48,9 @@ class _Client:
         if url.endswith("/balance"):
             return FakeResp(200, {"data": [{"type": "actual", "current": self._balance}]})
         if url.endswith("/transactions"):
+            # A176: the status=pending fetch is a second walk; it is empty here.
+            if (params or {}).get("status") == "pending":
+                return FakeResp(200, {"data": []})
             return self._txn
         raise AssertionError(f"unexpected GET {url}")
 
@@ -127,9 +130,9 @@ def test_serialisation_exposes_iso_and_count_and_null_when_absent():
     out = accounts_router._transaction_diagnostics(
         {"transactions_synced_at": datetime(2026, 10, 29, 9, 30, 0), "transactions_last_count": 0}
     )
-    assert out == {"transactions_synced_at": "2026-10-29T09:30:00Z", "transactions_last_count": 0}
+    assert out == {"transactions_synced_at": "2026-10-29T09:30:00Z", "transactions_last_count": 0, "bank_synced_to": None}
     assert accounts_router._transaction_diagnostics({}) == {
-        "transactions_synced_at": None, "transactions_last_count": None,
+        "transactions_synced_at": None, "transactions_last_count": None, "bank_synced_to": None,
     }
 
 

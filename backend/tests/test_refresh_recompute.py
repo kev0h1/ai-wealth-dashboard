@@ -251,7 +251,7 @@ def test_user_refresh_recomputes_once_after_finexer_pull(monkeypatch):
     asyncio.run(_run_sync_all_and_settle())
 
     assert [o[0] for o in order] == ["pipeline", "pipeline_done", "recompute"]
-    assert order[0][1] == {"trigger": "user", "recompute": False}
+    assert order[0][1] == {"trigger": "user", "recompute": False, "request_bank_sync": True}
     assert len(shape_spy.calls) == 1
 
 
@@ -443,7 +443,7 @@ def test_auto_reconcile_recomputes_when_no_cache_doc_exists(monkeypatch):
 # ── 3. Finexer pipeline carries the same trigger ─────────────────────────────
 
 def _patch_finexer_pipeline(monkeypatch, cashflow_col: FakeCol, *, new_count: int) -> _Spy:
-    async def fake_sync_consent(consent_id, user_id):
+    async def fake_sync_consent(consent_id, user_id, **_kw):
         return ["acc-1"], new_count
 
     monkeypatch.setattr(finexer_sync, "sync_finexer_consent", fake_sync_consent)

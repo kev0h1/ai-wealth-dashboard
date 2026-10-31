@@ -98,7 +98,7 @@ function formatDate(iso?: string): string {
 }
 
 function HealthBlocks({ health }: { health: OpsHealth }) {
-  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw } = health;
+  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs } = health;
   const loadPerCpu = load ? load.load_5m / load.cpus : null;
   return (
     <>
@@ -180,6 +180,22 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
               <Stat label="Without webhook" value={`${fxw.consents_without_webhook}`} hint={`of ${fxw.authorized_consents} connected`} />
               <Stat label="API calls today" value={`${fxw.api_calls_today}`} hint={`yesterday ${fxw.api_calls_yesterday}`} />
               <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook, ${fxw.poll_syncs_today} polled, ${fxw.user_syncs_today} user, ${fxw.history_syncs_today} history`} hint={`yesterday ${fxw.user_syncs_yesterday} user, ${fxw.history_syncs_yesterday} history`} />
+            </div>
+          </div>
+        </Block>
+      )}
+
+      {fxs && (
+        <Block title="Finexer bank data">
+          <div className={CARD}>
+            <p className={`text-sm font-semibold ${fxs.alert ? WARN : "text-slate-900 dark:text-slate-100"}`}>
+              {fxs.line}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Stat label="Older than" value={`${fxs.consents_stale}`} hint={`${fxs.stale_hours} h, of ${fxs.authorized_consents} connected`} tone={fxs.consents_stale > 0 ? WARN : undefined} />
+              <Stat label="No bank time yet" value={`${fxs.consents_without_bank_data}`} />
+              <Stat label="Sync 429s (24 h)" value={`${fxs.sync_429s_24h}`} />
+              <Stat label="Sync errors (24 h)" value={`${fxs.sync_errors_24h}`} tone={fxs.sync_errors_24h > 0 ? WARN : undefined} />
             </div>
           </div>
         </Block>

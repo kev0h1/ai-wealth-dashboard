@@ -118,12 +118,19 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     return {"synced": len(ids), "new_transactions": new_count}
 
 
-async def task_sync_finexer(ctx, consent_id: str, user_id: str):
+async def task_sync_finexer(ctx, consent_id: str, user_id: str, event_id: str | None = None, event_account_id: str | None = None):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
     if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
-    result = await finexer_sync_pipeline(consent_id, user_id)
+    # A176: never request_bank_sync here. The reconcile cron and webhook syncs
+    # rely on Finexer's automatic sync, and the PSD2 four-a-day unattended
+    # limit must not be spent on them. event_id/event_account_id only narrow
+    # the booked walk (and only while USE_TXN_EVENT_FILTER is on).
+    result = await finexer_sync_pipeline(
+        consent_id, user_id, request_bank_sync=False,
+        event_id=event_id, event_account_id=event_account_id,
+    )
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     await _warm_after_sync(user_id)
     return result
