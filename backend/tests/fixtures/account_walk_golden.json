@@ -123,6 +123,13 @@
     null
    ],
    [
+    6,
+    "lowsrc",
+    60.0,
+    true,
+    null
+   ],
+   [
     2,
     "hsbc",
     1758.33,
@@ -145,7 +152,7 @@
     "low_point_and_plans": 2521.67,
     "plans_reserved": 0.0,
     "short": false,
-    "spend_from_headroom": 2321.67,
+    "spend_from_headroom": 2346.67,
     "uncertain": false
    },
    "hsbc": {
@@ -173,15 +180,15 @@
     "uncertain": false
    },
    "lowsrc": {
-    "after_payments": -150.0,
-    "after_payments_and_plans": -150.0,
+    "after_payments": -90.0,
+    "after_payments_and_plans": -90.0,
     "estimated": false,
-    "headroom": -160.0,
-    "low_point": -150.0,
-    "low_point_and_plans": -150.0,
+    "headroom": -135.0,
+    "low_point": -125.0,
+    "low_point_and_plans": -125.0,
     "plans_reserved": 0.0,
     "short": true,
-    "spend_from_headroom": -150.0,
+    "spend_from_headroom": -125.0,
     "uncertain": false
    },
    "man1": {
@@ -221,9 +228,7 @@
     "uncertain": false
    }
   },
-  "income_notes": [
-   "This plan doesn't count the \u00a377 that sometimes arrives around 7 Nov. It has landed in your account savings, not your account current account. If it does arrive, you'll simply need less."
-  ],
+  "income_notes": [],
   "item_types": [
    "move",
    "needle",
@@ -235,18 +240,25 @@
      "label": "See what's due",
      "route": "/upcoming"
     },
-    "amount": 160,
-    "assumed_incomes": [],
-    "body": "3 payments (\u00a3155) leave lowsrc before period end and it holds \u00a35. \u00a3150 short. Moving \u00a3160 from barclays covers all of them, with about \u00a310 spare.",
+    "amount": 135,
+    "assumed_incomes": [
+     {
+      "amount": 60.0,
+      "basis": "reliable",
+      "estimated": false,
+      "expected_date": "2026-11-08",
+      "name": "Rebate"
+     }
+    ],
+    "body": "3 payments (\u00a3155) leave lowsrc before period end and it holds \u00a35. \u00a3125 short. Moving \u00a3135 from barclays covers all of them, with about \u00a310 spare.",
     "brief_lead": {
      "companion": "to lowsrc",
-     "value": "\u00a3160"
+     "value": "\u00a3135"
     },
     "covered": true,
     "envelope_reserved": false,
     "estimated": false,
-    "headline": "Move \u00a3160 to lowsrc",
-    "income_note": "This plan doesn't count the \u00a377 that sometimes arrives around 7 Nov. It has landed in your account savings, not your account current account. If it does arrive, you'll simply need less.",
+    "headline": "Move \u00a3135 to lowsrc",
     "move_map": {
      "from": {
       "account_id": "barclays",
@@ -268,8 +280,8 @@
     },
     "moves": [
      {
-      "amount": 160,
-      "headline": "Move \u00a3160 from barclays",
+      "amount": 135,
+      "headline": "Move \u00a3135 from barclays",
       "move_map": {
        "from": {
         "account_id": "barclays",
@@ -322,7 +334,7 @@
      "provider": "Bank"
     },
     "sources_safe": true,
-    "summary": "3 payments (\u00a3155) leave lowsrc before period end and it holds \u00a35. \u00a3150 short. Moving \u00a3160 from barclays covers all of them, with about \u00a310 spare.",
+    "summary": "3 payments (\u00a3155) leave lowsrc before period end and it holds \u00a35. \u00a3125 short. Moving \u00a3135 from barclays covers all of them, with about \u00a310 spare.",
     "type": "move"
    }
   ],
@@ -342,7 +354,7 @@
     ],
     [
      "lowsrc",
-     -150.0
+     -90.0
     ],
     [
      "pot",
@@ -372,7 +384,7 @@
     ],
     [
      "lowsrc",
-     -150.0
+     -125.0
     ],
     [
      "pot",
@@ -631,6 +643,28 @@
     [
      6,
      "lowsrc",
+     60.0,
+     true,
+     {
+      "account_id": "lowsrc",
+      "amount": 60.0,
+      "amounts_recent": [
+       60.0,
+       60.0,
+       60.0
+      ],
+      "confirmed_alias": null,
+      "credit_basis": "reliable",
+      "days_away": 6,
+      "expected_date": "2026-11-08",
+      "name": "Rebate",
+      "occurrences": 3,
+      "steady_salary": false
+     }
+    ],
+    [
+     6,
+     "lowsrc",
      25.0,
      false,
      {
@@ -704,7 +738,7 @@
     ],
     [
      "lowsrc",
-     -150.0
+     -125.0
     ],
     [
      "orphan",
@@ -730,7 +764,7 @@
     ],
     [
      "lowsrc",
-     -150.0
+     -90.0
     ],
     [
      "orphan",
@@ -800,6 +834,12 @@
      "hsbc",
      [
       "Refund"
+     ]
+    ],
+    [
+     "lowsrc",
+     [
+      "Rebate"
      ]
     ]
    ],
@@ -884,6 +924,13 @@
     [
      6,
      "lowsrc",
+     60.0,
+     true,
+     "Rebate"
+    ],
+    [
+     6,
+     "lowsrc",
      25.0,
      false,
      "Phone"
@@ -918,7 +965,7 @@
     ],
     [
      "lowsrc",
-     -150.0
+     -125.0
     ],
     [
      "orphan",
@@ -944,7 +991,7 @@
     ],
     [
      "lowsrc",
-     -150.0
+     -90.0
     ],
     [
      "orphan",
@@ -1054,10 +1101,14 @@
      ],
      [
       6,
+      60.0
+     ],
+     [
+      6,
       -25.0
      ]
     ],
-    "low_point": -150.0,
+    "low_point": -125.0,
     "opening": 5.0
    },
    "man1": {
@@ -1157,10 +1208,14 @@
      ],
      [
       6,
+      60.0
+     ],
+     [
+      6,
       -25.0
      ]
     ],
-    "min": -150.0,
+    "min": -125.0,
     "opening": 5.0,
     "with_extra": {
      "Bonus": -125.0
