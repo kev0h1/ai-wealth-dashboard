@@ -703,3 +703,27 @@ def test_walk_events_account_absent_from_balances_starts_at_zero_and_keeps_old_k
 def test_walk_events_is_importable_from_companion_unchanged():
     assert companion._walk_events is aw.walk_events
     assert companion.walk_sort_key is aw.walk_sort_key
+
+
+def test_credited_incomes_keep_the_window_income_key_order():
+    """The consumer takes max(amount) over the credited incomes, so on an
+    amount tie the first one wins: the old closing walk built the dict while
+    looping `window_income`, not in the order the accounts were seeded."""
+    from types import SimpleNamespace
+
+    def inc(acct, day):
+        return {"name": f"Pay {acct}", "account_id": acct, "amount": 1000.0, "days_away": day,
+                "expected_date": f"2026-11-{day:02d}", "credit_basis": "steady", "steady_salary": True}
+
+    inputs = SimpleNamespace(
+        assessable_bills=[_bill("a", 1, 10.0, "A", 500.0), _bill("b", 1, 10.0, "B", 500.0)],
+        window_income=[inc("B", 5), inc("A", 3)],  # B's income first, A seeded first
+        confirmed_income_keys={"Pay A", "Pay B"},
+        funded_window_inflows=[], live_balances={"A": 500.0, "B": 500.0},
+        running_seed={"A": 500.0, "B": 500.0}, days_to_pay=10,
+    )
+    _events, seed, credited = aw.window_events(inputs)
+    assert list(seed) == ["A", "B"]
+    assert list(credited) == ["B", "A"]
+    steady = [i for lst in credited.values() for i in lst if i.get("credit_basis") == "steady"]
+    assert max(steady, key=lambda i: float(i["amount"]))["expected_date"] == "2026-11-05"

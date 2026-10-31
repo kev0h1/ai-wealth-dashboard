@@ -42,7 +42,7 @@ numbers below are the differences between the four walks of this step):
 | WD5 | Preview salary at `days_to_pay` | `preview_salary` | the payday-plan salary candidate, only when `payday_preview` | none | none | none (the excluded income is added instead, WD6) |
 | WD6 | One extra income event at its own day | `extra_income` | none | none | none | one candidate excluded income per call |
 | WD7 | Credited-incomes disclosure | `AccountWalk.credited_incomes` / `window_events` third result | read (the payday plan's `assumed_incomes`, the excluded-income notes) | not read | not read | reads the closing walk's list |
-| WD8 | Same-day ordering shape | `same_day_key` | `"is_income"` (`walk_sort_key`) | `"is_income"` | `"positive_delta"`: an inline `(day, delta)` sort, equivalent except for a non-positive-amount income | `"positive_delta"` |
+| WD8 | Same-day ordering shape | `same_day_key` | `"is_income"` (`walk_sort_key`) | `"is_income"` | `"positive_delta"`: an inline `(day, delta)` sort; it differs from `"is_income"` for a non-positive-amount income (sorted as a debit) and for a negative-amount debit (a positive delta, so sorted first), and reproduces the old inline key exactly | `"positive_delta"` |
 | WD9 | What the walk is asked for | result field | `closing`, `low_point`, `first_short`, `bounced` | `bounced` filtered by kind: a bounced `movement` bill is not counted unless it is a card repayment (`count_at_risk`); every later bill on a short account still counts (a deficit cascades) | `low_point` | `low_point` |
 
 `first_short` (bill, day, shortfall) is the head of `bounced`; the at-risk
@@ -50,8 +50,9 @@ count is over every bounced non-movement bill (its old rule), not only the
 first.
 
 The low point is a running minimum from the opening balance over the debits
-only. A credit can never lower it, so the old low-point loops, which also took
-`min(...)` after a credit, give the same figure for non-negative amounts.
+only. For non-negative amounts, which is all this codebase stores, a credit
+can never lower it, so the old low-point loops, which also took `min(...)`
+after a credit, give the same figure.
 """
 from __future__ import annotations
 
@@ -275,6 +276,11 @@ def window_events(
         allentries.extend(entries)
         if cr:
             credited[sid] = cr
+    # the old closing walk built `credited` while looping `window_income`, so
+    # its key order was the first credited income's position there; a consumer
+    # takes a max over the values, where an amount tie makes order matter.
+    _pos = {id(i): n for n, i in enumerate(inputs.window_income)}
+    credited = dict(sorted(credited.items(), key=lambda kv: _pos[id(kv[1][0])]))
     # one stable global order: day, credits first, then insertion order
     # (all bills, incomes, inflows, preview), exactly the old list + sort.
     allentries.sort(key=_same_day_sort("is_income"))
