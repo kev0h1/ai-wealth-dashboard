@@ -120,8 +120,8 @@ Step 2 (H142), numbers are the board's scenario numbers:
 - 7 `goals-reserved-at-their-source-japan-and-4p-challenge` (G350, G351, G352): a goal funded from the salary account
   (stored source, kept there by the payday plan) and a scheduled daily goal (4p a day step) drawn from another
   current account (stored source). Slices reserved at their source in the positions and the payday plan's source
-  needs, no goal pot is a plan destination. Known backend gaps: `_goal_source_slices` omits the schedule, so the
-  headroom and the payday plan size the daily goal at 725 instead of the schedule's 354.48.
+  needs, no goal pot is a plan destination. Headroom and the payday plan read the schedule through
+  `_goal_source_slices` (G375), so the daily goal is 354.48 on every surface.
 - 8 `set-aside-in-a-pot-reserved-at-its-source`: an allocation filling a savings pot, its source learned from a
   same-day paired transfer; the unfilled 150 is reserved at the source in Left to spend, headroom and positions,
   the pot is never spendable.
