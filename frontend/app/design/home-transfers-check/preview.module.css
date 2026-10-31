@@ -1,0 +1,51 @@
+.page { min-height:100vh; padding:24px 16px calc(48px + env(safe-area-inset-bottom)); background:#f0f2f7; color:#0f172a; }
+:global(.dark) .page { background:#0f172a; color:#f1f5f9; }
+.shell { max-width:1040px; margin-inline:auto; }
+.review { border-bottom:1px solid #cbd5e1; padding-bottom:24px; margin-bottom:28px; }
+:global(.dark) .review { border-color:#334155; }
+.muted { color:#475569; font-size:14px; line-height:1.6; }
+:global(.dark) .muted { color:#cbd5e1; }
+.controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.control { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 14px; border-radius:12px; font-size:14px; font-weight:600; background:#e2e8f0; color:#334155; touch-action:manipulation; }
+:global(.dark) .control { background:#334155; color:#f1f5f9; }
+.selected, :global(.dark) .selected { background:#4f46e5; color:#fff; }
+.control:hover { filter:brightness(.96); }
+.page :is(a,button):active { opacity:.8; }
+.page :is(a,button,summary,select):focus-visible { outline:2px solid #4f46e5; outline-offset:4px; }
+:global(.dark) .page :is(a,button,summary,select):focus-visible { outline-color:#a5b4fc; }
+.page select { min-height:44px; padding:8px 12px; max-width:100%; border:1px solid #94a3b8; border-radius:12px; font-size:16px; background:transparent; }
+.page option { background:white; color:#0f172a; }
+.summary { min-height:44px; align-content:center; font-size:14px; font-weight:600; cursor:pointer; }
+.textLink { display:inline-flex; align-items:center; gap:8px; min-height:44px; font-size:14px; font-weight:600; color:#4338ca; border-radius:8px; }
+.textLink:hover { text-decoration:underline; text-underline-offset:3px; }
+:global(.dark) .textLink { color:#a5b4fc; }
+.columns { display:grid; gap:32px; align-items:start; }
+.stack { display:flex; flex-direction:column; gap:16px; }
+.reconnect, .contextRow, .hero, .strip, .actionCard, .failed { border:1px solid #e2e8f0; border-radius:16px; background:white; box-shadow:0 1px 2px rgb(0 0 0 / .04); }
+:global(.dark) :is(.reconnect,.contextRow,.hero,.strip,.actionCard,.failed) { background:#1e293b; border-color:#334155; box-shadow:none; }
+.reconnect { display:flex; align-items:center; gap:10px; padding:8px 16px; }
+.reconnect .textLink { flex-shrink:0; }
+.strip { display:flex; align-items:center; gap:12px; padding:16px; border-color:#a5b4fc; }
+:global(.dark) .strip { border-color:#6366f1; }
+.strip:hover { background:#eef2ff; }
+:global(.dark) .strip:hover { background:#27334a; }
+.icon { display:flex; align-items:center; justify-content:center; height:40px; width:40px; flex-shrink:0; border-radius:12px; background:#eef2ff; color:#4338ca; }
+:global(.dark) .icon { background:rgb(129 140 248 / .15); color:#a5b4fc; }
+.actionCard { padding:20px; }
+.count { display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:28px; padding:0 8px; border-radius:999px; background:#eef2ff; color:#4338ca; font-size:13px; font-weight:700; }
+:global(.dark) .count { background:rgb(129 140 248 / .15); color:#a5b4fc; }
+.primary { display:flex; align-items:center; justify-content:center; gap:10px; min-height:44px; padding:12px 16px; margin-top:16px; background:#4f46e5; color:#fff; font-size:14px; font-weight:600; border-radius:12px; }
+.primary:hover { background:#4338ca; }
+.quiet { display:flex; align-items:center; gap:10px; padding:8px 4px; min-height:44px; color:#475569; font-size:14px; }
+:global(.dark) .quiet { color:#cbd5e1; }
+.failed { padding:16px; }
+.contextRow { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px; }
+.hero { padding:24px; border-radius:24px; }
+.eyebrow { text-transform:uppercase; letter-spacing:.05em; font-size:11px; font-weight:600; color:#64748b; }
+:global(.dark) .eyebrow { color:#cbd5e1; }
+.account { display:flex; justify-content:space-between; gap:12px; padding-top:12px; font-size:14px; }
+.account > :last-child { flex-shrink:0; }
+.aside { border-top:1px solid #cbd5e1; padding-top:24px; }
+:global(.dark) .aside { border-color:#334155; }
+@media(min-width:800px) { .page { padding:40px 32px 64px; } .columns { grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:48px; } .aside { border-top:0; padding:12px 0; } }
+@media(max-width:359px) { .page { padding-inline:12px; } .strip { padding:14px; gap:10px; } .icon { width:32px; height:32px; } .hero { padding:20px; } .reconnect { padding-inline:12px; gap:8px; } }
