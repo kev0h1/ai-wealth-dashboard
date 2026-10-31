@@ -224,7 +224,14 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     """
     try:
         async with sync_in_progress(connections_col, connection_id):
-            return await _sync_connection(connection_id, user_id, from_date)
+            result = await _sync_connection(connection_id, user_id, from_date)
+            # The OAuth callback calls this directly, without the accounts
+            # router's bulk classification pass. Revisit earlier rows once the
+            # newly connected bank has supplied the missing counterpart.
+            if user_id:
+                from app.services.own_account_transfers import reconcile_own_account_transfers
+                await reconcile_own_account_transfers(user_id)
+            return result
     except Exception as exc:
         try:
             await connections_col.update_one(
