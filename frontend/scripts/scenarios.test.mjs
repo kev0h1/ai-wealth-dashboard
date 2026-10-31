@@ -14,7 +14,8 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { accountAvailability } from "../lib/accountAvailability.ts";
-import { positionsFromToday, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
+import { accountPaymentGap, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
+import { statusFor } from "../lib/upcomingAccountStatus.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import { resolveUpcomingPeriod } from "../lib/upcomingPeriod.ts";
 import { accountPlan, assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "../lib/upcomingPlans.ts";
@@ -104,6 +105,17 @@ for (const slug of slugs) {
       const serverShort = (server.after_payments ?? 0) < 0 || (server.low_point ?? 0) < 0;
       const clientShort = account.status === "short" || account.status === "unfunded";
       assert.equal(clientShort, serverShort, `${account.id} client status ${account.status} vs server verdict ${serverShort ? "short" : "covered"}`);
+    });
+    assertKey(`shown summary agrees with server: ${account.id}`, () => {
+      // What By account and the sheet read: the reconciled summary (PlanningPage.tsx).
+      const server = snap.account_eligibility[account.id];
+      const shown = reconcileWithServerPosition(account, positions[account.id]);
+      const serverShort = (server.after_payments ?? 0) < 0 || (server.low_point ?? 0) < 0;
+      assert.equal(shown.status === "short", serverShort, `${account.id} shown status ${shown.status} vs server verdict ${serverShort ? "short" : "covered"}`);
+      assert.equal(accountPaymentGap(shown) !== null, serverShort, `${account.id} sheet verdict (payment gap) vs server verdict`);
+      const row = statusFor(shown, []);
+      if (serverShort) assert.equal(row.label, "Short for payments", `${account.id} By account label`);
+      else if (shown.status === "covered" && !plans.some((p) => p.sourceId === account.id)) assert.equal(money(row.amount), money(server.after_payments), `${account.id} By account left figure vs server after payments`);
     });
     assertKey(`account plan agrees with server: ${account.id}`, () => {
       const server = snap.account_eligibility[account.id];

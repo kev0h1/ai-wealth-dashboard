@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 import { ArrowDownLeft, ArrowLeftRight, Check, ChevronDown, ChevronRight, ReceiptText } from "lucide-react";
-import type { UpcomingAccountEvent, UpcomingAccountSummary } from "@/lib/upcomingAccounts";
+import { accountPaymentGap, type UpcomingAccountEvent, type UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import { accountPlan, fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { cardRepaymentShortCopy } from "@/lib/upcomingAccountStatus";
 import { coverSuggestionSentence } from "@/lib/coverSuggestion";
@@ -41,7 +41,8 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   const hidden = useBalancesHidden();
   const result = accountPlan(account, plans);
   if (account.status === "short" && account.shortFor?.cardRepayment) return <div className="space-y-2"><p data-card-repayment-short className="flex items-start gap-2 text-sm font-semibold"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{maskMoneyText(cardRepaymentShortCopy(account), hidden)}</p>{account.coverSuggestion && <p className={"text-xs leading-5 " + detailMuted}>{coverSuggestionSentence(account.coverSuggestion)}</p>}<p className={"text-xs leading-5 " + detailMuted}>A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap.</p></div>;
-  if (account.status === "short") return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{m(Math.round(account.shortfall! * 100))} needed for payments</p><p className={"text-xs leading-5 " + detailMuted}>{account.firstShortDate ? "First shortfall " + dateLabel(account.firstShortDate) + ". " : ""}Goals and allocations are separate from this bill gap.</p></div>;
+  const gap = accountPaymentGap(account);
+  if (gap !== null) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{m(Math.round(gap * 100))} needed for payments</p><p className={"text-xs leading-5 " + detailMuted}>{account.firstShortDate ? "First shortfall " + dateLabel(account.firstShortDate) + ". " : ""}Goals and allocations are separate from this bill gap.</p></div>;
   if (account.status === "unknown") return <div className="space-y-2"><h3 className="text-base font-semibold">Balance needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>We can show your plans, but not whether this account can fund them until its balance and incoming money can be verified.</p></div>;
   if (plansStatus !== "ready") return <p className={"text-sm leading-6 " + detailMuted}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</p>;
   if (result.uncertain) return <div className="space-y-2"><h3 className="text-base font-semibold">Calculation needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>{result.assigned.some((plan) => plan.overlapReason === "shared-plan") ? "Plans share a receiving pot. We cannot tell whether they describe the same money, so no combined total is shown." : result.assigned.some((plan) => plan.overlapUncertain) ? "A planned move may also fund one of these plans. No combined total is shown until the overlap is clear." : "A plan amount is unavailable, so no combined total is shown."}</p></div>;

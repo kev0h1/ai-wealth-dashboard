@@ -50,7 +50,7 @@ assert.equal(upcomingMoney(-1.25), "−£1.25");
 const bill = (changes = {}) => ({ name: "Bill", amount: 80, account_id: "a", account_balance: 100, expected_date: "2026-09-30", days_away: 0, kind: "commitment", ...changes });
 const cutoff = Date.parse("2026-10-02");
 const walk = (bills, income = [], inflows = []) => walkUpcomingAccounts({ upcoming_bills: bills, upcoming_income: income, internal_inflows: inflows }, cutoff);
-const credit = (changes = {}) => ({ name: "Income", amount: 100, account_id: "a", expected_date: "2026-09-30", days_away: 0, ...changes });
+const credit = (changes = {}) => ({ name: "Income", amount: 100, account_id: "a", expected_date: "2026-09-30", days_away: 0, credit_basis: "confirmed", ...changes });
 const first = bill({ name: "First", amount: 180 });
 const second = bill({ name: "Second", amount: 30 });
 let result = walk([first, second], [credit()]);

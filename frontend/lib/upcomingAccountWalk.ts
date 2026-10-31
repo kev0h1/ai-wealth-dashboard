@@ -45,6 +45,11 @@ export function walkUpcomingAccounts(
   const counted = (accountId: string | null | undefined) => !accountId || !excludedAccountIds.has(accountId);
   const bills = cashflow.upcoming_bills.filter((bill) => inWindow(bill.expected_date) && !bill.is_credit_card && !bill.observed_pending && counted(bill.account_id));
   const income = cashflow.upcoming_income.filter((item) => inWindow(item.expected_date) && counted(item.account_id));
+  // G372: the ONE income-credit rule, mirroring backend income_credit_ok. A
+  // predicted income funds its account's walk only when the server stamped a
+  // credit_basis (confirmed, reliable or steady); anything else is shown by the
+  // pooled forecast but never underwrites a per-account verdict.
+  const credited = income.filter((item) => Boolean(item.credit_basis));
   const pennies = (amount: number) => Math.round(amount * 100);
   const allInflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));
   // G360: the ONE funded-inflow rule, mirroring backend services/inflow_credit.py.
@@ -62,7 +67,7 @@ export function walkUpcomingAccounts(
     if (typeof opening !== "number" || !Number.isFinite(opening)) return false;
     const day = Date.parse(inflow.expected_date);
     const steps = [
-      ...income.filter((item) => item.account_id === sid && item.credit_basis).map((item) => ({ date: Date.parse(item.expected_date), delta: pennies(item.amount) })),
+      ...credited.filter((item) => item.account_id === sid).map((item) => ({ date: Date.parse(item.expected_date), delta: pennies(item.amount) })),
       ...sourceBills.map((bill) => ({ date: Date.parse(bill.expected_date), delta: -pennies(bill.amount) })),
     ].filter((step) => step.date <= day).sort((a, b) => a.date - b.date || Number(a.delta < 0) - Number(b.delta < 0));
     return steps.reduce((total, step) => total + step.delta, pennies(opening)) >= 0;
@@ -84,7 +89,7 @@ export function walkUpcomingAccounts(
     const opening = first ? first.account_balance : planSource?.balance;
     const balanceKnown = id !== "__unknown__" && typeof opening === "number" && Number.isFinite(opening)
       && payments.every((bill) => typeof bill.account_balance === "number" && Number.isFinite(bill.account_balance) && pennies(bill.account_balance) === pennies(opening));
-    const credits = income.filter((item) => item.account_id === id);
+    const credits = credited.filter((item) => item.account_id === id);
     const transfers = inflows.filter((item) => item.account_id === id);
     const rawEvents = [
       ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), bill: undefined, ref: item as object })),
