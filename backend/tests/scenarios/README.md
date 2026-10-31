@@ -99,14 +99,63 @@ verdict context), Penny and any LLM call.
 
 ## Coverage
 
-Step 1 (this directory): eve of payday, where everything dated on payday belongs to the next period (G359, G360), the same standing orders funded by a steady salary mid-period (G359, G360 funded-inflow rule),
+Step 1 (H140): eve of payday, where everything dated on payday belongs to the next period (G359, G360), the same standing orders funded by a steady salary mid-period (G359, G360 funded-inflow rule),
 monthly bills on the 1st with month-end pay (G354), a reconnected account with
 two salary sightings and its one-sighting variant, with the salary mid-period (G359), the unconfirmed card
 bill hold and its release.
 
-Not yet written, to be added once their fixes merge (G360, G362, A175): payday
-itself with the salary landed but not yet posted (G362), the HSBC incoming
-transfer then mortgage case (G360), a goal funded from the salary account and a
-scheduled goal drawn daily (G350/G357), a set-aside in a pot, Hide balances, a
-Monzo pot with no transactions (A175). Add a scenario whenever a money bug is
-fixed.
+Step 2 (H142), numbers are the board's scenario numbers:
+
+- 2a `payday-itself-salary-landed-and-posted` (G362): the salary is in the balance and posted today, so the
+  occurrence is closed and every real bill in the new period is deducted once (Left to spend 2,865). Known
+  backend gap `payday_plan present`: with the occurrence closed the plan has no salary candidate, so the
+  G172 landed-salary gate never runs and the plan stays up with a salary of 0.
+- 2b `payday-itself-salary-landed-not-posted` (G362, money engine map D7): the salary is in the balance but no
+  credit has posted, so the occurrence stays open and is credited twice. The overstated figures are pinned
+  exactly (Left to spend 4,280 against a correct 2,865, Barclays after payments 5,005 against 2,005) and listed
+  as backend known gaps.
+- 5 `hsbc-incoming-transfer-then-mortgage-payday-eve` and `...-mid-window` (G360): the incoming payday transfer then
+  the mortgage. On the eve both belong to the next period (after payments equals low point, 10); mid-window the
+  transfer is credited because Barclays is funded, so the mortgage is covered (after payments 360, low point 10).
+- 7 `goals-reserved-at-their-source-japan-and-4p-challenge` (G350, G351, G352): a goal funded from the salary account
+  (stored source, kept there by the payday plan) and a scheduled daily goal (4p a day step) drawn from another
+  current account (stored source). Slices reserved at their source in the positions and the payday plan's source
+  needs, no goal pot is a plan destination. Known backend gaps: `_goal_source_slices` omits the schedule, so the
+  headroom and the payday plan size the daily goal at 725 instead of the schedule's 354.48.
+- 8 `set-aside-in-a-pot-reserved-at-its-source`: an allocation filling a savings pot, its source learned from a
+  same-day paired transfer; the unfilled 150 is reserved at the source in Left to spend, headroom and positions,
+  the pot is never spendable.
+- 9 Hide balances: a client preference (`PreferencesContext`, `wd_hide_balances`) with no server figure, so it is
+  asserted in the frontend gate only. Scenarios with `expected.hide_balances: true` (scenario 7) have the gate
+  render the Upcoming hero, the By account card and every account sheet from the snapshot, hidden and shown: hidden
+  leaves no pound figure in text or aria labels, shown has them (payment lines are payment amounts and stay visible
+  by the B55 policy).
+- 10 `monzo-pot-with-no-transactions` (A175): a savings pot with a balance, last transaction count 0 and a sync stamp.
+  Savings pool only, never spendable, the account sheet shows the empty-state copy with the bank data time line,
+  and the switch is replaced by the static Savings are not counted line (frontend gate, rendered from the snapshot's
+  account rows; backend asserts the serialised diagnostics and the pool).
+
+Add a scenario whenever a money bug is fixed.
+
+## Extra fixture keys (H142)
+
+- `commitments` (goals) and `allocations` (set-asides) need an explicit `_id` (a generated id would change every
+  run; the harness refuses a snapshot that contains one). Date fields (`created_at`, `effective_from`,
+  `created_period_start`, `created_period_end`) are ISO strings, converted on seeding.
+- `expected.known_gaps` (backend): `{"<assertion key>": {"correct": <value>, "reason": "..."}}`. The fixture's own
+  expected value pins the CURRENT wrong behaviour exactly; `correct` is the hand-computed right value. Every run
+  prints each gap (a `ScenarioKnownGap` warning, and the frontend gate prints them too); the run FAILS when the
+  actual figure equals `correct` (stale gap: delete it and set the expectation to the correct figure), when the
+  pinned behaviour changes, or when a gap key matches no assertion. Keys: `left_to_spend`, `spendable_balance`,
+  `<account id> spend_from | after_payments | low_point | headroom | plans_reserved | after_payments_and_plans | verdict`,
+  `<account id> row <field>`, `cover moves_total`, `cover moves`, `payday_plan present | total | salary amount | dests | keeps | reasons`.
+- `expected.spendable_balance`, `plans_reserved` (goals, from `/cashflow`), `allocations_reserved`, per account
+  `headroom`, `plans_reserved`, `after_payments_and_plans`.
+- `expected.payday_plan`: `total`, `salary_amount`, `dests` ({account: move}), `keeps` ({name: amount kept at the
+  salary account}), `reasons` ({account: [[name, kind, amount]]}).
+- `expected.not_spendable`: account ids that are in no pool (backend) and show no availability and no Spend from
+  (frontend).
+- `expected.account_rows`: per account `pool`, `cover_source_eligible` and the serialised transaction diagnostics.
+- `expected.hide_balances`: run the masking check in the frontend gate (scenario 9).
+- Invariants added for every scenario: a goal or set-aside pot is never a payday-plan destination, and the pooled
+  spendable balance is exactly the counted current accounts.
