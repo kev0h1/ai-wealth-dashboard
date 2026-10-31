@@ -29,15 +29,15 @@ which is also what its hand-copied preamble did before G364):
 
 | Id | Difference | Argument | at_risk_count | compute_today_items | _cashflow_window |
 |----|-----------|----------|---------------|---------------------|------------------|
-| W1 | Which accounts supply live balances | `load_balances` | `bill_account_loader`: only the accounts the assessable bills sit on, looked up by id in the accounts and Yapily collections, NOT scoped to the user | `user_accounts_loader`: every account of the user in the accounts and Yapily collections, plus offline (manual) accounts | spend_impact's own `_live_balances_map`: accounts collection only, scoped to the user, no Yapily, no offline |
-| W2 | Balance field fallback | inside the loader | `balance`, else `current_balance`, else `available_balance`, else 0 | same as at_risk | `balance` only, else 0 (no fallback chain) |
-| W3 | G231 not-counted accounts | inside the loader | not filtered (the response builder already dropped their items when it could verify) | skipped from balances and recorded in `excluded_account_ids` | skipped from balances, not recorded |
-| W4 | G231 fail-closed re-drop when the response says `exclusions_unverified` | `reapply_exclusions` | False | True: bills and incomes of excluded accounts are removed again from the window lists, and `assessable_bills` is rebuilt (inflows are NOT re-dropped) | False |
-| W5 | `stamp_credit_basis` on the response income | `stamp_credit_basis` | False (the response builder already stamped) | True (idempotent re-stamp, G359) | False |
-| W6 | Balance loading when nothing is assessable | `load_when_no_bills` | False (the caller returns first, no read) | True (the account listing feeds the rest of the cover plan) | False (the caller returns None first, no read) |
-| W7 | Preferences source | caller | the caller reads preferences itself and passes them | same | same |
-| W8 | Payday-day slice (`payday_day_*`) and the account rows | none | slice computed, unused; no rows | slice and rows used (payday_split, class specs) | slice computed, unused; no rows |
-| W9 | Income list the payday-plan salary candidate reads | `window_income_before_exclusions` | not read | read: the window income as it stood BEFORE the W4 re-drop, so the candidate pool is unchanged | not read |
+| B1 | Which accounts supply live balances | `load_balances` | `bill_account_loader`: only the accounts the assessable bills sit on, looked up by id in the accounts and Yapily collections, NOT scoped to the user | `user_accounts_loader`: every account of the user in the accounts and Yapily collections, plus offline (manual) accounts | spend_impact's own `_live_balances_map`: accounts collection only, scoped to the user, no Yapily, no offline |
+| B2 | Balance field fallback | inside the loader | `balance`, else `current_balance`, else `available_balance`, else 0 | same as at_risk | `balance` only, else 0 (no fallback chain) |
+| B3 | G231 not-counted accounts | inside the loader | not filtered (the response builder already dropped their items when it could verify) | skipped from balances and recorded in `excluded_account_ids` | skipped from balances, not recorded |
+| B4 | G231 fail-closed re-drop when the response says `exclusions_unverified` | `reapply_exclusions` | False | True: bills and incomes of excluded accounts are removed again from the window lists, and `assessable_bills` is rebuilt (inflows are NOT re-dropped) | False |
+| B5 | `stamp_credit_basis` on the response income | `stamp_credit_basis` | False (the response builder already stamped) | True (idempotent re-stamp, G359) | False |
+| B6 | Balance loading when nothing is assessable | `load_when_no_bills` | False (the caller returns first, no read) | True (the account listing feeds the rest of the cover plan) | False (the caller returns None first, no read) |
+| B7 | Preferences source | caller | the caller reads preferences itself and passes them | same | same |
+| B8 | Payday-day slice (`payday_day_*`) and the account rows | none | slice computed, unused; no rows | slice and rows used (payday_split, class specs) | slice computed, unused; no rows |
+| B9 | Income list the payday-plan salary candidate reads | `window_income_before_exclusions` | not read | read: the window income as it stood BEFORE the B4 re-drop, so the candidate pool is unchanged | not read |
 
 Same-day ordering (`companion.walk_sort_key`), the walks themselves, income
 credit (`income_credit_ok`) and the credited-income disclosure stay with the

@@ -316,26 +316,26 @@ def test_builder_confirmed_payday_source(monkeypatch):
 
 # ── differences table: each keyword flips exactly the documented difference ──
 
-def test_w1_w2_w3_loaders_differ_only_in_the_documented_way(monkeypatch):
+def test_b1_b2_b3_loaders_differ_only_in_the_documented_way(monkeypatch):
     at_risk = _build(monkeypatch, "at_risk")
     companion_wi = _build(monkeypatch, "companion")
     spend = _build(monkeypatch, "spend_impact")
-    # W1: bill accounts only (incl. Yapily) / every account + offline / accounts collection only
+    # B1: bill accounts only (incl. Yapily) / every account + offline / accounts collection only
     assert at_risk.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "natwest": 90.0, "yap1": 75.0}
     assert companion_wi.live_balances == {
         "barclays": 4800.0, "hsbc": 12.0, "nobal": 33.0, "yap1": 75.0, "man1": 250.0,
     }
     assert spend.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "nobal": 0.0}
-    # W2: fallback chain (companion) versus `balance` only (spend impact)
+    # B2: fallback chain (companion) versus `balance` only (spend impact)
     assert companion_wi.live_balances["nobal"] == 33.0 and spend.live_balances["nobal"] == 0.0
-    # W3: G231 exclusion recorded by the companion loader only
+    # B3: G231 exclusion recorded by the companion loader only
     assert companion_wi.excluded_account_ids == {"natwest"}
     assert at_risk.excluded_account_ids == set() and spend.excluded_account_ids == set()
     assert [a["_str_id"] for a in companion_wi.offline_accounts] == ["man1"]
     assert at_risk.all_uk_accounts == [] and spend.offline_accounts == []
 
 
-def test_w4_reapply_exclusions_flips_only_the_redrop(monkeypatch):
+def test_b4_reapply_exclusions_flips_only_the_redrop(monkeypatch):
     from app.services import window_inputs as wim
     off = _build(monkeypatch, "companion", reapply_exclusions=False)
     on = _build(monkeypatch, "companion", reapply_exclusions=True)
@@ -355,7 +355,7 @@ def test_w4_reapply_exclusions_flips_only_the_redrop(monkeypatch):
     assert wim  # module imported for the loader factories above
 
 
-def test_w5_stamp_credit_basis_flips_only_the_stamp(monkeypatch):
+def test_b5_stamp_credit_basis_flips_only_the_stamp(monkeypatch):
     plain = _build(monkeypatch, "at_risk", stamp_credit_basis=False)
     stamped = _build(monkeypatch, "at_risk", stamp_credit_basis=True)
     assert all("credit_basis" not in i for i in plain.window_income)
@@ -364,7 +364,7 @@ def test_w5_stamp_credit_basis_flips_only_the_stamp(monkeypatch):
                   for i in stamped.window_income]) == _norm(plain.window_income)
 
 
-def test_w6_load_when_no_bills_flips_only_the_read(monkeypatch):
+def test_b6_load_when_no_bills_flips_only_the_read(monkeypatch):
     from app.services import window_inputs as wim
     calls: list = []
 
