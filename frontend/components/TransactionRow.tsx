@@ -7,7 +7,10 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
-import { formatCurrency, MINUS } from "@/lib/currency";
+import { formatCurrency, currencySymbol, MINUS } from "@/lib/currency";
+
+import { usePreferences } from "@/components/PreferencesContext";
+import { transactionActivityDate, transactionPostingLabel, maskTransactionText } from "@/lib/transactionActivity";
 
 interface TransactionRowProps {
   transaction: Transaction;
@@ -30,6 +33,8 @@ interface TransactionRowProps {
   // category, amount only in that context. Default true preserves every
   // other caller (Home, Accounts, Spend, CategorySheet…) exactly as before.
   showDate?: boolean;
+  /** G373: chronology for list display only; retain the original posting day. */
+  showActivityDate?: boolean;
 }
 
 // Map merchant name keywords to known domains for favicon lookup
@@ -123,7 +128,9 @@ function MerchantIcon({ transaction, colour }: { transaction: Transaction; colou
       <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden bg-white dark:bg-slate-700">
         <img
           src={logoUrl(domain)}
-          alt={name}
+          alt=""
+          width={28}
+          height={28}
           onError={() => setImgFailed(true)}
           className="w-7 h-7 object-contain"
         />
@@ -145,24 +152,31 @@ function displayName(tx: Transaction): string {
   return tx.merchant_name || tx.description || "Unknown";
 }
 
-export default function TransactionRow({
+export function TransactionRowContent({
   transaction,
   onClick,
   showAccount = false,
   iconVariant = "merchant",
   showDate = true,
-}: TransactionRowProps) {
+  showActivityDate = false,
+  hidden,
+}: TransactionRowProps & { hidden: boolean }) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const colour = getCategoryColour(transaction.category ?? "Other", colours);
   const CategoryIcon = getCategoryIcon(transaction.category ?? "Other", iconOverrides);
   const isCredit = transaction.transaction_type === "credit";
   const amount = transaction.amount;
+  const pending = transaction.is_pending === true;
+  const Row = pending ? "div" : "button";
+  const postingLabel = showActivityDate ? transactionPostingLabel(transaction) : null;
 
   return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/40 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-left ${
+    <Row
+      {...(!pending ? { type: "button" as const, onClick } : {})}
+      data-transaction-id={transaction.id}
+      data-pending={pending ? "true" : "false"}
+      className={`w-full flex min-h-[64px] items-center gap-3 px-4 py-3 text-left ${pending ? "" : "hover:bg-slate-50 dark:hover:bg-slate-700/40 active:bg-slate-100 dark:active:bg-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"} ${
         iconVariant === "category" ? "min-h-[64px]" : ""
       }`}
     >
@@ -181,24 +195,32 @@ export default function TransactionRow({
       {/* Name + date */}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
-          {displayName(transaction)}
+          {maskTransactionText(displayName(transaction), hidden, transaction.currency)}
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          {showDate
-            ? `${formatDate(transaction.date)}${transaction.category ? ` · ${transaction.category}` : ""}`
-            : (transaction.category || "Other")}
+          {pending ? "Pending" : maskTransactionText(showDate
+            ? `${formatDate(showActivityDate ? transactionActivityDate(transaction) : transaction.date)}${transaction.category ? ` · ${transaction.category}` : ""}`
+            : (transaction.category || "Other"), hidden, transaction.currency)}
         </p>
+        {postingLabel && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{postingLabel}</p>}
       </div>
 
       {/* Amount */}
       <span
-        className={`text-sm font-semibold flex-shrink-0 money ${
-          isCredit ? "text-emerald-500" : "text-slate-800 dark:text-slate-100"
+        role={hidden ? "img" : undefined}
+        aria-label={hidden ? "Amount hidden" : undefined}
+        className={`max-w-[55%] break-words text-right text-sm font-semibold flex-shrink-0 money tabular-nums ${
+          isCredit && !pending ? "text-emerald-500" : "text-slate-800 dark:text-slate-100"
         }`}
       >
         {isCredit ? "+" : MINUS}
-        {formatCurrency(amount, transaction.currency)}
+        {hidden ? `${currencySymbol(transaction.currency)}••••` : formatCurrency(amount, transaction.currency)}
       </span>
-    </button>
+    </Row>
   );
+}
+
+export default function TransactionRow(props: TransactionRowProps) {
+  const { hideNetWorth, preferencesReady } = usePreferences();
+  return <TransactionRowContent {...props} hidden={hideNetWorth || !preferencesReady} />;
 }

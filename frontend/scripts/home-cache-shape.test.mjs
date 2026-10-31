@@ -65,6 +65,9 @@ function currentSnapshot(overrides = {}) {
     todayStatus: "ready",
     accountsStatus: "ready",
     recentTxns: [],
+    recentPendingTxns: [],
+    recentPendingTotal: 0,
+    recentActivityError: null,
     ...overrides,
   };
 }
@@ -171,6 +174,8 @@ check("a string is not a valid shape", isCurrentHomeCacheShape("warm"), false);
     "todayStatus",
     "accountsStatus",
     "recentTxns",
+    "recentPendingTxns",
+    "recentPendingTotal",
   ]) {
     const partial = currentSnapshot();
     delete partial[key];

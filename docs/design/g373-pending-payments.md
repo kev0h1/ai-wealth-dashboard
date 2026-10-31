@@ -11,9 +11,15 @@ Design skill: impeccable. The context launcher was unavailable, so PRODUCT.md
 and DESIGN.md were read directly. This is an Operate surface in the existing
 Calm Cockpit system.
 
-## Review round
+## Approved direction
 
-`/design/pending-payments` contains two synthetic, local-only proposals:
+Kevin selected **B: Separate group**. The production fold-in uses one shared
+counted Pending payments group above booked rows on Home, Transactions and
+bank account detail. The temporary design route is retired under H113.
+
+## Original review round
+
+The retired preview compared two synthetic, local-only proposals:
 
 - **A: In the list.** Pending leads the existing list, followed by dated booked
   activity. Recommended for the smallest change to the familiar layout.
@@ -85,6 +91,19 @@ handover matching. Existing bulk transaction/chart consumers stay booked-only.
 - Independent code and screenshot review covers data boundaries, accessibility
   and DESIGN.md. Final repository gates run through `session.sh finish`.
 
-This round prepares the backend and proposals. Production list consumers do
-not yet opt into activity ordering or render pending groups; those changes
-follow Kevin's design selection.
+## Production fold-in
+
+- Home keeps three pending rows in a separate group and links to the complete
+  transaction list when more exist. Its warm cache records pending separately
+  and retains load failures, so a failure does not turn into an empty success.
+- Transactions and bank account detail refresh provisional snapshots alongside
+  booked pages and paginate them separately. Context changes invalidate older
+  requests; failures expose Retry. Manual ledgers retain their existing flow.
+- All three bank lists opt into activity ordering. Date headings and captions use
+  the server activity date; later bank dates remain visible as Posts/Posted.
+- Pending rows cannot open editing. Money stays in ink for provisional credits,
+  signs remain visible, and figures plus explicit currency amounts in narratives
+  stay masked until the preference is ready. This includes prefix and suffix FX.
+- The original temporary preview is removed. Component tests exercise the real
+  production group and rows, including readiness masking, signed currency,
+  posting labels, retry controls and equal-valued distinct payments.

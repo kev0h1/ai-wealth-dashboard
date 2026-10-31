@@ -41,14 +41,7 @@ const ROUTES: PreviewRoute[] = [
   },
 
 
-  {
-    slug: "pending-payments",
-    name: "Pending payments and posting dates · G373",
-    description: "G373 · impeccable · A keeps Pending inside the familiar list; B gives pending payments a separate compact group. Home, Transactions and account examples, weekend posting dates, pending-to-booked handover, masking, both themes and empty/error states. Synthetic data only; production lists await the chosen treatment.",
-    variants: [{ label: "A · In the list", value: "a" }, { label: "B · Separate group", value: "b" }],
-    states: [{ label: "Mixed activity", value: "mixed" }, { label: "Pending only", value: "pending-only" }, { label: "No pending", value: "no-pending" }, { label: "Long names and currencies", value: "long" }, { label: "Empty", value: "empty" }, { label: "Load failure", value: "error" }],
-    group: "current",
-  },
+
 
   {
     slug: "statements-house-ads",

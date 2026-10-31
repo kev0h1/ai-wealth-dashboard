@@ -129,6 +129,9 @@ function check(label, actual, expected) {
     todayStatus: "ready",
     accountsStatus: "ready",
     recentTxns: [],
+    recentPendingTxns: [],
+    recentPendingTotal: 0,
+    recentActivityError: null,
   });
   check("Home cache warmed with the pre-correction companionItems", getHomeCache()?.companionItems[0].id, "brief-padel-6x");
 

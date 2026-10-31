@@ -27,6 +27,8 @@ import type { SearchFilters } from "@/lib/transactionFilters";
 import { groupByDay } from "@/lib/transactionGrouping";
 import { applyCategoryChange } from "@/lib/transactionsListUpdate";
 import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
+import PendingPaymentsGroup from "@/components/PendingPaymentsGroup";
+import { transactionActivityDate } from "@/lib/transactionActivity";
 
 const PAGE_SIZE = 20;
 
@@ -89,10 +91,20 @@ export default function TransactionsPage() {
   const [items, setItems] = useState<Transaction[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  // Pending bank activity is deliberately a separate feed. It never joins
+  // booked pagination, totals, category changes or the TeachingSheet.
+  const [pendingItems, setPendingItems] = useState<Transaction[]>([]);
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPages, setPendingPages] = useState(1);
+  const [pendingError, setPendingError] = useState<string | null>(null);
+  const [loadingPendingMore, setLoadingPendingMore] = useState(false);
+  const [bookedError, setBookedError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // G358: bumped after a re-file so the current page refetches from the server.
   const [reloadKey, setReloadKey] = useState(0);
   const reloadSeen = useRef(0);
+  const pendingGeneration = useRef(0);
   // G242: true once the first list has painted, so the aim block is never inserted above a
   // list that has not settled yet, and stays mounted (editor open) across later reloads.
   const [listSettled, setListSettled] = useState(false);
@@ -180,11 +192,35 @@ export default function TransactionsPage() {
   // A new search or a cleared/changed category/merchants/period/txn-type filter always restarts at page 1.
   useEffect(() => { setPage(1); }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType]);
 
+  // Clear the provisional group as soon as its context changes. This avoids
+  // one filter's pending payments briefly appearing under another filter
+  // while the new first page is loading.
+  useEffect(() => {
+    pendingGeneration.current += 1;
+    setPendingItems([]);
+    setPendingTotal(0);
+    setPendingPage(1);
+    setPendingPages(1);
+    setPendingError(null);
+    setLoadingPendingMore(false);
+  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType]);
+
   useEffect(() => {
     let cancelled = false;
+    // Every booked refresh supersedes an in-flight pending-page request.
+    // Otherwise an old "show more" result could land after a newly booked
+    // payment has correctly disappeared from the refreshed first page.
+    const generation = ++pendingGeneration.current;
+    setLoadingPendingMore(false);
+    setPendingItems([]);
+    setPendingTotal(0);
+    setPendingPage(1);
+    setPendingPages(1);
+    setPendingError(null);
     // A re-file reload settles quietly: the optimistic list stays on screen.
     if (reloadSeen.current === reloadKey) setLoading(true);
     reloadSeen.current = reloadKey;
+    setBookedError(null);
     api.transactionsSearch({
       q: debouncedQuery || undefined,
       // `categories` (repeated-param, exact-match list) wins when present —
@@ -199,22 +235,103 @@ export default function TransactionsPage() {
       txn_type: txnType || undefined,
       page,
       page_size: PAGE_SIZE,
+      activity_order: true,
     })
       .then((r) => {
         if (cancelled) return;
         setItems(r.items);
         setTotalPages(r.pages);
         setTotal(r.total);
+        // The API returns pending separately only alongside booked page one.
+        // Keep the group visible while the person browses booked pages.
+        if (page === 1 && "pending_items" in r) {
+          setPendingItems(r.pending_items ?? []);
+          setPendingTotal(r.pending_total ?? 0);
+          setPendingPage(r.pending_page ?? 1);
+          setPendingPages(r.pending_pages ?? 1);
+          setPendingError(null);
+        }
       })
       .catch(() => {
         if (cancelled) return;
-        setItems([]);
-        setTotalPages(1);
-        setTotal(0);
+        setBookedError("Booked payments could not be loaded. Try again.");
+        if (page === 1) {
+          setPendingItems([]);
+          setPendingTotal(0);
+          setPendingError("Pending payments could not be loaded. Try again.");
+        }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+
+    // Page two and later omit pending rows by contract. Re-read pending page
+    // one whenever those booked pages refresh, so a bank handover cannot
+    // leave a now-booked payment in this separate group.
+    if (page > 1) {
+      api.transactionsSearch({
+        q: debouncedQuery || undefined,
+        categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
+        category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
+        merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
+        from: periodFrom || undefined,
+        to: periodTo || undefined,
+        txn_type: txnType || undefined,
+        page: 1,
+        page_size: PAGE_SIZE,
+        pending_page: 1,
+        activity_order: true,
+      }).then((response) => {
+        if (cancelled || generation !== pendingGeneration.current) return;
+        setPendingItems(response.pending_items ?? []);
+        setPendingTotal(response.pending_total ?? 0);
+        setPendingPage(response.pending_page ?? 1);
+        setPendingPages(response.pending_pages ?? 1);
+        setPendingError(null);
+      }).catch(() => {
+        if (!cancelled && generation === pendingGeneration.current) {
+          setPendingError("Pending payments could not be loaded. Try again.");
+        }
+      });
+    }
+    return () => { cancelled = true; pendingGeneration.current += 1; };
   }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, page, reloadKey]);
+
+  const pendingRequest = useCallback((nextPendingPage: number) => api.transactionsSearch({
+    q: debouncedQuery || undefined,
+    categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
+    category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
+    merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
+    from: periodFrom || undefined,
+    to: periodTo || undefined,
+    txn_type: txnType || undefined,
+    page: 1,
+    page_size: PAGE_SIZE,
+    pending_page: nextPendingPage,
+    activity_order: true,
+  }), [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType]);
+
+  const loadMorePending = useCallback(async () => {
+    if (loadingPendingMore || pendingPage >= pendingPages) return;
+    const generation = pendingGeneration.current;
+    setLoadingPendingMore(true);
+    try {
+      const response = await pendingRequest(pendingPage + 1);
+      if (generation !== pendingGeneration.current) return;
+      const next = response.pending_items ?? [];
+      setPendingItems((current) => {
+        const ids = new Set(current.map((item) => item.id));
+        return [...current, ...next.filter((item) => !ids.has(item.id))];
+      });
+      setPendingPage(response.pending_page ?? pendingPage + 1);
+      setPendingPages(response.pending_pages ?? pendingPages);
+      setPendingTotal(response.pending_total ?? pendingTotal);
+      setPendingError(null);
+    } catch {
+      if (generation !== pendingGeneration.current) return;
+      setPendingError("Pending payments could not be loaded. Try again.");
+    } finally {
+      if (generation === pendingGeneration.current) setLoadingPendingMore(false);
+    }
+  }, [loadingPendingMore, pendingPage, pendingPages, pendingRequest, pendingTotal]);
 
   // Rebuilds the URL from whichever filters remain after one is cleared —
   // every clear*Filter below keeps the others (an insight deep-link, or a
@@ -443,6 +560,26 @@ export default function TransactionsPage() {
     return { tips: [], tipsLineCategory: null };
   })();
 
+  // `date` remains the bank posting date on the transaction itself. Group
+  // headings instead use the date the person saw the activity, so a bank's
+  // Monday posting date does not place Saturday activity ahead of today.
+  const bookedById = new Map(items.map((item) => [item.id, item]));
+  const activityGroups = groupByDay(items.map((item) => ({
+    ...item,
+    date: transactionActivityDate(item),
+  }))).map((group) => ({
+    ...group,
+    rows: group.rows.map((displayItem) => bookedById.get(displayItem.id) ?? displayItem),
+  }));
+
+  const retryPending = () => {
+    if (pendingItems.length === 0) {
+      setReloadKey((key) => key + 1);
+      return;
+    }
+    void loadMorePending();
+  };
+
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Sticky back header — same convention as ReceiptsPage.tsx (the app's
@@ -562,9 +699,33 @@ export default function TransactionsPage() {
       </div>
 
       <div className="px-4 pt-2 space-y-2">
+            {/* Parent `space-y-2` supplies 8px; this adds 16px for the
+                approved 24px separation before booked activity. */}
+            {!loading && (pendingItems.length > 0 || (pendingError && !bookedError)) && (
+              <div className="pb-4">
+                <PendingPaymentsGroup
+                  items={pendingItems}
+                  total={pendingTotal}
+                  onLoadMore={pendingError ? retryPending : (pendingPage < pendingPages ? loadMorePending : undefined)}
+                  loadingMore={loadingPendingMore}
+                  error={pendingError}
+                />
+              </div>
+            )}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Spinner size={32} />
+          </div>
+        ) : bookedError ? (
+          <div className="rounded-2xl bg-white px-5 py-8 text-center shadow-sm dark:bg-slate-800">
+            <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{bookedError}</p>
+            <button
+              type="button"
+              onClick={() => setReloadKey((key) => key + 1)}
+              className="mt-3 inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700"
+            >
+              Try again
+            </button>
           </div>
         ) : (
           <>
@@ -595,13 +756,15 @@ export default function TransactionsPage() {
               {items.length === 0 ? (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter
+                    {pendingItems.length > 0
+                      ? "No booked payments yet"
+                      : searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter
                       ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter!.join(", ")))}`
                       : hasPeriodFilter
                         ? "No payments in this period"
                         : "No payments yet"}
                   </p>
-                  {hasPeriodFilter && (
+                  {hasPeriodFilter && pendingItems.length === 0 && (
                     <button
                       type="button"
                       onClick={clearPeriodFilter}
@@ -614,12 +777,12 @@ export default function TransactionsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {groupByDay(items).map((g) => (
+                  {activityGroups.map((g) => (
                     <section key={g.key} className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-hidden">
                       <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
                       <div className="divide-y divide-slate-100 dark:divide-slate-700">
                         {g.rows.map((tx) => (
-                          <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" showDate={false} />
+                          <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" showDate={false} showActivityDate />
                         ))}
                       </div>
                     </section>
@@ -640,7 +803,7 @@ export default function TransactionsPage() {
                   Prev
                 </button>
                 <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {page} / {totalPages} · {total} total
+                  {page} / {totalPages} · {total} booked
                 </span>
                 <button
                   type="button"
