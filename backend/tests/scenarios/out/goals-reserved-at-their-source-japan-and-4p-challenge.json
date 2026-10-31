@@ -33,11 +33,11 @@
       "after_payments": 370.0,
       "after_payments_and_plans": 15.52,
       "estimated": false,
-      "headroom": -365.0,
+      "headroom": 5.52,
       "low_point": 370.0,
       "low_point_and_plans": 15.52,
       "plans_reserved": 354.48,
-      "short": true,
+      "short": false,
       "spend_from_capped": false,
       "spend_from_headroom": 15.52,
       "uncertain": false
@@ -317,23 +317,23 @@
           "buffer": 50,
           "destination_kind": "spend",
           "habitual_top_up": false,
-          "move": 405.0,
+          "move": 34.48,
           "name": "Monzo Current",
           "own_transfers_skipped": 0,
           "provider": "monzo",
           "reasons": [
             {
-              "amount": 725.0,
+              "amount": 354.48,
               "kind": "goal",
               "name": "4p challenge"
             }
           ],
           "spend_typical": 0,
-          "target": 805.0,
+          "target": 434.48,
           "usual": null
         }
       ],
-      "id": "payday_plan:2026-10-30:ed43e8e20f",
+      "id": "payday_plan:2026-10-30:871e3470ad",
       "salary": {
         "account_id": "acc-prem",
         "amount": 3000,
@@ -347,9 +347,9 @@
         ],
         "name": "Barclays Premier Current",
         "provider": "barclays",
-        "stays": 1445
+        "stays": 1815
       },
-      "total": 405.0,
+      "total": 34.48,
       "type": "payday_plan"
     },
     {
