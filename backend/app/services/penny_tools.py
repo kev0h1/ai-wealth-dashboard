@@ -2258,6 +2258,17 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
             }
             for i in income[:10]
         ],
+        # G362: pay that has already landed (the balance holds it). Separate
+        # from `upcoming_income` so Penny can say pay arrived; never a forecast.
+        "observed_income": [
+            {
+                "name": i.get("name"),
+                "display_name": i.get("display_name"),
+                "amount": _money(i.get("amount")),
+                "expected_date": i.get("expected_date"),
+            }
+            for i in (resp.get("observed_income") or [])[:5]
+        ],
     }
 
 
