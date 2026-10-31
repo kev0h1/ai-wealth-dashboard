@@ -9,9 +9,11 @@ plain question, then full-width choices that are easy to scan and tap.
 Design skill: impeccable. The context runner was unavailable, so PRODUCT.md
 and DESIGN.md were read directly. This is an Operate flow in the Calm Cockpit.
 
-## Review variants
+## Approved direction
 
-`/design/movement-teaching` contains synthetic, local-only proposals.
+Kevin selected A on 31 October 2026, with a subtle light-theme outline on
+icon tiles. The temporary `/design/movement-teaching` proposals are removed
+as part of this fold-in. The alternatives explored were:
 
 - **A, Direct choice:** presents Savings or investments as a direct destination
   beside accounts, goals and spending. The next screen chooses Savings or
@@ -26,7 +28,7 @@ failure. The empty-goal path offers Create a goal, not a misleading unnamed-pot
 input. Back actions are on their own 44px rows, never compressed beside a
 second action.
 
-## Contract for production fold-in
+## Implementation contract
 
 1. Add a movement resolution for a named savings or investment destination.
    The user provides the destination name, then the engine assigns Savings or
@@ -58,7 +60,14 @@ debit-only resolution, future learning, decision precedence and undo. The
 independent code and screenshot reviews passed. Full repository gates run
 through `session.sh finish G376 --uat-review`.
 
-The API foundation is implemented; the production TeachingSheet still awaits
-Kevin's selected layout. The preview creates only local synthetic goals. The
-fold-in must connect Create a goal to the real existing goal setup and return
-to this transaction without inventing a goal balance or an offline pot.
+The production TeachingSheet adopts A. Create a goal uses the existing goal
+setup and returns to this transaction without inventing a goal balance or an
+offline pot. Savings and investment choices use the private destination API.
+Credit corrections retain their separate incoming-money choices.
+
+The approved fold-in was independently reviewed and exercised with the real
+TeachingSheet and CommitmentSheet in an isolated browser, with in-memory API
+fixtures. Checks cover 320/390/1280px, light/dark, hidden figures, failed save,
+retry, undo, correction events, credit choices, goal loading/failure/retry,
+real goal creation and selecting it, plus Escape, browser Back and header Back.
+The manual runner is `frontend/scripts/verify-g376-browser.mjs`.
