@@ -25,6 +25,7 @@ import pytest
 import app.core.timeutil as timeutil
 import app.db.collections as db_collections
 import app.routers.analytics as analytics
+import app.services.account_walk as account_walk
 import app.services.companion as companion
 import app.services.inflow_credit as inflow_credit
 import app.services.income as income
@@ -158,14 +159,21 @@ def _capture_at_risk(monkeypatch):
     monkeypatch.setattr(analytics, "preferences_col", FakeCol([PREFS]))
     monkeypatch.setattr(analytics, "accounts_col", FakeCol(ACCOUNTS))
     monkeypatch.setattr(analytics, "yapily_accounts_col", FakeCol(YAPILY))
-    real_key = companion.walk_sort_key
+    # G365: the events now reach the one walk already sorted, so the capture
+    # spies `account_walk.walk_events` (the comparison sorts the golden's
+    # insertion-order list the same way).
+    real_walk = account_walk.walk_events
     seen: list = []
 
-    def spy_key(ev):
-        seen.append(ev)
-        return real_key(ev)
+    def spy_walk(events, balances):
+        # the old inline loop carried (kind, is_card_repayment) as the item
+        seen.extend(
+            (d, a, amt, inc, None if inc else (it.get("kind"), bool(it.get("is_card_repayment"))))
+            for d, a, amt, inc, it in events
+        )
+        return real_walk(events, balances)
 
-    monkeypatch.setattr(companion, "walk_sort_key", spy_key)
+    monkeypatch.setattr(account_walk, "walk_events", spy_walk)
     result = asyncio.run(analytics.at_risk_count(user={"email": UID}))
     store["events_unsorted"] = list(seen)
     store["result"] = result
@@ -222,6 +230,8 @@ def _capture_companion(monkeypatch):
         return real_ok(item, account_id, confirmed_keys)
 
     monkeypatch.setattr(companion, "income_credit_ok", spy_ok)
+    # G365: the per-account walk asks the same question from account_walk.
+    monkeypatch.setattr(account_walk, "income_credit_ok", spy_ok)
     items = asyncio.run(companion.compute_today_items(UID, payday_preview=True, persist=False))
     # Unique, sorted: the old funded-inflow lambda called this spy too, the
     # builder's does not (a visibility artefact, not a behaviour difference).
@@ -252,10 +262,28 @@ def test_dump_golden(monkeypatch):
 
 # ── the callers still produce exactly what the hand-copied preambles did ─────
 
+def _attributed(pairs):
+    """`income_credit_ok` is only meaningful for the account an income is
+    attributed to; G365's walk never asks it about another account (the old
+    source-low-point loop asked every income about every account)."""
+    owner = {i["name"]: i["account_id"] for i in _resp()["upcoming_income"]}
+    return [p for p in pairs if owner.get(p[0]) == p[1]]
+
+
 @pytest.mark.parametrize("name", sorted(CAPTURES))
 def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
     golden = json.loads(GOLDEN.read_text())[name]
-    assert CAPTURES[name](monkeypatch) == golden
+    got = CAPTURES[name](monkeypatch)
+    if name == "at_risk":
+        # G365: compared in walk order (the golden holds insertion order).
+        golden["events_unsorted"] = sorted(
+            golden["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1)
+        )
+        got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1))
+    if name == "companion":
+        golden["income_credit_asked"] = _attributed(golden["income_credit_asked"])
+        got["income_credit_asked"] = _attributed(got["income_credit_asked"])
+    assert got == golden
 
 
 # ── the builder, called directly with each caller's documented settings ──────

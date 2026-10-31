@@ -39,9 +39,9 @@ which is also what its hand-copied preamble did before G364):
 | B8 | Payday-day slice (`payday_day_*`) and the account rows | none | slice computed, unused; no rows | slice and rows used (payday_split, class specs) | slice computed, unused; no rows |
 | B9 | Income list the payday-plan salary candidate reads | `window_income_before_exclusions` | not read | read: the window income as it stood BEFORE the B4 re-drop, so the candidate pool is unchanged | not read |
 
-Same-day ordering (`companion.walk_sort_key`), the walks themselves, income
-credit (`income_credit_ok`) and the credited-income disclosure stay with the
-callers: they are step 3, not this step.
+Same-day ordering, the walks themselves, income credit (`income_credit_ok`)
+and the credited-income disclosure moved to `services/account_walk.py` in
+G365 (step 3), with their own differences table (WD1 to WD9).
 """
 from __future__ import annotations
 

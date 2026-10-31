@@ -317,7 +317,7 @@ async def _cashflow_window(uid: str) -> dict | None:
 
     Returns None when there's nothing to assess (no cashflow cache yet, or
     no bill this user's balance data can price)."""
-    from app.routers.analytics import _build_cashflow_response, income_credit_ok
+    from app.routers.analytics import _build_cashflow_response
     from app.services.window_inputs import LoadedAccounts, build_window_inputs
 
     cached = await cashflow_cache_col.find_one({"_id": uid})
@@ -337,46 +337,21 @@ async def _cashflow_window(uid: str) -> dict | None:
 
     wi = await build_window_inputs(uid, resp, prefs, load_balances=_load_balances)
     today_d = wi.today
-    window_income = wi.window_income
-    assessable_bills = wi.assessable_bills
-    if not assessable_bills:
+    if not wi.assessable_bills:
         return None
-    confirmed_income_keys = wi.confirmed_income_keys
-    balances: dict[str, float] = dict(wi.running_seed)
+    # G365: the events come from the one per-account walk's builder
+    # (services/account_walk.window_events), with this caller's rules: an
+    # inflow is credited only to an account a bill of its own already seeded
+    # (an inflow must never seed a brand-new account into the simulation),
+    # no preview salary. It stays in lockstep with companion.py and
+    # analytics.at_risk_count, which read the same builder. G167: no
+    # reliability gate on an inflow and no late-income line for one (see the
+    # comment block above `walk_sort_key` in services/companion.py). G360: an
+    # inflow counts only when its SOURCE account is covered that day. G163:
+    # same-day, credits before debits.
+    from app.services.account_walk import window_events
 
-    events: list[tuple[int, str, float, bool, dict]] = []
-    for b in assessable_bills:
-        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, b))
-    for i in window_income:
-        acct = str(i.get("account_id") or "")
-        if acct in balances and income_credit_ok(i, acct, confirmed_income_keys):
-            events.append((i["days_away"], acct, float(i["amount"]), True, i))
-    # Mirror internal transfers into their learned destination account, same
-    # as companion.py and analytics.at_risk_count (see
-    # analytics._learn_transfer_destinations). This walk must stay in
-    # lockstep with those two. Only credited to an account the walk already
-    # tracks (`acct in balances`): an inflow must never seed a brand-new
-    # account into the simulation.
-    #
-    # G167: no reliability gate here, and deliberately no late-income line
-    # for one either — see the comment block above `walk_sort_key` in
-    # services/companion.py for why a lapsed inflow is already spoken for
-    # by its source-side pending copy.
-    #
-    # G360: credited only when the inflow's SOURCE account is itself covered
-    # that day (`funded_inflows`, the one rule shared by every walk).
-    _funded = wi.funded_window_inflows
-    for n in _funded:
-        acct = str(n.get("account_id") or "")
-        if acct in balances:
-            events.append((n["days_away"], acct, float(n["amount"]), True, n))
-    # G163: same-day, credits before debits, matching companion.py — a
-    # confirmed income stream expected in an account on day D covers what
-    # leaves it on day D; it only lapses the day after, with no matching
-    # credit.
-    from app.services.companion import walk_sort_key
-
-    events.sort(key=walk_sort_key)
+    events, balances, _credited = window_events(wi)
 
     return {"events": events, "balances": balances, "today": today_d}
 

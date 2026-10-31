@@ -3350,74 +3350,30 @@ async def at_risk_count(user: dict = Depends(current_user)):
     assessable_bills = _wi.assessable_bills
     if not assessable_bills:
         return {"count": 0}
-    running: dict[str, float] = dict(_wi.running_seed)
+    # G365: the walk is the one per-account walk (services/account_walk.py),
+    # the same source the cover plan's closing walk reads. This caller's own
+    # settings (the W-differences in that module's docstring): an inflow is
+    # credited only to an account a bill of its own already seeded
+    # (`inflow_admit="seeded"`, never seeding a new account, since an account
+    # with no assessable bill can never be "at risk"), and there is no
+    # preview salary. Income is credited ONLY to the account its history
+    # actually landed in, and only when the prediction is reliable (see
+    # `income_credit_ok`). G167: no reliability gate on an inflow and no
+    # late-income line for one (see the comment block above `walk_sort_key`
+    # in services/companion.py). G360: an inflow counts only when its SOURCE
+    # account is covered that day. G163: same-day, credits before debits.
+    from app.services.account_walk import count_at_risk, walk_events, window_events
 
-    # Merge bills and income into a single timeline, sorted by days_away.
-    # Income is credited ONLY to the account its history actually landed in,
-    # and only when the prediction is reliable — see income_credit_ok.
-    _confirmed_keys = _wi.confirmed_income_keys
-    events: list[tuple[int, str, float, bool, str]] = []  # (days_away, acct_id, amount, is_income, kind)
-    for b in assessable_bills:
-        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, (b.get("kind"), bool(b.get("is_card_repayment")))))
-    for i in window_income:
-        acct = str(i.get("account_id") or "")
-        if acct in running and income_credit_ok(i, acct, _confirmed_keys):
-            events.append((i["days_away"], acct, float(i["amount"]), True, None))
-    # Mirror internal transfers: an outbound movement bill above already
-    # consumed balance on its SOURCE account; the matching inbound credit on
-    # its learned DESTINATION account (see `_learn_transfer_destinations`)
-    # must be credited here too, or that destination is walked as if it
-    # never receives money it is actually about to receive. This is the
-    # exact bug this pairing exists to fix (HSBC/NatWest/Monzo falsely "at risk" from
-    # Barclays's own outbound standing order). Only credited to an account
-    # the walk already tracks (`acct in running`): an inflow must never seed
-    # a brand-new account into the simulation, since an account with no
-    # assessable bill of its own can never be "at risk" in the first place.
-    #
-    # G167: no reliability gate here, and deliberately no late-income line
-    # for one either — see the comment block above `walk_sort_key` in
-    # services/companion.py for why a lapsed inflow is already spoken for
-    # by its source-side pending copy.
-    #
-    # G360: credited only when the inflow's SOURCE account is itself covered
-    # that day (`funded_inflows`, applied once in the window-inputs builder).
-    _funded = _wi.funded_window_inflows
-    for n in _funded:
-        acct = str(n.get("account_id") or "")
-        if acct in running:
-            events.append((n["days_away"], acct, float(n["amount"]), True, None))
+    events, seed, _credited = window_events(_wi)
+    _running, _min_running, _shortfall, bounced = walk_events(events, seed)
 
-    # G163: same-day, credits before debits — a confirmed income stream
-    # expected in an account on day D covers what leaves it on day D; it
-    # only lapses, and the deficit becomes real, the day after it was
-    # expected with no matching credit. Lazy import to avoid a module-level
-    # cycle (companion.py imports from this module).
-    from app.services.companion import walk_sort_key
-
-    events.sort(key=walk_sort_key)
-
-    at_risk = 0
-    for days_away, acct, amount, is_income, kind_flags in events:
-        kind, is_card = kind_flags if isinstance(kind_flags, tuple) else (kind_flags, False)
-        if is_income:
-            running[acct] = running.get(acct, 0.0) + amount
-        else:
-            bal = running.get(acct, 0.0)
-            # Deficit cascades (same semantics as companion.py's shortfall
-            # walk): a bounced bill still debits the running balance, so every
-            # later bill on a short account counts until income recovers it —
-            # for EVERY kind, movement included, since it genuinely still
-            # empties the account and can still bounce a later bill.
-            running[acct] = bal - amount
-            # But a `movement` bill bouncing is never itself counted toward
-            # this badge — it's the user's own plan for their own money, not
-            # an obligation that can fail expensively — matching the Planning
-            # page's own at-risk simulation (frontend, PlanningPage.tsx),
-            # which this badge must agree with (it links straight to that
-            # page). A commitment/discretionary bill a movement starves still
-            # counts, same as Planning's `movementCulprit` handling.
-            if bal < amount and (kind != MOVEMENT or is_card):
-                at_risk += 1
+    # A deficit cascades (a bounced bill still debits the balance, so every
+    # later bill on a short account counts until income recovers it), but a
+    # `movement` bill bouncing is never itself counted toward this badge: it
+    # is the user's own plan for their own money, matching the Planning page's
+    # own at-risk simulation (PlanningPage.tsx), which this badge must agree
+    # with. A commitment/discretionary bill a movement starves still counts.
+    at_risk = count_at_risk(bounced)
 
     return {"count": at_risk}
 

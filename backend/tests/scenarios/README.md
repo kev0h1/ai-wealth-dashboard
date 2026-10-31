@@ -63,9 +63,7 @@ run and skips that check for that scenario only; delete the entry when the defec
 is fixed. Assertion keys are of the form `<check name>: <account id>` (for example
 `walk agrees with server positions: acc-bc`), as passed to `assertKey(...)` in
 `frontend/scripts/scenarios.test.mjs`. A gap whose assertion now passes FAILS the
-run (stale gap). Currently used by
-`reconnected-account-one-salary-sighting` (the client walk credits an income the
-server refuses to credit).
+run (stale gap). No scenario currently carries one (the G363 client income gap was closed by G372).
 
 `spend_from` is the figure Home shows (`spend_from_headroom` after the pool
 cap, as the router applies it); `available` is accepted as an alias for older
