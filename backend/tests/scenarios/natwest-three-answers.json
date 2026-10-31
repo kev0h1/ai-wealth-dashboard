@@ -1,0 +1,193 @@
+{
+  "name": "NatWest The Number One: one predicted income, two sightings 40 percent apart, never credited (G372)",
+  "today": "2026-11-02",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-nw",
+      "name": "NatWest The Number One",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 667.66,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "BRITISH GAS",
+        "avg_amount": 159.7,
+        "avg_interval": 30,
+        "next_date": "2026-11-02",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "SOLIHULL COUNCIL",
+        "avg_amount": 133.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-03",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "DAVID LLOYD",
+        "avg_amount": 117.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-05",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "SEVERN TRENT",
+        "avg_amount": 62.4,
+        "avg_interval": 30,
+        "next_date": "2026-11-06",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "EE",
+        "avg_amount": 48.21,
+        "avg_interval": 30,
+        "next_date": "2026-11-09",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "SKY",
+        "avg_amount": 59.5,
+        "avg_interval": 30,
+        "next_date": "2026-11-11",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TV LICENCE",
+        "avg_amount": 14.5,
+        "avg_interval": 30,
+        "next_date": "2026-11-15",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "CAR FINANCE",
+        "avg_amount": 362.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-18",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "side|income::acc-nw",
+        "display_name": "Side Income",
+        "avg_amount": 603.92,
+        "avg_interval": 30,
+        "next_date": "2026-11-06",
+        "account_id": "acc-nw",
+        "account_name": "NatWest The Number One",
+        "account_bank": "natwest",
+        "account_balance": 667.66,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          431.0,
+          603.92
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 2195.56,
+    "accounts": {
+      "acc-nw": {
+        "spend_from": 0.0,
+        "after_payments": -288.65,
+        "low_point": -288.65,
+        "verdict": "short"
+      },
+      "acc-bc": {
+        "spend_from": 1700.0,
+        "after_payments": 2000.0,
+        "low_point": 2000.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 300.0,
+      "moves": [
+        {
+          "from": "acc-bc",
+          "to": "acc-nw",
+          "amount": 300.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Kevin's case, 2026-10-31 (G372), synthetic figures. Today is Mon 2 Nov 2026 (Kevin's screenshots were Sat 31 Oct; the fixture sits on 2 Nov so the period is on day 4 and the payday plan, which only shows in days 1 to 3, does not stand in for the cover move). Pay is the last Friday, so the period began Fri 30 Oct and payday is Fri 27 Nov (days to payday 25); the window ends Thu 26 Nov, and British Gas dated today counts. NatWest holds 667.66. Its eight bills in the window are British Gas 159.70 (2 Nov), Solihull council 133.00 (3 Nov), David Lloyd 117.00 (5 Nov), Severn Trent 62.40 (6 Nov), EE 48.21 (9 Nov), Sky 59.50 (11 Nov), TV licence 14.50 (15 Nov) and car finance 362.00 (18 Nov): 159.70 + 133.00 = 292.70, + 117.00 = 409.70, + 62.40 = 472.10, + 48.21 = 520.31, + 59.50 = 579.81, + 14.50 = 594.31, + 362.00 = 956.31. One predicted income of 603.92 lands in NatWest on 6 Nov. It has two sightings (431.00 and 603.92, 40 percent apart), so it is not reliable (needs three) and not steady (the last two amounts must be within 10 percent): the server stamps no credit_basis and credits it to no per-account walk. NatWest walk: 667.66 - 956.31 = -288.65, so after payments -288.65 and low point -288.65 (the balance never rises), verdict short. Barclays has no bills: after payments 2,000.00 and low point 2,000.00, covered. Cover plan: the shortfall 288.65 rounds up to the next 5 (290) plus 10 = 300, taken from Barclays (2,000, keeping at least 10): one move of 300. Spend from: NatWest is negative, shown as 0; Barclays is 2,000 less the 300 its live move card reserves = 1,700, under the pool of 2,195.56. Left to spend is pooled and counts every expected income: opening 667.66 + 2,000 = 2,667.66; the bills through 5 Nov take it to 2,667.66 - 409.70 = 2,257.96; the pooled walk is debit-first on a day, so 6 Nov takes Severn Trent first, 2,257.96 - 62.40 = 2,195.56 (the lowest point), then the income +603.92 gives 2,799.48; then -48.21 = 2,751.27, -59.50 = 2,691.77, -14.50 = 2,677.27, -362.00 = 2,315.27, all above 2,195.56. So Left to spend 2,195.56. At risk count 1: the badge walks NatWest on its own balance with no income credited and is short. The client walk used to credit all 603.92 (credit_basis ignored) and read -288.65 + 603.92 = 315.27 and covered on Upcoming and the sheet, 604 higher than the account page. The recommended move of 300 is a recommendation, never received: it is not an income or an inflow on any walk.",
+    "frontend_known_gaps": {
+      "walk agrees with server positions: acc-nw": "G372: the client walk credits an income the server refuses to credit (no credit_basis), so NatWest reads 315.27 and covered. Remove this entry when the walk reads credit_basis.",
+      "expected values (client walk): acc-nw": "G372: the client walk credits an income the server refuses to credit (no credit_basis), so NatWest reads 315.27 and covered. Remove this entry when the walk reads credit_basis.",
+      "account plan agrees with server: acc-nw": "G372: the client walk credits an income the server refuses to credit (no credit_basis), so NatWest reads 315.27 and covered. Remove this entry when the walk reads credit_basis."
+    }
+  }
+}
