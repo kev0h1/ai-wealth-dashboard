@@ -33,6 +33,15 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
+    slug: "account-availability-shortfall",
+    name: "Account availability and shortfall · G385",
+    description: "G385 · impeccable · Two compact account-row treatments that keep Available as the conservative Spend from limit, floored at £0, while making a real before-payday account shortfall intelligible. A pairs the figures; B uses a plain verdict line. Synthetic fixtures cover positive availability, payment shortfall, plans-only gap, checking, unavailable, cover-plan suggestion, hidden figures and pence. No production route or data is changed.",
+    variants: [{ label: "A · Paired figures", value: "a" }, { label: "B · Verdict line", value: "b" }],
+    states: [{ label: "Payments short", value: "payments-short" }, { label: "Covered", value: "covered" }, { label: "6p available", value: "pennies" }, { label: "Plans gap", value: "plans-gap" }, { label: "Checking", value: "checking" }, { label: "Not available yet", value: "unknown" }, { label: "Could not check", value: "error" }],
+    group: "current",
+  },
+
+  {
     slug: "spend-patterns-charts",
     name: "Clearer Spend patterns · G380",
     description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
