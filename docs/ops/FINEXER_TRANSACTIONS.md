@@ -141,3 +141,14 @@ from Kevin's reading of the reference on 2026-10-31. Confirm each in one pass:
    unattended limit (the default interval is 6 hours).
 9. The backfill script (`backend/scripts/finexer_backfill_auto_sync.py`): dry run,
    then `--apply --limit 1`, and check the response before the rest.
+10. Whether the sync object is wrapped in a `data` envelope. The parser accepts
+    both shapes.
+11. That pending rows share the booked id shape (the same `id` field), so a
+    pending row and its settled twin can be told apart by id and the replace step
+    supersedes it cleanly.
+12. Whether "Bank data from {time}" should appear beyond the empty state of the
+    account sheet. It shows there only today; the account row header was left
+    alone as a design decision for Kevin.
+13. The 12-hour stale alert threshold on /ops/health, and whether paused or
+    free-tier (Statements) consents should be excluded from it. Today every
+    authorised consent counts.
