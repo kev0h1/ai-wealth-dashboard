@@ -4,7 +4,7 @@ import json
 import logging
 import unicodedata
 from collections import defaultdict, Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 import httpx
 
@@ -1033,127 +1033,34 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 )
                 updated += result.modified_count
 
-        # Pass 2: match transfer pairs
+        # G377: bank descriptions differ across the two legs. Use the same
+        # evidence and one-to-one matching policy as the post-sync repair.
+        # Amount/date coincidences, refunds and ambiguous repeats stay for review.
+        from app.services.own_account_transfers import select_unique_pairs
+        kind_map = await get_category_kinds(user_id)
+        movement_categories = {k for k in kind_map if kind_of(kind_map, k) == MOVEMENT}
+        cutoff = datetime.utcnow() - timedelta(days=90)  # naive-ok: Mongo bank dates are naive UTC
+        pair_accounts = {a["_id"]: a async for a in accounts_col.find({"user_id": user_id})}
         all_txns = await transactions_col.find(
-            {"user_id": user_id, "custom_category": None, "description": {"$ne": None}},
-            {"description": 1, "merchant_name": 1, "amount": 1, "transaction_type": 1,
-             "date": 1, "category": 1, "account_id": 1},
+            {"user_id": user_id, "date": {"$gte": cutoff}, "is_pending": {"$ne": True}},
+            {"description": 1, "merchant_name": 1, "amount": 1, "currency": 1,
+             "transaction_type": 1, "date": 1, "category": 1,
+             "account_id": 1, "custom_category": 1, "own_transfer_match": 1},
         ).to_list(None)
-
-        desc_map: dict = defaultdict(list)
-        for t in all_txns:
-            key = _byte_desc_key(t)
-            if key:
-                desc_map[key].append(t)
-
-        transfer_ids = []
-        transfer_pairs = []  # (credit_txn, debit_txn) — the matched pairs, for Pass 2.6
-        for key, txns in desc_map.items():
-            credits = [t for t in txns if t["transaction_type"] == "credit"]
-            debits  = [t for t in txns if t["transaction_type"] == "debit"]
-            if not credits or not debits:
-                continue
-            from datetime import datetime
-            for c in credits:
-                for d in debits:
-                    if abs(c["amount"] - d["amount"]) < 0.02:
-                        date_diff = abs((c["date"] - d["date"]).days) if isinstance(c["date"], datetime) and isinstance(d["date"], datetime) else 999
-                        if date_diff <= 5:
-                            transfer_pairs.append((c, d))
-                            if c.get("category") != "Transfer":
-                                transfer_ids.append(c["_id"])
-                            if d.get("category") != "Transfer":
-                                transfer_ids.append(d["_id"])
-
-        # Learned-pair pass: description-pair confirmations from
-        # POST /transactions/confirm-transfer-pair (analytics.py) survive
-        # month-to-month statement drift because they're keyed on
-        # canonical_merchant_key, not the byte-identical key above. Candidates
-        # are the SAME all_txns pool, just re-grouped once by
-        # canonical_merchant_key (O(n)); each learned pair then only scans its
-        # own two key-groups (O(pairs x candidates-per-key)), never the full
-        # transaction set.
+        all_txns = [{**row, "currency": str(row.get("currency") or pair_accounts.get(row.get("account_id"), {}).get("currency") or "").upper()} for row in all_txns]
         learned_docs = await confirmed_transfer_pairs_col.find(
             {"user_id": user_id}, {"key_a": 1, "key_b": 1}
         ).to_list(None)
-        if learned_docs:
-            from datetime import datetime as _dt
-            # Owner device-testing fix 1 — widen the candidate pool beyond
-            # all_txns (custom_category: None only) to also include custom
-            # MOVEMENT-kind rows as ANCHORS. Without this, a debit the user
-            # already manually marked "Transfer" excludes itself from the
-            # None-only pool, so its Income-categorised counterpart could
-            # never be matched by sync — permanently unfixable AND, once a
-            # learned pair exists, permanently unsuggestable too. Anchors
-            # are NEVER rewritten: every write below still goes through the
-            # existing `custom_category: None` guard (transfer_ids'
-            # update_many, Pass 2.6's update_many), so an anchor's own
-            # custom_category is untouched regardless of what lands in
-            # transfer_ids/transfer_pairs/learned_pair_ids.
-            kind_map = await get_category_kinds(user_id)
-            anchor_txns = await transactions_col.find(
-                {"user_id": user_id, "custom_category": {"$ne": None},
-                 "description": {"$ne": None}},
-                {"description": 1, "merchant_name": 1, "amount": 1, "transaction_type": 1,
-                 "date": 1, "category": 1, "account_id": 1, "custom_category": 1},
-            ).to_list(None)
-            anchor_pool = [
-                t for t in anchor_txns
-                if kind_of(kind_map, t.get("custom_category")) == MOVEMENT
-            ]
+        learned = {tuple(sorted((d["key_a"], d["key_b"]))) for d in learned_docs
+                   if d.get("key_a") and d.get("key_b")}
+        transfer_pairs = select_unique_pairs(
+            all_txns, pair_accounts, identity.get("name_tokens") or [], learned,
+            movement_categories=movement_categories,
+        )
+        learned_pair_ids = {t["_id"] for pair in transfer_pairs for t in pair}
 
-            key_map: dict = defaultdict(list)
-            for t in all_txns + anchor_pool:
-                k = canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or "")
-                if k:
-                    key_map[k].append(t)
-            for doc in learned_docs:
-                key_a, key_b = doc.get("key_a"), doc.get("key_b")
-                if not key_a or not key_b:
-                    continue
-                pool_a = key_map.get(key_a, [])
-                pool_b = key_map.get(key_b, [])
-                # Both directions — the learned doc doesn't remember which
-                # leg was the credit vs. the debit, so try credits-from-A
-                # against debits-from-B, then credits-from-B against
-                # debits-from-A. When key_a == key_b, both passes are the
-                # same pool and the second is a harmless no-op repeat guarded
-                # by the c["_id"] != d["_id"] check below.
-                for pool_credits, pool_debits in ((pool_a, pool_b), (pool_b, pool_a)):
-                    credits = [t for t in pool_credits if t["transaction_type"] == "credit"]
-                    debits  = [t for t in pool_debits if t["transaction_type"] == "debit"]
-                    for c in credits:
-                        for d in debits:
-                            if c["_id"] == d["_id"]:
-                                continue
-                            # Same guard as the suggestion path
-                            # (_transfer_pair_suggestions in analytics.py) —
-                            # without this, a learned pair like ("atm", "atm
-                            # refund") stamps an Income credit and a Cash
-                            # debit on the SAME account as Transfer just
-                            # because they share a canonical key.
-                            if c.get("account_id") == d.get("account_id"):
-                                continue
-                            if abs(c["amount"] - d["amount"]) < 0.02:
-                                date_diff = (
-                                    abs((c["date"] - d["date"]).days)
-                                    if isinstance(c["date"], _dt) and isinstance(d["date"], _dt) else 999
-                                )
-                                if date_diff <= 5:
-                                    transfer_pairs.append((c, d))
-                                    learned_pair_ids.add(c["_id"])
-                                    learned_pair_ids.add(d["_id"])
-                                    if c.get("category") != "Transfer":
-                                        transfer_ids.append(c["_id"])
-                                    if d.get("category") != "Transfer":
-                                        transfer_ids.append(d["_id"])
-
-        if transfer_ids:
-            result = await transactions_col.update_many(
-                {"_id": {"$in": transfer_ids}, "custom_category": None},
-                {"$set": {"category": "Transfer"}},
-            )
-            updated += result.modified_count
+        # Classification is applied by reconciliation after the generic
+        # passes, preserving the pre-match category for later invalidation.
 
         # Pass 2.5: propagate manual overrides. Keyed on canonical_merchant_key
         # (not the raw lowercased description — no date/reference stripping at
@@ -1477,6 +1384,16 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                         )
                         updated += 1
                     break
+
+    if structural:
+        # A final pass protects the evidence from generic categorisation and
+        # repairs prior rows when a newly connected account reveals the other leg.
+        from app.services.own_account_transfers import reconcile_own_account_transfers
+        updated += await reconcile_own_account_transfers(
+            user_id, transaction_collection=transactions_col,
+            account_collection=accounts_col, pair_collection=confirmed_transfer_pairs_col,
+            profile_collection=user_profiles_col, movement_categories=movement_categories,
+        )
 
     return updated
 

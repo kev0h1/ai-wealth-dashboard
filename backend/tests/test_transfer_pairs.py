@@ -141,13 +141,17 @@ def _t(id_, *, ttype, amount, date, account_id, merchant=None, desc="",
        category="Other", custom_category=None):
     return {
         "_id": id_, "user_id": UID, "transaction_type": ttype, "amount": amount,
-        "date": date, "account_id": account_id, "merchant_name": merchant,
+        "date": date, "account_id": account_id, "merchant_name": merchant, "currency": "GBP",
         "description": desc, "category": category, "custom_category": custom_category,
     }
 
 
 def _run_suggestions(monkeypatch, txns, *, dismissed=None, learned=None, identity=None):
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(txns))
+    monkeypatch.setattr(analytics, "accounts_col", FakeCol([
+        {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
+        for aid in {t.get("account_id") for t in txns if t.get("user_id") == UID}
+    ]))
     monkeypatch.setattr(
         analytics, "preferences_col",
         FakeCol([{"user_id": UID, "dismissed_transfer_pairs": dismissed or []}]),
@@ -293,7 +297,13 @@ def test_learned_pair_excluded_from_suggestions(monkeypatch):
 
 def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None):
     monkeypatch.setattr(categorisation, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(categorisation, "accounts_col", FakeCol([]))
+    monkeypatch.setattr(categorisation, "accounts_col", FakeCol([
+        {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
+        for aid in {t.get("account_id") for t in txns if t.get("user_id") == UID}
+    ]))
+    import app.services.derived_caches as derived
+    async def stale(*args, **kwargs): pass
+    monkeypatch.setattr(derived, "mark_stale", stale)
     monkeypatch.setattr(categorisation, "user_profiles_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "merchant_categories_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "user_rules_col", FakeCol([]))
@@ -629,8 +639,17 @@ def test_credit_in_income_counts_as_actionable(monkeypatch):
 
 
 def _run_confirm(monkeypatch, txns, credit_id, debit_id, *, accounts=None):
+    import app.services.derived_caches as derived
+    async def noop(*args, **kwargs): pass
+    monkeypatch.setattr(derived, "mark_stale", noop)
+    monkeypatch.setattr(analytics, "compute_and_cache_cashflow", noop)
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(analytics, "accounts_col", FakeCol(accounts or []))
+    monkeypatch.setattr(analytics, "accounts_col", FakeCol(
+        [{"currency": "GBP", **a} for a in accounts] if accounts is not None else [
+            {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
+            for aid in {t.get("account_id") for t in txns if t.get("user_id") == UID}
+        ]
+    ))
     monkeypatch.setattr(analytics, "confirmed_transfer_pairs_col", FakeCol([]))
     monkeypatch.setattr(analytics, "get_category_kinds", _fake_get_category_kinds)
     return asyncio.run(analytics.confirm_transfer_pair(
@@ -823,6 +842,10 @@ def _setup_pair_and_series(monkeypatch, *, dismissed_pairs=None):
            merchant=None, desc="To Kevin Maingi", category="Shopping"),
     ]
     fake_cache = FakeResponseCache()
+    monkeypatch.setattr(analytics, "accounts_col", FakeCol([
+        {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
+        for aid in {t.get("account_id") for t in txns}
+    ]))
     monkeypatch.setattr(analytics, "transactions_col", FakeCol(txns))
     monkeypatch.setattr(
         analytics, "preferences_col",
@@ -873,3 +896,31 @@ def test_review_total_equals_filtered_series_count_plus_pair_count(monkeypatch):
     pairs = asyncio.run(analytics._transfer_pair_suggestions(UID))
     filtered_list = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
     assert result["review_total"] == len(pairs) + len(filtered_list["items"])
+
+
+def test_g377_explicit_confirmation_replaces_old_income_choice(monkeypatch):
+    credit = _t("credit-confirm", ttype="credit", amount=150.98, date=D0, account_id="natwest", desc="FROM A/C MAINGI KM VIA MOBILE XFER", category="Income", custom_category="Income")
+    debit = _t("debit-confirm", ttype="debit", amount=150.98, date=D2, account_id="hsbc", desc="MAINGI KM FT", category="Other")
+    result = _run_confirm(monkeypatch, [credit, debit], credit["_id"], debit["_id"])
+    assert result["credit_category"] == "Transfer"
+    assert credit["custom_category"] is None
+    assert credit["own_transfer_match"]["counterpart_id"] == debit["_id"]
+    assert credit["own_transfer_match"]["confirmed"] is True
+
+
+def test_g377_review_includes_weekend_delay_and_rejects_other_currency(monkeypatch):
+    credit = _t("credit-weekend", ttype="credit", amount=150.98, date=D0, account_id="natwest", desc="FROM A/C MAINGI KM VIA MOBILE XFER", category="Income", custom_category="Income")
+    debit = _t("debit-weekend", ttype="debit", amount=150.98, date=D2, account_id="hsbc", desc="MAINGI KM FT", category="Other")
+    identity = {"name_tokens": ["kevin", "maingi"], "own_ids": set(), "own_map": {}}
+    assert len(_run_suggestions(monkeypatch, [credit, debit], identity=identity)) == 1
+    debit["currency"] = "EUR"
+    assert _run_suggestions(monkeypatch, [credit, debit], identity=identity) == []
+
+
+def test_g377_bank_abbreviation_needs_source_bank_and_outgoing_transfer():
+    credit = {"description": "FROM BALTFRNATWES"}
+    debit = {"account_id": "source", "description": "TO CHASE BANK FT"}
+    owned = {"source": {"provider": "NatWest"}}
+    assert analytics._has_named_bank_transfer_reference(credit, debit, owned)
+    assert not analytics._has_named_bank_transfer_reference(credit, debit, {"source": {"provider": "Barclays"}})
+    assert not analytics._has_named_bank_transfer_reference(credit, {**debit, "description": "SUPERMARKET"}, owned)
