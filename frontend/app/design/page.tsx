@@ -33,6 +33,15 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
+    slug: "spend-patterns-charts",
+    name: "Clearer Spend patterns · G380",
+    description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
+    variants: [{ label: "A · A clearer overview", value: "a" }, { label: "B · One question at a time", value: "b" }],
+    states: [{ label: "One large payment", value: "large" }, { label: "Everyday spending", value: "ordinary" }, { label: "Two large payments", value: "multiple" }, { label: "Not counted", value: "not-counted" }, { label: "Incomplete history", value: "sparse" }, { label: "No transactions", value: "empty" }],
+    group: "current",
+  },
+
+  {
     slug: "cover-plan-move-card",
     name: "Cover plan move card · G383",
     description: "G383 · impeccable · Two focused alternatives for one recommended funding move. Each keeps one suggested amount, a From/To route and one progressive disclosure that reconciles funding with the payments it protects. Synthetic examples only, so no transfer is made. ?variant=a|b&state=one|two|overdue|none&mode=light|dark&hidden=1",
@@ -41,14 +50,6 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
 
-  {
-    slug: "spend-patterns-charts",
-    name: "Clearer Spend patterns · G380",
-    description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
-    variants: [{ label: "A · A clearer overview", value: "a" }, { label: "B · One question at a time", value: "b" }],
-    states: [{ label: "One large payment", value: "large" }, { label: "Everyday spending", value: "ordinary" }, { label: "Two large payments", value: "multiple" }, { label: "Not counted", value: "not-counted" }, { label: "Incomplete history", value: "sparse" }, { label: "No transactions", value: "empty" }],
-    group: "current",
-  },
 
   {
     slug: "statements-house-ads",
