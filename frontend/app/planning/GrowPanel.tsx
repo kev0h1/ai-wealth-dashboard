@@ -689,7 +689,7 @@ export function SplitGauge({ view, hideValues }: { view: GrowView; hideValues: b
 // end of the panel, after goals, which felt misplaced even though investors
 // still want the figure. Merged with the Buffer tile into one card that
 // renders directly after the ladder, so Planning states its position
-// figures (cash safe, invested at risk) in exactly one place. Replaces both
+// figures (cash buffer, invested capital at risk) in exactly one place. Replaces both
 // the old `<section id="buffer">` Buffer tile and the trailing `<SplitGauge>`
 // render at the foot of the panel. SplitGauge itself stays exported below,
 // live no longer renders it, only the planning-ladder preview's variants B
@@ -736,31 +736,40 @@ export function CashAndInvestments({
           <div>
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-              <p className="text-[10px] uppercase tracking-widest text-slate-400">Cash, safe</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-400">Cash</p>
             </div>
             <p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
               {maskMoney(money(cash), hideValues)}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-              <MoneyText
-                text={maskMoney(
-                  `of ${money(view.buffer.target)} target · ~${Math.max(0, Math.round(view.buffer.days_covered))} days covered`,
-                  hideValues
-                )}
-              />
+              Cash counted towards your buffer. See Home for your Left to spend.
             </p>
+            {view.buffer.target > 0 && (
+              <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                <MoneyText
+                  text={maskMoney(
+                    `Buffer target ${money(view.buffer.target)} · ~${Math.max(0, Math.round(view.buffer.days_covered))} days covered`,
+                    hideValues
+                  )}
+                />
+              </p>
+            )}
           </div>
           <div className="text-right">
             <div className="flex items-center justify-end gap-2">
-              <p className="text-[10px] uppercase tracking-widest text-slate-400">Invested, at risk</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-400">Invested</p>
               <span className="h-2 w-2 rounded-full bg-sky-400" aria-hidden="true" />
             </div>
             <p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
               {maskMoney(money(atRisk), hideValues)}
             </p>
-            {!view.invest.has_investments && (
+            {view.invest.has_investments ? (
+              <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                Can go up or down. Capital at risk.
+              </p>
+            ) : (
               <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 italic">
-                Nothing invested yet, this fills in once the ladder reaches that rung.
+                Nothing invested yet.
               </p>
             )}
           </div>
