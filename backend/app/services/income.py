@@ -1,9 +1,12 @@
 """Income stream schedule derivation and next-occurrence stepping."""
 from datetime import date, timedelta
 import calendar
+import logging
 from typing import Any
 from app.core import timeutil
 from app.services.categorisation import series_key
+
+logger = logging.getLogger(__name__)
 
 PAYDAY_MIN_OCCURRENCES = 3
 PAYDAY_AMOUNT_TOLERANCE = 0.20
@@ -146,9 +149,17 @@ def schedule_label(schedule: dict) -> str:
 
 def get_confirmed_payday(uid_prefs: dict, today: date) -> tuple[date, dict] | None:
     """
-    From prefs["income_streams"] (confirmed only), find the minimum next_occurrence
-    across all confirmed streams. Also return the primary stream (largest avg_amount).
-    Returns (next_date, primary_stream_dict) or None if no confirmed streams.
+    From prefs["income_streams"] (confirmed only), return (next_date, primary)
+    where primary is the confirmed stream with the largest avg_amount and
+    next_date is the primary stream's own next_occurrence (strictly after
+    `today`). None if there are no confirmed streams.
+
+    G361: next_date used to be the earliest next_occurrence across ALL
+    confirmed streams, so a confirmed side income (a rental credit, a second
+    job) due mid-period pulled "next payday" forward for every server walk and
+    shortened the current period. Only the primary (salary) stream sets the
+    payday now. If the primary's schedule cannot produce a date, fall back to
+    the earliest date among the other confirmed streams.
     """
     # isinstance guard: a malformed `income_streams` entry (not a dict) must
     # not crash this -- it sits directly on the Safe-to-Spend "next payday"
@@ -162,20 +173,39 @@ def get_confirmed_payday(uid_prefs: dict, today: date) -> tuple[date, dict] | No
 
     primary = max(confirmed, key=lambda s: float(s.get("avg_amount") or 0))
 
-    # Find minimum next occurrence across all confirmed streams
-    min_date = None
-    for s in confirmed:
+    try:
+        return (next_occurrence(primary["schedule"], today), primary)
+    except Exception:
+        logger.debug("get_confirmed_payday: primary stream schedule unusable, falling back")
+
+    fallback = _earliest_confirmed_date(confirmed, today, skip=primary)
+    if fallback is None:
+        return None
+    return (fallback, primary)
+
+
+def _earliest_confirmed_date(streams: list[dict], today: date, skip: dict | None = None) -> date | None:
+    best = None
+    for s in streams:
+        if skip is not None and s is skip:
+            continue
         try:
             nd = next_occurrence(s["schedule"], today)
-            if min_date is None or nd < min_date:
-                min_date = nd
         except Exception:
             continue
+        if best is None or nd < best:
+            best = nd
+    return best
 
-    if min_date is None:
-        return None
 
-    return (min_date, primary)
+def next_confirmed_income_date(uid_prefs: dict, today: date) -> date | None:
+    """Earliest next occurrence across ALL confirmed income streams (any
+    kind of income, not just salary). Not used for payday or window ends."""
+    confirmed = [
+        s for s in (uid_prefs.get("income_streams") or [])
+        if isinstance(s, dict) and s.get("status") == "confirmed" and s.get("schedule")
+    ]
+    return _earliest_confirmed_date(confirmed, today)
 
 
 def income_merchant_label(key: str) -> str:
