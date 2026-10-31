@@ -47,6 +47,12 @@ export type HomeCacheSnapshot = {
   // this snapshot survives.
   accountsStatus: TodayRequestStatus;
   recentTxns: Transaction[];
+  // G373: provisional rows travel beside, never inside, booked recent
+  // activity. Keeping this cache entry separate prevents a warm Home paint
+  // from briefly treating a pending payment as booked activity.
+  recentPendingTxns: Transaction[];
+  recentPendingTotal: number;
+  recentActivityError: string | null;
 };
 
 // ── Shape guard (G148, 2026-09-23) ──────────────────────────────────────────
@@ -81,6 +87,9 @@ const REQUIRED_SNAPSHOT_KEYS: readonly (keyof HomeCacheSnapshot)[] = [
   "todayStatus",
   "accountsStatus",
   "recentTxns",
+  "recentPendingTxns",
+  "recentPendingTotal",
+  "recentActivityError",
 ];
 
 /** True when `snapshot` carries every key the current shape declares.

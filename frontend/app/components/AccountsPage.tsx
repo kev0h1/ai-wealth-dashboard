@@ -23,6 +23,7 @@ import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { DateField } from "@/components/DatePicker";
 import TransactionRow from "@/components/TransactionRow";
+import PendingPaymentsGroup from "@/components/PendingPaymentsGroup";
 import TeachingSheet from "@/components/TeachingSheet";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
@@ -568,6 +569,14 @@ export default function AccountsPage() {
   // Server-paginated transactions for the selected bank account
   const [serverTxns, setServerTxns] = useState<Transaction[]>([]);
   const [serverPages, setServerPages] = useState(1);
+  // Pending rows are supplied outside booked pagination. They are not
+  // editable ledger entries and never enter the category totals above.
+  const [serverPendingTxns, setServerPendingTxns] = useState<Transaction[]>([]);
+  const [serverPendingTotal, setServerPendingTotal] = useState(0);
+  const [serverPendingPage, setServerPendingPage] = useState(1);
+  const [serverPendingError, setServerPendingError] = useState<string | null>(null);
+  const [loadingMorePending, setLoadingMorePending] = useState(false);
+  const [serverTxnsError, setServerTxnsError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   // Server-aggregated category rollups for the Categories tab — debit
@@ -578,6 +587,10 @@ export default function AccountsPage() {
 
   // Swipe between transaction pages
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
+  // A booked-page request and a pending-page request can overlap while the
+  // person switches account, filter or page. Only the newest activity
+  // context may write either list.
+  const activityRequestRef = useRef(0);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
@@ -986,6 +999,12 @@ export default function AccountsPage() {
     setDebouncedQuery("");
     setServerTxns([]);
     setServerPages(1);
+    setServerPendingTxns([]);
+    setServerPendingTotal(0);
+    setServerPendingPage(1);
+    setServerPendingError(null);
+    setLoadingMorePending(false);
+    setServerTxnsError(null);
     setCatSummaries(null);
     setCatSummariesCredit(null);
     if (acc.manual) {
@@ -995,6 +1014,28 @@ export default function AccountsPage() {
     }
   }
 
+  const clearPendingForNewQuery = useCallback(() => {
+    activityRequestRef.current += 1;
+    setLoadingMorePending(false);
+    if (selectedAccountId && !accounts.find(a => a.id === selectedAccountId)?.manual) setLoadingTxns(selectedAccountId);
+    // Search and category changes are a new booked-list context too. Do not
+    // leave the prior result visible while the debounced replacement loads.
+    setServerTxns([]);
+    setServerPages(1);
+    setServerTxnsError(null);
+    setServerPendingTxns([]);
+    setServerPendingTotal(0);
+    setServerPendingPage(1);
+    setServerPendingError(null);
+  }, [selectedAccountId, accounts]);
+
+  useEffect(() => {
+    // Cleanup runs before the next activity context and on unmount, making a
+    // late pending-page response harmless even if its account id still looks
+    // current inside a stale closure.
+    return () => { activityRequestRef.current += 1; };
+  }, [selectedAccountId, debouncedQuery, detailCatFilter, refreshTick]);
+
   // Fetch the current page for the selected bank account whenever the page,
   // search query or refresh tick changes. Manual accounts keep their full
   // (tiny) client-side ledger.
@@ -1003,23 +1044,64 @@ export default function AccountsPage() {
     const acc = accounts.find(a => a.id === selectedAccountId);
     if (!acc || acc.manual) return;
     let cancelled = false;
+    const requestToken = ++activityRequestRef.current;
+    const accountId = selectedAccountId;
+    setLoadingTxns(accountId);
+    setLoadingMorePending(false);
     (async () => {
+      const options = {
+        q: debouncedQuery || undefined,
+        category: detailCatFilter?.name || undefined,
+        activityOrder: true,
+        ...(detailCatFilter ? { days: 90, txnType: detailCatFilter.txnType } : {}),
+      } as const;
       try {
         // When scoped to a Categories-tab filter, match the rollup's own
         // window exactly (last 90 days, same direction) — GET
         // /accounts/{id}/categories aggregates on those same terms, so an
         // unscoped fetch here would show a different (all-time, wrong
         // direction) set than the count/total the chip was opened from.
-        const r = await api.transactions(selectedAccountId, {
-          page, q: debouncedQuery || undefined, category: detailCatFilter?.name || undefined,
-          ...(detailCatFilter ? { days: 90, txnType: detailCatFilter.txnType } : {}),
-        });
-        if (cancelled) return;
-        setServerTxns(r.items);
-        setServerPages(r.pages);
-      } catch {}
+        // Clear both surfaces before every request so a page change or retry
+        // cannot make an old success read as the next context's result.
+        setServerTxns([]);
+        setServerPages(1);
+        setServerTxnsError(null);
+        setServerPendingTxns([]);
+        setServerPendingTotal(0);
+        setServerPendingPage(1);
+        setServerPendingError(null);
+
+        // Pending is only returned with booked page one. When the person is
+        // browsing a later booked page, independently refresh that first-page
+        // snapshot rather than silently retaining stale provisional activity.
+        const bookedRequest = api.transactions(accountId, { page, ...options });
+        const pendingRequest = page === 1
+          ? bookedRequest
+          : api.transactions(accountId, { page: 1, ...options });
+        const [bookedResult, pendingResult] = await Promise.allSettled([bookedRequest, pendingRequest]);
+        if (cancelled || requestToken !== activityRequestRef.current) return;
+
+        if (bookedResult.status === "fulfilled") {
+          setServerTxns(bookedResult.value.items);
+          setServerPages(bookedResult.value.pages);
+        } else {
+          setServerTxnsError("Booked payments could not be loaded. Try again.");
+        }
+        if (pendingResult.status === "fulfilled") {
+          setServerPendingTxns(pendingResult.value.pending_items ?? []);
+          setServerPendingTotal(pendingResult.value.pending_total ?? 0);
+          setServerPendingPage(pendingResult.value.pending_page ?? 1);
+        } else {
+          setServerPendingError("Pending payments could not be loaded. Try again.");
+        }
+      } catch {
+        // Defensive fallback for an unexpected local failure before either
+        // request settled. The normal network path is handled independently
+        // above so one list can remain useful when the other fails.
+        if (!cancelled && requestToken === activityRequestRef.current) setServerTxnsError("Payments could not be loaded. Try again.");
+      }
       finally {
-        if (!cancelled) setLoadingTxns(null);
+        if (!cancelled && requestToken === activityRequestRef.current) setLoadingTxns(null);
       }
     })();
     return () => { cancelled = true; };
@@ -1710,6 +1792,36 @@ export default function AccountsPage() {
     ? filteredTxns.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
     : serverTxns;
 
+  const loadMorePending = useCallback(async () => {
+    if (!selectedAccountId || isManualSelected || loadingMorePending || (serverPendingTxns.length >= serverPendingTotal && !serverPendingError)) return;
+    const nextPage = serverPendingError ? 1 : serverPendingPage + 1;
+    const accountId = selectedAccountId;
+    const requestToken = ++activityRequestRef.current;
+    setLoadingMorePending(true);
+    try {
+      const r = await api.transactions(accountId, {
+        // The pending stream is independent of booked pagination. It is
+        // always attached to booked page one by the API.
+        page: 1, q: debouncedQuery || undefined, category: detailCatFilter?.name || undefined,
+        activityOrder: true, pendingPage: nextPage,
+        ...(detailCatFilter ? { days: 90, txnType: detailCatFilter.txnType } : {}),
+      });
+      if (requestToken !== activityRequestRef.current) return;
+      setServerPendingTxns(prev => {
+        if (nextPage === 1) return r.pending_items ?? [];
+        const ids = new Set(prev.map(item => item.id));
+        return [...prev, ...(r.pending_items ?? []).filter(item => !ids.has(item.id))];
+      });
+      setServerPendingTotal(r.pending_total ?? serverPendingTotal);
+      setServerPendingPage(nextPage);
+      setServerPendingError(null);
+    } catch {
+      if (requestToken === activityRequestRef.current) setServerPendingError("More pending payments could not be loaded. Try again.");
+    } finally {
+      if (requestToken === activityRequestRef.current) setLoadingMorePending(false);
+    }
+  }, [selectedAccountId, isManualSelected, loadingMorePending, serverPendingTxns.length, serverPendingTotal, serverPendingPage, serverPendingError, debouncedQuery, detailCatFilter]);
+
   // Categories: server rollup for the account's Categories tab card grid.
   const categories = catSummaries ?? [];
 
@@ -2207,6 +2319,7 @@ export default function AccountsPage() {
                 key={cat.name}
                 type="button"
                 onClick={() => {
+                  clearPendingForNewQuery();
                   setDetailCatFilter({ name: cat.name, txnType });
                   setPage(1);
                   setSegment("Transactions");
@@ -2433,8 +2546,8 @@ export default function AccountsPage() {
           {showTransactions && (
             <AccountTransactionsToolbar
               searchQuery={searchQuery}
-              onSearchChange={v => { setSearchQuery(v); setPage(1); }}
-              onClearSearch={() => { setSearchQuery(""); setPage(1); }}
+              onSearchChange={v => { clearPendingForNewQuery(); setSearchQuery(v); setPage(1); }}
+              onClearSearch={() => { clearPendingForNewQuery(); setSearchQuery(""); setPage(1); }}
               onAdd={isManual ? openAddManualTx : undefined}
             />
           )}
@@ -2446,7 +2559,7 @@ export default function AccountsPage() {
             <div className="flex items-center gap-2 mb-1">
               <button
                 type="button"
-                onClick={() => { setDetailCatFilter(null); setPage(1); }}
+                onClick={() => { clearPendingForNewQuery(); setDetailCatFilter(null); setPage(1); }}
                 aria-label={`Remove ${detailCatFilter.name} filter`}
                 className="relative inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-['']"
                 style={{ backgroundColor: `${getCategoryColour(detailCatFilter.name, colours)}1f`, color: getCategoryColour(detailCatFilter.name, colours) }}
@@ -2466,7 +2579,20 @@ export default function AccountsPage() {
             </div>
           ) : showTransactions ? (
             <>
-              <div
+              <div className="space-y-6">
+                {!isManual && <PendingPaymentsGroup
+                  items={serverPendingTxns}
+                  total={serverPendingTotal}
+                  onLoadMore={serverPendingError || serverPendingTxns.length < serverPendingTotal ? loadMorePending : undefined}
+                  loadingMore={loadingMorePending}
+                  error={serverPendingError}
+                />}
+                {serverTxnsError ? (
+                  <section role="status" className="rounded-2xl bg-white p-5 text-center shadow-sm dark:bg-slate-800">
+                    <p className="text-sm text-slate-600 dark:text-slate-300">{serverTxnsError}</p>
+                    <button type="button" onClick={() => setRefreshTick(t => t + 1)} className="mt-3 inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700">Try again</button>
+                  </section>
+                ) : <div
                 className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
                 onTouchStart={e => {
                   swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -2483,13 +2609,14 @@ export default function AccountsPage() {
               >
                 {pagedTxns.length === 0 ? (
                   <div className="py-8 text-center">
-                    {searchQuery || isManual ? (
-                      <p className="text-sm text-slate-400 dark:text-slate-500">
+                    {!isManual && serverPendingTxns.length > 0 ? (
+                      <p className="text-sm text-slate-600 dark:text-slate-400">No booked payments yet</p>
+                    ) : searchQuery || isManual ? (
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
                         {searchQuery
                           ? `No transactions matching "${searchQuery}"`
                           : "No transactions yet, add one or set up a rule."}
-                      </p>
-                    ) : (
+                      </p>                    ) : (
                       <AccountBankEmpty account={selectedAccount} />
                     )}
                   </div>
@@ -2501,6 +2628,7 @@ export default function AccountsPage() {
                         <TransactionRow
                           key={tx.id}
                           transaction={tx}
+                          showActivityDate={!isManual}
                           onClick={() => {
                             if (!isManual) { setSelectedTx(tx); return; }
                             if (!isMirror) openEditManualTx(tx);
@@ -2510,10 +2638,11 @@ export default function AccountsPage() {
                     })}
                   </div>
                 )}
+                </div>}
               </div>
 
               {/* Pagination */}
-              {totalPages > 1 && (
+              {!serverTxnsError && totalPages > 1 && (
                 <div className="flex items-center justify-center gap-3 py-2">
                   <button
                     disabled={page === 1}

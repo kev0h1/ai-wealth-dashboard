@@ -9,6 +9,7 @@ import SafeToSpendCard from "@/components/SafeToSpendCard";
 import FirstSyncCard from "@/components/FirstSyncCard";
 import { heroSyncingInfo, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
 import TransactionRow from "@/components/TransactionRow";
+import PendingPaymentsGroup from "@/components/PendingPaymentsGroup";
 import TeachingSheet from "@/components/TeachingSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useAuth } from "@/components/AuthProvider";
@@ -205,6 +206,9 @@ export default function HomePage() {
   // reading off the 90-day bulk fetch so the section paints without waiting
   // on it, and correction lands through TeachingSheet like everywhere else.
   const [recentTxns, setRecentTxns] = useState<Transaction[]>(homeCache?.recentTxns ?? []);
+  const [recentPendingTxns, setRecentPendingTxns] = useState<Transaction[]>(homeCache?.recentPendingTxns ?? []);
+  const [recentPendingTotal, setRecentPendingTotal] = useState(homeCache?.recentPendingTotal ?? 0);
+  const [recentActivityError, setRecentActivityError] = useState<string | null>(homeCache?.recentActivityError ?? null);
   // Bumped once per loadData call (mount and every handleSync) — re-couples
   // the lazy bulk-fetch effect below to loadData without pulling the fetch
   // itself back into loadData's own body. See that effect's comment.
@@ -360,8 +364,8 @@ export default function HomePage() {
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
     if (!revealedRef.current) return;
-    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns });
-  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns]);
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, recentPendingTxns, recentPendingTotal, recentActivityError });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, recentPendingTxns, recentPendingTotal, recentActivityError]);
 
   const loadData = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -392,7 +396,7 @@ export default function HomePage() {
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
       // (round-ups, penny transfers) can drop rows, and asking the server
       // for exactly 6 could leave fewer than 6 on screen after filtering.
-      const recentTxP = api.transactionsSearch({ page: 1, page_size: 12 });
+      const recentTxP = api.transactionsSearch({ page: 1, page_size: 12, activity_order: true });
       // This is where the old code kicked off the 90-day bulk fetch
       // directly. It's lazy now (see the homePinnedWidget effect below), but
       // every loadData call — mount and every manual sync — still needs to
@@ -438,8 +442,20 @@ export default function HomePage() {
           if (requestId === loadRequestRef.current) setTodayStatus("failed");
         });
       recentTxP
-        .then((r) => { if (requestId === loadRequestRef.current) setRecentTxns(r.items); })
-        .catch(() => { if (requestId === loadRequestRef.current) setRecentTxns([]); })
+        .then((r) => {
+          if (requestId !== loadRequestRef.current) return;
+          setRecentTxns(r.items);
+          setRecentPendingTxns(r.pending_items ?? []);
+          setRecentPendingTotal(r.pending_total ?? 0);
+          setRecentActivityError(null);
+        })
+        .catch(() => {
+          if (requestId !== loadRequestRef.current) return;
+          setRecentTxns([]);
+          setRecentPendingTxns([]);
+          setRecentPendingTotal(0);
+          setRecentActivityError("Recent activity could not be loaded.");
+        })
         .finally(() => { if (requestId === loadRequestRef.current) setTxLoading(false); });
       // Write-through for BottomNav's Penny dot (see lib/paydayWindow.ts) —
       // Home already fetches both of these for its own brief, so once they
@@ -1219,34 +1235,42 @@ export default function HomePage() {
                 See all <ChevronRight size={13} aria-hidden="true" />
               </button>
             </div>
-            <div className="glass-card rounded-2xl overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
+            <div className="space-y-6 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
               {txLoading ? (
-                <div className="p-4 space-y-3">
+                <div role="status" aria-label="Loading recent activity" className="glass-card rounded-2xl p-4 space-y-3">
                   {[1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                    <div key={i} className="flex items-center gap-3" aria-hidden="true">
+                      <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 animate-pulse motion-reduce:animate-none" />
                       <div className="flex-1 space-y-1">
-                        <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
-                        <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                        <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-700 rounded animate-pulse motion-reduce:animate-none" />
+                        <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse motion-reduce:animate-none" />
                       </div>
-                      <div className="h-3.5 w-14 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                      <div className="h-3.5 w-14 bg-slate-200 dark:bg-slate-700 rounded animate-pulse motion-reduce:animate-none" />
                     </div>
                   ))}
                 </div>
-              ) : recent.length === 0 ? (
-                <div className="py-8 text-center">
-                  <p className="text-sm text-slate-400 dark:text-slate-500">No transactions yet</p>
+              ) : recentActivityError ? (
+                <div className="glass-card rounded-2xl p-4">
+                  <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{recentActivityError}</p>
+                  <button type="button" onClick={() => { setTxLoading(true); void loadData(); }} className="mt-2 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700">Try again</button>
+                </div>
+              ) : recentPendingTxns.length === 0 && recent.length === 0 ? (
+                <div className="glass-card rounded-2xl py-8 text-center">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">No transactions yet</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-50 dark:divide-slate-700">
-                  {recent.map((tx) => (
-                    <TransactionRow
-                      key={tx.id}
-                      transaction={tx}
-                      onClick={() => setSelectedTx(tx)}
-                    />
-                  ))}
-                </div>
+                <>
+                  <PendingPaymentsGroup
+                    items={recentPendingTxns.slice(0, 3)}
+                    total={recentPendingTotal}
+                    moreHref={recentPendingTotal > 3 ? "/transactions" : undefined}
+                  />
+                  {recent.length > 0 && <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-50 dark:divide-slate-700">
+                    {recent.map((tx) => (
+                      <TransactionRow key={tx.id} transaction={tx} showActivityDate onClick={() => setSelectedTx(tx)} />
+                    ))}
+                  </div>}
+                </>
               )}
             </div>
           </div>
