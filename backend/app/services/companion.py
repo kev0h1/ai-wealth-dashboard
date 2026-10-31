@@ -2740,8 +2740,6 @@ async def compute_today_items(
         payday_preview and _pp_salary_income is not None
         and str(_pp_salary_income.get("account_id") or "")
     )
-    funded_window_inflows = wi.funded_window_inflows  # read by the source and excluded-income walks below
-    funded_window_inflows = wi.funded_window_inflows  # read by the excluded-income walk below
     events, running, credited_incomes = _window_events(
         wi,
         inflow_admit="seed_live",
@@ -3464,26 +3462,14 @@ async def compute_today_items(
     _excluded_incomes = [i for i in window_income if id(i) not in _credited_ids]
 
     def _walk_min(dest: str, extra_income: dict | None = None) -> float:
-        ev = [
-            (b["days_away"], -float(b["amount"]))
-            for b in assessable_bills
-            if (b["account_id"] or "__unknown__") == dest
-        ]
-        ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
-        ev += [
-            (n["days_away"], float(n["amount"]))
-            for n in funded_window_inflows
-            if str(n.get("account_id") or "") == dest
-        ]
-        if extra_income is not None:
-            ev.append((extra_income["days_away"], float(extra_income["amount"])))
-        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
-        run = live_balances.get(dest, 0.0)
-        mn = run
-        for _d, _delta in ev:
-            run += _delta
-            mn = min(mn, run)
-        return mn
+        # G365: the same one walk, over the incomes the closing walk credited
+        # (`income_admit="seeded"`), every funded inflow (`inflow_admit="any"`)
+        # and, optionally, one excluded income injected at its own day.
+        return _walk_account(
+            dest, wi, opening=live_balances.get(dest, 0.0),
+            income_admit="seeded", inflow_admit="any", same_day_key="positive_delta",
+            extra_income=extra_income,
+        ).low_point
 
     income_note_by_dest: dict[str, str] = {}
     for _da, _sa, _dest, _bill in shortfalls:
