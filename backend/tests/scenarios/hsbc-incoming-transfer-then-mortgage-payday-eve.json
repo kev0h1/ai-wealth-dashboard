@@ -1,0 +1,181 @@
+{
+  "name": "HSBC case on payday eve: the incoming payday transfer and the mortgage after payday belong to the next period (G360)",
+  "today": "2026-10-29",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "PERSONAL LOAN",
+        "avg_amount": 140.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-29",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Debt"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 1900.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2150.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1100.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-02",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      },
+      {
+        "key": "STORE LOANS",
+        "avg_amount": 450.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-02",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Debt"
+      },
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-06",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2150.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2150.0,
+        "category": "Income",
+        "occurrences": 4,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-07-31",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-28",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "expected": {
+    "left_to_spend": 2160.0,
+    "spendable_balance": 2300.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 2150.0,
+        "after_payments": 2150.0,
+        "low_point": 2150.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 10.0,
+        "after_payments": 10.0,
+        "low_point": 10.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Kevin's HSBC case in synthetic figures, on payday eve: today Thu 29 Oct 2026, pay period last Friday, so payday is Fri 30 Oct (1 day away) and the period is strictly the days before it: only day 0, today (G360, no last-day lookahead). Barclays holds 2,150 and HSBC 150. Items: HSBC personal loan 140 (Thu 29 Oct, day 0); the payday standing order Barclays to HSBC 1,900 (Fri 30 Oct, day 1); HSBC mortgage 1,100 and store loans 450 (both Mon 2 Nov, day 4); Barclays council tax 150 (Fri 6 Nov, day 8); salary 3,000 expected Fri 30 Oct (day 1). Everything from day 1 on belongs to the next pay period, so none of it touches this period's figures: the incoming 1,900 is not credited and the mortgage and store loans are not deducted. Left to spend: pool 2,150 + 150 = 2,300; day 0: - 140 = 2,160; nothing else in the window, so Left to spend 2,160. Barclays has no item this period: after payments 2,150, low point 2,150, Spend from 2,150 (below the pool 2,160). HSBC: 150 - 140 = 10. After payments 10; the single debit is the last and the lowest figure, so low point 10 = after payments (they agree because nothing is credited or paid after the low); Spend from 10. The account is covered on both measures, never covered and short together. No cover move; at risk 0. The period began Fri 25 Sep (day 35 today), so there is no payday plan (companion.py, days into the period 3 or less)."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": []
+}

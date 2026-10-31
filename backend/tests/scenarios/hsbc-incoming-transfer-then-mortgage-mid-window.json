@@ -1,0 +1,181 @@
+{
+  "name": "HSBC case mid-window: the incoming transfer is credited before the mortgage because its source is funded (G360)",
+  "today": "2026-10-21",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-22",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2300.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "PERSONAL LOAN",
+        "avg_amount": 140.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-22",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Debt"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 1900.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-23",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2300.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1100.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-28",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      },
+      {
+        "key": "STORE LOANS",
+        "avg_amount": 450.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-28",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Debt"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2300.0,
+        "category": "Income",
+        "occurrences": 4,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-07-31",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-28",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "expected": {
+    "left_to_spend": 610.0,
+    "spendable_balance": 2450.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 250.0,
+        "after_payments": 250.0,
+        "low_point": 250.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 10.0,
+        "after_payments": 360.0,
+        "low_point": 10.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "The same HSBC shape with the standing order and the mortgage both inside the period: today Wed 21 Oct 2026, payday Fri 30 Oct is 9 days away, so the window is days 0 to 8 (21 to 29 Oct). Barclays holds 2,300 and HSBC 150. Items: Barclays council tax 150 and HSBC personal loan 140 (both Thu 22 Oct, day 1); the standing order Barclays to HSBC 1,900 (Fri 23 Oct, day 2); HSBC mortgage 1,100 and store loans 450 (both Wed 28 Oct, day 7). The salary is due on payday, day 9, outside the window and not credited. Left to spend: pool 2,300 + 150 = 2,450; the standing order moves money inside the pool so both legs drop; day 1: - 150 - 140 = 2,160; day 7: - 1,100 - 450 = 610. Lowest point 610, so Left to spend 610. Barclays walk: 2,300 - 150 = 2,150 (day 1); day 2: - 1,900 = 250. After payments 250, low point 250, Spend from 250. Its balance after the order is 250, at or above zero, so the order is funded (G360 funded-inflow rule). HSBC walk: 150 - 140 = 10 (day 1); day 2: + 1,900 credited because Barclays is funded = 1,910; day 7: - 1,100 = 810; - 450 = 360. After payments 360. The lowest running balance is 10 (day 1, before the transfer lands), so low point 10, and Spend from is the smaller of the two, 10. After payments and low point differ here because the transfer lifts the balance after the low; the account is covered on both measures (no figure below zero), never covered and short together, and without the funded credit the mortgage would have read 10 - 1,100 - 450 = -1,540. No cover move; at risk 0. The period began Fri 25 Sep (day 27), so no payday plan."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": []
+}
