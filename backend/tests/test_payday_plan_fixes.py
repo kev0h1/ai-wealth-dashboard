@@ -45,6 +45,19 @@ import app.db.collections as db_collections
 import app.services.companion as companion
 import app.services.pace as pace_module
 
+# H143: pre-import every module the code under test imports lazily. A module
+# first imported while a test has db_collections patched binds the FAKE
+# collection as its own module-level handle and keeps it for the rest of the
+# session (monkeypatch only restores what it patched), which broke
+# tests/test_scenarios.py when this file ran first.
+import app.routers.card_terms  # noqa: F401
+import app.routers.commitments  # noqa: F401
+import app.routers.savings  # noqa: F401
+import app.services.cashflow  # noqa: F401
+import app.services.debt_plan  # noqa: F401
+import app.services.needle  # noqa: F401
+import app.services.plan_fulfilment  # noqa: F401
+
 UID = "payday-fix-user"
 SALARY_ACCT = "acc-salary"
 DEST_ACCT = "acc-dest"

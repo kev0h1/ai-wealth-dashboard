@@ -26,6 +26,7 @@ the duration of the run (restored afterwards, including modules first imported
 during it). Nothing is faked.
 """
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -55,6 +56,23 @@ def _app_modules():
     return [m for n, m in list(sys.modules.items()) if m is not None and (n == "app" or n.startswith("app."))]
 
 
+def leaked_test_handles() -> list[str]:
+    """H143: module-level `*_col` handles in the app that are not real Motor
+    collections (a test's fake bound by a lazy import while db_collections was
+    patched, or a handle left rebound). Empty when the process is clean.
+    Functions are exempt by inspect.isroutine (runtime_settings defines
+    `_settings_col()` getters); a Motor handle is checked by isinstance."""
+    from motor.motor_asyncio import AsyncIOMotorCollection
+
+    bad = []
+    for mod in _app_modules():
+        for attr, value in list(vars(mod).items()):
+            if attr.endswith("_col") and value is not None and not inspect.isroutine(value) \
+                    and not isinstance(value, AsyncIOMotorCollection):
+                bad.append(f"{mod.__name__}.{attr} = {type(value).__module__}.{type(value).__qualname__}")
+    return sorted(bad)
+
+
 def _rebind_collections(client):
     """Point every module-level collection handle in the app at `client`.
 
@@ -67,6 +85,11 @@ def _rebind_collections(client):
     from app.core.config import MONGO_DB
 
     assert TEST_DB_NAME_RE.match(MONGO_DB), "scenario suite only runs against a wealth_test_* database"
+    leaked = leaked_test_handles()
+    assert not leaked, (
+        "an earlier test left fake collection handles bound in app modules (H143: pre-import lazily "
+        "imported modules before patching db_collections): " + "; ".join(leaked)
+    )
     originals = {
         v.name: v for k, v in vars(dbc).items()
         if k.endswith("_col") and isinstance(v, AsyncIOMotorCollection)

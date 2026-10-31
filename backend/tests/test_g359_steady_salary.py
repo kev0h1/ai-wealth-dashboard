@@ -27,6 +27,19 @@ from app.core import timeutil
 from app.routers.analytics import _steady_salary_candidate, income_credit_basis, stamp_credit_basis
 from app.services.categories import MOVEMENT
 
+# H143: pre-import every module the code under test imports lazily. A module
+# first imported while a test has db_collections patched binds the FAKE
+# collection as its own module-level handle and keeps it for the rest of the
+# session (monkeypatch only restores what it patched), which broke
+# tests/test_scenarios.py when this file ran first.
+import app.routers.card_terms  # noqa: F401
+import app.routers.commitments  # noqa: F401
+import app.routers.savings  # noqa: F401
+import app.services.cashflow  # noqa: F401
+import app.services.debt_plan  # noqa: F401
+import app.services.needle  # noqa: F401
+import app.services.plan_fulfilment  # noqa: F401
+
 UID = "g359-user"
 TODAY = date(2026, 10, 27)  # G360: no payday lookahead, so the walk window is 27 to 29 Oct
 PAY_CFG = {"type": "last_friday"}
