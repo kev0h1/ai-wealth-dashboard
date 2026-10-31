@@ -45,10 +45,31 @@ export function walkUpcomingAccounts(
   const counted = (accountId: string | null | undefined) => !accountId || !excludedAccountIds.has(accountId);
   const bills = cashflow.upcoming_bills.filter((bill) => inWindow(bill.expected_date) && !bill.is_credit_card && !bill.observed_pending && counted(bill.account_id));
   const income = cashflow.upcoming_income.filter((item) => inWindow(item.expected_date) && counted(item.account_id));
-  const inflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));
+  const pennies = (amount: number) => Math.round(amount * 100);
+  const allInflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));
+  // G360: the ONE funded-inflow rule, mirroring backend services/inflow_credit.py.
+  // An expected inbound own-account transfer counts only when its SOURCE account
+  // is itself covered that day: a tracked account with a known balance whose own
+  // bills and server-credited incomes (credit_basis set), credits first, leave
+  // it >= 0 after the transfer's day. One level only: the source's own inflows
+  // are not counted when judging it. Unknown or untracked sources never fund.
+  const fundedInflow = (inflow: (typeof allInflows)[number]) => {
+    const sid = inflow.source_account_id || "";
+    if (!sid) return false;
+    const sourceBills = bills.filter((bill) => bill.account_id === sid);
+    const planBalance = planSources.find((account) => account.id === sid)?.balance;
+    const opening = sourceBills[0]?.account_balance ?? planBalance;
+    if (typeof opening !== "number" || !Number.isFinite(opening)) return false;
+    const day = Date.parse(inflow.expected_date);
+    const steps = [
+      ...income.filter((item) => item.account_id === sid && item.credit_basis).map((item) => ({ date: Date.parse(item.expected_date), delta: pennies(item.amount) })),
+      ...sourceBills.map((bill) => ({ date: Date.parse(bill.expected_date), delta: -pennies(bill.amount) })),
+    ].filter((step) => step.date <= day).sort((a, b) => a.date - b.date || Number(a.delta < 0) - Number(b.delta < 0));
+    return steps.reduce((total, step) => total + step.delta, pennies(opening)) >= 0;
+  };
+  const inflows = allInflows.filter(fundedInflow);
   const unknownIncome = income.some((item) => !item.account_id);
   const ids = [...new Set([...bills.map((bill) => bill.account_id || "__unknown__"), ...planSources.filter((account) => counted(account.id)).map((account) => account.id)])];
-  const pennies = (amount: number) => Math.round(amount * 100);
   const atRisk: RiskBill[] = [];
   const coverage = new Map<UpcomingBill, AccountCoverage>();
   const riskByBill = new Map<UpcomingBill, RiskBill>();

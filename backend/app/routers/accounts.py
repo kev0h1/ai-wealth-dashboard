@@ -87,6 +87,25 @@ def _engine_source_eligible(acc: dict) -> bool:
     return is_current_account(acc) or is_savings_account(acc)
 
 
+def _transaction_diagnostics(d: dict) -> dict:
+    """A175: the two per-account transaction sync diagnostics as API values."""
+    at = d.get("transactions_synced_at")
+    if isinstance(at, datetime):
+        at = at.isoformat() + ("Z" if at.tzinfo is None else "")
+    elif not isinstance(at, str):
+        at = None
+    count = d.get("transactions_last_count")
+    if isinstance(count, bool) or not isinstance(count, int):
+        count = None
+    # A176: the bank's own as-of time from Finexer's sync object (ISO, UTC).
+    bank_to = d.get("bank_synced_to")
+    if isinstance(bank_to, datetime):
+        bank_to = bank_to.isoformat() + ("Z" if bank_to.tzinfo is None else "")
+    elif not isinstance(bank_to, str):
+        bank_to = None
+    return {"transactions_synced_at": at, "transactions_last_count": count, "bank_synced_to": bank_to}
+
+
 def _manual_to_account(a: dict, currency: str) -> Account:
     at = a.get("account_type", "savings")
     if at == "credit_card":
@@ -132,7 +151,8 @@ async def get_accounts(user: dict = Depends(current_user)):
     result = [
         Account(
             id=d["_id"],
-            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused"}},
+            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused", "transactions_synced_at", "transactions_last_count", "bank_synced_to"}},
+            **_transaction_diagnostics(d),
             paused=paused,
             # G55: `_engine_source_eligible` is companion.py's OWN
             # source_capacity predicate (credit-card exclusion AND the
@@ -239,7 +259,7 @@ async def sync_all(user: dict = Depends(current_user)):
     # pulls before it runs, so a bill Finexer just returned is inside the
     # observed-match window rather than racing it (the G177(a) shape).
     finexer_syncs = [
-        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid, trigger="user", recompute=False))
+        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid, trigger="user", recompute=False, request_bank_sync=True))
         for fc in finexer_conns
     ]
 

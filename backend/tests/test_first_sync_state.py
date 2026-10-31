@@ -386,7 +386,7 @@ def test_pipeline_stamps_and_clears_around_the_pull(monkeypatch):
     monkeypatch.setattr(finexer_sync, "finexer_consents_col", col)
     during = {}
 
-    async def pull(cid, uid):
+    async def pull(cid, uid, **_kw):
         during["stamp"] = col.docs[0].get("sync_in_progress_since")
         raise RuntimeError("x")
 

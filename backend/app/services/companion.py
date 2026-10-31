@@ -44,6 +44,7 @@ from app.services.account_kinds import (
     manual_account_class,
 )
 from app.services.categories import MOVEMENT
+from app.services.inflow_credit import funded_inflows
 from app.services.categorisation import series_key
 
 
@@ -1028,6 +1029,11 @@ async def _reserved_for_allocations(
     challenge account, but is dependent on the [source] account we are
     taking [money] from... would there be enough for this envelope?"
 
+    SET-ASIDES ONLY (G352): goals are reserved separately by
+    `_reserved_for_goals` and the two are summed per source in
+    `compute_today_items`. The payday plan reads neither, it uses
+    `_plan_source_needs`, so nothing is double counted there.
+
     LOCKSTEP DISCLAIMER (this is companion-local, not a shared-walk change):
     `_source_min_running`'s own comment (below, in `compute_today_items`)
     already establishes that a source's "movable" balance is a
@@ -1208,6 +1214,119 @@ def _gbp_num(x: float) -> str:
     return f"{int(x):,}" if x == int(x) else f"{x:,.2f}"
 
 
+async def _goal_source_slices(
+    uid: str,
+    pay_cfg: dict,
+    live_balances: dict[str, float],
+    salary_acct: str | None,
+    account_map: dict[str, dict] | None,
+) -> list[dict]:
+    """Each active goal's per-period slice at its resolved SOURCE account
+    (G350 resolution, shared with G352's per-source reservation).
+
+    Returns [{"source", "name", "amount" (per_period_slice), "assumed",
+    "to" (sorted destination ids)}]. Resolution order: the stored usable
+    `source_account_id`, else `resolve_goal_source` (with the
+    `infer_plan_sources_batch` prefetch), else the salary account flagged
+    `assumed`. A deliberate "Not set" (`source_unset`) or a stored-but-unusable
+    account is never guessed and yields no entry. Fail-open: a goal that
+    errors is skipped, and a failure of the whole lookup returns what was
+    gathered so far.
+    """
+    amap = account_map or {}
+    out: list[dict] = []
+    try:
+        from app.db.collections import commitments_col
+        from app.routers.commitments import (
+            _doc_pots,
+            _pot_progress_and_slice,
+            compute_pot_ledger,
+        )
+        from app.services.account_plan_sources import needs_inference, resolve_goal_source
+
+        today_d = timeutil.user_today()
+        docs = await commitments_col.find(
+            {"user_id": uid, "status": "active"},
+            {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
+             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
+             "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
+             "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
+             "fill_rule": 1},
+        ).to_list(None)
+        if docs:
+            ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
+            wanted = {
+                str(c["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(c)})
+                for c in docs
+                if needs_inference(c, {str(p["account_id"]) for p in _doc_pots(c)})
+            }
+            prefetched: dict[str, str | None] = {}
+            if wanted and amap:
+                try:
+                    prefetched = await infer_plan_sources_batch(uid, wanted, amap)
+                except Exception:
+                    log.exception("_goal_source_slices: batched goal source inference failed")
+            for c in docs:
+                try:
+                    pots = _doc_pots(c)
+                    dest_ids = {str(p["account_id"]) for p in pots}
+                    if not dest_ids:
+                        continue  # an unlinked goal moves nothing through the plan
+                    try:
+                        slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
+                    except Exception:
+                        continue
+                    source, inferred = await resolve_goal_source(
+                        uid, c, amap, dest_ids, prefetched=prefetched,
+                    )
+                    assumed = False
+                    if source is None:
+                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
+                            continue  # "Not set", or a stored account that is no longer usable
+                        source, assumed = (salary_acct or ""), True
+                    out.append({
+                        "source": source,
+                        "name": str(c.get("name") or "").strip() or "Goal",
+                        "amount": float(slice_info["per_period_slice"]),
+                        "assumed": assumed,
+                        "to": sorted(dest_ids),
+                    })
+                except Exception:
+                    log.exception("_goal_source_slices: skipped one goal for %s", uid)
+    except Exception:
+        log.exception("_goal_source_slices: goals unavailable for %s", uid)
+    return out
+
+
+async def _reserved_for_goals(
+    uid: str,
+    pay_cfg: dict,
+    live_balances: dict[str, float],
+    salary_acct: str | None,
+    account_map: dict[str, dict] | None,
+    *,
+    slices: list[dict] | None = None,
+) -> dict[str, float]:
+    """Per-source-account GBP reserved this period for goals (G352): each
+    active goal's `per_period_slice` at its resolved source, summed in pence
+    and rounded once at the end. Same resolution as the payday plan's
+    `_plan_source_needs` (via `_goal_source_slices`, or the `slices` already
+    fetched by the caller). Fail-open to {}."""
+    try:
+        pence: dict[str, int] = {}
+        if slices is None:
+            slices = await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, account_map)
+        for g in slices:
+            p = int(round(float(g["amount"]) * 100))
+            if p <= 0 or not g["source"]:
+                continue
+            pence[g["source"]] = pence.get(g["source"], 0) + p
+        return {k: round(v / 100, 2) for k, v in pence.items()}
+    except Exception:
+        log.exception("_reserved_for_goals: failed for %s", uid)
+        return {}
+
+
 async def _plan_source_needs(
     uid: str,
     pay_cfg: dict,
@@ -1217,6 +1336,7 @@ async def _plan_source_needs(
     *,
     account_map: dict[str, dict] | None = None,
     internal_inflows: list[dict] | None = None,
+    goal_slices: list[dict] | None = None,
 ) -> dict[str, dict]:
     """What the user's goals and recurring set-asides need to find at each
     SOURCE account this pay period (G350, Kevin 2026-10-28).
@@ -1308,61 +1428,12 @@ async def _plan_source_needs(
             log.exception("_plan_source_needs: skipped one set-aside for %s", uid)
 
     # ── Goals ──────────────────────────────────────────────────────────────
-    try:
-        from app.db.collections import commitments_col
-        from app.routers.commitments import (
-            _doc_pots,
-            _pot_progress_and_slice,
-            compute_pot_ledger,
-        )
-        from app.services.account_plan_sources import needs_inference, resolve_goal_source
-
-        today_d = timeutil.user_today()
-        docs = await commitments_col.find(
-            {"user_id": uid, "status": "active"},
-            {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
-             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
-             "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
-             "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
-             "fill_rule": 1},
-        ).to_list(None)
-        if docs:
-            ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
-            wanted = {
-                str(c["_id"]): sorted({str(p["account_id"]) for p in _doc_pots(c)})
-                for c in docs
-                if needs_inference(c, {str(p["account_id"]) for p in _doc_pots(c)})
-            }
-            prefetched: dict[str, str | None] = {}
-            if wanted and amap:
-                try:
-                    prefetched = await infer_plan_sources_batch(uid, wanted, amap)
-                except Exception:
-                    log.exception("_plan_source_needs: batched goal source inference failed")
-            for c in docs:
-                try:
-                    pots = _doc_pots(c)
-                    dest_ids = {str(p["account_id"]) for p in pots}
-                    if not dest_ids:
-                        continue  # an unlinked goal moves nothing through the plan
-                    try:
-                        slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
-                    except Exception:
-                        continue
-                    source, inferred = await resolve_goal_source(
-                        uid, c, amap, dest_ids, prefetched=prefetched,
-                    )
-                    assumed = False
-                    if source is None:
-                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
-                            continue  # "Not set", or a stored account that is no longer usable
-                        source, assumed = (salary_acct or ""), True
-                    _add(source, str(c.get("name") or "").strip() or "Goal", "goal",
-                         float(slice_info["per_period_slice"]), assumed, sorted(dest_ids))
-                except Exception:
-                    log.exception("_plan_source_needs: skipped one goal for %s", uid)
-    except Exception:
-        log.exception("_plan_source_needs: goals unavailable for %s", uid)
+    # `goal_slices` lets the caller reuse slices it already resolved for the
+    # same salary account (G352 memoisation); None recomputes them.
+    if goal_slices is None:
+        goal_slices = await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, amap)
+    for g in goal_slices:
+        _add(g["source"], g["name"], "goal", g["amount"], g["assumed"], g["to"])
 
     return {
         source: {
@@ -2566,8 +2637,8 @@ async def compute_today_items(
     # days_to_pay) belongs to the NEXT pay period's arithmetic, not this
     # one — it drops into `payday_day_*` below instead, which stays VISIBLE
     # via the payday_plan card's `payday_split` payload (section 5c) but is
-    # never counted toward at-risk/shortfall/to-last. Last-day lookahead
-    # (days_to_pay <= 1) is unchanged, encoded inside the helper — see
+    # never counted toward at-risk/shortfall/to-last. No last-day lookahead
+    # (G360): strictly before payday for every days_to_pay — see
     # app/services/pay_period.py's in_current_window/is_payday_day
     # docstrings. Must stay in lockstep with the same boundary in
     # analytics.at_risk_count and spend_impact._cashflow_window.
@@ -2736,11 +2807,21 @@ async def compute_today_items(
     # fallback fill-leg-pairing channel's name-affinity check can reuse this
     # in-memory account listing instead of a second DB round trip), off the
     # FULL (not window-filtered) `internal_inflows` list for the strongest
-    # available derivation signal, and reused by every source-sizing call
-    # site below — Step 2's `source_capacity` and the payday plan's
-    # `distributable` (section 5b) — so the two can never disagree about
-    # which source funds which envelope. See `_reserved_for_allocations`'s
+    # available derivation signal, and reused by every cover-plan
+    # source-sizing call site below (`source_capacity`, `build_move_map`,
+    # `envelope_reserved`), so they can never disagree about which source
+    # funds which envelope. (The payday plan, section 5b, no longer reads it:
+    # since G350 it uses `_plan_source_needs`.) See `_reserved_for_allocations`'s
     # docstring for the derivation + lockstep rationale.
+    #
+    # G352: goals are reserved here too, each goal's per-period slice at its
+    # resolved source (`_reserved_for_goals`, the same resolution as the
+    # payday plan), summed with the set-aside reservation in pence. The
+    # payday plan is NOT double counted: it never reads this dict, it reads
+    # `_plan_source_needs` (goals and set-asides at their source) instead.
+    # A goal with no resolvable source and no "Not set" falls back to the
+    # salary account, resolved early here (the payday plan re-derives its own
+    # later, from the same candidate pool).
     _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
 
     # G359: names that tell two same-bank accounts apart ("your Barclays
@@ -2752,6 +2833,31 @@ async def compute_today_items(
         _acc = _account_map.get(str(acct_id or ""))
         return distinct_account_label(_acc, _label_accounts) if _acc else None
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
+    # No guess when there is no salary account: an assumed goal (no stored or
+    # inferred source) then reserves nowhere, like `_plan_source_needs` where
+    # `_add` skips an empty source. Picking the richest account would reserve
+    # the goal's money against an account nothing says funds it.
+    _early_salary_acct: str | None = (
+        (str(_pp_salary_income.get("account_id") or "") or None) if _pp_salary_income else None
+    )
+    try:
+        _early_goal_slices: list[dict] | None = await _goal_source_slices(
+            uid, pay_cfg, live_balances, _early_salary_acct, _account_map,
+        )
+    except Exception:
+        log.exception("compute_today_items: goal source slices failed for %s", uid)
+        _early_goal_slices = None
+    _goal_reserved = await _reserved_for_goals(
+        uid, pay_cfg, live_balances, _early_salary_acct, _account_map,
+        slices=_early_goal_slices if _early_goal_slices is not None else [],
+    )
+    if _goal_reserved:
+        _combined: dict[str, int] = {
+            k: int(round(float(v) * 100)) for k, v in reserved_by_source.items()
+        }
+        for k, v in _goal_reserved.items():
+            _combined[k] = _combined.get(k, 0) + int(round(float(v) * 100))
+        reserved_by_source = {k: round(v / 100, 2) for k, v in _combined.items()}
 
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
     running: dict[str, float] = {}
@@ -2792,8 +2898,21 @@ async def compute_today_items(
     # for one either — see the comment block above `walk_sort_key`, this
     # function's own file, for why a lapsed inflow is already spoken for by
     # its source-side pending copy.
-    for n in window_inflows:
+    #
+    # G360: an inflow is credited only when its SOURCE account is itself
+    # covered that day (`funded_inflows`, one rule for every walk).
+    _funded_balances = {**live_balances, **running}
+    funded_window_inflows = funded_inflows(
+        window_inflows, assessable_bills, window_income, _funded_balances,
+        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
+    )
+    for n in funded_window_inflows:
         acct = str(n.get("account_id") or "")
+        # G360: a funded inflow into an account with no bill of its own still
+        # counts, seeded at its live balance exactly as the preview salary is,
+        # so after_payments and low_point consume identical events.
+        if acct and acct not in running and acct in live_balances:
+            running[acct] = live_balances[acct]
         if acct in running:
             events.append((n["days_away"], acct, float(n["amount"]), True, n))
 
@@ -2977,6 +3096,13 @@ async def compute_today_items(
             (i["days_away"], float(i["amount"]))
             for i in window_income
             if income_credit_ok(i, sid, confirmed_income_keys)
+        ]
+        # G360: funded inbound own-account transfers, same rule as the
+        # closing walk above, so low_point and after_payments agree.
+        ev += [
+            (n["days_away"], float(n["amount"]))
+            for n in funded_window_inflows
+            if str(n.get("account_id") or "") == sid
         ]
         # same-day: inflows before outflows, G163 — the (days_away, delta)
         # shape here is inline rather than `walk_sort_key` (which expects a
@@ -3568,6 +3694,11 @@ async def compute_today_items(
             if (b["account_id"] or "__unknown__") == dest
         ]
         ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
+        ev += [
+            (n["days_away"], float(n["amount"]))
+            for n in funded_window_inflows
+            if str(n.get("account_id") or "") == dest
+        ]
         if extra_income is not None:
             ev.append((extra_income["days_away"], float(extra_income["amount"])))
         ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
@@ -3840,6 +3971,12 @@ async def compute_today_items(
             source_needs = await _plan_source_needs(
                 uid, pay_cfg, live_balances, salary_acct, bool(payday_preview),
                 account_map=_account_map, internal_inflows=resp["internal_inflows"],
+                # Reuse the reservation's slices only when both were resolved
+                # against the same salary account; otherwise recompute.
+                goal_slices=(
+                    _early_goal_slices
+                    if (salary_acct or None) == _early_salary_acct else None
+                ),
             )
 
             def _salary_bills_excl_own_dests(acct_id: str) -> tuple[float, int]:

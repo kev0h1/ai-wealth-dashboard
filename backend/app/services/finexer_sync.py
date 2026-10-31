@@ -3,6 +3,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -98,6 +99,369 @@ async def _get(
             url, sleep_s, attempt, _MAX_429_RETRIES,
         )
         await asyncio.sleep(sleep_s)
+
+
+# ── A176: Bank Account Sync (ask Finexer to refresh from the bank) ──────────
+#
+# Contract known only from Kevin's reading of Finexer's API reference on
+# 2026-10-31 (the reference sits behind the dashboard login, and the discovery
+# GET with the key available on this host was refused with HTTP 401, so the
+# real field names are NOT yet confirmed against a live response):
+#   POST /bank_accounts/{id}/sync   triggers a sync with the bank. Short periods
+#                                   finish at once (status "idle", synced_from
+#                                   and synced_to updated); long ones return
+#                                   "running" and are polled with
+#   GET  /bank_accounts/{id}/sync   until "idle".
+#   One POST per bank account per 60 minutes, else HTTP 429.
+# The reconcile cron and webhook-driven syncs never POST (Finexer's automatic
+# sync and the bank_account.synced webhook cover them, and the PSD2 four a day
+# unattended limit must not be spent there). Only a user-present refresh and
+# the first sync after connect do.
+BANK_SYNC_MIN_GAP = timedelta(minutes=60)
+# Bounded backoff while a sync reads "running": 2 + 4 + 8 + 16 = 30 seconds.
+BANK_SYNC_POLL_DELAYS: tuple = (2.0, 4.0, 8.0, 16.0)
+# Overall wait across one consent so many accounts cannot stall a request.
+BANK_SYNC_CONSENT_BUDGET_S = 60.0
+
+# All A176 assumptions are listed in one place for Kevin to confirm:
+# docs/ops/FINEXER_TRANSACTIONS.md, "A176 assumptions to confirm".
+#
+# ASSUMPTION (confirm against the dashboard reference): the transactions
+# endpoint's event filter is a query parameter with this name, taking the
+# bank_account.synced event id. Off by default: the full walk stays the path
+# until both the name and the webhook payload shape are confirmed.
+TXN_EVENT_FILTER_PARAM = "event"
+USE_TXN_EVENT_FILTER = False
+# More pending rows than this for one account means the filter was ignored.
+PENDING_MAX_ROWS = 200
+
+_auto_sync_warned = False
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()  # naive-ok: matches last_synced convention
+
+
+async def _post(
+    client: httpx.AsyncClient,
+    url: str,
+    data: Optional[dict] = None,
+    *,
+    counter: Optional[dict] = None,
+) -> httpx.Response:
+    """POST through the same counters as `_get`, with NO retry on 429.
+
+    For the bank sync a 429 means the per-account hourly limit, so waiting
+    seconds would not help: the caller records it and moves on."""
+    if counter is not None:
+        counter["requests"] = counter.get("requests", 0) + 1
+    resp = await client.post(url, data=data)
+    from app.services.finexer_webhooks import bump_daily_counters
+    limited = resp.status_code == 429
+    await bump_daily_counters(requests=1, rate_limited=1 if limited else 0)
+    if limited and counter is not None:
+        counter["429s"] = counter.get("429s", 0) + 1
+    return resp
+
+
+def _retry_after_delta(resp: httpx.Response) -> timedelta:
+    """Retry-After (seconds) as a delta, capped at the 60-minute rule; the
+    full hour when absent or unparseable."""
+    try:
+        secs = float(resp.headers.get("Retry-After"))
+        return min(max(timedelta(seconds=secs), timedelta(0)), BANK_SYNC_MIN_GAP)
+    except (TypeError, ValueError):
+        return BANK_SYNC_MIN_GAP
+
+
+def _sync_object(body) -> dict:
+    """The sync object, tolerating a `data` envelope (shape unconfirmed)."""
+    if isinstance(body, dict) and isinstance(body.get("data"), dict) and "status" not in body:
+        return body["data"]
+    return body if isinstance(body, dict) else {}
+
+
+def _sync_fields(obj: dict) -> dict:
+    """Account-doc `$set` fields from a sync object: the bank's own as-of
+    window (synced_from/synced_to) and the status word."""
+    fields: dict = {}
+    status = obj.get("status")
+    if isinstance(status, str) and status:
+        fields["bank_sync_status"] = status[:40]
+    frm = _parse_iso_utc(obj.get("synced_from"))
+    to = _parse_iso_utc(obj.get("synced_to"))
+    if frm:
+        fields["bank_synced_from"] = frm
+    if to:
+        fields["bank_synced_to"] = to
+    return fields
+
+
+async def _write_account_fields(account_id: str, set_fields: dict, unset_fields: Optional[dict] = None) -> None:
+    """Best effort, no upsert (the account doc may not exist yet on the very
+    first sync: the caller merges the same fields into its own upsert)."""
+    update: dict = {}
+    if set_fields:
+        update["$set"] = set_fields
+    if unset_fields:
+        update["$unset"] = unset_fields
+    if not update:
+        return
+    try:
+        await accounts_col.update_one({"_id": account_id}, update)
+    except Exception:
+        logger.exception("Finexer bank sync field write failed for %s", account_id)
+
+
+async def trigger_bank_sync(
+    client: httpx.AsyncClient,
+    account_id: str,
+    counter: Optional[dict] = None,
+    *,
+    now: Optional[datetime] = None,
+) -> dict:
+    """POST /bank_accounts/{id}/sync, honouring the 60-minute rule locally.
+
+    Never raises for Finexer's answer and never surfaces a raw 429. Returns
+    {"outcome": "requested" | "skipped_local" | "rate_limited" | "error",
+     "status": <sync status or None>, "next_request_at": <naive UTC or None>,
+     "set": <fields written, for the caller's own upsert>,
+     "unset": <fields cleared>}."""
+    now = now or _utcnow()
+    try:
+        doc = await accounts_col.find_one(
+            {"_id": account_id}, {"bank_sync_requested_at": 1, "bank_sync_next_at": 1},
+        ) or {}
+    except Exception:
+        doc = {}
+    last = doc.get("bank_sync_requested_at")
+    nxt = doc.get("bank_sync_next_at")
+    next_at = None
+    if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+        next_at = last + BANK_SYNC_MIN_GAP
+    if isinstance(nxt, datetime) and nxt > now and (next_at is None or nxt > next_at):
+        next_at = nxt
+    if next_at is not None:
+        return {"outcome": "skipped_local", "status": None, "next_request_at": next_at, "set": {}, "unset": {}}
+
+    try:
+        resp = await _post(client, f"/bank_accounts/{account_id}/sync", counter=counter)
+    except httpx.HTTPError:
+        logger.warning("Finexer POST bank sync transport error for %s", account_id)
+        sets = {"bank_sync_error": "request_failed", "bank_sync_error_at": now}
+        await _write_account_fields(account_id, sets)
+        return {"outcome": "error", "status": None, "next_request_at": None, "set": sets, "unset": {}}
+
+    if resp.status_code == 429:
+        next_at = now + _retry_after_delta(resp)
+        sets = {
+            "bank_sync_last_429_at": now, "bank_sync_error": "rate_limited",
+            "bank_sync_error_at": now, "bank_sync_next_at": next_at,
+        }
+        logger.info("Finexer bank sync rate limited for an account; next request possible later")
+        await _write_account_fields(account_id, sets)
+        return {"outcome": "rate_limited", "status": None, "next_request_at": next_at, "set": sets, "unset": {}}
+
+    if resp.status_code not in (200, 201, 202):
+        logger.warning("Finexer POST bank sync failed for %s: HTTP %s", account_id, resp.status_code)
+        sets = {"bank_sync_error": f"http_{resp.status_code}", "bank_sync_error_at": now}
+        await _write_account_fields(account_id, sets)
+        return {"outcome": "error", "status": None, "next_request_at": None, "set": sets, "unset": {}}
+
+    try:
+        obj = _sync_object(resp.json())
+    except ValueError:
+        obj = {}
+    sets = {
+        "bank_sync_requested_at": now,
+        "bank_sync_next_at": now + BANK_SYNC_MIN_GAP,
+        **_sync_fields(obj),
+    }
+    unsets = {"bank_sync_error": "", "bank_sync_error_at": ""}
+    await _write_account_fields(account_id, sets, unsets)
+    return {
+        "outcome": "requested", "status": sets.get("bank_sync_status"),
+        "next_request_at": None, "set": sets, "unset": unsets,
+    }
+
+
+async def read_bank_sync(
+    client: httpx.AsyncClient,
+    account_id: str,
+    counter: Optional[dict] = None,
+) -> Optional[dict]:
+    """GET /bank_accounts/{id}/sync and store its status and as-of window.
+    Returns the `$set` fields written, or None when the read failed."""
+    try:
+        resp = await _get(client, f"/bank_accounts/{account_id}/sync", counter=counter)
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200:
+        logger.warning("Finexer GET bank sync failed for %s: HTTP %s", account_id, resp.status_code)
+        return None
+    try:
+        obj = _sync_object(resp.json())
+    except ValueError:
+        return None
+    fields = _sync_fields(obj)
+    await _write_account_fields(account_id, fields)
+    return fields
+
+
+async def wait_bank_sync_idle(
+    client: httpx.AsyncClient,
+    account_id: str,
+    counter: Optional[dict],
+    result: dict,
+    *,
+    budget: Optional[dict] = None,
+    sleep=None,
+) -> dict:
+    """Poll GET /sync with bounded backoff while `result["status"]` reads
+    running. Returns when idle, when the bound or the consent-wide budget is
+    hit, or when a read fails: the caller fetches anyway and the
+    bank_account.synced webhook delivers the rest. `result["set"]` collects
+    every field written."""
+    sleep = sleep or asyncio.sleep
+    status = (result.get("status") or "").lower()
+    for delay in BANK_SYNC_POLL_DELAYS:
+        if status != "running":
+            break
+        if budget is not None:
+            if budget.get("remaining", 0) < delay:
+                break
+            budget["remaining"] = budget["remaining"] - delay
+        await sleep(delay)
+        fields = await read_bank_sync(client, account_id, counter)
+        if fields is None:
+            break
+        result["set"].update(fields)
+        status = (fields.get("bank_sync_status") or "").lower()
+    result["status"] = status or result.get("status")
+    return result
+
+
+async def request_and_wait_bank_sync(
+    client: httpx.AsyncClient,
+    account_id: str,
+    counter: Optional[dict] = None,
+    *,
+    budget: Optional[dict] = None,
+    sleep=None,
+) -> dict:
+    """Trigger a bank sync and poll until idle (see `wait_bank_sync_idle`)."""
+    result = await trigger_bank_sync(client, account_id, counter)
+    if result["outcome"] != "requested":
+        return result
+    return await wait_bank_sync_idle(client, account_id, counter, result, budget=budget, sleep=sleep)
+
+
+def _echoes_interval(obj: dict, hours: int) -> bool:
+    try:
+        return int(obj.get("auto_sync_interval")) == hours
+    except (TypeError, ValueError):
+        return False
+
+
+def _looks_like_sync_object(obj: dict) -> bool:
+    return str(obj.get("status") or "").strip().lower() in ("idle", "running")
+
+
+async def ensure_auto_sync(
+    client: httpx.AsyncClient,
+    account_id: str,
+    hours: int,
+    counter: Optional[dict] = None,
+    *,
+    now: Optional[datetime] = None,
+) -> dict:
+    """Set the account's automatic sync interval (hours, 1 to 720).
+
+    ASSUMPTION, to confirm against the dashboard reference: the note says the
+    sync object carries auto_sync_interval (hours, null disables) but not the
+    verb or body that sets it. This sends POST /bank_accounts/{id}/sync with
+    the form field auto_sync_interval. That POST may ALSO trigger a bank sync,
+    so the response is read to tell the cases apart:
+      - it echoes auto_sync_interval: bank_auto_sync_hours is recorded (and
+        only then, never on a bare 2xx);
+      - it looks like a sync object (status idle or running): it also
+        triggered a sync, so bank_sync_requested_at and the as-of window are
+        stamped from it and the caller skips its own manual trigger;
+      - 429: recorded like any other bank sync 429.
+    The same 60-minute rule as the manual trigger applies. A 4xx is logged
+    once per process and tolerated, and a failure never fails the sync.
+    `hours` of 0 means off here and nothing is sent.
+
+    Returns {"ok": bool (the interval was echoed), "triggered": bool (the
+    response was a sync object), "outcome": str, "status": str | None,
+    "set": fields written, for the caller's own upsert}."""
+    global _auto_sync_warned
+    now = now or _utcnow()
+    res: dict = {"ok": False, "triggered": False, "outcome": "skipped", "status": None, "set": {}}
+    if not isinstance(hours, int) or isinstance(hours, bool) or hours < 1 or hours > 720:
+        return res
+    try:
+        doc = await accounts_col.find_one(
+            {"_id": account_id},
+            {"bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
+        ) or {}
+    except Exception:
+        doc = {}
+    for key in ("bank_sync_requested_at", "bank_auto_sync_refused_at"):
+        last = doc.get(key)
+        if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+            res["outcome"] = "skipped_local"
+            return res
+    nxt = doc.get("bank_sync_next_at")
+    if isinstance(nxt, datetime) and nxt > now:
+        res["outcome"] = "skipped_local"
+        return res
+    try:
+        resp = await _post(
+            client, f"/bank_accounts/{account_id}/sync",
+            data={"auto_sync_interval": str(hours)}, counter=counter,
+        )
+    except httpx.HTTPError:
+        logger.warning("Finexer auto sync request transport error")
+        res["outcome"] = "error"
+        return res
+    if resp.status_code == 429:
+        sets = {
+            "bank_sync_last_429_at": now, "bank_sync_error": "rate_limited",
+            "bank_sync_error_at": now, "bank_sync_next_at": now + _retry_after_delta(resp),
+        }
+        await _write_account_fields(account_id, sets)
+        res.update(outcome="rate_limited", set=sets)
+        return res
+    if not (200 <= resp.status_code < 300):
+        sets = {"bank_auto_sync_refused_at": now}
+        await _write_account_fields(account_id, sets)
+        res.update(outcome="refused", set=sets)
+        if not _auto_sync_warned:
+            _auto_sync_warned = True
+            logger.warning(
+                "Finexer refused the auto_sync_interval request (HTTP %s); the verb or body is an "
+                "unconfirmed assumption. Continuing without it.", resp.status_code,
+            )
+        return res
+    try:
+        obj = _sync_object(resp.json())
+    except ValueError:
+        obj = {}
+    sets: dict = {}
+    unsets: dict = {}
+    if _echoes_interval(obj, hours):
+        sets["bank_auto_sync_hours"] = hours
+        res["ok"] = True
+    if _looks_like_sync_object(obj):
+        sets.update({"bank_sync_requested_at": now, "bank_sync_next_at": now + BANK_SYNC_MIN_GAP, **_sync_fields(obj)})
+        unsets = {"bank_sync_error": "", "bank_sync_error_at": ""}
+        res["triggered"] = True
+        res["status"] = sets.get("bank_sync_status")
+    res["outcome"] = "accepted" if sets else "no_echo"
+    res["set"] = sets
+    await _write_account_fields(account_id, sets, unsets)
+    return res
 
 
 # H19: the provider list is effectively static reference data (the banks
@@ -461,10 +825,94 @@ async def _mark_finexer_accounts_expired(consent_id: str) -> None:
     )
 
 
-async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int]:
+def _carry_params(next_url: str, params: Optional[dict]) -> str:
+    """A `paging.next` path may drop the query filters of the first page, so
+    re-add any that are missing (status=pending must survive paging). The
+    query is parsed, not substring-matched."""
+    if not params:
+        return next_url
+    parts = urlsplit(next_url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    present = {k for k, _ in query}
+    missing = [(k, str(v)) for k, v in params.items() if k not in present]
+    if not missing:
+        return next_url
+    return urlunsplit(parts._replace(query=urlencode(query + missing)))
+
+
+async def _walk_transactions(
+    client: httpx.AsyncClient,
+    account_id: str,
+    user_id: str,
+    identity: Optional[dict],
+    counter: Optional[dict],
+    *,
+    params: Optional[dict] = None,
+    force_pending: bool = False,
+) -> dict:
+    """Page through GET /bank_accounts/{id}/transactions.
+
+    `force_pending` is for the status=pending fetch: a row whose status is
+    absent or already pending is treated as pending, so it can never be written
+    into the settled collection. A row with any other explicit status (booked,
+    settled) is dropped and counted, never forced. Returns
+    {"ok", "rows", "new", "pending", "dropped"};
+    on a non-200 `ok` is False and the caller must not wipe stored state."""
+    url: Optional[str] = f"/bank_accounts/{account_id}/transactions"
+    first_page = True
+    first_txn_logged = False
+    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0}
+    while url:
+        tr = await _get(client, url, params if first_page else None, counter=counter)
+        first_page = False
+        if tr.status_code != 200:
+            logger.warning("Finexer transactions failed for %s: HTTP %s", account_id, tr.status_code)
+            out["ok"] = False
+            break
+        txn_data = tr.json()
+        txns = txn_data.get("data") or txn_data.get("results") or []
+        out["rows"] += len(txns)
+        if txns and not first_txn_logged and not force_pending:
+            logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
+            first_txn_logged = True
+        if force_pending:
+            kept = []
+            for t in txns:
+                if not isinstance(t, dict):
+                    continue
+                st = str(t.get("status") or "").strip().lower()
+                if st in ("", "pending"):
+                    kept.append({**t, "status": "pending"})
+                else:
+                    out["dropped"] += 1
+            txns = kept
+        new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
+        out["new"].extend(new)
+        out["pending"].extend(pending_rows)
+        next_url = (txn_data.get("paging") or {}).get("next")
+        url = _carry_params(next_url, params) if next_url else None
+    return out
+
+
+async def sync_finexer_consent(
+    consent_id: str,
+    user_id: str,
+    *,
+    request_bank_sync: bool = False,
+    event_id: Optional[str] = None,
+    event_account_id: Optional[str] = None,
+) -> tuple[list, int]:
     """
     Sync all accounts and transactions for one Finexer consent.
     Returns (account_ids_fetched, new_txn_count).
+
+    A176: `request_bank_sync` asks Finexer to refresh each account from the
+    bank first (POST /bank_accounts/{id}/sync, polled until idle within a
+    bound). It is explicit and False by default: only a user-present refresh
+    and the first sync after connect set it. The reconcile cron and
+    webhook-driven syncs leave it off. `event_id` and `event_account_id` (a
+    bank_account.synced event) narrow that one account's booked walk when
+    USE_TXN_EVENT_FILTER is on; any failure falls back to the full walk.
     """
     # ── Guard: do not sync a consent that was locally deleted/revoked ────────
     local_consent = await finexer_consents_col.find_one({"_id": consent_id})
@@ -493,6 +941,12 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
     # observable (see `_get`, `last_sync_requests`/`last_sync_429s` below,
     # and GET /admin/sync-stats).
     counter: dict = {"requests": 0, "429s": 0}
+    bank_sync_budget: dict = {"remaining": BANK_SYNC_CONSENT_BUDGET_S}
+    from app.services import runtime_settings
+    try:
+        auto_sync_hours = int(await runtime_settings.asetting("FINEXER_AUTO_SYNC_HOURS"))
+    except Exception:
+        auto_sync_hours = 6
 
     async with _client() as client:
         # Verify consent status remotely
@@ -622,6 +1076,36 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
 
             currency = (acc.get("currency") or "GBP").upper()
 
+            # A176: ask Finexer to refresh this account from the bank first, so
+            # the balance and transactions below are the bank's current ones.
+            bank_sync_set: dict = {}
+            sync_current = False  # this pass already holds a fresh sync object
+            setter_triggered = False
+            # First consent sync: switch on Finexer's automatic sync FIRST. The
+            # setter is a POST to the same path as the manual trigger and may
+            # itself trigger a sync, in which case the manual trigger is
+            # skipped for this account (one POST, not two within seconds).
+            if is_initial_sync and auto_sync_hours:
+                try:
+                    au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter)
+                    bank_sync_set.update(au.get("set") or {})
+                    if au.get("triggered"):
+                        setter_triggered = True
+                        await wait_bank_sync_idle(
+                            client, account_id, counter,
+                            {"status": au.get("status"), "set": bank_sync_set}, budget=bank_sync_budget,
+                        )
+                        sync_current = True
+                except Exception:
+                    logger.exception("Finexer auto sync setup failed for an account; continuing")
+            if request_bank_sync and not setter_triggered:
+                try:
+                    bs = await request_and_wait_bank_sync(client, account_id, counter, budget=bank_sync_budget)
+                    bank_sync_set.update(bs.get("set") or {})
+                    sync_current = bs.get("outcome") == "requested" and (bs.get("status") or "") != "running"
+                except Exception:
+                    logger.exception("Finexer bank sync request failed for an account; continuing")
+
             # Fetch balance via dedicated endpoint
             balance: float = 0.0
             available = None
@@ -667,6 +1151,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             }
             if available is not None:
                 set_doc["available"] = available
+            set_doc.update(bank_sync_set)
 
             await accounts_col.update_one(
                 {"_id": account_id},
@@ -681,48 +1166,103 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             )
             fetched_account_ids.append(account_id)
 
-            # Fetch transactions (paginated)
-            txn_url = f"/bank_accounts/{account_id}/transactions"
-            first_txn_logged = False
-            account_pending_rows: list = []
-            fetch_failed = False
-            while txn_url:
-                tr = await _get(client, txn_url, counter=counter)
-                if tr.status_code != 200:
-                    logger.warning("Finexer transactions failed for %s: HTTP %s", account_id, tr.status_code)
-                    fetch_failed = True
-                    break
-                txn_data = tr.json()
-                txns = txn_data.get("data") or txn_data.get("results") or []
+            # Fetch transactions (paginated). A bank_account.synced event may
+            # narrow this account's booked walk (off by default, see
+            # USE_TXN_EVENT_FILTER); a failed filtered walk falls back to full.
+            filtered = bool(USE_TXN_EVENT_FILTER and event_id and event_account_id == account_id)
+            booked = None
+            if filtered:
+                booked = await _walk_transactions(
+                    client, account_id, user_id, identity, counter,
+                    params={TXN_EVENT_FILTER_PARAM: event_id},
+                )
+                if not booked["ok"]:
+                    filtered = False
+                    booked = None
+            if booked is None:
+                booked = await _walk_transactions(client, account_id, user_id, identity, counter)
+            fetch_failed = not booked["ok"]
+            walk_row_count = booked["rows"]
+            all_new_txns.extend(booked["new"])
 
-                # Log raw shape of first transaction for field discovery
-                if txns and not first_txn_logged:
-                    logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
-                    first_txn_logged = True
-
-                new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
-                all_new_txns.extend(new)
-                account_pending_rows.extend(pending_rows)
-
-                paging = txn_data.get("paging") or {}
-                next_url = paging.get("next")
-                if next_url:
-                    # next_url is a path like /bank_accounts/{id}/transactions?offset=20
-                    txn_url = next_url
+            # A176: pending rows come from GET ...?status=pending (the default
+            # is booked only), merged with any pending rows the booked list
+            # carried, de-duplicated on transaction id.
+            pending_failed = False
+            merged_pending: dict = {}
+            if not fetch_failed:
+                for row in booked["pending"]:
+                    merged_pending[row.get("transaction_id") or row.get("id")] = row
+                try:
+                    pend = await _walk_transactions(
+                        client, account_id, user_id, identity, counter,
+                        params={"status": "pending"}, force_pending=True,
+                    )
+                except (httpx.HTTPError, ValueError):
+                    logger.warning("Finexer pending walk failed for an account; keeping its stored pending set")
+                    pend = {"ok": False}
+                if pend["ok"] and pend["dropped"]:
+                    logger.warning(
+                        "Finexer pending walk dropped %d row(s) with an explicit booked status for an account",
+                        pend["dropped"],
+                    )
+                if pend["ok"] and pend["rows"] > PENDING_MAX_ROWS:
+                    # A pending list this long means the status filter was
+                    # ignored (it is a booked list). Treat it as a failure.
+                    logger.warning(
+                        "Finexer pending walk returned %d rows for one account (over %d); treating as a filter failure",
+                        pend["rows"], PENDING_MAX_ROWS,
+                    )
+                    pend = {"ok": False}
+                if pend["ok"]:
+                    for row in pend["pending"]:
+                        merged_pending.setdefault(row.get("transaction_id") or row.get("id"), row)
+                    walk_row_count += pend["rows"]
                 else:
-                    txn_url = None
+                    pending_failed = True
 
             # Bank-side PENDING transactions (see app/services/
-            # pending_transactions.py) — this fetch already walks the FULL
-            # transaction history every sync (no incremental cursor, unlike
-            # truelayer_sync.py), so its accumulated pending rows are the
-            # complete current pending set for this account. Only replaced
-            # on a fully successful walk: a failure partway through must
-            # never wipe a genuinely pending set already stored (same "never
-            # overwrite a known good value with a failure" rule as the
-            # balance fetch above).
-            if not fetch_failed:
-                await replace_pending_for_account(account_pending_rows, account_id, user_id, provider="Finexer")
+            # pending_transactions.py). The set is replaced wholesale, so it
+            # is only replaced when BOTH walks succeeded: a failure partway
+            # through must never wipe a genuinely pending set already stored
+            # (same "never overwrite a known good value with a failure" rule
+            # as the balance fetch above). A filtered booked walk is partial
+            # for booked rows only; pending comes from its own full fetch.
+            if not fetch_failed and not pending_failed:
+                await replace_pending_for_account(list(merged_pending.values()), account_id, user_id, provider="Finexer")
+
+            # A176 (F1): in EVERY sync path, read the sync object once after the
+            # walk (a GET, no documented hourly limit) so bank_synced_to tracks
+            # the bank's own freshness and not just the last manual refresh.
+            # Skipped only when this pass already read a fresh idle one.
+            if not sync_current:
+                try:
+                    await read_bank_sync(client, account_id, counter)
+                except Exception:
+                    logger.exception("Finexer bank sync read failed for an account; continuing")
+
+            # A175: per-account transaction sync diagnostics. A 200 with no
+            # rows used to leave no trace at all, so the account sheet could
+            # not tell "the bank sent nothing" from "we never looked".
+            # Success fields are only ever written on a successful walk, and
+            # a failure leaves the last known good values untouched.
+            if fetch_failed:
+                diag_set = {"transactions_fetch_failed_at": datetime.utcnow()}  # naive-ok: matches last_synced convention
+            else:
+                diag_set = {"transactions_synced_at": datetime.utcnow()}  # naive-ok: matches last_synced convention
+                if not filtered:
+                    # A filtered walk only saw newly imported rows, so its
+                    # count says nothing about whether the bank sent history.
+                    diag_set["transactions_last_count"] = walk_row_count
+                if walk_row_count == 0 and balance and not filtered:
+                    logger.info(
+                        "Finexer returned no transactions for a %s account with a non-zero balance (consent %s)",
+                        acc_class or "unknown", consent_id,
+                    )
+            try:
+                await accounts_col.update_one({"_id": account_id}, {"$set": diag_set})
+            except Exception:
+                logger.exception("Finexer transaction diagnostics write failed for %s", account_id)
 
     # A renewed consent should clear the "needs reconnecting" banner on the
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse
@@ -753,6 +1293,9 @@ async def finexer_sync_pipeline(
     *,
     trigger: str = "auto",
     recompute: bool = True,
+    request_bank_sync: bool = False,
+    event_id: Optional[str] = None,
+    event_account_id: Optional[str] = None,
 ) -> dict:
     """
     Full sync pipeline: sync consent → post-sync rules → notifications.
@@ -766,13 +1309,22 @@ async def finexer_sync_pipeline(
     `recompute=False` leaves the recompute to the caller entirely, which is
     how POST /accounts/sync runs ONE recompute after every source has
     pulled rather than one per Finexer consent racing its own.
+
+    A176: `request_bank_sync` is the explicit choice to ask Finexer to refresh
+    from the bank first. POST /accounts/sync (trigger="user") and the first
+    sync after the OAuth callback pass True; the worker's reconcile and
+    webhook syncs keep the default False. `event_id`/`event_account_id` are
+    passed on to sync_finexer_consent (see there).
     """
     from app.services.categorisation import apply_rules_bulk, categorise_others_bg
     from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 
     try:
         async with sync_in_progress(finexer_consents_col, consent_id):
-            fetched_ids, new_count = await sync_finexer_consent(consent_id, user_id)
+            fetched_ids, new_count = await sync_finexer_consent(
+                consent_id, user_id, request_bank_sync=request_bank_sync,
+                event_id=event_id, event_account_id=event_account_id,
+            )
     except Exception as exc:
         logger.exception("finexer_sync_pipeline failed for consent %s user %s", consent_id, user_id)
         try:

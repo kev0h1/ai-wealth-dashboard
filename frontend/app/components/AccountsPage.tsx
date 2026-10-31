@@ -55,7 +55,8 @@ import { useOpenBankingAccess } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
-import CountTowardsSafeToSpendRow from "@/components/CountTowardsSafeToSpendRow";
+import AccountCountRow from "@/components/AccountCountRow";
+import AccountBankEmpty from "@/components/AccountBankEmpty";
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
@@ -2397,7 +2398,8 @@ export default function AccountsPage() {
             out of Safe to Spend; cards, offline accounts and statements cannot. */}
         {!isManual && !isStatement && !isCredit && (
           <div className="px-4 pt-4">
-            <CountTowardsSafeToSpendRow
+            <AccountCountRow
+              account={selectedAccount}
               counted={selectedAccount.include_in_safe_to_spend !== false}
               busy={countBusy}
               reason={countReason}
@@ -2481,11 +2483,15 @@ export default function AccountsPage() {
               >
                 {pagedTxns.length === 0 ? (
                   <div className="py-8 text-center">
-                    <p className="text-sm text-slate-400 dark:text-slate-500">
-                      {searchQuery
-                        ? `No transactions matching "${searchQuery}"`
-                        : isManual ? "No transactions yet, add one or set up a rule." : "No transactions"}
-                    </p>
+                    {searchQuery || isManual ? (
+                      <p className="text-sm text-slate-400 dark:text-slate-500">
+                        {searchQuery
+                          ? `No transactions matching "${searchQuery}"`
+                          : "No transactions yet, add one or set up a rule."}
+                      </p>
+                    ) : (
+                      <AccountBankEmpty account={selectedAccount} />
+                    )}
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-50 dark:divide-slate-700">

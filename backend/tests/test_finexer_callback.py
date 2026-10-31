@@ -52,7 +52,9 @@ def _setup(monkeypatch, consent_doc, sync_calls):
     fake_consents = _FakeCol([dict(consent_doc)])
     monkeypatch.setattr(finexer_module, "finexer_consents_col", fake_consents)
 
-    def fake_finexer_sync_pipeline(consent_id, user_id):
+    def fake_finexer_sync_pipeline(consent_id, user_id, **kwargs):
+        # A176: the callback asks for a bank sync (first sync after connect).
+        assert kwargs == {"request_bank_sync": True}
         # Record the call synchronously (before the coroutine it returns is
         # ever scheduled/awaited), matching what `asyncio.create_task`
         # needs from us to prove a sync either was or wasn't triggered.

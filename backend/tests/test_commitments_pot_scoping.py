@@ -77,7 +77,7 @@ def env(monkeypatch):
         "accounts_col": FakeCol([
             {"_id": OWN_CONNECTED, "user_id": UID, "name": "Own Saver", "balance": 250.0},
             {"_id": OWN_INVEST, "user_id": UID, "name": "Own ISA", "balance": 900.0, "type": "INVESTMENT"},
-            {"_id": FOREIGN_CONNECTED, "user_id": OTHER, "name": "Secret Saver", "balance": 9999.0},
+            {"_id": FOREIGN_CONNECTED, "user_id": OTHER, "name": "Secret Saver", "balance": 9999.37},
         ]),
         "yapily_accounts_col": FakeCol(),
         "manual_accounts_col": FakeCol([
@@ -186,7 +186,13 @@ def test_read_of_foreign_pot_is_unavailable(env):
     assert pot["contributing_balance"] == 0
     assert out["progress"] == 0
     assert ledger["accounts"][str(FOREIGN_CONNECTED)]["live"] == 0.0
-    assert "9999" not in repr(out) and "Secret" not in repr(out)
+    # Assert on the exact foreign figure, never a bare digit run: a random
+    # ObjectId hex can contain "9999" by chance (H132). A decimal figure
+    # cannot appear inside a hex id.
+    assert out.get("balance") is None
+    assert pot.get("balance") is None
+    assert 9999.37 not in (pot["contributing_balance"], out["progress"], ledger["accounts"][str(FOREIGN_CONNECTED)]["live"])
+    assert "9999.37" not in repr(out) and "Secret" not in repr(out)
 
 
 def test_helpers_filter_at_query_level(env):
@@ -198,4 +204,4 @@ def test_helpers_filter_at_query_level(env):
     assert asyncio.run(commitments._pot_kind(str(OWN_MANUAL), UID)) == "manual"
     assert asyncio.run(commitments._account_name(str(OWN_INVEST), UID)) == "Own ISA"
     # the legitimate owner of the foreign ids still reads them
-    assert asyncio.run(commitments._live_balance(str(FOREIGN_CONNECTED), OTHER)) == 9999.0
+    assert asyncio.run(commitments._live_balance(str(FOREIGN_CONNECTED), OTHER)) == 9999.37
