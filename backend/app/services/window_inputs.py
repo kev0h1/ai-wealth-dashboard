@@ -38,6 +38,18 @@ which is also what its hand-copied preamble did before G364):
 | B7 | Preferences source | caller | the caller reads preferences itself and passes them | same | same |
 | B8 | Payday-day slice (`payday_day_*`) and the account rows | none | slice computed, unused; no rows | slice and rows used (payday_split, class specs) | slice computed, unused; no rows |
 | B9 | Income list the payday-plan salary candidate reads | `window_income_before_exclusions` | not read | read: the window income as it stood BEFORE the B4 re-drop, so the candidate pool is unchanged | not read |
+| B10 | G231 re-drop mode and its reach (G367, the pooled Left to spend caller) | `reapply_exclusions="always"` | n/a | n/a | n/a |
+
+B10 is the fourth caller's row, `routers/analytics.py` `compute_safe_to_spend`
+(G367, step 5): it passes `reapply_exclusions="always"`, `load_when_no_bills=True`,
+`stamp_credit_basis=False`, and a loader that hands back the account rows it
+already fetched (no new query; `live_balances` is not used by the pooled walk,
+which seeds from `_live_pool_balances`). "always" differs from `True` (B4) in
+two ways, both reproducing the old inline code: the not-counted accounts are
+re-dropped whether or not the response says `exclusions_unverified` (the
+pooled path never trusted the builder's own second query), and the
+`payday_day_bills` / `payday_day_income` slices are re-dropped too (the pooled
+`payday_income` figure reads that slice). `True` keeps its old meaning.
 
 Same-day ordering, the walks themselves, income credit (`income_credit_ok`)
 and the credited-income disclosure moved to `services/account_walk.py` in
@@ -48,7 +60,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 from app.core import timeutil
 
@@ -207,7 +219,7 @@ async def build_window_inputs(
     *,
     load_balances: BalanceLoader,
     stamp_credit_basis: bool = False,
-    reapply_exclusions: bool = False,
+    reapply_exclusions: bool | Literal["always"] = False,
     load_when_no_bills: bool = False,
 ) -> WindowInputs:
     """Build the walk inputs from a `_build_cashflow_response` result, the
@@ -245,12 +257,12 @@ async def build_window_inputs(
     # decision, see pay_period.in_current_window): an item ON payday belongs
     # to the NEXT pay period's arithmetic and drops into `payday_day_*`,
     # visible but never counted. No last-day lookahead (G360).
-    window_bills = [b for b in resp["upcoming_bills"] if _pp.in_current_window(b["days_away"], days_to_pay)]
-    window_income = [i for i in resp["upcoming_income"] if _pp.in_current_window(i["days_away"], days_to_pay)]
-    window_inflows = [n for n in resp["internal_inflows"] if _pp.in_current_window(n["days_away"], days_to_pay)]
-    payday_day_bills = [b for b in resp["upcoming_bills"] if _pp.is_payday_day(b["days_away"], days_to_pay)]
-    payday_day_income = [i for i in resp["upcoming_income"] if _pp.is_payday_day(i["days_away"], days_to_pay)]
-    payday_day_inflows = [n for n in resp["internal_inflows"] if _pp.is_payday_day(n["days_away"], days_to_pay)]
+    window_bills = [b for b in resp.get("upcoming_bills", []) if _pp.in_current_window(b["days_away"], days_to_pay)]
+    window_income = [i for i in resp.get("upcoming_income", []) if _pp.in_current_window(i["days_away"], days_to_pay)]
+    window_inflows = [n for n in resp.get("internal_inflows", []) if _pp.in_current_window(n["days_away"], days_to_pay)]
+    payday_day_bills = [b for b in resp.get("upcoming_bills", []) if _pp.is_payday_day(b["days_away"], days_to_pay)]
+    payday_day_income = [i for i in resp.get("upcoming_income", []) if _pp.is_payday_day(i["days_away"], days_to_pay)]
+    payday_day_inflows = [n for n in resp.get("internal_inflows", []) if _pp.is_payday_day(n["days_away"], days_to_pay)]
 
     # No balance data, or a credit card, never enters a running-balance walk;
     # an overdrawn current account's own bills stay assessable (2026-09-01).
@@ -266,16 +278,25 @@ async def build_window_inputs(
     exclusions_unverified = bool(resp.get("exclusions_unverified"))
     # G231 fail-closed: if the builder could not verify exclusions, re-apply
     # the exclusion from the account rows to the walk's own lists.
-    if reapply_exclusions and exclusions_unverified and loaded.excluded_account_ids:
+    if (
+        reapply_exclusions
+        and (exclusions_unverified or reapply_exclusions == "always")
+        and loaded.excluded_account_ids
+    ):
         _w = {"upcoming_bills": window_bills, "upcoming_income": window_income}
         from app.services.counted_accounts import drop_excluded_items as _g231_drop
         _g231_drop(_w, loaded.excluded_account_ids)
         window_bills, window_income = _w["upcoming_bills"], _w["upcoming_income"]
+        if reapply_exclusions == "always":
+            # B10: the pooled caller also reads the payday-day income slice.
+            _ex = loaded.excluded_account_ids
+            payday_day_bills = [b for b in payday_day_bills if str(b.get("account_id") or "") not in _ex]
+            payday_day_income = [i for i in payday_day_income if str(i.get("account_id") or "") not in _ex]
         assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
 
     running_seed: dict[str, float] = {}
     for b in assessable_bills:
-        acct = b["account_id"] or "__unknown__"
+        acct = b.get("account_id") or "__unknown__"
         if acct not in running_seed:
             running_seed[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
 
