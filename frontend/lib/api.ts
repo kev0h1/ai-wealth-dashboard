@@ -588,11 +588,12 @@ export type PatchTransactionResult = {
 
 export type ResolveMovementResult = {
   updated: string;
-  resolution: "mine-here" | "mine-goal" | "mine-offline" | "someone-else" | "spending";
+  resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "someone-else" | "spending";
   custom_category?: string | null;
   linked_goal_id?: string;
   linked_offline_account_id?: string;
   offline_pot_name?: string;
+  destination_name?: string;
 };
 
 export type SpendVerdictState = "normal" | "nothing" | "everything" | "nobaseline" | "early";
@@ -3251,9 +3252,10 @@ export const api = {
   // POST /transactions/{id}/resolve-movement. See backend/app/routers/
   // transactions.py:resolve_movement for the full resolution contract.
   resolveMovement: (id: string, body: {
-    resolution: "mine-here" | "mine-goal" | "mine-offline" | "someone-else" | "spending";
+    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "someone-else" | "spending";
     goal_id?: string;
     offline_pot_name?: string;
+    destination_name?: string;
     note?: string;
     category?: string;
   }) =>

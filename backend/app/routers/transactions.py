@@ -810,7 +810,10 @@ def _try_oid(v: str):
 # it resolves to a destination (a goal or an offline pot) in the pot ledger,
 # and the category here only exists so the arithmetic knows "not spend".
 _MOVEMENT_CATEGORY = "Transfer"
-_MOVEMENT_RESOLUTIONS = {"mine-here", "mine-goal", "mine-offline", "someone-else", "spending"}
+_MOVEMENT_RESOLUTIONS = {
+    "mine-here", "mine-goal", "mine-offline", "mine-savings",
+    "mine-investment", "someone-else", "spending",
+}
 
 
 async def _log_teaching_event(
@@ -847,6 +850,13 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                       links the transaction to it. Full linking IS shipped
                       here — manual_accounts_col already supports exactly this
                       "account of mine elsewhere, no goal attached" case.
+      mine-savings / mine-investment — money sent to a savings or investment
+                      provider the engine cannot see. The user can give the
+                      destination a plain name, but this deliberately does
+                      not create a pot, balance or goal. The user-scoped
+                      correction is the private, direction-aware teaching
+                      signal used by the normal structural pass for later
+                      outgoing rows from the same payee.
       someone-else  — money left the household for someone else's account
                       (the WISE-remittance case). Keeps whatever spend-kind
                       category the row already carries — never forced into
@@ -871,7 +881,9 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
     if not doc:
         raise HTTPException(404, "Transaction not found")
 
-    if resolution in ("mine-here", "mine-goal", "mine-offline") and doc.get("transaction_type") != "debit":
+    if resolution in (
+        "mine-here", "mine-goal", "mine-offline", "mine-savings", "mine-investment",
+    ) and doc.get("transaction_type") != "debit":
         # A movement resolution files the row under the movement-kind
         # _MOVEMENT_CATEGORY (Transfer), which the arithmetic then excludes
         # from both spend and income totals. That's only correct for money
@@ -885,6 +897,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
 
     result: dict = {"updated": transaction_id, "resolution": resolution}
     category_changed = False
+    stamp = _correction_stamp()
 
     if resolution == "mine-here":
         # No counterpart search, no linking — the transfer matcher already
@@ -952,6 +965,31 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         await _log_teaching_event(
             uid, "movement_mine_offline", transaction_id=transaction_id, merchant_key=merchant_key,
             payload={"offline_account_id": account_id, "offline_pot_name": pot_name},
+        )
+
+    elif resolution in ("mine-savings", "mine-investment"):
+        # This is a classification for an external destination, not a claim
+        # that Sorted can see or value that destination.  Keep the optional
+        # name solely as a user-scoped teaching fact; it must never become a
+        # shared merchant category or a synthetic account.
+        category = "Savings" if resolution == "mine-savings" else "Investment"
+        raw_destination_name = body.get("destination_name")
+        if raw_destination_name is not None and not isinstance(raw_destination_name, str):
+            raise HTTPException(400, "destination_name must be text")
+        destination_name = (_normalise_search_text(raw_destination_name) or "")[:60] or None
+        await transactions_col.update_one(
+            {"_id": transaction_id, "user_id": uid},
+            {"$set": {"custom_category": category, "custom_category_at": stamp},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+        )
+        category_changed = True
+        result["custom_category"] = category
+        if destination_name:
+            result["destination_name"] = destination_name
+        event_type = "movement_mine_savings" if resolution == "mine-savings" else "movement_mine_investment"
+        await _log_teaching_event(
+            uid, event_type, transaction_id=transaction_id, merchant_key=merchant_key,
+            payload={"destination_name": destination_name} if destination_name else {},
         )
 
     elif resolution == "someone-else":
