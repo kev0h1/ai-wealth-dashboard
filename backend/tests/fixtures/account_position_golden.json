@@ -1,0 +1,192 @@
+{
+ "account_eligibility_out": [
+  [
+   "barclays",
+   {
+    "after_payments": 2521.67,
+    "after_payments_and_plans": null,
+    "estimated": false,
+    "headroom": 2511.67,
+    "low_point": 2521.67,
+    "low_point_and_plans": null,
+    "plans_reserved": 300.0,
+    "short": false,
+    "spend_from_headroom": 0.0,
+    "uncertain": true
+   }
+  ],
+  [
+   "hsbc",
+   {
+    "after_payments": 1685.33,
+    "after_payments_and_plans": 1665.33,
+    "estimated": false,
+    "headroom": 2.0,
+    "low_point": 12.0,
+    "low_point_and_plans": -8.0,
+    "plans_reserved": 20.0,
+    "short": true,
+    "spend_from_headroom": -8.0,
+    "uncertain": false
+   }
+  ],
+  [
+   "natwest",
+   {
+    "after_payments": 30.0,
+    "after_payments_and_plans": -10.0,
+    "estimated": true,
+    "headroom": 20.0,
+    "low_point": 30.0,
+    "low_point_and_plans": -10.0,
+    "plans_reserved": 40.0,
+    "short": false,
+    "spend_from_headroom": -10.0,
+    "uncertain": false
+   }
+  ],
+  [
+   "lowsrc",
+   {
+    "after_payments": -90.0,
+    "after_payments_and_plans": -90.0,
+    "estimated": false,
+    "headroom": -135.0,
+    "low_point": -125.0,
+    "low_point_and_plans": -125.0,
+    "plans_reserved": 0.0,
+    "short": true,
+    "spend_from_headroom": -125.0,
+    "uncertain": false
+   }
+  ],
+  [
+   "pot",
+   {
+    "after_payments": 650.0,
+    "after_payments_and_plans": 650.0,
+    "estimated": false,
+    "headroom": 240.0,
+    "low_point": 250.0,
+    "low_point_and_plans": 250.0,
+    "plans_reserved": 0.0,
+    "short": false,
+    "spend_from_headroom": 250.0,
+    "uncertain": false
+   }
+  ],
+  [
+   "idle",
+   {
+    "after_payments": 15.0,
+    "after_payments_and_plans": null,
+    "estimated": false,
+    "headroom": 5.0,
+    "low_point": 15.0,
+    "low_point_and_plans": null,
+    "plans_reserved": 0.0,
+    "short": false,
+    "spend_from_headroom": 0.0,
+    "uncertain": true
+   }
+  ],
+  [
+   "salary",
+   {
+    "after_payments": 2800.0,
+    "after_payments_and_plans": 2800.0,
+    "estimated": false,
+    "headroom": 290.0,
+    "low_point": 300.0,
+    "low_point_and_plans": 300.0,
+    "plans_reserved": 0.0,
+    "short": false,
+    "spend_from_headroom": 300.0,
+    "uncertain": false
+   }
+  ],
+  [
+   "man1",
+   {
+    "after_payments": 250.0,
+    "after_payments_and_plans": 250.0,
+    "estimated": false,
+    "headroom": 240.0,
+    "low_point": 250.0,
+    "low_point_and_plans": 250.0,
+    "plans_reserved": 0.0,
+    "short": false,
+    "spend_from_headroom": 250.0,
+    "uncertain": false
+   }
+  ]
+ ],
+ "closing_by_account": [
+  [
+   "barclays",
+   2521.67
+  ],
+  [
+   "hsbc",
+   1685.33
+  ],
+  [
+   "natwest",
+   30.0
+  ],
+  [
+   "lowsrc",
+   -90.0
+  ],
+  [
+   "pot",
+   650.0
+  ],
+  [
+   "idle",
+   15.0
+  ],
+  [
+   "salary",
+   2800.0
+  ],
+  [
+   "man1",
+   250.0
+  ]
+ ],
+ "low_point_by_account": [
+  [
+   "barclays",
+   2521.67
+  ],
+  [
+   "hsbc",
+   12.0
+  ],
+  [
+   "natwest",
+   30.0
+  ],
+  [
+   "lowsrc",
+   -125.0
+  ],
+  [
+   "pot",
+   250.0
+  ],
+  [
+   "idle",
+   15.0
+  ],
+  [
+   "salary",
+   300.0
+  ],
+  [
+   "man1",
+   250.0
+  ]
+ ]
+}
