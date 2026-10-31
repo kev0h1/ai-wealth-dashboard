@@ -167,7 +167,11 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # patterns. Unlike `key`, that field is presentation-only and is derived
 # from an original transaction descriptor before payer-key normalisation;
 # older cache docs have no safe way to recover it from a collapsed payer key.
-PATTERNS_VERSION = 14
+# v15 (G377): paired own-account credits cannot seed expected income,
+# including the interval between a provider refresh and its reclassification.
+# v16 (G377 follow-up): credit corrections apply before the Income filter,
+# including confirmed fallback, so old occurrences cannot revive a transfer.
+PATTERNS_VERSION = 16
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -790,6 +794,9 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
     # judge only ever sees this function's output.
     if not is_income:
         txns = [t for t in txns if not is_bnpl_txn(t)]
+    else:
+        txns = [t for t in txns
+                if (t.get("custom_category") or t.get("category")) != "Transfer"]
     buckets: dict[str, list] = defaultdict(list)
     date_merged_keys: set[str] = set()
     for t in txns:
@@ -2754,13 +2761,20 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
 
     proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
             "transaction_type": 1, "category": 1, "custom_category": 1,
-            "custom_category_at": 1, "account_id": 1}
+            "custom_category_at": 1, "account_id": 1, "own_transfer_match": 1,
+            "currency": 1, "is_pending": 1}
     raw: list[dict] = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
     raw += await yapily_transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    from app.services.income_evidence import historical_income_context, select_income_evidence
+    income_context = await historical_income_context(
+        uid, cutoff180, raw, (transactions_col, yapily_transactions_col), proj,
+        include_pairs=bool(_build_confirmed_income_map(prefs.get("income_streams"))),
+    )
 
     # accounts_col/yapily_accounts_col docs today only ever populate "type"/
     # "subtype" (see truelayer_sync.py, finexer_sync.py); "account_type"/
@@ -2798,6 +2812,18 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # it through into the cached pattern, and `_build_cashflow_response` can
     # later mirror the matching inbound credit into `internal_inflows`.
     kind_map = await get_category_kinds(uid)
+    # Revalidate both legs before detecting income or learning destinations.
+    # Provider category resets are safe to repair only while the source facts
+    # and the other owned account still support the original match.
+    from app.services.own_account_transfers import resolve_transfer_evidence
+    account_currency = {a["_id"]: a.get("currency") for a in acct_docs}
+    current_count = len(raw)
+    all_evidence = [{**row, "currency": str(row.get("currency") or account_currency.get(row.get("account_id")) or "").upper()} for row in [*raw, *income_context]]
+    all_evidence = resolve_transfer_evidence(
+        all_evidence, {name for name, kind in kind_map.items() if kind == MOVEMENT},
+        owned_account_ids=set(account_currency),
+    )
+    raw = all_evidence[:current_count]
     dest_by_key = _learn_transfer_destinations(raw, account_map, kind_map)
     # Card-repayment destinations (see `_learn_card_repayment_destinations`'s
     # docstring for why this is a SEPARATE map from `dest_by_key` above, and
@@ -2821,8 +2847,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # Everything else that doesn't need extra points to stay stable keeps
     # reading the narrower 90-day slice (raw_90): the single-occurrence AI
     # candidate heuristic, non_recurring_debits/avg_daily_spend, and
-    # recurring-INCOME detection (income_credits) all stay on debits_90/
-    # credits_90 exactly as before, deliberately unperturbed.
+    # recurring-INCOME detection retains its 90-day occurrence window.
+    # Older corrections are context only, never extra forecast occurrences.
     raw_90 = [t for t in raw if t["date"] >= cutoff90]
 
     debits_180  = [t for t in raw if t.get("transaction_type") == "debit"]
@@ -2834,11 +2860,10 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # 120 is generous headroom without dragging in an unrelated older plan.
     bnpl_debits = [t for t in debits_180 if t["date"] >= cutoff120 and is_bnpl_txn(t)]
     debits_90  = [t for t in raw_90 if t.get("transaction_type") == "debit"]
-    credits_90 = [t for t in raw_90 if t.get("transaction_type") == "credit"
-                  and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
-    income_credits = [t for t in credits_90 if (t.get("custom_category") or t.get("category") or "Other") == "Income"]
+    income_evidence = select_income_evidence(all_evidence)
+    income_credits_180 = [t for t in income_evidence.credits if t["date"] >= cutoff180]
+    income_credits = [t for t in income_credits_180 if t["date"] >= cutoff90]
 
-    prefs = await preferences_col.find_one({"user_id": uid}) or {}
     trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
     dismissed = set(prefs.get("dismissed_recurring") or [])
     # Keys the user has explicitly told the undo-log "this IS recurring"
@@ -2851,7 +2876,9 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # Build confirmed income map for schedule-aware detection (see
     # `_build_confirmed_income_map`'s docstring for why this is a pure
     # helper, not inline, and what it guards against).
-    _confirmed_income_map = _build_confirmed_income_map(prefs.get("income_streams"))
+    _confirmed_income_map = income_evidence.confirmed(
+        _build_confirmed_income_map(prefs.get("income_streams"))
+    )
 
     recurring_spend  = _detect_recurring(debits_180, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config, reversal_credits=credits_180)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
@@ -2892,13 +2919,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # stream's narrower (90-day) matches above are empty -- see
     # `_confirmed_income_fallback`'s `latest_credit_by_key` docstring for
     # why this needs to be the newest CREDIT under the key, not a detected
-    # pattern. Built from `credits_180` (already loaded above for bill
-    # detection, no new Mongo query), filtered to Income the same way
-    # `income_credits` filters `credits_90`.
-    income_credits_180 = [
-        t for t in credits_180
-        if (t.get("custom_category") or t.get("category") or "Other") == "Income"
-    ]
+    # pattern. Uses the same correction-aware selection as detection,
+    # restricted to the original 180-day window for landing evidence.
     latest_income_credit_by_key: dict[str, dict] = {}
     for _t in income_credits_180:
         _k = series_key(_t)
@@ -5991,8 +6013,9 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
     """
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
-    c_evidence = own_transfer_evidence(c_text, identity, own_account_id=c.get("account_id")) is not None
-    d_evidence = own_transfer_evidence(d_text, identity, own_account_id=d.get("account_id")) is not None
+    from app.services.own_account_transfers import has_owner_transfer_reference
+    c_evidence = own_transfer_evidence(c_text, identity, own_account_id=c.get("account_id")) is not None or has_owner_transfer_reference(c, identity.get("name_tokens") or [])
+    d_evidence = own_transfer_evidence(d_text, identity, own_account_id=d.get("account_id")) is not None or has_owner_transfer_reference(d, identity.get("name_tokens") or [])
     if c_evidence and d_evidence:
         return True
     if _leg_tokens(c) & _leg_tokens(d):
@@ -6000,6 +6023,22 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
     if (c_evidence or d_evidence) and _is_distinctive_amount(c.get("amount")):
         return True
     return False
+
+
+def _has_named_bank_transfer_reference(credit: dict, debit: dict, accounts: dict) -> bool:
+    """A bank-labelled balance transfer is review evidence, never auto proof.
+
+    Some feeds concatenate FROM/BAL/TFR with an abbreviated bank name. Require
+    the other owned account's bank and an outgoing transfer narrative too.
+    """
+    source = accounts.get(debit.get("account_id")) or {}
+    provider = str(source.get("provider") or "")
+    bank_tokens = [w.lower() for w in re.findall(r"[A-Za-z]+", provider)
+                   if len(w) >= 5 and w.lower() not in {"limited", "building", "society", "finexer", "truelayer"}]
+    credit_text = re.sub(r"[^a-z]", "", f"{credit.get('merchant_name') or ''} {credit.get('description') or ''}".lower())
+    debit_text = f"{debit.get('merchant_name') or ''} {debit.get('description') or ''}"
+    return (any("baltfr" + word[:6] in credit_text for word in bank_tokens)
+            and bool(re.search(r"\b(?:transfer|xfer|xfr|ft|sto|standing order)\b", debit_text, re.I)))
 
 
 def _too_generic_to_learn(key: str) -> bool:
@@ -6034,8 +6073,8 @@ def _pair_leg(t: dict) -> dict:
 
 
 async def _transfer_pair_suggestions(uid: str) -> list[dict]:
-    """Candidate cross-account transfer pairs the sync-time byte-identical
-    matcher missed: a credit + a debit that look like the two legs of one
+    """Candidate cross-account transfer pairs the conservative sync-time
+    matcher could not confirm: a credit + a debit that look like the two legs of one
     real transfer (same amount, close dates, different accounts) but carry
     different descriptions.
 
@@ -6058,6 +6097,11 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
         for d in learned_docs if d.get("key_a") and d.get("key_b")
     }
 
+    owned_accounts = {a["_id"]: a async for a in accounts_col.find(
+        {"user_id": uid}, {"currency": 1, "provider": 1},
+    )}
+    from app.services.own_account_transfers import _pair_key
+
     # Manual choices win only when they mean "this leg is genuinely
     # spending" (owner device-testing fix 1a) — a custom SPEND-kind category
     # blocks the pair (the user explicitly said so, don't second-guess). A
@@ -6069,11 +6113,14 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     # longer exclude custom_category at the source, so gating moves to
     # Python (_leg_blocks_pair below).
     txns = await transactions_col.find(
-        {"user_id": uid, "transaction_type": {"$in": ["credit", "debit"]}},
+        {"user_id": uid, "transaction_type": {"$in": ["credit", "debit"]}, "is_pending": {"$ne": True}},
         {"account_id": 1, "amount": 1, "date": 1, "description": 1,
          "merchant_name": 1, "category": 1, "custom_category": 1,
-         "transaction_type": 1},
+         "transaction_type": 1, "currency": 1},
     ).to_list(None)
+
+    txns = [{**t, "currency": t.get("currency") or owned_accounts[t["account_id"]].get("currency")}
+            for t in txns if t.get("account_id") in owned_accounts]
 
     def _effective_category(t: dict):
         return t.get("custom_category") or t.get("category")
@@ -6099,16 +6146,12 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     for c in credits:
         c_day = _day(c)
         for d in debits:
-            if abs((c.get("amount") or 0) - (d.get("amount") or 0)) >= 0.02:
+            if _pair_key(c) is None or _pair_key(c) != _pair_key(d):
                 continue
             if c.get("account_id") == d.get("account_id"):
                 continue
             date_diff = abs((c_day - _day(d)).days)
-            if date_diff > 1:
-                continue
-            # Identical normalised descriptions are Pass 2's job at sync
-            # time — this path exists precisely for the pairs that ISN'T.
-            if _byte_desc_key(c) == _byte_desc_key(d):
+            if date_diff > 5:
                 continue
             if _leg_blocks_pair(c) or _leg_blocks_pair(d):
                 continue
@@ -6124,7 +6167,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
             # Evidence gate (owner review fix 2) — same amount + close dates
             # is not enough on its own; reject a coincidence like a £50
             # client-income credit paired with an unrelated £50 ATM debit.
-            if not _has_pair_evidence(c, d, identity):
+            if not (_has_pair_evidence(c, d, identity) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
                 continue
             pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
             if pair_key in dismissed_pairs:
@@ -6206,8 +6249,16 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(404, "Transaction not found")
     if credit_txn.get("transaction_type") != "credit" or debit_txn.get("transaction_type") != "debit":
         raise HTTPException(400, "credit_id must be a credit and debit_id must be a debit")
-    if abs((credit_txn.get("amount") or 0) - (debit_txn.get("amount") or 0)) >= 0.02:
-        raise HTTPException(400, "Amounts do not match")
+    if credit_txn.get("is_pending") or debit_txn.get("is_pending"):
+        raise HTTPException(400, "Wait for both payments to finish processing")
+    accts = {a["_id"]: a async for a in accounts_col.find({"user_id": uid})}
+    if credit_txn.get("account_id") not in accts or debit_txn.get("account_id") not in accts:
+        raise HTTPException(400, "Both payments must be on your connected accounts")
+    from app.services.own_account_transfers import _pair_key
+    c_money = _pair_key({**credit_txn, "currency": credit_txn.get("currency") or accts[credit_txn["account_id"]].get("currency")})
+    d_money = _pair_key({**debit_txn, "currency": debit_txn.get("currency") or accts[debit_txn["account_id"]].get("currency")})
+    if c_money is None or c_money != d_money:
+        raise HTTPException(400, "The payments must have the same amount and currency")
     # Defence in depth (owner review fix 3) — the suggestion endpoint already
     # enforces these, but confirm must not just trust the client; a caller
     # could hit this endpoint directly with any two ids.
@@ -6218,11 +6269,9 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         return dt.date() if hasattr(dt, "date") else dt
 
     c_date, d_date = credit_txn.get("date"), debit_txn.get("date")
-    # Slightly looser than the suggestion window's ±1 day so a pair the
-    # suggestion endpoint just offered can't be rejected by a boundary
-    # quirk (e.g. a timezone-adjacent date read).
-    if c_date is None or d_date is None or abs((_day(c_date) - _day(d_date)).days) > 2:
-        raise HTTPException(400, "credit_id and debit_id must be within 2 days of each other")
+    # Match the review window, including a weekend posting delay.
+    if c_date is None or d_date is None or abs((_day(c_date) - _day(d_date)).days) > 5:
+        raise HTTPException(400, "credit_id and debit_id must be within 5 days of each other")
 
     # Owner device-testing fix 1 — a leg's custom_category only blocks
     # confirm when it's a SPEND-kind category (the user explicitly said
@@ -6239,13 +6288,9 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     if _blocks_confirm(credit_txn.get("custom_category")) or _blocks_confirm(debit_txn.get("custom_category")):
         raise HTTPException(400, "One of these transactions is confirmed as spending")
 
-    credit_locked = credit_txn.get("custom_category") is not None
-    debit_locked = debit_txn.get("custom_category") is not None
+    credit_locked = kind_of(kind_map, credit_txn.get("custom_category")) == MOVEMENT
+    debit_locked = kind_of(kind_map, debit_txn.get("custom_category")) == MOVEMENT
 
-    accts = {
-        str(a["_id"]): a
-        async for a in accounts_col.find({"user_id": uid}, {"type": 1, "subtype": 1, "account_subtype": 1})
-    }
     c_target = refine_transfer_target(accts.get(str(credit_txn.get("account_id"))))
     d_target = refine_transfer_target(accts.get(str(debit_txn.get("account_id"))))
 
@@ -6270,17 +6315,28 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     # rule) is what makes the match durable across syncs instead. A locked
     # (custom MOVEMENT-kind) leg is skipped entirely — it's the ANCHOR, not
     # something to rewrite.
+    from app.services.own_account_transfers import build_match_metadata
+    credit_after = {**credit_txn, "currency": c_money[0]}
+    debit_after = {**debit_txn, "currency": d_money[0]}
+    for row, locked in ((credit_after, credit_locked), (debit_after, debit_locked)):
+        if not locked:
+            # Explicit confirmation can correct a previous Income choice.
+            # Keep its former meaning available if the bank evidence changes.
+            row["category"] = row.get("custom_category") or row.get("category")
+            row["custom_category"] = None
     changed: list[str] = []
     if not credit_locked:
         await transactions_col.update_one(
-            {"_id": credit_id, "custom_category": None},
-            {"$set": {"category": credit_category}},
+            {"_id": credit_id, "user_id": uid, "custom_category": credit_txn.get("custom_category")},
+            {"$set": {"category": credit_category, "custom_category": None,
+                      "own_transfer_match": build_match_metadata(credit_after, debit_after, credit_category, confirmed=True)}},
         )
         changed.append("credit")
     if not debit_locked:
         await transactions_col.update_one(
-            {"_id": debit_id, "custom_category": None},
-            {"$set": {"category": debit_category}},
+            {"_id": debit_id, "user_id": uid, "custom_category": debit_txn.get("custom_category")},
+            {"$set": {"category": debit_category, "custom_category": None,
+                      "own_transfer_match": build_match_metadata(debit_after, credit_after, debit_category, confirmed=True)}},
         )
         changed.append("debit")
 
@@ -6300,6 +6356,11 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     response_cache.invalidate(uid, "miscategorised_count")
     response_cache.invalidate(uid, "miscategorised_list")
     response_cache.invalidate(uid, "transfer_pair_suggestions")
+
+    if changed:
+        from app.services.derived_caches import mark_stale
+        await mark_stale(uid, reason="own_account_transfer_confirmed")
+        asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
 
     # credit_category/debit_category reflect the FINAL effective category —
     # the computed target for a leg we wrote, or the pre-existing (locked)
