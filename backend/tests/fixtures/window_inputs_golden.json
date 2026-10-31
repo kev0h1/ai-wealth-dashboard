@@ -1,0 +1,488 @@
+{
+ "at_risk": {
+  "events_unsorted": [
+   [
+    4,
+    "hsbc",
+    100.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
+    2,
+    "barclays",
+    1758.33,
+    false,
+    [
+     "movement",
+     false
+    ]
+   ],
+   [
+    3,
+    "natwest",
+    60.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
+    7,
+    "yap1",
+    30.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
+    6,
+    "barclays",
+    2500.0,
+    true,
+    null
+   ],
+   [
+    2,
+    "hsbc",
+    1758.33,
+    true,
+    null
+   ]
+  ],
+  "funded_args": {
+   "balances": {
+    "barclays": 4800.0,
+    "hsbc": 12.0,
+    "natwest": 90.0,
+    "yap1": 75.0
+   },
+   "bills": [
+    {
+     "account_balance": 10.0,
+     "account_id": "hsbc",
+     "amount": 100.0,
+     "days_away": 4,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Council Tax"
+    },
+    {
+     "account_balance": 5000.0,
+     "account_id": "barclays",
+     "amount": 1758.33,
+     "days_away": 2,
+     "is_credit_card": false,
+     "kind": "movement",
+     "name": "To HSBC"
+    },
+    {
+     "account_balance": 100.0,
+     "account_id": "natwest",
+     "amount": 60.0,
+     "days_away": 3,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Gym"
+    },
+    {
+     "account_balance": 40.0,
+     "account_id": "yap1",
+     "amount": 30.0,
+     "days_away": 7,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Yapily bill"
+    }
+   ],
+   "incomes": [
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3
+    }
+   ],
+   "inflows": [
+    {
+     "account_id": "hsbc",
+     "amount": 1758.33,
+     "days_away": 2,
+     "name": "OWN TRANSFER",
+     "source_account_id": "barclays"
+    }
+   ]
+  },
+  "funded_out": [
+   {
+    "account_id": "hsbc",
+    "amount": 1758.33,
+    "days_away": 2,
+    "name": "OWN TRANSFER",
+    "source_account_id": "barclays"
+   }
+  ],
+  "result": {
+   "count": 0
+  }
+ },
+ "companion": {
+  "events": [
+   [
+    2,
+    "hsbc",
+    1758.33,
+    true,
+    {
+     "account_id": "hsbc",
+     "amount": 1758.33,
+     "days_away": 2,
+     "name": "OWN TRANSFER",
+     "source_account_id": "barclays"
+    }
+   ],
+   [
+    2,
+    "barclays",
+    1758.33,
+    false,
+    {
+     "account_balance": 5000.0,
+     "account_id": "barclays",
+     "amount": 1758.33,
+     "days_away": 2,
+     "is_credit_card": false,
+     "kind": "movement",
+     "name": "To HSBC"
+    }
+   ],
+   [
+    4,
+    "hsbc",
+    100.0,
+    false,
+    {
+     "account_balance": 10.0,
+     "account_id": "hsbc",
+     "amount": 100.0,
+     "days_away": 4,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Council Tax"
+    }
+   ],
+   [
+    6,
+    "barclays",
+    2500.0,
+    true,
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "credit_basis": "confirmed",
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3,
+     "steady_salary": false
+    }
+   ],
+   [
+    7,
+    "yap1",
+    30.0,
+    false,
+    {
+     "account_balance": 40.0,
+     "account_id": "yap1",
+     "amount": 30.0,
+     "days_away": 7,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Yapily bill"
+    }
+   ]
+  ],
+  "funded_args": {
+   "balances": {
+    "barclays": 4800.0,
+    "hsbc": 12.0,
+    "man1": 250.0,
+    "nobal": 33.0,
+    "yap1": 75.0
+   },
+   "bills": [
+    {
+     "account_balance": 10.0,
+     "account_id": "hsbc",
+     "amount": 100.0,
+     "days_away": 4,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Council Tax"
+    },
+    {
+     "account_balance": 5000.0,
+     "account_id": "barclays",
+     "amount": 1758.33,
+     "days_away": 2,
+     "is_credit_card": false,
+     "kind": "movement",
+     "name": "To HSBC"
+    },
+    {
+     "account_balance": 40.0,
+     "account_id": "yap1",
+     "amount": 30.0,
+     "days_away": 7,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Yapily bill"
+    }
+   ],
+   "incomes": [
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "credit_basis": "confirmed",
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3,
+     "steady_salary": false
+    }
+   ],
+   "inflows": [
+    {
+     "account_id": "hsbc",
+     "amount": 1758.33,
+     "days_away": 2,
+     "name": "OWN TRANSFER",
+     "source_account_id": "barclays"
+    }
+   ]
+  },
+  "funded_out": [
+   {
+    "account_id": "hsbc",
+    "amount": 1758.33,
+    "days_away": 2,
+    "name": "OWN TRANSFER",
+    "source_account_id": "barclays"
+   }
+  ],
+  "walk_balances": {
+   "barclays": 4800.0,
+   "hsbc": 12.0,
+   "yap1": 75.0
+  }
+ },
+ "spend_impact": {
+  "funded_args": {
+   "balances": {
+    "barclays": 4800.0,
+    "hsbc": 12.0,
+    "natwest": 100.0,
+    "nobal": 0.0,
+    "yap1": 40.0
+   },
+   "bills": [
+    {
+     "account_balance": 10.0,
+     "account_id": "hsbc",
+     "amount": 100.0,
+     "days_away": 4,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Council Tax"
+    },
+    {
+     "account_balance": 5000.0,
+     "account_id": "barclays",
+     "amount": 1758.33,
+     "days_away": 2,
+     "is_credit_card": false,
+     "kind": "movement",
+     "name": "To HSBC"
+    },
+    {
+     "account_balance": 100.0,
+     "account_id": "natwest",
+     "amount": 60.0,
+     "days_away": 3,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Gym"
+    },
+    {
+     "account_balance": 40.0,
+     "account_id": "yap1",
+     "amount": 30.0,
+     "days_away": 7,
+     "is_credit_card": false,
+     "kind": "commitment",
+     "name": "Yapily bill"
+    }
+   ],
+   "incomes": [
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3
+    }
+   ],
+   "inflows": [
+    {
+     "account_id": "hsbc",
+     "amount": 1758.33,
+     "days_away": 2,
+     "name": "OWN TRANSFER",
+     "source_account_id": "barclays"
+    }
+   ]
+  },
+  "funded_out": [
+   {
+    "account_id": "hsbc",
+    "amount": 1758.33,
+    "days_away": 2,
+    "name": "OWN TRANSFER",
+    "source_account_id": "barclays"
+   }
+  ],
+  "window": {
+   "balances": {
+    "barclays": 4800.0,
+    "hsbc": 12.0,
+    "natwest": 100.0,
+    "yap1": 40.0
+   },
+   "events": [
+    [
+     2,
+     "hsbc",
+     1758.33,
+     true,
+     {
+      "account_id": "hsbc",
+      "amount": 1758.33,
+      "days_away": 2,
+      "name": "OWN TRANSFER",
+      "source_account_id": "barclays"
+     }
+    ],
+    [
+     2,
+     "barclays",
+     1758.33,
+     false,
+     {
+      "account_balance": 5000.0,
+      "account_id": "barclays",
+      "amount": 1758.33,
+      "days_away": 2,
+      "is_credit_card": false,
+      "kind": "movement",
+      "name": "To HSBC"
+     }
+    ],
+    [
+     3,
+     "natwest",
+     60.0,
+     false,
+     {
+      "account_balance": 100.0,
+      "account_id": "natwest",
+      "amount": 60.0,
+      "days_away": 3,
+      "is_credit_card": false,
+      "kind": "commitment",
+      "name": "Gym"
+     }
+    ],
+    [
+     4,
+     "hsbc",
+     100.0,
+     false,
+     {
+      "account_balance": 10.0,
+      "account_id": "hsbc",
+      "amount": 100.0,
+      "days_away": 4,
+      "is_credit_card": false,
+      "kind": "commitment",
+      "name": "Council Tax"
+     }
+    ],
+    [
+     6,
+     "barclays",
+     2500.0,
+     true,
+     {
+      "account_id": "barclays",
+      "amount": 2500.0,
+      "amounts_recent": [
+       2500.0,
+       2500.0,
+       2500.0
+      ],
+      "confirmed_alias": null,
+      "days_away": 6,
+      "name": "ACME",
+      "occurrences": 3
+     }
+    ],
+    [
+     7,
+     "yap1",
+     30.0,
+     false,
+     {
+      "account_balance": 40.0,
+      "account_id": "yap1",
+      "amount": 30.0,
+      "days_away": 7,
+      "is_credit_card": false,
+      "kind": "commitment",
+      "name": "Yapily bill"
+     }
+    ]
+   ],
+   "today": "2026-11-02"
+  }
+ }
+}
