@@ -1035,6 +1035,9 @@ cmd_finish() {
   (cd "$worktree_dir/backend" && MONGO_DB="$mongo_test_db" "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
     tests)
 
+  log "running the scenario suite after its known polluters (H143) in $worktree_dir..."
+  (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_scenarios_order.py)
+
   log "checking no raw pentest evidence is staged or tracked in $worktree_dir..."
   (cd "$worktree_dir" && "$worktree_dir/backend/.venv/bin/python" scripts/check_pentest_evidence.py)
 
