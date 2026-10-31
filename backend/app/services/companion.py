@@ -1034,7 +1034,7 @@ async def _reserved_for_allocations(
     `_plan_source_needs`, so nothing is double counted there.
 
     LOCKSTEP DISCLAIMER (this is companion-local, not a shared-walk change):
-    `_source_min_running`'s own comment (below, in `compute_today_items`)
+    `_source_walk`'s own comment (below, in `compute_today_items`)
     already establishes that a source's "movable" balance is a
     companion-only notion — the at-risk walks / to-last / payday_split
     arithmetic never consult it, because allocations already reduce POOLED
@@ -1045,7 +1045,7 @@ async def _reserved_for_allocations(
     reservation, consumed only when SIZING a move/payday-plan leg FROM a
     specific account (`compute_today_items`'s `source_capacity` and the
     payday plan's `distributable`) — it never feeds the pooled figure and so
-    is not a lockstep violation for the same reason `_source_min_running`
+    is not a lockstep violation for the same reason `_source_walk`
     itself is not: both are companion-local inputs to "how much of THIS
     account can I safely draw down right now", not inputs to the shared
     min-running walks.
@@ -1628,10 +1628,12 @@ async def _pp_salary_observed(
 # per-account walk); the names stay importable from here.
 from app.services.account_walk import (  # noqa: E402
     walk_events as _walk_events,
+    account_walks as _account_walks,
     walk_sort_key,
     walk_account as _walk_account,
     window_events as _window_events,
 )
+from app.services.account_position import source_low_walk as _source_low_walk  # noqa: E402
 
 
 # G167: why an internal inflow (a predicted own-account transfer, credited
@@ -2749,6 +2751,9 @@ async def compute_today_items(
 
     # Walk shared with spend_impact._bills_risk and analytics.at_risk_count
     # (services/account_walk.walk_events).
+    # G366: each walked account's AccountWalk (the same loop `_walk_events`
+    # runs), so account positions read After payments from the walk itself.
+    _closing_walks = _account_walks(events, running)
     running, min_running, shortfall_bill, bounced_bills = _walk_events(events, running)
 
     # ── 4b. OVERDRAFT SEEDING ────────────────────────────────────────────────
@@ -2879,20 +2884,20 @@ async def compute_today_items(
     # for current and savings sources alike. Incomes are credited only when
     # attributed to this source AND reliable (income_credit_ok) — a source's
     # contribution never leans on money that might land elsewhere.
-    def _source_min_running(sid: str, start_balance: float) -> float:
-        # G365: the low point is the one per-account walk
-        # (services/account_walk.walk_account), with this caller's rules:
-        # any attributed credit-ok income counts even with no bill on the
-        # account (`income_admit="any"`), every funded inbound own-account
-        # transfer (G360) counts (`inflow_admit="any"`), and the same-day
-        # order is the equivalent inline `(day, delta)` key.
-        return _walk_account(
-            sid, wi, opening=start_balance,
-            income_admit="any", inflow_admit="any", same_day_key="positive_delta",
-        ).low_point
+    def _source_walk(sid: str, start_balance: float):
+        # G365/G366: the low point is the one per-account walk
+        # (services/account_walk.walk_account via account_position.
+        # source_low_walk), with this caller's rules: any attributed credit-ok
+        # income counts even with no bill on the account, every funded inbound
+        # own-account transfer (G360) counts, and the same-day order is the
+        # equivalent inline `(day, delta)` key. The whole AccountWalk is kept
+        # (`source_walks`): account positions (G366) read it, not a copy of
+        # its low point.
+        return _source_low_walk(sid, wi, start_balance)
 
     source_capacity: dict[str, float] = {}
     source_min_run: dict[str, float] = {}
+    source_walks: dict = {}
     for acc in all_uk_accounts + offline_accounts:
         sid = acc["_str_id"]
         # Belt-and-braces: a linked credit card must never enter the source
@@ -2902,7 +2907,8 @@ async def compute_today_items(
             continue
         bal = live_balances.get(sid, float(acc.get("balance") or 0))
         if _is_current(acc) or _is_savings(acc) or _is_offline(acc):
-            mn = _source_min_running(sid, bal)
+            source_walks[sid] = _source_walk(sid, bal)
+            mn = source_walks[sid].low_point
             source_min_run[sid] = mn
             # Envelope reservation (own-account allocations this source
             # funds, see `_reserved_for_allocations`) additionally shrinks
@@ -3019,7 +3025,7 @@ async def compute_today_items(
         # applied in `cap_spend_from_to_pool`), hidden when uncertain. The
         # standing `headroom` above stays the move finder's figure unchanged.
         try:
-            from app.services.account_position import compute_account_positions, seed_spend_from
+            from app.services.account_position import compute_account_positions_from_walks, seed_spend_from
             _gp_plans = await _load_account_plans(uid, goals=True, strict=True)
             _gp_credit = {
                 a["_str_id"] for a in all_uk_accounts + offline_accounts if is_credit_card_account(a)
@@ -3028,13 +3034,9 @@ async def compute_today_items(
                 b for b in assessable_bills
                 if b.get("kind") == MOVEMENT
             ]  # exclusions (credit card, observed_pending) live in assess_overlap, matching the client
-            _gp_closing = {
-                _sid: float(running.get(_sid, live_balances.get(_sid, 0.0)))
-                for _sid in account_eligibility_out
-            }
-            _gp_positions = compute_account_positions(
-                _gp_plans, _gp_closing, movements=_gp_moves, credit_account_ids=_gp_credit,
-                low_point_by_account={_s: source_min_run.get(_s) for _s in _gp_closing},
+            _gp_positions = compute_account_positions_from_walks(
+                _gp_plans, list(account_eligibility_out), _closing_walks, source_walks,
+                live_balances=live_balances, movements=_gp_moves, credit_account_ids=_gp_credit,
             )
             _gp_failed = False
         except Exception:
@@ -3070,7 +3072,7 @@ async def compute_today_items(
     # headroom within a class, a connected account sorts before an offline
     # one — see the `_live_class` sort key below. Each source's headroom is
     # `source_capacity` (already reserves that source's own bills/income and
-    # any envelope allocations — see `_source_min_running` above) minus a £10
+    # any envelope allocations — see `_source_walk` above) minus a £10
     # buffer, consumed IN PLACE here so a source's contribution across
     # multiple destinations/calls in the same computation can never
     # double-spend. Both the forward-looking cover-plan "move" card (Step 3,

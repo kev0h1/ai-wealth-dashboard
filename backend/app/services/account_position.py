@@ -22,9 +22,33 @@ a buffer. This module is the single server-side definition both read.
                             not be shown as Spend from.
 
 All sums are in integer pence. Pure functions: no I/O.
+
+G366 (money engine step 4): the positions are DERIVED FROM THE WALK OUTPUT.
+`compute_account_positions_from_walks` reads each account's closing from the
+closing walk's `AccountWalk` (companion's W2, `account_walks`) and
+its low point from the source low-point walk's `AccountWalk` (W3,
+`source_low_walk`), so After payments, Lowest (`low_point`), the Spend from seed
+(`seed_spend_from`), source safety (`source_min_run`) and the Accounts list
+warning are all read from one pair of objects instead of two hand-built maps.
+`compute_account_positions` is unchanged: it stays the one kernel (the
+frontend parity fixture calls it with plain numbers), and
+`cap_spend_from_to_pool` stays the one pool cap. NO behaviour change: where the
+old hand assembly and the walk results differ, the difference is a keyword
+whose default is the OLD behaviour (PD1 to PD4 below), not unified silently.
+
+| Id  | Difference | Keyword | Default (old behaviour) | Other value |
+|-----|------------|---------|--------------------------|-------------|
+| PD1 | Which accounts get a position | `accounts` | `"eligible"`: every id passed (every entry of `account_eligibility_out`, i.e. every source-eligible account, walked or not) | `"walked"`: only an account the closing walk touched |
+| PD2 | Closing for an account the closing walk never touched (no bill, no funded inflow, not the preview salary account: an idle account, a manual account) | `closing_fallback` | `"live"`: its live balance, else 0.0 (what `running.get(sid, live_balances.get(sid, 0.0))` gave; an overdraft account seeded into `running` is the same live balance) | `"none"`: closing unknown, so After payments and the plan figures are None |
+| PD3 | Low point taken before the allocation reservation | `low_point_basis` | `"pre_reservation"`: the walk's own `low_point`, because `plans_reserved` already takes the plans off once (R3 not deducted twice) | `"post_reservation"`: `low_point` less `reserved_by_source[sid]`, the figure `source_capacity` uses (R3 deducted a second time for an allocation-funded plan) |
+| PD4 | Preview salary on the low-point walk | `source_low_walk(preview_salary=...)` | none: the closing walk credits the payday-plan salary on its account (and seeds a bill-less salary account at its live balance), the low-point walk never credits it | the salary event is walked on its account too (a credit cannot lower a low point, so the figure is unchanged for non-negative amounts) |
+| PD5 | Uncertain and estimated flags | none | read from the plans exactly as before (same kernel) | no difference to table |
 """
 from __future__ import annotations
 
+from typing import Any, Mapping
+
+from app.services.account_walk import AccountWalk, walk_account
 from app.services.allocation_shortfall import _remaining_pence, has_plan_source
 
 # Same tolerance as frontend PLAN_OVERLAP_TOLERANCE (G235).
@@ -139,6 +163,76 @@ def compute_account_positions(
         }
     return out
 
+
+
+def source_low_walk(
+    sid: str,
+    inputs: Any,
+    opening: float,
+    *,
+    preview_salary: dict | None = None,
+) -> AccountWalk:
+    """W3: the source's own low-point walk (the old `_source_min_running`):
+    any attributed credit-ok income counts even with no bill on the account,
+    every funded inbound own-account transfer (G360) counts, and the same-day
+    order is the inline `(day, delta)` key. `preview_salary` is PD4 (default
+    none, as the old caller)."""
+    return walk_account(
+        sid, inputs, opening=opening,
+        income_admit="any", inflow_admit="any", same_day_key="positive_delta",
+        preview_salary=preview_salary,
+    )
+
+
+def compute_account_positions_from_walks(
+    plans: list[dict],
+    account_ids,
+    closing_walks: Mapping[str, AccountWalk],
+    low_walks: Mapping[str, AccountWalk],
+    *,
+    live_balances: Mapping[str, float] | None = None,
+    movements: list[dict] | None = None,
+    credit_account_ids: set[str] | None = None,
+    accounts: str = "eligible",
+    closing_fallback: str = "live",
+    low_point_basis: str = "pre_reservation",
+    reserved_by_source: Mapping[str, float] | None = None,
+) -> dict[str, dict]:
+    """G366: `compute_account_positions` fed from the walk output.
+
+    `account_ids` are the accounts to report (order kept), `closing_walks` the
+    closing walk per account (`account_walks`) and `low_walks` the
+    source low-point walk per account (`source_low_walk`). The keywords are
+    PD1 to PD4 in the module docstring; every default is the old behaviour."""
+    if accounts not in ("eligible", "walked"):
+        raise ValueError(f"accounts must be 'eligible' or 'walked', got {accounts!r}")
+    if closing_fallback not in ("live", "none"):
+        raise ValueError(f"closing_fallback must be 'live' or 'none', got {closing_fallback!r}")
+    if low_point_basis not in ("pre_reservation", "post_reservation"):
+        raise ValueError(f"low_point_basis must be 'pre_reservation' or 'post_reservation', got {low_point_basis!r}")
+    live_balances = live_balances or {}
+    reserved_by_source = reserved_by_source or {}
+    closing: dict[str, float | None] = {}
+    low_point: dict[str, float | None] = {}
+    for sid in account_ids:
+        walk = closing_walks.get(sid)
+        if walk is not None:
+            closing[sid] = float(walk.closing)
+        elif accounts == "walked":
+            continue
+        elif closing_fallback == "live":
+            closing[sid] = float(live_balances.get(sid, 0.0))
+        else:
+            closing[sid] = None
+        low = low_walks.get(sid)
+        lp = None if low is None else low.low_point
+        if lp is not None and low_point_basis == "post_reservation":
+            lp = lp - float(reserved_by_source.get(sid, 0.0))
+        low_point[sid] = lp
+    return compute_account_positions(
+        plans, closing, movements=movements, credit_account_ids=credit_account_ids,
+        low_point_by_account=low_point,
+    )
 
 
 def seed_spend_from(position: dict) -> float:
