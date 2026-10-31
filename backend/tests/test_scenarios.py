@@ -28,6 +28,7 @@ during it). Nothing is faked.
 import asyncio
 import json
 import os
+import re
 import sys
 import warnings
 from datetime import date, datetime
@@ -508,6 +509,10 @@ def test_scenario(path, monkeypatch):
 
     out_path = OUT_DIR / f"{path.stem}.json"
     rendered = json.dumps(snap, indent=2, sort_keys=True) + "\n"
+    assert not re.search(r"[0-9a-f]{24}", rendered), (
+        f"scenario {path.stem}: the snapshot holds a generated ObjectId, which changes every run. "
+        "Give the goal or set-aside an explicit _id in the fixture."
+    )
     if os.environ.get("SCENARIO_WRITE") == "1":
         OUT_DIR.mkdir(exist_ok=True)
         out_path.write_text(rendered)
