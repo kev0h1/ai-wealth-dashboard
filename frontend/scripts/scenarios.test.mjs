@@ -205,7 +205,10 @@ for (const slug of slugs) {
   // Scenario 10 (A175): a connected savings pot the bank sent no transactions for.
   for (const account of accounts.filter((a) => a.transactions_last_count === 0)) {
     assertKey(`bank empty state and savings line: ${account.id}`, () => {
-      const nowEmpty = Date.parse(`${snap.today}T09:00:00Z`);
+      // The scenario's own instant: 09:00 London on the day (08:00 UTC in BST), as the backend freezes it.
+      const guess = Date.parse(`${snap.today}T09:00:00Z`);
+      const londonHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "numeric", hourCycle: "h23" }).formatToParts(guess).find((p) => p.type === "hour").value);
+      const nowEmpty = guess - (londonHour - 9) * 3_600_000;
       const html = renderToStaticMarkup(React.createElement(AccountBankEmpty, { account, now: nowEmpty }));
       assert.ok(html.includes(NO_BANK_TRANSACTIONS), `${account.id}: the empty-state copy is missing`);
       const timeLine = bankDataTimeLine(account, nowEmpty);

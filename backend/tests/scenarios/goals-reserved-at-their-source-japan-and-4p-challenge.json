@@ -231,6 +231,12 @@
     },
     "at_risk_count": 0,
     "hide_balances": true,
+    "pinned_wrong": [
+      "acc-monzo headroom",
+      "payday_plan total",
+      "payday_plan dests",
+      "payday_plan reasons"
+    ],
     "known_gaps": {
       "acc-monzo headroom": {
         "correct": 5.52,

@@ -142,9 +142,10 @@ Add a scenario whenever a money bug is fixed.
 - `commitments` (goals) and `allocations` (set-asides) need an explicit `_id` (a generated id would change every
   run; the harness refuses a snapshot that contains one). Date fields (`created_at`, `effective_from`,
   `created_period_start`, `created_period_end`) are ISO strings, converted on seeding.
+- `expected.pinned_wrong` (backend, required with known_gaps): the list of assertion keys pinned to a known-wrong value. It must name exactly the keys in `known_gaps`: a gap deleted without removing its pin, or a pin with no gap, fails the run, so deleting a gap can never silently turn the wrong figure into the plain expectation.
 - `expected.known_gaps` (backend): `{"<assertion key>": {"correct": <value>, "reason": "..."}}`. The fixture's own
   expected value pins the CURRENT wrong behaviour exactly; `correct` is the hand-computed right value. Every run
-  prints each gap (a `ScenarioKnownGap` warning, and the frontend gate prints them too); the run FAILS when the
+  prints each gap (to stderr and as a `ScenarioKnownGap` warning, so `-p no:warnings` cannot hide it, and the frontend gate prints them too); the run FAILS when the
   actual figure equals `correct` (stale gap: delete it and set the expectation to the correct figure), when the
   pinned behaviour changes, or when a gap key matches no assertion. Keys: `left_to_spend`, `spendable_balance`,
   `<account id> spend_from | after_payments | low_point | headroom | plans_reserved | after_payments_and_plans | verdict`,

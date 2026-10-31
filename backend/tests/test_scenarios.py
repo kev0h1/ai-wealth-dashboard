@@ -338,7 +338,14 @@ class _Checker:
     def __init__(self, spec: dict):
         self.where = f"[{spec['name']}]"
         self.gaps = spec["expected"].get("known_gaps") or {}
+        self.pinned = set(spec["expected"].get("pinned_wrong") or [])
         self.used: set[str] = set()
+        # A gap and a pin go together: deleting a gap must not silently turn the pinned wrong figure
+        # into the plain expectation, and a pin with no gap hides nothing either.
+        assert self.pinned == set(self.gaps), (
+            f"{self.where} expected.pinned_wrong and expected.known_gaps must name the same assertion keys: "
+            f"only in pinned_wrong {sorted(self.pinned - set(self.gaps))}, only in known_gaps {sorted(set(self.gaps) - self.pinned)}"
+        )
 
     def check(self, key: str, got, want) -> None:
         gap = self.gaps.get(key)
@@ -347,6 +354,8 @@ class _Checker:
             return
         self.used.add(key)
         assert "correct" in gap and gap.get("reason"), f"{self.where} known gap {key!r} needs correct and reason"
+        msg = (f"{self.where} known backend gap, {key}: pinned current figure {want}, correct figure {gap['correct']}. {gap['reason']}")
+        print(f"scenarios: {msg}", file=sys.stderr)  # also visible with -p no:warnings
         warnings.warn(
             f"{self.where} known backend gap, {key}: pinned current figure {want}, correct figure {gap['correct']}. {gap['reason']}",
             ScenarioKnownGap, stacklevel=2,

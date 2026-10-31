@@ -186,6 +186,9 @@
       "salary_amount": 0
     },
     "at_risk_count": 0,
+    "pinned_wrong": [
+      "payday_plan present"
+    ],
     "known_gaps": {
       "payday_plan present": {
         "correct": false,
