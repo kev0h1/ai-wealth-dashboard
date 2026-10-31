@@ -33,7 +33,6 @@ from app.routers.analytics import (
     _build_cashflow_response,
     income_credit_ok,
     is_assessable_bill,
-    stamp_credit_basis,
 )
 from app.routers.allocations import list_active_allocations
 from app.services.account_names import display_account_name, distinct_account_label
@@ -44,7 +43,6 @@ from app.services.account_kinds import (
     manual_account_class,
 )
 from app.services.categories import MOVEMENT
-from app.services.inflow_credit import funded_inflows
 from app.services.categorisation import series_key
 
 
@@ -2594,10 +2592,6 @@ async def compute_today_items(
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}
-    confirmed_income_keys = {
-        s.get("key") for s in (prefs.get("income_streams") or [])
-        if isinstance(s, dict) and s.get("status") == "confirmed"
-    }
     try:
         payday_buffer = max(0, min(500, int(prefs.get("payday_buffer", 50))))
     except (TypeError, ValueError):
@@ -2605,20 +2599,32 @@ async def compute_today_items(
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
     # ── 2. Determine pay window ─────────────────────────────────────────────
-    from app.services.pay_period import _next_payday as _calc_next_payday
-    from app.services.income import get_confirmed_payday as _get_confirmed_payday
+    # G364: pay window, window/payday-day splits, assessable bills, live
+    # balances, G231 exclusions and the funded-inflow gate come from the
+    # shared builder (services/window_inputs.py). This caller's own settings:
+    # every account of the user plus offline accounts, credit-basis re-stamp,
+    # exclusion re-drop when the response is unverified, balances loaded even
+    # with nothing assessable (the account listing feeds the rest of the plan).
+    from app.services.window_inputs import build_window_inputs, user_accounts_loader
 
-    pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
-    today_d = timeutil.user_today()
-    confirmed_result = _get_confirmed_payday(prefs, today_d)
-    if confirmed_result:
-        next_pay, _ = confirmed_result
-    else:
-        next_pay = _calc_next_payday(today_d, pay_cfg)
-    days_to_pay = (next_pay - today_d).days
-    # G359: idempotent re-stamp, so a response from a patched/older builder
-    # still carries `steady_salary` / `credit_basis` for the walks below.
-    stamp_credit_basis(resp["upcoming_income"], pay_cfg, confirmed_income_keys, today_d)
+    _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
+                  "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
+                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
+    wi = await build_window_inputs(
+        uid, resp, prefs,
+        load_balances=user_accounts_loader(
+            uid, accounts_col, yapily_accounts_col, manual_accounts_col, _acct_proj,
+        ),
+        stamp_credit_basis=True,
+        reapply_exclusions=True,
+        load_when_no_bills=True,
+    )
+    pay_cfg = wi.pay_cfg
+    today_d = wi.today
+    next_pay = wi.next_pay
+    days_to_pay = wi.days_to_pay
+    confirmed_income_keys = wi.confirmed_income_keys
+    from app.services.income import get_confirmed_payday as _get_confirmed_payday
 
     # Payday Plan window — the moment to distribute the month. Position within
     # the CURRENT pay period (distinct from `next_pay`, which describes the
@@ -2635,26 +2641,22 @@ async def compute_today_items(
     # the next pay period but I don't think it should count in the existing
     # one"). A bill/income/inflow scheduled ON payday (days_away ==
     # days_to_pay) belongs to the NEXT pay period's arithmetic, not this
-    # one — it drops into `payday_day_*` below instead, which stays VISIBLE
-    # via the payday_plan card's `payday_split` payload (section 5c) but is
-    # never counted toward at-risk/shortfall/to-last. No last-day lookahead
-    # (G360): strictly before payday for every days_to_pay — see
-    # app/services/pay_period.py's in_current_window/is_payday_day
-    # docstrings. Must stay in lockstep with the same boundary in
-    # analytics.at_risk_count and spend_impact._cashflow_window.
-    from app.services.pay_period import in_current_window as _in_window, is_payday_day as _is_payday_day
+    # one: it is in `payday_day_*`, which stays VISIBLE via the payday_plan
+    # card's `payday_split` payload (section 5c) but is never counted toward
+    # at-risk/shortfall/to-last. No last-day lookahead (G360). The split
+    # itself lives in the shared builder; this must stay in lockstep with
+    # analytics.at_risk_count and spend_impact._cashflow_window, which now
+    # read the same builder.
+    window_bills = wi.window_bills
+    window_income = wi.window_income
 
-    window_bills = [b for b in resp["upcoming_bills"] if _in_window(b["days_away"], days_to_pay)]
-    window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], days_to_pay)]
-    window_inflows = [n for n in resp["internal_inflows"] if _in_window(n["days_away"], days_to_pay)]
-
-    # Payday-day slice — the partition's second bucket (current window /
+    # Payday-day slice, the partition's second bucket (current window /
     # payday day / strictly-after next-period). Visible-only: never fed into
     # the running-balance walk below, only into the payday_plan card's
     # `payday_split` (and `payday_split_risk`) payload in section 5c.
-    payday_day_bills = [b for b in resp["upcoming_bills"] if _is_payday_day(b["days_away"], days_to_pay)]
-    payday_day_income = [i for i in resp["upcoming_income"] if _is_payday_day(i["days_away"], days_to_pay)]
-    payday_day_inflows = [n for n in resp["internal_inflows"] if _is_payday_day(n["days_away"], days_to_pay)]
+    payday_day_bills = wi.payday_day_bills
+    payday_day_income = wi.payday_day_income
+    payday_day_inflows = wi.payday_day_inflows
 
     # Snapshot BEFORE preview consumption (below) mutates window_income/
     # payday_day_income by removing reliably-credited items — the
@@ -2663,7 +2665,7 @@ async def compute_today_items(
     # ON payday, i.e. now in `payday_day_income` rather than `window_income`
     # under the exclusive boundary above, so both snapshots feed salary
     # detection (section 5c).
-    _orig_window_income = list(window_income)
+    _orig_window_income = list(wi.window_income_before_exclusions)
     _orig_payday_day_income = list(payday_day_income)
 
     # Payday plan's salary candidate — identified HERE, before the running
@@ -2705,101 +2707,14 @@ async def compute_today_items(
         else (max(_pp_income_candidates, key=lambda i: float(i["amount"])) if _pp_income_candidates else None)
     )
 
-    # Skip bills where we have no balance data, or the bill is on a credit card
-    # (credit cards have a credit limit, not an available balance, so a bill
-    # against one must never count toward at-risk/shortfall). A genuinely
-    # overdrawn CURRENT account's own bills stay assessable — see
-    # `is_assessable_bill`'s docstring (2026-09-01 fix) and its sims-lockstep
-    # note; must match at_risk_count's assessable_bills filter in
-    # app/routers/analytics.py and spend_impact._cashflow_window byte-for-byte.
-    assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
-
-    # ── 3. Load ALL accounts ONCE; seed live balances from the same listing ─
-    # (Single fetch pass replaces the old per-bill `$in` fetch here plus the
-    # separate full listing in step 5 — same fields, one round trip per col.)
-    all_uk_accounts: list[dict] = []
-    _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
-                  "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
-                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
-    # G231: an account the user does not count towards Safe to Spend is
-    # neither a source nor a destination for any suggestion, and its balance
-    # never seeds a walk.
-    _g231_excluded: set[str] = set()
-    async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
-        if acc.get("include_in_safe_to_spend") is False:
-            _g231_excluded.add(str(acc["_id"]))
-            continue
-        acc["_str_id"] = str(acc["_id"])
-        all_uk_accounts.append(acc)
-    async for acc in yapily_accounts_col.find({"user_id": uid}, {**_acct_proj, "institution_id": 1}):
-        if acc.get("include_in_safe_to_spend") is False:
-            _g231_excluded.add(str(acc["_id"]))
-            continue
-        acc["_str_id"] = str(acc["_id"])
-        all_uk_accounts.append(acc)
-
-    live_balances: dict[str, float] = {
-        acc["_str_id"]: float(
-            acc.get("balance") or acc.get("current_balance") or acc.get("available_balance") or 0.0
-        )
-        for acc in all_uk_accounts
-    }
-
-    # Offline (manually-tracked) accounts are legitimate cover-plan SOURCES —
-    # the user just makes the transfer by hand. They stay OUT of
-    # all_uk_accounts on purpose: that list drives the pooled verdict, the
-    # rhythm cash sum and destination lookups, none of which should change.
-    # Manual credit cards are never a source.
-    #
-    # G47 (Kevin, 2026-09-13): "an offline account is the same as a
-    # connected account but is just manually synced, that is the
-    # distinction, and an offline account can be current or savings" — so
-    # an offline account must rank WITH its real class (current or
-    # savings), not as a third class ranked last regardless of what it
-    # actually is. `manual_accounts_col` already stores exactly that class
-    # in `account_type` (`{"savings", "current", "credit_card"}` — see
-    # `routers/manual_accounts.py`'s `ACCOUNT_TYPES`); it was only ever
-    # inspected here to skip credit cards, so the account's real class
-    # never reached `class_specs` below and `_is_current`/`_is_savings`
-    # (which read `account_subtype`/`subtype`/`type`) returned false for
-    # every offline account regardless of what it was. Stamping `subtype`
-    # here via `account_kinds.manual_account_class` (G65, 2026-09-13) —
-    # the SAME function `routers/accounts.py`'s `_manual_to_account` calls
-    # for the `/accounts` API response, so the two cannot disagree about an
-    # offline account's class by construction — lets the existing
-    # classifiers (`services/account_kinds.py`, G55) do the work with no
-    # local special-casing. `_offline` stays too: it is still read by
-    # `_overdraft_deficits` (offline accounts are never destinations) and
-    # now doubles as the manual-transfer tie-break in `_live_class` below.
-    offline_accounts: list[dict] = []
-    async for _macc in manual_accounts_col.find(
-        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1}
-    ):
-        _macc_type = _macc.get("account_type") or "savings"
-        if _macc.get("include_in_safe_to_spend") is False:
-            _g231_excluded.add(str(_macc["_id"]))
-        if _macc_type == "credit_card" or _macc.get("include_in_safe_to_spend") is False:
-            continue
-        offline_accounts.append({
-            "_id": _macc["_id"],
-            "_str_id": str(_macc["_id"]),
-            "_offline": True,
-            "name": _macc.get("name") or "Offline account",
-            "balance": float(_macc.get("balance") or 0.0),
-            "provider": "Offline",
-            "subtype": manual_account_class(_macc_type),
-        })
-    for _oacc in offline_accounts:
-        live_balances[_oacc["_str_id"]] = _oacc["balance"]
-
-    # G231 fail-closed: if the builder could not verify exclusions, re-apply the
-    # exclusion from the account rows loaded above to the walk's own lists.
-    if resp.get("exclusions_unverified") and _g231_excluded:
-        _w = {"upcoming_bills": window_bills, "upcoming_income": window_income}
-        from app.services.counted_accounts import drop_excluded_items as _g231_drop
-        _g231_drop(_w, _g231_excluded)
-        window_bills, window_income = _w["upcoming_bills"], _w["upcoming_income"]
-        assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
+    # Assessable bills, live balances (every account plus offline accounts),
+    # the G231 excluded ids and the fail-closed exclusion re-drop all come
+    # from the shared builder above (see window_inputs.user_accounts_loader
+    # for the account listing, G47/G65 for the offline accounts' class).
+    assessable_bills = wi.assessable_bills
+    all_uk_accounts = wi.all_uk_accounts
+    offline_accounts = wi.offline_accounts
+    live_balances = wi.live_balances
 
     # Envelope funding-source reservation (owner fix, 2026-08-31 — "does it
     # take account of what has been set aside on the envelope"). Computed
@@ -2860,11 +2775,7 @@ async def compute_today_items(
         reserved_by_source = {k: round(v / 100, 2) for k, v in _combined.items()}
 
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
-    running: dict[str, float] = {}
-    for b in assessable_bills:
-        acct = b["account_id"] or "__unknown__"
-        if acct not in running:
-            running[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
+    running: dict[str, float] = dict(wi.running_seed)
 
     # Income is credited ONLY to the account its history actually landed in,
     # and only when the prediction is reliable (income_credit_ok) — a cover
@@ -2901,11 +2812,7 @@ async def compute_today_items(
     #
     # G360: an inflow is credited only when its SOURCE account is itself
     # covered that day (`funded_inflows`, one rule for every walk).
-    _funded_balances = {**live_balances, **running}
-    funded_window_inflows = funded_inflows(
-        window_inflows, assessable_bills, window_income, _funded_balances,
-        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
-    )
+    funded_window_inflows = wi.funded_window_inflows
     for n in funded_window_inflows:
         acct = str(n.get("account_id") or "")
         # G360: a funded inflow into an account with no bill of its own still

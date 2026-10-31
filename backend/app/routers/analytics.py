@@ -3335,76 +3335,27 @@ async def at_risk_count(user: dict = Depends(current_user)):
             return {"count": 0}
     resp = await _build_cashflow_response(cached, uid=user["email"])
 
-    from app.services.pay_period import get_pay_period_for_date as _get_period, _next_payday as _calc_next_payday
-    from app.services.income import get_confirmed_payday as _get_confirmed_payday
+    # G364: the shared window-inputs builder (services/window_inputs.py)
+    # turns the response, prefs and live balances into the lists the walk
+    # below reads. This caller's own settings: balances of the accounts the
+    # bills sit on only, looked up by id in both collections; no re-stamp
+    # (the response builder already stamped), no exclusion re-drop.
+    from app.services.window_inputs import bill_account_loader, build_window_inputs
     _user_prefs = await preferences_col.find_one({"user_id": user["email"]}) or {}
-    _pay_cfg    = _user_prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d    = timeutil.user_today()
-    _confirmed_result = _get_confirmed_payday(_user_prefs, _today_d)
-    if _confirmed_result:
-        _next_pay, _ = _confirmed_result
-    else:
-        _next_pay = _calc_next_payday(_today_d, _pay_cfg)
-    _days_to_pay = (_next_pay - _today_d).days
-    # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
-    # decision — see app/services/pay_period.py's in_current_window
-    # docstring): a bill/income/inflow scheduled ON payday belongs to the
-    # NEXT pay period's arithmetic, not this badge's. No last-day lookahead
-    # (G360): strictly before payday for every days_to_pay.
-    from app.services.pay_period import in_current_window as _in_window
-    window_bills  = [b for b in resp["upcoming_bills"]  if _in_window(b["days_away"], _days_to_pay)]
-    window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], _days_to_pay)]
-    window_inflows = [n for n in resp["internal_inflows"] if _in_window(n["days_away"], _days_to_pay)]
-
-    # Skip bills where we have no balance data, or the bill is on a credit
-    # card (credit cards have a credit limit, not an available balance, so a
-    # bill against one must never count toward at-risk/shortfall). A
-    # genuinely overdrawn CURRENT account's own bills stay assessable — see
-    # `is_assessable_bill`'s docstring (2026-09-01 fix) and the sims-lockstep
-    # note there; this must match companion.py's `assessable_bills` and
-    # spend_impact._cashflow_window byte-for-byte.
-    assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
+    _wi = await build_window_inputs(
+        user["email"], resp, _user_prefs,
+        load_balances=bill_account_loader(accounts_col, yapily_accounts_col),
+    )
+    window_income = _wi.window_income
+    assessable_bills = _wi.assessable_bills
     if not assessable_bills:
         return {"count": 0}
-
-    # Seed each account's running balance from live account documents so that
-    # balances reflect the current state rather than the (possibly days-old)
-    # snapshot frozen inside the cashflow cache.  Falls back to the cached
-    # account_balance if the live query returns nothing for a given account
-    # (e.g. the account was removed or belongs to a provider not in scope).
-    acct_ids = list({b["account_id"] for b in assessable_bills if b.get("account_id")})
-    live_balances: dict[str, float] = {}
-    if acct_ids:
-        from bson import ObjectId
-
-        def _try_oid(v: str):
-            try:
-                return ObjectId(v)
-            except Exception:
-                return v
-
-        oid_ids = [_try_oid(a) for a in acct_ids]
-        for col in (accounts_col, yapily_accounts_col):
-            async for acc in col.find(
-                {"_id": {"$in": oid_ids}},
-                {"balance": 1, "current_balance": 1, "available_balance": 1},
-            ):
-                bal = acc.get("balance") or acc.get("current_balance") or acc.get("available_balance") or 0.0
-                live_balances[str(acc["_id"])] = float(bal)
-
-    running: dict[str, float] = {}
-    for b in assessable_bills:
-        acct = b["account_id"] or "__unknown__"
-        if acct not in running:
-            running[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
+    running: dict[str, float] = dict(_wi.running_seed)
 
     # Merge bills and income into a single timeline, sorted by days_away.
     # Income is credited ONLY to the account its history actually landed in,
     # and only when the prediction is reliable — see income_credit_ok.
-    _confirmed_keys = {
-        s.get("key") for s in (_user_prefs.get("income_streams") or [])
-        if isinstance(s, dict) and s.get("status") == "confirmed"
-    }
+    _confirmed_keys = _wi.confirmed_income_keys
     events: list[tuple[int, str, float, bool, str]] = []  # (days_away, acct_id, amount, is_income, kind)
     for b in assessable_bills:
         events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, (b.get("kind"), bool(b.get("is_card_repayment")))))
@@ -3429,12 +3380,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # by its source-side pending copy.
     #
     # G360: credited only when the inflow's SOURCE account is itself covered
-    # that day (`funded_inflows`, the one rule shared by every walk).
-    from app.services.inflow_credit import funded_inflows
-    _funded = funded_inflows(
-        window_inflows, assessable_bills, window_income, {**live_balances, **running},
-        lambda i, a: income_credit_ok(i, a, _confirmed_keys),
-    )
+    # that day (`funded_inflows`, applied once in the window-inputs builder).
+    _funded = _wi.funded_window_inflows
     for n in _funded:
         acct = str(n.get("account_id") or "")
         if acct in running:
