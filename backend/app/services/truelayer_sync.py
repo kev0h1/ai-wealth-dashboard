@@ -16,7 +16,7 @@ from app.core.config import (
 from app.services.notifications import notify_after_sync
 from app.core.crypto import encrypt_token, decrypt_token
 from app.db.collections import connections_col, accounts_col, transactions_col, excluded_accounts_col
-from app.services.categorisation import rule_categorise, rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
+from app.services.categorisation import rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.pending_transactions import replace_pending_for_account
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
 from pymongo import ReturnDocument
@@ -125,12 +125,12 @@ async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
             # TRANSFER, including money sent to other people. Only accept it
             # when the description corroborates the user's own identity —
             # otherwise it's real spend and must stay visible ("Other").
-            category = rule_categorise(merchant, description) or (
+            category = rule_categorise_directed(merchant, description, is_credit=False) or (
                 "Transfer" if identity is None or is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Other"
             )
         else:
-            category = rule_categorise(merchant, description) or None
+            category = rule_categorise_directed(merchant, description, is_credit=False) or None
 
         tdoc = {
             "account_id":       account_id,

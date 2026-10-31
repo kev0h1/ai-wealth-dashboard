@@ -183,8 +183,15 @@ def rule_categorise_directed(merchant: str, description: str, *, is_credit: bool
 
 
 def credit_guard(cat: Optional[str], *, is_credit: bool) -> Optional[str]:
-    """The direction guard on its own, for callers that already hold a rule
-    result: a credit matching Rent is Income (see `rule_categorise_directed`)."""
+    """The direction guard on an automatic rule result.
+
+    A debit cannot be automatically filed as Income: a matching reward or
+    cashback label may occur on a charge as well as on an incoming reward.
+    This intentionally does not rewrite an existing/manual ``Income`` debit,
+    because those can represent a genuine reversal of an earlier payment.
+    """
+    if not is_credit and cat == "Income":
+        return None
     return "Income" if is_credit and cat == "Rent" else cat
 
 
@@ -1213,7 +1220,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             _match = rule_categorise_directed(merchant, description, is_credit=True)
             cat = _match if _match else "Income"
         else:
-            cat = rule_categorise(merchant, description)
+            cat = rule_categorise_directed(merchant, description, is_credit=False)
             if cat is None and raw_cat in RAW_TRUELAYER_CATEGORIES:
                 cat = "__clear__"
 
@@ -1258,10 +1265,16 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         cache_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": None,
              "$or": [{"category": None}, {"category": {"$in": list(RAW_TRUELAYER_CATEGORIES) + ["Other"]}}]},
-            {"merchant_name": 1, "description": 1, "category": 1},
+            {"merchant_name": 1, "description": 1, "category": 1, "transaction_type": 1},
         ).to_list(None)
         for t in cache_txns:
             cat = merged_cache.get(canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or ""))
+            # A cache is an automatic suggestion, including a user-scoped LLM
+            # result. Never turn a debit into Income through it. Explicit user
+            # choices propagate separately in Pass 4 and retain their
+            # direction-scoped semantics.
+            if cat == "Income" and t.get("transaction_type") != "credit":
+                continue
             if cat and t.get("category") != cat:
                 await transactions_col.update_one(
                     {"_id": t["_id"], "custom_category": None},
@@ -1598,6 +1611,8 @@ async def categorise_others_bg(uid: str) -> int:
         for i, key in enumerate(unique_keys):
             label, _direction = key
             cat = classifications.get(str(i + 1))
+            if _direction == "OUT" and cat == "Income":
+                cat = "Other"
             if cat in {"Transfer", "Savings", "Debt", "Investment"}:
                 # Defensive: these are structural/money-to-self categories the LLM was
                 # never offered (see cat_list above) but may still hallucinate. Never

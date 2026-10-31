@@ -169,7 +169,9 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # older cache docs have no safe way to recover it from a collapsed payer key.
 # v15 (G377): paired own-account credits cannot seed expected income,
 # including the interval between a provider refresh and its reclassification.
-PATTERNS_VERSION = 15
+# v16 (G377 follow-up): credit corrections apply before the Income filter,
+# including confirmed fallback, so old occurrences cannot revive a transfer.
+PATTERNS_VERSION = 16
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -2767,6 +2769,12 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     raw += await yapily_transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    from app.services.income_evidence import historical_income_context, select_income_evidence
+    income_context = await historical_income_context(
+        uid, cutoff180, raw, (transactions_col, yapily_transactions_col), proj,
+        include_pairs=bool(_build_confirmed_income_map(prefs.get("income_streams"))),
+    )
 
     # accounts_col/yapily_accounts_col docs today only ever populate "type"/
     # "subtype" (see truelayer_sync.py, finexer_sync.py); "account_type"/
@@ -2809,11 +2817,13 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # and the other owned account still support the original match.
     from app.services.own_account_transfers import resolve_transfer_evidence
     account_currency = {a["_id"]: a.get("currency") for a in acct_docs}
-    raw = [{**row, "currency": str(row.get("currency") or account_currency.get(row.get("account_id")) or "").upper()} for row in raw]
-    raw = resolve_transfer_evidence(
-        raw, {name for name, kind in kind_map.items() if kind == MOVEMENT},
+    current_count = len(raw)
+    all_evidence = [{**row, "currency": str(row.get("currency") or account_currency.get(row.get("account_id")) or "").upper()} for row in [*raw, *income_context]]
+    all_evidence = resolve_transfer_evidence(
+        all_evidence, {name for name, kind in kind_map.items() if kind == MOVEMENT},
         owned_account_ids=set(account_currency),
     )
+    raw = all_evidence[:current_count]
     dest_by_key = _learn_transfer_destinations(raw, account_map, kind_map)
     # Card-repayment destinations (see `_learn_card_repayment_destinations`'s
     # docstring for why this is a SEPARATE map from `dest_by_key` above, and
@@ -2837,8 +2847,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # Everything else that doesn't need extra points to stay stable keeps
     # reading the narrower 90-day slice (raw_90): the single-occurrence AI
     # candidate heuristic, non_recurring_debits/avg_daily_spend, and
-    # recurring-INCOME detection (income_credits) all stay on debits_90/
-    # credits_90 exactly as before, deliberately unperturbed.
+    # recurring-INCOME detection retains its 90-day occurrence window.
+    # Older corrections are context only, never extra forecast occurrences.
     raw_90 = [t for t in raw if t["date"] >= cutoff90]
 
     debits_180  = [t for t in raw if t.get("transaction_type") == "debit"]
@@ -2850,11 +2860,10 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # 120 is generous headroom without dragging in an unrelated older plan.
     bnpl_debits = [t for t in debits_180 if t["date"] >= cutoff120 and is_bnpl_txn(t)]
     debits_90  = [t for t in raw_90 if t.get("transaction_type") == "debit"]
-    credits_90 = [t for t in raw_90 if t.get("transaction_type") == "credit"
-                  and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
-    income_credits = [t for t in credits_90 if (t.get("custom_category") or t.get("category") or "Other") == "Income"]
+    income_evidence = select_income_evidence(all_evidence)
+    income_credits_180 = [t for t in income_evidence.credits if t["date"] >= cutoff180]
+    income_credits = [t for t in income_credits_180 if t["date"] >= cutoff90]
 
-    prefs = await preferences_col.find_one({"user_id": uid}) or {}
     trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
     dismissed = set(prefs.get("dismissed_recurring") or [])
     # Keys the user has explicitly told the undo-log "this IS recurring"
@@ -2867,7 +2876,9 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # Build confirmed income map for schedule-aware detection (see
     # `_build_confirmed_income_map`'s docstring for why this is a pure
     # helper, not inline, and what it guards against).
-    _confirmed_income_map = _build_confirmed_income_map(prefs.get("income_streams"))
+    _confirmed_income_map = income_evidence.confirmed(
+        _build_confirmed_income_map(prefs.get("income_streams"))
+    )
 
     recurring_spend  = _detect_recurring(debits_180, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config, reversal_credits=credits_180)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
@@ -2908,13 +2919,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # stream's narrower (90-day) matches above are empty -- see
     # `_confirmed_income_fallback`'s `latest_credit_by_key` docstring for
     # why this needs to be the newest CREDIT under the key, not a detected
-    # pattern. Built from `credits_180` (already loaded above for bill
-    # detection, no new Mongo query), filtered to Income the same way
-    # `income_credits` filters `credits_90`.
-    income_credits_180 = [
-        t for t in credits_180
-        if (t.get("custom_category") or t.get("category") or "Other") == "Income"
-    ]
+    # pattern. Uses the same correction-aware selection as detection,
+    # restricted to the original 180-day window for landing evidence.
     latest_income_credit_by_key: dict[str, dict] = {}
     for _t in income_credits_180:
         _k = series_key(_t)

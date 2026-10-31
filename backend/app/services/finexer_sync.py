@@ -18,7 +18,7 @@ from app.db.collections import (
     finexer_consents_col, finexer_customers_col, finexer_providers_col,
     accounts_col, transactions_col,
 )
-from app.services.categorisation import rule_categorise, rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
+from app.services.categorisation import rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
 from app.services.pending_transactions import replace_pending_for_account
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
@@ -773,7 +773,7 @@ async def _upsert_finexer_walk(
                 else "Income"
             )
         else:
-            category = rule_categorise(merchant, description) or None
+            category = rule_categorise_directed(merchant, description, is_credit=False) or None
 
         tdoc: dict = {
             "account_id":       account_id,
