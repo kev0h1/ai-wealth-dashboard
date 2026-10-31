@@ -686,6 +686,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             first_txn_logged = False
             account_pending_rows: list = []
             fetch_failed = False
+            walk_row_count = 0
             while txn_url:
                 tr = await _get(client, txn_url, counter=counter)
                 if tr.status_code != 200:
@@ -694,6 +695,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                     break
                 txn_data = tr.json()
                 txns = txn_data.get("data") or txn_data.get("results") or []
+                walk_row_count += len(txns)
 
                 # Log raw shape of first transaction for field discovery
                 if txns and not first_txn_logged:
@@ -723,6 +725,28 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             # balance fetch above).
             if not fetch_failed:
                 await replace_pending_for_account(account_pending_rows, account_id, user_id, provider="Finexer")
+
+            # A175: per-account transaction sync diagnostics. A 200 with no
+            # rows used to leave no trace at all, so the account sheet could
+            # not tell "the bank sent nothing" from "we never looked".
+            # Success fields are only ever written on a successful walk, and
+            # a failure leaves the last known good values untouched.
+            if fetch_failed:
+                diag_set = {"transactions_fetch_failed_at": datetime.utcnow()}  # naive-ok: matches last_synced convention
+            else:
+                diag_set = {
+                    "transactions_synced_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                    "transactions_last_count": walk_row_count,
+                }
+                if walk_row_count == 0 and balance:
+                    logger.info(
+                        "Finexer returned no transactions for a %s account with a non-zero balance (consent %s)",
+                        acc_class or "unknown", consent_id,
+                    )
+            try:
+                await accounts_col.update_one({"_id": account_id}, {"$set": diag_set})
+            except Exception:
+                logger.exception("Finexer transaction diagnostics write failed for %s", account_id)
 
     # A renewed consent should clear the "needs reconnecting" banner on the
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse

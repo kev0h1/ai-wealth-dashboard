@@ -70,6 +70,7 @@
     "check:g214-sync-loading": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g214-sync-loading.test.mjs",
     "check:first-sync-card": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/first-sync-card.test.mjs",
     "check:g176-preview": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-preview.test.mjs",
+    "check:a175-account-empty-state": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a175-account-empty-state.test.mjs",
     "check:g176-accounts": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-accounts.test.mjs",
     "check:g176-account-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-plans.test.mjs",
     "check:g176-account-status": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-status.test.mjs",
