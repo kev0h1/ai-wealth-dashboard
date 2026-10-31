@@ -158,3 +158,24 @@ Add a scenario whenever a money bug is fixed.
 - `expected.hide_balances`: run the masking check in the frontend gate (scenario 9).
 - Invariants added for every scenario: a goal or set-aside pot is never a payday-plan destination, and the pooled
   spendable balance is exactly the counted current accounts.
+
+## Order independence (H143)
+
+The suite must pass whatever ran before it. The G374 review found it failing after `test_payday_plan_fixes.py` or
+`test_g362_landed_income.py`: those tests patch `db_collections` and then call code that imports modules lazily, and a
+module first imported at that moment binds the fake as its own `*_col` handle for the rest of the session. The fix is
+at the source (the polluting test files pre-import those modules), and two guards contain a repeat:
+
+- `_rebind_collections` fails fast, naming the module, if any app module holds a non-Motor `*_col` handle.
+- `tests/test_scenarios_order.py` asserts the same at its position in the run.
+
+No reversing or randomising plugin is installed (`pytest-randomly` and `pytest-reverse` are absent, and none is
+added), and `scripts/session.sh` runs a single `pytest tests`, so the ordered run is a script, not a finish step:
+
+```
+backend/.venv/bin/python scripts/check_scenarios_order.py
+```
+
+It runs `test_g362_landed_income.py`, `test_payday_plan_fixes.py`, `test_scenarios.py` and `test_scenarios_order.py`
+in that order against a disposable `wealth_test_*` database. Run it after touching any test that patches
+`app.db.collections` or any collection handle.
