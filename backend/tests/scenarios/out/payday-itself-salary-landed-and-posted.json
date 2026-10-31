@@ -349,38 +349,6 @@
   "days_to_payday": 28,
   "items": [
     {
-      "covered": true,
-      "dests": [
-        {
-          "account_id": "acc-hsbc",
-          "balance": 80,
-          "bill_count": 1,
-          "bills_total": 120,
-          "buffer": 50,
-          "destination_kind": "spend",
-          "habitual_top_up": false,
-          "move": 90,
-          "name": "HSBC Current",
-          "own_transfers_skipped": 0,
-          "provider": "hsbc",
-          "spend_typical": 0,
-          "target": 170.0,
-          "usual": null
-        }
-      ],
-      "id": "payday_plan:2026-10-30:842a06788d",
-      "salary": {
-        "account_id": "acc-bc",
-        "amount": 0,
-        "keeps": [],
-        "name": "Barclays Current",
-        "provider": "barclays",
-        "stays": 2765
-      },
-      "total": 90,
-      "type": "payday_plan"
-    },
-    {
       "id": "needle:2026-10-29",
       "type": "needle"
     }

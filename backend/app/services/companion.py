@@ -33,6 +33,7 @@ from app.routers.analytics import (
     _build_cashflow_response,
     income_credit_ok,
     is_assessable_bill,
+    stamp_credit_basis,
 )
 from app.routers.allocations import list_active_allocations
 from app.services.account_names import display_account_name, distinct_account_label
@@ -3583,6 +3584,38 @@ async def compute_today_items(
             float(_pp_salary_income["amount"]),
             _pstart,
         )
+    # G374: G362 closes a salary occurrence whose credit has already posted
+    # out of `upcoming_income` into the display-only `observed_income`, so on
+    # payday there is no open candidate and the check above never runs. That
+    # is "no candidate because the salary was closed as observed", which is
+    # NOT the "no candidate because nothing was ever detected" case below
+    # (that still shows the plan). The closed occurrence stands in for the
+    # candidate: same confirmed-first, largest-amount rule and the same
+    # reliability gate, then the same landed-credit check against the real
+    # transactions. `observed_income` itself is only read, never changed.
+    if (
+        payday_window and not payday_preview and _pp_salary_income is None
+        and not _pp_salary_already_observed and resp.get("observed_income")
+    ):
+        _pp_closed = [dict(i) for i in resp["observed_income"]]
+        stamp_credit_basis(_pp_closed, pay_cfg, confirmed_income_keys, today_d)
+        _pp_closed = [
+            i for i in _pp_closed
+            if income_credit_ok(i, str(i.get("account_id") or ""), confirmed_income_keys)
+        ]
+        _pp_closed_conf = [
+            i for i in _pp_closed
+            if i.get("name") in confirmed_income_keys or i.get("confirmed_alias") in confirmed_income_keys
+        ]
+        _pp_closed_pick = (_pp_closed_conf or _pp_closed or [None])
+        _pp_closed_pick = max(_pp_closed_pick, key=lambda i: float(i["amount"])) if _pp_closed_pick[0] else None
+        if _pp_closed_pick is not None:
+            _pp_salary_already_observed = await _pp_salary_observed(
+                uid,
+                str(_pp_closed_pick.get("account_id") or ""),
+                float(_pp_closed_pick["amount"]),
+                _pstart,
+            )
     _effective_payday_window = (payday_window and not _pp_salary_already_observed) or payday_preview
 
     if _effective_payday_window:
