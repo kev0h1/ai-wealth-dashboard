@@ -36,7 +36,8 @@ which is also what its hand-copied preamble did before G364):
 | W5 | `stamp_credit_basis` on the response income | `stamp_credit_basis` | False (the response builder already stamped) | True (idempotent re-stamp, G359) | False |
 | W6 | Balance loading when nothing is assessable | `load_when_no_bills` | False (the caller returns first, no read) | True (the account listing feeds the rest of the cover plan) | False (the caller returns None first, no read) |
 | W7 | Preferences source | caller | the caller reads preferences itself and passes them | same | same |
-| W8 | Payday-day slice (`payday_day_*`), `account rows` | none | computed, unused | computed and used (payday_split) | computed, unused |
+| W8 | Payday-day slice (`payday_day_*`) and the account rows | none | slice computed, unused; no rows | slice and rows used (payday_split, class specs) | slice computed, unused; no rows |
+| W9 | Income list the payday-plan salary candidate reads | `window_income_before_exclusions` | not read | read: the window income as it stood BEFORE the W4 re-drop, so the candidate pool is unchanged | not read |
 
 Same-day ordering (`companion.walk_sort_key`), the walks themselves, income
 credit (`income_credit_ok`) and the credited-income disclosure stay with the
@@ -80,6 +81,7 @@ class WindowInputs:
     window_bills: list[dict]
     window_income: list[dict]
     window_inflows: list[dict]
+    window_income_before_exclusions: list[dict]  # window_income as it stood before the G231 re-drop (same list content when none ran)
     payday_day_bills: list[dict]
     payday_day_income: list[dict]
     payday_day_inflows: list[dict]
@@ -260,6 +262,7 @@ async def build_window_inputs(
         loaded = LoadedAccounts()
     live_balances = loaded.live_balances
 
+    window_income_before_exclusions = list(window_income)
     exclusions_unverified = bool(resp.get("exclusions_unverified"))
     # G231 fail-closed: if the builder could not verify exclusions, re-apply
     # the exclusion from the account rows to the walk's own lists.
@@ -295,6 +298,7 @@ async def build_window_inputs(
         window_bills=window_bills,
         window_income=window_income,
         window_inflows=window_inflows,
+        window_income_before_exclusions=window_income_before_exclusions,
         payday_day_bills=payday_day_bills,
         payday_day_income=payday_day_income,
         payday_day_inflows=payday_day_inflows,
