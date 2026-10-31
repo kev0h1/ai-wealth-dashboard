@@ -104,6 +104,8 @@ def _resp():
             # reliable-by-pattern income on hsbc, not confirmed
             _income("Refund", 7, 15.0, "hsbc"),
             _income("Excluded pay", 5, 900.0, "excl"),
+            # same day, same account as the "Phone" debit (day 6): credits sort first
+            _income("Rebate", 6, 60.0, "lowsrc"),
         ],
         "internal_inflows": [
             _inflow(2, 1758.33, "hsbc", "barclays"),      # funded
@@ -546,13 +548,14 @@ def test_at_risk_count_equals_the_golden_count(monkeypatch):
 
 def test_account_walk_result_fields(wi):
     w = aw.walk_account("lowsrc", wi, opening=5.0)
-    assert [r.item["name"] for r in w.rows] == ["Standing order out", "Card repayment", "Phone"]
-    assert [round(r.running, 2) for r in w.rows] == [-85.0, -125.0, -150.0]
-    assert w.closing == -150.0 and w.low_point == -150.0 and w.opening == 5.0
+    # the day-6 Rebate credit sorts before the day-6 Phone debit (same account, same day)
+    assert [r.item["name"] for r in w.rows] == ["Standing order out", "Card repayment", "Rebate", "Phone"]
+    assert [round(r.running, 2) for r in w.rows] == [-85.0, -125.0, -65.0, -90.0]
+    assert w.closing == -90.0 and w.low_point == -125.0 and w.opening == 5.0
     assert w.first_short.bill["name"] == "Standing order out"
     assert (w.first_short.day, round(w.first_short.shortfall, 2)) == (1, 85.0)
     assert [b["name"] for b in w.bounced] == ["Standing order out", "Card repayment", "Phone"]
-    assert all(r.short and r.delta < 0 for r in w.rows)
+    assert all(r.short and r.delta < 0 for r in w.rows if not r.is_income)
     covered = aw.walk_account("barclays", wi, opening=4800.0)
     assert covered.first_short is None and covered.bounced == []
     assert covered.low_point == round(4800.0 - 1758.33 - 400.0 - 120.0, 2)
@@ -639,17 +642,17 @@ def test_wd5_preview_salary_lands_at_days_to_pay_on_its_account_only(wi):
 
 
 def test_wd6_extra_income_is_one_event_at_its_own_day(wi):
-    inc = {"name": "Maybe", "days_away": 4, "amount": 200.0, "account_id": "elsewhere"}
+    inc = {"name": "Maybe", "days_away": 1, "amount": 200.0, "account_id": "elsewhere"}
     base = aw.walk_account("lowsrc", wi, opening=5.0)
     more = aw.walk_account("lowsrc", wi, opening=5.0, extra_income=inc)
-    assert [e for e in more.events if e not in base.events] == [(4, "lowsrc", 200.0, True, inc)]
+    assert [e for e in more.events if e not in base.events] == [(1, "lowsrc", 200.0, True, inc)]
     assert more.low_point > base.low_point
 
 
 def test_wd7_credited_incomes_are_disclosed_by_the_walk(wi):
     events, seed, credited = aw.window_events(wi, inflow_admit="seed_live")
     assert {a: [i["name"] for i in il] for a, il in credited.items()} == {
-        "barclays": ["ACME"], "hsbc": ["Refund"],
+        "barclays": ["ACME"], "hsbc": ["Refund"], "lowsrc": ["Rebate"],
     }
     # inflows and the preview salary are never "credited incomes"
     events2, _s, credited2 = aw.window_events(wi, inflow_admit="seed_live", preview_salary=_preview_salary(wi))
