@@ -25,6 +25,7 @@ import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import { getHomeCache, setHomeCache } from "@/lib/homeCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
+import HomeTransfersCheck from "@/components/HomeTransfersCheck";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
@@ -321,6 +322,8 @@ export default function HomePage() {
   // wired to a callback nothing calls again, which would have held
   // `allSettled` below hostage to the 5000ms release valve on every cold
   // load.)
+  const [transfersReady, setTransfersReady] = useState(!!homeCache);
+  const onTransfersReady = useCallback(() => setTransfersReady(true), []);
   const [billsReady, setBillsReady] = useState(!!homeCache);
   const [spotlightReady, setSpotlightReady] = useState(!!homeCache);
   const onBillsReady = useCallback(() => setBillsReady(true), []);
@@ -337,7 +340,7 @@ export default function HomePage() {
   // Every readiness input, ANDed together: HomePage's own primary fetches
   // (`loading` — accounts/investments/companion-items/recent-txns, see
   // loadData below — plus `stsLoading` and `txLoading`, which clear
-  // independently of `loading` for their own tiles) and the two remaining
+  // independently of `loading` for their own tiles) and the transfer check and two other
   // self-fetching children's onReady signals (G169 removed the third,
   // ThisMonthStrip/`monthReady`, along with the strip itself). If any one
   // of these never resolves (several of the underlying fetches already
@@ -345,9 +348,9 @@ export default function HomePage() {
   // fires — that's what the timeout effect below exists to cover.
   useEffect(() => {
     if (revealedRef.current) return;
-    const allSettled = !loading && !stsLoading && !txLoading && billsReady && spotlightReady;
+    const allSettled = !loading && !stsLoading && !txLoading && billsReady && spotlightReady && transfersReady;
     if (allSettled) reveal();
-  }, [loading, stsLoading, txLoading, billsReady, spotlightReady, reveal]);
+  }, [loading, stsLoading, txLoading, billsReady, spotlightReady, transfersReady, reveal]);
   // Non-negotiable release valve: whatever hasn't arrived within 5000ms of
   // this mount is shown as-is (its own section falls back to its existing
   // inner skeleton/empty state) rather than leaving the user stuck on the
@@ -1046,7 +1049,10 @@ export default function HomePage() {
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
               onCoverMoveVisibleChange={onCoverMoveVisibleChange}
-              banner={reauthBanner}
+              banner={<div className="space-y-4">
+                {reauthBanner}
+                <HomeTransfersCheck refreshKey={bulkNonce} enabled={!hasNoAccounts} onReady={onTransfersReady} />
+              </div>}
             />
           </div>
 
