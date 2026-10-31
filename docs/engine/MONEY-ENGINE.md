@@ -82,6 +82,14 @@ The old "Seeding differences" are WD1, WD2 and WD4. `low_point_by_account` is th
 
 G366 (step 4 of section 6, done): the positions are derived from the walk output. `compute_account_positions_from_walks` (`services/account_position.py:187`) reads each account's closing from its W2 `AccountWalk` (`account_walks`, `services/account_walk.py:297`) and its low point from its W3 `AccountWalk` (`source_low_walk`, `services/account_position.py:168`, kept as `source_walks` at `services/companion.py:2909`), then hands those two numbers to the unchanged kernel `compute_account_positions` (`services/account_position.py:117`). After payments, Lowest, `seed_spend_from` (`services/account_position.py:238`), `sources_safe` (`source_min_run`) and the Accounts list warning therefore read the same two objects. `cap_spend_from_to_pool` stays the one pool cap and the G114 live-move reserve stays where it was. No behaviour change: `tests/fixtures/account_position_golden.json` was captured from the old code and `tests/test_account_position_from_walk.py` pins it. Where the old hand assembly and the walk results differ, the old value is the keyword default:
 
+| Id | Difference | Keyword | Default (old) | Other value |
+|---|---|---|---|---|
+| PD1 | Which accounts get a position | `accounts` | `"eligible"`: every account of `account_eligibility_out`, walked or not | `"walked"`: only an account the closing walk touched |
+| PD2 | Closing for an account the closing walk never touched (idle, manual) | `closing_fallback` | `"live"`: its live balance, else 0.0 | `"none"`: closing unknown, After payments and the plan figures None |
+| PD3 | Low point taken before the allocation reservation (R3 not deducted twice) | `low_point_basis` | `"pre_reservation"`: the walk's own low point | `"post_reservation"`: less `reserved_by_source`, the `source_capacity` figure (R3 twice) |
+| PD4 | Preview salary on the low-point walk | `source_low_walk(preview_salary=...)` | none: only the closing walk credits the payday-plan salary and seeds a bill-less salary account | the salary event walked on its account too |
+| PD5 | Uncertain and estimated flags | none | read from the plans by the same kernel | no difference |
+
 G367 (step 5 of section 6, done): the pooled Left to spend walk is derived from the same window inputs and walk loop. NO behaviour change; the pooled rules stay as owner rules and are now explicit policy fields (`PooledPolicy`, `services/account_walk.py:403`, default `POOLED_POLICY`, `services/account_walk.py:424`). They differ from the per-account walk (WD1 to WD9) as follows:
 
 | Id | Difference | `PooledPolicy` field | Pooled (production) | Per-account walk |
@@ -93,15 +101,7 @@ G367 (step 5 of section 6, done): the pooled Left to spend walk is derived from 
 | SD5 | Seed | `negative_seed` | `"exclude"`: `pooled_seed` (`services/account_walk.py:441`) is the spendable pool with negative balances counted as 0 | `"include"`: each account opens at its own balance |
 | SD6 | Window source and end | `window_end` | `"before_payday"`: `WindowInputs.window_*`, strictly before payday, not-counted accounts re-dropped from the account rows (B10); the payday-day slice feeds only `payday_income` | `"through_payday"` adds the payday-day slice (no caller) |
 
-`pooled_walk` (`services/account_walk.py:451`) returns the low point, the window lists, `bills_total`, `income_before`, `payday_income`, `pooled_transfers_excluded` and the card charges for step 6c; the seed, buffer, commitments, allocations, card hold and the G210 clamp stay in `compute_safe_to_spend` (`routers/analytics.py:5012`). The negative-income edge is the one place the shared loop could differ from the old pooled loop (a credit never lowers the low point there, the old loop took the minimum after every event); stored amounts are non-negative, so no input reaches it.
-
-| Id | Difference | Keyword | Default (old) | Other value |
-|---|---|---|---|---|
-| PD1 | Which accounts get a position | `accounts` | `"eligible"`: every account of `account_eligibility_out`, walked or not | `"walked"`: only an account the closing walk touched |
-| PD2 | Closing for an account the closing walk never touched (idle, manual) | `closing_fallback` | `"live"`: its live balance, else 0.0 | `"none"`: closing unknown, After payments and the plan figures None |
-| PD3 | Low point taken before the allocation reservation (R3 not deducted twice) | `low_point_basis` | `"pre_reservation"`: the walk's own low point | `"post_reservation"`: less `reserved_by_source`, the `source_capacity` figure (R3 twice) |
-| PD4 | Preview salary on the low-point walk | `source_low_walk(preview_salary=...)` | none: only the closing walk credits the payday-plan salary and seeds a bill-less salary account | the salary event walked on its account too |
-| PD5 | Uncertain and estimated flags | none | read from the plans by the same kernel | no difference |
+`pooled_walk` (`services/account_walk.py:451`) returns the low point, the window lists, `bills_total`, `income_before`, `payday_income`, `pooled_transfers_excluded` and the card charges for step 6c; the seed, buffer, commitments, allocations, card hold and the G210 clamp stay in `compute_safe_to_spend` (`routers/analytics.py:5012`). The negative-income edge is the one place the shared loop could differ from the old pooled loop (a credit never lowers the low point there, the old loop took the minimum after every event); stored amounts are non-negative, so no input reaches it. The same-day sort ranks by income or debit, so a negative-amount or zero-amount bill now ranks as a debit in the pooled sort where the old sort (by signed delta) ranked it as a credit; unreachable with the non-negative amounts the codebase stores.
 
 ### 1.5 Own-account transfer rules
 
