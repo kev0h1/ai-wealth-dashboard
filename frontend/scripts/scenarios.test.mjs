@@ -13,8 +13,18 @@
 // assertion must still fail, and a gap whose assertion now passes fails the run.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
+import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
+import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
+import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
+import AccountBankEmpty from "../components/AccountBankEmpty.tsx";
+import AccountCountRow from "../components/AccountCountRow.tsx";
+import { COUNT_TOWARDS_LABEL } from "../components/CountTowardsSafeToSpendRow.tsx";
+import { NO_BANK_TRANSACTIONS, SAVINGS_NOT_COUNTED, bankDataTimeLine, isSavingsAccount } from "../lib/accountSheetNotes.ts";
 import { accountAvailability } from "../lib/accountAvailability.ts";
-import { positionsFromToday, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
+import { positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import { resolveUpcomingPeriod } from "../lib/upcomingPeriod.ts";
 import { accountPlan, assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "../lib/upcomingPlans.ts";
@@ -143,6 +153,80 @@ for (const slug of slugs) {
         if (want.verdict) assert.equal(walked.status === "covered", want.verdict === "covered", `${id} verdict (client status ${walked.status})`);
       });
     }
+  }
+
+  // Backend known gaps (expected.known_gaps) are pinned and policed by test_scenarios.py; the figures
+  // asserted above are the pinned current behaviour, so say so on every run.
+  for (const [key, gap] of Object.entries(spec.expected.known_gaps ?? {})) {
+    console.log(`scenarios: known backend gap in ${slug} (${key}): pinned current figures above, correct figure ${JSON.stringify(gap.correct)}. ${gap.reason}`);
+  }
+
+  // Scenario 9, Hide balances (H142): a client preference (PreferencesContext wd_hide_balances) with no
+  // server figure, so the gate renders every Upcoming surface this scenario's payload feeds, with the
+  // BalancesHiddenContext the page provides. Hidden must leave no pound figure in the text or the aria
+  // labels, shown must show them. Payment and income lines are payment amounts, not balances, and stay
+  // visible by policy (B55), so each account sheet is checked above its payments list.
+  if (spec.expected.hide_balances) {
+    const wrap = (hidden, el) => renderToStaticMarkup(React.createElement(BalancesHiddenContext.Provider, { value: hidden }, el));
+    const RAW = /£\d/;
+    const summaries = walk.accounts.map((account) => reconcileWithServerPosition(account, positions[account.id]));
+    const windowIncome = cashflow.upcoming_income.filter((i) => inServerWindow(i.days_away, snap.days_to_payday)).reduce((t, i) => t + i.amount, 0);
+    const windowBills = cashflow.upcoming_bills.filter((b) => inServerWindow(b.days_away, snap.days_to_payday) && !b.is_credit_card && !b.observed_pending).reduce((t, b) => t + b.amount, 0);
+    const spendableNow = cashflow.spendable_balance;
+    const plansReservedTotal = cashflow.plans_reserved ?? 0;
+    const runway = spendableNow + windowIncome - windowBills - plansReservedTotal;
+    const heroProps = {
+      isCalendarMonth: spec.pay_period_config.type === "calendar_month", daysToPayday: snap.days_to_payday, paydayLabel: "Fri 27 Nov",
+      spendableNow, runwayIncomeTotal: windowIncome, runwayBillsTotal: windowBills, allocationsRemainingTotal: 0, plansReservedTotal,
+      allocationsCount: 0, plansCount: cashflow.plans_count ?? 0, savingsNow: accounts.filter((a) => isSavingsAccount(a)).reduce((t, a) => t + a.balance, 0),
+      runway, runwayStatus: runway < 0 ? "short" : "left",
+    };
+    const renders = [
+      ["hero", (hidden) => wrap(hidden, React.createElement(UpcomingHeroCard, heroProps))],
+      ["by account", (hidden) => wrap(hidden, React.createElement(UpcomingAccountsCard, { accounts: summaries, periodLabel: "Thu 26 Nov", plans, plansStatus: "ready", onOpen() {} }))],
+      ...summaries.map((account) => [`account sheet ${account.id}`, (hidden) => wrap(hidden, React.createElement(UpcomingAccountDetails, { account, periodLabel: "Thu 26 Nov", plans, plansStatus: "ready" })).split(/<section aria-labelledby="[^"]*-events">/)[0]]),
+    ];
+    assertKey("hide balances masks every money figure", () => {
+      for (const [label, render] of renders) {
+        const hiddenHtml = render(true);
+        assert.doesNotMatch(hiddenHtml, RAW, `${label}: a pound figure is visible while balances are hidden`);
+        assert.match(hiddenHtml, /£••••/, `${label}: no mask shown while balances are hidden`);
+        const shownHtml = render(false);
+        assert.match(shownHtml, RAW, `${label}: no figure shown while balances are visible`);
+        assert.doesNotMatch(shownHtml, /£••••/, `${label}: masked while balances are visible`);
+      }
+      // The same figures are really there to hide: the shown hero carries the pooled balance and the plans reserved.
+      const hero = renders[0][1](false);
+      assert.match(hero, new RegExp(`£${spendableNow.toLocaleString("en-GB")}(\\.\\d+)?`), "shown hero carries the spendable balance");
+      assert.ok(renders.length >= 3, "hero, by account and at least one account sheet rendered");
+    });
+  }
+
+  // Scenario 10 (A175): a connected savings pot the bank sent no transactions for.
+  for (const account of accounts.filter((a) => a.transactions_last_count === 0)) {
+    assertKey(`bank empty state and savings line: ${account.id}`, () => {
+      // The scenario's own instant: 09:00 London on the day (08:00 UTC in BST), as the backend freezes it.
+      const guess = Date.parse(`${snap.today}T09:00:00Z`);
+      const londonHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "numeric", hourCycle: "h23" }).formatToParts(guess).find((p) => p.type === "hour").value);
+      const nowEmpty = guess - (londonHour - 9) * 3_600_000;
+      const html = renderToStaticMarkup(React.createElement(AccountBankEmpty, { account, now: nowEmpty }));
+      assert.ok(html.includes(NO_BANK_TRANSACTIONS), `${account.id}: the empty-state copy is missing`);
+      const timeLine = bankDataTimeLine(account, nowEmpty);
+      if (timeLine) assert.ok(html.includes(timeLine), `${account.id}: the bank data time line (${timeLine}) is missing`);
+      const row = renderToStaticMarkup(React.createElement(AccountCountRow, { account, counted: account.include_in_safe_to_spend !== false, onChange() {} }));
+      if (isSavingsAccount(account)) {
+        assert.ok(row.includes(SAVINGS_NOT_COUNTED), `${account.id}: the static savings line replaces the switch`);
+        assert.ok(!row.includes(COUNT_TOWARDS_LABEL) && !/role="switch"|<button|checkbox/.test(row), `${account.id}: the savings pot still shows a switch`);
+      }
+    });
+  }
+  for (const id of spec.expected.not_spendable ?? []) {
+    assertKey(`never spendable: ${id}`, () => {
+      const account = accounts.find((a) => a.id === id);
+      assert.equal(accountAvailability(account, { status: "ready", positions: snap.account_eligibility }), undefined, `${id} must show no availability`);
+      assert.equal(positions[id]?.spendFrom ?? null, null, `${id} must carry no Spend from`);
+      assert.ok(!walk.accounts.some((a) => a.id === id && (a.status === "short" || a.status === "unfunded")), `${id} is not a payment source`);
+    });
   }
 
   for (const key of Object.keys(gaps)) assert.ok(usedGaps.has(key), `${where} known gap "${key}" matches no assertion key`);

@@ -1,0 +1,374 @@
+{
+  "account_eligibility": {
+    "acc-chal": {
+      "account_headroom_raw": 500.0,
+      "after_payments": 500.0,
+      "after_payments_and_plans": 500.0,
+      "estimated": false,
+      "headroom": 490.0,
+      "low_point": 500.0,
+      "low_point_and_plans": 500.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 500.0,
+      "uncertain": false
+    },
+    "acc-jpn": {
+      "account_headroom_raw": 300.0,
+      "after_payments": 300.0,
+      "after_payments_and_plans": 300.0,
+      "estimated": false,
+      "headroom": 290.0,
+      "low_point": 300.0,
+      "low_point_and_plans": 300.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 300.0,
+      "uncertain": false
+    },
+    "acc-monzo": {
+      "account_headroom_raw": 15.52,
+      "after_payments": 370.0,
+      "after_payments_and_plans": 15.52,
+      "estimated": false,
+      "headroom": -365.0,
+      "low_point": 370.0,
+      "low_point_and_plans": 15.52,
+      "plans_reserved": 354.48,
+      "short": true,
+      "spend_from_capped": false,
+      "spend_from_headroom": 15.52,
+      "uncertain": false
+    },
+    "acc-prem": {
+      "account_headroom_raw": 2800.0,
+      "after_payments": 5100.0,
+      "after_payments_and_plans": 4900.0,
+      "estimated": false,
+      "headroom": 2790.0,
+      "low_point": 3000.0,
+      "low_point_and_plans": 2800.0,
+      "plans_reserved": 200.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 2800.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [
+    {
+      "active": true,
+      "destination": "Barclays Japan Pot",
+      "destination_account_ids": [
+        "acc-jpn"
+      ],
+      "filled_amount": null,
+      "fulfilment": null,
+      "id": "goal:goal-japan",
+      "inferred": false,
+      "kind": "goal",
+      "name": "Japan trip",
+      "paid_amount": 0.0,
+      "paid_this_period": false,
+      "period_amount": 200.0,
+      "record_id": "goal-japan",
+      "remaining": 200.0,
+      "source_account_id": "acc-prem",
+      "source_account_name": "Barclays Premier Current",
+      "source_basis": "chosen"
+    },
+    {
+      "active": true,
+      "destination": "Monzo Challenge Pot",
+      "destination_account_ids": [
+        "acc-chal"
+      ],
+      "filled_amount": null,
+      "fulfilment": null,
+      "id": "goal:goal-4p",
+      "inferred": false,
+      "kind": "goal",
+      "name": "4p challenge",
+      "paid_amount": 0.0,
+      "paid_this_period": false,
+      "period_amount": 354.48,
+      "record_id": "goal-4p",
+      "remaining": 354.48,
+      "source_account_id": "acc-monzo",
+      "source_account_name": "Monzo Current",
+      "source_basis": "chosen"
+    }
+  ],
+  "accounts": [
+    {
+      "balance": 500.0,
+      "currency": "GBP",
+      "id": "acc-chal",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Challenge Pot",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    },
+    {
+      "balance": 300.0,
+      "currency": "GBP",
+      "id": "acc-jpn",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Japan Pot",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    },
+    {
+      "balance": 400.0,
+      "currency": "GBP",
+      "id": "acc-monzo",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 3000.0,
+      "currency": "GBP",
+      "id": "acc-prem",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Premier Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 1,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "plans_count": 2,
+    "plans_reserved": 554.48,
+    "spendable_balance": 3400.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-prem",
+        "account_name": "Barclays Premier Current",
+        "amount": 900.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Mortgage",
+        "days_away": 3,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-02",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "MORTGAGE",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 400.0,
+        "account_bank": "Monzo",
+        "account_id": "acc-monzo",
+        "account_name": "Monzo Current",
+        "amount": 30.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 11,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-10",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "GYM",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-prem",
+        "account_name": "Barclays Premier Current",
+        "amount": 900.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Mortgage",
+        "days_away": 33,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-02",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "MORTGAGE",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-prem",
+        "account_name": "Barclays Premier Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 0,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-10-30",
+        "name": "acme|payroll::acc-prem",
+        "occurrences": 4,
+        "rule_label": null,
+        "steady_salary": true
+      },
+      {
+        "account_balance": 3000.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-prem",
+        "account_name": "Barclays Premier Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 31,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-11-30",
+        "name": "acme|payroll::acc-prem",
+        "occurrences": 4,
+        "rule_label": null,
+        "steady_salary": false
+      }
+    ]
+  },
+  "days_to_payday": 28,
+  "items": [
+    {
+      "covered": true,
+      "dests": [
+        {
+          "account_id": "acc-monzo",
+          "balance": 400,
+          "bill_count": 1,
+          "bills_total": 30,
+          "buffer": 50,
+          "destination_kind": "spend",
+          "habitual_top_up": false,
+          "move": 405.0,
+          "name": "Monzo Current",
+          "own_transfers_skipped": 0,
+          "provider": "monzo",
+          "reasons": [
+            {
+              "amount": 725.0,
+              "kind": "goal",
+              "name": "4p challenge"
+            }
+          ],
+          "spend_typical": 0,
+          "target": 805.0,
+          "usual": null
+        }
+      ],
+      "id": "payday_plan:2026-10-30:ed43e8e20f",
+      "salary": {
+        "account_id": "acc-prem",
+        "amount": 3000,
+        "keeps": [
+          {
+            "amount": 200.0,
+            "kind": "goal",
+            "name": "Japan trip",
+            "source_assumed": false
+          }
+        ],
+        "name": "Barclays Premier Current",
+        "provider": "barclays",
+        "stays": 1445
+      },
+      "total": 405.0,
+      "type": "payday_plan"
+    },
+    {
+      "id": "needle:2026-10-29",
+      "type": "needle"
+    }
+  ],
+  "name": "A goal funded from the salary account (Japan) and a scheduled daily goal drawn from another account (4p challenge): reserved at their sources (G350, G352)",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "card_growth_reserved": 0.0,
+    "commitments_reserved": 554.48,
+    "safe_to_spend": 2845.52,
+    "safe_to_spend_cash": 2845.52
+  },
+  "today": "2026-10-30"
+}

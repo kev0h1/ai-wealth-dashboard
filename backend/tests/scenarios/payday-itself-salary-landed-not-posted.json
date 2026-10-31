@@ -1,0 +1,210 @@
+{
+  "name": "Payday itself, salary landed in the balance but not yet posted: the figures still overstate (known gap, G362, money engine map D7)",
+  "today": "2026-10-30",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 4200.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 80.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 900.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 4200.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "MORTGAGE",
+        "avg_amount": 1100.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-02",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 4200.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      },
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-06",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 4200.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "HOME INSURANCE",
+        "avg_amount": 120.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-10",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 80.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "MOBILE PHONE",
+        "avg_amount": 45.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-16",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 4200.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 4200.0,
+        "category": "Income",
+        "occurrences": 4,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-07-31",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-28",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "expected": {
+    "left_to_spend": 4280.0,
+    "spendable_balance": 4280.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 4200.0,
+        "after_payments": 5005.0,
+        "low_point": 4200.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 80.0,
+        "after_payments": 860.0,
+        "low_point": 80.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": {
+      "total": 90.0,
+      "dests": {
+        "acc-hsbc": 90.0
+      }
+    },
+    "at_risk_count": 0,
+    "pinned_wrong": [
+      "left_to_spend",
+      "acc-bc after_payments",
+      "acc-bc low_point",
+      "acc-bc spend_from"
+    ],
+    "known_gaps": {
+      "left_to_spend": {
+        "correct": 2865.0,
+        "reason": "G362 closes an income occurrence only once its credit has posted; here the salary is in the live balance but not posted, so it is credited twice (money engine map D7). Correct Left to spend is 2,865."
+      },
+      "acc-bc after_payments": {
+        "correct": 2005.0,
+        "reason": "G362 closes an income occurrence only once its credit has posted; here the salary is in the live balance but not posted, so it is credited twice (money engine map D7). Correct Barclays after payments is 2,005."
+      },
+      "acc-bc low_point": {
+        "correct": 2005.0,
+        "reason": "G362 closes an income occurrence only once its credit has posted; here the salary is in the live balance but not posted, so it is credited twice (money engine map D7). Correct Barclays low point is 2,005."
+      },
+      "acc-bc spend_from": {
+        "correct": 2005.0,
+        "reason": "G362 closes an income occurrence only once its credit has posted; here the salary is in the live balance but not posted, so it is credited twice (money engine map D7). Correct Barclays Spend from is 2,005."
+      }
+    },
+    "notes": "Payday itself, Fri 30 Oct 2026, pay period last Friday, so the new period runs 30 Oct to Thu 26 Nov (next payday Fri 27 Nov, 28 days away, window days 0 to 27). The 3,000 salary (history 31 Jul, 28 Aug and 25 Sep, equal, monthly rhythm, largest credit on Barclays) is the steady salary. Barclays holds 4,200 (1,200 before pay + 3,000 landed) and HSBC holds 80. Real items in the period: Barclays standing order to HSBC 900 (Fri 30 Oct, day 0, own account, HSBC spendable), mortgage 1,100 (Mon 2 Nov, day 3), council tax 150 (Fri 6 Nov, day 7), phone 45 (Mon 16 Nov, day 17); HSBC home insurance 120 (Tue 10 Nov, day 11). The salary is in the Barclays balance (4,200) but NO credit transaction has posted yet. G362 closes an income occurrence only once the credit posts (money engine map D7), so the occurrence stays in upcoming_income at day 0 and every walk credits it a second time on top of a balance that already holds it. CORRECT figures, from the posted scenario: Left to spend 2,865; Barclays after payments 2,005, low point 2,005, Spend from 2,005. CURRENT behaviour, pinned here. Pool: 4,280 opening; day 0 + 3,000 salary again = 7,280; - 1,100 = 6,180; - 150 = 6,030; - 120 = 5,910; - 45 = 5,865. The lowest point is the opening 4,280, so Left to spend is 4,280, which overstates by 1,415, exactly the real bills in the period (deducted by nothing). Barclays walk (credits before debits on a shared day): 4,200 + 3,000 = 7,200; - 900 = 6,300; - 1,100 = 5,200; - 150 = 5,050; - 45 = 5,005. After payments 5,005; low point 4,200 (the opening balance); Spend from min(5,005, 4,200) = 4,200, under the pool 4,280. HSBC does not depend on the salary figure: 80, + 900 funded (Barclays is at 6,300 after day 0), - 120 = 860. After payments 860; low point 80; Spend from 80, as in the posted scenario. Payday plan: the credit has not posted, so the plan is still live, and it is expected here WITHOUT a gap: the app cannot see an unposted salary, the plan correctly prices from the live balance, and showing it is right until the credit posts (compare 2a, where the plan staying up after the credit posted is the gap). Barclays keeps its own bills excluding the own-account standing order, 1,100 + 150 + 45 = 1,295, plus the 50 payday buffer, so distributable is 4,200 - 1,345 = 2,855. HSBC target = bills 120 + buffer 50 = 170 against a balance of 80, so the move is 90 (already a multiple of 5): plan total 90, one move, into HSBC, well inside what Barclays can spare. No cover move; at risk 0. Known backend gaps (G362, money engine map D7): left_to_spend, acc-bc after_payments, low_point and spend_from. They stop being gaps when an income occurrence is also closed by a salary already in the live balance, not only by a posted credit; the run then fails until the gaps are deleted and the expectations set to the correct figures."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": []
+}
