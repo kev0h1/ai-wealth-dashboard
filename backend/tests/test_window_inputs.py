@@ -45,6 +45,7 @@ def _bill(name, days, amount, acct, bal, kind="commitment", card=False, **extra)
     b = {
         "name": name, "days_away": days, "amount": amount, "account_id": acct,
         "account_balance": bal, "is_credit_card": card, "kind": kind,
+        "expected_date": (TODAY + timedelta(days=days)).isoformat(),
     }
     b.update(extra)
     return b
@@ -81,6 +82,10 @@ def _resp():
             _income("ACME", 6, 2500.0, "barclays"),
             _income("ACME", DAYS_TO_PAY, 2500.0, "barclays"),
             _income("Late", 12, 100.0, "barclays"),
+            # Carries window income on an excluded (G231) account, so the
+            # pre-drop and post-drop window incomes differ when the response
+            # says exclusions are unverified (the B9 snapshot).
+            _income("Side", 5, 900.0, "natwest"),
         ],
         "internal_inflows": [
             _inflow(2, 1758.33, "hsbc"),
@@ -103,7 +108,7 @@ ACCOUNTS = [
     {"_id": "natwest", "user_id": UID, "balance": 90.0, "include_in_safe_to_spend": False},
     {"_id": "nobal", "user_id": UID, "current_balance": 33.0},
 ]
-YAPILY = [{"_id": "yap1", "user_id": UID, "balance": 75.0}]
+YAPILY = [{"_id": "yap1", "user_id": UID, "balance": 5.0}]
 MANUAL = [{"_id": "man1", "user_id": UID, "balance": 250.0, "account_type": "savings", "name": "Pot"}]
 
 
@@ -207,7 +212,23 @@ def _capture_companion(monkeypatch):
         return real_walk(events, balances)
 
     monkeypatch.setattr(companion, "_walk_events", spy_walk)
-    asyncio.run(companion.compute_today_items(UID, persist=False))
+    # What the payday-plan salary candidate pool (and the walk) asked about:
+    # the pool reads the window income as it stood BEFORE the G231 re-drop.
+    real_ok = companion.income_credit_ok
+    asked: list = []
+
+    def spy_ok(item, account_id, confirmed_keys=frozenset()):
+        asked.append([item.get("name"), str(account_id)])
+        return real_ok(item, account_id, confirmed_keys)
+
+    monkeypatch.setattr(companion, "income_credit_ok", spy_ok)
+    items = asyncio.run(companion.compute_today_items(UID, payday_preview=True, persist=False))
+    # Unique, sorted: the old funded-inflow lambda called this spy too, the
+    # builder's does not (a visibility artefact, not a behaviour difference).
+    store["income_credit_asked"] = sorted({tuple(a) for a in asked})
+    plan = next((i for i in items if i.get("type") == "payday_plan"), None)
+    store["payday_split"] = plan.get("payday_split") if plan else None
+    store["payday_split_risk"] = plan.get("payday_split_risk") if plan else None
     return _norm(store)
 
 
@@ -284,6 +305,21 @@ def test_builder_lists_equal_what_each_caller_computed_before(monkeypatch, calle
         assert _norm(wi.running_seed) == golden["window"]["balances"]
 
 
+def test_companion_pool_reads_pre_drop_income_and_split_is_captured(monkeypatch):
+    golden = json.loads(GOLDEN.read_text())["companion"]
+    got = _capture_companion(monkeypatch)
+    # the salary-candidate pool asked about the excluded account's income (pre-drop)...
+    assert ["Side", "natwest"] in got["income_credit_asked"]  # tuples normalise to lists
+    # ...but the walk's own loop, over the re-dropped window, did not.
+    assert got["payday_split"] == golden["payday_split"]
+    assert got["payday_split"], "payday_split payload must be present in the fixture"
+    assert got["payday_split_risk"] == golden["payday_split_risk"]
+
+
+def test_at_risk_fixture_counts_a_real_at_risk_bill(monkeypatch):
+    assert _capture_at_risk(monkeypatch)["result"]["count"] >= 1
+
+
 def test_builder_shared_window_facts(monkeypatch):
     wi = _build(monkeypatch, "at_risk")
     assert wi.today == TODAY and wi.days_to_pay == DAYS_TO_PAY
@@ -321,9 +357,9 @@ def test_b1_b2_b3_loaders_differ_only_in_the_documented_way(monkeypatch):
     companion_wi = _build(monkeypatch, "companion")
     spend = _build(monkeypatch, "spend_impact")
     # B1: bill accounts only (incl. Yapily) / every account + offline / accounts collection only
-    assert at_risk.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "natwest": 90.0, "yap1": 75.0}
+    assert at_risk.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "natwest": 90.0, "yap1": 5.0}
     assert companion_wi.live_balances == {
-        "barclays": 4800.0, "hsbc": 12.0, "nobal": 33.0, "yap1": 75.0, "man1": 250.0,
+        "barclays": 4800.0, "hsbc": 12.0, "nobal": 33.0, "yap1": 5.0, "man1": 250.0,
     }
     assert spend.live_balances == {"barclays": 4800.0, "hsbc": 12.0, "nobal": 0.0}
     # B2: fallback chain (companion) versus `balance` only (spend impact)
@@ -347,6 +383,10 @@ def test_b4_reapply_exclusions_flips_only_the_redrop(monkeypatch):
     assert on.window_inflows == off.window_inflows
     assert on.payday_day_bills == off.payday_day_bills
     assert on.window_income_before_exclusions == off.window_income_before_exclusions
+    # B9: the pre-drop snapshot still carries the excluded account's income
+    assert "Side" in [i["name"] for i in on.window_income_before_exclusions]
+    assert "Side" not in [i["name"] for i in on.window_income]
+    assert "Side" in [i["name"] for i in off.window_income]
     # a response that says exclusions were verified is never re-dropped
     resp = _resp()
     resp["exclusions_unverified"] = False
@@ -359,7 +399,7 @@ def test_b5_stamp_credit_basis_flips_only_the_stamp(monkeypatch):
     plain = _build(monkeypatch, "at_risk", stamp_credit_basis=False)
     stamped = _build(monkeypatch, "at_risk", stamp_credit_basis=True)
     assert all("credit_basis" not in i for i in plain.window_income)
-    assert [i["credit_basis"] for i in stamped.window_income] == ["confirmed"]
+    assert [i["credit_basis"] for i in stamped.window_income] == ["confirmed", "reliable"]
     assert _norm([{k: v for k, v in i.items() if k not in ("credit_basis", "steady_salary")}
                   for i in stamped.window_income]) == _norm(plain.window_income)
 

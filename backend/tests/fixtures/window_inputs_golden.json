@@ -49,6 +49,13 @@
     null
    ],
    [
+    5,
+    "natwest",
+    900.0,
+    true,
+    null
+   ],
+   [
     2,
     "hsbc",
     1758.33,
@@ -61,7 +68,7 @@
     "barclays": 4800.0,
     "hsbc": 12.0,
     "natwest": 90.0,
-    "yap1": 75.0
+    "yap1": 5.0
    },
    "bills": [
     {
@@ -69,6 +76,7 @@
      "account_id": "hsbc",
      "amount": 100.0,
      "days_away": 4,
+     "expected_date": "2026-11-06",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Council Tax"
@@ -78,6 +86,7 @@
      "account_id": "barclays",
      "amount": 1758.33,
      "days_away": 2,
+     "expected_date": "2026-11-04",
      "is_credit_card": false,
      "kind": "movement",
      "name": "To HSBC"
@@ -87,6 +96,7 @@
      "account_id": "natwest",
      "amount": 60.0,
      "days_away": 3,
+     "expected_date": "2026-11-05",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Gym"
@@ -96,6 +106,7 @@
      "account_id": "yap1",
      "amount": 30.0,
      "days_away": 7,
+     "expected_date": "2026-11-09",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Yapily bill"
@@ -113,6 +124,19 @@
      "confirmed_alias": null,
      "days_away": 6,
      "name": "ACME",
+     "occurrences": 3
+    },
+    {
+     "account_id": "natwest",
+     "amount": 900.0,
+     "amounts_recent": [
+      900.0,
+      900.0,
+      900.0
+     ],
+     "confirmed_alias": null,
+     "days_away": 5,
+     "name": "Side",
      "occurrences": 3
     }
    ],
@@ -136,7 +160,7 @@
    }
   ],
   "result": {
-   "count": 0
+   "count": 1
   }
  },
  "companion": {
@@ -164,6 +188,7 @@
      "account_id": "barclays",
      "amount": 1758.33,
      "days_away": 2,
+     "expected_date": "2026-11-04",
      "is_credit_card": false,
      "kind": "movement",
      "name": "To HSBC"
@@ -179,6 +204,7 @@
      "account_id": "hsbc",
      "amount": 100.0,
      "days_away": 4,
+     "expected_date": "2026-11-06",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Council Tax"
@@ -215,9 +241,31 @@
      "account_id": "yap1",
      "amount": 30.0,
      "days_away": 7,
+     "expected_date": "2026-11-09",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Yapily bill"
+    }
+   ],
+   [
+    10,
+    "barclays",
+    2500.0,
+    true,
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "credit_basis": "confirmed",
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3,
+     "steady_salary": false
     }
    ]
   ],
@@ -227,7 +275,7 @@
     "hsbc": 12.0,
     "man1": 250.0,
     "nobal": 33.0,
-    "yap1": 75.0
+    "yap1": 5.0
    },
    "bills": [
     {
@@ -235,6 +283,7 @@
      "account_id": "hsbc",
      "amount": 100.0,
      "days_away": 4,
+     "expected_date": "2026-11-06",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Council Tax"
@@ -244,6 +293,7 @@
      "account_id": "barclays",
      "amount": 1758.33,
      "days_away": 2,
+     "expected_date": "2026-11-04",
      "is_credit_card": false,
      "kind": "movement",
      "name": "To HSBC"
@@ -253,6 +303,7 @@
      "account_id": "yap1",
      "amount": 30.0,
      "days_away": 7,
+     "expected_date": "2026-11-09",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Yapily bill"
@@ -294,10 +345,37 @@
     "source_account_id": "barclays"
    }
   ],
+  "income_credit_asked": [
+   [
+    "ACME",
+    "barclays"
+   ],
+   [
+    "ACME",
+    "man1"
+   ],
+   [
+    "Side",
+    "natwest"
+   ]
+  ],
+  "payday_split": {
+   "accounts": [
+    {
+     "account_id": "barclays",
+     "name": "barclays",
+     "out": 500
+    }
+   ],
+   "count": 1,
+   "expected_in": 2500,
+   "total": 500
+  },
+  "payday_split_risk": null,
   "walk_balances": {
    "barclays": 4800.0,
    "hsbc": 12.0,
-   "yap1": 75.0
+   "yap1": 5.0
   }
  },
  "spend_impact": {
@@ -315,6 +393,7 @@
      "account_id": "hsbc",
      "amount": 100.0,
      "days_away": 4,
+     "expected_date": "2026-11-06",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Council Tax"
@@ -324,6 +403,7 @@
      "account_id": "barclays",
      "amount": 1758.33,
      "days_away": 2,
+     "expected_date": "2026-11-04",
      "is_credit_card": false,
      "kind": "movement",
      "name": "To HSBC"
@@ -333,6 +413,7 @@
      "account_id": "natwest",
      "amount": 60.0,
      "days_away": 3,
+     "expected_date": "2026-11-05",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Gym"
@@ -342,6 +423,7 @@
      "account_id": "yap1",
      "amount": 30.0,
      "days_away": 7,
+     "expected_date": "2026-11-09",
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Yapily bill"
@@ -359,6 +441,19 @@
      "confirmed_alias": null,
      "days_away": 6,
      "name": "ACME",
+     "occurrences": 3
+    },
+    {
+     "account_id": "natwest",
+     "amount": 900.0,
+     "amounts_recent": [
+      900.0,
+      900.0,
+      900.0
+     ],
+     "confirmed_alias": null,
+     "days_away": 5,
+     "name": "Side",
      "occurrences": 3
     }
    ],
@@ -412,6 +507,7 @@
       "account_id": "barclays",
       "amount": 1758.33,
       "days_away": 2,
+      "expected_date": "2026-11-04",
       "is_credit_card": false,
       "kind": "movement",
       "name": "To HSBC"
@@ -427,6 +523,7 @@
       "account_id": "natwest",
       "amount": 60.0,
       "days_away": 3,
+      "expected_date": "2026-11-05",
       "is_credit_card": false,
       "kind": "commitment",
       "name": "Gym"
@@ -442,9 +539,29 @@
       "account_id": "hsbc",
       "amount": 100.0,
       "days_away": 4,
+      "expected_date": "2026-11-06",
       "is_credit_card": false,
       "kind": "commitment",
       "name": "Council Tax"
+     }
+    ],
+    [
+     5,
+     "natwest",
+     900.0,
+     true,
+     {
+      "account_id": "natwest",
+      "amount": 900.0,
+      "amounts_recent": [
+       900.0,
+       900.0,
+       900.0
+      ],
+      "confirmed_alias": null,
+      "days_away": 5,
+      "name": "Side",
+      "occurrences": 3
      }
     ],
     [
@@ -476,6 +593,7 @@
       "account_id": "yap1",
       "amount": 30.0,
       "days_away": 7,
+      "expected_date": "2026-11-09",
       "is_credit_card": false,
       "kind": "commitment",
       "name": "Yapily bill"
