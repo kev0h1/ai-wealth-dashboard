@@ -19,7 +19,9 @@ from app.db.collections import (
     transactions_col, accounts_col, yapily_accounts_col, yapily_transactions_col,
     statement_transactions_col,
     commitments_col, manual_accounts_col, teaching_events_col,
+    pending_transactions_col,
 )
+from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
 from app.services.categorisation import (
     RAW_TRUELAYER_CATEGORIES, VALID_CATEGORIES,
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
@@ -124,6 +126,8 @@ async def get_transactions(
     category: Optional[str] = None,
     days: Optional[int] = None,
     txn_type: Optional[str] = None,
+    activity_order: bool = False,
+    pending_page: int = 1,
     user: dict = Depends(current_user),
 ):
     """Paginated, searchable transaction list for one account.
@@ -136,7 +140,7 @@ async def get_transactions(
     page_size = max(1, min(page_size, 100))
 
     base: dict = {"account_id": account_id, "user_id": uid}
-    if days:
+    if days and not activity_order:
         base["date"] = {"$gte": datetime.now() - timedelta(days=days)}
     if txn_type in ("debit", "credit"):
         base["transaction_type"] = txn_type
@@ -152,18 +156,34 @@ async def get_transactions(
         clauses.append(_category_clause(category))
     query = clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
-    total = await col.count_documents(query)
-    docs  = await (
-        col.find(query).sort("date", -1)
-        .skip((page - 1) * page_size).limit(page_size)
-        .to_list(page_size)
-    )
-    return {
+    if activity_order:
+        total, docs = await _activity_page(col, query, page=page, page_size=page_size, days=days)
+    else:
+        total = await col.count_documents(query)
+        docs = await (
+            col.find(query).sort("date", -1)
+            .skip((page - 1) * page_size).limit(page_size)
+            .to_list(page_size)
+        )
+    response = {
         "items": [_doc_to_tx(d) for d in docs],
         "total": total,
         "page":  page,
         "pages": max(1, -(-total // page_size)),
     }
+    if page == 1:
+        pending_query = dict(query)
+        pending_query.pop("account_id", None)
+        if activity_order:
+            pending_query.pop("date", None)
+        pending, pending_total = await _live_pending_items(
+            pending_query, uid, account_id, activity_order=activity_order, days=days, category_filtered=bool(category), pending_page=pending_page,
+        )
+        response["pending_items"] = [_doc_to_tx(d) for d in pending]
+        response["pending_total"] = pending_total
+        response["pending_page"] = max(1, pending_page)
+        response["pending_pages"] = max(1, -(-pending_total // PENDING_LIST_LIMIT))
+    return response
 
 
 @router.get("/accounts/{account_id}/categories")
@@ -259,6 +279,7 @@ def _search_query(
     date_from: Optional[str] = None, date_to: Optional[str] = None,
     txn_type: Optional[str] = None,
     categories: Optional[List[str]] = None,
+    filter_by_date: bool = True,
 ) -> dict:
     """Filter shared by every collection in the global search's gather —
     generalises the account-scoped `q` clause in `get_transactions` above
@@ -296,14 +317,14 @@ def _search_query(
     base: dict = {"user_id": uid}
     from_dt = _parse_date_bound(date_from)
     to_dt   = _parse_date_bound(date_to, end_of_day=True)
-    if from_dt or to_dt:
+    if filter_by_date and (from_dt or to_dt):
         rng: dict = {}
         if from_dt:
             rng["$gte"] = from_dt
         if to_dt:
             rng["$lte"] = to_dt
         base["date"] = rng
-    elif days:
+    elif filter_by_date and days:
         base["date"] = {"$gte": datetime.now() - timedelta(days=days)}
     if txn_type in ("debit", "credit"):
         base["transaction_type"] = txn_type
@@ -353,6 +374,143 @@ def _merge_paginate(per_collection: List[list], page: int, page_size: int) -> li
     return merged[start:start + page_size]
 
 
+def _activity_date(doc: dict, now: Optional[datetime] = None) -> datetime:
+    """Customer-facing date for an activity-ordered list.
+
+    A booked bank date remains authoritative in ``date``.  A provider can
+    nevertheless assign a weekend payment the next working day, so new rows
+    persist their first-seen day in ``activity_date``.  Old rows have no such
+    field: a future legacy booking sensibly appears today rather than ahead of
+    real activity until a later sync supplies a normal booked date.
+    """
+    now = now or datetime.utcnow()  # naive-ok: bank dates are stored as naive UTC
+    raw = doc.get("activity_date")
+    if raw:
+        return raw
+    booked = doc.get("date") or datetime.min
+    # This is deliberately independent of whether the bank date is now in
+    # the past.  A legacy Nov-2 booking first seen on Oct-31 must remain an
+    # Oct-31 activity after Nov-2, just like newly ingested rows do.
+    return min(booked, doc.get("first_seen") or now)
+
+
+PENDING_LIST_LIMIT = 200
+
+
+async def _live_pending_items(query: dict, uid: str, account_id: Optional[str] = None,
+                              *, activity_order: bool = False, days: Optional[int] = None,
+                              date_from: Optional[str] = None, date_to: Optional[str] = None,
+                              category_filtered: bool = False, pending_page: int = 1) -> tuple[list[dict], int]:
+    """Bounded provisional results, never added to booked pagination/totals.
+
+    Bank pending rows have no confirmed category. Category drill-ins therefore
+    show booked evidence only, including the catch-all Other category.
+    Exact identity supersession happens before counting/limiting the response.
+    """
+    if category_filtered:
+        return [], 0
+    now = datetime.utcnow()  # naive-ok: compared with Mongo naive UTC first_seen
+    pending_query = {"$and": [query, {
+        "user_id": uid,
+        "first_seen": {"$gte": now - timedelta(days=PENDING_TXN_MAX_AGE_DAYS)},
+        **({"account_id": account_id} if account_id else {}),
+    }]}
+    pipeline = [{"$match": pending_query},
+                {"$set": {"__activity_date": _activity_expression(now)}}]
+    if activity_order:
+        bounds = _activity_bounds(days, date_from, date_to)
+        if bounds:
+            pipeline.append({"$match": bounds})
+    for col in (transactions_col, yapily_transactions_col, statement_transactions_col):
+        pipeline.extend([
+            {"$lookup": {
+                "from": col.name,
+                "let": {"txid": {"$ifNull": ["$source_transaction_id", "$_id"]},
+                        "account": "$account_id", "provider": "$provider"},
+                "pipeline": [{"$match": {"user_id": uid, "$expr": {"$and": [
+                    {"$eq": ["$_id", "$$txid"]},
+                    {"$eq": ["$account_id", "$$account"]},
+                    {"$eq": ["$provider", "$$provider"]},
+                ]}}}, {"$limit": 1}, {"$project": {"_id": 1}}],
+                "as": "__booked_twin",
+            }},
+            {"$match": {"__booked_twin": {"$eq": []}}},
+        ])
+    sort_field = "__activity_date" if activity_order else "date"
+    pipeline.append({"$facet": {
+        "items": [{"$sort": {sort_field: -1, "_id": -1}},
+                  {"$skip": (max(1, pending_page) - 1) * PENDING_LIST_LIMIT}, {"$limit": PENDING_LIST_LIMIT},
+                  {"$project": {"__booked_twin": 0}}],
+        "count": [{"$count": "total"}],
+    }})
+    result = await pending_transactions_col.aggregate(pipeline).to_list(1)
+    if not result:
+        return [], 0
+    rows = result[0]["items"]
+    total = result[0]["count"][0]["total"] if result[0]["count"] else 0
+    missing_currency_accounts = list({d.get("account_id") for d in rows if not d.get("currency") and d.get("account_id")})
+    currencies = {}
+    if missing_currency_accounts:
+        account_docs = await accounts_col.find(
+            {"_id": {"$in": missing_currency_accounts}, "user_id": uid}, {"_id": 1, "currency": 1},
+        ).to_list(len(missing_currency_accounts))
+        currencies = {d["_id"]: d.get("currency") for d in account_docs}
+    for row in rows:
+        row["currency"] = row.get("currency") or currencies.get(row.get("account_id")) or "GBP"
+        row["activity_date"] = row.pop("__activity_date", None)
+        row["is_pending"] = True
+    return rows, total
+
+
+def _activity_expression(now: datetime) -> dict:
+    """Mongo equivalent of `_activity_date`, used only by opted-in lists."""
+    return {"$ifNull": [
+        "$activity_date",
+        {"$min": ["$date", {"$ifNull": ["$first_seen", now]}]},
+    ]}
+
+
+def _activity_bounds(days: Optional[int], date_from: Optional[str], date_to: Optional[str]) -> dict:
+    from_dt = _parse_date_bound(date_from)
+    to_dt = _parse_date_bound(date_to, end_of_day=True)
+    if from_dt or to_dt:
+        value = {}
+        if from_dt:
+            value["$gte"] = from_dt
+        if to_dt:
+            value["$lte"] = to_dt
+        return {"__activity_date": value}
+    if days:
+        return {"__activity_date": {"$gte": datetime.utcnow() - timedelta(days=days)}}  # naive-ok: Mongo bank dates are naive UTC
+    return {}
+
+
+async def _activity_page(col, query: dict, *, page: int, page_size: int,
+                         days: Optional[int] = None, date_from: Optional[str] = None,
+                         date_to: Optional[str] = None) -> tuple[int, list[dict]]:
+    """Bounded database-side activity ordering and pagination.
+
+    This intentionally does not pull a user's full transaction history into
+    Python when the preview asks for activity order.
+    """
+    now = datetime.utcnow()  # naive-ok: bank dates are stored as naive UTC
+    pipeline = [{"$match": query}, {"$set": {"__activity_date": _activity_expression(now)}}]
+    bounds = _activity_bounds(days, date_from, date_to)
+    if bounds:
+        pipeline.append({"$match": bounds})
+    page_pipeline = pipeline + [
+        {"$sort": {"__activity_date": -1, "_id": -1}},
+        {"$skip": (page - 1) * page_size}, {"$limit": page_size},
+    ]
+    count_pipeline = pipeline + [{"$count": "total"}]
+    docs, count = await asyncio.gather(
+        col.aggregate(page_pipeline).to_list(page_size), col.aggregate(count_pipeline).to_list(1),
+    )
+    for doc in docs:
+        doc["activity_date"] = doc.pop("__activity_date", None)
+    return (count[0]["total"] if count else 0), docs
+
+
 @router.get("/transactions/search")
 async def search_transactions(
     q: Optional[str] = None,
@@ -365,6 +523,8 @@ async def search_transactions(
     date_from: Optional[str] = Query(None, alias="from"),
     date_to: Optional[str] = Query(None, alias="to"),
     txn_type: Optional[str] = None,
+    activity_order: bool = False,
+    pending_page: int = 1,
     user: dict = Depends(current_user),
 ):
     """Global, paginated, searchable transaction list spanning every source
@@ -394,24 +554,48 @@ async def search_transactions(
     page_size = max(1, min(page_size, 100))
     fetch_n   = page * page_size
 
-    query = _search_query(uid, q, category, days, merchants, date_from, date_to, txn_type, categories)
+    query = _search_query(
+        uid, q, category, days, merchants, date_from, date_to, txn_type, categories,
+        filter_by_date=not activity_order,
+    )
     cols  = (transactions_col, yapily_transactions_col, statement_transactions_col)
 
-    counts, per_collection = await asyncio.gather(
-        asyncio.gather(*(c.count_documents(query) for c in cols)),
-        asyncio.gather(*(
-            c.find(query).sort("date", -1).limit(fetch_n).to_list(fetch_n) for c in cols
-        )),
-    )
-    total = sum(counts)
-    items = _merge_paginate(list(per_collection), page, page_size)
+    if activity_order:
+        counts_and_legs = await asyncio.gather(*(
+            _activity_page(c, query, page=1, page_size=fetch_n, days=days, date_from=date_from, date_to=date_to)
+            for c in cols
+        ))
+        total = sum(total for total, _ in counts_and_legs)
+        # The global top-K cannot draw more than K rows from one source.
+        merged = [doc for _, docs in counts_and_legs for doc in docs]
+        merged.sort(key=lambda d: (d.get("activity_date") or datetime.min, str(d.get("_id"))), reverse=True)
+        items = merged[(page - 1) * page_size:page * page_size]
+    else:
+        counts, per_collection = await asyncio.gather(
+            asyncio.gather(*(c.count_documents(query) for c in cols)),
+            asyncio.gather(*(
+                c.find(query).sort("date", -1).limit(fetch_n).to_list(fetch_n) for c in cols
+            )),
+        )
+        total = sum(counts)
+        items = _merge_paginate(list(per_collection), page, page_size)
 
-    return {
+    response = {
         "items": [_doc_to_tx(d) for d in items],
         "total": total,
         "page":  page,
         "pages": max(1, -(-total // page_size)),
     }
+    if page == 1:
+        pending, pending_total = await _live_pending_items(
+            query, uid, activity_order=activity_order, days=days,
+            date_from=date_from, date_to=date_to, category_filtered=bool(category or categories), pending_page=pending_page,
+        )
+        response["pending_items"] = [_doc_to_tx(d) for d in pending]
+        response["pending_total"] = pending_total
+        response["pending_page"] = max(1, pending_page)
+        response["pending_pages"] = max(1, -(-pending_total // PENDING_LIST_LIMIT))
+    return response
 
 
 @router.get("/transactions/{transaction_id}/similar", response_model=List[Transaction])

@@ -101,6 +101,7 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
 async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
                        identity: dict | None, state: dict) -> list:
     new_txns = []
+    now = datetime.utcnow()  # naive-ok: persisted first-seen bank timestamp
     for txn in txns:
         merchant    = txn.get("merchant_name") or ""
         description = txn.get("description", "")
@@ -134,20 +135,27 @@ async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
         tdoc = {
             "account_id":       account_id,
             "user_id":          user_id,
-            "date":             datetime.fromisoformat(txn["timestamp"].replace("Z", "+00:00")),
+            "date":             _parse_iso_utc(txn["timestamp"]) or datetime.utcnow(),  # naive-ok: fallback bank timestamp uses Mongo UTC convention
             "amount":           abs(txn["amount"]),
             "currency":         txn["currency"],
             "description":      description,
             "merchant_name":    merchant or None,
             "category":         category,
             "transaction_type": "credit" if is_credit else "debit",
+            "provider":         "TrueLayer",
             "merchant_key":     canonical_merchant_key(merchant, description),
         }
         # BEFORE image (None on insert) so a material update to an existing
         # row is told apart from a no-op re-pull (G177).
         before = await transactions_col.find_one_and_update(
             {"_id": txn["transaction_id"]},
-            {"$set": tdoc, "$setOnInsert": {"_id": txn["transaction_id"], "custom_category": None}},
+            {"$set": tdoc, "$setOnInsert": {
+                "_id": txn["transaction_id"], "custom_category": None,
+                "first_seen": now,
+                # Never rewrite this on a later provider pull: it records
+                # when the customer first saw a future-working-day booking.
+                "activity_date": min(tdoc["date"], now),
+            }},
             upsert=True,
             projection=TXN_MATERIAL_PROJECTION,
             return_document=ReturnDocument.BEFORE,
@@ -178,6 +186,7 @@ def _normalise_pending_row(txn: dict) -> Optional[dict]:
         "amount":           amount,
         "description":      txn.get("description") or "",
         "merchant_name":    txn.get("merchant_name") or "",
+        "currency":         txn.get("currency"),
         "transaction_type": "debit" if amount < 0 else "credit",
     }
 
@@ -375,7 +384,10 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
                         row for row in (_normalise_pending_row(t) for t in pr.json().get("results", []))
                         if row is not None
                     ]
-                    await replace_pending_for_account(pending_rows, account_id, user_id, provider="TrueLayer")
+                    await replace_pending_for_account(
+                        pending_rows, account_id, user_id, provider="TrueLayer",
+                        account_currency=acc.get("currency"),
+                    )
                 else:
                     logger.warning("Pending transaction fetch failed for account %s: HTTP %s", account_id, pr.status_code)
             except Exception:
