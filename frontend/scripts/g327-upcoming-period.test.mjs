@@ -37,7 +37,7 @@ assert.deepEqual({ ...other, fromServer: 1 }, { ...p, fromServer: 1 });
 const endMs = p.end.getTime();
 const through = paymentsThroughLabel(upcomingAccountWindow(endMs, Date.parse("2026-10-24T10:00:00Z")));
 assert.equal(through, "Payments through Thu 29 Oct");
-assert.equal(paymentsThroughLabel(upcomingAccountWindow(endMs, Date.parse("2026-10-29T10:00:00Z"))), "Payments through Wed 4 Nov", "final-day lookahead uses the server payday");
+assert.equal(paymentsThroughLabel(upcomingAccountWindow(endMs, Date.parse("2026-10-29T10:00:00Z"))), "Payments through Thu 29 Oct", "G360: no final-day lookahead");
 
 // A confirmed salary date never replaces the period's own payday.
 const observed = resolveUpcomingPeriod({ period: { ...period, payday_observed: { date: "2026-10-28", source: "confirmed" } } }, calendarSeed);
@@ -61,8 +61,8 @@ assert.equal(cal.daysToPayday, 8);
 const lateNow = Date.parse("2026-10-28T23:30:00Z");
 const finalDay = resolveUpcomingPeriod({ period: { ...period, day_number: 35 } }, { config: { type: "calendar_month" }, nowMs: lateNow });
 assert.equal(finalDay.daysToPayday, 1);
-assert.equal(upcomingAccountWindow(finalDay.end.getTime(), lateNow), Date.parse("2026-10-29") + 86400000 - 1, "legacy UTC test disagrees in that hour");
-assert.equal(upcomingAccountWindow(finalDay.end.getTime(), lateNow, finalDay.daysToPayday), Date.parse("2026-11-04"), "server day drives the final-day lookahead");
+assert.equal(upcomingAccountWindow(finalDay.end.getTime(), lateNow), Date.parse("2026-10-29") + 86400000 - 1, "window is always the day before payday");
+assert.equal(upcomingAccountWindow(finalDay.end.getTime(), lateNow, finalDay.daysToPayday), Date.parse("2026-10-29") + 86400000 - 1, "G360: server day no longer widens the window");
 const earlyNow = Date.parse("2026-10-29T10:00:00Z");
 assert.equal(upcomingAccountWindow(finalDay.end.getTime(), earlyNow, finalDay.daysToPayday), upcomingAccountWindow(finalDay.end.getTime(), earlyNow), "clocks agree when UTC and London share the day");
 console.log("g327-upcoming-period ok");

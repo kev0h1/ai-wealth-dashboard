@@ -18,6 +18,8 @@ export type UpcomingAccountEvent = {
  * pounds. When present the sheet shows these figures instead of recomputing. */
 export type UpcomingAccountPosition = {
   afterPayments: number | null;
+  /** G360: the lowest running balance this period, before plans (server `low_point`). */
+  lowPoint: number | null;
   plansReserved: number;
   afterPaymentsAndPlans: number | null;
   /** Mid-period minimum running balance minus plans (null when uncertain). */
@@ -49,19 +51,11 @@ export type UpcomingAccountSummary = {
   position?: UpcomingAccountPosition;
 };
 
-/** Shared coverage boundary: before payday, with the established final-day lookahead. */
-export function upcomingAccountWindow(periodEndMs: number, nowMs: number, daysToPayday?: number): number {
-  const day = 86400000;
-  const payday = periodEndMs + day;
-  // G327: callers holding the server period pass its days-to-payday (London day),
-  // so the final-day test agrees with the hero and never depends on the client's UTC clock.
-  let days = daysToPayday;
-  if (days === undefined) {
-    const now = new Date(nowMs);
-    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    days = Math.round((payday - today) / day);
-  }
-  return days <= 1 ? payday + 5 * day : payday - 1;
+/** Shared coverage boundary: the day before payday, always. G360 removed the
+ * final-day lookahead, so next-period bills never count against this period.
+ * `nowMs` and `daysToPayday` are kept so existing callers stay valid. */
+export function upcomingAccountWindow(periodEndMs: number, _nowMs?: number, _daysToPayday?: number): number {
+  return periodEndMs + 86400000 - 1;
 }
 
 /** Convenience for consumers needing only the card; no second calculation. */
@@ -70,6 +64,30 @@ export function buildUpcomingAccountSummaries(
   endMs: number,
 ): UpcomingAccountSummary[] {
   return walkUpcomingAccounts(cashflow, endMs).accounts;
+}
+
+/**
+ * G360: one verdict per account. The server position (the same figures Home and
+ * the Accounts list use) decides short versus covered; the client walk still
+ * supplies the named bill and the dated events. Server short (after payments or
+ * low point below zero) is never shown as covered; server covered (both at or
+ * above zero) is never shown as short. When the server says short but the walk
+ * found no short payment, the shortfall is the more negative server figure.
+ */
+export function reconcileWithServerPosition(account: UpcomingAccountSummary, position: UpcomingAccountPosition | undefined): UpcomingAccountSummary {
+  if (!position) return account;
+  if (position.uncertain) return { ...account, position };
+  const figures = [position.afterPayments, position.lowPoint].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (figures.length === 0) return { ...account, position };
+  const lowest = Math.min(...figures);
+  if (lowest < 0) {
+    if (account.status === "short" && account.shortfall !== null && account.shortfall > 0) return { ...account, position };
+    return { ...account, position, status: "short", shortfall: Math.max(account.shortfall ?? 0, -lowest), firstShortDate: account.firstShortDate ?? account.events.find((event) => event.after !== null && event.after < 0)?.date ?? null, shortFor: account.shortFor ?? null };
+  }
+  if (account.status === "short" || account.status === "unfunded") {
+    return { ...account, position, status: "covered", shortfall: 0, firstShortDate: null, shortFor: null, coverSuggestion: null };
+  }
+  return { ...account, position };
 }
 
 /** G238: map GET /today's `account_eligibility` onto the sheet's position type.
@@ -89,6 +107,7 @@ export function positionsFromToday(
     if (typeof entry.uncertain !== "boolean" || typeof entry.plans_reserved !== "number") continue;
     out[id] = {
       afterPayments: typeof entry.after_payments === "number" ? entry.after_payments : null,
+      lowPoint: typeof entry.low_point === "number" ? entry.low_point : null,
       plansReserved: entry.plans_reserved,
       afterPaymentsAndPlans: typeof entry.after_payments_and_plans === "number" ? entry.after_payments_and_plans : null,
       lowPointAndPlans: typeof entry.low_point_and_plans === "number" ? entry.low_point_and_plans : null,

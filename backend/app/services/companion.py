@@ -44,6 +44,7 @@ from app.services.account_kinds import (
     manual_account_class,
 )
 from app.services.categories import MOVEMENT
+from app.services.inflow_credit import funded_inflows
 from app.services.categorisation import series_key
 
 
@@ -2636,8 +2637,8 @@ async def compute_today_items(
     # days_to_pay) belongs to the NEXT pay period's arithmetic, not this
     # one — it drops into `payday_day_*` below instead, which stays VISIBLE
     # via the payday_plan card's `payday_split` payload (section 5c) but is
-    # never counted toward at-risk/shortfall/to-last. Last-day lookahead
-    # (days_to_pay <= 1) is unchanged, encoded inside the helper — see
+    # never counted toward at-risk/shortfall/to-last. No last-day lookahead
+    # (G360): strictly before payday for every days_to_pay — see
     # app/services/pay_period.py's in_current_window/is_payday_day
     # docstrings. Must stay in lockstep with the same boundary in
     # analytics.at_risk_count and spend_impact._cashflow_window.
@@ -2897,8 +2898,21 @@ async def compute_today_items(
     # for one either — see the comment block above `walk_sort_key`, this
     # function's own file, for why a lapsed inflow is already spoken for by
     # its source-side pending copy.
-    for n in window_inflows:
+    #
+    # G360: an inflow is credited only when its SOURCE account is itself
+    # covered that day (`funded_inflows`, one rule for every walk).
+    _funded_balances = {**live_balances, **running}
+    funded_window_inflows = funded_inflows(
+        window_inflows, assessable_bills, window_income, _funded_balances,
+        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
+    )
+    for n in funded_window_inflows:
         acct = str(n.get("account_id") or "")
+        # G360: a funded inflow into an account with no bill of its own still
+        # counts, seeded at its live balance exactly as the preview salary is,
+        # so after_payments and low_point consume identical events.
+        if acct and acct not in running and acct in live_balances:
+            running[acct] = live_balances[acct]
         if acct in running:
             events.append((n["days_away"], acct, float(n["amount"]), True, n))
 
@@ -3082,6 +3096,13 @@ async def compute_today_items(
             (i["days_away"], float(i["amount"]))
             for i in window_income
             if income_credit_ok(i, sid, confirmed_income_keys)
+        ]
+        # G360: funded inbound own-account transfers, same rule as the
+        # closing walk above, so low_point and after_payments agree.
+        ev += [
+            (n["days_away"], float(n["amount"]))
+            for n in funded_window_inflows
+            if str(n.get("account_id") or "") == sid
         ]
         # same-day: inflows before outflows, G163 — the (days_away, delta)
         # shape here is inline rather than `walk_sort_key` (which expects a
@@ -3673,6 +3694,11 @@ async def compute_today_items(
             if (b["account_id"] or "__unknown__") == dest
         ]
         ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
+        ev += [
+            (n["days_away"], float(n["amount"]))
+            for n in funded_window_inflows
+            if str(n.get("account_id") or "") == dest
+        ]
         if extra_income is not None:
             ev.append((extra_income["days_away"], float(extra_income["amount"])))
         ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))

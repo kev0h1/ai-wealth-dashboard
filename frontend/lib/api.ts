@@ -159,6 +159,8 @@ export type UpcomingBill = {
   account_name?: string | null;
   account_bank?: string | null;
   account_balance?: number | null;
+  /** G359: set on predicted income the server may credit to its account's walk ("confirmed", "reliable" or "steady"). */
+  credit_basis?: "confirmed" | "reliable" | "steady" | null;
   is_credit_card?: boolean;
   category?: string | null;
   edited?: boolean;
