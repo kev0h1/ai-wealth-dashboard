@@ -12,6 +12,14 @@ from tests.test_g176_account_plan_sources import _accounts
 from tests.test_plan_fulfilment import UID, _Txns, _credit, _debit, _suggest
 
 
+@pytest.fixture(autouse=True)
+def _restore_fulfilment_handles(monkeypatch):
+    """H143: `_suggest` (from test_plan_fulfilment) assigns the module handles
+    directly; register them with monkeypatch so they are put back afterwards."""
+    monkeypatch.setattr(fulfilment, "transactions_col", fulfilment.transactions_col)
+    monkeypatch.setattr(fulfilment, "yapily_transactions_col", fulfilment.yapily_transactions_col)
+
+
 def _eligible_sources():
     return {key: value for key, value in _accounts().items() if key in {"current", "saving"}}
 
