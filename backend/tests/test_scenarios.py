@@ -415,11 +415,11 @@ def _check_expected(snap: dict, spec: dict) -> None:
         chk.check("cover moves", got_moves, want_moves)
     plan = next((i for i in snap["items"] if i["type"] == "payday_plan"), None)
     want_plan = exp.get("payday_plan")
-    if want_plan is None:
-        assert plan is None, f"{where} unexpected payday plan"
-    else:
-        assert plan is not None, f"{where} payday plan missing"
+    chk.check("payday_plan present", plan is not None, want_plan is not None)
+    if want_plan is not None and plan is not None:
         chk.check("payday_plan total", _r2(plan["total"]), _r2(want_plan["total"]))
+        if "salary_amount" in want_plan:
+            chk.check("payday_plan salary amount", _r2(plan["salary"]["amount"]), _r2(want_plan["salary_amount"]))
         if "dests" in want_plan:
             got = {d["account_id"]: _r2(d["move"]) for d in plan["dests"] if d["move"] > 0}
             chk.check("payday_plan dests", got, {k: _r2(v) for k, v in want_plan["dests"].items()})

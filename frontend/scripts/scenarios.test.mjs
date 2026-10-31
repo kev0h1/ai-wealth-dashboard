@@ -145,6 +145,12 @@ for (const slug of slugs) {
     }
   }
 
+  // Backend known gaps (expected.known_gaps) are pinned and policed by test_scenarios.py; the figures
+  // asserted above are the pinned current behaviour, so say so on every run.
+  for (const [key, gap] of Object.entries(spec.expected.known_gaps ?? {})) {
+    console.log(`scenarios: known backend gap in ${slug} (${key}): pinned current figures above, correct figure ${JSON.stringify(gap.correct)}. ${gap.reason}`);
+  }
+
   for (const key of Object.keys(gaps)) assert.ok(usedGaps.has(key), `${where} known gap "${key}" matches no assertion key`);
   checked += 1;
 }
