@@ -25,7 +25,7 @@ All sums are in integer pence. Pure functions: no I/O.
 
 G366 (money engine step 4): the positions are DERIVED FROM THE WALK OUTPUT.
 `compute_account_positions_from_walks` reads each account's closing from the
-closing walk's `AccountWalk` (companion's W2, `walk_events(walks_out=...)`) and
+closing walk's `AccountWalk` (companion's W2, `account_walks`) and
 its low point from the source low-point walk's `AccountWalk` (W3,
 `source_low_walk`), so After payments, Lowest (`low_point`), the Spend from seed
 (`seed_spend_from`), source safety (`source_min_run`) and the Accounts list
@@ -201,7 +201,7 @@ def compute_account_positions_from_walks(
     """G366: `compute_account_positions` fed from the walk output.
 
     `account_ids` are the accounts to report (order kept), `closing_walks` the
-    closing walk per account (`walk_events(walks_out=...)`) and `low_walks` the
+    closing walk per account (`account_walks`) and `low_walks` the
     source low-point walk per account (`source_low_walk`). The keywords are
     PD1 to PD4 in the module docstring; every default is the old behaviour."""
     if accounts not in ("eligible", "walked"):
