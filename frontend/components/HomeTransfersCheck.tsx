@@ -6,7 +6,7 @@ import { ArrowLeftRight, ArrowRight, Check, CircleAlert, LoaderCircle } from "lu
 import { api } from "@/lib/api";
 import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
 
-export type TransferCheckState = { status: "loading" | "failed" } | { status: "ready"; count: number };
+export type TransferCheckState = { status: "loading" } | { status: "failed" } | { status: "ready"; count: number };
 const reviewHref = "/spend?review=1";
 const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 dark:focus-visible:ring-indigo-300 dark:focus-visible:ring-offset-slate-900";
 const surface = "rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
