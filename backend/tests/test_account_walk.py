@@ -452,3 +452,254 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         )
         got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1))
     assert got == golden
+
+
+# ── the one walk reproduces the old per-caller figures (legacy golden) ───────
+
+from app.services import account_walk as aw  # noqa: E402
+
+
+def _names(events):
+    return [[e[0], e[1], e[2], e[3], (e[4] or {}).get("name")] for e in events]
+
+
+@pytest.fixture
+def wi(monkeypatch):
+    return _build_wi(monkeypatch)
+
+
+def _golden_legacy():
+    return json.loads(GOLDEN.read_text())["legacy"]
+
+
+def test_closing_walk_equals_the_old_closing_golden(wi):
+    g = _golden_legacy()["closing"]
+    salary = _preview_salary(wi)
+    assert salary["name"] == "ACME"
+    events, seed, credited = aw.window_events(wi, inflow_admit="seed_live", preview_salary=salary)
+    assert _norm(_names(events)) == g["events"]
+    assert _norm(list(seed.items())) == g["seed"]
+    running, min_running, shortfall, bounced = aw.walk_events(events, dict(seed))
+    assert _norm(list(running.items())) == g["running"]
+    assert _norm(list(min_running.items())) == g["min_running"]
+    assert [[a, b["name"]] for a, b in shortfall.items()] == g["shortfall_bill"]
+    assert [[a, [b["name"] for b in bl]] for a, bl in bounced.items()] == g["bounced_bills"]
+    assert [[a, [i["name"] for i in il]] for a, il in credited.items()] == g["credited_incomes"]
+
+
+def test_low_point_walk_equals_the_old_source_min_running_golden(wi):
+    g = _golden_legacy()["source_low_point"]
+    walked = {}
+    for acc in _eligible_sources(wi):
+        sid = acc["_str_id"]
+        bal = wi.live_balances.get(sid, float(acc.get("balance") or 0))
+        w = aw.walk_account(
+            sid, wi, opening=bal, income_admit="any", inflow_admit="any", same_day_key="positive_delta",
+        )
+        walked[sid] = {
+            "opening": bal, "low_point": w.low_point,
+            "events": [(e[0], e[2] if e[3] else -e[2]) for e in w.events],
+        }
+    assert _norm(walked) == g
+
+
+def test_with_extra_income_walk_equals_the_old_walk_min_golden(wi):
+    g = _golden_legacy()
+    _events, _seed, credited = aw.window_events(wi, inflow_admit="seed_live", preview_salary=_preview_salary(wi))
+    credited_ids = {id(i) for lst in credited.values() for i in lst}
+    excluded = [i for i in wi.window_income if id(i) not in credited_ids]
+    assert [i["name"] for i in excluded] == g["excluded_incomes"]
+    got = {}
+    for sid in g["walk_min"]:
+        kw = dict(opening=wi.live_balances.get(sid, 0.0), income_admit="seeded", inflow_admit="any",
+                  same_day_key="positive_delta")
+        base = aw.walk_account(sid, wi, **kw)
+        got[sid] = {
+            "opening": wi.live_balances.get(sid, 0.0),
+            "min": base.low_point,
+            "events": [(e[0], e[2] if e[3] else -e[2]) for e in base.events],
+            "with_extra": {
+                inc["name"]: aw.walk_account(sid, wi, extra_income=inc, **kw).low_point for inc in excluded
+            },
+        }
+    assert _norm(got) == g["walk_min"]
+
+
+def _at_risk_wi(monkeypatch):
+    from app.services import window_inputs as wim
+
+    _patch_common(monkeypatch)
+    return asyncio.run(wim.build_window_inputs(
+        UID, _resp(), json.loads(json.dumps(PREFS)),
+        load_balances=wim.bill_account_loader(FakeCol([dict(a) for a in ACCOUNTS]), FakeCol(YAPILY)),
+    ))
+
+
+def test_at_risk_count_equals_the_golden_count(monkeypatch):
+    wi_ar = _at_risk_wi(monkeypatch)
+    events, seed, _ = aw.window_events(wi_ar)
+    _r, _m, _s, bounced = aw.walk_events(events, seed)
+    assert aw.count_at_risk(bounced) == json.loads(GOLDEN.read_text())["at_risk"]["result"]["count"] == 4
+
+
+# ── AccountWalk carries closing, low point, first short and dated rows ───────
+
+def test_account_walk_result_fields(wi):
+    w = aw.walk_account("lowsrc", wi, opening=5.0)
+    assert [r.item["name"] for r in w.rows] == ["Standing order out", "Card repayment", "Phone"]
+    assert [round(r.running, 2) for r in w.rows] == [-85.0, -125.0, -150.0]
+    assert w.closing == -150.0 and w.low_point == -150.0 and w.opening == 5.0
+    assert w.first_short.bill["name"] == "Standing order out"
+    assert (w.first_short.day, round(w.first_short.shortfall, 2)) == (1, 85.0)
+    assert [b["name"] for b in w.bounced] == ["Standing order out", "Card repayment", "Phone"]
+    assert all(r.short and r.delta < 0 for r in w.rows)
+    covered = aw.walk_account("barclays", wi, opening=4800.0)
+    assert covered.first_short is None and covered.bounced == []
+    assert covered.low_point == round(4800.0 - 1758.33 - 400.0 - 120.0, 2)
+
+
+def test_an_account_with_no_events_keeps_its_opening(wi):
+    w = aw.walk_account("idle", wi, opening=15.0)
+    assert (w.closing, w.low_point, w.first_short, w.rows, w.events) == (15.0, 15.0, None, [], [])
+    # compute_today_items reads `running.get(sid, live)`: untracked means live.
+    events, seed, _ = aw.window_events(wi, inflow_admit="seed_live")
+    assert "idle" not in seed
+
+
+def test_low_point_is_a_running_minimum_from_the_opening_balance(wi):
+    # hsbc opens at 12, pays 100 on day 4 after a 1758.33 funded inflow on day 2
+    w = aw.walk_account("hsbc", wi, opening=12.0, inflow_admit="any")
+    assert [round(r.running, 2) for r in w.rows] == [1770.33, 1670.33, 1685.33]
+    assert w.low_point == 12.0  # the opening is the lowest point, no debit went below it
+
+
+# ── one test per W-difference, flipping only that keyword ────────────────────
+
+def test_wd1_wd4_inflow_admit_flips_only_which_accounts_an_inflow_reaches(wi):
+    # pot has no bill: a funded inflow reaches it only when it may seed it or any
+    seeded = aw.walk_account("pot", wi, opening=250.0, inflow_admit="seeded")
+    seed_live = aw.walk_account("pot", wi, opening=250.0, inflow_admit="seed_live")
+    anyone = aw.walk_account("pot", wi, opening=250.0, inflow_admit="any")
+    assert seeded.events == [] and seeded.closing == 250.0
+    assert [e[2] for e in seed_live.events] == [400.0] and seed_live.closing == 650.0
+    assert anyone.events == seed_live.events
+    # a bill-seeded account takes its funded inflow in every mode
+    for mode in ("seeded", "seed_live", "any"):
+        hs = aw.walk_account("hsbc", wi, opening=12.0, inflow_admit=mode)
+        assert 1758.33 in [e[2] for e in hs.events]
+    # the unfunded inflow (its source is short) is never in the funded list
+    nw = aw.walk_account("natwest", wi, opening=90.0, inflow_admit="any")
+    assert 300.0 not in [e[2] for e in nw.events]
+    # the window walk tracks pot only with seed_live
+    _e, tracked_seeded, _c = aw.window_events(wi, inflow_admit="seeded")
+    _e, tracked_live, _c = aw.window_events(wi, inflow_admit="seed_live")
+    assert "pot" not in tracked_seeded and tracked_live["pot"] == 250.0
+    with pytest.raises(ValueError):
+        aw.window_events(wi, inflow_admit="any")
+
+
+def test_wd2_the_opening_balance_is_the_callers(wi):
+    a = aw.walk_account("barclays", wi, opening=4800.0)
+    b = aw.walk_account("barclays", wi, opening=100.0)
+    assert a.events == b.events and b.closing == a.closing - 4700.0
+    assert b.first_short is not None and a.first_short is None
+
+
+def test_wd3_income_admit_flips_only_the_seeding_requirement(wi):
+    # Bonus is attributed to pot, which has no bill of its own
+    seeded = aw.walk_account("pot", wi, opening=250.0, income_admit="seeded", inflow_admit="any")
+    anyone = aw.walk_account("pot", wi, opening=250.0, income_admit="any", inflow_admit="any")
+    assert "Bonus" not in [(e[4] or {}).get("name") for e in seeded.events]
+    assert "Bonus" in [(e[4] or {}).get("name") for e in anyone.events]
+    assert seeded.credited_incomes == [] and [i["name"] for i in anyone.credited_incomes] == ["Bonus"]
+    assert round(anyone.closing - seeded.closing, 2) == 77.0
+    # an account that has a bill takes its credit-ok income either way
+    for mode in ("seeded", "any"):
+        bc = aw.walk_account("barclays", wi, opening=4800.0, income_admit=mode)
+        assert "ACME" in [(e[4] or {}).get("name") for e in bc.events]
+    with pytest.raises(ValueError):
+        aw.walk_account("pot", wi, opening=0.0, income_admit="sometimes")
+
+
+def test_wd5_preview_salary_lands_at_days_to_pay_on_its_account_only(wi):
+    salary = _preview_salary(wi)
+    plain = aw.walk_account("barclays", wi, opening=4800.0)
+    with_salary = aw.walk_account("barclays", wi, opening=4800.0, preview_salary=salary)
+    extra = [e for e in with_salary.events if e not in plain.events]
+    assert [(e[0], e[2], e[3]) for e in extra] == [(DAYS_TO_PAY, 2500.0, True)]
+    assert round(with_salary.closing - plain.closing, 2) == 2500.0
+    assert with_salary.low_point == plain.low_point
+    other = aw.walk_account("hsbc", wi, opening=12.0, preview_salary=salary)
+    assert other.events == aw.walk_account("hsbc", wi, opening=12.0).events
+    # a salary account with no bill is tracked at its live balance
+    ghost = dict(salary, account_id="pot")
+    _e, tracked, _c = aw.window_events(wi, preview_salary=ghost)
+    assert tracked["pot"] == 250.0
+    assert "pot" not in aw.window_events(wi)[1]
+
+
+def test_wd6_extra_income_is_one_event_at_its_own_day(wi):
+    inc = {"name": "Maybe", "days_away": 4, "amount": 200.0, "account_id": "elsewhere"}
+    base = aw.walk_account("lowsrc", wi, opening=5.0)
+    more = aw.walk_account("lowsrc", wi, opening=5.0, extra_income=inc)
+    assert [e for e in more.events if e not in base.events] == [(4, "lowsrc", 200.0, True, inc)]
+    assert more.low_point > base.low_point
+
+
+def test_wd7_credited_incomes_are_disclosed_by_the_walk(wi):
+    events, seed, credited = aw.window_events(wi, inflow_admit="seed_live")
+    assert {a: [i["name"] for i in il] for a, il in credited.items()} == {
+        "barclays": ["ACME"], "hsbc": ["Refund"],
+    }
+    # inflows and the preview salary are never "credited incomes"
+    events2, _s, credited2 = aw.window_events(wi, inflow_admit="seed_live", preview_salary=_preview_salary(wi))
+    assert credited2 == credited and len(events2) == len(events) + 1
+
+
+def test_wd8_same_day_key_only_changes_the_order_for_a_non_positive_credit(wi):
+    zero = {"name": "Zero", "days_away": 2, "amount": 0.0, "account_id": "lowsrc"}
+    a = aw.walk_account("lowsrc", wi, opening=5.0, extra_income=zero, same_day_key="is_income")
+    b = aw.walk_account("lowsrc", wi, opening=5.0, extra_income=zero, same_day_key="positive_delta")
+    day2 = lambda w: [(e[4] or {}).get("name") for e in w.events if e[0] == 2]  # noqa: E731
+    assert day2(a) == ["Zero", "Card repayment"]
+    assert day2(b) == ["Card repayment", "Zero"]
+    # the figures do not move
+    assert (a.closing, a.low_point) == (b.closing, b.low_point)
+    # a positive credit sorts first under both
+    pos = {"name": "Pos", "days_away": 2, "amount": 10.0, "account_id": "lowsrc"}
+    for key in ("is_income", "positive_delta"):
+        w = aw.walk_account("lowsrc", wi, opening=5.0, extra_income=pos, same_day_key=key)
+        assert day2(w)[0] == "Pos"
+    with pytest.raises(ValueError):
+        aw.walk_account("lowsrc", wi, opening=5.0, same_day_key="alphabetical")
+
+
+def test_wd9_count_at_risk_skips_a_bounced_movement_but_counts_a_card_repayment(wi):
+    w = aw.walk_account("lowsrc", wi, opening=5.0)
+    assert [b["name"] for b in w.bounced] == ["Standing order out", "Card repayment", "Phone"]
+    assert aw.count_at_risk({"lowsrc": w.bounced}) == 2  # the movement one is not counted
+    # first_short is the head of bounced, which here is the movement bill
+    assert w.first_short.bill["kind"] == "movement"
+    assert aw.count_at_risk({}) == 0
+
+
+# ── the compat entry point keeps its old shape ──────────────────────────────
+
+def test_walk_events_account_absent_from_balances_starts_at_zero_and_keeps_old_key_order():
+    b = {"name": "b"}
+    c = {"name": "c"}
+    events = [
+        (1, "x", 50.0, True, None),       # credit first: x not in balances
+        (2, "x", 20.0, False, b),
+        (3, "y", 5.0, False, c),          # y not in balances, goes negative
+        (4, "z", 1.0, True, None),        # credit-only account: not in min_running
+    ]
+    running, mn, short, bounced = aw.walk_events(events, {"a": 10.0})
+    assert list(running) == ["a", "x", "y", "z"] and running["x"] == 30.0 and running["y"] == -5.0
+    assert list(mn) == ["a", "x", "y"] and mn["a"] == 10.0 and mn["x"] == 30.0 and mn["y"] == -5.0
+    assert short == {"y": c} and bounced == {"y": [c]}
+
+
+def test_walk_events_is_importable_from_companion_unchanged():
+    assert companion._walk_events is aw.walk_events
+    assert companion.walk_sort_key is aw.walk_sort_key
