@@ -156,3 +156,27 @@ def test_safe_to_spend_days_until_payday_is_the_salary_date(monkeypatch):
     sts = asyncio.run(analytics.compute_safe_to_spend("u"))
     assert sts["days_until_payday"] == (SALARY_DATE - TODAY).days == 20
     assert len(sts["window_bills"]) == 1
+
+
+def test_payday_ask_stream_beats_a_larger_side_income():
+    big_side = {**SIDE, "avg_amount": 9000.0}
+    salary = {**SALARY, "source": "payday_ask"}
+    nd, primary = get_confirmed_payday({"income_streams": [big_side, salary]}, TODAY)
+    assert primary is salary
+    assert nd == SALARY_DATE
+
+
+def test_stream_matching_pay_period_config_beats_a_larger_side_income():
+    big_side = {**SIDE, "avg_amount": 9000.0}
+    prefs = {"income_streams": [big_side, SALARY],
+             "pay_period_config": {"type": "last_weekday_of_month", "weekday": 5}}
+    nd, primary = get_confirmed_payday(prefs, TODAY)
+    assert primary is SALARY
+    assert nd == SALARY_DATE
+
+
+def test_largest_amount_wins_when_no_signal_exists():
+    big_side = {**SIDE, "avg_amount": 9000.0}
+    nd, primary = get_confirmed_payday({"income_streams": [SALARY, big_side]}, TODAY)
+    assert primary is big_side
+    assert nd == SIDE_DATE

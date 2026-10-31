@@ -150,7 +150,9 @@ def schedule_label(schedule: dict) -> str:
 def get_confirmed_payday(uid_prefs: dict, today: date) -> tuple[date, dict] | None:
     """
     From prefs["income_streams"] (confirmed only), return (next_date, primary)
-    where primary is the confirmed stream with the largest avg_amount and
+    where primary is the salary stream (preferably the one confirmed through
+    the payday ask, source == "payday_ask"; else the one whose schedule maps
+    to the user's pay_period_config type; else the largest avg_amount) and
     next_date is the primary stream's own next_occurrence (strictly after
     `today`). None if there are no confirmed streams.
 
@@ -171,7 +173,25 @@ def get_confirmed_payday(uid_prefs: dict, today: date) -> tuple[date, dict] | No
     if not confirmed:
         return None
 
-    primary = max(confirmed, key=lambda s: float(s.get("avg_amount") or 0))
+    cfg_type = (uid_prefs.get("pay_period_config") or {}).get("type")
+
+    def _matches_cfg(s: dict) -> bool:
+        if not cfg_type:
+            return False
+        try:
+            mapped = schedule_to_pay_period_config(s["schedule"])
+        except Exception:
+            return False
+        return bool(mapped) and mapped.get("type") == cfg_type
+
+    primary = max(
+        confirmed,
+        key=lambda s: (
+            s.get("source") == "payday_ask",
+            _matches_cfg(s),
+            float(s.get("avg_amount") or 0),
+        ),
+    )
 
     try:
         return (next_occurrence(primary["schedule"], today), primary)
