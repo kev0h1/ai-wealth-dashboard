@@ -1,0 +1,168 @@
+{
+ "bills_total": 490.0,
+ "card_charges_excluded_from_walk": [
+  {
+   "account_id": "amex",
+   "amount": 90.0,
+   "days_away": 4,
+   "name": "Amex charge"
+  }
+ ],
+ "card_window_bills": [
+  {
+   "account_id": "cur",
+   "amount": 400.0,
+   "days_away": 2,
+   "name": "Rent"
+  },
+  {
+   "account_id": "cur",
+   "amount": 30.0,
+   "days_away": 5,
+   "name": "Gym"
+  },
+  {
+   "account_id": "cur",
+   "amount": 60.0,
+   "days_away": 5,
+   "name": "Coffee club"
+  }
+ ],
+ "income_before": 240.0,
+ "min_running": 810.0,
+ "payday_income": 2000.0,
+ "pooled_transfers_excluded": 150.0,
+ "response": {
+  "allocations_count": 0,
+  "allocations_reserved": 0.0,
+  "bills_total": 490.0,
+  "buffer": 0.0,
+  "calculation_status": "complete",
+  "calculation_version": 2,
+  "card_debt": 350.0,
+  "card_growth_due_date": null,
+  "card_growth_reserved": 180.0,
+  "card_growth_total": 90.0,
+  "card_growth_wording": "carried",
+  "card_new_spend_total": 90.0,
+  "commitments_count": 0,
+  "commitments_reserved": 0,
+  "commitments_reserved_period_label": null,
+  "days_until_payday": 10,
+  "estimated": false,
+  "excluded_accounts": [
+   {
+    "id": "unpicked",
+    "name": "Not counted"
+   }
+  ],
+  "excluded_accounts_count": 1,
+  "income_before_payday": 240.0,
+  "last_synced": null,
+  "lowest_projected_balance": 810.0,
+  "next_payday": "2026-10-22",
+  "payday_income": 2000.0,
+  "period": {
+   "day_number": 12,
+   "end": "2026-10-31",
+   "label": "1 Oct to 31 Oct",
+   "length_days": 31,
+   "payday": "2026-11-01",
+   "payday_observed": {
+    "date": "2026-10-22",
+    "source": "confirmed"
+   },
+   "start": "2026-10-01",
+   "type": "calendar_month"
+  },
+  "plans_only_short": false,
+  "pooled_transfers_excluded": 150.0,
+  "safe_to_spend": 630.0,
+  "safe_to_spend_cash": 810.0,
+  "short_reason": null,
+  "spendable_now": 1300.0,
+  "state": "comfortable",
+  "status": "ok",
+  "sync_state": "idle",
+  "unavailable_components": [],
+  "window_bills": [
+   {
+    "account_balance": 1000.0,
+    "account_id": "cur",
+    "amount": 400.0,
+    "days_away": 2,
+    "expected_date": "2026-10-14",
+    "is_credit_card": false,
+    "kind": "bill",
+    "name": "Rent"
+   },
+   {
+    "account_balance": 1000.0,
+    "account_id": "cur",
+    "amount": 30.0,
+    "days_away": 5,
+    "expected_date": "2026-10-17",
+    "is_credit_card": false,
+    "kind": "bill",
+    "name": "Gym"
+   },
+   {
+    "account_balance": 1000.0,
+    "account_id": "cur",
+    "amount": 60.0,
+    "days_away": 5,
+    "expected_date": "2026-10-17",
+    "is_credit_card": false,
+    "kind": "bill",
+    "name": "Coffee club"
+   }
+  ]
+ },
+ "round_trips": [
+  "accounts",
+  "allocations",
+  "build_cashflow_response",
+  "cache",
+  "card_growth_by_card",
+  "commitments",
+  "first_sync_state",
+  "last_bank_sync",
+  "monthly_cashflow",
+  "prefs",
+  "terms"
+ ],
+ "window_bills": [
+  {
+   "account_id": "cur",
+   "amount": 400.0,
+   "days_away": 2,
+   "name": "Rent"
+  },
+  {
+   "account_id": "cur",
+   "amount": 30.0,
+   "days_away": 5,
+   "name": "Gym"
+  },
+  {
+   "account_id": "cur",
+   "amount": 60.0,
+   "days_away": 5,
+   "name": "Coffee club"
+  }
+ ],
+ "window_income": [
+  {
+   "account_id": "cur",
+   "amount": 100.0,
+   "days_away": 5,
+   "name": "Refund"
+  },
+  {
+   "account_id": "cur",
+   "amount": 140.0,
+   "days_away": 7,
+   "name": "Side gig"
+  }
+ ]
+}
