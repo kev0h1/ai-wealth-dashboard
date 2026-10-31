@@ -2003,7 +2003,7 @@ def _account_pool_kind(acc: dict) -> str | None:
     return "spendable"
 
 
-def _split_balances(accs: list[dict]) -> tuple[float, float]:
+def _split_balances(accs: list[dict], include_negative: bool = False) -> tuple[float, float]:
     """Split live account balances into (spendable_cash, savings_total).
 
     Mirrors compute_safe_to_spend's (the Home Safe-to-Spend hero) account
@@ -2022,7 +2022,7 @@ def _split_balances(accs: list[dict]) -> tuple[float, float]:
         if pool is None:
             continue
         bal = float(acc.get("balance") or 0)
-        if bal < 0:
+        if bal < 0 and not include_negative:
             continue
         if pool == "savings":
             savings += bal
@@ -2067,31 +2067,23 @@ def _safe_to_spend_lowest_projected_balance(
 ) -> float:
     """Return the lowest pooled cash balance in the Safe-to-Spend window.
 
-    Forecast occurrences carry calendar dates, not a reliable settlement time.
-    For events on the same date, debit before income is therefore the only
-    defensible default for a spending-permission calculation: an incoming
-    payment must not be assumed to clear before a direct debit. This helper is
-    intentionally pure so the conservative ordering and the low-point fact
-    can be tested without the endpoint's database fan-out.
+    G367: a thin wrapper over `account_walk.pooled_walk` (the pooled walk and
+    its policy, SD1 to SD6 in that module's docstring). Same-day debits are
+    applied before income: forecast occurrences carry calendar dates, not a
+    reliable settlement time, so an incoming payment must not be assumed to
+    clear before a direct debit. Kept pure so the low-point fact can be tested
+    without the endpoint's database fan-out. It never filtered card charges
+    (the endpoint does that before the walk), so it passes `card_charges="keep"`.
     """
-    events: list[tuple[int, float]] = []  # (days_away, delta); debit is negative
-    for bill in bills:
-        if _is_pooled_spendable_transfer(bill):
-            continue
-        events.append((int(bill["days_away"]), -float(bill["amount"])))
-    for item in income:
-        events.append((int(item["days_away"]), float(item["amount"])))
+    from types import SimpleNamespace
 
-    # Same day: debits first. A zero-valued event has no effect and may follow
-    # either side without changing the result.
-    events.sort(key=lambda event: (event[0], 0 if event[1] < 0 else 1))
+    from app.services.account_walk import PooledPolicy, pooled_walk
 
-    running = float(spendable_cash)
-    minimum = running
-    for _days_away, delta in events:
-        running += delta
-        minimum = min(minimum, running)
-    return minimum
+    stand_in = SimpleNamespace(
+        window_bills=bills, window_income=income, payday_day_bills=[], payday_day_income=[],
+        confirmed_income_keys=frozenset(),
+    )
+    return pooled_walk(stand_in, float(spendable_cash), PooledPolicy(card_charges="keep")).min_running
 
 
 def _is_pooled_spendable_transfer(item: dict) -> bool:
@@ -5065,23 +5057,15 @@ async def compute_safe_to_spend(uid: str) -> dict:
     permission gate, which fetches it directly, on its own request path.
     """
     from datetime import timedelta as _td
-    from app.services.income import get_confirmed_payday as _gcp
-    from app.services.pay_period import _next_payday as _calc_next_payday
+    from app.services.account_walk import POOLED_POLICY, pooled_seed, pooled_walk
     from app.services.pay_period import period_rhythm_label as _period_rhythm_label
     from app.services.cashflow import monthly_cashflow_cached as _monthly_cashflow
     from bson import ObjectId
 
-    # ── 1. Payday ──────────────────────────────────────────────────────────────
+    # ── 1. Preferences ─────────────────────────────────────────────────────────
+    # Payday, today and the pay config come from the shared window-inputs
+    # builder below (G367), the same derivation every walk uses.
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
-    _pay_cfg  = _prefs.get("pay_period_config", {"type": "calendar_month"})
-    _today_d  = timeutil.user_today()
-
-    _confirmed = _gcp(_prefs, _today_d)
-    if _confirmed:
-        next_payday = _confirmed[0]
-    else:
-        next_payday = _calc_next_payday(_today_d, _pay_cfg)
-    days_until_payday = (next_payday - _today_d).days
 
     # ── 2. Cashflow cache ─────────────────────────────────────────────────────
     cached = await cashflow_cache_col.find_one({"_id": uid})
@@ -5089,8 +5073,6 @@ async def compute_safe_to_spend(uid: str) -> dict:
         return {"status": "insufficient_data"}
 
     resp = await _build_cashflow_response(cached, uid=uid)
-    upcoming_bills  = resp.get("upcoming_bills", [])
-    upcoming_income = resp.get("upcoming_income", [])
 
     # ── 3. Spendable current-account balance ───────────────────────────────────
     def _is_savings(acc: dict) -> bool:
@@ -5107,23 +5089,20 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # Shared with the Planning runway (_split_balances) so the two surfaces
     # can never diverge; savings_total is unused here — the hero shows a
     # single spendable figure, not a savings breakout.
-    spendable_cash = _live_pool_balances(all_accs_raw)["spendable_balance"]
+    spendable_cash = pooled_seed(all_accs_raw)
     # G231: accounts the user chose not to count (named on the response so the
     # hero can say "Not counting N accounts" and link to Accounts).
     # Read from the pool rows themselves, so no extra query is needed. The same
-    # set is re-applied to the cashflow lists here (idempotent), so a failed
-    # lookup inside the builder can never leave an excluded account's items in
-    # the walk: this path never depends on that second query.
+    # set is re-applied to the walk's own lists inside `build_window_inputs`
+    # (`reapply_exclusions="always"`, B10), so a failed lookup inside the
+    # builder can never leave an excluded account's items in the walk: this
+    # path never depends on that second query.
     _excluded_accounts = [
         {"id": str(a["_id"]), "name": a.get("name") or "Account"}
         for a in all_accs_raw
         if a.get("include_in_safe_to_spend") is False and a.get("_id") is not None
         and "credit" not in f"{a.get('type') or ''} {a.get('subtype') or ''}".lower()
     ]
-    from app.services.counted_accounts import drop_excluded_items as _drop_excluded
-    _walk_lists = {"upcoming_bills": upcoming_bills, "upcoming_income": upcoming_income}
-    _drop_excluded(_walk_lists, {a["id"] for a in _excluded_accounts})
-    upcoming_bills, upcoming_income = _walk_lists["upcoming_bills"], _walk_lists["upcoming_income"]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
@@ -5140,56 +5119,51 @@ async def compute_safe_to_spend(uid: str) -> dict:
             card_debt_total += abs(bal)
     card_debt = round(card_debt_total, 2)
 
-    # ── 4. Build chronological event timeline today → next_payday ─────────────
-    raw_window_bills = [
-        b for b in upcoming_bills
-        if 0 <= b["days_away"] < days_until_payday
-    ]
-    # The seed is the pooled balance of every spendable account, so a traced
-    # transfer between two accounts in that same pool must remove neither leg.
-    # This is the backend equivalent of Planning's isPooledNoOp rule. G109:
-    # a bill sitting ON a credit card is excluded too — see
-    # `_touches_pooled_cash`'s docstring; this is the single filter that
-    # decides what enters the cash walk below AND what `card_growth_by_card`
-    # (step 6c) receives as its own `window_bills`, so both stay consistent
-    # with one change here.
-    window_bills = [
-        b for b in raw_window_bills
-        if not _is_pooled_spendable_transfer(b) and _touches_pooled_cash(b)
-    ]
-    pooled_transfers_excluded = round(sum(
-        float(b["amount"]) for b in raw_window_bills
-        if _is_pooled_spendable_transfer(b)
-    ), 2)
-    # G109 follow-up: the credit-card charges `_touches_pooled_cash` just
-    # excluded from the cash walk, threaded into step 6c's reserve
-    # separately from `window_bills` (see `card_growth_by_card`'s own
-    # `excluded_card_charges` doc) so a forecasted-but-not-yet-POSTED charge
-    # on a card with no learned repayment is still reserved for, not simply
-    # dropped because the walk (correctly) no longer sees it either.
-    card_charges_excluded_from_walk = [
-        b for b in raw_window_bills
-        if not _is_pooled_spendable_transfer(b) and not _touches_pooled_cash(b)
-    ]
-    # Pre-payday income: exclude items that look like the salary itself
-    # (we identify the payday salary as income arriving ON or AFTER next_payday;
-    # any income strictly before that day can legitimately boost the balance)
-    window_income = [
-        i for i in upcoming_income
-        if 0 <= i["days_away"] < days_until_payday
-    ]
+    # ── 4. Window inputs and the pooled walk ───────────────────────────────────
+    # G367: the window lists come from `build_window_inputs` (B10: the not
+    # counted accounts re-dropped from the pool rows, no stamping, no balance
+    # query: the loader hands back the rows fetched above) and the walk is
+    # `account_walk.pooled_walk` under `POOLED_POLICY` (SD1 to SD6 in that
+    # module's docstring). The seed is the pooled balance of every spendable
+    # account, so a traced transfer between two accounts in that pool removes
+    # neither leg (Planning's isPooledNoOp rule), and a charge ON a credit
+    # card is out of the walk but handed to step 6c's reserve (G109).
+    from app.services.window_inputs import LoadedAccounts, build_window_inputs
 
-    bills_total    = round(sum(b["amount"] for b in window_bills), 2)
-    income_before  = round(sum(i["amount"] for i in window_income), 2)
-    payday_income  = round(sum(
-        i["amount"] for i in upcoming_income
-        if i["days_away"] == days_until_payday
-    ), 2)
+    _excluded_ids = {a["id"] for a in _excluded_accounts}
 
-    # ── 5. Walk timeline; track minimum running balance ────────────────────────
-    min_running = _safe_to_spend_lowest_projected_balance(
-        spendable_cash, window_bills, window_income
+    async def _pool_rows_loader(_assessable_bills: list[dict]) -> LoadedAccounts:
+        return LoadedAccounts(excluded_account_ids=_excluded_ids)
+
+    wi = await build_window_inputs(
+        uid, resp, _prefs,
+        load_balances=_pool_rows_loader,
+        reapply_exclusions="always",
+        load_when_no_bills=True,
     )
+    _pay_cfg = wi.pay_cfg
+    _today_d = wi.today
+    next_payday = wi.next_pay
+    days_until_payday = wi.days_to_pay
+    _confirmed = (next_payday,) if wi.payday_source == "confirmed" else None
+
+    # Whole-list view of the bills (not only the window) for the card wording
+    # below, with the not-counted accounts dropped.
+    _walk_lists = {"upcoming_bills": resp.get("upcoming_bills", []), "upcoming_income": []}
+    from app.services.counted_accounts import drop_excluded_items as _drop_excluded
+    _drop_excluded(_walk_lists, _excluded_ids)
+    upcoming_bills = _walk_lists["upcoming_bills"]
+
+    pooled = pooled_walk(wi, spendable_cash, POOLED_POLICY)
+    window_bills = pooled.window_bills
+    pooled_transfers_excluded = pooled.pooled_transfers_excluded
+    card_charges_excluded_from_walk = pooled.card_charges_excluded_from_walk
+    bills_total = pooled.bills_total
+    income_before = pooled.income_before
+    payday_income = pooled.payday_income
+
+    # ── 5. Minimum running balance across the window ───────────────────────────
+    min_running = pooled.min_running
 
     # ── 6. safe_to_spend = min_running − buffer ────────────────────────────────
     buffer = float(_prefs.get("safe_to_spend_buffer", 0.0))

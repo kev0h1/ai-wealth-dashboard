@@ -228,3 +228,147 @@ def test_pooled_walk_equals_the_pre_change_golden(monkeypatch):
     got = _capture(monkeypatch)
     for key in golden:
         assert got[key] == golden[key], key
+
+
+# ── one test per SD difference, flipping only that field ─────────────────────
+
+from app.services import account_walk as aw  # noqa: E402
+from app.services.window_inputs import LoadedAccounts, build_window_inputs  # noqa: E402
+
+
+def _wi(monkeypatch, **kw):
+    _wire(monkeypatch, **kw)
+    bills, incomes = kw.get("bills") or _bills(), kw.get("incomes") or _incomes()
+    excluded = {"unpicked"}
+
+    async def loader(_a):
+        return LoadedAccounts(excluded_account_ids=excluded)
+
+    resp = {"upcoming_bills": [dict(b) for b in bills], "upcoming_income": [dict(i) for i in incomes],
+            "internal_inflows": []}
+    return asyncio.run(build_window_inputs(
+        UID, resp, {"user_id": UID}, load_balances=loader,
+        reapply_exclusions="always", load_when_no_bills=True,
+    ))
+
+
+SEED = 1300.0
+
+
+def _names(rows):
+    return [r["name"] for r in rows]
+
+
+def test_default_policy_is_the_production_pooled_rules(monkeypatch):
+    wi = _wi(monkeypatch)
+    r = aw.pooled_walk(wi, SEED)
+    assert r.min_running == 810.0
+    assert _names(r.window_bills) == ["Rent", "Gym", "Coffee club"]
+    assert _names(r.window_income) == ["Refund", "Side gig"]
+    assert r.pooled_transfers_excluded == 150.0
+    assert _names(r.card_charges_excluded_from_walk) == ["Amex charge"]
+    assert (r.bills_total, r.income_before, r.payday_income) == (490.0, 240.0, 2000.0)
+    assert aw.POOLED_POLICY == aw.PooledPolicy()
+
+
+def test_sd1_income_credit_credit_ok_drops_the_unreliable_incomes(monkeypatch):
+    wi = _wi(monkeypatch)
+    base = aw.pooled_walk(wi, SEED)
+    flipped = aw.pooled_walk(wi, SEED, aw.PooledPolicy(income_credit="credit_ok"))
+    assert _names(flipped.window_income) == []  # two sightings 40 percent apart, and no history
+    assert flipped.window_bills == base.window_bills
+    assert flipped.pooled_transfers_excluded == base.pooled_transfers_excluded
+    assert (base.income_before, flipped.income_before) == (240.0, 0.0)
+
+
+def test_sd2_same_day_credits_first_lifts_the_low_point_only(monkeypatch):
+    wi = _wi(monkeypatch)
+    base = aw.pooled_walk(wi, SEED)
+    flipped = aw.pooled_walk(wi, SEED, aw.PooledPolicy(same_day="credits_first"))
+    assert (base.min_running, flipped.min_running) == (810.0, 900.0)
+    assert flipped.window_bills == base.window_bills and flipped.window_income == base.window_income
+    assert flipped.bills_total == base.bills_total
+
+
+def test_sd3_transfer_legs_keep_leaves_the_pooled_transfer_in_the_walk(monkeypatch):
+    wi = _wi(monkeypatch)
+    base = aw.pooled_walk(wi, SEED)
+    flipped = aw.pooled_walk(wi, SEED, aw.PooledPolicy(transfer_legs="keep"))
+    assert "Move to Joint" in _names(flipped.window_bills)
+    assert flipped.pooled_transfers_excluded == 0.0
+    assert flipped.bills_total == base.bills_total + 150.0
+    assert flipped.min_running == base.min_running - 150.0
+    assert _names(flipped.card_charges_excluded_from_walk) == _names(base.card_charges_excluded_from_walk)
+
+
+def test_sd4_card_charges_keep_puts_the_charge_in_the_walk(monkeypatch):
+    wi = _wi(monkeypatch)
+    base = aw.pooled_walk(wi, SEED)
+    flipped = aw.pooled_walk(wi, SEED, aw.PooledPolicy(card_charges="keep"))
+    assert "Amex charge" in _names(flipped.window_bills)
+    assert flipped.card_charges_excluded_from_walk == []
+    assert flipped.pooled_transfers_excluded == base.pooled_transfers_excluded
+    assert flipped.bills_total == base.bills_total + 90.0
+
+
+def test_sd5_negative_seed_include_counts_the_overdrawn_account():
+    accounts = _accounts()
+    assert aw.pooled_seed(accounts) == 1300.0
+    assert aw.pooled_seed(accounts, aw.PooledPolicy(negative_seed="include")) == 1150.0
+    # the not-counted account and the card stay out either way
+    assert aw.pooled_seed(accounts, aw.PooledPolicy(negative_seed="include")) == 1000.0 + 300.0 - 150.0
+
+
+def test_sd6_window_end_through_payday_adds_the_payday_day_slice(monkeypatch):
+    wi = _wi(monkeypatch)
+    base = aw.pooled_walk(wi, SEED)
+    flipped = aw.pooled_walk(wi, SEED, aw.PooledPolicy(window_end="through_payday"))
+    assert "Council tax" in _names(flipped.window_bills)
+    assert "Salary" in _names(flipped.window_income)
+    assert flipped.bills_total == base.bills_total + 120.0
+    assert flipped.income_before == base.income_before + 2000.0
+    assert flipped.payday_income == base.payday_income
+
+
+def test_policy_rejects_an_unknown_value():
+    with pytest.raises(ValueError):
+        aw.PooledPolicy(same_day="whenever")
+
+
+# ── builder option B10, and the wrapper ─────────────────────────────────────
+
+def test_b10_always_redrops_the_payday_day_slice_of_a_not_counted_account(monkeypatch):
+    incomes = _incomes() + [_income("Unpicked pay", 700.0, 10, acct="unpicked")]
+    wi = _wi(monkeypatch, incomes=incomes)
+    assert [i["name"] for i in wi.payday_day_income] == ["Salary"]
+    assert aw.pooled_walk(wi, SEED).payday_income == 2000.0
+    out = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert out["payday_income"] == 2000.0
+
+
+def test_b10_true_keeps_its_old_meaning_for_the_other_callers(monkeypatch):
+    # `True` re-drops only when the response says exclusions are unverified.
+    _wire(monkeypatch)
+
+    async def loader(_a):
+        return LoadedAccounts(excluded_account_ids={"unpicked"})
+
+    def run(unverified):
+        resp = {"upcoming_bills": _bills(), "upcoming_income": _incomes(), "internal_inflows": [],
+                "exclusions_unverified": unverified}
+        return asyncio.run(build_window_inputs(
+            UID, resp, {"user_id": UID}, load_balances=loader, reapply_exclusions=True,
+            load_when_no_bills=True,
+        ))
+
+    assert "Unpicked bill" in _names(run(False).window_bills)
+    assert "Unpicked bill" not in _names(run(True).window_bills)
+
+
+def test_old_helper_name_is_a_wrapper_over_the_pooled_walk():
+    bills = [_bill("Move to Joint", 150.0, 3, kind=analytics.MOVEMENT, dest_account_spendable=True),
+             _bill("Amex charge", 90.0, 3, acct="amex", is_credit_card=True),
+             _bill("Rent", 400.0, 3)]
+    income = [_income("Refund", 100.0, 3)]
+    # transfers dropped, card charge KEPT (the helper never filtered charges), debits first
+    assert analytics._safe_to_spend_lowest_projected_balance(1000.0, bills, income) == 1000.0 - 490.0

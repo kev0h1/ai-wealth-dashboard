@@ -49,6 +49,26 @@ numbers below are the differences between the four walks of this step):
 count is over every bounced non-movement bill (its old rule), not only the
 first.
 
+G367 (step 5) adds `pooled_walk`, the pooled Left to spend walk, over the same
+`WindowInputs` and the same `_run_account` loop (one synthetic account,
+`POOL_ACCOUNT`). The pooled rules differ from the per-account walk in the
+places below. NONE of them changed; each is a field of `PooledPolicy` whose
+default is today's pooled behaviour, and flipping one field changes only that
+rule (tests/test_pooled_walk.py). Whether the pooled income rule (SD1) should
+move to the per-account credit rule is a separate decision for Kevin.
+
+| Id  | Difference | `PooledPolicy` field | Pooled value (production) | Per-account walk (WD) |
+|-----|------------|----------------------|---------------------------|-----------------------|
+| SD1 | Income credit | `income_credit` | `"all"` (C2): every income in the window, no attribution, no reliability test | `"credit_ok"` (C1): `income_credit_ok` per account (WD3) |
+| SD2 | Same-day order | `same_day` | `"debits_first"`: a spending-permission figure never assumes an income clears before a direct debit | `"credits_first"` (G163, WD8 `is_income`) |
+| SD3 | Own-account transfer legs | `transfer_legs` | `"drop"`: a movement whose destination is a pooled spendable account removes both legs (its amount is reported as `pooled_transfers_excluded`) | `"keep"`: the debit leg stays on its source and the credit lands through `funded_window_inflows` |
+| SD4 | Card charges | `card_charges` | `"exclude"`: a charge ON a credit card is out of the walk and handed to the card reserve (`card_charges_excluded_from_walk`); repayments stay debits (G109) | `"keep"` |
+| SD5 | Seed | `negative_seed` | `"exclude"`: spendable cash of every counted, GBP, non-card, non-savings account, a negative balance counted as 0 (`_live_pool_balances`); it is debt, tracked separately as `card_debt` | `"include"`: each account opens at its own balance, negative or not (WD2) |
+| SD6 | Window source and end | `window_end` | `"before_payday"`: `WindowInputs.window_*` (strictly before payday, B-table: G231 re-dropped from the account rows, B10); the payday-day slice only feeds `payday_income` | `"through_payday"` adds the payday-day slice (not used by any caller) |
+
+Seed, buffer, commitments, allocations, the card hold and the G210 syncing
+clamp stay in `compute_safe_to_spend`; this module returns the low point only.
+
 The low point is a running minimum from the opening balance over the debits
 only. For non-negative amounts, which is all this codebase stores, a credit
 can never lower it, so the old low-point loops, which also took `min(...)`
@@ -364,4 +384,125 @@ def count_at_risk(bounced_bills: dict[str, list[dict]]) -> int:
         for bills in bounced_bills.values()
         for b in bills
         if b.get("kind") != MOVEMENT or bool(b.get("is_card_repayment"))
+    )
+
+
+# ── G367: the pooled Left to spend walk ──────────────────────────────────────
+
+POOL_ACCOUNT = "__pool__"
+
+INCOME_CREDIT = ("all", "credit_ok")
+SAME_DAY = ("debits_first", "credits_first")
+TRANSFER_LEGS = ("drop", "keep")
+CARD_CHARGES = ("exclude", "keep")
+NEGATIVE_SEED = ("exclude", "include")
+WINDOW_END = ("before_payday", "through_payday")
+
+
+@dataclass(frozen=True)
+class PooledPolicy:
+    """The pooled walk's rules (SD1 to SD6 in the module docstring). The
+    defaults are the production Left to spend behaviour."""
+
+    income_credit: str = "all"
+    same_day: str = "debits_first"
+    transfer_legs: str = "drop"
+    card_charges: str = "exclude"
+    negative_seed: str = "exclude"
+    window_end: str = "before_payday"
+
+    def __post_init__(self):
+        for name, allowed in (
+            ("income_credit", INCOME_CREDIT), ("same_day", SAME_DAY),
+            ("transfer_legs", TRANSFER_LEGS), ("card_charges", CARD_CHARGES),
+            ("negative_seed", NEGATIVE_SEED), ("window_end", WINDOW_END),
+        ):
+            if getattr(self, name) not in allowed:
+                raise ValueError(f"{name} must be one of {allowed}, got {getattr(self, name)!r}")
+
+
+POOLED_POLICY = PooledPolicy()
+
+
+@dataclass
+class PooledWalk:
+    seed: float
+    window_bills: list[dict]  # what the walk (and the card reserve) read
+    window_income: list[dict]
+    pooled_transfers_excluded: float
+    card_charges_excluded_from_walk: list[dict]
+    bills_total: float
+    income_before: float
+    payday_income: float
+    min_running: float
+    walk: AccountWalk
+
+
+def pooled_seed(accounts: list[dict], policy: PooledPolicy = POOLED_POLICY) -> float:
+    """SD5: the pooled spendable cash the walk opens at, from the account rows
+    (`_live_pool_balances`, the one figure Home and Upcoming share)."""
+    from app.routers.analytics import _live_pool_balances, _split_balances
+
+    if policy.negative_seed == "exclude":
+        return _live_pool_balances(accounts)["spendable_balance"]
+    return _split_balances(accounts, include_negative=True)[0]
+
+
+def pooled_walk(inputs: Any, seed: float, policy: PooledPolicy = POOLED_POLICY) -> PooledWalk:
+    """The pooled low point over `inputs.window_bills` / `window_income`
+    (any object with those, `payday_day_bills`, `payday_day_income` and
+    `confirmed_income_keys`: `WindowInputs`, or a stand-in). Pure: no query."""
+    from app.routers.analytics import (
+        _is_pooled_spendable_transfer,
+        _touches_pooled_cash,
+        income_credit_ok,
+    )
+
+    raw_bills = list(inputs.window_bills)
+    raw_income = list(inputs.window_income)
+    if policy.window_end == "through_payday":
+        raw_bills += list(inputs.payday_day_bills)
+        raw_income += list(inputs.payday_day_income)
+
+    drop_transfers = policy.transfer_legs == "drop"
+    bills = [
+        b for b in raw_bills
+        if not (drop_transfers and _is_pooled_spendable_transfer(b))
+        and (policy.card_charges == "keep" or _touches_pooled_cash(b))
+    ]
+    transfers_excluded = round(sum(
+        float(b["amount"]) for b in raw_bills
+        if drop_transfers and _is_pooled_spendable_transfer(b)
+    ), 2)
+    card_charges = [
+        b for b in raw_bills
+        if policy.card_charges == "exclude"
+        and not (drop_transfers and _is_pooled_spendable_transfer(b))
+        and not _touches_pooled_cash(b)
+    ]
+    if policy.income_credit == "all":
+        income = raw_income
+    else:
+        keys = getattr(inputs, "confirmed_income_keys", frozenset())
+        income = [i for i in raw_income if income_credit_ok(i, str(i.get("account_id") or ""), keys)]
+
+    # Same-day order: SD2. A stable sort over bills then income, as the old loop.
+    debit_rank = 0 if policy.same_day == "debits_first" else 1
+    events: list[Event] = [(int(b["days_away"]), POOL_ACCOUNT, float(b["amount"]), False, b) for b in bills]
+    events += [(int(i["days_away"]), POOL_ACCOUNT, float(i["amount"]), True, i) for i in income]
+    events.sort(key=lambda ev: (ev[0], debit_rank if not ev[3] else 1 - debit_rank))
+    walk = _run_account(POOL_ACCOUNT, float(seed), [(ev, n) for n, ev in enumerate(events)])
+
+    payday_income = round(sum(i["amount"] for i in inputs.payday_day_income), 2)
+    return PooledWalk(
+        seed=float(seed),
+        window_bills=bills,
+        window_income=income,
+        pooled_transfers_excluded=transfers_excluded,
+        card_charges_excluded_from_walk=card_charges,
+        bills_total=round(sum(b["amount"] for b in bills), 2),
+        income_before=round(sum(i["amount"] for i in income), 2),
+        payday_income=payday_income,
+        min_running=walk.low_point if walk.low_point is not None else float(seed),
+        walk=walk,
     )
