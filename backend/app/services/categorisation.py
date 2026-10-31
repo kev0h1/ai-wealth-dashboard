@@ -1407,15 +1407,15 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                         updated += 1
                     break
 
-    if structural:
-        # A final pass protects the evidence from generic categorisation and
-        # repairs prior rows when a newly connected account reveals the other leg.
-        from app.services.own_account_transfers import reconcile_own_account_transfers
-        updated += await reconcile_own_account_transfers(
-            user_id, transaction_collection=transactions_col,
-            account_collection=accounts_col, pair_collection=confirmed_transfer_pairs_col,
-            profile_collection=user_profiles_col, movement_categories=movement_categories,
-        )
+    # Generic rules must not undo an explicit pair decision either. Only
+    # structural sync passes discover new automatic matches.
+    from app.services.own_account_transfers import reconcile_own_account_transfers
+    updated += await reconcile_own_account_transfers(
+        user_id, transaction_collection=transactions_col,
+        account_collection=accounts_col, pair_collection=confirmed_transfer_pairs_col,
+        profile_collection=user_profiles_col, movement_categories=movement_categories if structural else None,
+        confirmed_only=not structural,
+    )
 
     return updated
 
