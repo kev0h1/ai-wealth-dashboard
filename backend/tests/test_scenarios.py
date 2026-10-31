@@ -383,7 +383,7 @@ def _check_expected(snap: dict, spec: dict) -> None:
         spend_from = want.get("spend_from", want.get("available"))
         if spend_from is not None:
             chk.check(f"{acct_id} spend_from", _r2(got["spend_from_headroom"]), _r2(spend_from))
-        for key in ("after_payments", "low_point", "plans_reserved", "after_payments_and_plans"):
+        for key in ("after_payments", "low_point", "plans_reserved", "after_payments_and_plans", "headroom"):
             if key in want:
                 chk.check(f"{acct_id} {key}", _r2(got[key]), _r2(want[key]))
         if "verdict" in want:
@@ -427,9 +427,9 @@ def _check_expected(snap: dict, spec: dict) -> None:
             got = {k["name"]: _r2(k["amount"]) for k in (plan["salary"].get("keeps") or [])}
             chk.check("payday_plan keeps", got, {k: _r2(v) for k, v in want_plan["keeps"].items()})
         if "reasons" in want_plan:
-            got = {d["account_id"]: sorted((r["name"], r["kind"], _r2(r["amount"])) for r in d.get("reasons") or [])
+            got = {d["account_id"]: sorted([r["name"], r["kind"], _r2(r["amount"])] for r in d.get("reasons") or [])
                    for d in plan["dests"] if d.get("reasons")}
-            want = {k: sorted((r[0], r[1], _r2(r[2])) for r in v) for k, v in want_plan["reasons"].items()}
+            want = {k: sorted([r[0], r[1], _r2(r[2])] for r in v) for k, v in want_plan["reasons"].items()}
             chk.check("payday_plan reasons", got, want)
     chk.finish()
 
