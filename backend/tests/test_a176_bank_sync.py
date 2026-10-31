@@ -121,6 +121,8 @@ class Client:
 
     @staticmethod
     def _pop(q):
+        if not q:
+            return Resp(404, {})
         return q.pop(0) if len(q) > 1 else q[0]
 
     async def post(self, url, data=None):
@@ -252,24 +254,72 @@ def test_non_429_failure_stores_a_code_not_a_raw_error(monkeypatch):
 # ── automatic sync ────────────────────────────────────────────────────────
 
 def test_auto_sync_setter_tolerates_4xx_and_logs_once(monkeypatch, caplog):
-    monkeypatch.setattr(fs, "accounts_col", Col([{"_id": "acc1"}]))
-    c = Client(post_responses=[Resp(404, {})])
-    with caplog.at_level(logging.WARNING, logger="app.services.finexer_sync"):
-        assert asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {})) is False
-        assert asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {})) is False
-    assert len([r for r in caplog.records if "auto_sync_interval" in r.getMessage()]) == 1
-    assert c.posts[0] == ("/bank_accounts/acc1/sync", {"auto_sync_interval": "6"})
-
-
-def test_auto_sync_setter_success_and_bounds(monkeypatch):
     accts = Col([{"_id": "acc1"}])
     monkeypatch.setattr(fs, "accounts_col", accts)
-    c = Client(post_responses=[Resp(200, {})])
-    assert asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {})) is True
+    c = Client(post_responses=[Resp(404, {})])
+    with caplog.at_level(logging.WARNING, logger="app.services.finexer_sync"):
+        r1 = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))
+        # A refusal is stamped, so a second try inside the hour is skipped.
+        r2 = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW + timedelta(minutes=10)))
+        r3 = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW + timedelta(hours=2)))
+    assert r1["ok"] is False and r1["outcome"] == "refused"
+    assert r2["outcome"] == "skipped_local" and len(c.posts) == 2
+    assert r3["outcome"] == "refused"
+    assert len([r for r in caplog.records if "auto_sync_interval" in r.getMessage()]) == 1
+    assert c.posts[0] == ("/bank_accounts/acc1/sync", {"auto_sync_interval": "6"})
+    assert accts.docs[0]["bank_auto_sync_refused_at"] == NOW + timedelta(hours=2)
+
+
+def test_auto_sync_setter_echo_records_hours_and_does_not_claim_a_sync(monkeypatch):
+    accts = Col([{"_id": "acc1"}])
+    monkeypatch.setattr(fs, "accounts_col", accts)
+    c = Client(post_responses=[Resp(200, {"auto_sync_interval": 6})])
+    r = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))
+    assert r["ok"] is True and r["triggered"] is False
     assert accts.docs[0]["bank_auto_sync_hours"] == 6
-    for bad in (0, -1, 721):
-        assert asyncio.run(fs.ensure_auto_sync(c, "acc1", bad, {})) is False
+    assert "bank_sync_requested_at" not in accts.docs[0]
+
+
+def test_auto_sync_setter_bare_2xx_writes_nothing(monkeypatch):
+    accts = Col([{"_id": "acc1"}])
+    monkeypatch.setattr(fs, "accounts_col", accts)
+    c = Client(post_responses=[Resp(200, {}), Resp(204, None)])
+    r = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))
+    assert r["ok"] is False and r["triggered"] is False and r["set"] == {}
+    assert accts.docs[0] == {"_id": "acc1"}
+
+
+def test_auto_sync_setter_sync_object_stamps_the_trigger(monkeypatch):
+    accts = Col([{"_id": "acc1"}])
+    monkeypatch.setattr(fs, "accounts_col", accts)
+    c = Client(post_responses=[Resp(200, {**IDLE, "auto_sync_interval": 6})])
+    r = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))
+    assert r["ok"] and r["triggered"]
+    d = accts.docs[0]
+    assert d["bank_sync_requested_at"] == NOW and d["bank_auto_sync_hours"] == 6
+    assert d["bank_synced_to"] == datetime(2026, 10, 31, 11, 42, 0)
+
+
+def test_auto_sync_setter_429_is_recorded(monkeypatch):
+    accts = Col([{"_id": "acc1"}])
+    monkeypatch.setattr(fs, "accounts_col", accts)
+    c = Client(post_responses=[Resp(429, {}, {"Retry-After": "600"})])
+    r = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))
+    assert r["outcome"] == "rate_limited" and r["ok"] is False
+    d = accts.docs[0]
+    assert d["bank_sync_last_429_at"] == NOW
+    assert d["bank_sync_next_at"] == NOW + timedelta(seconds=600)
     assert len(c.posts) == 1
+
+
+def test_auto_sync_setter_bounds_and_hourly_rule(monkeypatch):
+    accts = Col([{"_id": "acc1", "bank_sync_requested_at": NOW - timedelta(minutes=5)}])
+    monkeypatch.setattr(fs, "accounts_col", accts)
+    c = Client(post_responses=[Resp(200, {"auto_sync_interval": 6})])
+    for bad in (0, -1, 721):
+        assert asyncio.run(fs.ensure_auto_sync(c, "acc1", bad, {}, now=NOW))["ok"] is False
+    assert asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))["outcome"] == "skipped_local"
+    assert c.posts == []
 
 
 def test_auto_sync_setting_is_registered_with_bounds():
@@ -343,24 +393,61 @@ def test_pending_fetch_failure_keeps_the_stored_pending_set(monkeypatch):
     assert "transactions_synced_at" in d, "the booked walk still succeeded"
 
 
-def test_pending_rows_never_reach_the_settled_upsert_as_booked(monkeypatch):
+def test_pending_walk_forces_only_absent_or_pending_status_and_drops_booked(monkeypatch, caplog):
     seen: list = []
-    _wire_sync(monkeypatch, Col([]))
+    sink: list = []
+    _wire_sync(monkeypatch, Col([]), sink)
 
     async def _upsert(txns, account_id, user_id, identity=None):
         seen.append([t.get("status") for t in txns])
         return [], [{"transaction_id": t["id"]} for t in txns if t.get("status") == "pending"]
     monkeypatch.setattr(fs, "_upsert_finexer_transactions", _upsert)
-    c = Client(booked=[], pending=[{"id": "p9", "status": "booked"}])
+    c = Client(booked=[], pending=[{"id": "p1"}, {"id": "p2", "status": "Pending"},
+                                    {"id": "b1", "status": "booked"}, {"id": "b2", "status": "settled"}])
+    monkeypatch.setattr(fs, "_client", lambda: c)
+    with caplog.at_level(logging.WARNING, logger="app.services.finexer_sync"):
+        asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert ["pending", "pending"] in seen
+    assert sink == [["p1", "p2"]]
+    assert len([r for r in caplog.records if "dropped 2 row" in r.getMessage()]) == 1
+
+
+def test_pending_walk_over_200_rows_is_a_filter_failure(monkeypatch):
+    sink: list = []
+    _wire_sync(monkeypatch, Col([]), sink)
+    rows = [{"id": f"p{i}"} for i in range(201)]
+    c = Client(booked=[{"id": "b1"}], pending=rows)
     monkeypatch.setattr(fs, "_client", lambda: c)
     asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
-    assert ["pending"] in seen
+    assert sink == [], "an over-long pending list must not replace the stored set"
+
+
+def test_pending_walk_exception_never_aborts_the_consent(monkeypatch):
+    import httpx
+    sink: list = []
+    accts = Col([])
+    _wire_sync(monkeypatch, accts, sink)
+    c = Client(booked=[{"id": "b1"}])
+    orig = c.get
+
+    async def _get(url, params=None):
+        if (params or {}).get("status") == "pending":
+            raise httpx.ConnectError("boom")
+        return await orig(url, params)
+    c.get = _get
+    monkeypatch.setattr(fs, "_client", lambda: c)
+    fetched, _ = asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert fetched == ["acc1"] and sink == []
 
 
 def test_next_page_keeps_the_pending_filter():
     assert fs._carry_params("/bank_accounts/a/transactions?offset=20", {"status": "pending"}) == \
         "/bank_accounts/a/transactions?offset=20&status=pending"
     assert fs._carry_params("/x?status=pending&offset=2", {"status": "pending"}) == "/x?status=pending&offset=2"
+    # A substring look-alike must not count as the filter being present.
+    assert fs._carry_params("/x?substatus=pending", {"status": "pending"}) == "/x?substatus=pending&status=pending"
+    assert fs._carry_params("/x", {"status": "pending"}) == "/x?status=pending"
+    assert fs._carry_params("/x?offset=2", None) == "/x?offset=2"
 
 
 # ── who triggers ──────────────────────────────────────────────────────────
@@ -377,17 +464,56 @@ def test_default_sync_never_posts_and_user_sync_does(monkeypatch):
     assert [u for u, d in c.posts if d is None] == ["/bank_accounts/acc1/sync"]
 
 
-def test_first_sync_sets_auto_sync_and_later_syncs_do_not(monkeypatch):
+def test_first_sync_setter_echoes_interval_manual_trigger_still_runs(monkeypatch):
     accts = Col([])
     consents = _wire_sync(monkeypatch, accts)
-    c = Client(post_responses=[Resp(200, IDLE)])
+    c = Client(post_responses=[Resp(200, {"auto_sync_interval": 6}), Resp(200, IDLE)])
     monkeypatch.setattr(fs, "_client", lambda: c)
-    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
-    assert [d for u, d in c.posts] == [{"auto_sync_interval": "6"}]
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID, request_bank_sync=True))
+    assert [d for u, d in c.posts] == [{"auto_sync_interval": "6"}, None], "setter first, then one manual POST"
+    d = next(x for x in accts.docs if x["_id"] == "acc1")
+    assert d["bank_auto_sync_hours"] == 6 and d["bank_sync_requested_at"]
+    # Later syncs never call the setter.
     consents.docs[0]["last_synced"] = NOW
     c.posts.clear()
     asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
     assert c.posts == []
+
+
+def test_first_sync_setter_returns_sync_object_so_no_second_post(monkeypatch):
+    accts = Col([])
+    _wire_sync(monkeypatch, accts)
+    c = Client(post_responses=[Resp(200, {**IDLE, "auto_sync_interval": 6}), Resp(200, IDLE)])
+    monkeypatch.setattr(fs, "_client", lambda: c)
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID, request_bank_sync=True))
+    assert len(c.posts) == 1, "the setter already triggered a sync: no manual POST"
+    d = next(x for x in accts.docs if x["_id"] == "acc1")
+    assert d["bank_sync_requested_at"] and d["bank_synced_to"] == datetime(2026, 10, 31, 11, 42, 0)
+
+
+def test_first_sync_setter_429_is_recorded_and_the_sync_carries_on(monkeypatch):
+    accts = Col([])
+    _wire_sync(monkeypatch, accts)
+    c = Client(post_responses=[Resp(429, {}), Resp(200, IDLE)], booked=[{"id": "b1"}])
+    monkeypatch.setattr(fs, "_client", lambda: c)
+    fetched, new = asyncio.run(fs.sync_finexer_consent(CONSENT, UID, request_bank_sync=True))
+    assert fetched == ["acc1"] and new == 1
+    d = next(x for x in accts.docs if x["_id"] == "acc1")
+    assert d["bank_sync_last_429_at"] and d["bank_sync_next_at"]
+
+
+def test_worker_path_sync_updates_bank_synced_to_without_any_post(monkeypatch):
+    accts = Col([])
+    consents = _wire_sync(monkeypatch, accts)
+    consents.docs[0]["last_synced"] = NOW  # reconcile or webhook sync, not first
+    c = Client(sync_get_responses=[Resp(200, IDLE)], booked=[])
+    monkeypatch.setattr(fs, "_client", lambda: c)
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert c.posts == []
+    d = next(x for x in accts.docs if x["_id"] == "acc1")
+    assert d["bank_synced_to"] == datetime(2026, 10, 31, 11, 42, 0)
+    assert d["bank_sync_status"] == "idle"
+    assert "bank_sync_requested_at" not in d
 
 
 def test_worker_task_never_requests_a_bank_sync(monkeypatch):
@@ -583,3 +709,40 @@ def test_backfill_is_a_dry_run_by_default(monkeypatch, capsys):
     assert bf.main(["--hours", "6"], env={"MONGO_DB": "x"}) == 0
     out = capsys.readouterr().out
     assert "eligible=1" in out and "a1" not in out and "c1" not in out
+
+
+def test_health_payload_is_cached_for_sixty_seconds(monkeypatch):
+    import app.db.collections as colls
+    monkeypatch.setattr(colls, "finexer_consents_col", Col([{"_id": "c1", "status": "authorized"}]))
+    monkeypatch.setattr(colls, "accounts_col", Col([]))
+    monkeypatch.setattr(fxw, "_sync_health_cache", {"at": None, "payload": None})
+    first = asyncio.run(fxw.sync_health())
+    monkeypatch.setattr(colls, "finexer_consents_col", Col([]))
+    assert asyncio.run(fxw.sync_health()) is first
+    fxw._sync_health_cache["at"] -= 61
+    assert asyncio.run(fxw.sync_health())["authorized_consents"] == 0
+
+
+def test_backfill_does_not_reselect_recent_attempts_and_stamps_sync_objects(monkeypatch):
+    import scripts.finexer_backfill_auto_sync as bf
+    import app.db.collections as colls
+    now = datetime.utcnow()
+    monkeypatch.setattr(colls, "finexer_consents_col", Col([{"_id": "c1", "status": "authorized"}]))
+    accts = Col([
+        {"_id": "ok", "source": "finexer", "connection_id": "c1"},
+        {"_id": "refused", "source": "finexer", "connection_id": "c1", "bank_auto_sync_refused_at": now - timedelta(minutes=5)},
+        {"_id": "limited", "source": "finexer", "connection_id": "c1", "bank_sync_next_at": now + timedelta(minutes=20)},
+        {"_id": "asked", "source": "finexer", "connection_id": "c1", "bank_sync_requested_at": now - timedelta(minutes=5)},
+    ])
+    monkeypatch.setattr(colls, "accounts_col", accts)
+    monkeypatch.setattr(fs, "accounts_col", accts)
+    assert asyncio.run(bf.run(hours=6))["eligible"] == 1
+    c = Client(post_responses=[Resp(200, IDLE)])
+    monkeypatch.setattr(fs, "_client", lambda: c)
+
+    async def _nosleep(s):
+        return None
+    monkeypatch.setattr(bf.asyncio, "sleep", _nosleep)
+    out = asyncio.run(bf.run(apply=True, hours=6))
+    assert out["attempted"] == 1 and out["accepted"] == 1
+    assert next(d for d in accts.docs if d["_id"] == "ok")["bank_sync_requested_at"]

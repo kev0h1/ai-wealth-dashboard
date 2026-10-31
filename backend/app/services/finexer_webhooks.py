@@ -443,17 +443,36 @@ async def webhook_health(now: Optional[datetime] = None) -> dict:
 BANK_DATA_STALE_HOURS = 12
 
 
+_SYNC_HEALTH_TTL_S = 60.0
+_sync_health_cache: dict = {"at": None, "payload": None}
+
+
 async def sync_health(now: Optional[datetime] = None) -> dict:
-    """Per authorised consent, when the bank's own data was last refreshed
+    """Cached in-process for 60 seconds (the page polls /ops/health) unless a
+    `now` is passed explicitly, which always computes fresh.
+
+    Per authorised consent, when the bank's own data was last refreshed
     (the newest bank_synced_to across its accounts), how many accounts saw a
     bank sync 429 or error in the last 24 hours (latest event per account,
     which is what the account doc keeps), and an alert flag when the newest
     bank data on any authorised consent is older than BANK_DATA_STALE_HOURS.
     No ids are returned. A consent with no bank_synced_to yet is counted in
     `consents_without_bank_data` and does not raise the alert on its own."""
+    import time as _time
+
+    if now is None:
+        at = _sync_health_cache["at"]
+        if at is not None and _time.monotonic() - at < _SYNC_HEALTH_TTL_S and _sync_health_cache["payload"] is not None:
+            return _sync_health_cache["payload"]
+        payload = await _compute_sync_health(datetime.utcnow())  # naive-ok: compared with Mongo's naive UTC datetimes
+        _sync_health_cache.update({"at": _time.monotonic(), "payload": payload})
+        return payload
+    return await _compute_sync_health(now)
+
+
+async def _compute_sync_health(now: datetime) -> dict:
     from app.db.collections import accounts_col, finexer_consents_col
 
-    now = now or datetime.utcnow()  # naive-ok: compared with Mongo's naive UTC datetimes
     day_ago = now - timedelta(hours=24)
     stale_cut = now - timedelta(hours=BANK_DATA_STALE_HOURS)
 

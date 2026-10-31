@@ -5,6 +5,9 @@ New consents get auto_sync_interval at their first sync; this one-off covers
 accounts connected before that. DRY RUN BY DEFAULT: it only counts the
 accounts that would be changed. --apply sends one request per account.
 
+The setter honours the 60-minute rule and stamps bank_sync_requested_at when
+Finexer answers with a sync object (the POST may also trigger a sync).
+
 ASSUMPTION: the request itself (POST /bank_accounts/{id}/sync with the form
 field auto_sync_interval) is not confirmed against Finexer's dashboard
 reference; see app.services.finexer_sync.ensure_auto_sync. Run a dry run, then
@@ -23,6 +26,7 @@ import argparse
 import asyncio
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parents[1]
@@ -47,13 +51,23 @@ async def run(apply: bool = False, limit: int | None = None, hours: int | None =
     if hours is None:
         hours = int(await runtime_settings.asetting("FINEXER_AUTO_SYNC_HOURS"))
     consent_ids = [d["_id"] async for d in finexer_consents_col.find({"status": "authorized"}, {"_id": 1})]
-    todo = [
-        a["_id"] async for a in accounts_col.find(
-            {"source": "finexer", "connection_id": {"$in": consent_ids},
-             "bank_auto_sync_hours": {"$exists": False}},
-            {"_id": 1},
-        )
-    ]
+    now = datetime.utcnow()  # naive-ok: compared with Mongo's naive UTC datetimes
+    gap = timedelta(minutes=60)
+    todo = []
+    async for a in accounts_col.find(
+        {"source": "finexer", "connection_id": {"$in": consent_ids},
+         "bank_auto_sync_hours": {"$exists": False}},
+        {"_id": 1, "bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
+    ):
+        # The same 60-minute rule as the sync itself: an account asked or
+        # refused within the hour (a 429 or a 4xx) is not reselected.
+        recent = [a.get("bank_sync_requested_at"), a.get("bank_auto_sync_refused_at")]
+        if any(isinstance(t, datetime) and now - t < gap for t in recent):
+            continue
+        nxt = a.get("bank_sync_next_at")
+        if isinstance(nxt, datetime) and nxt > now:
+            continue
+        todo.append(a["_id"])
     summary = {"hours": hours, "apply": apply, "eligible": len(todo), "attempted": 0, "accepted": 0, "refused": 0}
     if not apply or not hours:
         if apply and not hours:
@@ -63,7 +77,8 @@ async def run(apply: bool = False, limit: int | None = None, hours: int | None =
     async with _client() as client:
         for account_id in batch:
             summary["attempted"] += 1
-            if await ensure_auto_sync(client, account_id, hours):
+            res = await ensure_auto_sync(client, account_id, hours)
+            if res.get("ok") or res.get("triggered"):
                 summary["accepted"] += 1
             else:
                 summary["refused"] += 1

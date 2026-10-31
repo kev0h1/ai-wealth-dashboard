@@ -3,6 +3,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -122,12 +123,17 @@ BANK_SYNC_POLL_DELAYS: tuple = (2.0, 4.0, 8.0, 16.0)
 # Overall wait across one consent so many accounts cannot stall a request.
 BANK_SYNC_CONSENT_BUDGET_S = 60.0
 
+# All A176 assumptions are listed in one place for Kevin to confirm:
+# docs/ops/FINEXER_TRANSACTIONS.md, "A176 assumptions to confirm".
+#
 # ASSUMPTION (confirm against the dashboard reference): the transactions
 # endpoint's event filter is a query parameter with this name, taking the
 # bank_account.synced event id. Off by default: the full walk stays the path
 # until both the name and the webhook payload shape are confirmed.
 TXN_EVENT_FILTER_PARAM = "event"
 USE_TXN_EVENT_FILTER = False
+# More pending rows than this for one account means the filter was ignored.
+PENDING_MAX_ROWS = 200
 
 _auto_sync_warned = False
 
@@ -302,22 +308,21 @@ async def read_bank_sync(
     return fields
 
 
-async def request_and_wait_bank_sync(
+async def wait_bank_sync_idle(
     client: httpx.AsyncClient,
     account_id: str,
-    counter: Optional[dict] = None,
+    counter: Optional[dict],
+    result: dict,
     *,
     budget: Optional[dict] = None,
     sleep=None,
 ) -> dict:
-    """Trigger a bank sync and poll until idle with bounded backoff. If still
-    running when the bound (or the consent-wide budget) is hit, return anyway:
-    the caller fetches what is there and the bank_account.synced webhook
-    delivers the rest. `result["set"]` carries every field written."""
+    """Poll GET /sync with bounded backoff while `result["status"]` reads
+    running. Returns when idle, when the bound or the consent-wide budget is
+    hit, or when a read fails: the caller fetches anyway and the
+    bank_account.synced webhook delivers the rest. `result["set"]` collects
+    every field written."""
     sleep = sleep or asyncio.sleep
-    result = await trigger_bank_sync(client, account_id, counter)
-    if result["outcome"] != "requested":
-        return result
     status = (result.get("status") or "").lower()
     for delay in BANK_SYNC_POLL_DELAYS:
         if status != "running":
@@ -336,23 +341,81 @@ async def request_and_wait_bank_sync(
     return result
 
 
+async def request_and_wait_bank_sync(
+    client: httpx.AsyncClient,
+    account_id: str,
+    counter: Optional[dict] = None,
+    *,
+    budget: Optional[dict] = None,
+    sleep=None,
+) -> dict:
+    """Trigger a bank sync and poll until idle (see `wait_bank_sync_idle`)."""
+    result = await trigger_bank_sync(client, account_id, counter)
+    if result["outcome"] != "requested":
+        return result
+    return await wait_bank_sync_idle(client, account_id, counter, result, budget=budget, sleep=sleep)
+
+
+def _echoes_interval(obj: dict, hours: int) -> bool:
+    try:
+        return int(obj.get("auto_sync_interval")) == hours
+    except (TypeError, ValueError):
+        return False
+
+
+def _looks_like_sync_object(obj: dict) -> bool:
+    return str(obj.get("status") or "").strip().lower() in ("idle", "running")
+
+
 async def ensure_auto_sync(
     client: httpx.AsyncClient,
     account_id: str,
     hours: int,
     counter: Optional[dict] = None,
-) -> bool:
+    *,
+    now: Optional[datetime] = None,
+) -> dict:
     """Set the account's automatic sync interval (hours, 1 to 720).
 
     ASSUMPTION, to confirm against the dashboard reference: the note says the
     sync object carries auto_sync_interval (hours, null disables) but not the
     verb or body that sets it. This sends POST /bank_accounts/{id}/sync with
-    the form field auto_sync_interval. A 4xx is logged once per process and
-    tolerated, and a failure never fails the sync. `hours` of 0 means off here
-    and nothing is sent. Returns True when Finexer accepted it."""
+    the form field auto_sync_interval. That POST may ALSO trigger a bank sync,
+    so the response is read to tell the cases apart:
+      - it echoes auto_sync_interval: bank_auto_sync_hours is recorded (and
+        only then, never on a bare 2xx);
+      - it looks like a sync object (status idle or running): it also
+        triggered a sync, so bank_sync_requested_at and the as-of window are
+        stamped from it and the caller skips its own manual trigger;
+      - 429: recorded like any other bank sync 429.
+    The same 60-minute rule as the manual trigger applies. A 4xx is logged
+    once per process and tolerated, and a failure never fails the sync.
+    `hours` of 0 means off here and nothing is sent.
+
+    Returns {"ok": bool (the interval was echoed), "triggered": bool (the
+    response was a sync object), "outcome": str, "status": str | None,
+    "set": fields written, for the caller's own upsert}."""
     global _auto_sync_warned
+    now = now or _utcnow()
+    res: dict = {"ok": False, "triggered": False, "outcome": "skipped", "status": None, "set": {}}
     if not isinstance(hours, int) or isinstance(hours, bool) or hours < 1 or hours > 720:
-        return False
+        return res
+    try:
+        doc = await accounts_col.find_one(
+            {"_id": account_id},
+            {"bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
+        ) or {}
+    except Exception:
+        doc = {}
+    for key in ("bank_sync_requested_at", "bank_auto_sync_refused_at"):
+        last = doc.get(key)
+        if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+            res["outcome"] = "skipped_local"
+            return res
+    nxt = doc.get("bank_sync_next_at")
+    if isinstance(nxt, datetime) and nxt > now:
+        res["outcome"] = "skipped_local"
+        return res
     try:
         resp = await _post(
             client, f"/bank_accounts/{account_id}/sync",
@@ -360,17 +423,45 @@ async def ensure_auto_sync(
         )
     except httpx.HTTPError:
         logger.warning("Finexer auto sync request transport error")
-        return False
-    if 200 <= resp.status_code < 300:
-        await _write_account_fields(account_id, {"bank_auto_sync_hours": hours})
-        return True
-    if not _auto_sync_warned:
-        _auto_sync_warned = True
-        logger.warning(
-            "Finexer refused the auto_sync_interval request (HTTP %s); the verb or body is an "
-            "unconfirmed assumption. Continuing without it.", resp.status_code,
-        )
-    return False
+        res["outcome"] = "error"
+        return res
+    if resp.status_code == 429:
+        sets = {
+            "bank_sync_last_429_at": now, "bank_sync_error": "rate_limited",
+            "bank_sync_error_at": now, "bank_sync_next_at": now + _retry_after_delta(resp),
+        }
+        await _write_account_fields(account_id, sets)
+        res.update(outcome="rate_limited", set=sets)
+        return res
+    if not (200 <= resp.status_code < 300):
+        sets = {"bank_auto_sync_refused_at": now}
+        await _write_account_fields(account_id, sets)
+        res.update(outcome="refused", set=sets)
+        if not _auto_sync_warned:
+            _auto_sync_warned = True
+            logger.warning(
+                "Finexer refused the auto_sync_interval request (HTTP %s); the verb or body is an "
+                "unconfirmed assumption. Continuing without it.", resp.status_code,
+            )
+        return res
+    try:
+        obj = _sync_object(resp.json())
+    except ValueError:
+        obj = {}
+    sets: dict = {}
+    unsets: dict = {}
+    if _echoes_interval(obj, hours):
+        sets["bank_auto_sync_hours"] = hours
+        res["ok"] = True
+    if _looks_like_sync_object(obj):
+        sets.update({"bank_sync_requested_at": now, "bank_sync_next_at": now + BANK_SYNC_MIN_GAP, **_sync_fields(obj)})
+        unsets = {"bank_sync_error": "", "bank_sync_error_at": ""}
+        res["triggered"] = True
+        res["status"] = sets.get("bank_sync_status")
+    res["outcome"] = "accepted" if sets else "no_echo"
+    res["set"] = sets
+    await _write_account_fields(account_id, sets, unsets)
+    return res
 
 
 # H19: the provider list is effectively static reference data (the banks
@@ -736,11 +827,17 @@ async def _mark_finexer_accounts_expired(consent_id: str) -> None:
 
 def _carry_params(next_url: str, params: Optional[dict]) -> str:
     """A `paging.next` path may drop the query filters of the first page, so
-    re-add any that are missing (status=pending must survive paging)."""
-    for k, v in (params or {}).items():
-        if f"{k}=" not in next_url:
-            next_url += ("&" if "?" in next_url else "?") + f"{k}={v}"
-    return next_url
+    re-add any that are missing (status=pending must survive paging). The
+    query is parsed, not substring-matched."""
+    if not params:
+        return next_url
+    parts = urlsplit(next_url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    present = {k for k, _ in query}
+    missing = [(k, str(v)) for k, v in params.items() if k not in present]
+    if not missing:
+        return next_url
+    return urlunsplit(parts._replace(query=urlencode(query + missing)))
 
 
 async def _walk_transactions(
@@ -755,14 +852,16 @@ async def _walk_transactions(
 ) -> dict:
     """Page through GET /bank_accounts/{id}/transactions.
 
-    `force_pending` is for the status=pending fetch: every row is treated as
-    pending whatever its own status field says, so it can never be written
-    into the settled collection. Returns {"ok", "rows", "new", "pending"};
+    `force_pending` is for the status=pending fetch: a row whose status is
+    absent or already pending is treated as pending, so it can never be written
+    into the settled collection. A row with any other explicit status (booked,
+    settled) is dropped and counted, never forced. Returns
+    {"ok", "rows", "new", "pending", "dropped"};
     on a non-200 `ok` is False and the caller must not wipe stored state."""
     url: Optional[str] = f"/bank_accounts/{account_id}/transactions"
     first_page = True
     first_txn_logged = False
-    out = {"ok": True, "rows": 0, "new": [], "pending": []}
+    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0}
     while url:
         tr = await _get(client, url, params if first_page else None, counter=counter)
         first_page = False
@@ -777,7 +876,16 @@ async def _walk_transactions(
             logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
             first_txn_logged = True
         if force_pending:
-            txns = [{**t, "status": "pending"} for t in txns if isinstance(t, dict)]
+            kept = []
+            for t in txns:
+                if not isinstance(t, dict):
+                    continue
+                st = str(t.get("status") or "").strip().lower()
+                if st in ("", "pending"):
+                    kept.append({**t, "status": "pending"})
+                else:
+                    out["dropped"] += 1
+            txns = kept
         new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
         out["new"].extend(new)
         out["pending"].extend(pending_rows)
@@ -971,10 +1079,30 @@ async def sync_finexer_consent(
             # A176: ask Finexer to refresh this account from the bank first, so
             # the balance and transactions below are the bank's current ones.
             bank_sync_set: dict = {}
-            if request_bank_sync:
+            sync_current = False  # this pass already holds a fresh sync object
+            setter_triggered = False
+            # First consent sync: switch on Finexer's automatic sync FIRST. The
+            # setter is a POST to the same path as the manual trigger and may
+            # itself trigger a sync, in which case the manual trigger is
+            # skipped for this account (one POST, not two within seconds).
+            if is_initial_sync and auto_sync_hours:
+                try:
+                    au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter)
+                    bank_sync_set.update(au.get("set") or {})
+                    if au.get("triggered"):
+                        setter_triggered = True
+                        await wait_bank_sync_idle(
+                            client, account_id, counter,
+                            {"status": au.get("status"), "set": bank_sync_set}, budget=bank_sync_budget,
+                        )
+                        sync_current = True
+                except Exception:
+                    logger.exception("Finexer auto sync setup failed for an account; continuing")
+            if request_bank_sync and not setter_triggered:
                 try:
                     bs = await request_and_wait_bank_sync(client, account_id, counter, budget=bank_sync_budget)
-                    bank_sync_set = dict(bs.get("set") or {})
+                    bank_sync_set.update(bs.get("set") or {})
+                    sync_current = bs.get("outcome") == "requested" and (bs.get("status") or "") != "running"
                 except Exception:
                     logger.exception("Finexer bank sync request failed for an account; continuing")
 
@@ -1038,15 +1166,6 @@ async def sync_finexer_consent(
             )
             fetched_account_ids.append(account_id)
 
-            # A176: first sync after connect also switches on Finexer's own
-            # automatic sync (after the manual request above, so the two do not
-            # compete for the hourly allowance). Never fails the sync.
-            if is_initial_sync and auto_sync_hours:
-                try:
-                    await ensure_auto_sync(client, account_id, auto_sync_hours, counter)
-                except Exception:
-                    logger.exception("Finexer auto sync setup failed for an account; continuing")
-
             # Fetch transactions (paginated). A bank_account.synced event may
             # narrow this account's booked walk (off by default, see
             # USE_TXN_EVENT_FILTER); a failed filtered walk falls back to full.
@@ -1074,10 +1193,27 @@ async def sync_finexer_consent(
             if not fetch_failed:
                 for row in booked["pending"]:
                     merged_pending[row.get("transaction_id") or row.get("id")] = row
-                pend = await _walk_transactions(
-                    client, account_id, user_id, identity, counter,
-                    params={"status": "pending"}, force_pending=True,
-                )
+                try:
+                    pend = await _walk_transactions(
+                        client, account_id, user_id, identity, counter,
+                        params={"status": "pending"}, force_pending=True,
+                    )
+                except (httpx.HTTPError, ValueError):
+                    logger.warning("Finexer pending walk failed for an account; keeping its stored pending set")
+                    pend = {"ok": False}
+                if pend["ok"] and pend["dropped"]:
+                    logger.warning(
+                        "Finexer pending walk dropped %d row(s) with an explicit booked status for an account",
+                        pend["dropped"],
+                    )
+                if pend["ok"] and pend["rows"] > PENDING_MAX_ROWS:
+                    # A pending list this long means the status filter was
+                    # ignored (it is a booked list). Treat it as a failure.
+                    logger.warning(
+                        "Finexer pending walk returned %d rows for one account (over %d); treating as a filter failure",
+                        pend["rows"], PENDING_MAX_ROWS,
+                    )
+                    pend = {"ok": False}
                 if pend["ok"]:
                     for row in pend["pending"]:
                         merged_pending.setdefault(row.get("transaction_id") or row.get("id"), row)
@@ -1094,6 +1230,16 @@ async def sync_finexer_consent(
             # for booked rows only; pending comes from its own full fetch.
             if not fetch_failed and not pending_failed:
                 await replace_pending_for_account(list(merged_pending.values()), account_id, user_id, provider="Finexer")
+
+            # A176 (F1): in EVERY sync path, read the sync object once after the
+            # walk (a GET, no documented hourly limit) so bank_synced_to tracks
+            # the bank's own freshness and not just the last manual refresh.
+            # Skipped only when this pass already read a fresh idle one.
+            if not sync_current:
+                try:
+                    await read_bank_sync(client, account_id, counter)
+                except Exception:
+                    logger.exception("Finexer bank sync read failed for an account; continuing")
 
             # A175: per-account transaction sync diagnostics. A 200 with no
             # rows used to leave no trace at all, so the account sheet could
