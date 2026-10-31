@@ -15,11 +15,15 @@ Own-account receipts were being classified as income when the two banks used dif
 - Historical corrections remain context after the transaction leaves the 180-day window. Confirmed forecasts also revalidate historical transfer pairs against their actual counterpart. Those older amounts never become new forecast occurrences.
 - Legacy confirmations with conflicting evidence across same-named accounts cannot apply their schedule to another account. Stored preferences remain intact; independent eligible income still detects on its own cadence. Missing history or a provider category of Other alone does not cancel a confirmed salary.
 - Automatic reward rules, learned suggestions and the background classifier no longer categorise debits as Income. Explicit user Income choices and income reversals remain supported. Existing stored debit categories are not mass-rewritten; the reported historical Perks row can be corrected through its transaction category.
+- The direction invariant is shared across machine rules, cached suggestions, the owner-name model pass, on-demand categorisation and cached/fresh vendor decisions. It depends on the bank transaction direction, never on a particular description. User-authored rules and direct category corrections are deliberate instructions, including Income reversal choices, rather than machine guesses.
+- A saved user correction outranks newer automatic history. Its persisted correction timestamp remains authoritative after the teaching-event log expires. Automatic writes recheck that the row has no user correction, so an in-flight result cannot overwrite a later choice.
 
 ## Verification
 
 Focused tests cover the reported joined-initials narrative, account-number evidence, five-day posting delays, ambiguity, same-account refunds, currency mismatches, invalid amounts, manual overrides, late connections, the 90-day boundary, user isolation, idempotence, stale evidence and first-connection ordering. Cashflow input tests exercise the real query projections and keep the source debit while excluding only a valid matched receipt. Existing transfer-review, cache-staleness and refresh tests are included.
 
 Follow-up regressions run the real category PATCH, dirty-cache marking and immediate read-side recompute, retaining genuine salary and outgoing payments while dropping the corrected payer and confirmed fallback. They cover corrections older than the forecast window, account-specific and legacy confirmations, orphaned historical pairs, both provider ingestion paths and preservation of explicit Income debits.
+
+Generic regressions repeat those flows with unrelated payer names and a custom movement category, inject incorrect Income model responses for debits in every model path, exercise cached vendor and merchant decisions, and correct a row while an AI request is in flight. No production condition recognises the reported example descriptions specially.
 
 No live account data was modified during development. Existing data is revisited by the normal sync/classification path after integration; this branch does not run a production migration or restart services.

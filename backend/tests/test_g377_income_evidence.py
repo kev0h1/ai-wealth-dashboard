@@ -1,12 +1,14 @@
 """Corrections must survive income filtering and confirmed fallback."""
 from datetime import datetime, timedelta
 
+import pytest
+
 from app.services.income_evidence import select_income_evidence
 from app.services.income_payer import payer_key
 
 
-def credit(account="monzo", category="Income", **extra):
-    return {"merchant_name": "TEST", "description": "TEST", "account_id": account,
+def credit(account="monzo", category="Income", label="TEST", **extra):
+    return {"merchant_name": label, "description": label, "account_id": account,
             "transaction_type": "credit", "category": category, "date": datetime(2026, 10, 30),
             "amount": 320, **extra}
 
@@ -77,6 +79,19 @@ def test_debit_or_pending_correction_cannot_cancel_booked_income():
     assert not evidence.blocked
 
 
-def test_custom_non_income_correction_cannot_seed_income():
-    for category in ["My transfers", "Not counted", "Savings", "Shopping"]:
-        assert not select_income_evidence([credit(), credit(custom_category=category)]).credits
+@pytest.mark.parametrize(
+    ("label", "category"),
+    [
+        ("Tuesday Perks Reward", "Transfer"),
+        ("Unrelated Counterparty 9017", "Household sweep"),
+    ],
+)
+def test_any_explicit_non_income_correction_cannot_seed_income(label, category):
+    """No payer word or custom movement label is special-cased."""
+    older = credit(label=label, date=datetime(2026, 9, 30))
+    newest = credit(label=label, custom_category=category,
+                    custom_category_at=datetime(2026, 10, 31))
+    other_account = credit(account="barclays", label=label)
+    evidence = select_income_evidence([older, newest, other_account])
+    assert evidence.credits == [other_account]
+    assert evidence.blocked == {payer_key(newest)}

@@ -175,11 +175,21 @@ def rule_categorise_directed(merchant: str, description: str, *, is_credit: bool
     """`rule_categorise` with the one direction guard every path shares.
 
     G280: a credit whose text matches the Rent rule is a landlord's incoming
-    rent (Income), never a Rent refund. Every other rule match is unchanged
-    (a merchant refund still nets against its category). Ingest (TrueLayer,
+    rent (Income), never a Rent refund. Income is rejected on debits;
+    merchant refunds still net against their category. Ingest (TrueLayer,
     Finexer, Yapily, statements) and `apply_rules_bulk` all call this, so a
     credit gets the same category whichever path sees it first."""
     return credit_guard(rule_categorise(merchant, description), is_credit=is_credit)
+
+
+def automatic_category_for_direction(cat: Optional[str], transaction_type: Optional[str]) -> Optional[str]:
+    """Validate any machine suggestion against the bank's money direction.
+
+    No merchant or description exceptions. Unknown direction cannot justify
+    Income either. Explicit user choices use their separate correction/rule
+    paths and remain authoritative, including genuine income reversals.
+    """
+    return None if cat == "Income" and transaction_type != "credit" else cat
 
 
 def credit_guard(cat: Optional[str], *, is_credit: bool) -> Optional[str]:
@@ -190,9 +200,8 @@ def credit_guard(cat: Optional[str], *, is_credit: bool) -> Optional[str]:
     This intentionally does not rewrite an existing/manual ``Income`` debit,
     because those can represent a genuine reversal of an earlier payment.
     """
-    if not is_credit and cat == "Income":
-        return None
-    return "Income" if is_credit and cat == "Rent" else cat
+    cat = "Income" if is_credit and cat == "Rent" else cat
+    return automatic_category_for_direction(cat, "credit" if is_credit else "debit")
 
 
 async def migrate_mortgage_car_finance_categories() -> dict:
@@ -1225,10 +1234,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 cat = "__clear__"
 
         if cat == "__clear__":
-            await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": None}})
+            await transactions_col.update_one({"_id": t["_id"], "user_id": user_id, "custom_category": None}, {"$set": {"category": None}})
             updated += 1
         elif cat:
-            await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": cat}})
+            await transactions_col.update_one({"_id": t["_id"], "user_id": user_id, "custom_category": None}, {"$set": {"category": cat}})
             updated += 1
 
     # Pass 3.4: learned merchant cache (persisted LLM + user decisions)
@@ -1273,8 +1282,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             # result. Never turn a debit into Income through it. Explicit user
             # choices propagate separately in Pass 4 and retain their
             # direction-scoped semantics.
-            if cat == "Income" and t.get("transaction_type") != "credit":
-                continue
+            cat = automatic_category_for_direction(cat, t.get("transaction_type"))
             if cat and t.get("category") != cat:
                 await transactions_col.update_one(
                     {"_id": t["_id"], "custom_category": None},
@@ -1295,7 +1303,8 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     except Exception:
         log.exception("apply_rules_bulk: vendor decisions pass failed for %s", user_id)
 
-    # Pass 3.5: user-defined rules
+    # Pass 3.5: explicit user-defined rules, not machine suggestions. These
+    # retain the user's chosen category, including an Income reversal rule.
     user_rules = await user_rules_col.find({"uid": user_id}).to_list(None)
     if user_rules:
         no_custom = await transactions_col.find(
@@ -1309,7 +1318,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                     if re.search(rule["pattern"], text, re.IGNORECASE):
                         if t.get("category") != rule["category"]:
                             await transactions_col.update_one(
-                                {"_id": t["_id"]}, {"$set": {"category": rule["category"]}}
+                                {"_id": t["_id"], "user_id": user_id, "custom_category": None}, {"$set": {"category": rule["category"]}}
                             )
                             updated += 1
                         break
@@ -1340,8 +1349,8 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     # correction timestamp from teaching_events_col per transaction id; only
     # a row with no matching event — a pre-teaching_events_col correction, or
     # one whose event has aged out of that collection's 365-day TTL — falls
-    # back to its own transaction `date`, which is a known, accepted
-    # approximation for that legacy/expired subset only, not a general rule.
+    # back to its persisted custom_category_at stamp, then its transaction
+    # date for legacy rows without either record of the decision time.
     #
     # Fetch user_overrides FIRST and skip the teaching_events_col round trip
     # entirely when it's empty — Pass 4 runs unconditionally on every sync
@@ -1353,11 +1362,11 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     # returns on error — every lookup below just falls through to `date`.
     user_overrides = await transactions_col.find(
         {"user_id": user_id, "custom_category": {"$ne": None}},
-        {"merchant_name": 1, "description": 1, "custom_category": 1, "transaction_type": 1, "date": 1},
+        {"merchant_name": 1, "description": 1, "custom_category": 1, "custom_category_at": 1, "transaction_type": 1, "date": 1},
     ).to_list(None)
     _decision_time = await teaching_decision_times(user_id) if user_overrides else {}
     user_overrides.sort(
-        key=lambda h: _decision_time.get(h["_id"]) or h.get("date") or datetime.min,
+        key=lambda h: h.get("custom_category_at") or _decision_time.get(h["_id"]) or h.get("date") or datetime.min,
         reverse=True,
     )
 
@@ -1393,7 +1402,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 if desired:
                     if t.get("category") != desired:
                         await transactions_col.update_one(
-                            {"_id": t["_id"]}, {"$set": {"category": desired}}
+                            {"_id": t["_id"], "user_id": user_id, "custom_category": None}, {"$set": {"category": desired}}
                         )
                         updated += 1
                     break
@@ -1611,8 +1620,7 @@ async def categorise_others_bg(uid: str) -> int:
         for i, key in enumerate(unique_keys):
             label, _direction = key
             cat = classifications.get(str(i + 1))
-            if _direction == "OUT" and cat == "Income":
-                cat = "Other"
+            cat = automatic_category_for_direction(cat, "credit" if _direction == "IN" else "debit") or "Other"
             if cat in {"Transfer", "Savings", "Debt", "Investment"}:
                 # Defensive: these are structural/money-to-self categories the LLM was
                 # never offered (see cat_list above) but may still hallucinate. Never
@@ -1632,7 +1640,7 @@ async def categorise_others_bg(uid: str) -> int:
                     canonical_merchant_key("", label), final, "llm",
                     uid=uid, prefer_global=final in VALID_CATEGORIES,
                 )
-            await col.update_many({"_id": {"$in": seen[key]}}, {"$set": update})
+            await col.update_many({"_id": {"$in": seen[key]}, "user_id": uid, "custom_category": None}, {"$set": update})
 
         reached_ids = {_id for ids in seen.values() for _id in ids}
         all_ids = {t["_id"] for t in batch}
@@ -1724,7 +1732,7 @@ async def llm_name_check(uid: str) -> int:
             direction = "credit (money in)" if t.get("transaction_type") == "credit" else "debit (money out)"
             amt = t.get("amount", 0)
             desc = ((t.get("merchant_name") or "") + " " + (t.get("description") or "")).strip()[:120]
-            lines_data.append({"id": t["_id"], "desc": desc, "direction": direction, "amount": amt, "old_cat": t.get("category")})
+            lines_data.append({"id": t["_id"], "desc": desc, "direction": direction, "transaction_type": t.get("transaction_type"), "amount": amt, "old_cat": t.get("category")})
 
         lines_text = "\n".join(
             f"{i+1}. [{d['direction']}, £{d['amount']:.2f}] {d['desc']}"
@@ -1758,7 +1766,7 @@ async def llm_name_check(uid: str) -> int:
             continue
 
         for i, d in enumerate(lines_data):
-            cat = classifications.get(str(i + 1))
+            cat = automatic_category_for_direction(classifications.get(str(i + 1)), d["transaction_type"])
             if not cat or cat not in allowed_cats:
                 continue
             old_cat = d["old_cat"]

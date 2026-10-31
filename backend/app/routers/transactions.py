@@ -27,7 +27,7 @@ from app.services.categorisation import (
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
     canonical_merchant_key, cache_merchant, user_allowed_categories,
     strip_date_fragments, LEADING_DATE_RE, build_rule_pattern,
-    teaching_decision_times, count_rule_matches,
+    teaching_decision_times, count_rule_matches, automatic_category_for_direction,
 )
 from app.services.categories import get_category_kinds, is_non_spend, GENERIC_MANUAL_CATEGORIES
 from app.services.categorisation import user_identity
@@ -1117,7 +1117,7 @@ async def auto_categorise(
          "$or": [{"custom_category": {"$ne": None}},
                  {"category": {"$nin": list(RAW_TRUELAYER_CATEGORIES) + [None]}}]},
         {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
-         "transaction_type": 1, "date": 1},
+         "transaction_type": 1, "date": 1, "custom_category_at": 1},
     ).to_list(None)
     # G139: same "first key seen wins" defect as categorisation.py's Pass 4
     # propagation (see `apply_rules_bulk`'s own Pass 4 comment and
@@ -1132,9 +1132,12 @@ async def auto_categorise(
     # teaching event to begin with, so it falls back to its own transaction
     # `date` — the same accepted approximation `teaching_decision_times`
     # documents for legacy/TTL-expired corrections.
+    # A newer automatic guess must never outrank an explicit correction.
+    # Among corrections, prefer their persisted decision stamp over the
+    # transaction date, even after the teaching-event log has expired.
     _decision_time = await teaching_decision_times(uid)
     historical.sort(
-        key=lambda h: _decision_time.get(h["_id"]) or h.get("date") or datetime.min,
+        key=lambda h: (bool(h.get("custom_category")), h.get("custom_category_at") or _decision_time.get(h["_id"]) or h.get("date") or datetime.min),
         reverse=True,
     )
 
@@ -1167,6 +1170,10 @@ async def auto_categorise(
         if not cat or cat in RAW_TRUELAYER_CATEGORIES or cat == "Other":
             continue
         txn_type = h.get("transaction_type", "")
+        if not h.get("custom_category"):
+            cat = automatic_category_for_direction(cat, txn_type)
+            if not cat:
+                continue
         for key in [h.get("merchant_name"), h.get("description")]:
             if key:
                 norm    = re.sub(r'\s+', ' ', key.strip().lower())
@@ -1186,7 +1193,7 @@ async def auto_categorise(
                     matched = merchant_map[(norm, txn_type)]
                     break
         if matched:
-            await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": matched}})
+            await transactions_col.update_one({"_id": t["_id"], "user_id": uid, "custom_category": None}, {"$set": {"category": matched}})
             history_matched += 1
         else:
             needs_ai.append(t)
@@ -1252,9 +1259,11 @@ async def auto_categorise(
                     mapping = json.loads(m.group())
                     for k, cat in mapping.items():
                         if k.isdigit() and int(k) < len(batch):
-                            final_cat = cat if cat in VALID_CATEGORIES else "Other"
+                            row = batch[int(k)]
+                            final_cat = automatic_category_for_direction(cat, row.get("transaction_type"))
+                            final_cat = final_cat if final_cat in VALID_CATEGORIES else "Other"
                             await transactions_col.update_one(
-                                {"_id": batch[int(k)]["_id"]}, {"$set": {"category": final_cat}}
+                                {"_id": row["_id"], "user_id": uid, "custom_category": None}, {"$set": {"category": final_cat}}
                             )
                             ai_total += 1
             for t in batch:
@@ -1263,10 +1272,10 @@ async def auto_categorise(
                      {"category": {"$in": list(RAW_TRUELAYER_CATEGORIES)}}]}, {"_id": 1}
                 )
                 if doc:
-                    await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": "Other"}})
+                    await transactions_col.update_one({"_id": t["_id"], "user_id": uid, "custom_category": None}, {"$set": {"category": "Other"}})
         except Exception:
             for t in batch:
-                await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": "Other"}})
+                await transactions_col.update_one({"_id": t["_id"], "user_id": uid, "custom_category": None}, {"$set": {"category": "Other"}})
 
     await response_cache.ainvalidate(uid)
     return {"rules_fixed": rules_fixed, "history_matched": history_matched, "ai_categorised": ai_total}
