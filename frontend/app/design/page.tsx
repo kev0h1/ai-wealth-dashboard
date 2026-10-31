@@ -31,6 +31,15 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
+  {
+    slug: "movement-teaching",
+    name: "Tell me what this was · G376",
+    description: "G376 · impeccable · Clear choices for savings, investments and goals. A keeps choices together; B groups money put aside. Local examples include goal creation, loading, retry and hidden amounts. Production sheet awaits the chosen treatment.",
+    variants: [{ label: "A · Direct choice", value: "a" }, { label: "B · Destination first", value: "b" }],
+    states: [],
+    group: "current",
+  },
+
 
   {
     slug: "pending-payments",
