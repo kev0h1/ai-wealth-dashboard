@@ -1628,6 +1628,7 @@ async def _pp_salary_observed(
 from app.services.account_walk import (  # noqa: E402
     walk_events as _walk_events,
     walk_sort_key,
+    walk_account as _walk_account,
     window_events as _window_events,
 )
 
@@ -2740,6 +2741,7 @@ async def compute_today_items(
         and str(_pp_salary_income.get("account_id") or "")
     )
     funded_window_inflows = wi.funded_window_inflows  # read by the source and excluded-income walks below
+    funded_window_inflows = wi.funded_window_inflows  # read by the excluded-income walk below
     events, running, credited_incomes = _window_events(
         wi,
         inflow_admit="seed_live",
@@ -2879,34 +2881,16 @@ async def compute_today_items(
     # attributed to this source AND reliable (income_credit_ok) — a source's
     # contribution never leans on money that might land elsewhere.
     def _source_min_running(sid: str, start_balance: float) -> float:
-        ev: list[tuple[int, float]] = [
-            (b["days_away"], -float(b["amount"]))
-            for b in assessable_bills
-            if (b["account_id"] or "__unknown__") == sid
-        ]
-        ev += [
-            (i["days_away"], float(i["amount"]))
-            for i in window_income
-            if income_credit_ok(i, sid, confirmed_income_keys)
-        ]
-        # G360: funded inbound own-account transfers, same rule as the
-        # closing walk above, so low_point and after_payments agree.
-        ev += [
-            (n["days_away"], float(n["amount"]))
-            for n in funded_window_inflows
-            if str(n.get("account_id") or "") == sid
-        ]
-        # same-day: inflows before outflows, G163 — the (days_away, delta)
-        # shape here is inline rather than `walk_sort_key` (which expects a
-        # 5-tuple with is_income at index 3), but is the equivalent key:
-        # delta > 0 (income) sorts first on a tie, same as walk_sort_key.
-        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
-        run = start_balance
-        mn = run
-        for _d, delta in ev:
-            run += delta
-            mn = min(mn, run)
-        return mn
+        # G365: the low point is the one per-account walk
+        # (services/account_walk.walk_account), with this caller's rules:
+        # any attributed credit-ok income counts even with no bill on the
+        # account (`income_admit="any"`), every funded inbound own-account
+        # transfer (G360) counts (`inflow_admit="any"`), and the same-day
+        # order is the equivalent inline `(day, delta)` key.
+        return _walk_account(
+            sid, wi, opening=start_balance,
+            income_admit="any", inflow_admit="any", same_day_key="positive_delta",
+        ).low_point
 
     source_capacity: dict[str, float] = {}
     source_min_run: dict[str, float] = {}
