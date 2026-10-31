@@ -352,8 +352,9 @@ async def reconcile_own_account_transfers(
     profile_collection=None,
     mark_stale_fn=None,
     movement_categories: set[str] | None = None,
+    confirmed_only: bool = False,
 ) -> int:
-    """Reclassify the last ninety days of certain own-account pairs.
+    """Reclassify recent pairs and preserve explicit confirmations of any age.
 
     The caller may run this after every full sync.  Re-running is idempotent:
     a machine classification can be refreshed, while any later user custom
@@ -367,19 +368,41 @@ async def reconcile_own_account_transfers(
     pair_collection = confirmed_transfer_pairs_col if pair_collection is None else pair_collection
     profile_collection = user_profiles_col if profile_collection is None else profile_collection
     cutoff = datetime.utcnow() - timedelta(days=RECONCILE_DAYS)  # naive-ok: Mongo booked dates are naive UTC
+    # Most non-structural calls have no confirmed pairs. Avoid extra account
+    # and profile reads for that common case.
+    stamped = await transaction_collection.find(
+        {"user_id": user_id, "own_transfer_match": {"$exists": True, "$ne": None}},
+    ).to_list(None)
+    confirmed_rows = [row for row in stamped if (row.get("own_transfer_match") or {}).get("confirmed")]
+    if confirmed_only and not confirmed_rows:
+        return 0
     account_rows = await account_collection.find({"user_id": user_id}, {"account_number": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
     accounts = {row["_id"]: row for row in account_rows}
     profile = await profile_collection.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
     if movement_categories is None:
         kinds = await get_category_kinds(user_id)
         movement_categories = {name for name, kind in kinds.items() if kind == MOVEMENT}
-    rows = await transaction_collection.find(
+    projection = {"account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
+                  "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
+                  "is_pending": 1, "own_transfer_match": 1}
+    rows = [] if confirmed_only else await transaction_collection.find(
         {"user_id": user_id, "date": {"$gte": cutoff},
-         "transaction_type": {"$in": ["credit", "debit"]}},
-        {"account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
-         "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
-         "is_pending": 1, "own_transfer_match": 1},
+         "transaction_type": {"$in": ["credit", "debit"]}}, projection,
     ).to_list(None)
+    # Discovery windows must not expire a user's decision. Older automatic
+    # matches remain outside this pass unless referenced by a current marker.
+    by_id = {str(row["_id"]): row for row in rows}
+    for row in confirmed_rows:
+        by_id[str(row["_id"])] = row
+    counterpart_ids = {
+        (row.get("own_transfer_match") or {}).get("counterpart_id") for row in by_id.values()
+    } - set(by_id) - {None}
+    if counterpart_ids:
+        counterparts = await transaction_collection.find(
+            {"user_id": user_id, "_id": {"$in": list(counterpart_ids)}}, projection,
+        ).to_list(None)
+        by_id.update({str(row["_id"]): row for row in counterparts})
+    rows = list(by_id.values())
     # Legacy booked rows can omit currency.  Use their owning account's known
     # currency, never a global GBP default, and only in this local candidate
     # copy so no source value is silently changed.
@@ -389,6 +412,10 @@ async def reconcile_own_account_transfers(
         select_unique_pairs(rows, accounts, profile.get("name_tokens") or [], _learned_pair_keys(learned_rows), movement_categories=movement_categories)
         if len(accounts) >= 2 else []
     )
+    if confirmed_only:
+        pairs = [(credit, debit) for credit, debit in pairs
+                 if _confirmed_pair(credit, debit, accounts, movement_categories)
+                 or _confirmed_pair(debit, credit, accounts, movement_categories)]
     selected_ids = {str(item["_id"]) for pair in pairs for item in pair}
     changed = 0
     # A row can remain after its counterpart is deleted, becomes pending, or

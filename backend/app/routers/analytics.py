@@ -5650,21 +5650,42 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
     dismissed = set(prefs.get("dismissed_miscategorised") or [])
     dismissed_series = set(prefs.get("dismissed_miscategorised_series") or [])
 
+    # A manual category is an answer, not another reason to ask. Keep this
+    # frequent dashboard query narrow; only fetch counterparts of candidate
+    # rows with saved evidence, rather than reading all historic credits.
     txns = await transactions_col.find(
-        {"user_id": uid, "transaction_type": "debit",
-         "$or": [
-             # auto-categorised into a spend category
-             {"custom_category": None, "category": {"$nin": money_to_self}},
-             # manually overridden into a spend category — guide the user back
-             {"custom_category": {"$nin": [None, *money_to_self]}},
-         ]},
+        {"user_id": uid, "transaction_type": "debit", "custom_category": None,
+         "category": {"$nin": money_to_self}},
         {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
          "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
-         "account_id": 1},
+         "account_id": 1, "own_transfer_match": 1, "is_pending": 1},
     ).to_list(None)
+    counterpart_ids = list({
+        (t.get("own_transfer_match") or {}).get("counterpart_id") for t in txns
+    } - {None})
+    if counterpart_ids:
+        owned = {a["_id"]: a async for a in accounts_col.find(
+            {"user_id": uid}, {"currency": 1},
+        )}
+        counterparts = await transactions_col.find(
+            {"user_id": uid, "_id": {"$in": counterpart_ids}},
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+             "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+             "account_id": 1, "own_transfer_match": 1, "is_pending": 1},
+        ).to_list(None)
+        from app.services.own_account_transfers import resolve_transfer_evidence
+        candidate_ids = {str(t["_id"]) for t in txns}
+        resolved = resolve_transfer_evidence(
+            [{**t, "currency": str(t.get("currency") or owned.get(t.get("account_id"), {}).get("currency") or "").upper()}
+             for t in txns + counterparts], set(money_to_self), owned_account_ids=set(owned),
+        )
+        txns = [t for t in resolved if str(t["_id"]) in candidate_ids]
 
     kept = []
     for t in txns:
+        if (t.get("transaction_type") != "debit" or t.get("custom_category") is not None
+                or t.get("category") in money_to_self):
+            continue
         tid = str(t["_id"])
         if tid in dismissed:
             continue
@@ -6088,6 +6109,8 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     dismissed_pairs = set(prefs.get("dismissed_transfer_pairs") or [])
+    dismissed_rows = set(prefs.get("dismissed_miscategorised") or [])
+    dismissed_series = set(prefs.get("dismissed_miscategorised_series") or [])
 
     learned_docs = await confirmed_transfer_pairs_col.find(
         {"user_id": uid}, {"key_a": 1, "key_b": 1}
@@ -6116,11 +6139,17 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
         {"user_id": uid, "transaction_type": {"$in": ["credit", "debit"]}, "is_pending": {"$ne": True}},
         {"account_id": 1, "amount": 1, "date": 1, "description": 1,
          "merchant_name": 1, "category": 1, "custom_category": 1,
-         "transaction_type": 1, "currency": 1},
+         "transaction_type": 1, "currency": 1, "own_transfer_match": 1, "is_pending": 1},
     ).to_list(None)
 
     txns = [{**t, "currency": t.get("currency") or owned_accounts[t["account_id"]].get("currency")}
             for t in txns if t.get("account_id") in owned_accounts]
+
+    from app.services.own_account_transfers import resolve_transfer_evidence
+    txns = resolve_transfer_evidence(
+        txns, {name for name in kind_map if is_non_spend(kind_map, name)},
+        owned_account_ids=set(owned_accounts),
+    )
 
     def _effective_category(t: dict):
         return t.get("custom_category") or t.get("category")
@@ -6152,6 +6181,10 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
                 continue
             date_diff = abs((c_day - _day(d)).days)
             if date_diff > 5:
+                continue
+            # A prior "this is spending" dismissal also answers the same
+            # transaction when it later becomes a pair candidate after sync.
+            if (str(d["_id"]) in dismissed_rows or series_key(d) in dismissed_series):
                 continue
             if _leg_blocks_pair(c) or _leg_blocks_pair(d):
                 continue

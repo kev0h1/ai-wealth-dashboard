@@ -126,11 +126,9 @@ export default function MiscategorisedReviewSheet({
   // Never gates the sheet's own `loading` state: it's a quiet, additive
   // section that appears whenever it resolves, absent entirely at zero.
   const [pairs, setPairs] = useState<TransferPairSuggestion[]>(initialPairs ?? []);
-  // pair_key -> failed-confirm flag, so the restored card can show an inline
-  // error line — see handleConfirmPair below. Confirm (unlike dismiss) is a
-  // write the user explicitly cares about, so a failure must be visible, not
-  // silently swallowed.
+  // Failed decisions stay visible and retryable until the server saves them.
   const [pairErrors, setPairErrors] = useState<Set<string>>(new Set());
+  const [dismissErrors, setDismissErrors] = useState<Set<string>>(new Set());
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
   // Which series' "see the payments" disclosure is expanded — collapsed by
   // default, local to this sheet (not persisted).
@@ -191,7 +189,7 @@ export default function MiscategorisedReviewSheet({
 
   // Optimistic removal like handleDismiss below, but confirm is a write the
   // user explicitly asked for ("Same transfer" fixes both legs' categories
-  // AND learns the description pair) — unlike dismiss, a failure must not be
+  // AND learns the description pair) — a failure must not be
   // swallowed. On failure the card is restored into the list with an inline
   // error line so the owner knows to retry; onChanged only fires on success,
   // since nothing actually changed server-side on failure.
@@ -230,8 +228,11 @@ export default function MiscategorisedReviewSheet({
     setPairs((prev) => prev.filter((p) => p.pair_key !== pair.pair_key));
     api
       .dismissTransferPair(pair.pair_key)
-      .catch(() => {})
-      .finally(() => onChanged?.());
+      .then(() => onChanged?.())
+      .catch(() => {
+        setPairs((prev) => prev.some((p) => p.pair_key === pair.pair_key) ? prev : [pair, ...prev]);
+        setPairErrors((prev) => new Set(prev).add(pair.pair_key));
+      });
   }
 
   function renderPair(pair: TransferPairSuggestion) {
@@ -239,7 +240,7 @@ export default function MiscategorisedReviewSheet({
     const creditAccount = accounts.find((a) => a.id === pair.credit.account_id);
     const debitBrand = debitAccount ? accountBrand(debitAccount) : null;
     const creditBrand = creditAccount ? accountBrand(creditAccount) : null;
-    const timing = pair.date_diff_days === 0 ? "on the same day" : "a day apart";
+    const timing = pair.date_diff_days === 0 ? "on the same day" : pair.date_diff_days === 1 ? "a day apart" : `${pair.date_diff_days} days apart`;
     const reasonText = `The same amount left ${debitAccount?.name ?? "one account"} and arrived in ${creditAccount?.name ?? "another account"} ${timing}.`;
 
     function legRow(
@@ -307,12 +308,10 @@ export default function MiscategorisedReviewSheet({
             Not the same
           </button>
         </div>
-        {/* Confirm-failure line — same house style as SpendVerdictView's
-            intent-save error (mt-2 text-[12px] font-semibold text-red-600).
-            Absent unless this exact card's last confirm attempt failed. */}
+        {/* A failed save is a retryable service problem, not financial risk. */}
         {pairErrors.has(pair.pair_key) && (
-          <p className="text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">
-            Couldn&apos;t file that, try again.
+          <p className="text-[12px] font-semibold text-slate-600 dark:text-slate-300" role="alert">
+            Couldn&apos;t save your choice. Please try again.
           </p>
         )}
       </div>
@@ -322,14 +321,20 @@ export default function MiscategorisedReviewSheet({
   function handleDismiss(item: MiscategorisedItem) {
     if (dismissingIds.has(item.series_key)) return;
     setDismissingIds((prev) => new Set(prev).add(item.series_key));
-    // Optimistic — the whole series leaves immediately; a failed call just
-    // leaves it out of this list until the next open (it'll re-surface from
-    // the count).
+    // Restore the series on failure so it never appears successfully reviewed.
     setItems((prev) => prev.filter((t) => t.series_key !== item.series_key));
     api
       .dismissMiscategorisedSeries(item.series_key)
-      .catch(() => {})
-      .finally(() => onChanged?.());
+      .then(() => onChanged?.())
+      .catch(() => {
+        setItems((prev) => prev.some((t) => t.series_key === item.series_key) ? prev : [item, ...prev]);
+        setDismissErrors((prev) => new Set(prev).add(item.series_key));
+      })
+      .finally(() => setDismissingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.series_key);
+        return next;
+      }));
   }
 
   // "This period"/"Earlier periods" split — see the `periodStart` prop doc.
@@ -554,6 +559,11 @@ export default function MiscategorisedReviewSheet({
           </div>
         )}
 
+        {dismissErrors.has(item.series_key) && (
+          <p className="mt-3 text-xs text-slate-600 dark:text-slate-300" role="alert">
+            Couldn&apos;t save your choice. Please try again.
+          </p>
+        )}
         <div className="flex items-center gap-2 mt-3">
           <button
             onClick={() => onRecategorise(toTransaction(item))}
