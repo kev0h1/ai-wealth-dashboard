@@ -1,0 +1,188 @@
+{
+  "name": "Monthly bills on the 1st with month-end pay, each counted once (G354)",
+  "today": "2026-10-08",
+  "pay_period_config": {
+    "type": "last_weekday_of_month",
+    "weekday": 4
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2100.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-st",
+      "name": "Starling Personal",
+      "provider": "starling",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 800.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-01",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2100.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      },
+      {
+        "key": "CAR FINANCE",
+        "avg_amount": 300.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-01",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2100.0,
+        "is_credit_card": false,
+        "category": "Car finance"
+      },
+      {
+        "key": "GYM MEMBERSHIP",
+        "avg_amount": 25.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-12",
+        "account_id": "acc-st",
+        "account_name": "Starling Personal",
+        "account_bank": "starling",
+        "account_balance": 800.0,
+        "is_credit_card": false,
+        "category": "Subscriptions"
+      },
+      {
+        "key": "BROADBAND",
+        "avg_amount": 45.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-15",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2100.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2100.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "CAR INSURANCE",
+        "avg_amount": 60.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-st",
+        "account_name": "Starling Personal",
+        "account_bank": "starling",
+        "account_balance": 800.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3200.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-29",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2100.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3200.0,
+          3200.0,
+          3200.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-24",
+      "amount": 3200.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-10-01",
+      "amount": 1000.0,
+      "transaction_type": "debit",
+      "description": "MORTGAGE HSBC",
+      "merchant_name": "MORTGAGE HSBC",
+      "category": "Mortgage"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-10-01",
+      "amount": 300.0,
+      "transaction_type": "debit",
+      "description": "CAR FINANCE",
+      "merchant_name": "CAR FINANCE",
+      "category": "Car finance"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 2620.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 1905.0,
+        "after_payments": 1905.0,
+        "low_point": 1905.0,
+        "verdict": "covered"
+      },
+      "acc-st": {
+        "spend_from": 715.0,
+        "after_payments": 715.0,
+        "low_point": 715.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Pay lands on the last Thursday of the month (the month-end option set to Thursday), so the pay period runs 24 Sep to 28 Oct 2026 and payday is Thu 29 Oct. Today is Thu 8 Oct, 21 days from payday, so the window is the days before 29 Oct (8 Oct to 28 Oct). The mortgage (1,000) and car finance (300) are the bills on the 1st. Both left Barclays on 1 Oct: the matching debits are in the transactions, so the stale 1 Oct occurrence in the pattern is closed by them and counts for nothing (the money is already out of the balance). Their next occurrence is Sun 1 Nov, rolled to Mon 2 Nov: 25 days away, in the next period, so it is not counted either. That is each bill counted once: through the balance, not again as a forecast, and next month's not early. Balances: Barclays 2,100 + Starling 800 = 2,900 pooled. Bills still to come before payday: gym 25 (12 Oct, Starling), broadband 45 (15 Oct, Barclays), council tax 150 (20 Oct, Barclays), car insurance 60 (20 Oct, Starling) = 280. There is no income before payday (the salary lands on 29 Oct, which is the next period). Pooled low point 2,900 - 280 = 2,620, which is Left to spend. Barclays: 2,100 - 45 - 150 = 1,905 after payments, and the balance only falls so the low point is also 1,905. Starling: 800 - 25 - 60 = 715, low point 715. Spend from is the smaller of after payments and low point, 1,905 and 715, both under the pool so no cap. Nothing is short: no cover move, at risk 0. The period is on day 15 (24 Sep is day 1); a payday plan only shows when the day of the period is 3 or less (days_into_period <= 3, companion.py:2558), so there is no payday plan."
+  }
+}
