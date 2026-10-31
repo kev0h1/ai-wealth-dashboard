@@ -700,6 +700,8 @@ const EARLIER_ROUTES = ROUTES.filter((route) => route.group === "earlier");
 
 function PreviewCard({ route }: { route: PreviewRoute }) {
   const defaultVariant = route.variants?.[0]?.value;
+  const defaultState = route.states?.[0]?.value;
+  const stateParam = defaultState === undefined ? "" : `&state=${defaultState}`;
 
   return (
     <div className="glass-card-flat rounded-2xl p-4">
@@ -717,7 +719,7 @@ function PreviewCard({ route }: { route: PreviewRoute }) {
             {route.variants.map((variant) => (
               <Link
                 key={variant.value}
-                href={`/design/${route.slug}?mode=dark&state=${route.states[0].value}&variant=${variant.value}`}
+                href={`/design/${route.slug}?mode=dark${stateParam}&variant=${variant.value}`}
                 className="inline-flex min-h-[44px] items-center rounded-full bg-indigo-50 px-3.5 py-2 text-[11px] font-semibold text-indigo-600 transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-500/15 dark:text-indigo-300"
               >
                 {variant.label}
@@ -741,7 +743,7 @@ function PreviewCard({ route }: { route: PreviewRoute }) {
 
       <div className="mt-2">
         <Link
-          href={`/design/${route.slug}?mode=light&state=${route.states[0].value}${defaultVariant ? `&variant=${defaultVariant}` : ""}`}
+          href={`/design/${route.slug}?mode=light${stateParam}${defaultVariant ? `&variant=${defaultVariant}` : ""}`}
           className="text-[11px] font-medium text-slate-400 dark:text-slate-500 underline underline-offset-2"
         >
           light
