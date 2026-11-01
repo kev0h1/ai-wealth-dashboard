@@ -22,6 +22,10 @@ from app.db.collections import (
 from app.services.categorisation import rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
 from app.services.pending_transactions import replace_pending_for_account
+from app.services.own_account_transfers import (
+    counterparty_category, counterparty_key, load_own_account_index,
+    normalise_account_number, normalise_sort_code,
+)
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
 from pymongo import ReturnDocument
 
@@ -819,6 +823,75 @@ def _parse_date(txn: dict) -> datetime:
     return _parse_iso_utc(str(raw)) or datetime.utcnow()  # naive-ok: fallback bank timestamp uses Mongo UTC convention
 
 
+def _clean_str(value, limit: int = 200) -> str:
+    if isinstance(value, dict):
+        value = value.get("name") or value.get("display_name") or ""
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())[:limit]
+
+
+def _txn_fields(txn: dict) -> dict:
+    """A183: the optional bank-supplied metadata on a Finexer transaction, read
+    from the top level first and then a nested `metadata` object. Returns only
+    the keys that are present: `merchant` (the clean name), `party_name`,
+    `party_sort_code` (six digits), `party_number` (eight digits) and
+    `category_group`. A sort code or number that does not normalise is
+    treated as absent."""
+    meta = txn.get("metadata") if isinstance(txn.get("metadata"), dict) else {}
+
+    def pick(*names):
+        for source in (txn, meta):
+            for name in names:
+                if source.get(name) not in (None, "", {}, []):
+                    return source.get(name)
+        return None
+
+    out: dict = {}
+    merchant = _clean_str(pick("merchant", "merchant_name", "counterparty_name"))
+    if merchant:
+        out["merchant"] = merchant
+    party_name = _clean_str(pick("party_name"))
+    if party_name:
+        out["party_name"] = party_name
+    sort_code = normalise_sort_code(pick("party_sort_code"))
+    if sort_code:
+        out["party_sort_code"] = sort_code
+    number = normalise_account_number(pick("party_number"))
+    if number:
+        out["party_number"] = number
+    group = _clean_str(pick("category_group"), 60)
+    if group:
+        out["category_group"] = group
+    return out
+
+
+def _count_fields(txns: list) -> dict:
+    """A183: counts only (never values) of rows carrying each optional field."""
+    counts = {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0}
+    for t in txns:
+        if not isinstance(t, dict):
+            continue
+        f = _txn_fields(t)
+        counts["rows"] += 1
+        counts["party"] += 1 if (f.get("party_name") or f.get("party_sort_code") or f.get("party_number")) else 0
+        counts["party_account"] += 1 if (f.get("party_sort_code") and f.get("party_number")) else 0
+        counts["merchant"] += 1 if f.get("merchant") else 0
+        counts["category_group"] += 1 if f.get("category_group") else 0
+    return counts
+
+
+def _log_field_counts(per_provider: dict) -> None:
+    """A183: one INFO line per provider per sync, so production shows which
+    banks populate counterparty and merchant fields. Counts only."""
+    for provider, c in sorted(per_provider.items()):
+        logger.info(
+            "Finexer transaction fields: provider=%s rows=%d with_party=%d with_party_account=%d "
+            "with_merchant=%d with_category_group=%d",
+            provider, c["rows"], c["party"], c["party_account"], c["merchant"], c["category_group"],
+        )
+
+
 async def _upsert_finexer_transactions(
     txns: list,
     account_id: str,
@@ -866,7 +939,11 @@ async def _upsert_finexer_walk(
             continue
 
         description  = txn.get("description") or txn.get("reference") or txn.get("narrative") or ""
-        merchant     = txn.get("merchant_name") or txn.get("merchant") or txn.get("counterparty_name") or ""
+        fields       = _txn_fields(txn)
+        # A183: Finexer's own clean merchant name leads; the raw description
+        # stays as the description. This is the stored display name source.
+        merchant     = fields.get("merchant", "")
+        party        = {k: v for k, v in fields.items() if k in ("party_name", "party_sort_code", "party_number")}
 
         if (txn.get("status") or "").strip().lower() == "pending":
             pending_rows.append({
@@ -877,6 +954,7 @@ async def _upsert_finexer_walk(
                 "merchant_name":    merchant,
                 "currency":         txn.get("currency"),
                 "transaction_type": _infer_transaction_type(txn),
+                **party,
             })
             continue
 
@@ -903,6 +981,19 @@ async def _upsert_finexer_walk(
         else:
             category = rule_categorise_directed(merchant, description, is_credit=False) or None
 
+        # A183: the counterparty's sort code and account number equal one of
+        # the user's own connected accounts: an own-account transfer, decided
+        # from the bank's data and not from the narrative.
+        own_account = None
+        own_key = counterparty_key(party.get("party_sort_code"), party.get("party_number"))
+        if own_key is not None:
+            if "own_index" not in state:
+                state["own_index"] = await load_own_account_index(user_id)
+            candidate = state["own_index"].get(own_key)
+            if candidate is not None and candidate.get("_id") != account_id:
+                own_account = candidate
+                category = counterparty_category(own_account, txn_type)
+
         tdoc: dict = {
             "account_id":       account_id,
             "user_id":          user_id,
@@ -916,6 +1007,9 @@ async def _upsert_finexer_walk(
             "provider":         "Finexer",
             "merchant_key":     canonical_merchant_key(merchant, description),
         }
+        tdoc.update(party)
+        if fields.get("category_group"):
+            tdoc["category_group"] = fields["category_group"]
         if running_balance is not None:
             try:
                 tdoc["running_balance"] = float(running_balance)

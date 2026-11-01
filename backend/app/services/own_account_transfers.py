@@ -28,6 +28,69 @@ _TRANSFER_NARRATIVE = re.compile(
 )
 
 
+def normalise_sort_code(value) -> str | None:
+    """Six digits, or None. Dashes and spaces are ignored; anything else that
+    is not exactly six digits is treated as absent, never guessed."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    return digits if len(digits) == 6 else None
+
+
+def normalise_account_number(value) -> str | None:
+    """Eight digits, or None. An IBAN, card PAN or short value is not a UK
+    account number and never matches."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    return digits if len(digits) == 8 else None
+
+
+def counterparty_key(sort_code, number) -> tuple[str, str] | None:
+    """A (sort code, account number) pair only when both normalise."""
+    sort, num = normalise_sort_code(sort_code), normalise_account_number(number)
+    return (sort, num) if sort and num else None
+
+
+def counterparty_matches_account(row: dict, account: dict | None) -> bool:
+    """A183: the bank's own counterparty fields on `row` name `account`'s
+    sort code and account number exactly. Deterministic, no narrative guess."""
+    if not account:
+        return False
+    key = counterparty_key(row.get("party_sort_code"), row.get("party_number"))
+    return key is not None and key == counterparty_key(account.get("sort_code"), account.get("account_number"))
+
+
+def own_account_index(accounts: Iterable[dict]) -> dict[tuple[str, str], dict]:
+    """(sort code, account number) -> account doc, for accounts that have both."""
+    index: dict[tuple[str, str], dict] = {}
+    for account in accounts:
+        key = counterparty_key(account.get("sort_code"), account.get("account_number"))
+        if key is not None:
+            index[key] = account
+    return index
+
+
+async def load_own_account_index(user_id: str, *, account_collection=None) -> dict[tuple[str, str], dict]:
+    """Index the user's connected accounts by identification. Never raises:
+    a failed read means no counterparty match, not a failed sync."""
+    account_collection = accounts_col if account_collection is None else account_collection
+    try:
+        docs = await account_collection.find(
+            {"user_id": user_id},
+            {"sort_code": 1, "account_number": 1, "type": 1, "subtype": 1, "account_type": 1},
+        ).to_list(None)
+    except Exception:
+        return {}
+    return own_account_index(docs)
+
+
+def counterparty_category(own_account: dict, transaction_type: str) -> str:
+    """Category for ONE leg whose counterparty is the user's own account.
+    The money-out leg takes the destination's refined kind (Debt for a card,
+    Savings, Investment) and otherwise Transfer; the money-in leg is Transfer.
+    Card-side wording beyond this belongs to G381."""
+    if transaction_type == "debit":
+        return refine_transfer_target(own_account) or "Transfer"
+    return "Transfer"
+
+
 def _text(row: dict) -> str:
     return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
 
@@ -286,6 +349,11 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     digits_d = set(re.findall(r"\d{7,}", d_text))
     if digits_c & c_other or digits_d & d_other:
         return True
+    # A183: Finexer's own counterparty fields on either leg name the other
+    # leg's account (sort code and account number both equal).
+    if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
+            or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
+        return True
     # Both legs must independently identify the owner and the rail language.
     if (_TRANSFER_NARRATIVE.search(c_text) and _TRANSFER_NARRATIVE.search(d_text)
             and _compact_owner_name(c_text, name_tokens) and _compact_owner_name(d_text, name_tokens)):
@@ -457,7 +525,7 @@ async def reconcile_own_account_transfers(
     confirmed_rows = [row for row in stamped if (row.get("own_transfer_match") or {}).get("confirmed")]
     if confirmed_only and not confirmed_rows:
         return 0
-    account_rows = await account_collection.find({"user_id": user_id}, {"account_number": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
+    account_rows = await account_collection.find({"user_id": user_id}, {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
     accounts = {row["_id"]: row for row in account_rows}
     profile = await profile_collection.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
     if movement_categories is None:
@@ -465,7 +533,8 @@ async def reconcile_own_account_transfers(
         movement_categories = {name for name, kind in kinds.items() if kind == MOVEMENT}
     projection = {"account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
                   "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
-                  "is_pending": 1, "own_transfer_match": 1}
+                  "is_pending": 1, "own_transfer_match": 1,
+                  "party_sort_code": 1, "party_number": 1}
     rows = [] if confirmed_only else await transaction_collection.find(
         {"user_id": user_id, "date": {"$gte": cutoff},
          "transaction_type": {"$in": ["credit", "debit"]}}, projection,
