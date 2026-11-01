@@ -20,6 +20,7 @@ from app.routers.logos import provider_logo_path
 from app.db.collections import finexer_consents_col, preferences_col
 from app.services.finexer_sync import (
     list_providers,
+    provider_health_map,
     get_or_create_customer,
     create_consent,
     FinexerConsentError,
@@ -62,7 +63,7 @@ async def finexer_providers(user: dict = Depends(current_user)):
     global _providers_cache, _providers_cache_at
     now = time.monotonic()
     if _providers_cache and (now - _providers_cache_at) < _PROVIDERS_CACHE_TTL:
-        return _providers_cache
+        return await _with_live_health(_providers_cache)
 
     providers = await list_providers()
     if providers:
@@ -83,7 +84,18 @@ async def finexer_providers(user: dict = Depends(current_user)):
         providers = sorted(providers, key=lambda p: (p.get("name") or "").lower())
         _providers_cache = providers
         _providers_cache_at = now
+        return await _with_live_health(providers)
     return providers
+
+
+async def _with_live_health(providers: list[dict]) -> list[dict]:
+    """A183: overlay health_status from the 10 minute health map, so a bank
+    that goes down or recovers shows within minutes while the list itself
+    stays on its 24 hour cache. No map means the cached value stands."""
+    live = await provider_health_map()
+    if not live:
+        return providers
+    return [{**p, "health_status": live.get(p.get("id"), p.get("health_status") or "operational")} for p in providers]
 
 
 # A143: the "Sorted dark" consent template. Finexer stops the consent page

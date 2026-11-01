@@ -136,3 +136,28 @@ def test_pairing_without_counterparty_or_narrative_does_not_pair():
               "date": NOW, "description": "PAYMENT", "merchant_name": None, "category": "Income", "custom_category": None}
     debit = {**credit, "_id": "d", "transaction_type": "debit", "account_id": "cur"}
     assert oat.select_unique_pairs([credit, debit], accounts, [], set()) == []
+
+
+def test_walking_account_with_a_duplicate_identification_never_labels_its_own_rows(monkeypatch):
+    accounts = OWN + [{"_id": "cur-dup", "user_id": UID, "sort_code": "200000", "account_number": "12345678",
+                       "subtype": "TRANSACTION", "type": "bank"}]
+    docs = _run([base("t1", 50, party_sort_code="200000", party_number="12345678")], account_id="cur-dup",
+                accounts=accounts, monkeypatch=monkeypatch)
+    assert docs["t1"]["category"] == "Income"
+    docs = _run([base("t2", 50, party_sort_code="200000", party_number="12345678")], account_id="cur",
+                accounts=accounts, monkeypatch=monkeypatch)
+    assert docs["t2"]["category"] == "Income"
+
+
+def test_shared_identification_with_different_kinds_falls_back_to_plain_transfer(monkeypatch):
+    accounts = OWN + [{"_id": "sav-twin", "user_id": UID, "sort_code": "112233", "account_number": "87654321",
+                       "subtype": "SAVINGS", "type": "bank"}]
+    docs = _run([base("t1", -75, party_sort_code="112233", party_number="87654321")], accounts=accounts, monkeypatch=monkeypatch)
+    assert docs["t1"]["category"] == "Transfer"
+
+
+def test_shared_identification_with_the_same_kind_keeps_the_refined_kind(monkeypatch):
+    accounts = OWN + [{"_id": "card2", "user_id": UID, "sort_code": "112233", "account_number": "87654321",
+                       "subtype": "CREDIT_CARD", "type": "credit_card"}]
+    docs = _run([base("t1", -75, party_sort_code="112233", party_number="87654321")], accounts=accounts, monkeypatch=monkeypatch)
+    assert docs["t1"]["category"] == "Debt"

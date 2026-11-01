@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -25,7 +26,7 @@ from app.services.pending_transactions import (
     drop_handed_over, remove_handed_over_pending, replace_pending_for_account,
 )
 from app.services.own_account_transfers import (
-    counterparty_category, counterparty_key, load_own_account_index,
+    counterparty_category, counterparty_key, load_own_account_index, resolve_own_account,
     normalise_account_number, normalise_sort_code,
 )
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
@@ -509,6 +510,48 @@ def provider_health(value) -> str:
     return "operational"
 
 
+_HEALTH_TTL_SECONDS = 600  # A183: provider health refreshes far faster than the 24h list
+_health_memo: Optional[dict] = None  # {"map": {id: status}, "at": monotonic seconds}
+
+
+async def provider_health_map(counter: Optional[dict] = None) -> dict:
+    """A183: provider id -> health_status, re-read from GET /providers at most
+    every 10 minutes (health only; the 24h list cache is untouched). A failed
+    read serves the last map, or {} when there is none, never an error."""
+    global _health_memo
+    now = time.monotonic()
+    if _health_memo is not None and now - _health_memo["at"] < _HEALTH_TTL_SECONDS:
+        return dict(_health_memo["map"])
+    fresh: dict = {}
+    ok = True
+    try:
+        async with _client() as client:
+            offset = 0
+            while True:
+                r = await _get(client, "/providers", params={"offset": offset}, counter=counter)
+                if r.status_code != 200:
+                    ok = False
+                    break
+                data = r.json()
+                items = data.get("data") or []
+                for p in items:
+                    if p.get("id"):
+                        fresh[p["id"]] = provider_health(p.get("health_status"))
+                if not (data.get("paging") or {}).get("next") or not items:
+                    break
+                offset += len(items)
+    except Exception:
+        ok = False
+    if ok and fresh:
+        _health_memo = {"map": fresh, "at": now}
+        return dict(fresh)
+    if _health_memo is not None:
+        # Retry after a short pause rather than on every request.
+        _health_memo = {"map": _health_memo["map"], "at": now - _HEALTH_TTL_SECONDS + 60}
+        return dict(_health_memo["map"])
+    return {}
+
+
 def _providers_fresh(fetched_at, ttl_hours: float) -> bool:
     if not isinstance(fetched_at, datetime):
         return False
@@ -843,6 +886,18 @@ def _parse_date(txn: dict) -> datetime:
     return _parse_iso_utc(str(raw)) or datetime.utcnow()  # naive-ok: fallback bank timestamp uses Mongo UTC convention
 
 
+def _shape(obj) -> str:
+    """Keys only: the sorted top-level keys plus the keys of a nested metadata
+    or identification dict. Never a value (A183 privacy fix)."""
+    if not isinstance(obj, dict):
+        return "type=" + type(obj).__name__
+    parts = ["keys=" + ",".join(sorted(str(k)[:30] for k in obj)[:40])]
+    for nested in ("metadata", "identification"):
+        if isinstance(obj.get(nested), dict):
+            parts.append(nested + "_keys=" + ",".join(sorted(str(k)[:30] for k in obj[nested])[:40]))
+    return " ".join(parts)
+
+
 def _clean_str(value, limit: int = 200) -> str:
     if isinstance(value, dict):
         value = value.get("name") or value.get("display_name") or ""
@@ -956,7 +1011,16 @@ async def _upsert_finexer_walk(
     learning/spend history would all treat a provisional debit as real).
     Any other/absent status (e.g. "booked") takes the existing settled path
     unchanged. Returns (new_txn_summaries, pending_rows) — `pending_rows` is
-    the normalised shape `replace_pending_for_account` expects."""
+    the normalised shape `replace_pending_for_account` expects.
+
+    A183: `category` is $set on every re-pull by design, so a re-pulled row's
+    category is recomputed from the rules and, when the bank's counterparty
+    sort code and account number equal one of the user's other connected
+    accounts, from that evidence (this may re-label an existing row). The
+    user's `custom_category` is never written here. `finexer_sync_pipeline`
+    then runs `apply_rules_bulk(structural=True)`, which calls
+    `reconcile_own_account_transfers` (categorisation.py), so a confirmed
+    own-transfer match is reapplied after every sync."""
     new_txns = []
     pending_rows = []
     now = datetime.utcnow()  # naive-ok: persisted first-seen bank timestamp
@@ -1022,8 +1086,8 @@ async def _upsert_finexer_walk(
         if own_key is not None:
             if "own_index" not in state:
                 state["own_index"] = await load_own_account_index(user_id)
-            candidate = state["own_index"].get(own_key)
-            if candidate is not None and candidate.get("_id") != account_id:
+            candidate = resolve_own_account(state["own_index"], own_key, account_id)
+            if candidate is not None:
                 own_account = candidate
                 category = counterparty_category(own_account, txn_type)
 
@@ -1165,7 +1229,7 @@ async def _walk_transactions(
         txns = txn_data.get("data") or txn_data.get("results") or []
         out["rows"] += len(txns)
         if txns and not first_txn_logged and not force_pending:
-            logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
+            logger.info("FINEXER first transaction shape for account %s: %s", account_id, _shape(txns[0]))
             first_txn_logged = True
         if force_pending:
             kept = []
@@ -1330,7 +1394,7 @@ async def sync_finexer_consent(
 
         # Log raw shape of first account for field discovery
         if accounts:
-            logger.info("FINEXER raw first account JSON: %s", accounts[0])
+            logger.info("FINEXER first account shape: %s", _shape(accounts[0]))
 
         # Build provider info map once (id → full provider dict with name, logo, bg_colors)
         provs = await list_providers(counter=counter)

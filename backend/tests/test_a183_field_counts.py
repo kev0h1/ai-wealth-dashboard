@@ -41,3 +41,35 @@ def test_sync_logs_one_line_per_provider_with_counts_and_no_values(monkeypatch, 
     ]
     assert all("SECRET" not in r.getMessage() and "12345678" not in r.getMessage() for r in caplog.records
                if r.getMessage().startswith("Finexer transaction fields"))
+
+
+def test_raw_row_logs_are_keys_only_with_no_values(monkeypatch, caplog):
+    h._wire_sync(monkeypatch, h.Col([]), None)
+
+    async def _upsert(txns, account_id, user_id, identity=None):
+        return [], []
+
+    monkeypatch.setattr(fs, "_upsert_finexer_transactions", _upsert)
+    secret_row = {"id": "t-SECRETID", "amount": -1, "description": "SECRET DESC", "party_name": "SECRET NAME",
+                  "party_number": "99887766", "metadata": {"party_sort_code": "11-22-33", "note": "SECRET NOTE"}}
+    client = h.Client(booked=[secret_row])
+    orig = client.get
+
+    async def _get(url, params=None):
+        r = await orig(url, params)
+        if url == "/bank_accounts":
+            return h.Resp(200, {"data": [{"id": "acc1", "class": "current", "provider": "monzo",
+                                          "holder_name": "SECRET HOLDER", "identification": {"account_number": "55443322"}}]})
+        return r
+
+    client.get = _get
+    monkeypatch.setattr(fs, "_client", lambda: client)
+    with caplog.at_level(logging.INFO, logger="app.services.finexer_sync"):
+        asyncio.run(fs.sync_finexer_consent(h.CONSENT, h.UID))
+    shape = [r.getMessage() for r in caplog.records if "shape" in r.getMessage()]
+    assert len(shape) == 2
+    text = " ".join(r.getMessage() for r in caplog.records)
+    for secret in ("SECRET", "99887766", "11-22-33", "55443322"):
+        assert secret not in text
+    assert "metadata_keys=note,party_sort_code" in " ".join(shape)
+    assert "identification_keys=account_number" in " ".join(shape)

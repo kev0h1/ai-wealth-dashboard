@@ -57,17 +57,32 @@ def counterparty_matches_account(row: dict, account: dict | None) -> bool:
     return key is not None and key == counterparty_key(account.get("sort_code"), account.get("account_number"))
 
 
-def own_account_index(accounts: Iterable[dict]) -> dict[tuple[str, str], dict]:
-    """(sort code, account number) -> account doc, for accounts that have both."""
-    index: dict[tuple[str, str], dict] = {}
+def own_account_index(accounts: Iterable[dict]) -> dict[tuple[str, str], list[dict]]:
+    """(sort code, account number) -> every account doc carrying that
+    identification (a stale duplicate or joint twin can share one)."""
+    index: dict[tuple[str, str], list[dict]] = {}
     for account in accounts:
         key = counterparty_key(account.get("sort_code"), account.get("account_number"))
         if key is not None:
-            index[key] = account
+            index.setdefault(key, []).append(account)
     return index
 
 
-async def load_own_account_index(user_id: str, *, account_collection=None) -> dict[tuple[str, str], dict]:
+def resolve_own_account(index: dict, key: tuple[str, str], walking_account_id: str) -> dict | None:
+    """The user's own account a counterparty key names, for a row on
+    `walking_account_id`. None when the walking account itself carries that
+    identification (a duplicate must never label its own rows as transfers).
+    When several accounts share the key with different refined kinds, a plain
+    Transfer is the only safe answer, so a kind-less stand-in is returned."""
+    docs = index.get(key) or []
+    if not docs or any(d.get("_id") == walking_account_id for d in docs):
+        return None
+    if len({refine_transfer_target(d) for d in docs}) > 1:
+        return {"_id": docs[0].get("_id")}
+    return docs[0]
+
+
+async def load_own_account_index(user_id: str, *, account_collection=None) -> dict[tuple[str, str], list[dict]]:
     """Index the user's connected accounts by identification. Never raises:
     a failed read means no counterparty match, not a failed sync."""
     account_collection = accounts_col if account_collection is None else account_collection

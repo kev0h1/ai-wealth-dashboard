@@ -48,6 +48,10 @@ def test_api_exposes_health_status_and_not_remote_logo_or_roles(monkeypatch):
         return [{"id": "a", "name": "Alpha", "logo": "", "logo_url": "https://x/a.png", "roles": ["ais"],
                  "bg_colors": [], "health_status": "down"}]
 
+    async def _no_health():
+        return {}
+
+    monkeypatch.setattr(finexer_router, "provider_health_map", _no_health)
     monkeypatch.setattr(finexer_router, "list_providers", _providers)
     monkeypatch.setattr(finexer_router, "_providers_cache", [])
     out = asyncio.run(finexer_router.finexer_providers(user={"email": "t@example.com"}))
@@ -58,6 +62,54 @@ def test_api_defaults_a_cached_provider_without_health_to_operational(monkeypatc
     async def _providers():
         return [{"id": "a", "name": "Alpha", "logo": "", "bg_colors": []}]
 
+    async def _no_health():
+        return {}
+
+    monkeypatch.setattr(finexer_router, "provider_health_map", _no_health)
+    monkeypatch.setattr(finexer_router, "list_providers", _providers)
+    monkeypatch.setattr(finexer_router, "_providers_cache", [])
+    out = asyncio.run(finexer_router.finexer_providers(user={"email": "t@example.com"}))
+    assert out[0]["health_status"] == "operational"
+
+
+def test_health_flip_shows_within_the_short_ttl_while_the_list_stays_cached(monkeypatch):
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(fs.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(fs, "_health_memo", None)
+    status = {"v": "down"}
+    calls = {"n": 0}
+
+    def make_client():
+        calls["n"] += 1
+        return ProvidersClient([FakeResp(200, {"data": [{"id": "a", "health_status": status["v"]}], "paging": {}})])
+
+    monkeypatch.setattr(fs, "_client", make_client)
+    assert asyncio.run(fs.provider_health_map()) == {"a": "down"}
+    status["v"] = "operational"
+    clock["t"] += 300
+    assert asyncio.run(fs.provider_health_map()) == {"a": "down"}      # inside 10 minutes: no re-read
+    assert calls["n"] == 1
+    clock["t"] += 400
+    assert asyncio.run(fs.provider_health_map()) == {"a": "operational"}
+    assert calls["n"] == 2
+
+
+def test_failed_health_read_serves_the_last_map(monkeypatch):
+    clock = {"t": 5000.0}
+    monkeypatch.setattr(fs.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(fs, "_health_memo", {"map": {"a": "down"}, "at": 0.0})
+    monkeypatch.setattr(fs, "_client", lambda: ProvidersClient([FakeResp(500, {})]))
+    assert asyncio.run(fs.provider_health_map()) == {"a": "down"}
+
+
+def test_api_overlays_live_health_on_the_cached_list(monkeypatch):
+    async def _providers():
+        return [{"id": "a", "name": "Alpha", "logo": "", "bg_colors": [], "health_status": "down"}]
+
+    async def _live():
+        return {"a": "operational"}
+
+    monkeypatch.setattr(finexer_router, "provider_health_map", _live)
     monkeypatch.setattr(finexer_router, "list_providers", _providers)
     monkeypatch.setattr(finexer_router, "_providers_cache", [])
     out = asyncio.run(finexer_router.finexer_providers(user={"email": "t@example.com"}))
