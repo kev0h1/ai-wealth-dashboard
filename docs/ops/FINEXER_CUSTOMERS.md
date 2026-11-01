@@ -40,3 +40,31 @@ scrubbed reason (emails masked, keys and long tokens removed, truncated):
 
 A customer recreate logs first: `customer rejected as unknown ... dropping the
 cached customer and retrying once`.
+
+## Deleting customers and bank accounts is now done by the app (A179)
+
+You no longer need to delete customers in the Finexer dashboard.
+
+- **Erasing a user** (`retention.erase_user`, used by the user's own account
+  deletion, the owner's remove-user action on /ops/people and the dormant-user
+  sweep) revokes every consent first, then sends `DELETE /customers/{id}` for
+  each customer on record for that user (the cached customer plus any
+  `customer_id` a consent carries), then clears the cached record.
+- **Deleting one account** (`DELETE /accounts/{id}`) deletes it locally, then
+  sends `DELETE /bank_accounts/{id}` for a Finexer account. Finexer makes its
+  transactions unavailable at once. The user's delete never waits on Finexer
+  and never fails because of it.
+- A failed delete (any status other than 2xx or 404, or a transport error)
+  leaves a retry marker in `orphaned_revocations` (`_id` `customer:<id>` or
+  `bank_account:<id>`, with `kind`, `resource_id`, a hash of the user, attempts
+  and a static error code, no user id or email). The nightly retention sweep
+  (`retry_orphaned_deletions`) retries up to 50 a pass, oldest attempt first,
+  clears a marker on 2xx or 404, warns from the seventh attempt and drops a
+  marker still failing after 90 days with an error log. The existing consent
+  revoke retry ignores these markers.
+- Counters: `bank_account_deletes` and `customer_deletes` (plus `requests`) on
+  the day's `finexer_api_calls:<date>` doc, and `account_refreshes` for the
+  per-account refresh.
+
+If you do still delete a customer in the dashboard, the reconciliation above
+remains the way to clear the stale cached id.
