@@ -1,5 +1,12 @@
 "use client";
 
+// A6.2A GATE: a reconfirmation shown in our own interface is itself a consent
+// screen, so Finexer's written approval of this exact wording is required
+// before FINEXER_RECONFIRM_PROMPT_ENABLED is switched on (default off; the
+// server then never marks a connection reconfirm_prompt, so this renders
+// nothing). A6.3 fallback: Finexer may require its hosted reconfirmation
+// instead, which needs no approval from us.
+//
 // A182: a gentle in-app question before a bank consent's 90-day reconfirmation
 // falls due. One tap writes renewed_at at Finexer (no bank login, the consent's
 // end date is never extended). Dismissible until the due day. Quiet strip, same

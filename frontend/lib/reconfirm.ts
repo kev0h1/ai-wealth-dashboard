@@ -3,7 +3,9 @@
 //
 // Copy is Kevin's, kept exactly: the question and the button. Every consent
 // screen needs Finexer's written approval (A6.2/A6.2A), so changes to these
-// strings go back through that route.
+// strings go back through that route, and the prompt stays behind
+// FINEXER_RECONFIRM_PROMPT_ENABLED (default off) until that approval exists.
+// A6.3 fallback: Finexer's hosted reconfirmation.
 
 import type { Connection } from "@wealth/shared";
 

@@ -192,11 +192,8 @@ export default function HomePage() {
     api.getProfile().then((p) => setProfileFullName(p.full_name || undefined)).catch(() => {});
   }, []);
   // A182: bank connections, for the 90-day reconfirmation prompt and the
-  // plain reason on the reconnect strip. Best effort: no list, no prompt.
+  // plain reason on the reconnect strip.
   const [bankConnections, setBankConnections] = useState<Connection[]>([]);
-  useEffect(() => {
-    api.connections().then(setBankConnections).catch(() => {});
-  }, []);
   const nameSources = { fullName: profileFullName, sessionName: user?.name, email: user?.email };
   const displayName = resolveFullName(nameSources) ?? undefined;
   const firstName = resolveDisplayName(nameSources) ?? undefined;
@@ -874,6 +871,17 @@ export default function HomePage() {
     () => bestSpendAccount(accountEligibility, accounts, todayStatus, accountsStatus),
     [accountEligibility, accounts, todayStatus, accountsStatus],
   );
+
+  // Fetched only when something needs it: the prompt gate is on (the flag rides
+  // on the existing /sync/status payload, absent when off) or a bank has
+  // expired and may carry a plain reason. Otherwise Home makes no extra request.
+  const needsConnections = Boolean(syncStatus?.reconfirm_prompt_enabled) || accounts.some((a) => a.status === "expired");
+  useEffect(() => {
+    if (!needsConnections) return;
+    let cancelled = false;
+    api.connections().then((c) => { if (!cancelled) setBankConnections(c); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [needsConnections]);
 
   const expiredProviders = useMemo(() => {
     const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number; reason?: string | null }>();

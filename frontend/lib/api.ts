@@ -3047,6 +3047,8 @@ export type SyncStatus = {
   state: "idle" | "syncing" | "stalled" | "failed";
   /** True only when no connection has ever synced (a genuine first sync). */
   first_sync?: boolean;
+  /** A182: present (true) only when the bank reconfirmation prompt is switched on. */
+  reconfirm_prompt_enabled?: boolean;
   connections: {
     provider: "finexer" | "truelayer";
     connection_id?: string | null;

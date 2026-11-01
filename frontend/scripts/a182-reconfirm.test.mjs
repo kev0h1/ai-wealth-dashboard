@@ -62,3 +62,16 @@ assert.match(strip.replace(/<[^>]+>/g, "|"), /Barclays needs reconnecting\|?.*Yo
 const plain = renderToStaticMarkup(h(ReconnectStrip, { providers: [{ provider: "Barclays" }], onReconnect() {} }));
 assert.doesNotMatch(plain, /Your bank/);
 console.log("a182 reconnect reason ok");
+
+// Gate off: the server never sets reconfirm_prompt, so nothing is picked or rendered,
+// while the date line stays live (information only).
+const off = conn({ reconfirm_prompt: false, next_reconfirm_by: "2027-01-30T00:00:00Z" });
+assert.equal(pickReconfirmConnection([off], () => null, now), null);
+assert.equal(renderToStaticMarkup(h(ReconfirmPrompt, { connections: [off], bankNameFor: () => "Barclays" })), "");
+assert.deepEqual(connectionNotes(off), ["Next reconfirmation 30 January 2027"]);
+// Home fetches /connections only when needed.
+import { readFileSync } from "node:fs";
+const home = readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8");
+assert.match(home, /needsConnections/);
+assert.doesNotMatch(home, /useEffect\(\(\) => \{\s*api\.connections\(\)/);
+console.log("a182 gate ok");
