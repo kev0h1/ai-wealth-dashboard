@@ -104,7 +104,10 @@ export default function UpcomingHeroCard({
               {runwayAmount}
             </span>
           </p>
-          <span className={`text-[13px] ${FORECAST_QUALIFIER[forecastPresentation.qualifierTone]}`}>
+          <span
+            {...(forecastPresentation.pending ? { "data-forecast-pending-word": true, "aria-hidden": true } : {})}
+            className={`text-[13px] ${FORECAST_QUALIFIER[forecastPresentation.qualifierTone]}${forecastPresentation.pending ? " invisible" : ""}`}
+          >
             {runwayStatus}
           </span>
           {plansUnavailable && (
