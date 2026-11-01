@@ -493,6 +493,7 @@ def test_slow_finexer_does_not_delay_the_users_delete(monkeypatch):
     class Slow(DelClient):
         async def delete(self, path):
             await gate.wait()
+            self.deletes.append(path)
             return Resp(204)
     c = Slow()
     markers, order = _delete_world(monkeypatch, c)
@@ -504,3 +505,60 @@ def test_slow_finexer_does_not_delay_the_users_delete(monkeypatch):
         await asyncio.gather(*list(accounts_router._background_tasks))
     asyncio.run(go())
     assert c.deletes == ["/bank_accounts/ba_acc1xyz"]
+
+
+# ── card balance shape log and health sign ────────────────────────────────
+
+class CardClient(TwoAccountClient):
+    async def get(self, url, params=None):
+        if url == "/bank_accounts":
+            return Resp(200, {"data": [{"id": "acc1", "class": "credit_card", "provider": "barclays"}]})
+        if url.endswith("/balance"):
+            return Resp(200, {"data": [{"type": "actual", "current": 446.01, "available": -1234.56}]})
+        if url.endswith("/transactions") and (params or {}).get("status") != "pending":
+            return Resp(200, {"data": [
+                {"id": "t1", "amount": -12.5, "type": "debit"},
+                {"id": "t2", "amount": 300.0, "type": "credit"},
+                {"id": "t3", "amount": -3.0},
+            ]})
+        return await super().get(url, params)
+
+
+def test_card_log_line_has_signs_and_counts_but_no_amounts_or_ids(monkeypatch, caplog):
+    import logging
+    c = CardClient(post_responses=[Resp(200, IDLE)])
+    accts, c = _finexer_world(monkeypatch, client=c)
+    with caplog.at_level(logging.INFO, logger="app.services.finexer_sync"):
+        _call("acc1")
+    line = next(r.getMessage() for r in caplog.records if "card balance shape" in r.getMessage())
+    assert "class=credit_card" in line and "entry_type=actual" in line
+    assert "current_sign=positive" in line and "available_sign=negative" in line
+    assert "debit_rows=2" in line and "credit_rows=1" in line
+    assert "available,current,type" in line
+    for banned in ("446", "1234", "12.5", "300", "acc1", "t1", CONSENT, UID):
+        assert banned not in line
+    d = next(x for x in accts.docs if x["_id"] == "acc1")
+    assert d["card_current_sign"] == "positive" and d["card_available_sign"] == "negative"
+
+
+def test_non_card_accounts_log_no_card_line_and_store_no_sign(monkeypatch, caplog):
+    import logging
+    accts, c = _finexer_world(monkeypatch)
+    with caplog.at_level(logging.INFO, logger="app.services.finexer_sync"):
+        _call("acc1")
+    assert not any("card balance shape" in r.getMessage() for r in caplog.records)
+    assert "card_current_sign" not in accts.docs[0]
+
+
+def test_health_exposes_the_card_sign_only(monkeypatch):
+    accts = Col([
+        {"_id": "c1", "connection_id": "k1", "source": "finexer", "card_current_sign": "positive", "card_available_sign": "negative",
+         "balance": 446.01},
+        {"_id": "a1", "connection_id": "k1", "source": "finexer"},
+    ])
+    consents = Col([{"_id": "k1", "status": "authorized"}])
+    monkeypatch.setattr("app.db.collections.accounts_col", accts)
+    monkeypatch.setattr("app.db.collections.finexer_consents_col", consents)
+    out = asyncio.run(fxw._compute_sync_health(datetime(2026, 11, 1, 12, 0, 0)))
+    assert out["card_balance_signs"] == [{"current": "positive", "available": "negative"}]
+    assert "446" not in str(out)

@@ -480,12 +480,17 @@ async def _compute_sync_health(now: datetime) -> dict:
     newest: dict = {cid: None for cid in consent_ids}
     n429 = 0
     n_err = 0
+    card_signs: list = []
     if consent_ids:
         async for a in accounts_col.find(
             {"connection_id": {"$in": consent_ids}, "source": "finexer"},
             {"connection_id": 1, "bank_synced_to": 1, "bank_sync_last_429_at": 1,
-             "bank_sync_error": 1, "bank_sync_error_at": 1},
+             "bank_sync_error": 1, "bank_sync_error_at": 1,
+             "card_current_sign": 1, "card_available_sign": 1},
         ):
+            if a.get("card_current_sign"):
+                card_signs.append({"current": a.get("card_current_sign"),
+                                   "available": a.get("card_available_sign")})
             to = a.get("bank_synced_to")
             cid = a.get("connection_id")
             if isinstance(to, datetime) and cid in newest and (newest[cid] is None or to > newest[cid]):
@@ -529,5 +534,9 @@ async def _compute_sync_health(now: datetime) -> dict:
         "sync_429s_24h": n429,
         "sync_errors_24h": n_err,
         "consents": consents,
+        # A179: last-seen balance sign per credit card (sign words only, no
+        # amounts or ids), to settle whether Finexer reports an owed card
+        # balance as positive.
+        "card_balance_signs": card_signs[:50],
         "line": line,
     }
