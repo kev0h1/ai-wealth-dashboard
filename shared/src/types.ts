@@ -38,6 +38,9 @@ export interface Account {
   /** A176: the bank's own as-of time for this account's data (Finexer's sync
    *  object synced_to, ISO UTC). Absent or null where not reported. */
   bank_synced_to?: string | null;
+  /** A179: when the bank's once-an-hour rule next allows a refresh of this
+   *  account (ISO UTC). Absent or null when one is allowed now. */
+  bank_next_refresh_at?: string | null;
 }
 
 /** One live bank connection/consent, from GET /connections

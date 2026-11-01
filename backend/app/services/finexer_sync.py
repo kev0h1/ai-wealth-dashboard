@@ -214,6 +214,22 @@ async def _write_account_fields(account_id: str, set_fields: dict, unset_fields:
         logger.exception("Finexer bank sync field write failed for %s", account_id)
 
 
+def bank_sync_next_allowed(doc: Optional[dict], now: Optional[datetime] = None) -> Optional[datetime]:
+    """A179: when the stored 60-minute rule next allows a POST /sync for this
+    account doc (naive UTC), or None when one is allowed now. The single
+    source for `trigger_bank_sync` and the per-account refresh route."""
+    now = now or _utcnow()
+    doc = doc or {}
+    last = doc.get("bank_sync_requested_at")
+    nxt = doc.get("bank_sync_next_at")
+    next_at = None
+    if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+        next_at = last + BANK_SYNC_MIN_GAP
+    if isinstance(nxt, datetime) and nxt > now and (next_at is None or nxt > next_at):
+        next_at = nxt
+    return next_at
+
+
 async def trigger_bank_sync(
     client: httpx.AsyncClient,
     account_id: str,
@@ -235,13 +251,7 @@ async def trigger_bank_sync(
         ) or {}
     except Exception:
         doc = {}
-    last = doc.get("bank_sync_requested_at")
-    nxt = doc.get("bank_sync_next_at")
-    next_at = None
-    if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
-        next_at = last + BANK_SYNC_MIN_GAP
-    if isinstance(nxt, datetime) and nxt > now and (next_at is None or nxt > next_at):
-        next_at = nxt
+    next_at = bank_sync_next_allowed(doc, now)
     if next_at is not None:
         return {"outcome": "skipped_local", "status": None, "next_request_at": next_at, "set": {}, "unset": {}}
 
@@ -961,6 +971,32 @@ def _carry_params(next_url: str, params: Optional[dict]) -> str:
     return urlunsplit(parts._replace(query=urlencode(query + missing)))
 
 
+def _sign_word(value) -> str:
+    """A179: "positive" | "negative" | "zero" | "absent" for a balance value;
+    the sign only, never the amount."""
+    if value is None:
+        return "absent"
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return "absent"
+    return "positive" if f > 0 else "negative" if f < 0 else "zero"
+
+
+def _log_card_balance_shape(acc_class: str, diag: dict, walk: dict) -> None:
+    """A179: one INFO line per credit card sync that settles the card sign
+    question in production: class, the chosen balance entry's type, the key
+    names present, the sign of current and of available, and the debit and
+    credit row counts from this account's walk. Never an amount or an id."""
+    logger.info(
+        "Finexer card balance shape: class=%s entry_type=%s keys=%s current_sign=%s available_sign=%s "
+        "debit_rows=%d credit_rows=%d",
+        acc_class, diag.get("entry_type"), ",".join(diag.get("keys") or []),
+        diag.get("current_sign"), diag.get("available_sign"),
+        int(walk.get("debit", 0)), int(walk.get("credit", 0)),
+    )
+
+
 async def _walk_transactions(
     client: httpx.AsyncClient,
     account_id: str,
@@ -982,7 +1018,7 @@ async def _walk_transactions(
     url: Optional[str] = f"/bank_accounts/{account_id}/transactions"
     first_page = True
     first_txn_logged = False
-    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0}
+    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0}
     while url:
         tr = await _get(client, url, params if first_page else None, counter=counter)
         first_page = False
@@ -1007,6 +1043,9 @@ async def _walk_transactions(
                 else:
                     out["dropped"] += 1
             txns = kept
+        for t in txns:
+            if isinstance(t, dict):
+                out["credit" if _infer_transaction_type(t) == "credit" else "debit"] += 1
         new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
         out["new"].extend(new)
         out["pending"].extend(pending_rows)
@@ -1022,6 +1061,7 @@ async def sync_finexer_consent(
     request_bank_sync: bool = False,
     event_id: Optional[str] = None,
     event_account_id: Optional[str] = None,
+    only_account_id: Optional[str] = None,
 ) -> tuple[list, int]:
     """
     Sync all accounts and transactions for one Finexer consent.
@@ -1034,6 +1074,11 @@ async def sync_finexer_consent(
     webhook-driven syncs leave it off. `event_id` and `event_account_id` (a
     bank_account.synced event) narrow that one account's booked walk when
     USE_TXN_EVENT_FILTER is on; any failure falls back to the full walk.
+
+    A179: `only_account_id` limits the walk to that one bank account (the
+    per-account refresh); every other account on the consent is skipped and
+    the consent's own `last_synced` bookkeeping is left alone. Default None
+    leaves the consent path unchanged.
     """
     # ── Guard: do not sync a consent that was locally deleted/revoked ────────
     local_consent = await finexer_consents_col.find_one({"_id": consent_id})
@@ -1158,6 +1203,8 @@ async def sync_finexer_consent(
             if not account_id:
                 logger.warning("Finexer account missing id: %s", acc)
                 continue
+            if only_account_id is not None and account_id != only_account_id:
+                continue
             if account_id in consent_excluded:
                 logger.info("Finexer: skipping consent-excluded account %s for consent %s", account_id, consent_id)
                 continue
@@ -1238,6 +1285,7 @@ async def sync_finexer_consent(
             # Fetch balance via dedicated endpoint
             balance: float = 0.0
             available = None
+            card_diag: dict = {}
             br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
             if br.status_code == 200:
                 bal_data = br.json()
@@ -1246,6 +1294,13 @@ async def sync_finexer_consent(
                 if chosen is None and bal_entries:
                     chosen = bal_entries[0]
                 if chosen:
+                    if acc_class == "credit_card":
+                        card_diag = {
+                            "entry_type": str(chosen.get("type"))[:30] if chosen.get("type") is not None else None,
+                            "keys": sorted(str(k)[:30] for k in chosen.keys())[:20],
+                            "current_sign": _sign_word(chosen.get("current")),
+                            "available_sign": _sign_word(chosen.get("available")),
+                        }
                     try:
                         balance = float(chosen.get("current") or 0.0)
                     except (TypeError, ValueError):
@@ -1280,6 +1335,10 @@ async def sync_finexer_consent(
             }
             if available is not None:
                 set_doc["available"] = available
+            if card_diag:
+                # Sign only, for /ops/health (A179).
+                set_doc["card_current_sign"] = card_diag["current_sign"]
+                set_doc["card_available_sign"] = card_diag["available_sign"]
             set_doc.update(bank_sync_set)
 
             await accounts_col.update_one(
@@ -1311,6 +1370,11 @@ async def sync_finexer_consent(
             if booked is None:
                 booked = await _walk_transactions(client, account_id, user_id, identity, counter)
             fetch_failed = not booked["ok"]
+            if card_diag:
+                try:
+                    _log_card_balance_shape(acc_class, card_diag, booked)
+                except Exception:
+                    logger.exception("card balance shape log failed")
             walk_row_count = booked["rows"]
             all_new_txns.extend(booked["new"])
 
@@ -1405,6 +1469,10 @@ async def sync_finexer_consent(
             {"$set": {"status": "connected"}},
         )
 
+    if only_account_id is not None:
+        # A179: a one-account pass is not a consent sync; do not stamp it.
+        return fetched_account_ids, len(all_new_txns)
+
     # Update last_synced on the consent record, alongside this sync's true
     # Finexer request volume (E2 — see `_get`'s docstring).
     await finexer_consents_col.update_one(
@@ -1428,6 +1496,7 @@ async def finexer_sync_pipeline(
     request_bank_sync: bool = False,
     event_id: Optional[str] = None,
     event_account_id: Optional[str] = None,
+    only_account_id: Optional[str] = None,
 ) -> dict:
     """
     Full sync pipeline: sync consent → post-sync rules → notifications.
@@ -1453,9 +1522,12 @@ async def finexer_sync_pipeline(
 
     try:
         async with sync_in_progress(finexer_consents_col, consent_id):
+            # only_account_id is passed only when set, so the consent path's
+            # call shape is exactly what it was before A179.
+            extra = {"only_account_id": only_account_id} if only_account_id is not None else {}
             fetched_ids, new_count = await sync_finexer_consent(
                 consent_id, user_id, request_bank_sync=request_bank_sync,
-                event_id=event_id, event_account_id=event_account_id,
+                event_id=event_id, event_account_id=event_account_id, **extra,
             )
     except Exception as exc:
         logger.exception("finexer_sync_pipeline failed for consent %s user %s", consent_id, user_id)

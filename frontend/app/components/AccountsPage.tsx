@@ -58,6 +58,8 @@ import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
 import AccountCountRow from "@/components/AccountCountRow";
 import AccountBankEmpty from "@/components/AccountBankEmpty";
+import AccountRefreshRow from "@/components/AccountRefreshRow";
+import { canRefreshAccount, type AccountRefreshResult } from "@/lib/accountRefresh";
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
@@ -956,6 +958,20 @@ export default function AccountsPage() {
     } finally {
       setCountBusy(false);
     }
+  }
+  // A179: refresh one bank account from its bank. The server answers 200 with
+  // what happened; the accounts and every derived cache are reloaded so the new
+  // balance and as-of time show. A refresh still running server side is
+  // checked once more after a short wait.
+  async function refreshOneAccount(id: string): Promise<AccountRefreshResult> {
+    const r = await api.refreshAccount(id);
+    if (r.refreshed) {
+      invalidateAllAccountData();
+      void loadAccounts();
+    } else if (r.in_progress) {
+      setTimeout(() => { invalidateAllAccountData(); void loadAccounts(); }, 20_000);
+    }
+    return r;
   }
   function togglePin(id: string) {
     if (!pinnedIds.includes(id) && pinnedIds.length >= MAX_PINS) {
@@ -2504,6 +2520,13 @@ export default function AccountsPage() {
         {pinMsg && (
           <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
             {pinMsg}
+          </div>
+        )}
+
+        {/* A179: the bank data time with a Refresh control. */}
+        {canRefreshAccount(selectedAccount) && (
+          <div className="px-4 pt-4">
+            <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} />
           </div>
         )}
 

@@ -959,14 +959,22 @@ def test_run_retention_sweep_calls_all_four_sweeps(monkeypatch):
     monkeypatch.setattr(retention, "sweep_orphaned_relay_accounts", fake_relay_sweep)
     monkeypatch.setattr(retention, "retry_orphaned_revocations", fake_orphan_retry)
 
+    async def fake_deletion_retry(now=None):
+        calls.append("deletions")  # A179
+        return {"deletions_retried": 0, "deletions_cleared": 0,
+                "deletions_still_pending": 0, "deletions_expired": 0}
+    monkeypatch.setattr(retention, "retry_orphaned_deletions", fake_deletion_retry)
+
     result = asyncio.run(retention.run_retention_sweep(now=NOW))
 
-    assert calls == ["connections", "users", "relay", "orphaned"]
+    assert calls == ["connections", "users", "relay", "orphaned", "deletions"]
     assert result == {
         "connections_removed": 0, "users_erased": 0,
         "relay_orphans_removed": 0, "relay_orphans_skipped": 0,
         "orphaned_retried": 0, "orphaned_cleared": 0,
         "orphaned_still_pending": 0, "orphaned_errors": 0, "orphaned_expired": 0,
+        "deletions_retried": 0, "deletions_cleared": 0,
+        "deletions_still_pending": 0, "deletions_expired": 0,
     }
 
 

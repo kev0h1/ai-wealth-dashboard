@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
 import { isAppLocked } from "./appLock";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
+import type { AccountRefreshResult } from "./accountRefresh";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
   Account, Connection, Transaction, KPIs, Insight,
@@ -3104,6 +3105,10 @@ export const api = {
   // backend/app/routers/accounts.py:list_connections.
   connections: () => get<Connection[]>("/connections"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
+  /** A179: refresh one connected bank account from its bank. Always 200; a
+   *  refused or slow refresh is described in the body, never a raw 429. */
+  refreshAccount: (id: string) =>
+    post<AccountRefreshResult>(`/accounts/${encodeURIComponent(id)}/refresh`, {}),
   /** G210: first-sync state for Home (idle / syncing / stalled / failed). */
   getSyncStatus: () => get<SyncStatus>("/sync/status"),
   transactions: (accountId: string, opts?: {
