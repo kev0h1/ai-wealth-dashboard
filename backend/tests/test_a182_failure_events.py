@@ -37,9 +37,9 @@ def test_consent_failed_stores_code_and_message_and_flags_accounts(env, monkeypa
         marked.append(cid)
     monkeypatch.setattr(wh, "_mark_accounts_expired", mark)
     env["consents"].docs[0]["last_connection_nag"] = datetime(2026, 1, 1)
-    _post(_Req(_failed("evt_f1", "consent_revoked_by_bank", "The bank revoked it", status="revoked")))
+    _post(_Req(_failed("evt_f1", "consent_revoked_by_bank", "The bank revoked it")))
     c = env["consents"].docs[0]
-    assert c["status"] == "revoked"
+    assert c["status"] == "failed"
     assert c["failure_code"] == "consent_revoked_by_bank"
     assert c["failure_message"] == "The bank revoked it"
     assert "last_connection_nag" not in c
@@ -47,15 +47,40 @@ def test_consent_failed_stores_code_and_message_and_flags_accounts(env, monkeypa
     assert env["events"].docs[0]["status"] == "noted" and env["calls"] == []
 
 
-def test_consent_failed_without_status_or_code_marks_failed(env, monkeypatch):
+def test_consent_failed_applies_to_a_pending_consent(env, monkeypatch):
     async def mark(cid):
         return None
     monkeypatch.setattr(wh, "_mark_accounts_expired", mark)
-    ev = _consent_event("evt_f2", "consent.failed", "failed")
-    ev["data"]["object"].pop("status", None)
+    env["consents"].docs[0]["status"] = "pending"
+    _post(_Req(_failed("evt_f3", "access_denied")))
+    assert env["consents"].docs[0]["status"] == "failed"
+
+
+@pytest.mark.parametrize("local", ["revoked", "expired", "failed", "canceled"])
+def test_late_failed_event_never_overwrites_a_later_state(env, monkeypatch, local):
+    async def boom(cid):
+        raise AssertionError("must not touch accounts")
+    monkeypatch.setattr(wh, "_mark_accounts_expired", boom)
+    env["consents"].docs[0]["status"] = local
+    _post(_Req(_failed("evt_late_" + local, "access_denied", "late")))
+    c = env["consents"].docs[0]
+    assert c["status"] == local and "failure_code" not in c
+    assert env["events"].docs[0]["status"] == "ignored"
+
+
+@pytest.mark.parametrize("remote", ["revoked", "authorized", None])
+def test_failed_event_only_accepts_failed_as_remote_status(env, monkeypatch, remote):
+    async def boom(cid):
+        raise AssertionError("must not touch accounts")
+    monkeypatch.setattr(wh, "_mark_accounts_expired", boom)
+    ev = _consent_event("evt_r_" + str(remote), "consent.failed", remote or "x")
+    if remote is None:
+        ev["data"]["object"].pop("status")
+    ev["data"]["object"]["failure_code"] = "access_denied"
     _post(_Req(ev))
     c = env["consents"].docs[0]
-    assert c["status"] == "failed" and "failure_code" not in c
+    assert c["status"] == "authorized" and "failure_code" not in c
+    assert env["events"].docs[0]["status"] == "ignored"
 
 
 @pytest.mark.parametrize("typ", ["consent.opened", "consent.initiated"])

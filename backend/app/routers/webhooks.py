@@ -496,12 +496,19 @@ async def finexer_webhook(secret: str, request: Request):
         # consent.failed: keep Finexer's failure_code and failure_message, mark
         # the consent, flag its accounts so the reconnect banner shows the plain
         # reason, and clear the nag throttle so task_consent_watch speaks next run.
+        # Events can arrive late or out of order: apply it only to a consent that
+        # is still pending or authorised and only when the object itself says
+        # "failed". Anything else (a revoked or expired consent, another remote
+        # status) is recorded and ignored, never overwriting a later state.
         from app.services.finexer_consent import consent_failure_fields
         is_consent = obj.get("object") == "consent"
-        remote = obj.get("status") if is_consent and isinstance(obj.get("status"), str) else None
-        fields = {"status": remote or "failed",
+        if doc.get("status") not in ("pending", "authorized") or not (is_consent and obj.get("status") == "failed"):
+            await _set({"status": "ignored"})
+            await _stamp()
+            return {"ok": True}
+        fields = {"status": "failed",
                   "status_changed_at": datetime.utcnow(),  # naive-ok: retention grace-period clock
-                  **consent_failure_fields(obj if is_consent else {})}
+                  **consent_failure_fields(obj)}
         await finexer_consents_col.update_one(
             {"_id": doc["_id"]}, {"$set": fields, "$unset": {"last_connection_nag": ""}},
         )
