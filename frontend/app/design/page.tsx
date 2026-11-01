@@ -33,6 +33,15 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
+    slug: "ux-accounts-entry",
+    name: "Finding Accounts · G389",
+    description: "Three ways to reach Accounts from Home: A named header action, B a destination row after the verdict, C an Accounts tab. Try the route to an account and back with one bank, several accounts, no accounts, loading and failed refresh. Synthetic data only. ?variant=a|b|c&state=one|many|empty|loading|error&mode=light|dark&hidden=1",
+    variants: [{ label: "A · A named door", value: "a" }, { label: "B · In the journey", value: "b" }, { label: "C · A primary destination", value: "c" }],
+    states: [{ label: "One bank", value: "one" }, { label: "Several accounts", value: "many" }, { label: "No accounts", value: "empty" }, { label: "Loading", value: "loading" }, { label: "Failed refresh", value: "error" }],
+    group: "current",
+  },
+
+  {
     slug: "penny-presence",
     name: "Penny presence · C refinements · G388",
     description: "C’s layout with three direct, full-size adviser icons: C1 Outline Penny, C2 Chat outline and C3 Ink Penny. Solid indigo actions replace the faded fills in every refinement. Compare the earlier C, all four real Home card families, both themes and hidden figures. Local-only actions. ?variant=d|e|f|c&state=stack|card-detail|cover-plan|payday-plan|covered&mode=light|dark&masked=1",
