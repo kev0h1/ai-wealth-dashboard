@@ -759,6 +759,11 @@ async def _post_consent(customer_id: str, provider: Optional[str], state: str,
     # before today, which is all a rebuilt account would otherwise get (G359).
     if retro_date:
         data["retro_date"] = retro_date
+    # A182 scopes: NOT sent. The 2026-07-23 contract recorded `scopes` being
+    # rejected as invalid_parameter, and no documented shape has been seen since
+    # (the saved API reference is not in the repo), so the default scopes stay
+    # (accounts, balance and transactions are what the default consent grants).
+    # Do not guess a shape here: confirm it against Finexer's reference first.
     async with _client() as client:
         r = await client.post("/consents", data=data)
     from app.services.finexer_webhooks import bump_daily_counters

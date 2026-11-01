@@ -145,3 +145,14 @@ def test_setting_is_registered_with_default_12_and_bounds():
     assert runtime_settings.validate("FINEXER_RETRO_MONTHS", 24) == 24
     with pytest.raises(runtime_settings.SettingError):
         runtime_settings.validate("FINEXER_RETRO_MONTHS", 61)
+
+
+def test_scopes_are_not_sent_until_the_shape_is_documented(monkeypatch, env):
+    """A182 part 3: the default scopes stay. `scopes` was rejected as
+    invalid_parameter on 2026-07-23 and no shape has been documented since."""
+    client = Client([Resp(200, {"id": "cst_1"})])
+    _use(monkeypatch, client)
+    asyncio.run(fs.create_consent(EMAIL, "cus_1", "amex", "st"))
+    data = client.sent[0][1]
+    assert not any("scope" in k for k in data)
+    assert set(data) == {"customer", "return_url", "provider", "retro_date"}
