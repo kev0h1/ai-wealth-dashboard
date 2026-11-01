@@ -1,7 +1,7 @@
 """E13: allow accounts that signed up before invite-only mode.
 
-Accounts created under open sign-up, or under the old ALLOWED_EMAILS
-environment list, have a `user_profiles` document but no `allowed_signups`
+Accounts created under open sign-up, or under the old environment
+email list, have a `user_profiles` document but no `allowed_signups`
 row, so invite-only sign-in refuses them. This module finds them and gives
 each an ordinary, revocable "invited" row with source "pre_list_backfill".
 

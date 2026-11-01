@@ -47,9 +47,7 @@ async def _row_for(email: str) -> dict | None:
     """The allow-list row for `email` (dot-insensitive key), or None.
     RAISES on a Mongo failure; callers decide how to fail."""
     key = _gmail_key(email.strip().lower())
-    return await allowed_signups_col.find_one(
-        {"key": key}, {"status": 1, "email": 1}, max_time_ms=_MAX_TIME_MS
-    )
+    return await allowed_signups_col.find_one({"key": key}, max_time_ms=_MAX_TIME_MS)
 
 
 async def access_state(email: str) -> AccessState:
