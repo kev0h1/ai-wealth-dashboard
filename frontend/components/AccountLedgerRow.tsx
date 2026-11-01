@@ -160,7 +160,9 @@ export default function AccountLedgerRow({
   // account is genuine risk (Red Is Risk), a credit card in credit is not
   // debt at all. isDormant only ever matches balance === 0, so a negative
   // balance is never also muted.
-  const isOverdrawn = !isCredit && row.balance < 0;
+  // A181: a loan or mortgage is owed money, never an overdrawn account: neutral tone, "owed" caption.
+  const isDebt = row.kind === "Debt";
+  const isOverdrawn = !isCredit && !isDebt && row.balance < 0;
   const isOwedOnCredit = isCredit && row.balance < 0;
   const isCreditInCredit = isCredit && row.balance > 0;
   const negative = row.balance < 0;
@@ -173,7 +175,7 @@ export default function AccountLedgerRow({
   // Spoken/aria state word — unchanged from before the redesign, so screen
   // readers still hear "owed" / "in credit" / "overdrawn" even though the
   // visual caption below only survives for non-credit rows.
-  const stateCaption = isOwedOnCredit ? "owed" : isCreditInCredit ? "in credit" : isOverdrawn ? "overdrawn" : null;
+  const stateCaption = isOwedOnCredit || (isDebt && row.balance < 0) ? "owed" : isCreditInCredit ? "in credit" : isOverdrawn ? "overdrawn" : null;
   // Red is earned (Variant B): a credit balance only renders rose when the
   // card is genuinely accruing interest right now — a confirmed standard
   // APR with no active 0% promo covering today (termsPillFor sets
@@ -278,7 +280,7 @@ export default function AccountLedgerRow({
                 : muted
                   ? "text-slate-400 dark:text-slate-500"
                   : "text-slate-900 dark:text-slate-100"
-              : negative
+              : negative && !isDebt
                 ? "text-rose-600 dark:text-rose-400"
                 : muted
                   ? "text-slate-400 dark:text-slate-500"
@@ -317,7 +319,7 @@ export default function AccountLedgerRow({
             that meaning instead, so the right column never stacks three
             deep. The compact Available caption uses the same slot on current rows;
             overdrawn remains in the row’s accessible name and bank sign/tone. */}
-        {!isCredit && stateCaption && !availabilityReading && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
+        {!isCredit && stateCaption && !availabilityReading && overdraftReading === null && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
 
         {/* Card-terms pill / Add-rates affordance — mirrors AccountMiniCard's
             calm-variant treatment. APR is information, not alarm (muted

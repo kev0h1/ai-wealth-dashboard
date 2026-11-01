@@ -6,6 +6,10 @@ import { buildEstate } from "../lib/accountsEstate.ts";
 import { overdraftAvailable, availableWithOverdraftText } from "../lib/accountOverdraft.ts";
 import { accountDetailKindText } from "../components/AccountDetailParts.tsx";
 import AccountCountRow from "../components/AccountCountRow.tsx";
+import AccountLedgerRow from "../components/AccountLedgerRow.tsx";
+import { bankToRow } from "../lib/accountsEstate.ts";
+import { sourceClass } from "../lib/coverPlanSourceClass.ts";
+import { readFileSync } from "node:fs";
 
 const acc = (o = {}) => ({ id: "a", name: "Account", type: "bank", subtype: "TRANSACTION", balance: 100, currency: "GBP", provider: "Bank", status: "connected", ...o });
 
@@ -41,4 +45,22 @@ assert.equal(availableWithOverdraftText("£620"), "Available with overdraft abou
 for (const s of [availableWithOverdraftText("£1"), "Business accounts are not counted in Left to spend unless you switch this on."]) {
   assert.ok(!s.includes("—") && !s.includes("!"), "no em dashes or exclamation marks");
 }
+// Review fixes: a loan is owed, never overdrawn, never red, never a source, no switch.
+const renderRow = (a, props = {}) => renderToStaticMarkup(React.createElement(AccountLedgerRow, { row: bankToRow(a, []), ...props }));
+const loanHtml = renderRow(loan);
+assert.doesNotMatch(loanHtml, /rose-/, "debt balance is never red");
+assert.doesNotMatch(loanHtml, /overdrawn/);
+assert.match(loanHtml, /owed/);
+assert.match(renderRow(acc({ balance: -50 })), /rose-/, "an overdrawn current account is unchanged");
+assert.match(renderRow(acc({ balance: -50 })), /overdrawn/);
+// Item 5: with the overdraft line shown there is no third caption, but the aria-label keeps the state.
+const odHtml = renderRow(acc({ balance: -50, overdraft_limit: 500, available: 450 }));
+assert.match(odHtml, /data-a181-overdraft/);
+assert.doesNotMatch(odHtml, /<p class="text-\[10px\][^>]*>overdrawn<\/p>/);
+assert.match(odHtml, /aria-label="[^"]*overdrawn/);
+assert.equal(sourceClass(loan), "none");
+assert.equal(sourceClass(acc()), "current");
+const page = readFileSync(new URL("../app/components/AccountsPage.tsx", import.meta.url), "utf8");
+assert.match(page, /!isManual && !isStatement && !isCredit && !isDebt && \(/, "no Left to spend switch on debt");
+assert.match(page, /const isDebt = accountKind\(selectedAccount\) === "Debt"/);
 console.log("a181-accounts ok");
