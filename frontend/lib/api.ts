@@ -2239,6 +2239,42 @@ export type AllowlistEntry = {
 export type AllowlistResponse = {
   invited: AllowlistEntry[];
 };
+// E12: owner-only People page (backend/app/routers/ops_people.py). A null
+// field means "not recorded" (never invented): signed_up_at is never stored,
+// last_active_at is the closest stored thing to a last sign-in.
+export type OpsPerson = {
+  key: string;
+  email: string;
+  owner: boolean;
+  allowlist_status: "invited" | "revoked" | "none";
+  source: "owner" | "invite" | "migrated" | "open_signup";
+  invited_at: string | null;
+  signed_up: boolean;
+  signed_up_at: string | null;
+  last_active_at: string | null;
+  sign_in_method: string | null;
+  plan: string | null;
+  plan_status: string | null;
+  trial_ends_at: string | null;
+  on_trial: boolean;
+  banks_connected: number | null;
+  accounts: number | null;
+  last_sync: string | null;
+  penny_messages_this_month: number | null;
+};
+export type OpsAuditEntry = {
+  at: string | null;
+  actor: string | null;
+  action: "invite" | "revoke" | "restore" | "erase" | string;
+  target: string | null;
+  detail: string | null;
+};
+export type OpsPeopleResponse = {
+  people: OpsPerson[];
+  next_cursor: string | null;
+  audit: OpsAuditEntry[];
+  not_recorded: string[];
+};
 // B20: admin-composed offer broadcasts — owner-only compose/preview/send
 // surface (backend/app/routers/broadcast.py) plus the in-app-card half any
 // signed-in user reads (`GET /offers`). Never carries the raw recipient
@@ -4394,6 +4430,17 @@ export const api = {
     post<AllowlistResponse>("/admin/allowlist", { email, note: note || undefined }),
   revokeAllowlist: (key: string) =>
     del<AllowlistResponse>(`/admin/allowlist/${encodeURIComponent(key)}`),
+
+  // E12: People page, owner session only (bot credentials and scoped tokens 403).
+  getOpsPeople: (cursor?: string) =>
+    get<OpsPeopleResponse>(`/ops/people${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
+  inviteOpsPerson: (email: string) => post<{ ok: boolean }>("/ops/people/invite", { email }),
+  revokeOpsPerson: (key: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(key)}/revoke`),
+  restoreOpsPerson: (key: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(key)}/restore`),
+  eraseOpsPerson: (key: string, confirmEmail: string) =>
+    post<{ ok: boolean; removed: Record<string, number> }>(`/ops/people/${encodeURIComponent(key)}/erase`, {
+      confirm_email: confirmEmail,
+    }),
 
   // B20: admin broadcasts — bot-or-owner only on the backend; from this
   // browser client that always means the owner's own session. Preview
