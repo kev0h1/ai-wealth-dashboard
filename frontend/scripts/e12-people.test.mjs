@@ -35,7 +35,7 @@ assert.match(page, /FILTERS\.map/);
 assert.match(page, /aria-pressed=\{on\}/);
 
 const person = (o) => ({
-  key: o.email, email: o.email, owner: false, allowlist_status: "invited", source: "invite", invited_at: null,
+  id: o.email, email: o.email, owner: false, allowlist_status: "invited", source: "invite", invited_at: null,
   signed_up: false, signed_up_at: null, last_active_at: null, sign_in_method: null, plan: null, plan_status: null,
   trial_ends_at: null, on_trial: false, banks_connected: null, accounts: null, last_sync: null,
   penny_messages_this_month: null, ...o,
@@ -81,3 +81,10 @@ const copy = [page, helpers, ...Object.values(WORDING), ...Object.values(ACTION_
 assert.ok(!/—/.test(copy), "no em dashes");
 assert.ok(!/!(?!=)/.test(Object.values(WORDING).join("")), "no exclamation marks in wording");
 console.log("check:e12-people OK");
+
+// The target of an action is an opaque id in the path, never an email, and the
+// cursor is opaque too; the old allow-list calls are gone from api.ts.
+assert.ok(!/listAllowlist|addAllowlist|revokeAllowlist/.test(apiSrc), "unused allow-list calls removed");
+assert.ok(!/person\.key|p\.key/.test(page), "the page never addresses a person by key");
+assert.match(page, /api\.revokeOpsPerson\(target\.id\)/);
+console.log("check:e12-people ids OK");

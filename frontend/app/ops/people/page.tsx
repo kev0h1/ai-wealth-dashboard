@@ -226,7 +226,7 @@ function PeopleTable({
           {people.map((p) => {
             const revoked = !p.owner && p.allowlist_status === "revoked";
             return (
-              <tr key={p.key} className="border-b border-slate-100 last:border-0 dark:border-white/5">
+              <tr key={p.id} className="border-b border-slate-100 last:border-0 dark:border-white/5">
                 <td className={`${td} max-w-[240px] truncate font-semibold`}>{p.email}</td>
                 <td className={td}>
                   {statusLabel(p)}
@@ -249,15 +249,15 @@ function PeopleTable({
                   {!p.owner && (
                     <div className="flex justify-end gap-2">
                       {revoked ? (
-                        <button type="button" disabled={busyKey === p.key} onClick={() => onRestore(p)} className={QUIET_BTN}>
+                        <button type="button" disabled={busyKey === p.id} onClick={() => onRestore(p)} className={QUIET_BTN}>
                           Restore access
                         </button>
                       ) : (
-                        <button type="button" disabled={busyKey === p.key} onClick={() => onRevoke(p)} className={QUIET_BTN}>
+                        <button type="button" disabled={busyKey === p.id} onClick={() => onRevoke(p)} className={QUIET_BTN}>
                           {WORDING.revokeConfirm}
                         </button>
                       )}
-                      <button type="button" disabled={busyKey === p.key} onClick={() => onRemove(p)} className={QUIET_BTN}>
+                      <button type="button" disabled={busyKey === p.id} onClick={() => onRemove(p)} className={QUIET_BTN}>
                         {WORDING.removeConfirm}
                       </button>
                     </div>
@@ -321,7 +321,7 @@ export default function PeoplePage() {
   }
 
   async function run(person: OpsPerson, fn: () => Promise<unknown>, failure: string): Promise<boolean> {
-    setBusyKey(person.key);
+    setBusyKey(person.id);
     setActionError(null);
     try {
       await fn();
@@ -459,11 +459,11 @@ export default function PeoplePage() {
               <ul className="space-y-2 min-[480px]:hidden">
                 {visible.map((p) => (
                   <PersonCard
-                    key={p.key}
+                    key={p.id}
                     person={p}
-                    busy={busyKey === p.key}
+                    busy={busyKey === p.id}
                     onRevoke={() => setRevoking(p)}
-                    onRestore={() => run(p, () => api.restoreOpsPerson(p.key), "Couldn't restore, try again.")}
+                    onRestore={() => run(p, () => api.restoreOpsPerson(p.id), "Couldn't restore, try again.")}
                     onRemove={() => {
                       setRemoveError(null);
                       setRemoving(p);
@@ -476,7 +476,7 @@ export default function PeoplePage() {
                   people={visible}
                   busyKey={busyKey}
                   onRevoke={setRevoking}
-                  onRestore={(p) => run(p, () => api.restoreOpsPerson(p.key), "Couldn't restore, try again.")}
+                  onRestore={(p) => run(p, () => api.restoreOpsPerson(p.id), "Couldn't restore, try again.")}
                   onRemove={(p) => {
                     setRemoveError(null);
                     setRemoving(p);
@@ -527,7 +527,7 @@ export default function PeoplePage() {
         onConfirm={async () => {
           const target = revoking;
           if (!target) return;
-          await run(target, () => api.revokeOpsPerson(target.key), "Couldn't revoke, try again.");
+          await run(target, () => api.revokeOpsPerson(target.id), "Couldn't revoke, try again.");
           setRevoking(null);
         }}
         onCancel={() => setRevoking(null)}
@@ -536,15 +536,15 @@ export default function PeoplePage() {
       {removing && (
         <RemoveSheet
           person={removing}
-          busy={busyKey === removing.key}
+          busy={busyKey === removing.id}
           error={removeError}
           onCancel={() => setRemoving(null)}
           onConfirm={async (typed) => {
             const target = removing;
             setRemoveError(null);
-            setBusyKey(target.key);
+            setBusyKey(target.id);
             try {
-              await api.eraseOpsPerson(target.key, typed);
+              await api.eraseOpsPerson(target.id, typed);
               setRemoving(null);
               await load();
             } catch (e) {

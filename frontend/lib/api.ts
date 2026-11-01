@@ -2225,25 +2225,12 @@ export type GoLiveResponse = {
 };
 export type GoLiveActionResponse = GoLiveResponse & { committed: boolean };
 
-// D5: in-app sign-up allow list — see backend/app/routers/admin_allowlist.py.
-// Every write (invite/revoke) returns the full refreshed GET payload, same
-// "re-render from truth" convention as the GoLive actions above.
-export type AllowlistEntry = {
-  email: string;
-  key: string;
-  invited_by: string | null;
-  created_at: string;
-  status: "invited" | "revoked";
-  note: string | null;
-};
-export type AllowlistResponse = {
-  invited: AllowlistEntry[];
-};
 // E12: owner-only People page (backend/app/routers/ops_people.py). A null
 // field means "not recorded" (never invented): signed_up_at is never stored,
 // last_active_at is the closest stored thing to a last sign-in.
 export type OpsPerson = {
-  key: string;
+  // Opaque (a hash of the normalised address): safe in a URL, never an email.
+  id: string;
   email: string;
   owner: boolean;
   allowlist_status: "invited" | "revoked" | "none";
@@ -4423,22 +4410,14 @@ export const api = {
   goLiveQuestionStatus: (q: string, status: GoLiveQuestion["status"]) =>
     post<GoLiveActionResponse>(`/ops/go-live/questions/${encodeURIComponent(q)}`, { status }),
 
-  // D5: in-app sign-up allow list, same owner-only surface as the GoLive
-  // board above — backend/app/routers/admin_allowlist.py.
-  listAllowlist: () => get<AllowlistResponse>("/admin/allowlist"),
-  addAllowlist: (email: string, note?: string) =>
-    post<AllowlistResponse>("/admin/allowlist", { email, note: note || undefined }),
-  revokeAllowlist: (key: string) =>
-    del<AllowlistResponse>(`/admin/allowlist/${encodeURIComponent(key)}`),
-
   // E12: People page, owner session only (bot credentials and scoped tokens 403).
   getOpsPeople: (cursor?: string) =>
     get<OpsPeopleResponse>(`/ops/people${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   inviteOpsPerson: (email: string) => post<{ ok: boolean }>("/ops/people/invite", { email }),
-  revokeOpsPerson: (key: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(key)}/revoke`),
-  restoreOpsPerson: (key: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(key)}/restore`),
-  eraseOpsPerson: (key: string, confirmEmail: string) =>
-    post<{ ok: boolean; removed: Record<string, number> }>(`/ops/people/${encodeURIComponent(key)}/erase`, {
+  revokeOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/revoke`),
+  restoreOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/restore`),
+  eraseOpsPerson: (id: string, confirmEmail: string) =>
+    post<{ ok: boolean; removed: Record<string, number> }>(`/ops/people/${encodeURIComponent(id)}/erase`, {
       confirm_email: confirmEmail,
     }),
 
