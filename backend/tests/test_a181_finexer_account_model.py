@@ -174,3 +174,41 @@ def test_existing_user_choice_is_never_flipped(monkeypatch, recomputes):
 
 def test_business_card_has_no_flag_set(monkeypatch, recomputes):
     assert "include_in_safe_to_spend" not in _business_run(monkeypatch, "charge_card", "business")
+
+
+# ---- part 3: card balance sign for both card classes
+
+
+def test_card_balance_rule_is_minus_abs():
+    from app.services.finexer_sync import card_balance_from_finexer as f
+    assert f(123.45, 1000.0, None) == -123.45
+    assert f(-123.45, -5.0, {"limit": 1000, "type": "credit"}) == -123.45
+    assert f(0, None, None) == 0
+    assert f(None, None, None) == 0
+    assert f("bad", None, None) == 0
+
+
+@pytest.mark.parametrize("klass", ["credit_card", "charge_card"])
+@pytest.mark.parametrize("raw", [250.0, -250.0])
+def test_both_card_classes_store_owed_as_negative(monkeypatch, recomputes, klass, raw):
+    accts, _ = _finexer_world(monkeypatch, client=_client(klass, "business", current=raw, available=900.0))
+    _call("acc1")
+    d = _doc(accts)
+    assert d["balance"] == -250.0
+    assert d["card_current_sign"] == ("positive" if raw > 0 else "negative")
+
+
+def test_charge_card_raw_sign_is_logged(monkeypatch, recomputes, caplog):
+    import logging
+    _finexer_world(monkeypatch, client=_client("charge_card", "business", current=250.0))
+    with caplog.at_level(logging.INFO, logger="app.services.finexer_sync"):
+        _call("acc1")
+    line = next(r.getMessage() for r in caplog.records if "card balance shape" in r.getMessage())
+    assert "class=charge_card" in line and "raw_current_sign=positive" in line and "250" not in line
+
+
+@pytest.mark.parametrize("klass", ["current", "emoney", "loan", "mortgage"])
+def test_non_card_balance_sign_untouched(monkeypatch, recomputes, klass):
+    accts, _ = _finexer_world(monkeypatch, client=_client(klass, current=-80.0, available=0))
+    _call("acc1")
+    assert _doc(accts)["balance"] == -80.0

@@ -984,6 +984,24 @@ def _sign_word(value) -> str:
     return "positive" if f > 0 else "negative" if f < 0 else "zero"
 
 
+def card_balance_from_finexer(current, available=None, overdraft=None) -> float:
+    """The stored balance for a card (credit_card or charge_card) from Finexer's
+    balance entry. App convention is negative = owed, so the rule is
+    -abs(current): a card never shows in credit when it is owed, whichever sign
+    the bank sent. `available` and `overdraft` are accepted so a per-bank rule
+    can use them, but they play no part today.
+
+    Known limit: an overpaid card also reads as owed. The raw signs are logged
+    per card (A179, `_log_card_balance_shape`) and stored as `card_current_sign`
+    and `card_available_sign`; once those show each bank's real convention,
+    per-bank conventions can replace this single rule here and nowhere else."""
+    try:
+        value = float(current or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return -abs(value)
+
+
 def _log_card_balance_shape(acc_class: str, diag: dict, walk: dict) -> None:
     """A179: one INFO line per credit card sync that settles the card sign
     question in production: class, the chosen balance entry's type, the key
@@ -1300,17 +1318,17 @@ async def sync_finexer_consent(
                             "current_sign": _sign_word(chosen.get("current")),
                             "available_sign": _sign_word(chosen.get("available")),
                         }
-                    try:
-                        balance = float(chosen.get("current") or 0.0)
-                    except (TypeError, ValueError):
-                        balance = 0.0
                     if is_card:
-                        # Known limit: an overpaid card will display as owed until per-provider sign handling exists; the raw sign is logged per card for that.
-                        # A180: banks pass their own sign through (some report
-                        # owed as positive). App convention is negative = owed,
-                        # so cards always store -abs(current). The raw sign is
-                        # still recorded in card_diag above.
-                        balance = -abs(balance)
+                        # A180/A181: credit_card and charge_card. The raw sign is
+                        # recorded in card_diag above and logged by A179.
+                        balance = card_balance_from_finexer(
+                            chosen.get("current"), chosen.get("available"), chosen.get("overdraft"),
+                        )
+                    else:
+                        try:
+                            balance = float(chosen.get("current") or 0.0)
+                        except (TypeError, ValueError):
+                            balance = 0.0
                     try:
                         available = float(chosen["available"]) if chosen.get("available") is not None else None
                     except (TypeError, ValueError):
