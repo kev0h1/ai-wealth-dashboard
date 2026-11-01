@@ -313,8 +313,7 @@ async def ops_health(user: dict = Depends(current_user)):
     except Exception:
         finexer_events = None
     return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks,
-            "finexer_sync": finexer_sync, "finexer_events": finexer_events,
-            "finexer_consents": await _finexer_consents_health()}
+            "finexer_sync": finexer_sync, "finexer_events": finexer_events, "finexer_consents": await _finexer_consents_health()}
 
 
 @router.post("/health/finexer-events/reconcile")
