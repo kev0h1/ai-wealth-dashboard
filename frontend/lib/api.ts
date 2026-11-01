@@ -2236,7 +2236,9 @@ export type OpsPerson = {
   email: string;
   owner: boolean;
   allowlist_status: "invited" | "revoked" | "none";
-  source: "owner" | "invite" | "migrated" | "open_signup";
+  // E13: what sign-in would do with this person, from the server's one rule.
+  access: "owner" | "allowed" | "no_access" | "revoked";
+  source: "owner" | "invite" | "migrated" | "open_signup" | "backfill";
   invited_at: string | null;
   signed_up: boolean;
   signed_up_at: string | null;
@@ -2254,7 +2256,7 @@ export type OpsPerson = {
 export type OpsAuditEntry = {
   at: string | null;
   actor: string | null;
-  action: "invite" | "revoke" | "restore" | "erase" | string;
+  action: "invite" | "allow" | "backfill" | "revoke" | "restore" | "erase" | string;
   target: string | null;
   detail: string | null;
 };
@@ -4385,6 +4387,9 @@ export const api = {
   getOpsPeople: (cursor?: string) =>
     get<OpsPeopleResponse>(`/ops/people${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   inviteOpsPerson: (email: string) => post<{ ok: boolean }>("/ops/people/invite", { email }),
+  allowOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/allow`),
+  getOpsBackfillPreview: () => get<{ count: number }>("/ops/people/backfill"),
+  applyOpsBackfill: (confirm: string) => post<{ ok: boolean; added: number }>("/ops/people/backfill", { confirm }),
   revokeOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/revoke`),
   restoreOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/restore`),
   eraseOpsPerson: (id: string, confirmEmail: string) =>

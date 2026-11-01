@@ -29,21 +29,21 @@ for (const route of ["`/ops/people${cursor ?", "?cursor=", '"/ops/people/invite"
 assert.match(apiSrc, /confirm_email: confirmEmail/);
 
 // The four filters, in order.
-assert.deepEqual(FILTERS.map((f) => f.key), ["active", "revoked", "signed_up", "never_signed_up"]);
-assert.deepEqual(FILTERS.map((f) => f.label), ["Active", "Revoked", "Signed up", "Never signed up"]);
+assert.deepEqual(FILTERS.map((f) => f.key), ["active", "revoked", "no_access", "signed_up", "never_signed_up"]);
+assert.deepEqual(FILTERS.map((f) => f.label), ["Active", "Revoked", "No access", "Signed up", "Never signed up"]);
 assert.match(page, /FILTERS\.map/);
 assert.match(page, /aria-pressed=\{on\}/);
 
 const person = (o) => ({
-  id: o.email, email: o.email, owner: false, allowlist_status: "invited", source: "invite", invited_at: null,
+  id: o.email, email: o.email, owner: false, allowlist_status: "invited", access: "allowed", source: "invite", invited_at: null,
   signed_up: false, signed_up_at: null, last_active_at: null, sign_in_method: null, plan: null, plan_status: null,
   trial_ends_at: null, on_trial: false, banks_connected: null, accounts: null, last_sync: null,
   penny_messages_this_month: null, ...o,
 });
 const people = [
-  person({ email: "owner@example.com", owner: true, allowlist_status: "none", source: "owner", signed_up: true }),
+  person({ email: "owner@example.com", owner: true, allowlist_status: "none", access: "owner", source: "owner", signed_up: true }),
   person({ email: "a@example.com", signed_up: true, last_active_at: "2026-10-30T08:00:00+00:00" }),
-  person({ email: "b@example.com", allowlist_status: "revoked", signed_up: true }),
+  person({ email: "b@example.com", allowlist_status: "revoked", access: "revoked", signed_up: true }),
   person({ email: "c@example.com" }),
 ];
 assert.deepEqual(filterPeople(people, "active", "").map((p) => p.email), ["owner@example.com", "a@example.com", "c@example.com"]);
@@ -51,7 +51,7 @@ assert.deepEqual(filterPeople(people, "revoked", "").map((p) => p.email), ["b@ex
 assert.deepEqual(filterPeople(people, "signed_up", "").map((p) => p.email), ["owner@example.com", "a@example.com", "b@example.com"]);
 assert.deepEqual(filterPeople(people, "never_signed_up", "").map((p) => p.email), ["c@example.com"]);
 assert.deepEqual(filterPeople(people, null, " A@EXAMPLE").map((p) => p.email), ["a@example.com"]);
-assert.deepEqual(counts(people), { active: 3, revoked: 1, signed_up: 3, never_signed_up: 1 });
+assert.deepEqual(counts(people), { active: 3, revoked: 1, no_access: 0, signed_up: 3, never_signed_up: 1 });
 assert.equal(sortPeople(people)[0].owner, true, "owner row first");
 
 // Remove needs the typed email; the owner has no actions.

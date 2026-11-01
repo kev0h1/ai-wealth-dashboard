@@ -10,3 +10,9 @@ export const AGENT_DISCLOSURE =
 // AGENT_DISCLOSURE, in the same paragraph, wherever that sentence is shown.
 // It is a separate constant so the fixed A4.1 text above is never altered.
 export const TRADING_NAME_DISCLOSURE = "Sorted is a trading name of AURIQ LTD.";
+
+// E13: the contact address already published on /terms and /privacy
+// (content/terms.md, content/privacy.md) and in security.txt. One constant so
+// in-app copy can point people at it; scripts/e13-access-state.test.mjs checks
+// it still equals the address on the legal pages.
+export const SUPPORT_EMAIL = "info@auriqltd.co.uk";
