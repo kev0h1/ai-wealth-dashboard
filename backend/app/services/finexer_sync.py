@@ -197,6 +197,8 @@ try:
 except ValueError:
     RECONNECT_DEDUPE_DAYS = 90
 DEDUPE_SKIPPED_CAP = 5000
+# The overlap window should follow A182's `retro_date` (days of history asked
+# for, at least 90) once that lands: max(90, days back to retro_date).
 
 
 def finexer_remote_id(doc: dict) -> str:
@@ -210,7 +212,9 @@ def _clean_fingerprint(value) -> Optional[str]:
     return value if isinstance(value, str) and FINGERPRINT_RE.match(value) else None
 
 
-async def resolve_local_account(user_id: str, finexer_id: str, fingerprint: Optional[str]) -> Optional[dict]:
+async def resolve_local_account(
+    user_id: str, finexer_id: str, fingerprint: Optional[str], finexer_class: Optional[str] = None,
+) -> Optional[dict]:
     """The existing account doc of THIS user that `finexer_id` (with its
     `fingerprint`) belongs to, or None for a genuinely new account.
 
@@ -220,6 +224,15 @@ async def resolve_local_account(user_id: str, finexer_id: str, fingerprint: Opti
     most recently synced; the ambiguity is logged without ids."""
     if fingerprint:
         cands = [d async for d in accounts_col.find({"user_id": user_id, "fingerprint": fingerprint})]
+        if finexer_class:
+            # A cheap guard: a fingerprint match whose stored class differs
+            # from the incoming one (both set) is refused, a new doc is made.
+            kept = [d for d in cands if not d.get("finexer_class") or d["finexer_class"] == finexer_class]
+            if len(kept) != len(cands):
+                logger.warning("Finexer: refused a fingerprint match with a different account class")
+                if not kept:
+                    return None
+            cands = kept
         if cands:
             if len(cands) > 1:
                 logger.warning(
@@ -1077,8 +1090,6 @@ async def _reconnect_duplicate(txn_id: str, tdoc: dict, account_id: str, dedupe:
     skipped: set = dedupe["skipped"]
     if txn_id in skipped:
         return True
-    if await transactions_col.find_one({"_id": txn_id}, {"_id": 1}):
-        return False
     when = tdoc["date"]
     reconnected_at = dedupe["reconnected_at"]
     if when < reconnected_at - timedelta(days=RECONNECT_DEDUPE_DAYS):
@@ -1086,6 +1097,9 @@ async def _reconnect_duplicate(txn_id: str, tdoc: dict, account_id: str, dedupe:
     day = when.replace(hour=0, minute=0, second=0, microsecond=0)
     if day > reconnected_at.replace(hour=0, minute=0, second=0, microsecond=0):
         return False  # dated after the reconnect: not part of the overlap
+    # Only rows inside the window reach a query.
+    if await transactions_col.find_one({"_id": txn_id}, {"_id": 1}):
+        return False
     claimed = await transactions_col.find_one_and_update(
         {
             "account_id": account_id,
@@ -1108,6 +1122,8 @@ async def _reconnect_duplicate(txn_id: str, tdoc: dict, account_id: str, dedupe:
         {"_id": account_id},
         {"$push": {"dedupe_skipped_ids": {"$each": [txn_id], "$slice": -DEDUPE_SKIPPED_CAP}}},
     )
+    if len(skipped) >= DEDUPE_SKIPPED_CAP:
+        logger.warning("Finexer: the reconnect dedupe skip list reached its cap; the oldest ids are dropped")
     return True
 
 
@@ -1582,7 +1598,9 @@ async def sync_finexer_consent(
             # Finexer knows it by under THIS consent and is the only one used
             # in Finexer URLs.
             fingerprint = _clean_fingerprint(acc.get("fingerprint"))
-            local_doc = await resolve_local_account(user_id, finexer_id, fingerprint)
+            local_doc = await resolve_local_account(
+                user_id, finexer_id, fingerprint, (acc.get("class") or "").lower() or None,
+            )
             account_id = local_doc["_id"] if local_doc else finexer_id
             previous_remote = finexer_remote_id(local_doc) if local_doc else None
             rekeyed = bool(local_doc) and previous_remote != finexer_id
@@ -1752,7 +1770,15 @@ async def sync_finexer_consent(
             if fingerprint:
                 set_doc["fingerprint"] = fingerprint
             if rekeyed:
-                set_doc["reconnected_at"] = datetime.utcnow()  # naive-ok: Mongo UTC convention
+                # The dedupe window opens only when the previous consent is no
+                # longer authorised; with both consents live the same bank
+                # transactions are not a reconnect overlap yet.
+                prev_consent = await finexer_consents_col.find_one({"_id": local_doc.get("connection_id")}) \
+                    if local_doc.get("connection_id") and local_doc.get("connection_id") != consent_id else None
+                if prev_consent and prev_consent.get("status") == "authorized":
+                    logger.warning("Finexer: a re-keyed account's previous consent is still authorised; dedupe not opened")
+                else:
+                    set_doc["reconnected_at"] = datetime.utcnow()  # naive-ok: Mongo UTC convention
                 logger.info("Finexer: a reconnected account was matched by fingerprint and kept its local id")
             if available is not None:
                 set_doc["available"] = available
@@ -1811,7 +1837,7 @@ async def sync_finexer_consent(
             # already stored (see `_reconnect_duplicate`).
             dedupe = None
             if local_doc is not None:
-                reconnected_at = set_doc.get("reconnected_at") if rekeyed else local_doc.get("reconnected_at")
+                reconnected_at = set_doc.get("reconnected_at") or local_doc.get("reconnected_at")
                 if isinstance(reconnected_at, datetime):
                     dedupe = {
                         "reconnected_at": reconnected_at,

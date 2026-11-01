@@ -438,3 +438,72 @@ def test_sync_passes_a_dedupe_object_only_for_a_reconnected_account(monkeypatch)
     accts2, c2, upserts2 = _world(monkeypatch, [], client=FpClient("fx_fresh"))
     _sync()
     assert upserts2 and all(dd is None for _a, dd in upserts2)
+
+
+# ── review fixes ──────────────────────────────────────────────────────────
+
+def test_a_class_mismatch_refuses_the_fingerprint_match(monkeypatch):
+    accts, c, _ = _world(monkeypatch, [dict(OLD, finexer_class="savings")])
+    fetched, _n = _sync()
+    assert fetched == ["fx_new"]
+    assert {d["_id"] for d in accts.docs} == {"fx_old", "fx_new"}
+    assert next(d for d in accts.docs if d["_id"] == "fx_old")["connection_id"] == CONSENT
+
+
+def test_an_unset_class_on_either_side_still_matches(monkeypatch):
+    accts, c, _ = _world(monkeypatch, [dict(OLD)])
+    assert _sync()[0] == ["fx_old"]
+
+
+def test_dedupe_window_stays_closed_while_the_previous_consent_is_still_authorised(monkeypatch, caplog):
+    accts, c, upserts = _world(monkeypatch, [dict(OLD)])
+    fs.finexer_consents_col.docs[0]["status"] = "authorized"
+    with caplog.at_level("WARNING", logger="app.services.finexer_sync"):
+        _sync()
+    d = accts.docs[0]
+    assert d["finexer_account_id"] == "fx_new" and "reconnected_at" not in d
+    assert upserts and all(dd is None for _a, dd in upserts)
+    assert any("still authorised" in r.getMessage() for r in caplog.records)
+
+
+def test_rows_outside_the_window_make_no_query(monkeypatch):
+    txns, _a = _dedupe_world(monkeypatch, [])
+    calls: list = []
+    orig = txns.find_one
+
+    async def spy(q=None, projection=None):
+        calls.append(q)
+        return await orig(q, projection)
+    txns.find_one = spy
+    dd = {"reconnected_at": datetime(2027, 3, 1), "skipped": set(), "count": 0}
+    _upsert([_row("trn_far")], dd)
+    # the only find_one is the upsert's own (find_one_and_update is separate)
+    assert calls == []
+
+
+def test_the_cap_is_logged(monkeypatch, caplog):
+    monkeypatch.setattr(fs, "DEDUPE_SKIPPED_CAP", 1)
+    txns, _a = _dedupe_world(monkeypatch, [_old_row("trn_old1")])
+    with caplog.at_level("WARNING", logger="app.services.finexer_sync"):
+        _upsert([_row("trn_new1")], _dd())
+    assert any("reached its cap" in r.getMessage() for r in caplog.records)
+
+
+def test_a_stale_deleted_event_for_the_old_remote_id_does_not_close_the_live_account(monkeypatch):
+    import app.routers.webhooks as wh
+    live = dict(OLD, finexer_account_id="fx_new", connection_id=NEW_CONSENT, status="connected")
+    accts = Store([live])
+    monkeypatch.setattr(wh, "accounts_col", accts)
+    asyncio.run(wh._mark_account_closed("fx_old"))
+    assert "closed_at" not in accts.docs[0]
+    asyncio.run(wh._mark_account_closed("fx_new"))
+    assert "closed_at" in accts.docs[0]
+
+
+def test_a_deleted_event_still_closes_an_account_never_rekeyed(monkeypatch):
+    import app.routers.webhooks as wh
+    plain = {"_id": "fx_plain", "source": "finexer", "user_id": UID}
+    accts = Store([plain])
+    monkeypatch.setattr(wh, "accounts_col", accts)
+    asyncio.run(wh._mark_account_closed("fx_plain"))
+    assert "closed_at" in accts.docs[0]
