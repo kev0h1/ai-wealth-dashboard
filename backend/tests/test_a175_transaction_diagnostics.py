@@ -130,9 +130,11 @@ def test_serialisation_exposes_iso_and_count_and_null_when_absent():
     out = accounts_router._transaction_diagnostics(
         {"transactions_synced_at": datetime(2026, 10, 29, 9, 30, 0), "transactions_last_count": 0}
     )
-    assert out == {"transactions_synced_at": "2026-10-29T09:30:00Z", "transactions_last_count": 0, "bank_synced_to": None}
+    assert out == {"transactions_synced_at": "2026-10-29T09:30:00Z", "transactions_last_count": 0, "bank_synced_to": None,
+                   "bank_next_refresh_at": None}
     assert accounts_router._transaction_diagnostics({}) == {
         "transactions_synced_at": None, "transactions_last_count": None, "bank_synced_to": None,
+        "bank_next_refresh_at": None,
     }
 
 

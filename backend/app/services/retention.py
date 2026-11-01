@@ -390,7 +390,8 @@ async def delete_finexer_resource_remote(kind: str, resource_id: str) -> str | N
         return str(code)
     except Exception as exc:
         logger.warning("Finexer delete %s failed (non-fatal)", kind, exc_info=True)
-        return type(exc).__name__
+        error_code = type(exc).__name__  # static class name only, never the message
+        return error_code
 
 
 async def record_orphaned_deletion(uid: str, kind: str, resource_id: str, error: str | None) -> None:

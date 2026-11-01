@@ -165,7 +165,7 @@ async def _recompute(uid: str) -> None:
         await apply_mirror_rules(uid)
         await mark_stale(uid)
         await cashflow_cache_col.update_one(
-            {"_id": uid}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
+            {"_id": uid}, {"$set": {"synced_at": _utcnow()}}, upsert=True,
         )
         await recompute_derived_caches(uid, new_count=0, trigger="user")
     except Exception:
