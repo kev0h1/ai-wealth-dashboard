@@ -36,7 +36,7 @@ export default function ReconfirmPrompt({ connections, bankNameFor }: Props) {
   if (!target) return null;
   const question = reconfirmQuestion(bankNameFor(target));
 
-  async function confirm(c: Connection) {
+  async function submitReconfirm(c: Connection) {
     setBusy(true);
     setError(false);
     try {
@@ -67,7 +67,7 @@ export default function ReconfirmPrompt({ connections, bankNameFor }: Props) {
         <button
           type="button"
           disabled={busy}
-          onClick={() => void confirm(target)}
+          onClick={() => void submitReconfirm(target)}
           className="min-h-[44px] flex items-center px-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
         >
           {RECONFIRM_BUTTON}
