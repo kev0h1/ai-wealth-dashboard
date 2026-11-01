@@ -782,11 +782,11 @@ class ConsentDict(dict):
     retro_date_requested: Optional[str] = None
 
 
-def _names_retro(resp) -> bool:
-    if resp.status_code not in (400, 422):
-        return False
-    err = _error_envelope(resp)
-    return any("retro" in str(err.get(k) or "").lower() for k in ("param", "code", "message"))
+def _rejected_first_attempt(resp) -> bool:
+    """Any 400 or 422 on an attempt that carried retro_date, except the unknown
+    customer case (A178 handles that one and keeps the date). The contract for
+    retro_date is unconfirmed, so a rejection of any kind retries without it."""
+    return resp.status_code in (400, 422) and not _is_unknown_customer(resp)
 
 
 async def create_consent(
@@ -805,17 +805,17 @@ async def create_consent(
     exactly once. Any other failure raises FinexerConsentError (never a bare
     RuntimeError), after logging provider, status and a scrubbed reason.
 
-    A182: sends `retro_date` (FINEXER_RETRO_MONTHS months back, default 12,
-    0 sends none) so a connection can read more than the default 90 days; the
-    bank's own maximum still applies. If Finexer rejects the parameter itself
-    the consent is retried once without it. The date asked for rides on the
+    A182: sends `retro_date` (FINEXER_RETRO_MONTHS months back, default 0 = none
+    until the contract is confirmed against the sandbox) so a connection can read more than the default 90 days; the
+    bank's own maximum still applies. If Finexer answers the first attempt with a
+    400 or 422 the consent is retried once without it. The date asked for rides on the
     returned dict as `.retro_date_requested`."""
     from app.services.finexer_consent import retro_date_for, retro_months_setting
     retro = retro_date_for(await retro_months_setting())
 
     r = await _post_consent(customer_id, provider, state, retro)
-    if r.status_code not in (200, 201) and retro and _names_retro(r):
-        log_finexer_error(r, "POST /consents (retro_date rejected)")
+    if r.status_code not in (200, 201) and retro and _rejected_first_attempt(r):
+        log_finexer_error(r, "POST /consents (first attempt rejected, retrying without retro_date)")
         logger.warning("Finexer POST /consents: retro_date rejected, retrying without it (reason=%s)",
                        _scrub_reason(r.text))
         retro = None
@@ -1204,7 +1204,6 @@ async def sync_finexer_consent(
             update_fields = {
                 "status":      remote_status,
                 "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
-                "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
             }
             # A182: failure code and message, and the 90-day reconfirmation date.
             from app.services.finexer_consent import consent_sync_fields

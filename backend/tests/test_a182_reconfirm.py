@@ -99,8 +99,20 @@ def consent(**kw):
     return base
 
 
+def _gate(monkeypatch, on):
+    """FINEXER_RECONFIRM_PROMPT_ENABLED without touching Mongo."""
+    from app.services import runtime_settings
+
+    async def fake(key, env=None):
+        if key == "FINEXER_RECONFIRM_PROMPT_ENABLED":
+            return on
+        return runtime_settings.REGISTRY[key].default
+    monkeypatch.setattr(runtime_settings, "asetting", fake)
+
+
 @pytest.fixture
 def env(monkeypatch):
+    _gate(monkeypatch, True)
     col = Col([consent(), consent(_id="cst_other", user_id=OTHER)])
     monkeypatch.setattr("app.db.collections.finexer_consents_col", col)
     monkeypatch.setattr(finexer_module, "finexer_consents_col", col)
@@ -223,8 +235,94 @@ def test_connections_row_carries_reconfirm_fields(monkeypatch, env):
     assert "reconfirm_prompt" in row and "renewed_at" in row
 
 
+def _connections_with_prompt_due(monkeypatch, env):
+    import app.routers.accounts as acc
+
+    class Empty(Col):
+        async def count_documents(self, *a, **k):
+            return 0
+    env.docs[0]["authed_at"] = datetime.utcnow() - timedelta(days=85)
+    monkeypatch.setattr(acc, "_finexer_consents_col", env)
+    monkeypatch.setattr(acc, "connections_col", Empty())
+    monkeypatch.setattr(acc, "accounts_col", Empty())
+    rows = asyncio.run(acc.list_connections(user={"email": EMAIL}))
+    return next(r for r in rows if r["connection_id"] == "cst_1")
+
+
+def test_gate_on_prompt_flag_is_true_when_due(monkeypatch, env):
+    assert _connections_with_prompt_due(monkeypatch, env)["reconfirm_prompt"] is True
+
+
+def test_gate_off_prompt_flag_false_but_date_stays_live(monkeypatch, env):
+    _gate(monkeypatch, False)
+    row = _connections_with_prompt_due(monkeypatch, env)
+    assert row["reconfirm_prompt"] is False
+    assert row["next_reconfirm_by"] is not None  # information only, still shown
+
+
+def test_gate_off_route_is_404_and_never_calls_finexer(monkeypatch, env):
+    _gate(monkeypatch, False)
+    client = Client(Resp(200, {}))
+    _client(monkeypatch, client)
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(finexer_module.finexer_reconfirm("cst_1", user={"email": EMAIL}))
+    assert ei.value.status_code == 404 and client.sent == []
+
+
+def test_gate_defaults_off_and_fails_closed(monkeypatch):
+    from app.services import runtime_settings
+    assert runtime_settings.REGISTRY["FINEXER_RECONFIRM_PROMPT_ENABLED"].default is False
+
+    async def boom(key, env=None):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(runtime_settings, "asetting", boom)
+    assert asyncio.run(fc.reconfirm_enabled()) is False
+
+
+def test_sync_status_flag_only_when_on(monkeypatch):
+    import app.routers.accounts as acc
+    import app.services.sync_freshness as sf
+
+    async def fake_state(uid):
+        return {"state": "idle", "connections": []}
+    monkeypatch.setattr(sf, "first_sync_state", fake_state)
+    _gate(monkeypatch, False)
+    assert "reconfirm_prompt_enabled" not in asyncio.run(acc.sync_status(user={"email": EMAIL}))
+    _gate(monkeypatch, True)
+    assert asyncio.run(acc.sync_status(user={"email": EMAIL}))["reconfirm_prompt_enabled"] is True
+
+
 # ── task_consent_watch ───────────────────────────────────────────────────
+def _watch_setup(monkeypatch, on):
+    _gate(monkeypatch, on)
+    now = datetime.utcnow()
+    col = Col([consent(_id="a", authed_at=now - timedelta(days=85)),
+               consent(_id="b", authed_at=now - timedelta(days=10))])
+    monkeypatch.setattr(sw, "finexer_consents_col", col)
+    monkeypatch.setattr(sw, "connections_col", Col())
+    monkeypatch.setattr(sw, "accounts_col", Col())
+    pushes = []
+
+    async def push(uid, title, body, url=None):
+        pushes.append((uid, title, body))
+
+    async def pref(uid, key):
+        return True
+    monkeypatch.setattr(sw, "send_push_to_user", push)
+    monkeypatch.setattr(sw, "notif_pref", pref)
+    return col, pushes
+
+
+def test_watch_gate_off_flags_but_sends_no_push(monkeypatch):
+    col, pushes = _watch_setup(monkeypatch, False)
+    out = asyncio.run(sw.task_consent_watch({}))
+    assert out["reconfirm_due"] == 1 and out["reconfirm_nagged"] == 0 and pushes == []
+    a = next(d for d in col.docs if d["_id"] == "a")
+    assert a["reconfirm_due_flagged_at"] and "last_reconfirm_nag" not in a
+
+
 def test_watch_flags_and_pushes_for_consents_due_within_seven_days(monkeypatch):
+    _gate(monkeypatch, True)
     now = datetime.utcnow()
     due_soon = consent(_id="a", authed_at=now - timedelta(days=85))
     not_due = consent(_id="b", authed_at=now - timedelta(days=10))
@@ -251,3 +349,63 @@ def test_watch_flags_and_pushes_for_consents_due_within_seven_days(monkeypatch):
     out2 = asyncio.run(sw.task_consent_watch({}))
     assert out2["reconfirm_due"] == 1 and out2["reconfirm_nagged"] == 0
     assert len(pushes) == 1
+
+
+# ── renewed_at survives a GET that omits or lags it ─────────────────────
+def test_sync_keeps_local_renewed_at_when_remote_omits_or_lags_it():
+    local_renewed = datetime(2026, 10, 20)
+    local = {"authed_at": datetime(2026, 8, 1), "renewed_at": local_renewed}
+    exp = "2027-06-01T00:00:00Z"
+    omitted = fc.consent_sync_fields({"status": "authorized", "expiry_date": exp}, local)
+    assert "renewed_at" not in omitted  # never overwritten with None
+    assert omitted["next_reconfirm_by"] == local_renewed + timedelta(days=90)
+    lagging = fc.consent_sync_fields(
+        {"status": "authorized", "expiry_date": exp, "renewed_at": "2026-09-01T00:00:00Z"}, local)
+    assert "renewed_at" not in lagging
+    assert lagging["next_reconfirm_by"] == local_renewed + timedelta(days=90)
+    newer = fc.consent_sync_fields(
+        {"status": "authorized", "expiry_date": exp, "renewed_at": "2026-10-25T00:00:00Z"}, local)
+    assert newer["renewed_at"] == datetime(2026, 10, 25)
+    first = fc.consent_sync_fields(
+        {"status": "authorized", "expiry_date": exp, "renewed_at": "2026-10-25T00:00:00Z"},
+        {"authed_at": datetime(2026, 8, 1)})
+    assert first["renewed_at"] == datetime(2026, 10, 25)
+
+
+# ── HTTP: bot token and a non-owner session ─────────────────────────────
+def test_reconfirm_route_over_http_bot_and_non_owner(monkeypatch, env):
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient
+    import app.core.auth as auth_mod
+    from app.core import bot_credentials
+    from app.core.config import serializer
+
+    async def no(*a, **k):
+        return False
+
+    async def bot_check(method, path, token):
+        return False, {"bot_name": "ci", "scopes": []}  # real cred, no scope for this route
+
+    async def noop(*a, **k):
+        return None
+    monkeypatch.setattr(auth_mod, "is_revoked", no)
+    monkeypatch.setattr(auth_mod, "is_access_revoked", no)
+    monkeypatch.setattr(bot_credentials, "check_bot_request", bot_check)
+    monkeypatch.setattr(bot_credentials, "record_use", noop)
+    client = Client(Resp(200, {"renewed_at": "2026-11-01T09:00:00Z"}))
+    _client(monkeypatch, client)
+    app = FastAPI()
+    app.include_router(finexer_module.router)
+    tc = TestClient(app)
+    url = "/auth/finexer/consents/cst_1/reconfirm"
+
+    assert tc.post(url).status_code == 401  # no credentials
+    bot = tc.post(url, headers={"Authorization": f"Bearer {bot_credentials.TOKEN_PREFIX}abc"})
+    assert bot.status_code == 403
+    other = serializer.dumps({"email": OTHER, "name": "O"})
+    assert tc.post(url, headers={"Authorization": f"Bearer {other}"}).status_code == 404
+    assert client.sent == [] and "renewed_at" not in env.docs[0]
+    owner = serializer.dumps({"email": EMAIL, "name": "T"})
+    ok = tc.post(url, headers={"Authorization": f"Bearer {owner}"})
+    assert ok.status_code == 200 and ok.json()["ok"] is True
+    assert client.sent[0][0] == "/consents/cst_1"

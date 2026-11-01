@@ -33,6 +33,20 @@ RECONFIRM_PUSH_DAYS = 7
 RECONFIRM_FAILED_MESSAGE = "We could not confirm just now. Try again later."
 
 
+async def reconfirm_enabled() -> bool:
+    """FINEXER_RECONFIRM_PROMPT_ENABLED. Fails closed: any error reads as off.
+
+    A6.2A: a reconfirmation shown in our own interface is itself a consent
+    screen, so the exact wording needs Finexer's written approval before this
+    is switched on. A6.3 fallback: Finexer may require its hosted
+    reconfirmation instead, which needs no approval from us."""
+    from app.services import runtime_settings
+    try:
+        return bool(await runtime_settings.asetting("FINEXER_RECONFIRM_PROMPT_ENABLED"))
+    except Exception:
+        return False
+
+
 def _utcnow() -> datetime:
     return datetime.utcnow()  # naive-ok: compared with Mongo's naive UTC datetimes
 
@@ -152,7 +166,7 @@ async def retro_months_setting() -> int:
     try:
         return int(await runtime_settings.asetting("FINEXER_RETRO_MONTHS"))
     except Exception:
-        return 12
+        return 0
 
 
 # ── Failure codes ─────────────────────────────────────────────────────────
@@ -196,10 +210,17 @@ def consent_sync_fields(consent_doc: dict, local_consent: dict) -> dict:
         out.update(failure)
     elif consent_doc.get("status") == "authorized":
         out.update({"failure_code": None, "failure_message": None})
+    # renewed_at: only from Finexer when it is present, and never earlier than
+    # what we already hold (a GET that omits or lags it must not erase a
+    # reconfirmation we just recorded).
+    remote_renewed = _parse_iso_utc(consent_doc.get("renewed_at"))
+    local_renewed = local_consent.get("renewed_at")
+    local_renewed = local_renewed if isinstance(local_renewed, datetime) else None
+    renewed = max([d for d in (remote_renewed, local_renewed) if d], default=None)
+    if remote_renewed and (local_renewed is None or remote_renewed > local_renewed):
+        out["renewed_at"] = remote_renewed
     out["next_reconfirm_by"] = next_reconfirm_by(
-        local_consent.get("authed_at"),
-        _parse_iso_utc(consent_doc.get("renewed_at")),
-        _parse_iso_utc(consent_doc.get("expiry_date")),
+        local_consent.get("authed_at"), renewed, _parse_iso_utc(consent_doc.get("expiry_date")),
     )
     return out
 

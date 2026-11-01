@@ -86,22 +86,48 @@ def test_zero_months_sends_no_retro_date(monkeypatch, env):
     assert out.retro_date_requested is None
 
 
-def test_retro_date_rejected_retries_once_without_it(monkeypatch, env):
-    rejected = Resp(400, {"error": {"type": "invalid_request_error", "code": "invalid_parameter",
-                                    "message": "retro_date is too far in the past", "param": "retro_date"}})
-    client = Client([rejected, Resp(200, {"id": "cst_2"})])
+@pytest.mark.parametrize("status,body", [
+    (400, {"error": {"code": "invalid_parameter", "message": "retro_date is too far back", "param": "retro_date"}}),
+    (400, {"error": {"code": "invalid_url", "message": "something unrelated", "param": "return_url"}}),
+    (422, {}),
+])
+def test_any_400_or_422_on_first_attempt_retries_once_without_retro(monkeypatch, env, status, body):
+    client = Client([Resp(status, body), Resp(200, {"id": "cst_2"})])
     _use(monkeypatch, client)
     out = asyncio.run(fs.create_consent(EMAIL, "cus_1", "amex", "st"))
     assert "retro_date" in client.sent[0][1] and "retro_date" not in client.sent[1][1]
     assert out == {"id": "cst_2"} and out.retro_date_requested is None
 
 
-def test_unrelated_400_does_not_retry_without_retro(monkeypatch, env):
-    client = Client([Resp(400, {"error": {"code": "invalid_url", "message": "return_url bad", "param": "return_url"}})])
+def test_retry_without_retro_still_failing_raises_after_two_attempts(monkeypatch, env):
+    bad = {"error": {"code": "invalid_url", "message": "return_url bad", "param": "return_url"}}
+    client = Client([Resp(400, bad), Resp(400, bad)])
+    _use(monkeypatch, client)
+    with pytest.raises(fs.FinexerConsentError):
+        asyncio.run(fs.create_consent(EMAIL, "cus_1", "amex", "st"))
+    assert len(client.sent) == 2
+
+
+def test_server_error_does_not_trigger_the_retro_retry(monkeypatch, env):
+    client = Client([Resp(500, {})])
     _use(monkeypatch, client)
     with pytest.raises(fs.FinexerConsentError):
         asyncio.run(fs.create_consent(EMAIL, "cus_1", "amex", "st"))
     assert len(client.sent) == 1
+
+
+def test_unknown_customer_400_keeps_retro_date_on_its_own_retry(monkeypatch, env):
+    unknown = {"error": {"code": "resource_missing", "message": "No such customer", "param": "customer"}}
+    client = Client([Resp(400, unknown), Resp(200, {"id": "cst_3"})])
+
+    async def new_customer(user, force_new=False):
+        return "cus_new"
+    monkeypatch.setattr(fs, "get_or_create_customer", new_customer)
+    _use(monkeypatch, client)
+    out = asyncio.run(fs.create_consent(EMAIL, "cus_dead", "amex", "st"))
+    assert out == {"id": "cst_3"}
+    consent_posts = [d for u, d in client.sent if u == "/consents"]
+    assert all("retro_date" in d for d in consent_posts) and len(consent_posts) == 2
 
 
 class Col:
@@ -139,9 +165,9 @@ def test_link_stores_requested_retro_date(monkeypatch):
     assert col.docs[0]["retro_date_requested"] == "2025-11-01"
 
 
-def test_setting_is_registered_with_default_12_and_bounds():
+def test_setting_is_registered_default_off_with_bounds():
     spec = runtime_settings.REGISTRY["FINEXER_RETRO_MONTHS"]
-    assert spec.default == 12 and spec.min == 0 and spec.max == 60
+    assert spec.default == 0 and spec.min == 0 and spec.max == 60
     assert runtime_settings.validate("FINEXER_RETRO_MONTHS", 24) == 24
     with pytest.raises(runtime_settings.SettingError):
         runtime_settings.validate("FINEXER_RETRO_MONTHS", 61)

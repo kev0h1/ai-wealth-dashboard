@@ -582,9 +582,12 @@ async def task_consent_watch(ctx):
     # overdue) are stamped for /ops/health and get one gentle push, throttled
     # to once per 72h. Reconfirming clears the throttle (finexer_consent).
     from app.services.finexer_consent import (
-        RECONFIRM_PUSH_DAYS, consent_next_reconfirm_by, reconfirm_push_due,
+        RECONFIRM_PUSH_DAYS, consent_next_reconfirm_by, reconfirm_enabled, reconfirm_push_due,
     )
     reconfirm_due = 0
+    # The flag stays stamped; the push stays off until Finexer approves the wording (A6.2A,
+    # FINEXER_RECONFIRM_PROMPT_ENABLED); next_reconfirm_by is stored regardless.
+    rc_on = await reconfirm_enabled()
     rc_consents = await finexer_consents_col.find(
         {"status": "authorized"},
         {"_id": 1, "user_id": 1, "status": 1, "authed_at": 1, "renewed_at": 1, "expiry_date": 1,
@@ -598,7 +601,8 @@ async def task_consent_watch(ctx):
         due = consent_next_reconfirm_by(fx)
         fields = {"reconfirm_due_flagged_at": now, "next_reconfirm_by": due}
         last_nag = fx.get("last_reconfirm_nag")
-        if (isinstance(last_nag, datetime) and last_nag > throttle_cutoff) or not await notif_pref(uid, "connection_health"):
+        if (not rc_on or (isinstance(last_nag, datetime) and last_nag > throttle_cutoff)
+                or not await notif_pref(uid, "connection_health")):
             await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
             continue
         bank = _bank_display_name(fx.get("provider"))

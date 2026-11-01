@@ -17,6 +17,7 @@ from app.services.finexer_consent import (
     ReconfirmError,
     next_reconfirm_by,
     reconfirm_consent,
+    reconfirm_enabled,
     RECONFIRM_FAILED_MESSAGE,
 )
 from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
@@ -218,7 +219,14 @@ async def finexer_reconfirm(consent_id: str, user: dict = Depends(current_user))
     """A182: the user confirms in the app that Sorted may keep reading this
     bank's data (the 90-day reconfirmation). Writes renewed_at at Finexer, no
     bank login, never extends the consent's expiry. Owner of the consent only;
-    a Finexer failure leaves the record unchanged."""
+    a Finexer failure leaves the record unchanged.
+
+    Gated by FINEXER_RECONFIRM_PROMPT_ENABLED (default off): A6.2A says a
+    reconfirmation shown in our own interface is a consent screen whose exact
+    wording needs Finexer's written approval first. Off, this answers 404. The
+    A6.3 fallback is Finexer's hosted reconfirmation, which needs no approval."""
+    if not await reconfirm_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
     doc = await finexer_consents_col.find_one({"_id": consent_id})
     # Another user's consent answers exactly like a missing one.
     if not doc or doc.get("user_id") != user["email"]:
