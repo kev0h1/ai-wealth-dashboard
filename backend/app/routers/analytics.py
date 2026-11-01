@@ -3258,8 +3258,12 @@ def _ms(dt: datetime) -> datetime:
     return dt.replace(microsecond=(dt.microsecond // 1000) * 1000)
 
 
-async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> None:
-    """Background task: compute cashflow patterns and store to cache. Called after every sync."""
+async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> bool:
+    """Compute patterns and cache them. True only when this invocation stored them.
+
+    Existing background callers ignore the result; an awaited review finish uses
+    it to distinguish a successful write from a swallowed computation failure.
+    """
     # G177/G190: the moment this recompute starts READING. It is the doc's
     # `computed_from` watermark: the write below only lands if no recompute
     # that started later has already landed, so a slow older task can never
@@ -3309,7 +3313,7 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
             )
         except DuplicateKeyError:
             print(f"[cashflow_cache] recompute for {uid} superseded by a newer one; not written")
-            return
+            return False
         # Clear the sync-staleness stamp (G177) iff it predates this
         # recompute's reads; one set after they began survives for the next.
         from app.services.derived_caches import clear_dirty
@@ -3319,8 +3323,10 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
         # makes every OTHER process's cached entries — and Mongo's — stale,
         # bounded at 6h if a version-bump signal is ever missed).
         response_cache.invalidate(uid)
+        return True
     except Exception as e:
         print(f"[cashflow_cache] compute failed for {uid}: {e}")
+        return False
 
 
 @router.get("/cashflow/at-risk-count")
@@ -6584,9 +6590,12 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     await response_cache.ainvalidate(uid)
 
     if changed:
-        from app.services.derived_caches import mark_stale
-        await mark_stale(uid, reason="own_account_transfer_confirmed")
-        asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+        from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
+        if body.get("defer_recompute") is True:
+            await defer_transfer_review_recompute(uid)
+        else:
+            await mark_stale(uid, reason="own_account_transfer_confirmed")
+            asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
 
     # credit_category/debit_category reflect the FINAL effective category —
     # the computed target for a leg we wrote, or the pre-existing (locked)

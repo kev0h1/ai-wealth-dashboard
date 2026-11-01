@@ -38,6 +38,18 @@ router = APIRouter(tags=["transactions"])
 logger = logging.getLogger(__name__)
 
 
+async def _after_category_correction(uid: str, *, defer_recompute: bool) -> None:
+    """Keep saved corrections readable immediately, optionally batching only
+    their expensive forecast calculation for the transfer review sheet."""
+    from app.routers.analytics import compute_and_cache_cashflow
+    from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
+    if defer_recompute:
+        await defer_transfer_review_recompute(uid)
+    else:
+        await mark_stale(uid, reason="category_correction")
+        asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+
+
 def _description_stem(desc: str) -> str:
     # Dates anywhere in the description change every cycle — never part of identity
     s = strip_date_fragments(desc.strip())
@@ -759,17 +771,12 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
                         user["email"], pattern, category, exclude_id=transaction_id,
                     )
 
-    # Category changes move money in/out of the Transfer exclusion and the
-    # trusted recurring categories — refresh the upcoming-payments cache in the
-    # background (same in-process fire-and-forget pattern the manual sync uses)
-    # G190: stamp the cashflow doc stale first (so any read before the
-    # background recompute lands recomputes), then recompute; the write is the
-    # G177 compare-and-swap, so an older in-flight recompute cannot overwrite.
-    from app.routers.analytics import compute_and_cache_cashflow
-    from app.services.derived_caches import mark_stale
-    import asyncio as _asyncio
-    await mark_stale(user["email"], reason="category_correction")
-    _asyncio.create_task(compute_and_cache_cashflow(user["email"], clear_ai_cache=False))
+    # The review sheet persists every choice immediately.  It alone may defer
+    # the costly forecast calculation until its Done/close action; every other
+    # correction retains the established background recompute behaviour.
+    await _after_category_correction(
+        user["email"], defer_recompute=body.get("defer_recompute") is True,
+    )
 
     # Category changes can flip a row in/out of the miscategorised-transfers
     # guardrail (auto vs. manual override into/out of a spend category) —
@@ -1041,16 +1048,28 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         )
 
     if category_changed:
-        from app.routers.analytics import compute_and_cache_cashflow
-        from app.services.derived_caches import mark_stale
-        import asyncio as _asyncio
-        await mark_stale(uid, reason="category_correction")
-        _asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+        await _after_category_correction(
+            uid, defer_recompute=body.get("defer_recompute") is True,
+        )
         response_cache.invalidate(uid, "miscategorised_count")
         response_cache.invalidate(uid, "miscategorised_list")
         response_cache.invalidate(uid, "transfer_pair_suggestions")
 
     return result
+
+
+@router.post("/transactions/finish-transfer-review")
+async def finish_transfer_review(user: dict = Depends(current_user)):
+    """Run the one deferred forecast rebuild owed by a transfer review.
+
+    Repeating a close is harmless.  A failed rebuild keeps its durable marker
+    and returns a retryable error instead of claiming the forecast is current.
+    """
+    from app.services.derived_caches import finish_transfer_review_recompute
+    result = await finish_transfer_review_recompute(user["email"])
+    if result.get("failed"):
+        raise HTTPException(503, "Your choices are saved, but the forecast could not refresh. Try Done again.")
+    return {"ok": True, **result}
 
 
 @router.patch("/transactions/{transaction_id}/planned")

@@ -57,6 +57,8 @@ import FirstAccountCard from "@/components/FirstAccountCard";
 import HomeEstateSection from "@/components/HomeEstateSection";
 import { noticeSheet } from "@/components/ConfirmSheet";
 
+const MiscategorisedReviewSheet = dynamic(() => import("@/components/MiscategorisedReviewSheet"));
+
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
 const PinnedWidgetCard = dynamic(
@@ -244,6 +246,11 @@ export default function HomePage() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [refreshAsOf, setRefreshAsOf] = useState<string | null>(null);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  // This sheet belongs to Home while it is open. It must not depend on the
+  // transfer banner remaining visible: the final saved choice can make that
+  // banner disappear before the person closes the sheet.
+  const [transferReviewOpen, setTransferReviewOpen] = useState(false);
+  const [transferReviewAccounts, setTransferReviewAccounts] = useState<Account[] | null>(null);
   // Shared store (lib/homePinnedAccounts.ts) — replaces this page's own
   // dedicated api.getPreferences() re-fetch (see that file's doc comment
   // for why a plain `usePreferences().rawPrefs` read isn't enough: it only
@@ -785,6 +792,17 @@ export default function HomePage() {
     refetchToday();
   }
 
+  const openTransferReview = useCallback(() => {
+    setTransferReviewOpen(true);
+    // Home usually already has this list from loadData. Refresh it in the
+    // background for a direct early tap; a failed refresh still leaves the
+    // sheet usable with Home's current account labels instead of stranding
+    // the user on an intermediate loading page.
+    void getAccountsCached()
+      .then(setTransferReviewAccounts)
+      .catch(() => setTransferReviewAccounts(accounts));
+  }, [accounts]);
+
   // Spending totals are home-currency only; the recent list still shows
   // foreign-currency transactions with their own symbol
   const homeTxns = useMemo(
@@ -1051,7 +1069,7 @@ export default function HomePage() {
               onCoverMoveVisibleChange={onCoverMoveVisibleChange}
               banner={<div className="space-y-4">
                 {reauthBanner}
-                <HomeTransfersCheck refreshKey={bulkNonce} enabled={!hasNoAccounts} onReady={onTransfersReady} />
+                <HomeTransfersCheck refreshKey={bulkNonce} enabled={!hasNoAccounts} onReady={onTransfersReady} onReview={openTransferReview} />
               </div>}
             />
           </div>
@@ -1289,6 +1307,17 @@ export default function HomePage() {
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
           account={accounts.find(a => a.id === selectedTx.account_id)}
+        />
+      )}
+
+      {transferReviewOpen && (
+        <MiscategorisedReviewSheet
+          accounts={transferReviewAccounts ?? accounts}
+          onClose={() => setTransferReviewOpen(false)}
+          // G387: the sheet saves each choice as it is made but asks Home to
+          // refresh only once, after its close-time recompute has completed.
+          // Deliberately no onUpdated: that callback fires per choice.
+          onChanged={() => { void loadData(); }}
         />
       )}
 

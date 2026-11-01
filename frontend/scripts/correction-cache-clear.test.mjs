@@ -386,18 +386,11 @@ check(
 
 const handleConfirmPairBody = extractBody(miscategorisedSrc, /function handleConfirmPair\(pair: TransferPairSuggestion\)\s*/);
 check("handleConfirmPair extracted (regex still matches the real source)", handleConfirmPairBody !== null, true);
-check(
-  "handleConfirmPair calls the invalidator exactly once, inside confirmTransferPair's .then() (the success branch)",
-  countOccurrences(handleConfirmPairBody, "invalidateAfterTransactionCorrection("),
-  1,
-);
-const thenBody = handleConfirmPairBody != null ? extractBody(handleConfirmPairBody, /\.then\(\(res\)\s*=>\s*/) : null;
-check("handleConfirmPair's .then((res) => ...) body extracted", thenBody !== null, true);
-check(
-  "the invalidator call sits inside the SUCCESS .then(), not the outer .catch()",
-  countOccurrences(thenBody, "invalidateAfterTransactionCorrection("),
-  1,
-);
+check("G387 pair saves do not invalidate page caches per tap", countOccurrences(handleConfirmPairBody, "invalidateAfterTransactionCorrection("), 0);
+const finishReviewBody = extractBody(miscategorisedSrc, /async function finishReview\(\)\s*/);
+check("G387 finish awaits the server batch before clearing client caches", /await api\.finishTransferReview\(\)/.test(finishReviewBody), true);
+check("G387 finish invalidates once for the completed batch", countOccurrences(finishReviewBody, "invalidateAfterTransactionCorrection("), 1);
+check("G387 finish invalidates after the awaited server flush", finishReviewBody.indexOf("await api.finishTransferReview()") < finishReviewBody.indexOf("invalidateAfterTransactionCorrection("), true);
 
 if (failures > 0) {
   console.error(`\n${failures} failure(s).`);

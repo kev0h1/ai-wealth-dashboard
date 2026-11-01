@@ -2,6 +2,7 @@
 // Run with: npm run -s check:g358-transactions-refresh
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { applyCategoryChange, matchesCategoryFilter } from "../lib/transactionsListUpdate.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -51,12 +52,23 @@ ok("rows not in the list and untouched rows are left alone", () => {
 
 ok("handleAlways passes affected ids to onUpdated on the success path", () => {
   const src = read("components/TeachingSheet.tsx");
-  const fn = src.slice(src.indexOf("async function handleAlways"), src.indexOf("function handleJustThisOnce"));
-  const after = fn.slice(fn.indexOf("await api.addRule"), fn.indexOf("} catch"));
+  // The Undo success callback contains its own nested try/catch. Slicing at
+  // the first textual catch incorrectly treats subsequent successful sibling
+  // restores as part of the rule-save error handler (G387).
+  const tree = ts.createSourceFile("TeachingSheet.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let handler;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "handleAlways") handler = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  const attempt = handler?.body?.statements.find(ts.isTryStatement);
+  assert.ok(attempt?.catchClause, "the rule save has an explicit failure handler");
+  const after = attempt.tryBlock.getText(tree);
   assert.match(after, /onUpdated\(/);
   assert.match(after, /saved\.affected_ids/);
   assert.match(after, /invalidateAfterTransactionCorrection\(/);
-  const catchBlock = fn.slice(fn.indexOf("} catch"));
+  const catchBlock = attempt.catchClause.block.getText(tree);
   assert.doesNotMatch(catchBlock, /onUpdated\(|invalidateAfterTransactionCorrection\(/);
   assert.match(src, /res\.affected_ids/);
 });

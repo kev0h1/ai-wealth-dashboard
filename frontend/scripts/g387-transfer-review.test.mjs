@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { remainingReviewItem } from '../lib/transferReview.ts';
+const item = {id:'a',ids:['a','b','c'],count:3,category:'Other',currency:'GBP',members:[{id:'a',amount:10},{id:'b',amount:15}]};
+assert.deepEqual(remainingReviewItem(item,new Set()),item);
+const next=remainingReviewItem(item,new Set(['a']));
+assert.equal(next.id,'b');assert.equal(next.amount,15);assert.equal(next.count,2);assert.deepEqual(next.ids,['b','c']);
+assert.equal(remainingReviewItem(item,new Set(['a','b'])),null,'capped evidence is not invented');
+assert.equal(remainingReviewItem(item,new Set(['a','b','c'])),null);
+assert.equal(remainingReviewItem(item,new Set(['b'])).count,2,'bulk corrections remove siblings');
+assert.equal(remainingReviewItem(item,new Set()).id,'a','undo restores original evidence');
+console.log('G387: single decisions advance series without hiding unresolved members');

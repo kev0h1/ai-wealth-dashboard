@@ -3269,7 +3269,7 @@ export const api = {
       clearTimeout(timer);
     }
   },
-  patchTransaction: (id: string, data: { category: string; additional_ids?: string[] }) =>
+  patchTransaction: (id: string, data: { category: string; additional_ids?: string[]; defer_recompute?: boolean }) =>
     fetch(`${API_BASE}/transactions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -3311,6 +3311,7 @@ export const api = {
   // POST /transactions/{id}/resolve-movement. See backend/app/routers/
   // transactions.py:resolve_movement for the full resolution contract.
   resolveMovement: (id: string, body: {
+    defer_recompute?: boolean;
     resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "someone-else" | "spending";
     goal_id?: string;
     offline_pot_name?: string;
@@ -3658,11 +3659,12 @@ export const api = {
   // confirming teaches the engine the description PAIR so future occurrences
   // auto-match at the next sync.
   getTransferPairSuggestions: () => get<{ items: TransferPairSuggestion[] }>("/transactions/transfer-pair-suggestions"),
-  confirmTransferPair: (creditId: string, debitId: string) =>
+  confirmTransferPair: (creditId: string, debitId: string, deferRecompute = false) =>
     post<{ ok: boolean; credit_category: string; debit_category: string; learned: boolean }>(
       "/transactions/confirm-transfer-pair",
-      { credit_id: creditId, debit_id: debitId },
+      { credit_id: creditId, debit_id: debitId, ...(deferRecompute ? { defer_recompute: true } : {}) },
     ),
+  finishTransferReview: () => post<{ ok: boolean; recomputed?: boolean; pending?: boolean }>("/transactions/finish-transfer-review", {}),
   dismissTransferPair: (pairKey: string) =>
     post<{ ok: boolean }>("/transactions/dismiss-transfer-pair", { pair_key: pairKey }),
   savingsInsights: () => get<SavingsInsights>("/savings/insights"),
@@ -4054,12 +4056,12 @@ export const api = {
   // new rule recategorised (backend/app/services/categorisation.py
   // apply_single_rule), so TeachingSheet's "Undo" can revert each one
   // precisely instead of only the primary transaction (fix-round HIGH finding).
-  addRule: (description: string, pattern: string, category: string) =>
+  addRule: (description: string, pattern: string, category: string, deferRecompute = false) =>
     post<{
       id: string; description: string; pattern: string; category: string;
       affected: { id: string; previous_category: string | null }[];
       affected_ids?: string[];
-    }>("/rules", { description, pattern, category }),
+    }>("/rules", { description, pattern, category, ...(deferRecompute ? { defer_recompute: true } : {}) }),
   setTransactionPlanned: (id: string, planned: boolean) =>
     fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}/planned`, {
       method: "PATCH",

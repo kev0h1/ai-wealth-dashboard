@@ -294,7 +294,7 @@ export default function SpendPage() {
   }, [showTips]);
   const [transactionsRequested, setTransactionsRequested] = useState(false);
   const transactionsEnabled = chartsRequested || transactionsRequested;
-  const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions(transactionsEnabled);
+  const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions, refresh: refreshAllTransactions } = useAllTransactions(transactionsEnabled);
 
   useEffect(() => {
     if (chartsRequested) return;
@@ -1393,26 +1393,12 @@ export default function SpendPage() {
       {reviewOpen && (
         <MiscategorisedReviewSheet
           onClose={() => setReviewOpen(false)}
-          onUpdated={handleTxUpdated}
           onChanged={() => {
+            void refreshAllTransactions(true);
             fetchMiscategorisedCount(periodOffset);
-            // G83 fix-round: a dismiss / transfer-pair confirm-reject here
-            // can change what "money you moved"/notables show, same as any
-            // other transaction-affecting write — without this the TTL
-            // cache would just repaint the pre-change verdict.
-            invalidateVerdictCache();
+            // The review has saved and recomputed the whole batch. Refresh
+            // this mounted page once, after its sheet closes.
             fetchVerdict(periodOffset);
-            // G146: a "Same transfer" confirm (not a dismiss) writes both
-            // legs' categories server-side, which moves the category
-            // multiples the same way any other correction does —
-            // MiscategorisedReviewSheet.tsx's own handleConfirmPair already
-            // clears the module-level signals cache for that write, but
-            // this page's `fetchedSignals` component state needs its own
-            // refetch to repaint on THIS mount, same reasoning as
-            // handleTxUpdated below. Harmless no-op on a plain dismiss —
-            // refetchSignals(true) re-clears and re-fetches regardless of
-            // which call landed here, at the cost of one avoidable request
-            // on the dismiss path.
             refetchSignals();
           }}
           accounts={accounts}

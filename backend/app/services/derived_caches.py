@@ -42,6 +42,8 @@ tick warms them as it always has.
 import asyncio
 import logging
 import time
+import uuid
+import weakref
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -97,6 +99,10 @@ _STARTUP_PAUSE_SECONDS = 0.5
 # watching the screen.
 USER_REFRESH_DEBOUNCE_SECONDS = 20
 _last_user_recompute_started: dict[str, float] = {}
+# One API process serves this deployment.  The durable token below is the
+# cross-process safety net if that deployment model changes; this lock simply
+# stops two simultaneous Done taps paying for the same calculation today.
+_transfer_review_flush_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
 
 def _debounce_user_refresh(uid: str) -> bool:
@@ -183,6 +189,106 @@ async def mark_stale(uid: str, *, reason: str = "transactions_changed") -> None:
         await response_cache.ainvalidate(uid)
     except Exception:
         logger.exception("mark_stale(%s, %s): response cache invalidation failed", uid, reason)
+
+
+async def defer_transfer_review_recompute(uid: str) -> None:
+    """Record a review decision whose expensive forecast rebuild is deferred.
+
+    The correction itself has already been written before this is called.  The
+    marker lives with the cashflow cache so closing a browser, or moving to a
+    different API process, cannot lose the fact that the forecast still needs
+    one rebuild.  The stale stamp and opaque token are one atomic Mongo write:
+    a marker-only cache document must never be mistaken for a fresh forecast.
+    """
+    stamp = _ms_now()
+    token = uuid.uuid4().hex
+    # Do not swallow this write.  A successful category decision without its
+    # durable batch marker would silently violate the close-time contract.
+    await cashflow_cache_col.update_one(
+        {"_id": uid},
+        {"$set": {
+            "dirty_since": stamp,
+            "transfer_review_pending_since": stamp,
+            "transfer_review_pending_token": token,
+        }, "$unset": {"dirty_retry_after": ""}},
+        upsert=True,
+    )
+    try:
+        await response_cache.ainvalidate(uid)
+    except Exception:
+        logger.exception("defer_transfer_review_recompute(%s): response cache invalidation failed", uid)
+
+
+async def finish_transfer_review_recompute(uid: str) -> dict:
+    """Flush one deferred transfer-review batch, preserving concurrent work.
+
+    `compute_and_cache_cashflow` owns the dirty-stamp compare-and-swap.  We
+    only remove the exact token read before computing, so a new decision
+    saved while the close request is running remains queued.
+    """
+    lock = _transfer_review_flush_locks.setdefault(uid, asyncio.Lock())
+    # Each caller holds a strong reference through acquire and release. Weak
+    # entries disappear only once no current caller or waiter can use the lock.
+    async with lock:
+        return await _finish_transfer_review_recompute(uid)
+
+
+async def _finish_transfer_review_recompute(uid: str) -> dict:
+    pending = await cashflow_cache_col.find_one(
+        {"_id": uid}, {"transfer_review_pending_token": 1},
+    )
+    token = pending.get("transfer_review_pending_token") if pending else None
+    if not token:
+        return {"recomputed": False, "pending": False}
+
+    from app.routers.analytics import compute_and_cache_cashflow
+    completed = await compute_and_cache_cashflow(uid, clear_ai_cache=False)
+
+    # An explicit result proves THIS invocation wrote its snapshot. Millisecond
+    # watermarks alone cannot distinguish a failed call from an earlier write
+    # in the same clock tick.
+    after = await cashflow_cache_col.find_one(
+        {"_id": uid}, {"dirty_since": 1, "transfer_review_pending_token": 1},
+    )
+    if completed is not True or not after:
+        return {"recomputed": False, "pending": True, "failed": True}
+
+    # A write may have landed while the compute was reading.  Its fresh token
+    # means this calculation cannot cover that choice; restore dirty state
+    # even when both writes happened in the same millisecond and
+    # `clear_dirty` therefore could not distinguish their timestamps.
+    if after.get("transfer_review_pending_token") != token:
+        newer_token = after.get("transfer_review_pending_token")
+        if newer_token:
+            await cashflow_cache_col.update_one(
+                {"_id": uid, "transfer_review_pending_token": newer_token},
+                {"$set": {"dirty_since": _ms_now()}, "$unset": {"dirty_retry_after": ""}},
+            )
+            try:
+                await response_cache.ainvalidate(uid)
+            except Exception:
+                logger.exception("finish_transfer_review_recompute(%s): response cache invalidation failed", uid)
+        return {"recomputed": True, "pending": True}
+
+    if after.get("dirty_since") is not None:
+        return {"recomputed": False, "pending": True, "failed": True}
+
+    # Finish the cross-process cache invalidation before acknowledging the batch.
+    # A failure here retains the marker so Done can safely be retried.
+    await response_cache.ainvalidate(uid)
+    # Exact token equality, rather than millisecond timestamps, makes a
+    # decision saved in the same clock tick as this flush impossible to lose.
+    await cashflow_cache_col.update_one(
+        {"_id": uid, "transfer_review_pending_token": token},
+        {"$unset": {
+            "transfer_review_pending_since": "",
+            "transfer_review_pending_token": "",
+        }},
+    )
+    latest = await cashflow_cache_col.find_one(
+        {"_id": uid}, {"transfer_review_pending_token": 1},
+    )
+    return {"recomputed": True, "pending": bool(latest and latest.get("transfer_review_pending_token"))}
 
 
 async def clear_dirty(uid: str, started_at: datetime) -> None:

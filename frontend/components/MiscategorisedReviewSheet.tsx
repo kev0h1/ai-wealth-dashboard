@@ -11,7 +11,7 @@ import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from 
 import { displayAccountName } from "@/lib/accountName";
 import { formatDate, dateToUTCDay } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
-import type { MiscategorisedItem } from "@/lib/transferReview";
+import { remainingReviewItem, type MiscategorisedItem } from "@/lib/transferReview";
 export type { MiscategorisedItem, MiscategorisedMember } from "@/lib/transferReview";
 import Spinner from "@/components/Spinner";
 
@@ -27,7 +27,6 @@ const choices = [
 
 interface MiscategorisedReviewSheetProps {
   onClose: () => void;
-  onUpdated?: (tx: Transaction, additionalIds?: string[]) => void;
   onChanged?: () => void;
   accounts: Account[];
   // Synthetic fixtures for the real-component browser regression only.
@@ -43,7 +42,7 @@ function toTransaction(item: MiscategorisedItem): Transaction {
     transaction_type: item.transaction_type === "credit" ? "credit" : "debit" };
 }
 
-export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChanged, accounts, initialItems, initialPairs, periodStart }: MiscategorisedReviewSheetProps) {
+export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts, initialItems, initialPairs, periodStart }: MiscategorisedReviewSheetProps) {
   const [items, setItems] = useState<MiscategorisedItem[]>(initialItems ?? []);
   const [pairs, setPairs] = useState<TransferPairSuggestion[]>(initialPairs ?? []);
   const [loading, setLoading] = useState(initialItems === undefined || initialPairs === undefined);
@@ -54,6 +53,44 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const [resolved, setResolved] = useState<Set<string>>(new Set());
+  const [pendingCount, setPendingCount] = useState(0);
+  const pendingRef = useRef(0);
+  const changedIds = useRef(new Set<string>());
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState("");
+  // A route change or app teardown must not leave a warm client snapshot of
+  // pre-review figures. Server-side dirty markers independently protect reads.
+  useEffect(() => () => {
+    if (pendingRef.current) invalidateAfterTransactionCorrection("", {});
+  }, []);
+  function saved(ids: string[]) {
+    ids.forEach(id => changedIds.current.add(id));
+    pendingRef.current += 1;
+    setPendingCount(pendingRef.current);
+    setCloseError("");
+  }
+  async function finishReview() {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setClosing(true);
+    setCloseError("");
+    try {
+      // Also drains an interrupted review from an earlier visit.
+      const result = await api.finishTransferReview();
+      if (result.pending) throw new Error("Another choice is still updating. Please try Done again.");
+      if (pendingRef.current || result.recomputed) {
+        invalidateAfterTransactionCorrection("", {});
+        notifyTransactionsChanged([...changedIds.current]);
+        onChanged?.();
+      }
+      pendingRef.current = 0;
+      return true;
+    } catch {
+      setCloseError("Your choices are saved. Totals could not be updated yet. Try Done again.");
+      return false;
+    } finally { busyRef.current = false; setClosing(false); }
+  }
   const [selected, setSelected] = useState<{ tx: Transaction; choice: Exclude<Choice, "transfer"> } | null>(null);
   const [confirmSingle, setConfirmSingle] = useState<{ item: MiscategorisedItem; category: "Transfer" | "Income" } | null>(null);
   const { hideNetWorth, preferencesReady } = usePreferences();
@@ -71,6 +108,7 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
       if (cancelled) return;
       setItems([...review.items, ...(review.separate_items ?? [])]);
       setPairs(suggestions.items);
+      setResolved(new Set());
     }).catch(() => { if (!cancelled) setLoadError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -93,13 +131,11 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
 
   function handleConfirmPair(pair: TransferPairSuggestion) {
     if (!begin(pair.pair_key)) return;
-    api.confirmTransferPair(pair.credit.id, pair.debit.id).then((res) => {
-      invalidateAfterTransactionCorrection(pair.debit.id, { oldCategory: pair.debit.category ?? undefined, newCategory: res.debit_category });
-      notifyTransactionsChanged([pair.debit.id, pair.credit.id]);
+    api.confirmTransferPair(pair.credit.id, pair.debit.id, true).then(() => {
+      saved([pair.debit.id, pair.credit.id]);
+      setResolved(previous => new Set([...previous, pair.debit.id, pair.credit.id]));
       setPairs(previous => previous.filter(value => value.pair_key !== pair.pair_key));
       announce("Both payments marked as one transfer.");
-      onChanged?.();
-      refresh();
     }).catch(() => failed(pair.pair_key)).finally(end);
   }
 
@@ -107,7 +143,8 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
     if (!begin(pair.pair_key)) return;
     api.dismissTransferPair(pair.pair_key).then(() => {
       setPairs(previous => previous.filter(value => value.pair_key !== pair.pair_key));
-      // Keep both legs visible immediately, and fetch the durable server queue.
+      saved([pair.debit.id, pair.credit.id]);
+      // Keep both legs visible locally; the separate queue is durable on the server.
       const legs = [pair.debit, pair.credit].map((leg, index): MiscategorisedItem => ({
         ...leg, currency: leg.currency ?? "GBP", id: leg.id, ids: [leg.id], count: 1,
         series_key: `separate:${leg.id}`, first_date: leg.date,
@@ -116,8 +153,6 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
       }));
       setItems(previous => [...previous.filter(item => !legs.some(leg => leg.id === item.id)), ...legs]);
       announce("Review each payment separately. Neither category has changed.");
-      onChanged?.();
-      refresh();
     }).catch(() => failed(pair.pair_key)).finally(end);
   }
 
@@ -125,16 +160,13 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
     if (!begin(item.id)) return;
     const tx = toTransaction(item);
     const write = tx.transaction_type === "credit"
-      ? api.patchTransaction(tx.id, { category })
-      : api.resolveMovement(tx.id, { resolution: "mine-here" });
+      ? api.patchTransaction(tx.id, { category, defer_recompute: true })
+      : api.resolveMovement(tx.id, { resolution: "mine-here", defer_recompute: true });
     write.then(() => {
-      invalidateAfterTransactionCorrection(tx.id, { oldCategory: tx.category, newCategory: category });
-      notifyTransactionsChanged([tx.id], category);
+      saved([tx.id]);
       setConfirmSingle(null);
-      setItems(previous => previous.filter(value => value.id !== item.id));
+      setResolved(previous => new Set([...previous, item.id]));
       announce("Payment saved.");
-      onUpdated?.({ ...tx, category });
-      refresh();
     }).catch(() => failed(item.id)).finally(end);
   }
 
@@ -165,12 +197,12 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
       <div className="border-t border-slate-200 pb-3 pt-3 dark:border-slate-700">
         {periodStart && dateToUTCDay(item.date) < periodStart.getTime() && <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">Earlier pay period</p>}
         {item.count > 1 && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">Showing the latest payment. A category choice changes this payment only.</p>}
-        {checking ? <><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{confirmSingle.category === "Income" ? "Keep as income" : "Another of my accounts"}</p><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Only this payment changes.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!!busy} onClick={() => handleSingle(item, confirmSingle.category)} className={`${button} bg-indigo-600 text-white`}>{busy === item.id ? "Saving…" : "Save this payment"}</button><button type="button" disabled={!!busy} onClick={() => setConfirmSingle(null)} className={`${button} text-slate-700 dark:text-slate-300`}>Back</button></div></> : <>
+        {checking ? <><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{confirmSingle.category === "Income" ? "Keep as income" : "Another of my accounts"}</p><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Only this payment changes.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!!busy || closing} onClick={() => handleSingle(item, confirmSingle.category)} className={`${button} bg-indigo-600 text-white`}>{busy === item.id ? "Saving…" : "Save this payment"}</button><button type="button" disabled={!!busy || closing} onClick={() => setConfirmSingle(null)} className={`${button} text-slate-700 dark:text-slate-300`}>Back</button></div></> : <>
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{credit ? "Where did this money come from?" : "What was this payment?"}</p>
           <div className="mt-3 space-y-2">{credit ? <>
-            <button type="button" disabled={!!busy} onClick={() => choose(item, "transfer")} className={`${button} w-full border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}>Another of my accounts</button>
-            <button type="button" disabled={!!busy} onClick={() => setConfirmSingle({ item, category: "Income" })} className={`${button} w-full border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}>Keep as income</button>
-          </> : choices.map(({ key, label, Icon }) => <button type="button" key={key} disabled={!!busy} onClick={() => choose(item, key)} className={`${button} flex w-full items-center gap-3 border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}><Icon size={18} className="shrink-0 text-indigo-600 dark:text-indigo-300" aria-hidden="true" /><span className="flex-1">{label}</span><ChevronRight size={16} aria-hidden="true" /></button>)}</div>
+            <button type="button" disabled={!!busy || closing} onClick={() => choose(item, "transfer")} className={`${button} w-full border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}>Another of my accounts</button>
+            <button type="button" disabled={!!busy || closing} onClick={() => setConfirmSingle({ item, category: "Income" })} className={`${button} w-full border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}>Keep as income</button>
+          </> : choices.map(({ key, label, Icon }) => <button type="button" key={key} disabled={!!busy || closing} onClick={() => choose(item, key)} className={`${button} flex w-full items-center gap-3 border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}><Icon size={18} className="shrink-0 text-indigo-600 dark:text-indigo-300" aria-hidden="true" /><span className="flex-1">{label}</span><ChevronRight size={16} aria-hidden="true" /></button>)}</div>
         </>}
         {error(item.id)}{error(item.series_key)}
       </div>
@@ -184,7 +216,7 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
       <div className="my-3 divide-y divide-slate-200 border-y border-slate-200 dark:divide-slate-700 dark:border-slate-700">{leg({ ...pair.debit, currency: pair.debit.currency ?? "GBP", transaction_type: "debit" })}{leg({ ...pair.credit, currency: pair.credit.currency ?? "GBP", transaction_type: "credit" })}</div>
       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Are these the same transfer?</p>
       <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Confirming files both payments together.</p>
-      <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" disabled={!!busy} onClick={() => handleConfirmPair(pair)} className={`${button} bg-indigo-600 text-white`}>Yes, same transfer</button><button type="button" disabled={!!busy} onClick={() => handleSeparate(pair)} className={`${button} border border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-200`}>Review separately</button></div>
+      <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" disabled={!!busy || closing} onClick={() => handleConfirmPair(pair)} className={`${button} bg-indigo-600 text-white`}>Yes, same transfer</button><button type="button" disabled={!!busy || closing} onClick={() => handleSeparate(pair)} className={`${button} border border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-200`}>Review separately</button></div>
       {busy === pair.pair_key && <p role="status" className="mt-2 text-xs text-slate-600 dark:text-slate-400">Saving your choice…</p>}{error(pair.pair_key)}
     </article>;
   }
@@ -194,21 +226,41 @@ export default function MiscategorisedReviewSheet({ onClose, onUpdated, onChange
     const group = groups.get(pair.debit.account_id) ?? { items: [], pairs: [] };
     group.pairs.push(pair); groups.set(pair.debit.account_id, group);
   }
-  for (const item of items) {
+  const visibleItems = items.map(item => remainingReviewItem(item, resolved)).filter((item): item is MiscategorisedItem => item !== null);
+  const unlistedCount = items.reduce((total, item) => total + (remainingReviewItem(item, resolved) ? 0 : item.ids.filter(id => !resolved.has(id)).length), 0);
+  for (const item of visibleItems) {
     const key = item.account_id ?? "unknown";
     const group = groups.get(key) ?? { items: [], pairs: [] };
     group.items.push(item); groups.set(key, group);
   }
-  const count = pairs.length + items.length;
+  const count = pairs.length + visibleItems.length + items.filter(item => !remainingReviewItem(item, resolved) && item.ids.some(id => !resolved.has(id))).length;
   return <>
-    <SheetFrame title="Review these transfers" onClose={onClose} dismissDisabled={!!busy}>
+    <SheetFrame title="Review these transfers" onClose={onClose} beforeClose={finishReview} dismissDisabled={!!busy || closing}
+      footer={({ close }) => <>
+        {pendingCount > 0 && <p role="status" className="mb-2 text-xs text-slate-600 dark:text-slate-300">{pendingCount} {pendingCount === 1 ? "choice saved" : "choices saved"}. Your overview updates when you finish.</p>}
+        {closeError && <p role="alert" className="mb-2 text-sm text-slate-700 dark:text-slate-300">{closeError}</p>}
+        <button type="button" disabled={!!busy || closing} onClick={close} className={`${button} w-full bg-indigo-600 text-white hover:bg-indigo-700 active:opacity-80`}>{closing ? "Updating totals…" : "Done"}</button>
+      </>}>
       <div className="mb-5"><div className="flex items-start justify-between gap-3"><h2 ref={reviewHeading} tabIndex={-1} className="text-lg font-bold outline-none text-slate-900 dark:text-slate-100">Check the possible match first</h2>{!loading && !loadError && <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300">{count} {count === 1 ? "review" : "reviews"} left</span>}</div><p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Confirm a match, or review each payment separately. Includes earlier pay periods.</p></div>
       {message && <p role="status" className="mb-4 text-sm text-slate-700 dark:text-slate-300">{message}</p>}
-      {loading ? <div role="status" className="flex items-center justify-center gap-3 py-12 text-sm text-slate-600 dark:text-slate-300"><Spinner size={24} />Checking your transfers</div> : loadError ? <div role="alert" className="py-8 text-center"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">We could not load these transfers</p><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Your saved choices have not changed.</p><button type="button" onClick={() => setRevision(value => value + 1)} className={`${button} mt-4 bg-indigo-600 text-white`}>Try again</button></div> : count === 0 ? <div className="py-10 text-center"><ShieldCheck size={28} className="mx-auto text-emerald-700 dark:text-emerald-300" aria-hidden="true" /><h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">Nothing needs review</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Nothing left to check for now.</p></div> : <div className="space-y-4">{Array.from(groups, ([key, group]) => {
+      {loading ? <div role="status" className="flex items-center justify-center gap-3 py-12 text-sm text-slate-600 dark:text-slate-300"><Spinner size={24} />Checking your transfers</div> : loadError ? <div role="alert" className="py-8 text-center"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">We could not load these transfers</p><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Your saved choices have not changed.</p><button type="button" onClick={() => setRevision(value => value + 1)} className={`${button} mt-4 bg-indigo-600 text-white`}>Try again</button></div> : count === 0 && unlistedCount === 0 ? <div className="py-10 text-center"><ShieldCheck size={28} className="mx-auto text-emerald-700 dark:text-emerald-300" aria-hidden="true" /><h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">Nothing needs review</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Nothing left to check for now.</p></div> : <div className="space-y-4">{Array.from(groups, ([key, group]) => {
         const account = accounts.find(value => value.id === key);
         return <section key={key} aria-label={account?.name ? displayAccountName(account.name) : "Account reviews"} className="rounded-2xl border border-slate-200 p-3 dark:border-slate-700"><div className="mb-3 flex items-center justify-between gap-3"><h2 className="min-w-0 break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{account?.name ? displayAccountName(account.name) : "Account"}</h2><span className="shrink-0 text-xs text-slate-600 dark:text-slate-400">{group.items.length + group.pairs.length} to review</span></div><div className="space-y-3">{group.pairs.map(renderPair)}{group.items.map(renderItem)}</div></section>;
       })}</div>}
+      {unlistedCount > 0 && <div className="mt-4"><p className="text-sm text-slate-600 dark:text-slate-300">{unlistedCount} more payments in these groups still need checking.</p><button type="button" disabled={!!busy || closing} onClick={refresh} className={`${button} mt-2 text-indigo-700 dark:text-indigo-300 active:opacity-80`}>Load remaining payments</button></div>}
     </SheetFrame>
-    {selected && <TeachingSheet nested key={`${selected.tx.id}:${selected.choice}`} transaction={selected.tx} initialReviewChoice={selected.choice} account={accounts.find(account => account.id === selected.tx.account_id)} onClose={() => { setSelected(null); refresh(); }} onUpdated={(tx, ids) => { onUpdated?.(tx, ids); refresh(); }} />}
+    {selected && <TeachingSheet nested deferRecompute key={`${selected.tx.id}:${selected.choice}`} transaction={selected.tx} initialReviewChoice={selected.choice} account={accounts.find(account => account.id === selected.tx.account_id)} onClose={() => setSelected(null)} onUpdated={(tx, ids, reverted) => {
+      const affected = [tx.id, ...(ids ?? [])];
+      saved(affected);
+      setResolved(previous => {
+        const next = new Set(previous);
+        // The nested teaching flow can undo while still open.
+        for (const id of affected) {
+          if (reverted) next.delete(id);
+          else next.add(id);
+        }
+        return next;
+      });
+    }} />}
   </>;
 }
