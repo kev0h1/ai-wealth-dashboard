@@ -5865,8 +5865,18 @@ async def _separate_pair_review_items(uid: str) -> list[dict]:
         {"user_id": uid, "_id": {"$in": list(ids)}},
         {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
          "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
-         "account_id": 1, "is_pending": 1},
+         "account_id": 1, "is_pending": 1, "own_transfer_match": 1},
     ).to_list(None)
+    counterpart_ids = {
+        (row.get("own_transfer_match") or {}).get("counterpart_id") for row in rows
+    } - {None} - {str(row.get("_id")) for row in rows}
+    if counterpart_ids:
+        rows.extend(await transactions_col.find(
+            {"user_id": uid, "_id": {"$in": list(counterpart_ids)}},
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+             "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+             "account_id": 1, "is_pending": 1, "own_transfer_match": 1},
+        ).to_list(None))
     account_ids = {row.get("account_id") for row in rows} - {None}
     accounts = {account["_id"]: account async for account in accounts_col.find(
         {"user_id": uid, "_id": {"$in": list(account_ids)}}, {"currency": 1},
@@ -5874,18 +5884,17 @@ async def _separate_pair_review_items(uid: str) -> list[dict]:
     # Dismissal uses the account currency when a provider did not carry one
     # on its transaction row.  Use the same normalisation on every read so
     # that a valid saved review does not disappear after a refresh.
-    rows = [{**row, "currency": row.get("currency") or accounts.get(row.get("account_id"), {}).get("currency")}
+    rows = [{**row, "currency": str(row.get("currency") or accounts.get(row.get("account_id"), {}).get("currency") or "").upper()}
             for row in rows]
     by_id = {str(row["_id"]): row for row in rows}
-    kind_map = await get_category_kinds(uid)
-
+    kinds = await get_category_kinds(uid)
+    movement_categories = {name for name, kind in kinds.items() if kind == MOVEMENT}
     def unresolved(row: dict) -> bool:
-        if row.get("is_pending") or row.get("custom_category") is not None:
-            return False
-        category = row.get("category")
-        if row.get("transaction_type") == "credit":
-            return category == "Other" or category == "Income" or is_spend(kind_map, category)
-        return category == "Other" or is_spend(kind_map, category)
+        # The queue exists because the user deliberately declined to treat
+        # these two payments as one transfer.  An automatic category is not
+        # an answer to either individual question. Only a saved custom choice
+        # or a pending bank record removes it from review.
+        return not row.get("is_pending") and row.get("custom_category") is None
 
     result: list[dict] = []
     seen: set[str] = set()
@@ -5905,6 +5914,9 @@ async def _separate_pair_review_items(uid: str) -> list[dict]:
         )
         for row, _snapshot in valid_rows:
             if row is None:
+                continue
+            from app.services.own_account_transfers import has_valid_explicit_confirmation
+            if has_valid_explicit_confirmation(row, by_id, accounts, movement_categories=movement_categories):
                 continue
             row_id = str(row["_id"])
             if row_id in seen or not unresolved(row):

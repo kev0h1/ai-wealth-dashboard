@@ -12,7 +12,7 @@ from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
 from app.db.collections import (
     transactions_col, accounts_col, user_rules_col, user_profiles_col,
-    merchant_categories_col, confirmed_transfer_pairs_col,
+    merchant_categories_col, confirmed_transfer_pairs_col, preferences_col,
     statement_transactions_col, teaching_events_col,
 )
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS, GENERIC_MANUAL_CATEGORIES
@@ -1052,7 +1052,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         # G377: bank descriptions differ across the two legs. Use the same
         # evidence and one-to-one matching policy as the post-sync repair.
         # Amount/date coincidences, refunds and ambiguous repeats stay for review.
-        from app.services.own_account_transfers import select_unique_pairs
+        from app.services.own_account_transfers import active_separate_review_ids, select_unique_pairs
         kind_map = await get_category_kinds(user_id)
         movement_categories = {k for k in kind_map if kind_of(kind_map, k) == MOVEMENT}
         cutoff = datetime.utcnow() - timedelta(days=90)  # naive-ok: Mongo bank dates are naive UTC
@@ -1069,9 +1069,12 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         ).to_list(None)
         learned = {tuple(sorted((d["key_a"], d["key_b"]))) for d in learned_docs
                    if d.get("key_a") and d.get("key_b")}
+        queued_ids = await active_separate_review_ids(
+            user_id, all_txns, pair_accounts, preference_collection=preferences_col, movement_categories=movement_categories,
+        )
         transfer_pairs = select_unique_pairs(
             all_txns, pair_accounts, identity.get("name_tokens") or [], learned,
-            movement_categories=movement_categories,
+            movement_categories=movement_categories, exclude_ids=queued_ids,
         )
         learned_pair_ids = {t["_id"] for pair in transfer_pairs for t in pair}
 
@@ -1414,6 +1417,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         user_id, transaction_collection=transactions_col,
         account_collection=accounts_col, pair_collection=confirmed_transfer_pairs_col,
         profile_collection=user_profiles_col, movement_categories=movement_categories if structural else None,
+        preference_collection=preferences_col,
         confirmed_only=not structural,
     )
 

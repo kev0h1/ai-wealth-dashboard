@@ -19,7 +19,7 @@ from datetime import datetime
 
 import app.routers.analytics as analytics
 import app.services.categorisation as categorisation
-from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS
+from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT
 from app.services.categorisation import canonical_merchant_key
 
 
@@ -295,7 +295,7 @@ def test_learned_pair_excluded_from_suggestions(monkeypatch):
 
 # ── apply_rules_bulk's learned-pair sync pass ────────────────────────────────
 
-def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None):
+def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None, preferences_docs=None):
     monkeypatch.setattr(categorisation, "transactions_col", FakeCol(txns))
     monkeypatch.setattr(categorisation, "accounts_col", FakeCol([
         {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
@@ -308,6 +308,7 @@ def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_
     monkeypatch.setattr(categorisation, "merchant_categories_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "user_rules_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "confirmed_transfer_pairs_col", FakeCol(learned or []))
+    monkeypatch.setattr(categorisation, "preferences_col", FakeCol(preferences_docs or []))
     # G139: Pass 4 now reads teaching_events_col for each override row's real
     # decision timestamp (see categorisation.teaching_decision_times) — empty
     # here means every row in this test falls back to its own `date`, which
@@ -335,6 +336,25 @@ def test_learned_pair_auto_matches_at_next_sync(monkeypatch):
     by_id = {t["_id"]: t for t in txns}
     assert by_id["c1"]["category"] == "Transfer"
     assert by_id["d1"]["category"] == "Transfer"
+
+
+def test_learned_pair_does_not_override_a_separate_review_queue(monkeypatch):
+    c_key = canonical_merchant_key("Acme Rail", "ACME RAIL TRANSFER IN")
+    d_key = canonical_merchant_key("Beta Payments", "BETA PAYMENTS OUT")
+    txns = [
+        _t("c1", ttype="credit", amount=100.0, date=D0, account_id="accA",
+           merchant="Acme Rail", desc="ACME RAIL TRANSFER IN", category="Income"),
+        _t("d1", ttype="debit", amount=100.0, date=D0, account_id="accB",
+           merchant="Beta Payments", desc="BETA PAYMENTS OUT", category="Other"),
+    ]
+    snapshot = {"pair_key": "c1:d1", **analytics._separate_review_snapshot(txns[0], txns[1])}
+    _run_apply_rules_bulk(
+        monkeypatch, txns,
+        learned=[{"_id": "pair1", "user_id": UID, "key_a": c_key, "key_b": d_key}],
+        preferences_docs=[{"user_id": UID, "separate_transfer_pair_reviews": [snapshot]}],
+    )
+    assert [row["category"] for row in txns] == ["Income", "Other"]
+    assert all("own_transfer_match" not in row for row in txns)
 
 
 def test_unlearned_different_description_pair_does_not_match(monkeypatch):
@@ -947,6 +967,39 @@ def test_separate_pair_with_account_currency_fallback_survives_refresh(monkeypat
     assert {item["currency"] for item in result["separate_items"]} == {"GBP"}
 
 
+def test_separate_pair_stays_queued_after_an_automatic_category_change(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    rows[0]["category"] = rows[1]["category"] = "Transfer"
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert {item["id"] for item in result["separate_items"]} == {"c1", "d1"}
+
+
+def _stamp_confirmed_pair(rows):
+    from app.services.own_account_transfers import build_match_metadata
+    credit, debit = rows[0], rows[1]
+    credit["category"] = debit["category"] = "Transfer"
+    credit["own_transfer_match"] = build_match_metadata(credit, debit, "Transfer", confirmed=True)
+    debit["own_transfer_match"] = build_match_metadata(debit, credit, "Transfer", confirmed=True)
+
+
+def test_explicit_confirmation_supersedes_an_older_separate_review(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    _stamp_confirmed_pair(rows)
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert result["separate_items"] == []
+
+
+def test_stale_separate_action_cannot_resurrect_an_explicit_confirmation(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    _stamp_confirmed_pair(rows)
+    # A second tab submits its stale separate action after the confirmation.
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert result["separate_items"] == []
+
+
 def test_separate_pair_dismissal_adds_without_overwriting_another_saved_review(monkeypatch):
     _setup_pair_and_series(monkeypatch)
     analytics.preferences_col.docs[0]["separate_transfer_pair_reviews"] = [
@@ -983,3 +1036,25 @@ def test_g377_bank_abbreviation_needs_source_bank_and_outgoing_transfer():
     assert analytics._has_named_bank_transfer_reference(credit, debit, owned)
     assert not analytics._has_named_bank_transfer_reference(credit, debit, {"source": {"provider": "Barclays"}})
     assert not analytics._has_named_bank_transfer_reference(credit, {**debit, "description": "SUPERMARKET"}, owned)
+
+
+def test_explicit_confirmation_with_custom_movement_anchor_closes_separate_review(monkeypatch):
+    from app.services.own_account_transfers import active_separate_review_ids, build_match_metadata
+    rows = _setup_pair_and_series(monkeypatch)
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    rows[1]["custom_category"] = "House fund"
+    rows[0]["own_transfer_match"] = build_match_metadata(rows[0], rows[1], "Transfer", confirmed=True)
+    rows[0]["category"] = "Transfer"
+
+    async def kinds(_uid):
+        return CategoryKinds({**BUILTIN_CATEGORY_KINDS, "House fund": MOVEMENT})
+
+    monkeypatch.setattr(analytics, "get_category_kinds", kinds)
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert result["separate_items"] == []
+    accounts = {row["_id"]: row for row in analytics.accounts_col.docs}
+    excluded = asyncio.run(active_separate_review_ids(
+        UID, rows, accounts, preference_collection=analytics.preferences_col,
+        movement_categories={name for name, kind in asyncio.run(kinds(UID)).items() if kind == MOVEMENT},
+    ))
+    assert excluded == set()

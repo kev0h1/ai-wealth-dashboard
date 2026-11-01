@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Iterable
 
-from app.db.collections import accounts_col, confirmed_transfer_pairs_col, transactions_col, user_profiles_col
+from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
 from app.services.categorisation import canonical_merchant_key, name_matches_owner
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
@@ -136,6 +136,69 @@ def transfer_source_signature(row: dict) -> str:
                     "merchant_name", "description", "custom_category")
     }
     return hashlib.sha256(json.dumps(source, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def separate_review_leg_matches(row: dict, snapshot: dict) -> bool:
+    """Whether a saved separate-review fingerprint still names this bank row.
+
+    Category deliberately does not participate.  It is an interpretation of
+    the bank record and may have been changed by an automatic pass; only an
+    explicit custom category ends the user's queued review.
+    """
+    date = row.get("date")
+    row_date = date.isoformat() if hasattr(date, "isoformat") else date
+    return (
+        str(row.get("_id")) == str(snapshot.get("id"))
+        and row.get("transaction_type") == snapshot.get("transaction_type")
+        and row.get("account_id") == snapshot.get("account_id")
+        and row.get("amount") == snapshot.get("amount")
+        and str(row.get("currency") or "").upper() == str(snapshot.get("currency") or "").upper()
+        and row_date == snapshot.get("date")
+        and row.get("merchant_name") == snapshot.get("merchant_name")
+        and row.get("description") == snapshot.get("description")
+    )
+
+
+def _separate_review_snapshots(raw: object) -> list[dict]:
+    if isinstance(raw, dict):
+        return [{"pair_key": key, **value} for key, value in raw.items() if isinstance(value, dict)]
+    if isinstance(raw, list):
+        return [value for value in raw if isinstance(value, dict)]
+    return []
+
+
+async def active_separate_review_ids(user_id: str, rows: list[dict], accounts: dict[str, dict], *, preference_collection=None, movement_categories: set[str] | None = None) -> set[str]:
+    """Validated queued review IDs which automatic pairing must not touch."""
+    preference_collection = preferences_col if preference_collection is None else preference_collection
+    prefs = await preference_collection.find_one({"user_id": user_id}, {"separate_transfer_pair_reviews": 1}) or {}
+    snapshots = _separate_review_snapshots(prefs.get("separate_transfer_pair_reviews"))
+    if not snapshots:
+        return set()
+    if movement_categories is None:
+        kinds = await get_category_kinds(user_id)
+        movement_categories = {name for name, kind in kinds.items() if kind == MOVEMENT}
+    by_id = {
+        str(row.get("_id")): {
+            **row,
+            "currency": str(row.get("currency") or accounts.get(row.get("account_id"), {}).get("currency") or "").upper(),
+        }
+        for row in rows if row.get("_id") is not None
+    }
+    blocked: set[str] = set()
+    for pair in snapshots:
+        for leg_name in ("credit", "debit"):
+            snapshot = pair.get(leg_name)
+            if not isinstance(snapshot, dict):
+                continue
+            row = by_id.get(str(snapshot.get("id")))
+            if not row or row.get("is_pending") or row.get("custom_category") is not None:
+                continue
+            normalised = row
+            if has_valid_explicit_confirmation(normalised, by_id, accounts, movement_categories=movement_categories):
+                continue
+            if separate_review_leg_matches(normalised, snapshot):
+                blocked.add(str(row["_id"]))
+    return blocked
 
 
 def resolve_transfer_evidence(
@@ -287,9 +350,25 @@ def _confirmed_pair(
     return reciprocal or _is_custom_movement(counterpart, movement_categories)
 
 
+def has_valid_explicit_confirmation(
+    row: dict, rows_by_id: dict[str, dict], accounts: dict[str, dict],
+    *, movement_categories: set[str] | None = None,
+) -> bool:
+    """True when a current explicit confirmation beats an older queue entry."""
+    marker = row.get("own_transfer_match") or {}
+    if not marker.get("confirmed"):
+        return False
+    if movement_categories is None:
+        movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
+    return _confirmed_pair(
+        row, rows_by_id.get(str(marker.get("counterpart_id"))), accounts, movement_categories,
+    )
+
+
 def select_unique_pairs(
     rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
     learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
+    exclude_ids: set[str] | frozenset[str] = frozenset(),
 ) -> list[tuple[dict, dict]]:
     """Return only unambiguous `(credit, debit)` pairs from plain documents."""
     if movement_categories is None:
@@ -311,8 +390,8 @@ def select_unique_pairs(
         else:
             continue
         consumed.update({str(row["_id"]), str(other["_id"])})
-    credits = [r for r in rows if str(r.get("_id")) not in consumed and not r.get("is_pending") and r.get("transaction_type") == "credit" and not _custom_blocks_auto(r, movement_categories)]
-    debits = [r for r in rows if str(r.get("_id")) not in consumed and not r.get("is_pending") and r.get("transaction_type") == "debit" and not _custom_blocks_auto(r, movement_categories)]
+    credits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "credit" and not _custom_blocks_auto(r, movement_categories)]
+    debits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "debit" and not _custom_blocks_auto(r, movement_categories)]
     debit_buckets: dict[tuple[str, Decimal], list[dict]] = {}
     for debit in debits:
         key = _pair_key(debit)
@@ -350,6 +429,7 @@ async def reconcile_own_account_transfers(
     account_collection=None,
     pair_collection=None,
     profile_collection=None,
+    preference_collection=None,
     mark_stale_fn=None,
     movement_categories: set[str] | None = None,
     confirmed_only: bool = False,
@@ -367,6 +447,7 @@ async def reconcile_own_account_transfers(
     account_collection = accounts_col if account_collection is None else account_collection
     pair_collection = confirmed_transfer_pairs_col if pair_collection is None else pair_collection
     profile_collection = user_profiles_col if profile_collection is None else profile_collection
+    preference_collection = preferences_col if preference_collection is None else preference_collection
     cutoff = datetime.utcnow() - timedelta(days=RECONCILE_DAYS)  # naive-ok: Mongo booked dates are naive UTC
     # Most non-structural calls have no confirmed pairs. Avoid extra account
     # and profile reads for that common case.
@@ -408,8 +489,12 @@ async def reconcile_own_account_transfers(
     # copy so no source value is silently changed.
     rows = [{**row, "currency": str(row.get("currency") or accounts.get(row.get("account_id"), {}).get("currency") or "").upper()} for row in rows]
     learned_rows = await pair_collection.find({"user_id": user_id}, {"key_a": 1, "key_b": 1}).to_list(None)
+    queued_ids = await active_separate_review_ids(
+        user_id, rows, accounts, preference_collection=preference_collection, movement_categories=movement_categories,
+    )
     pairs = (
-        select_unique_pairs(rows, accounts, profile.get("name_tokens") or [], _learned_pair_keys(learned_rows), movement_categories=movement_categories)
+        select_unique_pairs(rows, accounts, profile.get("name_tokens") or [], _learned_pair_keys(learned_rows),
+                            movement_categories=movement_categories, exclude_ids=queued_ids)
         if len(accounts) >= 2 else []
     )
     if confirmed_only:

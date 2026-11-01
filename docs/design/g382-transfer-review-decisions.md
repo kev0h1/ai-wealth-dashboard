@@ -15,3 +15,5 @@ An explicit spending category or dismissed spending series is not proposed again
 Targeted tests cover old confirmations, manual movement anchors, changed evidence, rule passes, review reads during refresh, explicit spending, dismissals and focused counterpart queries. `node frontend/scripts/verify-g382-review-decisions.mjs` (after a frontend build) exercises the real component against synthetic rejected/successful saves in Chrome.
 
 Every review write now awaits the shared cache-version bump before returning, so an immediate read from another API process cannot restore a stale review. Focused coverage includes alternate candidates, missing transaction currency and changed bank facts.
+
+Structural sync and reconciliation exclude unchanged payments awaiting separate review, even when the same descriptions were learned from another transfer. Automatic category resets do not clear the queue. A valid explicit pair confirmation takes precedence over a stale separate-review request from another tab.
