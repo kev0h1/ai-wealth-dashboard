@@ -2253,6 +2253,33 @@ export type OpsPerson = {
   last_sync: string | null;
   penny_messages_this_month: number | null;
 };
+// E14: one person's subscription, as the owner sees it
+// (backend/app/routers/ops_people_subscription.py).
+export type OpsSubscription = {
+  tier: "statements" | "lite" | "standard" | "plus";
+  billing_period: string | null;
+  provider: "none" | "stripe" | "apple" | "google";
+  provider_live: boolean;
+  live_provider: "stripe" | "apple" | "google" | null;
+  status: "active" | "trialing" | "past_due" | "expired" | "default" | string;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  renews_at: string | null;
+  cancels_at: string | null;
+  has_paid_subscription: boolean;
+  tier_source: string | null;
+  manual_grant: { tier: string | null; expires_at: string | null; lapsed: boolean } | null;
+  can_reset_trial: boolean;
+  penny: {
+    monthly_allowance: number | null;
+    used: number;
+    remaining: number | null;
+    topup_messages: number;
+    packs: { messages: number; remaining: number; source: string; expires_at: string | null }[];
+  };
+  mcp: { allowance: number | null; used: number; remaining: number | null };
+  pack_ids: string[];
+};
 export type OpsAuditEntry = {
   at: string | null;
   actor: string | null;
@@ -4394,6 +4421,16 @@ export const api = {
   applyOpsBackfill: (confirm: string) => post<{ ok: boolean; added: number }>("/ops/people/backfill", { confirm }),
   revokeOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/revoke`),
   restoreOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/restore`),
+  getOpsPersonSubscription: (id: string) =>
+    get<OpsSubscription>(`/ops/people/${encodeURIComponent(id)}/subscription`),
+  setOpsPersonTier: (id: string, body: { tier: string; confirm: string; reason: string; expires_at?: string }) =>
+    post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/subscription/set-tier`, body),
+  grantOpsPersonPack: (id: string, body: { pack_id: string; confirm: string; reason: string }) =>
+    post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/subscription/topup`, body),
+  resetOpsPersonTrial: (id: string, body: { confirm: string; reason: string }) =>
+    post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/subscription/reset-trial`, body),
+  cancelOpsPersonGrant: (id: string, body: { reason: string }) =>
+    post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/subscription/cancel-grant`, body),
   eraseOpsPerson: (id: string, confirmEmail: string) =>
     post<{ ok: boolean; removed: Record<string, number> }>(`/ops/people/${encodeURIComponent(id)}/erase`, {
       confirm_email: confirmEmail,
