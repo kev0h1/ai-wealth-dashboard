@@ -329,8 +329,8 @@ async def erase(pid: str, body: EraseBody, user: dict = Depends(current_user)):
         for name, count in (await erase_account(uid)).items():
             removed[name] = removed.get(name, 0) + count
     now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
-    # Suppression record: key and status only. The email, note and inviter are
-    # dropped so a removed person's address is not held as a plain value.
+    # Suppression record: key and status only. Email field dropped; the
+    # normalised key remains as the suppression key. Note and inviter dropped too.
     await cols.allowed_signups_col.update_one(
         {"key": key},
         {"$set": {"status": "revoked", "revoked_at": now, "updated_at": now},
