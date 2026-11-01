@@ -5005,7 +5005,7 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
             _fc = await cached_safe_to_spend_response(uid)
             resp["forecast"] = {k: v for k, v in _fc.items() if k != "pace"}
         except Exception:
-            logger.exception("forecast attach failed for %s — omitting", mask_email(uid))
+            logger.exception("forecast attach failed for %s, omitting", mask_email(uid))
 
     return resp
 
