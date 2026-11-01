@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  formatHistoryRequested,
   RECONFIRM_BUTTON, RECONFIRM_ERROR, reconfirmQuestion, isReconfirmDismissed,
   pickReconfirmConnection, reconfirmDismissKey, formatNextReconfirm, connectionNotes,
 } from "../lib/reconfirm.ts";
@@ -34,6 +35,14 @@ assert.equal(formatNextReconfirm(null), null);
 assert.deepEqual(connectionNotes(conn({ next_reconfirm_by: "2027-01-30T00:00:00Z" })), ["Next reconfirmation 30 January 2027"]);
 assert.deepEqual(connectionNotes(conn({ status: "expired" })), []);
 assert.deepEqual(connectionNotes(undefined), []);
+
+assert.equal(formatHistoryRequested("2025-11-01"), "History requested from 1 November 2025");
+assert.equal(formatHistoryRequested(null), null);
+assert.equal(formatHistoryRequested("nonsense"), null);
+assert.deepEqual(
+  connectionNotes(conn({ next_reconfirm_by: "2027-01-30T00:00:00Z", history_requested_from: "2025-11-01" })),
+  ["Next reconfirmation 30 January 2027", "History requested from 1 November 2025"],
+);
 
 // Rendered prompt: the exact question and button, no red, no em dash.
 globalThis.window = { localStorage: { getItem: () => null, setItem() {} } };

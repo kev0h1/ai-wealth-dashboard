@@ -747,18 +747,36 @@ async def get_or_create_customer(user: dict, *, force_new: bool = False) -> str:
     return customer_id
 
 
-async def _post_consent(customer_id: str, provider: Optional[str], state: str) -> httpx.Response:
+async def _post_consent(customer_id: str, provider: Optional[str], state: str,
+                        retro_date: Optional[str] = None) -> httpx.Response:
     data: dict = {
         "customer":   customer_id,
         "return_url": f"{FINEXER_RETURN_URL}?state={state}",
     }
     if provider:
         data["provider"] = provider
+    # A182: how far back the consent may read. Finexer's default is 90 days
+    # before today, which is all a rebuilt account would otherwise get (G359).
+    if retro_date:
+        data["retro_date"] = retro_date
     async with _client() as client:
         r = await client.post("/consents", data=data)
     from app.services.finexer_webhooks import bump_daily_counters
     await bump_daily_counters(requests=1)
     return r
+
+
+class ConsentDict(dict):
+    """The consent object Finexer returned. Equal to the plain dict; also
+    carries what we asked for (A182) so the caller can store it."""
+    retro_date_requested: Optional[str] = None
+
+
+def _names_retro(resp) -> bool:
+    if resp.status_code not in (400, 422):
+        return False
+    err = _error_envelope(resp)
+    return any("retro" in str(err.get(k) or "").lower() for k in ("param", "code", "message"))
 
 
 async def create_consent(
@@ -775,22 +793,39 @@ async def create_consent(
     deleted in the Finexer dashboard while we still cache its id), the cached
     record is dropped, a fresh customer is created and the consent retried
     exactly once. Any other failure raises FinexerConsentError (never a bare
-    RuntimeError), after logging provider, status and a scrubbed reason."""
-    r = await _post_consent(customer_id, provider, state)
+    RuntimeError), after logging provider, status and a scrubbed reason.
+
+    A182: sends `retro_date` (FINEXER_RETRO_MONTHS months back, default 12,
+    0 sends none) so a connection can read more than the default 90 days; the
+    bank's own maximum still applies. If Finexer rejects the parameter itself
+    the consent is retried once without it. The date asked for rides on the
+    returned dict as `.retro_date_requested`."""
+    from app.services.finexer_consent import retro_date_for, retro_months_setting
+    retro = retro_date_for(await retro_months_setting())
+
+    r = await _post_consent(customer_id, provider, state, retro)
+    if r.status_code not in (200, 201) and retro and _names_retro(r):
+        log_finexer_error(r, "POST /consents (retro_date rejected)")
+        logger.warning("Finexer POST /consents: retro_date rejected, retrying without it (reason=%s)",
+                       _scrub_reason(r.text))
+        retro = None
+        r = await _post_consent(customer_id, provider, state, None)
     if r.status_code in (200, 201):
-        return r.json()
+        return _consent_result(r, retro)
 
     if _is_unknown_customer(r):
+        log_finexer_error(r, "POST /consents (unknown customer)")
         logger.warning(
             "Finexer POST /consents: customer rejected as unknown (provider=%s status=%s reason=%s); "
             "dropping the cached customer and retrying once",
             provider, r.status_code, _scrub_reason(r.text),
         )
         new_customer = await get_or_create_customer(user or {"email": user_id}, force_new=True)
-        r = await _post_consent(new_customer, provider, state)
+        r = await _post_consent(new_customer, provider, state, retro)
         if r.status_code in (200, 201):
-            return r.json()
+            return _consent_result(r, retro)
 
+    log_finexer_error(r, "POST /consents")
     logger.warning(
         "Finexer POST /consents failed: provider=%s status=%s reason=%s",
         provider, r.status_code, _scrub_reason(r.text),
@@ -800,6 +835,12 @@ async def create_consent(
                                   _PROVIDER_REJECTED_MESSAGE)
     raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_UNAVAILABLE, provider,
                               _CONSENT_FAILED_MESSAGE)
+
+
+def _consent_result(r, retro: Optional[str]) -> dict:
+    out = ConsentDict(r.json())
+    out.retro_date_requested = retro
+    return out
 
 
 def _infer_transaction_type(txn: dict) -> str:

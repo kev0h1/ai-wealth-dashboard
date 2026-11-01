@@ -63,5 +63,16 @@ export function connectionNotes(connection: Connection | undefined): string[] {
   const notes: string[] = [];
   const next = connection.status === "authorized" ? formatNextReconfirm(connection.next_reconfirm_by) : null;
   if (next) notes.push(next);
+  const history = formatHistoryRequested(connection.history_requested_from);
+  if (history) notes.push(history);
   return notes;
+}
+
+/** "History requested from 1 November 2025". Hedged on purpose: the bank's
+ *  own maximum decides how far back it actually goes. */
+export function formatHistoryRequested(from: string | null | undefined): string | null {
+  if (!from || !/^\d{4}-\d{2}-\d{2}/.test(from)) return null;
+  const d = new Date(`${from.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return `History requested from ${d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}`;
 }

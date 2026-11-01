@@ -194,6 +194,8 @@ async def finexer_link(
             "status":      "pending",
             "native":      bool(native),
             "created_at":  datetime.utcnow(),
+            # A182: the history start we asked for (the bank's maximum applies).
+            "retro_date_requested": getattr(consent, "retro_date_requested", None),
         }},
         upsert=True,
     )

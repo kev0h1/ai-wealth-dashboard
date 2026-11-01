@@ -158,6 +158,9 @@ REGISTRY: dict[str, Spec] = {s.key: s for s in [
     # the PSD2 four-a-day limit (E11).
     Spec("FINEXER_AUTO_SYNC_HOURS", "int", 6, "Finexer automatic sync (hours)", "Bank sync", min=0, max=720,
          help="Minimum hours between Finexer's own automatic syncs with the bank, 1 to 720. 0 is off: no interval is set on new accounts. 6 keeps unattended access within four a day."),
+    # A182: how far back a new consent may read, sent as retro_date on create.
+    Spec("FINEXER_RETRO_MONTHS", "int", 12, "Finexer history requested (months)", "Bank sync", min=0, max=60,
+         help="How many months of history to ask the bank for when a connection is made, 0 to 60. 0 sends nothing, so Finexer's default 90 days applies. The bank's own maximum still applies. Only affects new connections."),
 ]}
 
 for _k in REGISTRY:

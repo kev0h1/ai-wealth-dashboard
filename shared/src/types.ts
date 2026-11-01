@@ -64,6 +64,8 @@ export interface Connection {
   next_reconfirm_by?: string | null;
   /** True inside the prompt window before the due day, and after it until reconfirmed. */
   reconfirm_prompt?: boolean;
+  /** YYYY-MM-DD: the history start we asked the bank for. Its own maximum applies. */
+  history_requested_from?: string | null;
 }
 
 export type ManualAccountType = "savings" | "current" | "credit_card";

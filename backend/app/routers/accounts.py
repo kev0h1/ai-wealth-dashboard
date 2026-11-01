@@ -633,6 +633,8 @@ async def list_connections(user: dict = Depends(current_user)):
             "renewed_at": fc.get("renewed_at"),
             "next_reconfirm_by": _consent_next_reconfirm_by(fc),
             "reconfirm_prompt": reconfirm_prompt_due(fc),
+            # A182: the history start we asked the bank for (its maximum applies).
+            "history_requested_from": fc.get("retro_date_requested"),
         })
 
     return result

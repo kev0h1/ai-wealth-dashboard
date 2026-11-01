@@ -43,6 +43,7 @@ Collections: `settings` (one document per key, `_id` is the key: `key`, `value`,
 | `SYNC_POLL_HOURS` | int | 1 to 24 | 4 (the current 3 h 30 window; the cron ticks every 4 hours, so lower values behave as 4) |
 | `SYNC_WEBHOOK_SAFETY_NET_HOURS` | int | 0 to 48 | 0 (off). Above 0, Finexer polling only syncs a consent with no webhook and no sync in that many hours (E11, see SYNC-STRATEGY.md) |
 | `FINEXER_AUTO_SYNC_HOURS` | int | 0 to 720 | 6. Minimum hours between Finexer's own automatic syncs with the bank, set on each account at consent and by `backend/scripts/finexer_backfill_auto_sync.py` (A176). 0 is off: nothing is sent |
+| `FINEXER_RETRO_MONTHS` | int | 0 to 60 | 12. Months of history asked for as `retro_date` on a new Finexer consent (A182). 0 sends nothing, so Finexer's 90-day default applies. The bank's own maximum still applies; existing consents are unchanged |
 
 Going above 40 reconcile jobs a minute, or a zero LLM ceiling, stays a code or
 env decision on purpose.

@@ -196,6 +196,7 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
                 <li key={i} className="text-[13px] text-slate-700 dark:text-slate-300">
                   <span className="font-semibold">{c.bank ?? "Bank"}</span>, {c.status ?? "unknown"}
                   {c.next_reconfirm_by ? `, reconfirm by ${c.next_reconfirm_by.slice(0, 10)}${c.reconfirm_overdue ? " (overdue)" : ""}` : ", no reconfirmation needed"}
+                  {c.history_requested_from ? `, history requested from ${c.history_requested_from}` : ""}
                 </li>
               ))}
             </ul>
