@@ -247,9 +247,9 @@ def _trial_reset_applies(doc: dict) -> bool:
     eligible for a trial again.
 
     `trial_reset_at` is written ONLY by the UAT-only endpoint
-    (app.routers.uat_trial_reset, which is not mounted in production and
-    refuses at call time there), so a production document can never carry
-    it and this branch is inert in production. Live Stripe subscriptions
+    (app.routers.uat_trial_reset) and, since E14, by the owner's People page
+    (app.services.subscription_admin.reset_trial, typed RESET, never for a
+    live provider subscription, audited). Live Stripe subscriptions
     never reach here (rejected above). A trial used AFTER the reset (the
     webhook re-stamps trial_used_at / trial_ends_at) makes it ineligible
     again. Stripe fields are never touched by the reset, so the end of the

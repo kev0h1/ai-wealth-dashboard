@@ -264,21 +264,9 @@ async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
     if tier_name not in TIER_BY_NAME:
         raise HTTPException(400, f"tier must be one of: {list(TIER_BY_NAME)}")
 
-    await subscriptions_col.update_one(
-        {"user_id": target_email, "provider": {"$in": ["stripe", None]}},
-        {
-            "$set": {
-                "user_id":    target_email,
-                "provider":   "stripe",
-                "tier":       tier_name,
-                "status":     "active",
-                "managed_by": "manual",
-                "updated_at": datetime.now(timezone.utc),
-            },
-            "$setOnInsert": {"started_at": datetime.now(timezone.utc)},
-        },
-        upsert=True,
-    )
+    # E14: one write shared with the owner's People page.
+    from app.services.subscription_admin import set_manual_tier
+    await set_manual_tier(target_email, tier_name)
     return {"ok": True, "email": target_email, "tier": tier_name}
 
 
