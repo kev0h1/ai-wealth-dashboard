@@ -901,6 +901,19 @@ def _count_fields(txns: list) -> dict:
     return counts
 
 
+def _tally_fields(per_provider: dict, provider: Optional[str], walk: dict) -> None:
+    """A183: add one walk's field counts to the per-provider tally."""
+    fields = (walk or {}).get("fields")
+    if not fields:
+        return
+    bucket = per_provider.setdefault(
+        str(provider or "unknown")[:60],
+        {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0},
+    )
+    for key in bucket:
+        bucket[key] += int(fields.get(key, 0))
+
+
 def _log_field_counts(per_provider: dict) -> None:
     """A183: one INFO line per provider per sync, so production shows which
     banks populate counterparty and merchant fields. Counts only."""
@@ -1139,7 +1152,8 @@ async def _walk_transactions(
     url: Optional[str] = f"/bank_accounts/{account_id}/transactions"
     first_page = True
     first_txn_logged = False
-    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0}
+    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0,
+           "fields": {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0}}
     while url:
         tr = await _get(client, url, params if first_page else None, counter=counter)
         first_page = False
@@ -1167,6 +1181,8 @@ async def _walk_transactions(
         for t in txns:
             if isinstance(t, dict):
                 out["credit" if _infer_transaction_type(t) == "credit" else "debit"] += 1
+        for key, n in _count_fields(txns).items():
+            out["fields"][key] += n
         new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
         out["new"].extend(new)
         out["pending"].extend(pending_rows)
@@ -1228,6 +1244,7 @@ async def sync_finexer_consent(
     # observable (see `_get`, `last_sync_requests`/`last_sync_429s` below,
     # and GET /admin/sync-stats).
     counter: dict = {"requests": 0, "429s": 0}
+    field_counts: dict = {}  # A183: provider -> counts of rows carrying party/merchant fields
     bank_sync_budget: dict = {"remaining": BANK_SYNC_CONSENT_BUDGET_S}
     from app.services import runtime_settings
     try:
@@ -1505,6 +1522,7 @@ async def sync_finexer_consent(
                     logger.exception("card balance shape log failed")
             walk_row_count = booked["rows"]
             all_new_txns.extend(booked["new"])
+            _tally_fields(field_counts, provider_code, booked)
 
             # A176: pending rows come from GET ...?status=pending (the default
             # is booked only), merged with any pending rows the booked list
@@ -1536,6 +1554,7 @@ async def sync_finexer_consent(
                     )
                     pend = {"ok": False}
                 if pend["ok"]:
+                    _tally_fields(field_counts, provider_code, pend)
                     for row in pend["pending"]:
                         merged_pending.setdefault(row.get("transaction_id") or row.get("id"), row)
                     walk_row_count += pend["rows"]
@@ -1599,6 +1618,8 @@ async def sync_finexer_consent(
                 await accounts_col.update_one({"_id": account_id}, {"$set": diag_set})
             except Exception:
                 logger.exception("Finexer transaction diagnostics write failed for %s", account_id)
+
+    _log_field_counts(field_counts)
 
     # A renewed consent should clear the "needs reconnecting" banner on the
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse
