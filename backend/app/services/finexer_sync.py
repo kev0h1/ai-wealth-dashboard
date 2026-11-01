@@ -1,6 +1,7 @@
 """Finexer open-banking sync — HTTP Basic auth, consent-based flow."""
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -590,14 +591,82 @@ async def list_providers(counter: Optional[dict] = None, *, force: bool = False)
     return providers
 
 
-async def get_or_create_customer(user: dict) -> str:
-    """Look up or create a Finexer customer record for this app user."""
-    user_id = user["email"]
-    doc = await finexer_customers_col.find_one({"_id": user_id})
-    if doc:
-        return doc["customer_id"]
+class FinexerConsentError(Exception):
+    """A178: Finexer would not create a consent (or the customer it needs).
 
-    name  = user.get("name") or user["email"]
+    `status` is Finexer's HTTP status (None when the request never got an
+    answer), `code` a fixed app-side code the route and client can rely on,
+    `provider` the bank id asked for. `message` is plain and safe to show; the
+    upstream body never rides on the exception."""
+
+    CODE_UNAVAILABLE = "BANK_LINK_UNAVAILABLE"
+    CODE_PROVIDER_REJECTED = "BANK_PROVIDER_REJECTED"
+
+    def __init__(self, status: Optional[int], code: str, provider: Optional[str], message: str):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.provider = provider
+        self.message = message
+
+
+_CONSENT_FAILED_MESSAGE = "We could not start the bank connection. Try again in a moment."
+_PROVIDER_REJECTED_MESSAGE = "This bank is not available right now. Try another bank or try again later."
+
+_SCRUB_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_SCRUB_SECRET = re.compile(r"\b(?:sk|pk|rk|key|tok|token|secret)_[A-Za-z0-9_\-]{6,}\b", re.IGNORECASE)
+_SCRUB_LONG = re.compile(r"\b[A-Za-z0-9_\-]{32,}\b")
+
+
+def _scrub_reason(text: str, limit: int = 200) -> str:
+    """Log-safe form of an upstream error body: emails masked, key and token
+    shaped strings removed, truncated. Only ever applied to a short upstream
+    error envelope."""
+    from app.core.config import mask_email
+    out = _SCRUB_EMAIL.sub(lambda m: mask_email(m.group(0)), text or "")
+    if FINEXER_API_KEY:
+        out = out.replace(FINEXER_API_KEY, "[redacted]")
+    out = _SCRUB_SECRET.sub("[redacted]", out)
+    out = _SCRUB_LONG.sub("[redacted]", out)
+    return " ".join(out.split())[:limit]
+
+
+def _error_envelope(resp) -> dict:
+    """Finexer's `{error: {type, code, message, param}}`, or {} if not that."""
+    try:
+        body = resp.json()
+    except Exception:
+        return {}
+    err = body.get("error") if isinstance(body, dict) else None
+    return err if isinstance(err, dict) else {}
+
+
+_CUSTOMER_GONE_WORDS = ("no such", "not found", "does not exist", "doesn't exist", "unknown",
+                        "invalid", "deleted", "missing")
+
+
+def _is_unknown_customer(resp) -> bool:
+    """True when a POST /consents 400/404 says the customer is the problem:
+    the envelope's `param` or `code` names the customer, or its message talks
+    about a missing or invalid customer. An unrelated 400 never matches."""
+    if resp.status_code not in (400, 404):
+        return False
+    err = _error_envelope(resp)
+    param = str(err.get("param") or "").lower()
+    code = str(err.get("code") or "").lower()
+    message = str(err.get("message") or "").lower()
+    if "customer" in param or "customer" in code:
+        return True
+    return "customer" in message and any(w in message for w in _CUSTOMER_GONE_WORDS)
+
+
+def _names_provider(resp) -> bool:
+    err = _error_envelope(resp)
+    return any("provider" in str(err.get(k) or "").lower() for k in ("param", "code", "message"))
+
+
+async def _create_customer(user: dict) -> str:
+    name = user.get("name") or user["email"]
     email = user["email"]
     async with _client() as client:
         r = await client.post(
@@ -608,13 +677,30 @@ async def get_or_create_customer(user: dict) -> str:
                 "metadata[app_user]": email,
             },
         )
-        if r.status_code not in (200, 201):
-            logger.error("Finexer POST /customers failed: HTTP %s (upstream error)", r.status_code)
-            logger.debug("Finexer POST /customers failed body: %.400s", r.text)
-            raise RuntimeError(f"Finexer customer creation failed: {r.status_code}")
-        customer = r.json()
-        customer_id = customer["id"]
+    from app.services.finexer_webhooks import bump_daily_counters
+    await bump_daily_counters(requests=1)
+    if r.status_code not in (200, 201):
+        logger.error("Finexer POST /customers failed: HTTP %s (upstream error)", r.status_code)
+        logger.warning("Finexer POST /customers failed: status=%s reason=%s", r.status_code, _scrub_reason(r.text))
+        raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_UNAVAILABLE, None,
+                                  _CONSENT_FAILED_MESSAGE)
+    return r.json()["id"]
 
+
+async def get_or_create_customer(user: dict, *, force_new: bool = False) -> str:
+    """Look up or create a Finexer customer record for this app user.
+
+    `force_new` (A178) ignores and replaces the cached record: used when
+    Finexer says the cached customer no longer exists."""
+    user_id = user["email"]
+    if force_new:
+        await finexer_customers_col.delete_one({"_id": user_id})
+    else:
+        doc = await finexer_customers_col.find_one({"_id": user_id})
+        if doc:
+            return doc["customer_id"]
+
+    customer_id = await _create_customer(user)
     await finexer_customers_col.update_one(
         {"_id": user_id},
         {"$set": {"customer_id": customer_id, "created_at": datetime.utcnow()}},
@@ -623,28 +709,59 @@ async def get_or_create_customer(user: dict) -> str:
     return customer_id
 
 
+async def _post_consent(customer_id: str, provider: Optional[str], state: str) -> httpx.Response:
+    data: dict = {
+        "customer":   customer_id,
+        "return_url": f"{FINEXER_RETURN_URL}?state={state}",
+    }
+    if provider:
+        data["provider"] = provider
+    async with _client() as client:
+        r = await client.post("/consents", data=data)
+    from app.services.finexer_webhooks import bump_daily_counters
+    await bump_daily_counters(requests=1)
+    return r
+
+
 async def create_consent(
     user_id: str,
     customer_id: str,
     provider: Optional[str],
     state: str,
+    *,
+    user: Optional[dict] = None,
 ) -> dict:
-    """Create a Finexer consent and return the full consent dict."""
-    return_url = f"{FINEXER_RETURN_URL}?state={state}"
-    data: dict = {
-        "customer":   customer_id,
-        "return_url": return_url,
-    }
-    if provider:
-        data["provider"] = provider
+    """Create a Finexer consent and return the full consent dict.
 
-    async with _client() as client:
-        r = await client.post("/consents", data=data)
-        if r.status_code not in (200, 201):
-            logger.error("Finexer POST /consents failed: HTTP %s (upstream error)", r.status_code)
-            logger.debug("Finexer POST /consents failed body: %.400s", r.text)
-            raise RuntimeError(f"Finexer consent creation failed: {r.status_code}")
+    A178: when Finexer answers 400/404 saying the customer is unknown (it was
+    deleted in the Finexer dashboard while we still cache its id), the cached
+    record is dropped, a fresh customer is created and the consent retried
+    exactly once. Any other failure raises FinexerConsentError (never a bare
+    RuntimeError), after logging provider, status and a scrubbed reason."""
+    r = await _post_consent(customer_id, provider, state)
+    if r.status_code in (200, 201):
         return r.json()
+
+    if _is_unknown_customer(r):
+        logger.warning(
+            "Finexer POST /consents: customer rejected as unknown (provider=%s status=%s reason=%s); "
+            "dropping the cached customer and retrying once",
+            provider, r.status_code, _scrub_reason(r.text),
+        )
+        new_customer = await get_or_create_customer(user or {"email": user_id}, force_new=True)
+        r = await _post_consent(new_customer, provider, state)
+        if r.status_code in (200, 201):
+            return r.json()
+
+    logger.warning(
+        "Finexer POST /consents failed: provider=%s status=%s reason=%s",
+        provider, r.status_code, _scrub_reason(r.text),
+    )
+    if provider and r.status_code in (400, 404, 422) and _names_provider(r):
+        raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_PROVIDER_REJECTED, provider,
+                                  _PROVIDER_REJECTED_MESSAGE)
+    raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_UNAVAILABLE, provider,
+                              _CONSENT_FAILED_MESSAGE)
 
 
 def _infer_transaction_type(txn: dict) -> str:

@@ -22,6 +22,7 @@ from app.services.finexer_sync import (
     list_providers,
     get_or_create_customer,
     create_consent,
+    FinexerConsentError,
     finexer_sync_pipeline,
     _client as _finexer_client,
 )
@@ -149,14 +150,21 @@ async def finexer_link(
     await check_open_banking_allowed(user["email"])
     await check_connection_limit(user["email"])
 
-    customer_id = await get_or_create_customer(user)
-    state       = secrets.token_hex(8)
-    consent     = await create_consent(
-        user_id=user["email"],
-        customer_id=customer_id,
-        provider=provider or None,
-        state=state,
-    )
+    state = secrets.token_hex(8)
+    try:
+        customer_id = await get_or_create_customer(user)
+        consent     = await create_consent(
+            user_id=user["email"],
+            customer_id=customer_id,
+            provider=provider or None,
+            state=state,
+            user=user,
+        )
+    except FinexerConsentError as exc:
+        # A178: a plain, stable 4xx/5xx body, never a raw 500. 422 when Finexer
+        # rejected this bank outright, 502 for any other upstream failure.
+        status = 422 if exc.code == FinexerConsentError.CODE_PROVIDER_REJECTED else 502
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
     consent_id = consent["id"]
 
     await finexer_consents_col.update_one(
