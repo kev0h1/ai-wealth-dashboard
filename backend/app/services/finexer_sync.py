@@ -1002,6 +1002,18 @@ def card_balance_from_finexer(current, available=None, overdraft=None) -> float:
     return -abs(value)
 
 
+def debt_balance_from_finexer(current) -> float:
+    """The stored balance for a loan or mortgage: -abs(current), so owed is
+    negative whichever sign the bank sent (net worth and the Owed lens then
+    read it correctly). Same known limit as `card_balance_from_finexer`: an
+    overpaid account also reads as owed, and per-bank conventions can replace
+    this rule once the raw sign (stored as `debt_current_sign`) is known."""
+    try:
+        return -abs(float(current or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _overdraft_parts(overdraft) -> tuple:
     """(limit, type) from a Finexer balance `overdraft` object: limit as a
     positive float or None, type lower-cased or None. Never raises."""
@@ -1320,6 +1332,7 @@ async def sync_finexer_consent(
             card_diag: dict = {}
             balance_seen = False  # a balance entry came back, so limits below are current
             credit_limit = None
+            debt_sign = None
             overdraft_limit = None
             overdraft_type = None
             br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
@@ -1343,6 +1356,9 @@ async def sync_finexer_consent(
                         balance = card_balance_from_finexer(
                             chosen.get("current"), chosen.get("available"), chosen.get("overdraft"),
                         )
+                    elif kind_info["kind"] == "debt":
+                        debt_sign = _sign_word(chosen.get("current"))
+                        balance = debt_balance_from_finexer(chosen.get("current"))
                     else:
                         try:
                             balance = float(chosen.get("current") or 0.0)
@@ -1398,6 +1414,8 @@ async def sync_finexer_consent(
                 set_doc["card_available_sign"] = card_diag["available_sign"]
             set_doc.update(bank_sync_set)
             unset_doc: dict = {}
+            if debt_sign is not None:
+                set_doc["debt_current_sign"] = debt_sign  # raw sign only, for diagnostics
             if balance_seen and is_card:
                 if credit_limit is not None:
                     set_doc["credit_limit"] = credit_limit

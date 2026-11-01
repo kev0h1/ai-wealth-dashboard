@@ -306,3 +306,37 @@ def test_left_to_spend_pool_uses_balance_never_available_or_overdraft():
     acc = {"_id": "a", "type": "bank", "subtype": "TRANSACTION", "currency": "GBP", "balance": 120.0,
            "available": 620.0, "overdraft_limit": 500.0}
     assert _live_pool_balances([acc])["spendable_balance"] == 120.0
+
+
+# ---- review fixes: debt balance sign, card_debt, net worth
+
+
+def test_debt_balance_rule_is_minus_abs():
+    from app.services.finexer_sync import debt_balance_from_finexer as f
+    assert f(9000.0) == -9000.0 and f(-9000.0) == -9000.0 and f(None) == 0 and f("x") == 0
+
+
+@pytest.mark.parametrize("klass", ["loan", "mortgage"])
+@pytest.mark.parametrize("raw", [9000.0, -9000.0])
+def test_debt_stored_negative_with_raw_sign_kept(monkeypatch, recomputes, klass, raw):
+    accts, _ = _finexer_world(monkeypatch, client=_client(klass, current=raw))
+    _call("acc1")
+    d = _doc(accts)
+    assert d["balance"] == -9000.0
+    assert d["debt_current_sign"] == ("positive" if raw > 0 else "negative")
+
+
+def test_positive_reporting_loan_does_not_inflate_net_worth_and_shows_as_owed():
+    # Stored value after the sync rule, summed the way KPIs sum net worth.
+    from app.services.finexer_sync import debt_balance_from_finexer as f
+    balances = [1000.0, f(9000.0)]
+    assert sum(balances) == -8000.0
+    assert f(9000.0) < 0  # the Owed lens filters balance < 0 (lib/accountsEstate.ts)
+
+
+def test_debt_is_kept_out_of_card_debt():
+    import inspect
+    import app.routers.analytics as an
+    src = inspect.getsource(an)
+    i = src.index("card_debt_total = 0.0")
+    assert "is_debt_account(acc)" in src[i:i + 600]

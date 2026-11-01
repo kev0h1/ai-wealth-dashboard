@@ -5158,6 +5158,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
             continue
         if _is_savings(acc):
             continue
+        if is_debt_account(acc):
+            # A181: a loan or mortgage is not a card bill; kept out of card_debt.
+            continue
         bal = float(acc.get("balance") or 0)
         if bal < 0:
             # Negative-balance credit card or current account — treat as debt
