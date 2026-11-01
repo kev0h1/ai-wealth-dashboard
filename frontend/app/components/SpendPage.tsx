@@ -1388,13 +1388,12 @@ export default function SpendPage() {
         />
       )}
 
-      {/* Miscategorised-transfers review sheet — "Recategorise" opens the
-          TeachingSheet on top (stacked), reusing the same selectedTx state
-          and onUpdated handler as everywhere else. */}
+      {/* Transfer review owns its nested teaching flow; completed corrections
+          use the same page refresh handler as the other entry points. */}
       {reviewOpen && (
         <MiscategorisedReviewSheet
           onClose={() => setReviewOpen(false)}
-          onRecategorise={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
+          onUpdated={handleTxUpdated}
           onChanged={() => {
             fetchMiscategorisedCount(periodOffset);
             // G83 fix-round: a dismiss / transfer-pair confirm-reject here

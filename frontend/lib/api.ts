@@ -2908,6 +2908,7 @@ export type TransferPairLeg = {
   account_id: string;
   date: string;
   amount: number;
+  currency?: string;
   description: string | null;
   merchant_name: string | null;
   category: string | null;
@@ -3589,41 +3590,7 @@ export const api = {
   // without it fall back to the period-scoped count/pair_count above.
   getMiscategorisedCount: (offset = 0) => get<{ count: number; ids: string[]; pair_count?: number; review_total?: number }>(`/transactions/miscategorised-count?offset=${offset}`),
   getMiscategorised: () =>
-    get<{
-      items: {
-        id: string;
-        ids: string[];
-        count: number;
-        series_key: string;
-        merchant_name: string | null;
-        description: string | null;
-        amount: number;
-        amount_min: number | null;
-        amount_max: number | null;
-        date: string;
-        first_date: string | null;
-        currency: string;
-        category: string | null;
-        transaction_type: string;
-        /** The account this series left from — optional/additive, absent on
-         *  a payload cached before this field existed. */
-        account_id?: string;
-        /** The individual payments this series groups (count > 1 rows) —
-         *  optional/additive, backs the review sheet's "see the payments"
-         *  disclosure. Absent on an older payload just hides that disclosure. */
-        members?: {
-          id: string;
-          date: string;
-          amount: number;
-          account_id: string;
-          description: string | null;
-          merchant_name: string | null;
-        }[];
-        /** Why this row was flagged as an own-transfer — optional/additive,
-         *  absent on a payload cached before this field existed. */
-        reason?: { kind: "name" } | { kind: "account"; account_id: string };
-      }[];
-    }>("/transactions/miscategorised"),
+    get<{ items: import("@/lib/transferReview").MiscategorisedItem[]; separate_items?: import("@/lib/transferReview").MiscategorisedItem[] }>("/transactions/miscategorised"),
   dismissMiscategorised: (id: string) => post<{ ok: boolean }>(`/transactions/${id}/dismiss-miscategorised`, {}),
   dismissMiscategorisedSeries: (seriesKey: string) =>
     post<{ ok: boolean }>("/transactions/dismiss-miscategorised-series", { series_key: seriesKey }),

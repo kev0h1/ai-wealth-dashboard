@@ -868,7 +868,7 @@ def test_pair_leg_absent_from_miscategorised_groups(monkeypatch):
     assert items[0]["ids"] == ["d2"]  # d1 (the live pair leg) excluded; d2 kept
 
 
-def test_pair_leg_reappears_after_pair_dismissed(monkeypatch):
+def test_pair_rejected_becomes_two_separate_reviews_without_losing_series_mates(monkeypatch):
     _setup_pair_and_series(monkeypatch)
     # Confirm it's excluded to start with (same assertion as the test above).
     before = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
@@ -881,8 +881,12 @@ def test_pair_leg_reappears_after_pair_dismissed(monkeypatch):
     after_items = after["items"]
     assert len(after_items) == 1
     assert after_items[0]["series_key"] == "To Kevin Maingi"
-    assert after_items[0]["count"] == 2
-    assert set(after_items[0]["ids"]) == {"d1", "d2"}  # d1 back — its pair is gone
+    assert after_items[0]["ids"] == ["d2"]
+    # Both original legs now have an independent, durable review.  The debit
+    # is deliberately not folded into its recurring series, because choosing
+    # a category for this one instance must not dismiss the series.
+    assert {item["id"] for item in after["separate_items"]} == {"c1", "d1"}
+    assert all(item["series_key"].startswith("separate:") for item in after["separate_items"])
 
 
 def test_review_total_equals_filtered_series_count_plus_pair_count(monkeypatch):
@@ -895,7 +899,62 @@ def test_review_total_equals_filtered_series_count_plus_pair_count(monkeypatch):
 
     pairs = asyncio.run(analytics._transfer_pair_suggestions(UID))
     filtered_list = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
-    assert result["review_total"] == len(pairs) + len(filtered_list["items"])
+    assert result["review_total"] == len(pairs) + len(filtered_list["items"]) + len(filtered_list["separate_items"])
+
+
+def test_separate_pair_keeps_the_other_leg_after_an_explicit_category_choice(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    rows[1]["custom_category"] = "Shopping"
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert [item["id"] for item in result["separate_items"]] == ["c1"]
+
+
+def test_separate_pair_retires_only_the_leg_whose_bank_fact_changes(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    rows[0]["amount"] = 966.0
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert [item["id"] for item in result["separate_items"]] == ["d1"]
+
+
+def test_separate_queue_stops_an_alternative_candidate_reusing_a_leg(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    analytics.transactions_col.docs.append(_t("c2", ttype="credit", amount=965.0, date=D0, account_id="accOther",
+                                               desc="KEVIN MAINGI OTHER BGC", category="Income"))
+    analytics.accounts_col.docs.append({"_id": "accOther", "user_id": UID, "currency": "GBP", "type": "current"})
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    # c2/d1 looks equally plausible, but d1 is already awaiting an
+    # individual answer from the rejected c1/d1 candidate.
+    assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
+
+
+def test_changed_both_legs_can_be_suggested_again_after_a_rejected_pair(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    rows[0]["amount"] = rows[1]["amount"] = 966.0
+    suggestions = asyncio.run(analytics._transfer_pair_suggestions(UID))
+    assert [(item["credit"]["id"], item["debit"]["id"]) for item in suggestions] == [("c1", "d1")]
+
+
+def test_separate_pair_with_account_currency_fallback_survives_refresh(monkeypatch):
+    rows = _setup_pair_and_series(monkeypatch)
+    rows[0].pop("currency")
+    rows[1].pop("currency")
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    result = asyncio.run(analytics.get_miscategorised_transactions({"email": UID}))
+    assert {item["id"] for item in result["separate_items"]} == {"c1", "d1"}
+    assert {item["currency"] for item in result["separate_items"]} == {"GBP"}
+
+
+def test_separate_pair_dismissal_adds_without_overwriting_another_saved_review(monkeypatch):
+    _setup_pair_and_series(monkeypatch)
+    analytics.preferences_col.docs[0]["separate_transfer_pair_reviews"] = [
+        {"pair_key": "older:pair", "credit": {}, "debit": {}},
+    ]
+    asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+    saved = analytics.preferences_col.docs[0]["separate_transfer_pair_reviews"]
+    assert {entry["pair_key"] for entry in saved} == {"older:pair", "c1:d1"}
 
 
 def test_g377_explicit_confirmation_replaces_old_income_choice(monkeypatch):

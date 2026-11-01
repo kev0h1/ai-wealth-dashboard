@@ -32,14 +32,7 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
 
-  {
-    slug: "transfer-review-decisions",
-    name: "Transfer review decisions · G382",
-    description: "G382 · impeccable · A keeps every correction anchored to one payment, while B starts by checking a possible pair. Both keep paired legs visible, never assume a match, group reviews by account and retain clear one-tap choices. Fixtures only, including retry, hidden amounts and a no-review state.",
-    variants: [{ label: "A · Decide as you go", value: "a" }, { label: "B · Check the match", value: "b" }],
-    states: [{ label: "Review", value: "ready" }, { label: "Nothing left", value: "empty" }, { label: "Load problem", value: "error" }],
-    group: "current",
-  },
+
 
   {
     slug: "spend-patterns-charts",
