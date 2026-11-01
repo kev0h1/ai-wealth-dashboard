@@ -18,10 +18,25 @@ What is stored and what is not (nothing here adds tracking):
   - plan / trial   -> get_subscription. Banks / accounts / last sync -> consents
                       and accounts. Penny messages -> penny_allowance.
 
+Revoke is access control, not erasure. DECISION (E12 review): it ends every way
+a person can READ data through the API: sessions (app.core.auth.current_user and
+POST /auth/session/validate), MCP OAuth access tokens (revoked_at is stamped on
+that user's oauth_tokens rows at once, and resolve_mcp_principal and the refresh
+grant also consult is_access_revoked). Their bank consents are deliberately LEFT
+IN PLACE, so background sync and push notifications for a revoked user continue;
+only Remove user (erase) revokes consents and deletes data.
+
+The target of an action never appears in a URL or query string: rows carry an
+opaque `id` (sha256 of the normalised allow-list key) and the server resolves it
+from its own listing. Every id is of the canonical key (Gmail dots and
+googlemail.com folded), so no spelling of the owner's address can slip past the
+owner check; an id that resolves to nothing is a 404.
+
 Every action writes one `ops_audit` row. Logs and Sentry only ever see
 mask_email(...); the page itself is the one place a full email is shown.
 """
 import asyncio
+import hashlib
 import logging
 import re
 from datetime import datetime, timezone
@@ -71,28 +86,51 @@ class EraseBody(BaseModel):
     confirm_email: str
 
 
-async def _audit(actor: str, action: str, target: str, detail: str | None = None) -> None:
-    await cols.ops_audit_col.insert_one(
-        {"at": datetime.now(timezone.utc), "actor": actor, "action": action,  # naive-ok: persisted audit timestamp, aware UTC
-         "target": target, "detail": detail}
-    )
-
-
 def _key_of(uid: str) -> str:
     return _gmail_key((uid or "").strip().lower())
+
+
+def _pid(key: str) -> str:
+    """Opaque id for a person: sha256 of the normalised key. Safe in a URL."""
+    return hashlib.sha256(_key_of(key).encode()).hexdigest()
+
+
+async def _audit(actor: str, action: str, target: str, target_id: str, detail: str | None = None) -> None:
+    await cols.ops_audit_col.insert_one(
+        {"at": datetime.now(timezone.utc), "actor": actor, "action": action,  # naive-ok: persisted audit timestamp, aware UTC
+         "target": target, "target_key": target_id, "detail": detail}
+    )
 
 
 async def _profile_ids_for_key(key: str) -> list[str]:
     """Every user_profiles _id that resolves to this allow-list key. Gmail
     ignores dots and googlemail.com, so one person can be stored under more
-    than one spelling."""
+    than one spelling. Matching is case-insensitive, so it does not depend on
+    every profile id having been lower-cased at creation."""
     local, _, domain = key.partition("@")
     if domain == "gmail.com":
         pattern = "^" + r"\.*".join(re.escape(c) for c in local) + r"\.*@(gmail|googlemail)\.com$"
-        query = {"_id": {"$regex": pattern, "$options": "i"}}
     else:
-        query = {"_id": key}
+        pattern = "^" + re.escape(key) + "$"
+    query = {"_id": {"$regex": pattern, "$options": "i"}}
     return [d["_id"] async for d in cols.user_profiles_col.find(query, {"_id": 1})]
+
+
+async def _resolve(pid: str) -> str:
+    """Id -> canonical key, from the server's own listing. The owner check runs
+    first, on the id of the canonical owner key. Unknown ids are 404."""
+    if pid == _pid(_owner_key()):
+        raise HTTPException(403, "This is the account owner. It can't be changed here.")
+    keys = {d["key"] async for d in cols.allowed_signups_col.find({}, {"key": 1}) if d.get("key")}
+    async for d in cols.user_profiles_col.find({}, {"_id": 1}):
+        if isinstance(d.get("_id"), str) and _EMAIL_RE.match(d["_id"]):
+            keys.add(_key_of(d["_id"]))
+    for k in keys:
+        if _pid(k) == pid:
+            if _key_of(k) == _owner_key():
+                raise HTTPException(403, "This is the account owner. It can't be changed here.")
+            return k
+    raise HTTPException(404, "Not found")
 
 
 async def _enrich(uid: str, now: datetime) -> dict:
@@ -134,6 +172,8 @@ async def _enrich(uid: str, now: datetime) -> dict:
 
 
 async def _rows(cursor: str | None) -> tuple[list[dict], str | None]:
+    """One page of people. `cursor` is opaque: the id of the last row of the
+    previous page (never an email)."""
     allow = {d["key"]: d async for d in cols.allowed_signups_col.find({}) if d.get("key")}
     profiles: dict[str, dict] = {}
     async for d in cols.user_profiles_col.find({}, {"last_active_at": 1}):
@@ -150,9 +190,12 @@ async def _rows(cursor: str | None) -> tuple[list[dict], str | None]:
 
     keys = sorted(set(allow) | set(profiles) | {_owner_key()})
     if cursor:
-        keys = [k for k in keys if k > cursor]
+        positions = [i for i, k in enumerate(keys) if _pid(k) == cursor]
+        if not positions:
+            raise HTTPException(400, "Unknown page.")
+        keys = keys[positions[0] + 1:]
     page = keys[:PAGE_SIZE]
-    next_cursor = page[-1] if len(keys) > PAGE_SIZE else None
+    next_cursor = _pid(page[-1]) if len(keys) > PAGE_SIZE else None
 
     now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp or comparison, aware UTC
     sem = asyncio.Semaphore(_ENRICH_CONCURRENCY)
@@ -170,7 +213,7 @@ async def _rows(cursor: str | None) -> tuple[list[dict], str | None]:
         else:
             source = "invite"
         row = {
-            "key": key,
+            "id": _pid(key),
             "email": uid,
             "owner": owner,
             "allowlist_status": (doc or {}).get("status") or "none",
@@ -219,60 +262,64 @@ async def invite(body: InviteBody, user: dict = Depends(current_user)):
     if _key_of(body.email) == _owner_key():
         raise HTTPException(400, "That is your own account. It always has access.")
     await invite_email(body.email, actor)
-    await _audit(actor, "invite", body.email)
+    await _audit(actor, "invite", body.email, _pid(body.email))
     logger.info("ops_people: invited %s", mask_email(body.email))
     return {"ok": True}
 
 
-async def _set_status(key: str, status: str, actor: str, action: str) -> dict:
-    if key == _owner_key():
-        raise HTTPException(403, "This is the account owner. It can't be changed here.")
+async def _revoke_oauth_tokens(variants: set[str]) -> None:
+    """A live MCP access token must die at once, not at its own expiry."""
+    now = datetime.now(timezone.utc)  # naive-ok: persisted revoke timestamp, aware UTC
+    await cols.oauth_tokens_col.update_many(
+        {"uid": {"$in": sorted(variants)}, "revoked_at": None}, {"$set": {"revoked_at": now}},
+    )
+
+
+@router.post("/{pid}/revoke")
+async def revoke(pid: str, user: dict = Depends(current_user)):
+    actor = _require_owner_session(user)
+    key = await _resolve(pid)
+    ids = await _profile_ids_for_key(key)
     doc = await cols.allowed_signups_col.find_one({"key": key})
-    if not doc:
-        raise HTTPException(404, "Not found")
-    now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp or comparison, aware UTC
-    if status == "revoked":
-        update = {"$set": {"status": "revoked", "revoked_at": now, "updated_at": now}}
+    now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
+    if doc is None:
+        # An open sign-up account with no row yet: a revoked row is created so
+        # the block has something to live on.
+        await cols.allowed_signups_col.insert_one(
+            {"key": key, "email": (ids[0] if ids else key).lower(), "status": "revoked",
+             "invited_by": "open_signup", "source": "open_signup", "note": None,
+             "created_at": now, "updated_at": now, "revoked_at": now})
     else:
-        update = {"$set": {"status": "invited", "updated_at": now}, "$unset": {"revoked_at": ""}}
-    await cols.allowed_signups_col.update_one({"key": key}, update)
-    await _audit(actor, action, doc.get("email") or key)
-    logger.info("ops_people: %s %s", action, mask_email(doc.get("email") or key))
+        await cols.allowed_signups_col.update_one(
+            {"key": key}, {"$set": {"status": "revoked", "revoked_at": now, "updated_at": now}})
+    await _revoke_oauth_tokens({i.strip().lower() for i in ids} | {key, ((doc or {}).get("email") or key).lower()})
+    await _audit(actor, "revoke", (doc or {}).get("email") or (ids[0] if ids else key), pid)
+    logger.info("ops_people: revoke %s", mask_email(key))
     return {"ok": True}
 
 
-@router.post("/{key}/revoke")
-async def revoke(key: str, user: dict = Depends(current_user)):
+@router.post("/{pid}/restore")
+async def restore(pid: str, user: dict = Depends(current_user)):
     actor = _require_owner_session(user)
-    # No row yet (an open sign-up account): a revoked row is created so the
-    # block has something to live on.
-    if key != _owner_key() and not await cols.allowed_signups_col.find_one({"key": key}):
-        ids = await _profile_ids_for_key(key)
-        if not ids:
-            raise HTTPException(404, "Not found")
-        now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp or comparison, aware UTC
-        await cols.allowed_signups_col.insert_one(
-            {"key": key, "email": ids[0].lower(), "status": "invited", "invited_by": "open_signup",
-             "source": "open_signup", "note": None, "created_at": now, "updated_at": now})
-    return await _set_status(key, "revoked", actor, "revoke")
+    key = await _resolve(pid)
+    doc = await cols.allowed_signups_col.find_one({"key": key})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
+    await cols.allowed_signups_col.update_one(
+        {"key": key}, {"$set": {"status": "invited", "updated_at": now}, "$unset": {"revoked_at": ""}})
+    await _audit(actor, "restore", doc.get("email") or key, pid)
+    logger.info("ops_people: restore %s", mask_email(key))
+    return {"ok": True}
 
 
-@router.post("/{key}/restore")
-async def restore(key: str, user: dict = Depends(current_user)):
+@router.post("/{pid}/erase")
+async def erase(pid: str, body: EraseBody, user: dict = Depends(current_user)):
     actor = _require_owner_session(user)
-    return await _set_status(key, "invited", actor, "restore")
-
-
-@router.post("/{key}/erase")
-async def erase(key: str, body: EraseBody, user: dict = Depends(current_user)):
-    actor = _require_owner_session(user)
-    if key == _owner_key():
-        raise HTTPException(403, "This is the account owner. It can't be removed.")
+    key = await _resolve(pid)
     doc = await cols.allowed_signups_col.find_one({"key": key})
     ids = await _profile_ids_for_key(key)
-    if not doc and not ids:
-        raise HTTPException(404, "Not found")
-    target = ids[0] if ids else (doc.get("email") or key)
+    target = ids[0] if ids else ((doc or {}).get("email") or key)
     if (body.confirm_email or "").strip().lower() != target.strip().lower():
         raise HTTPException(400, "The email you typed does not match.")
     masked = mask_email(target)
@@ -281,16 +328,22 @@ async def erase(key: str, body: EraseBody, user: dict = Depends(current_user)):
     for uid in ids or [target]:
         for name, count in (await erase_account(uid)).items():
             removed[name] = removed.get(name, 0) + count
-    now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp or comparison, aware UTC
+    now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
+    # Suppression record: key and status only. The email, note and inviter are
+    # dropped so a removed person's address is not held as a plain value.
     await cols.allowed_signups_col.update_one(
         {"key": key},
-        {"$set": {"email": target.lower(), "status": "revoked", "revoked_at": now, "updated_at": now},
-         "$setOnInsert": {"created_at": now, "invited_by": actor}},
+        {"$set": {"status": "revoked", "revoked_at": now, "updated_at": now},
+         "$unset": {"email": "", "note": "", "invited_by": ""},
+         "$setOnInsert": {"created_at": now}},
         upsert=True,
     )
-    # No full email of an erased person may remain in the audit trail.
-    for variant in {target, target.lower(), (doc or {}).get("email")} - {None}:
-        await cols.ops_audit_col.update_many({"target": variant}, {"$set": {"target": masked}})
-    await _audit(actor, "erase", masked, f"{sum(removed.values())} records removed")
+    # No full email of an erased person may remain in the audit trail: rows are
+    # matched on the hashed normalised key, whatever spelling they were written with.
+    await cols.ops_audit_col.update_many({"target_key": pid}, {"$set": {"target": masked}})
+    detail = f"{sum(removed.values())} records removed"
+    if removed.get("connection_errors"):
+        detail += f", {removed['connection_errors']} bank connections could not be revoked"
+    await _audit(actor, "erase", masked, pid, detail)
     logger.info("ops_people: erased %s", masked)
     return {"ok": True, "removed": removed}

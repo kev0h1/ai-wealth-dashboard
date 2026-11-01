@@ -36,6 +36,9 @@ def _match(doc, query):
             flags = re.I if "i" in v.get("$options", "") else 0
             if not re.search(v["$regex"], str(doc.get(k, "")), flags):
                 return False
+        elif isinstance(v, dict) and "$in" in v:
+            if doc.get(k) not in v["$in"]:
+                return False
         elif doc.get(k) != v:
             return False
     return True
@@ -107,10 +110,11 @@ def env(monkeypatch):
     c.consents = Col()
     c.conns = Col()
     c.accounts = Col()
+    c.tokens = Col()
     for name, col in (("allowed_signups_col", c.allow), ("user_profiles_col", c.profiles),
                       ("ops_audit_col", c.audit), ("linked_identities_col", c.linked),
                       ("finexer_consents_col", c.consents), ("connections_col", c.conns),
-                      ("accounts_col", c.accounts), ("session_tombstones_col", Col())):
+                      ("accounts_col", c.accounts), ("oauth_tokens_col", c.tokens), ("session_tombstones_col", Col())):
         monkeypatch.setattr(db_collections, name, col)
     monkeypatch.setattr(allowlist_module, "allowed_signups_col", c.allow)
     monkeypatch.setattr(admin_allowlist, "allowed_signups_col", c.allow)
@@ -134,6 +138,10 @@ def _key(email):
     return people._key_of(email)
 
 
+def _id(email):
+    return people._pid(email)
+
+
 # ── auth ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("who", [OTHER, BOT, SCOPED_OWNER])
@@ -141,9 +149,9 @@ def test_every_route_refuses_everyone_but_the_owner_session(env, who):
     calls = [
         people.list_people(user=who),
         people.invite(people.InviteBody(email=ALICE), user=who),
-        people.revoke(_key(ALICE), user=who),
-        people.restore(_key(ALICE), user=who),
-        people.erase(_key(ALICE), people.EraseBody(confirm_email=ALICE), user=who),
+        people.revoke(_id(ALICE), user=who),
+        people.restore(_id(ALICE), user=who),
+        people.erase(_id(ALICE), people.EraseBody(confirm_email=ALICE), user=who),
     ]
     for call in calls:
         with pytest.raises(HTTPException) as exc:
@@ -193,11 +201,11 @@ def test_list_paginates_with_a_cursor(env, monkeypatch):
         env.allow.docs.append({"key": f"u{n}@example.com", "email": f"u{n}@example.com", "status": "invited"})
     first = _run(people.list_people(user=OWNER))
     assert len(first["people"]) == 2 and first["next_cursor"]
-    seen = [r["key"] for r in first["people"]]
+    seen = [r["id"] for r in first["people"]]
     cursor = first["next_cursor"]
     while cursor:
         page = _run(people.list_people(cursor=cursor, user=OWNER))
-        seen += [r["key"] for r in page["people"]]
+        seen += [r["id"] for r in page["people"]]
         cursor = page["next_cursor"]
     assert len(seen) == len(set(seen)) == 6
 
@@ -217,7 +225,7 @@ def test_invite_validates_lowercases_and_audits(env):
 
 def test_reinviting_a_revoked_email_restores_it_without_a_duplicate(env):
     _run(people.invite(people.InviteBody(email=ALICE), user=OWNER))
-    _run(people.revoke(_key(ALICE), user=OWNER))
+    _run(people.revoke(_id(ALICE), user=OWNER))
     assert env.allow.docs[0]["status"] == "revoked"
     _run(people.invite(people.InviteBody(email=ALICE), user=OWNER))
     assert len(env.allow.docs) == 1
@@ -248,7 +256,7 @@ class _Req:
 
 
 def test_owner_row_is_never_revocable_or_erasable(env):
-    owner_key = _key(PRIMARY_EMAIL)
+    owner_key = _id(PRIMARY_EMAIL)
     for call in (people.revoke(owner_key, user=OWNER), people.restore(owner_key, user=OWNER),
                  people.erase(owner_key, people.EraseBody(confirm_email=PRIMARY_EMAIL), user=OWNER)):
         with pytest.raises(HTTPException) as exc:
@@ -267,26 +275,26 @@ def test_revoked_person_is_signed_out_at_their_next_request_and_restore_reverses
     token = _token(ALICE)
     assert _run(auth_module.current_user(_Req(token)))["email"] == ALICE
 
-    _run(people.revoke(_key(ALICE), user=OWNER))
+    _run(people.revoke(_id(ALICE), user=OWNER))
     with pytest.raises(HTTPException) as exc:
         _run(auth_module.current_user(_Req(token)))
     assert exc.value.status_code == 401
 
-    _run(people.restore(_key(ALICE), user=OWNER))
+    _run(people.restore(_id(ALICE), user=OWNER))
     assert _run(auth_module.current_user(_Req(token)))["email"] == ALICE
     assert [a["action"] for a in env.audit.docs] == ["invite", "revoke", "restore"]
 
 
 def test_revoking_an_open_signup_account_with_no_row_creates_the_block(env):
     env.profiles.docs.append({"_id": "walkin@example.com"})
-    _run(people.revoke(_key("walkin@example.com"), user=OWNER))
+    _run(people.revoke(_id("walkin@example.com"), user=OWNER))
     assert env.allow.docs[0]["status"] == "revoked"
     assert _run(allowlist_module.is_access_revoked("walkin@example.com")) is True
 
 
 def test_revoke_unknown_key_is_404(env):
     with pytest.raises(HTTPException) as exc:
-        _run(people.revoke("nobody@example.com", user=OWNER))
+        _run(people.revoke(_id("nobody@example.com"), user=OWNER))
     assert exc.value.status_code == 404
 
 
@@ -301,7 +309,7 @@ def test_erase_refuses_a_mismatched_confirmation_and_touches_nothing(env):
     env.profiles.docs.append({"_id": ALICE})
     env.allow.docs.append({"key": _key(ALICE), "email": ALICE, "status": "invited"})
     with pytest.raises(HTTPException) as exc:
-        _run(people.erase(_key(ALICE), people.EraseBody(confirm_email=BOB), user=OWNER))
+        _run(people.erase(_id(ALICE), people.EraseBody(confirm_email=BOB), user=OWNER))
     assert exc.value.status_code == 400
     assert env.erased == [] and env.audit.docs == []
     assert env.allow.docs[0]["status"] == "invited"
@@ -310,7 +318,7 @@ def test_erase_refuses_a_mismatched_confirmation_and_touches_nothing(env):
 def test_erase_calls_the_shared_path_revokes_the_row_and_masks_the_audit(env):
     env.profiles.docs.append({"_id": ALICE})
     _run(people.invite(people.InviteBody(email=ALICE), user=OWNER))
-    out = _run(people.erase(_key(ALICE), people.EraseBody(confirm_email=" Alice@Example.com "), user=OWNER))
+    out = _run(people.erase(_id(ALICE), people.EraseBody(confirm_email=" Alice@Example.com "), user=OWNER))
     assert env.erased == [ALICE]
     assert out["removed"] == {"transactions": 4}
     assert env.allow.docs[0]["status"] == "revoked"
@@ -356,7 +364,7 @@ def test_no_email_reaches_a_log_line(env, caplog):
     import logging
     caplog.set_level(logging.INFO)
     _run(people.invite(people.InviteBody(email=ALICE), user=OWNER))
-    _run(people.revoke(_key(ALICE), user=OWNER))
+    _run(people.revoke(_id(ALICE), user=OWNER))
     assert ALICE not in caplog.text
 
 
