@@ -32,6 +32,15 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
 
+  {
+    slug: "penny-presence",
+    name: "Penny presence and the purple · G388",
+    description: "Three identity directions on actual Home brief components: A Quiet signature, B Coin seal, C One adviser door. Compare Card detail, Cover plan, Payday plan and unbranded Covered, with primary action and raised Penny navigation treatments. Each states where the adviser-only gradient goes. Synthetic examples, local-only actions; production unchanged. ?variant=a|b|c|current&state=stack|card-detail|cover-plan|payday-plan|covered&mode=light|dark&masked=1",
+    variants: [{ label: "A · Quiet signature", value: "a" }, { label: "B · Coin seal", value: "b" }, { label: "C · One adviser door", value: "c" }, { label: "Current production", value: "current" }],
+    states: [{ label: "Home stack", value: "stack" }, { label: "Card detail", value: "card-detail" }, { label: "Cover plan", value: "cover-plan" }, { label: "Payday plan", value: "payday-plan" }, { label: "Covered", value: "covered" }],
+    group: "current",
+  },
+
 
 
   {

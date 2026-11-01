@@ -1,0 +1,201 @@
+.gallery {
+  --presence-indigo: #4f46e5;
+  --presence-deep-indigo: #3730a3;
+  display: block;
+  width: min(100%, 430px);
+  margin-inline: auto;
+  color: #0f172a;
+}
+
+:global(.dark) .gallery {
+  color: #f1f5f9;
+}
+
+.cardStack { display: grid; gap: 12px; padding-bottom: 96px; }
+.fixtureCard { min-width: 0; }
+
+/* Preview-only treatment of the exact existing Penny attribution span. */
+.variantA .fixtureCard :global([style*="linear-gradient"]) {
+  height: auto !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #1e293b !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  line-height: 20px !important;
+  text-transform: none !important;
+}
+
+.variantA .fixtureCard :global([style*="linear-gradient"] svg) { color: currentColor !important; }
+
+:global(.dark) .variantA .fixtureCard :global([style*="linear-gradient"]) { color: #e2e8f0 !important; }
+
+.variantB .fixtureCard :global([style*="linear-gradient"]) {
+  width: auto !important;
+  height: auto !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #3730a3 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  line-height: 24px !important;
+  text-transform: none !important;
+}
+
+.variantB .fixtureCard :global([style*="linear-gradient"] svg) {
+  box-sizing: border-box;
+  width: 24px !important;
+  height: 24px !important;
+  padding: 5px;
+  border: 1px solid #4338ca;
+  border-radius: 999px;
+  color: currentColor !important;
+}
+
+:global(.dark) .variantB .fixtureCard :global([style*="linear-gradient"]) { color: #c7d2fe !important; }
+:global(.dark) .variantB .fixtureCard :global([style*="linear-gradient"] svg) { border-color: #a5b4fc; }
+
+.variantC .fixtureCard :global([style*="linear-gradient"]) { display: none !important; }
+
+/* These selectors only reach real card action controls inside this gallery. */
+.variantA .fixtureCard :global(button.bg-indigo-600),
+.variantA .fixtureCard :global(a.bg-indigo-600) {
+  border-radius: 12px !important;
+  background: #4f46e5 !important;
+}
+
+.variantB .fixtureCard :global(button.bg-indigo-600),
+.variantB .fixtureCard :global(a.bg-indigo-600) {
+  border-radius: 10px !important;
+  background: #3730a3 !important;
+}
+
+.variantC .fixtureCard :global(button.bg-indigo-600),
+.variantC .fixtureCard :global(a.bg-indigo-600) {
+  border: 1px solid #c7d2fe;
+  border-radius: 12px !important;
+  background: #eef2ff !important;
+  color: #3730a3 !important;
+}
+
+:global(.dark) .variantC .fixtureCard :global(button.bg-indigo-600),
+:global(.dark) .variantC .fixtureCard :global(a.bg-indigo-600) {
+  border-color: #4338ca;
+  background: #312e81 !important;
+  color: #eef2ff !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+.variantA .fixtureCard :global(button.bg-indigo-600:hover),
+.variantA .fixtureCard :global(a.bg-indigo-600:hover) { background: #4338ca !important; }
+.variantB .fixtureCard :global(button.bg-indigo-600:hover),
+.variantB .fixtureCard :global(a.bg-indigo-600:hover) { background: #312e81 !important; }
+.variantC .fixtureCard :global(button.bg-indigo-600:hover),
+.variantC .fixtureCard :global(a.bg-indigo-600:hover) { background: #e0e7ff !important; }
+:global(.dark) .variantC .fixtureCard :global(button.bg-indigo-600:hover),
+:global(.dark) .variantC .fixtureCard :global(a.bg-indigo-600:hover) { background: #3730a3 !important; }
+}
+
+.variantA .fixtureCard :global(button.bg-indigo-600:active),
+.variantA .fixtureCard :global(a.bg-indigo-600:active) { background: #3730a3 !important; }
+.variantB .fixtureCard :global(button.bg-indigo-600:active),
+.variantB .fixtureCard :global(a.bg-indigo-600:active) { background: #1e1b4b !important; }
+.variantC .fixtureCard :global(button.bg-indigo-600:active),
+.variantC .fixtureCard :global(a.bg-indigo-600:active) { background: #c7d2fe !important; }
+:global(.dark) .variantC .fixtureCard :global(button.bg-indigo-600:active),
+:global(.dark) .variantC .fixtureCard :global(a.bg-indigo-600:active) { background: #312e81 !important; }
+
+.nav {
+  position: sticky;
+  top: calc(100dvh - 88px);
+  bottom: 12px;
+  z-index: 10;
+  min-height: 80px;
+  margin-bottom: -80px;
+  pointer-events: none;
+}
+
+.navSurface {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-height: 64px;
+  border: 1px solid #e2e8f0;
+  border-radius: 22px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 12px 24px rgb(15 23 42 / 10%);
+  pointer-events: auto;
+}
+
+:global(.dark) .navSurface {
+  border-color: #334155;
+  background: rgb(30 41 59 / 96%);
+  box-shadow: none;
+}
+
+.navLinks {
+  display: grid;
+  grid-template-columns: 1fr 1fr 64px 1fr 1fr;
+  min-height: 64px;
+  align-items: end;
+}
+
+.navLink {
+  display: flex;
+  min-height: 52px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 14px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+@media (hover: hover) and (pointer: fine) { .navLink:hover { color: #3730a3; } }
+.navLinkActive { background: #eef2ff; color: #4338ca; }
+.navLink:focus-visible, .pennyDoor:focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }
+.navDoorSlot { position: relative; min-height: 64px; }
+
+.pennyDoor {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  transform: translateX(-50%);
+  border: 0;
+  color: white;
+  cursor: pointer;
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.pennyDoor:active { transform: translateX(-50%) scale(.95); }
+.doorCurrent, .doorA { border-radius: 16px; box-shadow: 0 10px 18px rgb(15 23 42 / 16%); }
+.doorCurrent { box-shadow: 0 12px 24px rgb(79 70 229 / 28%); }
+.doorB { border-radius: 999px; box-shadow: 0 10px 18px rgb(49 46 129 / 22%); }
+.doorC { border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; box-shadow: 0 10px 18px rgb(15 23 42 / 14%); }
+
+:global(.dark) .doorC { border-color: #475569; background: #1e293b; box-shadow: none; }
+.doorMark { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; }
+.doorC .doorMark { color: white; }
+.doorLabel { position: absolute; top: 61px; color: #3730a3; font-size: 11px; font-weight: 600; line-height: 1; }
+:global(.dark) .doorLabel { color: #c7d2fe; }
+
+:global(.dark) .navLink { color: #cbd5e1; }
+@media (hover: hover) and (pointer: fine) { :global(.dark) .navLink:hover { color: #e0e7ff; } }
+:global(.dark) .navLinkActive { background: #312e81; color: #e0e7ff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pennyDoor { transition: none; }
+}
