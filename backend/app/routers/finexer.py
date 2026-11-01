@@ -136,6 +136,16 @@ def _with_template(consent_url: str, template_id: str) -> str:
     return f"{consent_url}{sep}template={template_id}"
 
 
+_BANK_LINK_UNAVAILABLE = {
+    "code": "BANK_LINK_UNAVAILABLE",
+    "message": "We could not start the bank connection. Try again in a moment.",
+}
+_BANK_REJECTED = {
+    "code": "BANK_PROVIDER_REJECTED",
+    "message": "This bank is not available right now. Try another bank or try again later.",
+}
+
+
 @router.get("/auth/finexer/link")
 async def finexer_link(
     provider: str = "",
@@ -163,8 +173,9 @@ async def finexer_link(
     except FinexerConsentError as exc:
         # A178: a plain, stable 4xx/5xx body, never a raw 500. 422 when Finexer
         # rejected this bank outright, 502 for any other upstream failure.
-        status = 422 if exc.code == FinexerConsentError.CODE_PROVIDER_REJECTED else 502
-        raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
+        if exc.code == FinexerConsentError.CODE_PROVIDER_REJECTED:
+            raise HTTPException(status_code=422, detail=_BANK_REJECTED)
+        raise HTTPException(status_code=502, detail=_BANK_LINK_UNAVAILABLE)
     consent_id = consent["id"]
 
     await finexer_consents_col.update_one(
