@@ -2,11 +2,12 @@
 // from the page so scripts/e12-people.test.mjs can exercise them directly.
 import type { OpsPerson } from "@/lib/api";
 
-export type PeopleFilter = "active" | "revoked" | "signed_up" | "never_signed_up";
+export type PeopleFilter = "active" | "revoked" | "no_access" | "signed_up" | "never_signed_up";
 
 export const FILTERS: { key: PeopleFilter; label: string }[] = [
   { key: "active", label: "Active" },
   { key: "revoked", label: "Revoked" },
+  { key: "no_access", label: "No access" },
   { key: "signed_up", label: "Signed up" },
   { key: "never_signed_up", label: "Never signed up" },
 ];
@@ -29,10 +30,66 @@ export const WORDING = {
   removeConfirm: "Remove user",
   removeTypeLabel: "Type their email address to confirm",
   loadMore: "Show more",
+  openSignupHint: "Open sign-up is on, so people with no access can still sign in.",
+  allowButton: "Allow",
+  restoreButton: "Restore",
+  backfillButton: "Allow all",
+  backfillTitle: "Allow all of these accounts?",
+  backfillTypeLabel: "Type ALLOW to confirm",
+  backfillConfirm: "Allow all",
+  backfillWord: "ALLOW",
+  backfillFailed: "Couldn't allow these accounts, try again.",
 } as const;
+
+export type AccessAction = "allow" | "revoke" | "restore" | null;
+
+// The chip shown for a row: what sign-in would do with this person.
+export function accessLabel(p: OpsPerson): string {
+  switch (p.access) {
+    case "owner":
+      return "Owner";
+    case "allowed":
+      return "Allowed";
+    case "revoked":
+      return "Revoked";
+    default:
+      return "No access";
+  }
+}
+
+// The single action that matches the state. Revoke only ever appears on an
+// allowed row, so it is never offered to someone sign-in already refuses.
+export function accessAction(p: OpsPerson): AccessAction {
+  switch (p.access) {
+    case "allowed":
+      return "revoke";
+    case "no_access":
+      return "allow";
+    case "revoked":
+      return "restore";
+    default:
+      return null;
+  }
+}
+
+export function backfillBanner(count: number): string {
+  return count === 1
+    ? "1 signed-up account has no access row. Sign-in refuses it until you allow it."
+    : `${count} signed-up accounts have no access row. Sign-in refuses them until you allow them.`;
+}
+
+export function backfillMessage(count: number): string {
+  return `This gives ${count} signed-up ${count === 1 ? "account" : "accounts"} an allowed row so they can keep signing in. You can revoke any of them from this page afterwards.`;
+}
+
+export function backfillConfirmed(typed: string): boolean {
+  return typed.trim() === WORDING.backfillWord;
+}
 
 export const ACTION_LABELS: Record<string, string> = {
   invite: "Invited",
+  allow: "Allowed",
+  backfill: "Allowed signed-up accounts",
   revoke: "Revoked access",
   restore: "Restored access",
   erase: "Removed user",
@@ -52,10 +109,7 @@ export function emailMatches(typed: string, email: string): boolean {
 }
 
 export function statusLabel(p: OpsPerson): string {
-  if (p.owner) return "Owner";
-  if (p.allowlist_status === "revoked") return "Revoked";
-  if (p.allowlist_status === "invited") return "Invited";
-  return "No invite";
+  return accessLabel(p);
 }
 
 export function sourceLabel(p: OpsPerson): string {
@@ -66,15 +120,16 @@ export function sourceLabel(p: OpsPerson): string {
       return "Invite";
     case "migrated":
       return "Migrated list";
+    case "backfill":
+      return "Backfilled";
     default:
       return "Open sign-up";
   }
 }
 
-// "Active" means can sign in now: the owner, an invited person, or someone
-// signed up without an invite. Revoked is the only inactive state.
+// "Active" means can sign in now: the owner or an allowed person.
 export function isActive(p: OpsPerson): boolean {
-  return p.owner || p.allowlist_status !== "revoked";
+  return p.access === "owner" || p.access === "allowed";
 }
 
 export function matchesFilter(p: OpsPerson, filter: PeopleFilter | null): boolean {
@@ -83,7 +138,9 @@ export function matchesFilter(p: OpsPerson, filter: PeopleFilter | null): boolea
     case "active":
       return isActive(p);
     case "revoked":
-      return !p.owner && p.allowlist_status === "revoked";
+      return p.access === "revoked";
+    case "no_access":
+      return p.access === "no_access";
     case "signed_up":
       return p.signed_up;
     case "never_signed_up":
@@ -111,6 +168,7 @@ export function counts(people: OpsPerson[]): Record<PeopleFilter, number> {
   return {
     active: people.filter((p) => matchesFilter(p, "active")).length,
     revoked: people.filter((p) => matchesFilter(p, "revoked")).length,
+    no_access: people.filter((p) => matchesFilter(p, "no_access")).length,
     signed_up: people.filter((p) => matchesFilter(p, "signed_up")).length,
     never_signed_up: people.filter((p) => matchesFilter(p, "never_signed_up")).length,
   };

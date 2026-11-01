@@ -396,6 +396,7 @@ AURIQ LTD retains customer data only for as long as necessary to provide the ser
 - **Bank disconnect:** removes that connection's accounts and transactions and revokes the provider (e.g. Finexer) consent.
 - **Backups:** data belonging to deleted customers ages out of encrypted backups within the 30-day backup window.
 - **Suppression record on owner removal (E12):** when the account owner removes a person from the People page, every record is erased as for a self-service deletion, and one minimal row is kept in the sign-up allow list holding only the normalised address key and a "revoked" status (the email, note and inviter fields are dropped). It is a legitimate-interest suppression record, so a removed person cannot sign up again under open sign-up without the owner restoring them. The owner's audit trail keeps the action with the address masked, and earlier entries for that person are masked at the same time.
+- **Accounts that signed up before invite-only mode (E13):** an account created under open sign-up has no allow-list row, so invite-only sign-in refuses it. The owner allows these accounts in one step from the People page (or the equivalent script), which adds an ordinary allowed row for each, never touching the owner or an existing row; each can be revoked from the page afterwards, and the action is recorded in the audit trail with a count only.
 
 Retention periods are reviewed at least annually.
 

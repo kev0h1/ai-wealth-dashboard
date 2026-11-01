@@ -16,6 +16,10 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import {
   ACTION_LABELS,
+  accessAction,
+  backfillBanner,
+  backfillConfirmed,
+  backfillMessage,
   FILTERS,
   WORDING,
   counts,
@@ -44,6 +48,18 @@ function ErrorLine({ text }: { text: string }) {
       <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
       <span>{text}</span>
     </p>
+  );
+}
+
+function AccessChip({ person }: { person: OpsPerson }) {
+  const tone =
+    person.access === "allowed" || person.access === "owner"
+      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200"
+      : "border border-slate-200 text-slate-600 dark:border-white/10 dark:text-slate-300";
+  return (
+    <span data-access={person.access} className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}>
+      {statusLabel(person)}
+    </span>
   );
 }
 
@@ -128,44 +144,153 @@ function RemoveSheet({
   );
 }
 
-function PersonCard({
+function BackfillSheet({
+  count,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  count: number;
+  busy: boolean;
+  error: string | null;
+  onConfirm: (typed: string) => void;
+  onCancel: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const panelRef = useSheetA11y<HTMLDivElement>(onCancel);
+  const ok = backfillConfirmed(typed);
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 px-0 dark:bg-black/60 sm:items-center sm:px-6"
+      onClick={onCancel}
+    >
+      <div
+        ref={panelRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={WORDING.backfillTitle}
+        className="w-full max-w-md rounded-t-3xl border border-slate-100 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{WORDING.backfillTitle}</p>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">{backfillMessage(count)}</p>
+        <label className={`${LABEL} mt-4 block`} htmlFor="backfill-confirm">
+          {WORDING.backfillTypeLabel}
+        </label>
+        <input
+          id="backfill-confirm"
+          type="text"
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          className={`${INPUT} mt-1`}
+        />
+        {error && (
+          <div className="mt-2">
+            <ErrorLine text={error} />
+          </div>
+        )}
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-11 flex-1 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            data-backfill-confirm
+            disabled={!ok || busy}
+            onClick={() => onConfirm(typed)}
+            className="min-h-11 flex-1 rounded-xl bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+          >
+            {busy ? "Allowing…" : WORDING.backfillConfirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PersonActions({
   person,
   busy,
+  onAllow,
   onRevoke,
   onRestore,
   onRemove,
 }: {
   person: OpsPerson;
   busy: boolean;
+  onAllow: () => void;
   onRevoke: () => void;
   onRestore: () => void;
   onRemove: () => void;
 }) {
-  const revoked = !person.owner && person.allowlist_status === "revoked";
+  const action = accessAction(person);
+  return (
+    <>
+      {action === "allow" && (
+        <button type="button" disabled={busy} onClick={onAllow} className={QUIET_BTN}>
+          {WORDING.allowButton}
+        </button>
+      )}
+      {action === "revoke" && (
+        <button type="button" disabled={busy} onClick={onRevoke} className={QUIET_BTN}>
+          {WORDING.revokeConfirm}
+        </button>
+      )}
+      {action === "restore" && (
+        <button type="button" disabled={busy} onClick={onRestore} className={QUIET_BTN}>
+          {WORDING.restoreButton}
+        </button>
+      )}
+      <button type="button" disabled={busy} onClick={onRemove} className={QUIET_BTN}>
+        {WORDING.removeConfirm}
+      </button>
+    </>
+  );
+}
+
+function PersonCard({
+  person,
+  busy,
+  onAllow,
+  onRevoke,
+  onRestore,
+  onRemove,
+}: {
+  person: OpsPerson;
+  busy: boolean;
+  onAllow: () => void;
+  onRevoke: () => void;
+  onRestore: () => void;
+  onRemove: () => void;
+}) {
   return (
     <li className="glass-card rounded-2xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{person.email}</p>
           <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            {statusLabel(person)} · {sourceLabel(person)}
+            <AccessChip person={person} /> {sourceLabel(person)}
             {person.invited_at ? ` · invited ${formatDate(person.invited_at)}` : ""}
           </p>
         </div>
         {!person.owner && (
           <div className="flex shrink-0 gap-2">
-            {revoked ? (
-              <button type="button" disabled={busy} onClick={onRestore} className={QUIET_BTN}>
-                Restore access
-              </button>
-            ) : (
-              <button type="button" disabled={busy} onClick={onRevoke} className={QUIET_BTN}>
-                {WORDING.revokeConfirm}
-              </button>
-            )}
-            <button type="button" disabled={busy} onClick={onRemove} className={QUIET_BTN}>
-              {WORDING.removeConfirm}
-            </button>
+            <PersonActions
+              person={person}
+              busy={busy}
+              onAllow={onAllow}
+              onRevoke={onRevoke}
+              onRestore={onRestore}
+              onRemove={onRemove}
+            />
           </div>
         )}
       </div>
@@ -192,12 +317,14 @@ function PersonCard({
 function PeopleTable({
   people,
   busyKey,
+  onAllow,
   onRevoke,
   onRestore,
   onRemove,
 }: {
   people: OpsPerson[];
   busyKey: string | null;
+  onAllow: (p: OpsPerson) => void;
   onRevoke: (p: OpsPerson) => void;
   onRestore: (p: OpsPerson) => void;
   onRemove: (p: OpsPerson) => void;
@@ -224,13 +351,12 @@ function PeopleTable({
         </thead>
         <tbody>
           {people.map((p) => {
-            const revoked = !p.owner && p.allowlist_status === "revoked";
             return (
               <tr key={p.id} className="border-b border-slate-100 last:border-0 dark:border-white/5">
                 <td className={`${td} max-w-[240px] truncate font-semibold`}>{p.email}</td>
                 <td className={td}>
-                  {statusLabel(p)}
-                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">{sourceLabel(p)}</span>
+                  <AccessChip person={p} />
+                  <span className="mt-1 block text-[11px] text-slate-500 dark:text-slate-400">{sourceLabel(p)}</span>
                 </td>
                 <td className={td}>
                   {p.signed_up ? "Yes" : "Not yet"}
@@ -248,18 +374,14 @@ function PeopleTable({
                 <td className={td}>
                   {!p.owner && (
                     <div className="flex justify-end gap-2">
-                      {revoked ? (
-                        <button type="button" disabled={busyKey === p.id} onClick={() => onRestore(p)} className={QUIET_BTN}>
-                          Restore access
-                        </button>
-                      ) : (
-                        <button type="button" disabled={busyKey === p.id} onClick={() => onRevoke(p)} className={QUIET_BTN}>
-                          {WORDING.revokeConfirm}
-                        </button>
-                      )}
-                      <button type="button" disabled={busyKey === p.id} onClick={() => onRemove(p)} className={QUIET_BTN}>
-                        {WORDING.removeConfirm}
-                      </button>
+                      <PersonActions
+                        person={p}
+                        busy={busyKey === p.id}
+                        onAllow={() => onAllow(p)}
+                        onRevoke={() => onRevoke(p)}
+                        onRestore={() => onRestore(p)}
+                        onRemove={() => onRemove(p)}
+                      />
                     </div>
                   )}
                 </td>
@@ -289,14 +411,25 @@ export default function PeoplePage() {
   const [revoking, setRevoking] = useState<OpsPerson | null>(null);
   const [removing, setRemoving] = useState<OpsPerson | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [openSignup, setOpenSignup] = useState(false);
+  const [backfillCount, setBackfillCount] = useState(0);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
+  const [backfillBusy, setBackfillBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const res = await api.getOpsPeople();
       setPeople(res.people);
       setAudit(res.audit);
+      setOpenSignup(res.open_signup === true);
       setCursor(res.next_cursor);
       setLoadError(false);
+      try {
+        setBackfillCount((await api.getOpsBackfillPreview()).count);
+      } catch {
+        setBackfillCount(0);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setForbidden(true);
       else setLoadError(true);
@@ -391,6 +524,22 @@ export default function PeoplePage() {
           </div>
         )}
 
+        {backfillCount > 0 && (
+          <section aria-label="Accounts with no access row" className="glass-card rounded-2xl p-4">
+            <p className="text-sm text-slate-800 dark:text-slate-100">{backfillBanner(backfillCount)}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setBackfillError(null);
+                setBackfilling(true);
+              }}
+              className={`${QUIET_BTN} mt-3`}
+            >
+              {WORDING.backfillButton}
+            </button>
+          </section>
+        )}
+
         <form onSubmit={handleInvite} className="glass-card rounded-2xl p-4">
           <label htmlFor="invite-email" className={LABEL}>
             Invite by email
@@ -450,6 +599,10 @@ export default function PeoplePage() {
             })}
           </div>
 
+          {openSignup && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">{WORDING.openSignupHint}</p>
+          )}
+
           {actionError && <ErrorLine text={actionError} />}
 
           {visible.length === 0 ? (
@@ -462,6 +615,7 @@ export default function PeoplePage() {
                     key={p.id}
                     person={p}
                     busy={busyKey === p.id}
+                    onAllow={() => run(p, () => api.allowOpsPerson(p.id), "Couldn't allow, try again.")}
                     onRevoke={() => setRevoking(p)}
                     onRestore={() => run(p, () => api.restoreOpsPerson(p.id), "Couldn't restore, try again.")}
                     onRemove={() => {
@@ -475,6 +629,7 @@ export default function PeoplePage() {
                 <PeopleTable
                   people={visible}
                   busyKey={busyKey}
+                  onAllow={(p) => run(p, () => api.allowOpsPerson(p.id), "Couldn't allow, try again.")}
                   onRevoke={setRevoking}
                   onRestore={(p) => run(p, () => api.restoreOpsPerson(p.id), "Couldn't restore, try again.")}
                   onRemove={(p) => {
@@ -532,6 +687,28 @@ export default function PeoplePage() {
         }}
         onCancel={() => setRevoking(null)}
       />
+
+      {backfilling && (
+        <BackfillSheet
+          count={backfillCount}
+          busy={backfillBusy}
+          error={backfillError}
+          onCancel={() => setBackfilling(false)}
+          onConfirm={async (typed) => {
+            setBackfillBusy(true);
+            setBackfillError(null);
+            try {
+              await api.applyOpsBackfill(typed);
+              setBackfilling(false);
+              await load();
+            } catch (e) {
+              setBackfillError(e instanceof Error && e.message ? e.message : WORDING.backfillFailed);
+            } finally {
+              setBackfillBusy(false);
+            }
+          }}
+        />
+      )}
 
       {removing && (
         <RemoveSheet

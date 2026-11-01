@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, cancelNativeLogin } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
-import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
+import { AGENT_DISCLOSURE, SUPPORT_EMAIL, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
 import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
 
@@ -156,8 +156,15 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-3">
             Sorted is invite-only right now
           </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-8">
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-3">
             We are letting people in gradually. If you were expecting access, check the address you signed in with or ask the person who invited you.
+          </p>
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-8">
+            If you already use Sorted, or you were invited, email{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold text-indigo-600 dark:text-indigo-400 underline underline-offset-2">
+              {SUPPORT_EMAIL}
+            </a>{" "}
+            and we can look into it.
           </p>
           <button
             type="button"
