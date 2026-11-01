@@ -21,7 +21,9 @@ from app.db.collections import (
 )
 from app.services.categorisation import rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
-from app.services.pending_transactions import replace_pending_for_account
+from app.services.pending_transactions import (
+    drop_handed_over, remove_handed_over_pending, replace_pending_for_account,
+)
 from app.services.own_account_transfers import (
     counterparty_category, counterparty_key, load_own_account_index,
     normalise_account_number, normalise_sort_code,
@@ -1037,6 +1039,12 @@ async def _upsert_finexer_walk(
                 "merchant_name": merchant or None,
                 "amount":        amount,
                 "currency":      currency,
+                # A183: what the pending handover needs to recognise this
+                # booked row as the settled version of a pending one.
+                "date":             tdoc["date"],
+                "transaction_type": txn_type,
+                "merchant_key":     tdoc["merchant_key"],
+                **party,
             })
     return new_txns, pending_rows
 
@@ -1523,11 +1531,23 @@ async def sync_finexer_consent(
             # (same "never overwrite a known good value with a failure" rule
             # as the balance fetch above). A filtered booked walk is partial
             # for booked rows only; pending comes from its own full fetch.
+            # A183 handover: a pending row a newly booked row has replaced is
+            # removed by amount, account, counterparty (or merchant) and a
+            # short date window, never by id (the ids differ). Only rows new
+            # this sync count as the settled twin.
             if not fetch_failed and not pending_failed:
+                kept_pending, handed_over = drop_handed_over(list(merged_pending.values()), booked["new"])
+                if handed_over:
+                    logger.info("Finexer pending handover: %d pending row(s) replaced by booked for an account", len(handed_over))
                 await replace_pending_for_account(
-                    list(merged_pending.values()), account_id, user_id, provider="Finexer",
+                    kept_pending, account_id, user_id, provider="Finexer",
                     account_currency=currency,
                 )
+            elif not fetch_failed and pending_failed:
+                try:
+                    await remove_handed_over_pending(booked["new"], account_id, user_id, provider="Finexer")
+                except Exception:
+                    logger.exception("Finexer pending handover failed for an account; continuing")
 
             # A176 (F1): in EVERY sync path, read the sync object once after the
             # walk (a GET, no documented hourly limit) so bank_synced_to tracks
