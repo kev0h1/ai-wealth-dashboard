@@ -68,8 +68,16 @@ async def finexer_providers(user: dict = Depends(current_user)):
     if providers:
         # A148: hand the client a same-origin logo path (resolved against the
         # API base), never Finexer's remote URL, which the site CSP blocks.
+        # A183: expose only what the picker needs, including health_status for
+        # the plain notice; the remote logo_url and roles stay server side.
         providers = [
-            {**p, "logo": provider_logo_path(p.get("id", ""), p.get("logo"))}
+            {
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "logo": provider_logo_path(p.get("id", ""), p.get("logo")),
+                "bg_colors": p.get("bg_colors") or [],
+                "health_status": p.get("health_status") or "operational",
+            }
             for p in providers
         ]
         providers = sorted(providers, key=lambda p: (p.get("name") or "").lower())

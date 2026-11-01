@@ -495,6 +495,20 @@ _PROVIDERS_MAX_TIME_MS = 3000
 _providers_memo: Optional[dict] = None  # {"providers": [...], "fetched_at": datetime}
 
 
+def provider_health(value) -> str:
+    """A183: Finexer's provider health as one of operational, degraded, down.
+    An absent or unrecognised value reads as operational: a bank is only
+    flagged when Finexer says so."""
+    v = str(value or "").strip().lower()
+    if v in ("degraded", "down"):
+        return v
+    if v in ("unavailable", "outage", "offline", "major_outage"):
+        return "down"
+    if v in ("partial_outage", "partial", "issues", "impaired"):
+        return "degraded"
+    return "operational"
+
+
 def _providers_fresh(fetched_at, ttl_hours: float) -> bool:
     if not isinstance(fetched_at, datetime):
         return False
@@ -572,7 +586,11 @@ async def list_providers(counter: Optional[dict] = None, *, force: bool = False)
                         "id":       p["id"],
                         "name":     p.get("name", p["id"]),
                         "logo":     p.get("logo_url", ""),
+                        # A183: the rest of what Finexer says about a provider.
+                        "logo_url": p.get("logo_url", ""),
                         "bg_colors": p.get("bg_colors") or [],
+                        "roles":    list(p.get("roles") or []),
+                        "health_status": provider_health(p.get("health_status")),
                     })
             paging = data.get("paging") or {}
             if not paging.get("next"):

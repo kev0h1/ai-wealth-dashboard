@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
+import { providerHealthNotice } from "@/lib/providerHealth";
 import UpcomingFlowSheet from "@/components/UpcomingFlowSheet";
 import { BankSearch, BankResults, ChosenBank, ConnectionNotice, ContinueAction } from "./BankConnectionParts";
 
@@ -65,6 +66,11 @@ export default function BankConnectionFlow({ banks, loading, loadError, connecti
       subtitle: "Understand what you are connecting before you continue.",
       body: <>
         <ChosenBank bank={selected} onChange={navigation.back} disabled={pending} />
+        {providerHealthNotice(selected.name, selected.health_status) && (
+          <p data-provider-health role="status" className="border-b border-slate-200 py-4 text-sm leading-6 text-slate-700 dark:border-slate-700 dark:text-slate-200">
+            {providerHealthNotice(selected.name, selected.health_status)}
+          </p>
+        )}
         <ConnectionNotice />
       </>,
       footer: <>

@@ -20,6 +20,8 @@ export interface Bank {
   id: string;
   name: string;
   logo: string;
+  /** A183: operational, degraded or down, from Finexer's provider list. */
+  health_status?: string;
 }
 
 /** Archived A155 exploration and legacy picker placements. Finexer production

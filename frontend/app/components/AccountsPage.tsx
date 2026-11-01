@@ -61,6 +61,7 @@ import AccountBankEmpty from "@/components/AccountBankEmpty";
 import AccountRefreshRow from "@/components/AccountRefreshRow";
 import { canRefreshAccount, type AccountRefreshResult } from "@/lib/accountRefresh";
 import { noticeSheet } from "@/components/ConfirmSheet";
+import { useProviderHealth } from "@/lib/useProviderHealth";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
@@ -1671,6 +1672,7 @@ export default function AccountsPage() {
     }
     return [...grouped.values()];
   }, [bankAccounts]);
+  const providerHealth = useProviderHealth(reconnectProviders.length > 0);
   function handleEstateReconnect(provider: ReconnectProvider) {
     const account = bankAccounts.find((candidate) => {
       if (candidate.status !== "expired") return false;
@@ -3126,7 +3128,7 @@ export default function AccountsPage() {
                 )}
 
                 {reconnectProviders.length > 0 && (
-                  <ReconnectStrip providers={reconnectProviders} onReconnect={handleEstateReconnect} />
+                  <ReconnectStrip providers={reconnectProviders.map(p => ({ ...p, health_status: p.provider_id ? providerHealth[p.provider_id] : undefined }))} onReconnect={handleEstateReconnect} />
                 )}
 
                 <AccountsEstateControls query={estateQuery} onQuery={setEstateQuery} lens={estateLens} onLens={setEstateLens} />
