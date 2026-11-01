@@ -33,7 +33,7 @@ assert.match(html, /aria-expanded="false"/);
 assert.match(html, />Subscription</);
 assert.ok(!/Set plan|Reset trial|Grant Penny pack/.test(html), "no actions until opened");
 assert.match(section, /useState\(false\)/);
-assert.match(section, /if \(next && !sub\) void fetchSub\(\)/, "loads only when opened");
+assert.match(section, /if \(next\) void fetchSub\(\)/, "refetches on every open");
 
 // Both layouts carry the section, signed-up rows only.
 assert.match(page, /\{person\.signed_up && <SubscriptionSection personId=\{person\.id\} \/>\}/, "card");

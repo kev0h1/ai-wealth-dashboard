@@ -312,3 +312,60 @@ def test_logs_are_masked(env, caplog):
     with caplog.at_level(logging.INFO):
         _post(env, "set-tier", SET)
     assert ALICE not in caplog.text
+
+
+# review fixes ---------------------------------------------------------
+
+def test_formerly_stripe_user_can_be_granted_twice_then_trial_reset(env):
+    used = NOW - timedelta(days=60)
+    env.subs.docs.append({"_id": 1, "user_id": ALICE, "provider": "stripe", "source": "stripe",
+                          "stripe_subscription_id": "sub_old", "provider_subscription_id": "sub_old",
+                          "status": "expired", "tier": "plus", "billing_period": "annual",
+                          "cancel_at_period_end": True, "trial_used_at": used,
+                          "trial_ends_at": used + timedelta(days=14)})
+    assert _post(env, "set-tier", SET).status_code == 200
+    d = env.subs.docs[0]
+    for f in ("stripe_subscription_id", "provider_subscription_id", "cancel_at_period_end", "trial_ends_at", "billing_period"):
+        assert f not in d
+    assert sa.doc_live_provider(d) is None
+    assert _post(env, "set-tier", {**SET, "tier": "plus", "confirm": "plus"}).status_code == 200
+    assert _post(env, "reset-trial", {"confirm": "RESET", "reason": "x"}).status_code == 200
+    assert "trial_reset_at" in env.subs.docs[0]
+
+
+def test_manual_source_never_reads_as_live():
+    assert sa.doc_live_provider({**LIVE_STRIPE, "managed_by": "manual"}) == "stripe"
+    assert sa.doc_live_provider({**LIVE_STRIPE, "source": "manual"}) is None
+    assert sa.doc_live_provider({"provider": "stripe", "stripe_subscription_id": "s", "status": "active"}) is None
+
+
+def test_cancel_grant_refuses_a_live_stripe_doc_with_manual_flag(env):
+    env.subs.docs.append({"_id": 1, "user_id": ALICE, **LIVE_STRIPE, "managed_by": "manual"})
+    before = dict(env.subs.docs[0])
+    r = _post(env, "cancel-grant", {"reason": "x"})
+    assert r.status_code == 409 and "Manage it in Stripe" in r.json()["detail"]
+    assert env.subs.docs == [before] and env.audit.docs == [] and env.wiped == []
+
+
+def test_bot_endpoint_refuses_live_provider_lowercases_and_wipes(env):
+    owner = {"email": PRIMARY_EMAIL}
+    env.subs.docs.append({"_id": 1, "user_id": ALICE, **LIVE_APPLE})
+    with pytest.raises(Exception) as ei:
+        asyncio.run(sub_router.admin_set_tier({"email": " Alice@Example.com ", "tier": "lite"}, owner))
+    assert getattr(ei.value, "status_code", None) == 409 and "Manage it in the store" in ei.value.detail
+    env.subs.docs.clear()
+    asyncio.run(sub_router.admin_set_tier({"email": " Alice@Example.com ", "tier": "lite"}, owner))
+    assert env.subs.docs[0]["user_id"] == ALICE and env.wiped == [ALICE]
+
+
+@pytest.mark.parametrize("raw", ["2026-12-31xyz", "2026-12-3", "31/12/2030", "2999-01-01T00:00"])
+def test_expiry_is_parsed_strictly(env, raw):
+    assert _post(env, "set-tier", {**SET, "expires_at": raw}).status_code == 400
+    assert env.subs.docs == []
+
+
+def test_reset_trial_leaves_store_documents_alone(env):
+    env.subs.docs.append({"_id": 1, "user_id": ALICE, "provider": "apple", "source": "apple",
+                          "status": "expired", "trial_used_at": NOW})
+    assert _post(env, "reset-trial", {"confirm": "RESET", "reason": "x"}).status_code == 409
+    assert "trial_used_at" in env.subs.docs[0]

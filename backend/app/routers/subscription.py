@@ -264,7 +264,7 @@ async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
     if not (is_bot or is_owner):
         raise HTTPException(403, "Admin only")
 
-    target_email = body.get("email")
+    target_email = (body.get("email") or "").strip().lower()
     tier_name    = body.get("tier", "").lower()
     if not target_email:
         raise HTTPException(400, "email required")
@@ -272,8 +272,14 @@ async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, f"tier must be one of: {list(TIER_BY_NAME)}")
 
     # E14: one write shared with the owner's People page.
-    from app.services.subscription_admin import set_manual_tier
-    await set_manual_tier(target_email, tier_name)
+    from app.services import response_cache
+    from app.services.subscription_admin import LIVE_REFUSAL, LiveProviderError, set_manual_tier
+    try:
+        await set_manual_tier(target_email, tier_name)
+    except LiveProviderError:
+        from app.services.subscription_admin import live_provider, user_docs
+        raise HTTPException(409, LIVE_REFUSAL[live_provider(await user_docs(target_email)) or "stripe"])
+    await response_cache.ainvalidate(target_email)
     return {"ok": True, "email": target_email, "tier": tier_name}
 
 

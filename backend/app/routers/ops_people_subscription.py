@@ -21,8 +21,9 @@ next request.
   POST /ops/people/{id}/subscription/cancel-grant  {reason}
 
 reset-trial clears `trial_used_at` and `trial_ends_at` and stamps
-`trial_reset_at` on the person's non-live subscription documents, so the
-introductory trial can be taken again at Checkout. Nothing else changes.
+`trial_reset_at` on the person's non-live Stripe-slot document only (the one
+document Stripe Checkout reads), so the introductory trial can be taken again.
+Apple and Google documents are left alone. Nothing else changes.
 """
 import logging
 import re
@@ -51,11 +52,8 @@ router = APIRouter(prefix="/ops/people", tags=["ops"])
 
 MAX_GRANT_DAYS = 3650
 _EMAILISH = re.compile(r"[^\s@]+@[^\s@]+")
-LIVE_REFUSAL = {
-    "stripe": "This person has a live Stripe subscription. Manage it in Stripe, not here.",
-    "apple": "This person has a live App Store subscription. Manage it in the store, not here.",
-    "google": "This person has a live Google Play subscription. Manage it in the store, not here.",
-}
+LIVE_REFUSAL = sa.LIVE_REFUSAL
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _clean_reason(v: str) -> str:
@@ -111,7 +109,10 @@ def _parse_expiry(raw: str | None) -> datetime | None:
     if raw is None or not str(raw).strip():
         return None
     try:
-        d = date.fromisoformat(str(raw).strip()[:10])
+        text = str(raw).strip()
+        if not _ISO_DATE.fullmatch(text):
+            raise ValueError(text)
+        d = date.fromisoformat(text)
     except ValueError:
         raise HTTPException(400, "Enter the expiry as a date, like 2026-12-31.")
     end = datetime.combine(d, time(23, 59, 59), tzinfo=timezone.utc)
@@ -205,8 +206,11 @@ async def set_tier(pid: str, body: SetTierBody, user: dict = Depends(current_use
     if (body.confirm or "").strip().lower() != tier:
         raise HTTPException(400, "Type the plan name to confirm.")
     expires = _parse_expiry(body.expires_at)
-    _refuse_if_live(await sa.user_docs(uid))
-    await sa.set_manual_tier(uid, tier, expires)
+    try:
+        await sa.set_manual_tier(uid, tier, expires)
+    except sa.LiveProviderError:
+        # Lost a race with a provider write: say which one is live now.
+        raise HTTPException(409, LIVE_REFUSAL[sa.live_provider(await sa.user_docs(uid)) or "stripe"])
     until = f" until {expires.date().isoformat()}" if expires else " with no expiry"
     await _finish(actor, uid, pid, "set_tier", f"Set plan to {tier}{until}", body.reason)
     return {"ok": True}
@@ -246,6 +250,10 @@ async def reset_trial(pid: str, body: ResetTrialBody, user: dict = Depends(curre
 async def cancel_grant(pid: str, body: CancelGrantBody, user: dict = Depends(current_user)):
     actor = _require_owner_session(user)
     uid = await _target(pid)
+    for doc in await sa.user_docs(uid):
+        live = sa.doc_live_provider(doc)
+        if live and doc.get("managed_by") == "manual":
+            raise HTTPException(409, LIVE_REFUSAL[live])
     if not await sa.cancel_manual_grant(uid):
         raise HTTPException(409, "There is no manual grant to cancel.")
     await _finish(actor, uid, pid, "cancel_grant", "Manual grant removed", body.reason)

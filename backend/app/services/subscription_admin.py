@@ -38,15 +38,31 @@ def doc_provider(doc: dict) -> str:
     return provider if provider in ("stripe", "apple", "google") else "stripe"
 
 
+LIVE_REFUSAL = {
+    "stripe": "This person has a live Stripe subscription. Manage it in Stripe, not here.",
+    "apple": "This person has a live App Store subscription. Manage it in the store, not here.",
+    "google": "This person has a live Google Play subscription. Manage it in the store, not here.",
+}
+
+
+class LiveProviderError(Exception):
+    """A live Stripe, Apple or Google Play subscription owns this user's plan."""
+
+    def __init__(self, provider: str):
+        self.provider = provider
+        super().__init__(LIVE_REFUSAL[provider])
+
+
 def doc_live_provider(doc: dict) -> str | None:
     """The provider that owns this document when it is a live paid
-    subscription, else None."""
+    subscription, else None. A document with `source: "manual"` is never live; one
+    that only carries `managed_by: "manual"` is live if its `source` says so. Stripe liveness is `source == "stripe"`, the same test
+    _subscription_from_doc uses for a paid-backed document."""
+    if doc.get("source") == "manual":
+        return None
     if doc.get("status") not in LIVE_STATUSES:
         return None
     provider = doc_provider(doc)
-    if provider == "stripe":
-        backed = bool(doc.get("source") == "stripe" or doc.get("stripe_subscription_id"))
-        return "stripe" if backed else None
     return provider if doc.get("source") == provider else None
 
 
@@ -64,7 +80,7 @@ def live_provider(docs: list[dict]) -> str | None:
 
 def manual_doc(docs: list[dict]) -> dict | None:
     for doc in docs:
-        if doc_provider(doc) == "stripe" and doc.get("managed_by") == "manual":
+        if doc_provider(doc) == "stripe" and doc.get("managed_by") == "manual" and not doc_live_provider(doc):
             return doc
     return None
 
@@ -72,15 +88,25 @@ def manual_doc(docs: list[dict]) -> dict | None:
 async def set_manual_tier(email: str, tier: str, expires_at: datetime | None = None) -> None:
     """Write the manual grant. The one write behind PATCH
     /subscription/admin/set-tier and POST /ops/people/{id}/subscription/set-tier.
-    Callers validate the tier and decide about live providers."""
+    Callers validate the tier. Raises LiveProviderError when a live Stripe,
+    Apple or Google Play subscription exists; nothing is written then. Any
+    ended Stripe fields on the document are cleared (as select-free does), so
+    the person no longer reads as Stripe-backed."""
     if tier not in TIER_BY_NAME:
         raise ValueError("unknown tier")
+    live = live_provider(await user_docs(email))
+    if live:
+        raise LiveProviderError(live)
     now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
     update: dict = {
         "$set": {
             "user_id": email, "provider": "stripe", "tier": tier, "status": "active",
             "managed_by": "manual", "source": "manual", "updated_at": now,
             "expires_at": expires_at,
+        },
+        "$unset": {
+            "trial_ends_at": "", "billing_period": "", "cancel_at_period_end": "",
+            "stripe_subscription_id": "", "provider_subscription_id": "",
         },
         "$setOnInsert": {"started_at": now},
     }
@@ -106,14 +132,14 @@ async def cancel_manual_grant(email: str) -> bool:
 
 
 async def reset_trial(email: str) -> int:
-    """Clear the introductory-trial markers on the user's non-live documents and
+    """Clear the introductory-trial markers on the user's non-live Stripe-slot document and
     stamp `trial_reset_at`, so billing._trial_reset_applies lets a trial
     Checkout through again. Touches nothing else: not the tier, status, billing
     period, or any Stripe field. Returns the number of documents changed."""
     changed = 0
     now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
     for doc in await user_docs(email):
-        if doc_live_provider(doc):
+        if doc_live_provider(doc) or doc_provider(doc) != "stripe":
             continue
         res = await cols.subscriptions_col.update_one(
             {"_id": doc["_id"]},
@@ -125,7 +151,7 @@ async def reset_trial(email: str) -> int:
 
 def has_trial_to_reset(docs: list[dict]) -> bool:
     return any(
-        not doc_live_provider(d) and (
+        doc_provider(d) == "stripe" and not doc_live_provider(d) and (
             d.get("trial_used_at") or d.get("trial_ends_at")
             or d.get("source") == "stripe" or d.get("stripe_subscription_id"))
         for d in docs

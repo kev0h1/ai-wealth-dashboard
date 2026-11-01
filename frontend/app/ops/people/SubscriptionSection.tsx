@@ -205,7 +205,7 @@ export default function SubscriptionSection({ personId }: { personId: string }) 
   function toggle() {
     const next = !open;
     setOpen(next);
-    if (next && !sub) void fetchSub();
+    if (next) void fetchSub();
   }
 
   async function submit(v: { tier: string; pack: string; expires: string; reason: string; typed: string }) {
