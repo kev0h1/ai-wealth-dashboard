@@ -17,9 +17,11 @@
 
 import type { Account } from "@/lib/api";
 
-export type SourceClass = "current" | "savings";
+export type SourceClass = "current" | "savings" | "none";
 
 export function sourceClass(account: Account): SourceClass {
+  // A181: a loan or mortgage is owed money, never a source.
+  if ((account.type ?? "").toLowerCase() === "debt") return "none";
   const type = (account.type ?? "").toLowerCase();
   const subtype = (account.subtype ?? "").toLowerCase();
   return type.includes("saving") || subtype.includes("saving") || subtype.includes("isa")

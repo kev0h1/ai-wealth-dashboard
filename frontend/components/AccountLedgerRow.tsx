@@ -10,10 +10,11 @@
 
 import { AlertTriangle, Info, Star } from "lucide-react";
 import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
-import { accountKindLabel } from "@/lib/accountKind";
+import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { MaskedAmount } from "@/lib/balancesHidden";
+import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import type { AccountAvailabilityReading } from "@/lib/accountAvailability";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 import ActionLabel from "@/components/ActionLabel";
@@ -152,12 +153,16 @@ export default function AccountLedgerRow({
   // G231: a bank account the user does not count towards Safe to Spend. The
   // balance still shows; only a quiet slate tag says it is not counted.
   const notCounted = row.source === "bank" && (row.raw as Account).include_in_safe_to_spend === false;
+  // A181: Finexer reports business accounts; a quiet tag says so.
+  const isBusiness = row.source === "bank" && isBusinessAccount(row.raw as Account);
 
   // Direction of money, not just account kind — an overdrawn current/savings
   // account is genuine risk (Red Is Risk), a credit card in credit is not
   // debt at all. isDormant only ever matches balance === 0, so a negative
   // balance is never also muted.
-  const isOverdrawn = !isCredit && row.balance < 0;
+  // A181: a loan or mortgage is owed money, never an overdrawn account: neutral tone, "owed" caption.
+  const isDebt = row.kind === "Debt";
+  const isOverdrawn = !isCredit && !isDebt && row.balance < 0;
   const isOwedOnCredit = isCredit && row.balance < 0;
   const isCreditInCredit = isCredit && row.balance > 0;
   const negative = row.balance < 0;
@@ -170,7 +175,7 @@ export default function AccountLedgerRow({
   // Spoken/aria state word — unchanged from before the redesign, so screen
   // readers still hear "owed" / "in credit" / "overdrawn" even though the
   // visual caption below only survives for non-credit rows.
-  const stateCaption = isOwedOnCredit ? "owed" : isCreditInCredit ? "in credit" : isOverdrawn ? "overdrawn" : null;
+  const stateCaption = isOwedOnCredit || (isDebt && row.balance < 0) ? "owed" : isCreditInCredit ? "in credit" : isOverdrawn ? "overdrawn" : null;
   // Red is earned (Variant B): a credit balance only renders rose when the
   // card is genuinely accruing interest right now — a confirmed standard
   // APR with no active 0% promo covering today (termsPillFor sets
@@ -203,6 +208,10 @@ export default function AccountLedgerRow({
   // updating, and excluded accounts never surface a spendable reading.
   const availabilityReading =
     row.source === "bank" && row.kind === "Current" && !notCounted && !sync ? availability : undefined;
+  // A181: with an arranged overdraft the current balance stays the headline and
+  // the reach with the overdraft is a hedged secondary line. Never cash.
+  const overdraftReading =
+    row.source === "bank" && !sync && !availabilityReading ? overdraftAvailable(row.raw as Account) : null;
   const availabilityAria = availabilityReading
     ? availabilityReading.kind === "ready"
       ? `, available: ${hideAmount ? "amount hidden" : moneyStr(availabilityReading.value)}${
@@ -224,7 +233,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : moneyStr(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -246,6 +255,11 @@ export default function AccountLedgerRow({
           <span className="truncate">
             {row.provider} · {accountKindLabel(row.kind)}
           </span>
+          {isBusiness && (
+            <span data-a181-business className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span aria-hidden="true">· </span>Business
+            </span>
+          )}
           {notCounted && (
             <span data-g231-not-counted className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
               <span aria-hidden="true">· </span>Not counted
@@ -266,7 +280,7 @@ export default function AccountLedgerRow({
                 : muted
                   ? "text-slate-400 dark:text-slate-500"
                   : "text-slate-900 dark:text-slate-100"
-              : negative
+              : negative && !isDebt
                 ? "text-rose-600 dark:text-rose-400"
                 : muted
                   ? "text-slate-400 dark:text-slate-500"
@@ -295,12 +309,17 @@ export default function AccountLedgerRow({
             )}
           </p>
         ) : null}
+        {overdraftReading !== null ? (
+          <p data-a181-overdraft className="max-w-[10rem] text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+            {availableWithOverdraftText(hideAmount ? "£••••" : moneyStr(overdraftReading))}
+          </p>
+        ) : null}
         {/* Visual "owed"/"in credit" caption is gone on credit rows per
             Variant B — the minus sign above plus the terms chip below carry
             that meaning instead, so the right column never stacks three
             deep. The compact Available caption uses the same slot on current rows;
             overdrawn remains in the row’s accessible name and bank sign/tone. */}
-        {!isCredit && stateCaption && !availabilityReading && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
+        {!isCredit && stateCaption && !availabilityReading && overdraftReading === null && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
 
         {/* Card-terms pill / Add-rates affordance — mirrors AccountMiniCard's
             calm-variant treatment. APR is information, not alarm (muted

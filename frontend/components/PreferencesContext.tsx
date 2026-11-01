@@ -10,6 +10,7 @@ import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 import { todayIso } from "@/lib/calendar";
 import type { GuideId } from "@/lib/paySplitReference";
+import { DEFAULT_PENNY_APPEARANCE, pennyAppearanceFromSnapshot, type PennyAppearance } from "@/lib/pennyAppearance";
 
 /** G60: which of this context's five server-backed setters last failed to
  * save, and what to tell the user. A single slot, not one per field —
@@ -37,6 +38,7 @@ interface Prefs {
    * should mask while this is false to avoid a privacy flash. */
   preferencesReady: boolean;
   darkMode: boolean;
+  pennyAppearance: PennyAppearance;
   /** G189: display preference, default true. False hides the Spend and
    * Transactions tips (the server also serves none). */
   showTips: boolean;
@@ -62,6 +64,7 @@ interface Prefs {
 interface PrefsCtx extends Prefs {
   setHideNetWorth: (v: boolean) => void;
   setDarkMode: (v: boolean) => void;
+  setPennyAppearance: (v: PennyAppearance) => void;
   setShowTips: (v: boolean) => void;
   setPayPeriodConfig: (c: PayPeriodConfig) => void;
   setDebtTargetMonths: (n: number) => void;
@@ -111,6 +114,7 @@ const Ctx = createContext<PrefsCtx>({
   hideNetWorth: true,
   preferencesReady: false,
   darkMode: false,
+  pennyAppearance: DEFAULT_PENNY_APPEARANCE,
   showTips: true,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   debtTargetMonths: 12,
@@ -124,6 +128,7 @@ const Ctx = createContext<PrefsCtx>({
   preferencesSaveError: null,
   setHideNetWorth: () => {},
   setDarkMode: () => {},
+  setPennyAppearance: () => {},
   setShowTips: () => {},
   setPayPeriodConfig: () => {},
   setDebtTargetMonths: () => {},
@@ -153,6 +158,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return false;
     try { return localStorage.getItem("wd_dark") === "1"; } catch { return false; }
   });
+  const [pennyAppearance, setPennyAppearanceState] = useState<PennyAppearance>(DEFAULT_PENNY_APPEARANCE);
   const [showTips, setShowTipsState] = useState(() => {
     if (typeof window === "undefined") return true;
     try { return localStorage.getItem("wd_show_tips") !== "0"; } catch { return true; }
@@ -191,6 +197,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     darkModeRef.current = v;
     setDarkModeState(v);
     try { localStorage.setItem("wd_dark", v ? "1" : "0"); } catch {}
+  }, []);
+
+  const pennyAppearanceRef = useRef(pennyAppearance);
+  const applyPennyAppearance = useCallback((v: PennyAppearance) => {
+    const next = pennyAppearanceFromSnapshot(v);
+    pennyAppearanceRef.current = next;
+    setPennyAppearanceState(next);
   }, []);
 
   const showTipsRef = useRef(showTips);
@@ -382,6 +395,16 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     onSuccess: invalidateSpendCaches,
   })).current;
 
+  const pennyAppearanceSaver = useRef(createPreferenceSaver<PennyAppearance>({
+    queue: createSerialQueue(),
+    getCurrent: () => pennyAppearanceRef.current,
+    apply: applyPennyAppearance,
+    save: (v) => api.updatePreferences({ penny_appearance: v }),
+    reconcile: makeFieldReconcile<PennyAppearance>(fetchPreferencesSnapshot, "penny_appearance", pennyAppearanceFromSnapshot),
+    noteVersion: notePreferencesVersion,
+    onError: makeFieldErrorHandler("penny_appearance"),
+  })).current;
+
   const showTipsSaver = useRef(createPreferenceSaver<boolean>({
     queue: createSerialQueue(),
     getCurrent: () => showTipsRef.current,
@@ -459,6 +482,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         {
           applyHideNetWorth,
           applyDarkMode,
+          applyPennyAppearance,
           applyShowTips,
           applyPayPeriodConfig,
           applyDebtTargetMonths,
@@ -480,6 +504,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         {
           hideNetWorth: () => hideNetWorthSaver.isSaving.current,
           darkMode: () => darkModeSaver.isSaving.current,
+          pennyAppearance: () => pennyAppearanceSaver.isSaving.current,
           showTips: () => showTipsSaver.isSaving.current,
           payPeriodConfig: () => payPeriodConfigSaver.isSaving.current,
           debtTargetMonths: () => debtTargetMonthsSaver.isSaving.current,
@@ -492,8 +517,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, [
     fetchPreferencesSnapshot,
-    applyHideNetWorth, applyDarkMode, applyShowTips, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
-    hideNetWorthSaver, darkModeSaver, showTipsSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
+    applyHideNetWorth, applyDarkMode, applyPennyAppearance, applyShowTips, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
+    hideNetWorthSaver, darkModeSaver, pennyAppearanceSaver, showTipsSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
     applyOpenLastChat, openLastChatSaver, applyPaySplitReference, paySplitReferenceSaver,
   ]);
 
@@ -513,6 +538,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   const setHideNetWorth = useCallback((v: boolean) => { void hideNetWorthSaver.run(v); }, [hideNetWorthSaver]);
   const setDarkMode = useCallback((v: boolean) => { void darkModeSaver.run(v); }, [darkModeSaver]);
+  const setPennyAppearance = useCallback((v: PennyAppearance) => { void pennyAppearanceSaver.run(v); }, [pennyAppearanceSaver]);
   const setShowTips = useCallback((v: boolean) => { void showTipsSaver.run(v); }, [showTipsSaver]);
   const setPayPeriodConfig = useCallback((c: PayPeriodConfig) => { void payPeriodConfigSaver.run(c); }, [payPeriodConfigSaver]);
   const setDebtTargetMonths = useCallback((n: number) => { void debtTargetMonthsSaver.run(n); }, [debtTargetMonthsSaver]);
@@ -539,9 +565,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, preferencesReady, darkMode, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, pennyAppearance, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
       openLastChat, paySplitReference, spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
-      setHideNetWorth, setDarkMode, setShowTips, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
+      setHideNetWorth, setDarkMode, setPennyAppearance, setShowTips, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
       setOpenLastChat, setPaySplitReference, setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
       notePreferencesVersion,
     }}>

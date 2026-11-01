@@ -56,6 +56,7 @@ import { resolveDisplayName, resolveFullName } from "@/lib/displayName";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import FirstAccountCard from "@/components/FirstAccountCard";
 import HomeEstateSection from "@/components/HomeEstateSection";
+import { useProviderHealth } from "@/lib/useProviderHealth";
 import { noticeSheet } from "@/components/ConfirmSheet";
 
 const MiscategorisedReviewSheet = dynamic(() => import("@/components/MiscategorisedReviewSheet"));
@@ -898,6 +899,7 @@ export default function HomePage() {
     }
     return [...grouped.values()];
   }, [accounts, bankConnections]);
+  const providerHealth = useProviderHealth(expiredProviders.length > 0);
 
   // A67: reconnect REPAIRS one named connection, so it must go back to the
   // provider that owns that consent — sending an expired TrueLayer account
@@ -1032,7 +1034,7 @@ export default function HomePage() {
   // attention resolver outright rather than gated here.
   const reauthBanner = expiredProviders.length > 0 && (
     <ReconnectStrip
-      providers={expiredProviders}
+      providers={expiredProviders.map(p => ({ ...p, health_status: p.provider_id ? providerHealth[p.provider_id] : undefined }))}
       onReconnect={(provider) => handleReconnect(provider.provider_id, provider.source)}
     />
   );

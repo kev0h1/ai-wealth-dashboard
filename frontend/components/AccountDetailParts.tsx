@@ -4,11 +4,12 @@ import { BankBadge } from "@/components/AccountMiniCard";
 /** The kind line under an account's balance. G233: an offline account has
  *  provider "Offline" and kind "Offline", which used to read "Offline · Offline".
  *  Show the type once ("Offline account"). */
-export function accountDetailKindText(kindLabel: string, provider: string | undefined | null, consentExpiry?: string | null): string {
+export function accountDetailKindText(kindLabel: string, provider: string | undefined | null, consentExpiry?: string | null, business?: boolean): string {
   const p = (provider ?? "").trim();
   const isOffline = kindLabel === "Offline" || p.toLowerCase() === "offline";
   const head = isOffline ? "Offline account" : p ? `${kindLabel} · ${p}` : kindLabel;
-  return consentExpiry ? `${head} · ${consentExpiry}` : head;
+  const tagged = business ? `${head} · Business` : head;
+  return consentExpiry ? `${tagged} · ${consentExpiry}` : tagged;
 }
 
 export function AccountDetailIdentity({
@@ -22,11 +23,11 @@ export function AccountDetailIdentity({
   );
 }
 
-export function AccountDetailKindLine({ kindLabel, provider, consentExpiry, connectionNotes }: { kindLabel: string; provider?: string | null; consentExpiry?: string | null; connectionNotes?: string[] }) {
+export function AccountDetailKindLine({ kindLabel, provider, consentExpiry, business, connectionNotes }: { kindLabel: string; provider?: string | null; consentExpiry?: string | null; business?: boolean; connectionNotes?: string[] }) {
   return (
     <>
       <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
-        {accountDetailKindText(kindLabel, provider, consentExpiry)}
+        {accountDetailKindText(kindLabel, provider, consentExpiry, business)}
       </p>
       {(connectionNotes ?? []).map((note) => (
         <p key={note} className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">{note}</p>

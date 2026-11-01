@@ -41,7 +41,7 @@ for (const example of hiddenExamples) {
 
 for (const example of examplesFor("family")) {
   const html = cardHtml(example);
-  if (["ask", "ask-payday", "move", "unfunded", "payday"].includes(example.kind)) assert.match(html, /Penny/, `${example.key}: Penny identity remains`);
+  if (["ask", "ask-payday", "move", "unfunded", "payday"].includes(example.kind)) assert.doesNotMatch(html, /Penny/, `${example.key}: Penny identity lives at the adviser door, not the card`);
   if (["fact", "covered", "move", "unfunded", "rhythm", "pace", "allocation", "goal"].includes(example.kind) && example.key !== "deferred") {
     assert.match(html, /(?:h-11 w-11|w-11 h-11)/, `${example.key}: dismiss remains a 44px target`);
   }

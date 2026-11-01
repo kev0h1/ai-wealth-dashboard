@@ -18,6 +18,7 @@
 // (SafeToSpendCard, UpcomingBillsStrip, HomeInsightSpotlight).
 
 import { ChevronDown } from "lucide-react";
+import { providerHealthNotice } from "@/lib/providerHealth";
 import { BankBadge, bankKey, bankLogoSrc, BANK_META, type BankMeta } from "@/components/AccountMiniCard";
 
 export type ReconnectProvider = {
@@ -27,6 +28,8 @@ export type ReconnectProvider = {
   account_count?: number;
   /** A182: plain sentence from the bank's failure code, when there is one. */
   reason?: string | null;
+  /** A183: Finexer's health for this bank; degraded or down adds a plain notice. */
+  health_status?: string;
 };
 
 interface ReconnectStripProps {
@@ -67,10 +70,17 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
     return (
       <div className="glass-card rounded-2xl p-4 flex items-center gap-3">
         <span aria-hidden="true" className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400" />
-        <span className={`flex-1 min-w-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100${provider.reason ? "" : " truncate"}`}>
-          {meta.label} needs reconnecting
+        <span className="flex-1 min-w-0">
+          <span className="block text-[13px] font-semibold text-slate-900 dark:text-slate-100 truncate">
+            {meta.label} needs reconnecting
+          </span>
           {provider.reason && (
-            <span className="block text-[11px] font-normal text-slate-500 dark:text-slate-400">{provider.reason}</span>
+            <span className="block text-[11px] leading-4 text-slate-500 dark:text-slate-400">{provider.reason}</span>
+          )}
+          {providerHealthNotice(meta.label, provider.health_status) && (
+            <span data-provider-health className="block text-[11px] leading-4 text-slate-600 dark:text-slate-300">
+              {providerHealthNotice(meta.label, provider.health_status)}
+            </span>
           )}
         </span>
         <button
@@ -124,6 +134,11 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
                 </span>
                 {p.reason && (
                   <span className="block text-[11px] text-slate-500 dark:text-slate-400">{p.reason}</span>
+                )}
+                {providerHealthNotice(meta.label, p.health_status) && (
+                  <span data-provider-health className="block text-[11px] leading-4 text-slate-600 dark:text-slate-300">
+                    {providerHealthNotice(meta.label, p.health_status)}
+                  </span>
                 )}
               </span>
               <button

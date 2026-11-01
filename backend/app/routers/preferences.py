@@ -25,6 +25,8 @@ DEFAULT_HOME_PINNED_WIDGET = "period_compare"
 # It is a display preference only: no financial calculations derive from it.
 DEFAULT_PAY_SPLIT_REFERENCE = "50-30-20"
 VALID_PAY_SPLIT_REFERENCES = frozenset({"50-30-20", "conscious", "first"})
+DEFAULT_PENNY_APPEARANCE = "original"
+VALID_PENNY_APPEARANCES = frozenset({"original", "outline", "ink"})
 
 # A85 (pentest A51-2026-09-20, API-08): the exact set of top-level fields
 # PATCH /preferences has ever been asked to write, enumerated from every
@@ -63,6 +65,7 @@ ALLOWED_PREFERENCE_FIELDS = frozenset({
     "hide_net_worth",
     "show_tips",
     "dark_mode",
+    "penny_appearance",
     "pay_period_config",
     "income_value",
     "income_bracket",
@@ -107,6 +110,11 @@ def _pay_split_reference(doc: dict) -> str:
     return value if isinstance(value, str) and value in VALID_PAY_SPLIT_REFERENCES else DEFAULT_PAY_SPLIT_REFERENCE
 
 
+def _penny_appearance(doc: dict) -> str:
+    value = (doc or {}).get("penny_appearance")
+    return value if isinstance(value, str) and value in VALID_PENNY_APPEARANCES else DEFAULT_PENNY_APPEARANCE
+
+
 def _coerce_money_field(value, field_name: str) -> int:
     """Accept int/float/numeric-string (commas and whitespace stripped) and
     return an int. Raises HTTPException(422) on anything non-coercible, so a
@@ -149,6 +157,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         # Transactions tips (and the savings-insights API serves none).
         "show_tips":          doc.get("show_tips", True),
         "dark_mode":          doc.get("dark_mode", False),
+        "penny_appearance":   _penny_appearance(doc),
         "pay_period_config":  doc.get("pay_period_config", {"type": "calendar_month"}),
         "debt_target_months": doc.get("debt_target_months", 12),
         "notification_prefs": _notif_prefs(doc),
@@ -449,6 +458,10 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
                 status_code=422,
                 detail="pay_split_reference must be one of: 50-30-20, conscious, first",
             )
+    if "penny_appearance" in body:
+        appearance = body["penny_appearance"]
+        if not isinstance(appearance, str) or appearance not in VALID_PENNY_APPEARANCES:
+            raise HTTPException(status_code=422, detail="penny_appearance must be one of: original, outline, ink")
 
     # A85 optimistic-concurrency fix: an optional `expected_version` in the
     # JSON body -- the same body-carried convention the frontend already
@@ -601,6 +614,7 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         "hide_net_worth": doc.get("hide_net_worth", False),
         "show_tips": doc.get("show_tips", True),
         "dark_mode": doc.get("dark_mode", False),
+        "penny_appearance": _penny_appearance(doc),
         "open_last_chat": doc.get("open_last_chat", False),
         "pay_split_reference": _pay_split_reference(doc),
         "version": doc.get("version", 1),

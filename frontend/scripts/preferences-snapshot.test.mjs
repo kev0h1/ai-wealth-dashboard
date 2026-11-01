@@ -482,11 +482,12 @@ function extractCallbackBody(src, fnName) {
   return extractBalanced(src, braceIndex, "{", "}");
 }
 
-// The five fields, each with: its server-document key, its saver variable
+// The context-owned fields, each with: its server-document key, its saver variable
 // name, and the key it should use in loadPreferences' skip map.
 const FIELD_SAVER_PAIRS = [
   { key: "hide_net_worth", saverVar: "hideNetWorthSaver", skipKey: "hideNetWorth" },
   { key: "dark_mode", saverVar: "darkModeSaver", skipKey: "darkMode" },
+  { key: "penny_appearance", saverVar: "pennyAppearanceSaver", skipKey: "pennyAppearance" },
   { key: "show_tips", saverVar: "showTipsSaver", skipKey: "showTips" },
   { key: "pay_period_config", saverVar: "payPeriodConfigSaver", skipKey: "payPeriodConfig" },
   { key: "debt_target_months", saverVar: "debtTargetMonthsSaver", skipKey: "debtTargetMonths" },
@@ -506,9 +507,9 @@ function testRealContextFileWiresEachFieldToMakeFieldReconcile() {
   const reconcileLines = [
     ...contextSrc.matchAll(/reconcile:\s*makeFieldReconcile<[^>]+>\(\s*fetchPreferencesSnapshot,\s*"([a-z_]+)"(?:,\s*[^\n)]*)?\s*\)/g),
   ].map((m) => m[1]);
-  check("components/PreferencesContext.tsx wires exactly eight fields through makeFieldReconcile", reconcileLines.length === 8);
+  check("components/PreferencesContext.tsx wires exactly nine fields through makeFieldReconcile", reconcileLines.length === 9);
   check(
-    "the eight fields wired are exactly the expected set",
+    "the nine fields wired are exactly the expected set",
     JSON.stringify([...reconcileLines].sort()) === JSON.stringify(FIELD_SAVER_PAIRS.map((f) => f.key).sort())
   );
   check(

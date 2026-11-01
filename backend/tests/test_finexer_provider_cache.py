@@ -111,7 +111,7 @@ def test_cold_cache_walks_api_and_writes_doc(monkeypatch):
     counter: dict = {}
     result = asyncio.run(finexer_sync.list_providers(counter=counter))
 
-    assert result == [{"id": "amex", "name": "American Express", "logo": "", "bg_colors": []}]
+    assert result == [{"id": "amex", "name": "American Express", "logo": "", "logo_url": "", "bg_colors": [], "roles": ["ais"], "health_status": "operational"}]
     assert counter == {"requests": 1}
     assert len(client.calls) == 1
 
@@ -205,7 +205,7 @@ def test_expired_cache_rewalks(monkeypatch):
     counter: dict = {}
     result = asyncio.run(finexer_sync.list_providers(counter=counter))
 
-    assert result == [{"id": "new", "name": "New Bank", "logo": "", "bg_colors": []}]
+    assert result == [{"id": "new", "name": "New Bank", "logo": "", "logo_url": "", "bg_colors": [], "roles": ["ais"], "health_status": "operational"}]
     assert counter == {"requests": 1}
     assert len(client.calls) == 1
     assert len(col.replace_calls) == 1
@@ -255,7 +255,7 @@ def test_failed_walk_without_cache_returns_partial_and_writes_nothing(monkeypatc
     counter: dict = {}
     result = asyncio.run(finexer_sync.list_providers(counter=counter))
 
-    assert result == [{"id": "amex", "name": "American Express", "logo": "", "bg_colors": []}]
+    assert result == [{"id": "amex", "name": "American Express", "logo": "", "logo_url": "", "bg_colors": [], "roles": ["ais"], "health_status": "operational"}]
     assert counter == {"requests": 2}
     assert col.replace_calls == []
     assert col.doc is None
@@ -280,6 +280,6 @@ def test_force_refresh_skips_fresh_cache_and_rewalks(monkeypatch):
 
     result = asyncio.run(finexer_sync.list_providers(force=True))
 
-    assert result == [{"id": "new", "name": "New Bank", "logo": "", "bg_colors": []}]
+    assert result == [{"id": "new", "name": "New Bank", "logo": "", "logo_url": "", "bg_colors": [], "roles": ["ais"], "health_status": "operational"}]
     assert len(client.calls) == 1
     assert len(col.replace_calls) == 1

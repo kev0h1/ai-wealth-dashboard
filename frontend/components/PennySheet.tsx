@@ -129,7 +129,7 @@ import { useSwipeDismiss } from "@/lib/useSwipeDismiss";
 import { shouldBlockPan } from "@/lib/sheetSwipe";
 import { PENNY_PHONE_QUERY, createPennyPanelRef, pennySwipeGate } from "@/lib/pennySheetClose";
 import type { SwipeNode } from "@/lib/sheetSwipe";
-import PennyMark from "@/components/PennyMark";
+import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
 import PennyConversation from "@/components/PennyConversation";
 import { PennyChatToolbar } from "@/components/PennyChatActions";
 import PennyHistorySheet from "@/components/PennyHistorySheet";
@@ -138,7 +138,6 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { usePennyChatSession } from "@/lib/usePennyChatSession";
 import PennySheetPanel from "@/components/PennySheetPanel";
 export { default as PennySheetPanel } from "@/components/PennySheetPanel";
-import { BRAND_GRADIENT } from "@/lib/brand";
 import { getPennyScreenConfig } from "@/lib/pennyScreenConfig";
 import {
   usePennySheetState,
@@ -238,6 +237,7 @@ function AvatarRingButton({
   revealed: boolean;
   onTap: () => void;
 }) {
+  const { pennyAppearance } = usePreferences();
   const hasRing = limit != null;
   const pct = limit != null && limit > 0 ? Math.max(0, Math.min(1, used / limit)) : 0;
   const amber = pct >= 0.8;
@@ -305,14 +305,14 @@ function AvatarRingButton({
             style={{
               width: RING_AVATAR_SIZE,
               height: RING_AVATAR_SIZE,
-              background: BRAND_GRADIENT,
               borderRadius: "9999px",
+              overflow: "hidden",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <PennyMark size={13} className="text-white" />
+            <PennyAppearanceIcon appearance={pennyAppearance} size={pennyAppearance === "original" ? RING_AVATAR_SIZE : 26} originalMarkSize={13} />
           </div>
         </foreignObject>
       </svg>

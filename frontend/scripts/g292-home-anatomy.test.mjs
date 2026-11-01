@@ -45,7 +45,8 @@ for (const [Component, item] of cases) {
       else assert.doesNotMatch(html, /mt-3 text-pretty/, "missing detail does not create empty body");
     } else {
       assert.match(html, /href="\/upcoming"/, "existing CTA route retained");
-      assert.match(html, /Penny/, "Penny identity retained without its decorative tile");
+      // Approved G388 C removes repeated Penny attribution from Home cards.
+      assert.doesNotMatch(html, /Penny/, "quiet card kind replaces repeated Penny attribution");
       assert.match(html, /Premier Current/, "destination account identity retained");
       if (item.plan_dest || Component === UnfundedMoveCard) assert.match(html, /Barclays/, "existing bank identity retained");
       if (Component === UnfundedMoveCard) assert.match(html, /text-amber-500 dark:text-amber-400/, "watch cue survives removal of tile");

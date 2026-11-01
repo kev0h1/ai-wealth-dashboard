@@ -1,36 +1,20 @@
-# Penny presence design round
+# Penny presence: approved C fold-in
 
-G388 now refines Kevin’s selected C layout. His 71726/71725 screenshots show a small filled purple tile nested in the raised adviser control, plus faded action fills that read as disabled. This is a second coded design round, not production approval. Visitor mode is Operate: UK users checking what to do next on a phone, in daylight or at night. Keep the Calm Cockpit, Figtree, money typography, facts, financial signs, semantic warnings and real actions.
+Kevin approved C and asked for a saved icon choice beside Dark mode: the current production icon, C1 and C3, without a Penny caption underneath. This supersedes the second-round preview contract. Visitor mode remains Operate, within the Calm Cockpit.
 
-## Direction contract
+## Shipped direction
 
-THESIS: Keep C’s quiet cards; give Penny one clear, comfortably sized icon and make enabled primary actions look active.
+- Home brief and Payday plan keep their facts, money signs, masking, actions and semantic kind/cues. Repeated gradient Penny attribution is removed; Covered remains unbranded.
+- Primary actions stay enabled at full-strength Adviser Indigo, white labels, 12px corners and 44px minimum height.
+- Settings > Display places Penny icon immediately after Dark mode. Original is the existing/default gradient appearance, Outline is C1, and Ink is C3. Native labelled radios support touch and keyboard. The preference saves through the existing versioned account-preference pipeline with rollback and inline failure feedback.
+- Original keeps the mobile production button. Outline and Ink use a neutral 56px raised door with a direct 26px monochrome glyph. No option has a visible caption below it. Accessible naming, open/pressed state, payday dot and keyboard/nav behaviour remain. The saved appearance also follows the user into the desktop adviser entry, chat header and composer entry.
+- No C2 chat bubble and no changed financial calculation. The canonical PennyMark remains unchanged for other authored attribution elsewhere.
 
-OWN-WORLD: Existing slate/white surfaces, Figtree and mono money, with solid Adviser Indigo #4f46e5 actions and white labels in both themes. The neutral 56px raised door holds one 26px monochrome mark directly, not an icon inside a coloured tile. C1 outlines the canonical Penny geometry, C2 uses the existing Lucide outline vocabulary for chat, C3 uses the exact incumbent PennyMark. Header and door use the same glyph. No sparkle or decorative gradient. Kevin explicitly requested an outline and other icon variants; this does not replace the global mark.
+## Delivery and evidence boundary
 
-STORY: Compare the same Card detail, Cover plan, Payday plan and Covered examples. Covered remains a financial verdict, never falsely labelled as Penny-authored advice. Read the evidence, recognise the next action, and find Penny without decoding a new navigation model.
+Production fold-in, with independent diff review against DESIGN.md and the approved direction. The temporary `penny-presence` comparison and index entry are retired under H113. Its synthetic card fixtures are retained only in the regression-test directory; production imports no preview files.
 
-FIRST VIEWPORT: A 390px phone column shows Card detail and the start of Cover plan, with a clearly active solid primary action and a readable adviser glyph in the raised nav. Desktop keeps that working column beside concise comparison notes. Primary controls are at least 44px. The stack and individual cards are deep-linkable in both themes. C1 is the default and Previous C is an explicit comparison.
-
-FORM: Local component-family exploration inside the established app, code-led. No replacement-world seed or image comp: the deliverable is three working coded variants, as requested by the board. Frontend Design substitutes for the unavailable design-taste-frontend skill; Impeccable polishes the components. Its context launcher was unavailable, so project context was read directly.
-
-FINISH: Finish the screenshot and interaction checks, independent review, documentation audit and --uat-review handoff before Kevin chooses. Preserve DESIGN.md and the incumbent sidecar until final approval. No raster assets are produced in this round.
-
-## Options
-
-- C1 Outline Penny (`variant=d`): one outline-only adaptation of the canonical Penny geometry, uniform strokes, no faint bars, no inner tile.
-- C2 Chat outline (`variant=e`): the Lucide chat outline, using the same stroke language as the other nav icons, with the Penny label retained.
-- C3 Ink Penny (`variant=f`): the exact existing PennyMark in monochrome at 26px, without a filled tile around it.
-
-All three use solid #4f46e5 primary buttons, white 14px/600 labels, a 12px radius and 44px minimum height. The icon is the only difference between C1/C2/C3. They use no gradient; the Penny Gradient Rule reserves its use but does not require it. No repeated Penny attribution returns to the cards.
-
-Previous C remains visible for comparison. Earlier A, B and Current stay deep-linkable under Examples and display. These are different icon treatments, not different calculations. All examples are synthetic. Card and navigation actions are intercepted locally; the Penny door opens a labelled local demonstration, never a customer chat or bank action.
-
-## Delivery boundary
-
-Only the new design route, its checks, registry entry and this brief change. Production components, product/design doctrine, APIs and money logic stay untouched. After approval, fold in only the chosen treatment and update DESIGN.md quoting Kevin's choice. Retire the temporary round under H113.
-
-Verification results and publication state are recorded on G388. Preview captures prove this preview, not a production rollout.
+The earlier evidence below belongs to its respective preview rounds. Implementation validation is recorded separately on G388 and at the end of this brief; a preview screenshot is never a claim that production has shipped.
 
 ## First-round verification evidence
 
@@ -46,7 +30,7 @@ Twenty-nine final viewport captures were inspected under `.impeccable/review/g38
 
 Fresh independent reviewer disposition: ship for UAT design-round handoff, no material fixes. Documentation audit: no incumbent system changes required. The detector launcher again returned permission denied; manual craft-floor and Web Interface Guidelines checks were used, with ordinary independent agents substituting for unavailable specialist reviewer/documenter roles. This evidence covers the coded preview only and does not approve a production icon choice.
 
-## QA inventory
+## Historical preview QA inventory
 
 - Compare all four real card families in C1/C2/C3 and Previous C, in both themes; preserve copy, signs, financial ledgers and actions. Source contracts also retain the earlier A/B/Current comparisons.
 - Inspect the Home stack at 390px and desktop, plus a 320px narrow check; the Penny door must be visible, usable and contained without covering the final card or page notes.
@@ -54,3 +38,9 @@ Fresh independent reviewer disposition: ship for UAT design-round handoff, no ma
 - Activate card CTAs and every navigation slot locally; open and close the adviser example with touch, keyboard and Escape, restoring focus. No customer requests or persistent changes.
 - Toggle example masking and themes in both directions. Hidden money must not leak through visible or accessible text; malformed parameters must fall back safely.
 - Run source/render contracts, TypeScript, scoped lint, design registry/isolation/staleness gates and the full repository finish gate. Inspect one batched screenshot pass, fix material issues together, confirm once, then hand off to fresh independent review.
+
+## Approved implementation verification
+
+Independent production diff review found no material issues. A temporary local fixture harness rendered the real Settings selector, saved-preference provider, mobile launcher, chat header and four Home card families. Final Chromium checks passed 15 layouts at 320px, 390px and 1280px in both themes, native radio keyboard selection, save/reload, failed-save rollback and retry, message-allowance interaction, launcher toggle, exact action colour/opacity and masked figures. Eighteen captures were inspected; the final run recorded no page exceptions or API requests. The temporary harness was deleted before commit. This is component and source evidence, not a deployment claim.
+
+New-component lint and repository checks are recorded in the G388 board handoff. An expanded lint run also reported two pre-existing set-state-in-effect errors in BottomNav's unchanged badge-cache hooks; those hooks are outside this change. The earlier Impeccable launcher/specialist availability limitations remain: direct project context, manual craft-floor/Web Interface Guidelines checks and ordinary independent review were used. The full finish gate and coordinator handoff determine delivery state.

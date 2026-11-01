@@ -3263,7 +3263,7 @@ export const api = {
   legacyBankConnectLink: (provider?: string, native?: boolean) => LEGACY_BANK_AVAILABLE
     ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${linkQuery(provider, native)}`)
     : Promise.reject(new Error("This bank connection method is not available.")),
-  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
+  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[]; health_status?: string }[]>("/auth/finexer/providers"),
   /** A182: confirm in the app that Sorted may keep reading this bank's data (90-day
    *  reconfirmation). No bank login; never extends the consent's end date. */
   finexerReconfirm: (consentId: string) =>
@@ -3730,6 +3730,7 @@ export const api = {
     open_last_chat?: boolean;
     show_tips?: boolean;
     dark_mode?: boolean;
+    penny_appearance?: import("@/lib/pennyAppearance").PennyAppearance;
     notification_prefs?: NotificationPrefs;
     income_bracket?: string;
     income_value?: number;
@@ -3764,6 +3765,7 @@ export const api = {
     open_last_chat: boolean;
     show_tips: boolean;
     dark_mode: boolean;
+    penny_appearance: import("@/lib/pennyAppearance").PennyAppearance;
     pay_period_config: unknown;
     notification_prefs: NotificationPrefs;
     income_bracket: string;
