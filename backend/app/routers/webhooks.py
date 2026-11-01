@@ -379,6 +379,17 @@ async def finexer_webhook(secret: str, request: Request):
     if not isinstance(event, dict):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
+    await process_finexer_event(event)
+    return {"ok": True}
+
+
+async def process_finexer_event(event: dict, *, source: str = "webhook") -> dict:
+    """Dispatch one Finexer event envelope (A184: shared by the webhook receiver
+    and the List events reconcile, so a replayed event takes exactly the path a
+    delivered one does). Idempotent on the event id (unique index, insert if
+    absent): a repeat returns {"ok": True, "duplicate": True} and does nothing.
+    Raises HTTPException(503) on a genuine enqueue failure, after releasing the
+    event id so a retry or a later replay is processed. Never logs payloads."""
     event_type = fxw.extract_event_type(event)
     event_id = fxw.extract_event_id(event)
     action = fxw.resolve_action(event_type)
@@ -394,6 +405,8 @@ async def finexer_webhook(secret: str, request: Request):
         "status": "pending",
         "provider": "finexer",
     }
+    if source != "webhook":
+        log_doc["source"] = source
     if event_id:
         log_doc["event_id"] = event_id
     try:
@@ -402,7 +415,7 @@ async def finexer_webhook(secret: str, request: Request):
         # Same event id already recorded: a retry or a replay. Acknowledge so
         # Finexer stops retrying, do nothing else.
         logger.info("Finexer webhook duplicate event ignored (type %s)", fxw.safe_type_for_log(event_type))
-        return {"ok": True}
+        return {"ok": True, "duplicate": True}
     await fxw.bump_daily_counters(webhook_events=1)
 
     async def _set(fields: dict):

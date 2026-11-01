@@ -2139,6 +2139,28 @@ export type OpsHealth = {
     consents: { last_synced_to: string | null; age_hours: number | null }[];
     line: string;
   } | null;
+  // A184: the last List events reconcile (counts only); null when it could not be built.
+  finexer_events?: OpsFinexerEvents | null;
+};
+export type OpsFinexerEvents = {
+  last_completed_at: string | null;
+  minutes_ago: number | null;
+  last_attempt_at: string | null;
+  last_status: string | null;
+  last_reason: string | null;
+  received: number;
+  missed: number;
+  replayed: number;
+  failed: number;
+};
+export type OpsFinexerEventsRun = {
+  ran: boolean;
+  complete: boolean;
+  reason: string | null;
+  received: number;
+  missed: number;
+  replayed: number;
+  failed: number;
 };
 // E9: GET /ops/webhooks/recent (owner-only, allowlist projection).
 export type OpsRecentWebhooks = {
@@ -4412,6 +4434,7 @@ export const api = {
   },
   clearOpsSetting: (key: string) => del<OpsSetting>(`/ops/settings/${encodeURIComponent(key)}`),
   sendOpsTestAlert: () => post<OpsAlertTest>("/ops/health/alerts/test"),
+  reconcileFinexerEvents: () => post<OpsFinexerEventsRun>("/ops/health/finexer-events/reconcile"),
   getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
   getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),
   goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>
