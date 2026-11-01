@@ -204,16 +204,16 @@ def test_throttle_answers_plainly(monkeypatch, recomputes):
 
 def test_one_refresh_per_account_at_a_time(monkeypatch, recomputes):
     accts, c = _finexer_world(monkeypatch)
-    assert asyncio.run(ar.claim_refresh("acc1")) is True
-    assert asyncio.run(ar.claim_refresh("acc1")) is False
+    assert asyncio.run(ar.claim_refresh("acc1", UID)) is True
+    assert asyncio.run(ar.claim_refresh("acc1", UID)) is False
     out = _call("acc1")
     assert out["refreshed"] is False and out["in_progress"] is True
     assert c.posts == []
     asyncio.run(ar.release_refresh("acc1"))
-    assert asyncio.run(ar.claim_refresh("acc1")) is True
+    assert asyncio.run(ar.claim_refresh("acc1", UID)) is True
     # A stale claim expires.
     accts.docs[0]["refresh_lock_until"] = _now() - timedelta(seconds=1)
-    assert asyncio.run(ar.claim_refresh("acc1")) is True
+    assert asyncio.run(ar.claim_refresh("acc1", UID)) is True
 
 
 def test_truelayer_branch_runs_the_connection_sync(monkeypatch, recomputes):
@@ -253,7 +253,7 @@ def test_failed_refresh_never_leaks_and_frees_the_lock(monkeypatch, recomputes):
     out = _call("acc1")
     assert out["refreshed"] is False and out["message"] == ar.MSG_FAILED
     assert "secret" not in str(out)
-    assert asyncio.run(ar.claim_refresh("acc1")) is True
+    assert asyncio.run(ar.claim_refresh("acc1", UID)) is True
 
 
 # ── delete: bank account ──────────────────────────────────────────────────
@@ -273,6 +273,14 @@ class DelClient:
         if self.exc:
             raise self.exc
         return Resp(self.status)
+
+
+def _delete(account_id):
+    async def go():
+        out = await accounts_router.delete_account(account_id, user={"email": UID})
+        await asyncio.gather(*list(accounts_router._background_tasks))
+        return out
+    return asyncio.run(go())
 
 
 def _delete_world(monkeypatch, client):
@@ -305,7 +313,7 @@ def _delete_world(monkeypatch, client):
 def test_account_delete_calls_finexer_after_the_local_delete(monkeypatch):
     c = DelClient(204)
     markers, order = _delete_world(monkeypatch, c)
-    out = asyncio.run(accounts_router.delete_account("ba_acc1xyz", user={"email": UID}))
+    out = _delete("ba_acc1xyz")
     assert out == {"deleted": "ba_acc1xyz"}
     assert c.deletes == ["/bank_accounts/ba_acc1xyz"]
     assert order == ["local_delete", "remote_delete"]
@@ -315,7 +323,7 @@ def test_account_delete_calls_finexer_after_the_local_delete(monkeypatch):
 def test_account_delete_failure_writes_a_marker_and_still_succeeds(monkeypatch):
     c = DelClient(500)
     markers, order = _delete_world(monkeypatch, c)
-    out = asyncio.run(accounts_router.delete_account("ba_acc1xyz", user={"email": UID}))
+    out = _delete("ba_acc1xyz")
     assert out == {"deleted": "ba_acc1xyz"}
     m = markers.docs["bank_account:ba_acc1xyz"]
     assert m["kind"] == "bank_account" and m["resource_id"] == "ba_acc1xyz"
@@ -327,14 +335,14 @@ def test_account_delete_transport_error_marks_and_does_not_raise(monkeypatch):
     import httpx
     c = DelClient(exc=httpx.ReadTimeout("body"))
     markers, order = _delete_world(monkeypatch, c)
-    asyncio.run(accounts_router.delete_account("ba_acc1xyz", user={"email": UID}))
+    _delete("ba_acc1xyz")
     assert markers.docs["bank_account:ba_acc1xyz"]["last_error"] == "ReadTimeout"
 
 
 def test_delete_404_counts_as_gone_and_counters_are_bumped(monkeypatch, _quiet):
     c = DelClient(404)
     markers, order = _delete_world(monkeypatch, c)
-    asyncio.run(accounts_router.delete_account("ba_acc1xyz", user={"email": UID}))
+    _delete("ba_acc1xyz")
     assert markers.docs == {}
     assert any(b.get("bank_account_deletes") == 1 for b in _quiet)
 
@@ -445,3 +453,54 @@ def test_malformed_ids_are_never_requested(monkeypatch):
     monkeypatch.setattr(fs, "_client", lambda: c)
     assert asyncio.run(retention.delete_finexer_resource(UID, "bank_account", "../x")) == "bad_id"
     assert c.deletes == []
+
+
+def test_a_throttled_tap_gives_the_lock_back_and_a_busy_tap_does_not_touch_the_throttle(monkeypatch, recomputes):
+    accts, c = _finexer_world(monkeypatch)
+    calls: list = []
+
+    async def _limited(uid, now=None):
+        calls.append(uid)
+        return 30
+    monkeypatch.setattr(accounts_router.sync_throttle, "check_user_sync", _limited)
+    out = _call("acc1")
+    assert out["message"] == "Refreshed less than a minute ago" and len(calls) == 1
+    assert "refresh_lock_until" not in accts.docs[0], "throttled tap released the lock"
+    # Busy: the lock is held, so the throttle is never consulted.
+    assert asyncio.run(ar.claim_refresh("acc1", UID)) is True
+    out = _call("acc1")
+    assert out["in_progress"] is True and len(calls) == 1
+
+
+def test_claim_is_owner_scoped(monkeypatch):
+    accts, c = _finexer_world(monkeypatch)
+    assert asyncio.run(ar.claim_refresh("acc1", "someone-else")) is False
+    assert "refresh_lock_until" not in accts.docs[0]
+
+
+def test_bad_id_writes_no_marker_and_logs_no_id(monkeypatch, caplog):
+    import logging
+    markers = FakeCol()
+    monkeypatch.setattr(retention, "orphaned_revocations_col", markers)
+    with caplog.at_level(logging.WARNING):
+        assert asyncio.run(retention.delete_finexer_resource(UID, "customer", "x/../secret")) == "bad_id"
+    assert markers.docs == {} and "secret" not in caplog.text
+
+
+def test_slow_finexer_does_not_delay_the_users_delete(monkeypatch):
+    gate = asyncio.Event()
+
+    class Slow(DelClient):
+        async def delete(self, path):
+            await gate.wait()
+            return Resp(204)
+    c = Slow()
+    markers, order = _delete_world(monkeypatch, c)
+
+    async def go():
+        out = await asyncio.wait_for(accounts_router.delete_account("ba_acc1xyz", user={"email": UID}), 2)
+        assert out == {"deleted": "ba_acc1xyz"}
+        gate.set()
+        await asyncio.gather(*list(accounts_router._background_tasks))
+    asyncio.run(go())
+    assert c.deletes == ["/bank_accounts/ba_acc1xyz"]

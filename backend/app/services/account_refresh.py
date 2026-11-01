@@ -49,11 +49,12 @@ def is_finexer_account(acc: dict) -> bool:
     return bool(acc.get("finexer")) or acc.get("source") == "finexer"
 
 
-async def claim_refresh(account_id: str, now: Optional[datetime] = None) -> bool:
-    """Atomic: True when this caller now holds the account's refresh lock."""
+async def claim_refresh(account_id: str, uid: str, now: Optional[datetime] = None) -> bool:
+    """Atomic: True when this caller now holds the account's refresh lock.
+    The filter carries the owner, so another user's account never matches."""
     now = now or _utcnow()
     res = await accounts_col.update_one(
-        {"_id": account_id, "$or": [
+        {"_id": account_id, "user_id": uid, "$or": [
             {"refresh_lock_until": {"$exists": False}},
             {"refresh_lock_until": {"$lt": now}},
         ]},

@@ -448,11 +448,15 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         # failure leaves a retry marker for the nightly sweep and never blocks
         # or fails the user's own delete.
         if tl_acc.get("finexer") or tl_acc.get("source") == "finexer":
-            try:
-                from app.services.retention import delete_finexer_resource
-                await delete_finexer_resource(uid, "bank_account", account_id)
-            except Exception:
-                logger.exception("Finexer bank account delete failed (non-fatal)")
+            async def _finexer_delete():
+                try:
+                    from app.services.retention import delete_finexer_resource
+                    await delete_finexer_resource(uid, "bank_account", account_id)
+                except Exception:
+                    logger.exception("Finexer bank account delete failed (non-fatal)")
+            # Background, like the refresh route: a slow Finexer never delays
+            # the user's delete. The marker on failure is written inside.
+            _fire_and_forget(_finexer_delete())
 
         # If this was the last account on the connection, clean up the connection doc
         if connection_id:
@@ -512,17 +516,21 @@ async def refresh_account(account_id: str, user: dict = Depends(current_user)):
         if early is not None:
             return early
 
-    # E11: the same once-a-minute window as POST /accounts/sync.
-    retry_after = await sync_throttle.check_user_sync(uid)
-    if retry_after:
-        nxt = datetime.utcnow() + timedelta(seconds=retry_after)  # naive-ok: Mongo UTC convention
-        return {"refreshed": False, "bank_synced_to": ar._iso(acc.get("bank_synced_to")),
-                "next_allowed_at": ar._iso(nxt), "message": sync_throttle.MESSAGE}
-
-    if not await ar.claim_refresh(account_id):
+    # Claim the account lock BEFORE the E11 throttle, so an "already
+    # refreshing" answer never burns the user's shared one-minute window.
+    if not await ar.claim_refresh(account_id, uid):
         return {"refreshed": False, "in_progress": True,
                 "bank_synced_to": ar._iso(acc.get("bank_synced_to")),
                 "next_allowed_at": None, "message": ar.MSG_BUSY}
+
+    # E11: the same once-a-minute window as POST /accounts/sync. A throttled
+    # tap gives the lock straight back.
+    retry_after = await sync_throttle.check_user_sync(uid)
+    if retry_after:
+        await ar.release_refresh(account_id)
+        nxt = datetime.utcnow() + timedelta(seconds=retry_after)  # naive-ok: Mongo UTC convention
+        return {"refreshed": False, "bank_synced_to": ar._iso(acc.get("bank_synced_to")),
+                "next_allowed_at": ar._iso(nxt), "message": sync_throttle.MESSAGE}
 
     await bump_daily_counters(account_refreshes=1)
     task = asyncio.create_task(ar.run_refresh(uid, acc))

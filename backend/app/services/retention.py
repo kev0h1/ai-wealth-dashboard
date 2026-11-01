@@ -421,8 +421,9 @@ async def delete_finexer_resource(uid: str, kind: str, resource_id: str) -> str 
     failure. Returns None on success or the static error code. Never raises;
     callers never block the user's own action on this."""
     if not valid_consent_id(resource_id):
-        logger.warning("Finexer delete %s skipped: malformed id (not requested)", kind)
-        await record_orphaned_deletion(uid, kind, str(resource_id)[:64], "bad_id")
+        # A malformed id can never succeed on retry, so no marker: log it
+        # (masked, never the id) and move on.
+        logger.warning("Finexer delete %s skipped: malformed id (not requested, no marker)", kind)
         return "bad_id"
     error = await delete_finexer_resource_remote(kind, resource_id)
     if error is not None:
