@@ -113,6 +113,10 @@ async def erase_user(uid: str) -> dict[str, int]:
     # gets full coverage, matching the dir()-based sweep's own safety net.
     revoked = 0
     revoke_errors = 0
+    # A179: the Finexer customer ids this user owns, read BEFORE the consents
+    # and the cache doc are deleted (consents carry `customer_id`, the cache
+    # is keyed by the user's email).
+    customer_ids = await _finexer_customer_ids(uid, _cols)
     connection_ids = [d["_id"] async for d in _cols.connections_col.find({"user_id": uid}, {"_id": 1})]
     connection_ids += [d["_id"] async for d in _cols.finexer_consents_col.find({"user_id": uid}, {"_id": 1})]
     for connection_id in connection_ids:
@@ -129,6 +133,20 @@ async def erase_user(uid: str) -> dict[str, int]:
         removed["connections_revoked"] = revoked
     if revoke_errors:
         removed["connection_errors"] = revoke_errors
+
+    # A179: only now that every consent is revoked, delete the customer(s) at
+    # Finexer (best effort, retry marker on failure), so nobody has to delete
+    # them in the Finexer dashboard. The cache doc itself goes with the
+    # manifest sweep below (finexer_customers_col is in ERASURE_MANIFEST).
+    customers_deleted = 0
+    for customer_id in customer_ids:
+        try:
+            if await delete_finexer_resource(uid, "customer", customer_id) is None:
+                customers_deleted += 1
+        except Exception:
+            logger.exception("erase_user: Finexer customer delete failed (non-fatal)")
+    if customers_deleted:
+        removed["finexer_customers_deleted"] = customers_deleted
 
     for attr in _cols.ERASURE_MANIFEST:
         col = getattr(_cols, attr)
@@ -325,6 +343,95 @@ async def sweep_orphaned_relay_accounts(now: datetime | None = None) -> dict:
         else:
             skipped += 1
     return {"relay_orphans_removed": removed, "relay_orphans_skipped": skipped}
+
+
+async def _finexer_customer_ids(uid: str, _cols) -> list[str]:
+    """A179: every Finexer customer id on record for `uid` (the cache doc plus
+    any `customer_id` a consent carries), de-duplicated, valid ids only."""
+    ids: list[str] = []
+    try:
+        cache = await _cols.finexer_customers_col.find_one({"_id": uid})
+        if cache and cache.get("customer_id"):
+            ids.append(cache["customer_id"])
+        async for d in _cols.finexer_consents_col.find({"user_id": uid}, {"customer_id": 1}):
+            if d.get("customer_id"):
+                ids.append(d["customer_id"])
+    except Exception:
+        logger.warning("erase_user: could not list Finexer customers (non-fatal)", exc_info=True)
+    out: list[str] = []
+    for i in ids:
+        if i not in out and valid_consent_id(i):
+            out.append(i)
+    return out
+
+
+# A179: deletes of a Finexer bank account (DELETE /bank_accounts/{id}) and a
+# customer (DELETE /customers/{id}) reuse the A106 marker collection. A marker
+# of one of these kinds has `_id` "bank_account:<id>" or "customer:<id>" and a
+# `kind` field; the consent-revoke retry only reads markers WITHOUT `kind`.
+_DELETE_KINDS = {"bank_account": "/bank_accounts/", "customer": "/customers/"}
+_DELETE_COUNTERS = {"bank_account": "bank_account_deletes", "customer": "customer_deletes"}
+
+
+async def delete_finexer_resource_remote(kind: str, resource_id: str) -> str | None:
+    """DELETE the Finexer resource. None on success (2xx, or 404 meaning
+    already gone); otherwise a short static code (HTTP status or exception
+    class name). Never raises, never writes markers, no id validation."""
+    try:
+        from app.services.finexer_sync import _client as _fx_client
+        from app.services.finexer_webhooks import bump_daily_counters
+        async with _fx_client() as fxc:
+            rv = await fxc.delete(f"{_DELETE_KINDS[kind]}{resource_id}")
+        code = rv.status_code
+        await bump_daily_counters(requests=1, **{_DELETE_COUNTERS[kind]: 1})
+        logger.info("Finexer delete %s: HTTP %s", kind, code)
+        if 200 <= code < 300 or code == 404:
+            return None
+        return str(code)
+    except Exception as exc:
+        logger.warning("Finexer delete %s failed (non-fatal)", kind, exc_info=True)
+        return type(exc).__name__
+
+
+async def record_orphaned_deletion(uid: str, kind: str, resource_id: str, error: str | None) -> None:
+    """A179: retry marker for a failed Finexer delete; same fields as the A106
+    revoke marker (hash of the uid, never the uid), plus `kind` and
+    `resource_id`. Never raises."""
+    now = datetime.now(timezone.utc)  # naive-ok: persisted aware-UTC audit instant
+    try:
+        await orphaned_revocations_col.update_one(
+            {"_id": f"{kind}:{resource_id}"},
+            {
+                "$set": {
+                    "kind": kind, "resource_id": resource_id, "user_hash": _hash_uid(uid),
+                    "last_attempt_at": now, "last_error": error,
+                },
+                "$setOnInsert": {"failed_at": now},
+                "$inc": {"attempts": 1},
+            },
+            upsert=True,
+        )
+    except Exception:
+        logger.warning("orphaned_deletions: failed to write marker (non-fatal)", exc_info=True)
+
+
+async def delete_finexer_resource(uid: str, kind: str, resource_id: str) -> str | None:
+    """Delete a Finexer bank account or customer, leaving a retry marker on
+    failure. Returns None on success or the static error code. Never raises;
+    callers never block the user's own action on this."""
+    if not valid_consent_id(resource_id):
+        logger.warning("Finexer delete %s skipped: malformed id (not requested)", kind)
+        await record_orphaned_deletion(uid, kind, str(resource_id)[:64], "bad_id")
+        return "bad_id"
+    error = await delete_finexer_resource_remote(kind, resource_id)
+    if error is not None:
+        await record_orphaned_deletion(uid, kind, resource_id, error)
+    else:
+        try:
+            await orphaned_revocations_col.delete_one({"_id": f"{kind}:{resource_id}"})
+        except Exception:
+            logger.warning("orphaned_deletions: failed to clear marker (non-fatal)", exc_info=True)
+    return error
 
 
 async def record_orphaned_revocation(uid: str, consent_id: str, error: str | None) -> None:
@@ -699,7 +806,7 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
     expired = 0
 
     markers = await (
-        orphaned_revocations_col.find({}, {}).sort("last_attempt_at", 1).limit(_ORPHAN_BATCH).to_list(_ORPHAN_BATCH)
+        orphaned_revocations_col.find({"kind": {"$exists": False}}, {}).sort("last_attempt_at", 1).limit(_ORPHAN_BATCH).to_list(_ORPHAN_BATCH)
     )
     for marker in markers:
         consent_id = marker["_id"]
@@ -798,6 +905,46 @@ async def retry_orphaned_revocations(now: datetime | None = None) -> dict:
     }
 
 
+async def retry_orphaned_deletions(now: datetime | None = None) -> dict:
+    """A179: retry the Finexer DELETE for every bank-account or customer
+    marker (see `record_orphaned_deletion`). Same bounds as the revoke retry:
+    50 per pass, oldest attempt first, cleared on 2xx or 404, a marker still
+    failing 90 days after `failed_at` is dropped with an error log, and one
+    marker's failure never stops the rest."""
+    now = now or datetime.utcnow()  # naive-ok: persisted audit instant, background worker
+    out = {"deletions_retried": 0, "deletions_cleared": 0, "deletions_still_pending": 0, "deletions_expired": 0}
+    markers = await (
+        orphaned_revocations_col.find({"kind": {"$in": list(_DELETE_KINDS)}}, {})
+        .sort("last_attempt_at", 1).limit(_ORPHAN_BATCH).to_list(_ORPHAN_BATCH)
+    )
+    for marker in markers:
+        mid = marker["_id"]
+        out["deletions_retried"] += 1
+        try:
+            if _older_than(marker.get("failed_at"), now - _ORPHAN_MAX_AGE):
+                logger.error("retry_orphaned_deletions: giving up on a %s after 90 days; marker deleted", marker.get("kind"))
+                await orphaned_revocations_col.delete_one({"_id": mid})
+                out["deletions_expired"] += 1
+                continue
+            kind = marker.get("kind")
+            rid = marker.get("resource_id")
+            error = "bad_id" if not valid_consent_id(rid) else await delete_finexer_resource_remote(kind, rid)
+            if error is None:
+                await orphaned_revocations_col.delete_one({"_id": mid})
+                out["deletions_cleared"] += 1
+            else:
+                await orphaned_revocations_col.update_one(
+                    {"_id": mid},
+                    {"$set": {"last_attempt_at": now, "last_error": error}, "$inc": {"attempts": 1}},
+                )
+                if (marker.get("attempts") or 0) + 1 >= _ORPHAN_WARN_ATTEMPTS:
+                    logger.warning("retry_orphaned_deletions: a %s delete still failing after %s attempts", kind, (marker.get("attempts") or 0) + 1)
+                out["deletions_still_pending"] += 1
+        except Exception:
+            logger.exception("retry_orphaned_deletions: failed to retry a marker")
+    return out
+
+
 async def run_retention_sweep(now: datetime | None = None) -> dict:
     """Run all four sweeps; called by the nightly arq cron
     (`app.workers.sync_worker.task_retention_sweep`, 03:30 UTC)."""
@@ -806,7 +953,8 @@ async def run_retention_sweep(now: datetime | None = None) -> dict:
     user_result = await sweep_dormant_users(now)
     relay_result = await sweep_orphaned_relay_accounts(now)
     orphan_result = await retry_orphaned_revocations(now)
-    summary = {**conn_result, **user_result, **relay_result, **orphan_result}
+    deletion_result = await retry_orphaned_deletions(now)
+    summary = {**conn_result, **user_result, **relay_result, **orphan_result, **deletion_result}
     logger.info("run_retention_sweep: %s", summary)
     return summary
 

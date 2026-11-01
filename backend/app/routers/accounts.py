@@ -438,6 +438,17 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         # Run cascade (deletes txns + account doc + derived state)
         await cascade_account_deletion(uid, [account_id])
 
+        # A179: after the local delete, ask Finexer to delete the bank account
+        # too (its transactions become unavailable at once). Best effort: a
+        # failure leaves a retry marker for the nightly sweep and never blocks
+        # or fails the user's own delete.
+        if tl_acc.get("finexer") or tl_acc.get("source") == "finexer":
+            try:
+                from app.services.retention import delete_finexer_resource
+                await delete_finexer_resource(uid, "bank_account", account_id)
+            except Exception:
+                logger.exception("Finexer bank account delete failed (non-fatal)")
+
         # If this was the last account on the connection, clean up the connection doc
         if connection_id:
             remaining = await accounts_col.count_documents({"connection_id": connection_id})
@@ -467,6 +478,57 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         return {"deleted": account_id}
 
     raise HTTPException(404, "Account not found")
+
+
+@router.post("/accounts/{account_id}/refresh")
+async def refresh_account(account_id: str, user: dict = Depends(current_user)):
+    """A179: refresh ONE connected bank account from its bank.
+
+    Always answers 200 with {refreshed, bank_synced_to, next_allowed_at} (and
+    a plain `message` when nothing ran): the bank's once-an-hour rule and the
+    once-a-minute user throttle are answers, never a raw 429. A refresh that
+    outlives the inline wait carries on in the background and answers
+    {refreshed: false, in_progress: true}; the app reloads the accounts."""
+    from app.services import account_refresh as ar
+    uid = user["email"]
+    # Owner only, 404 otherwise: never reveal whether another user's id exists.
+    acc = await accounts_col.find_one({"_id": account_id, "user_id": uid})
+    if not acc:
+        raise HTTPException(404, "Account not found")
+    if not acc.get("connection_id"):
+        raise HTTPException(400, "This account is not linked to a bank, so there is nothing to refresh.")
+
+    if await open_banking_paused(uid):
+        return {"refreshed": False, "paused": True, "bank_synced_to": None,
+                "next_allowed_at": None, "message": ar.MSG_PAUSED}
+
+    if ar.is_finexer_account(acc):
+        early = await ar.precheck_finexer(uid, acc)
+        if early is not None:
+            return early
+
+    # E11: the same once-a-minute window as POST /accounts/sync.
+    retry_after = await sync_throttle.check_user_sync(uid)
+    if retry_after:
+        nxt = datetime.utcnow() + timedelta(seconds=retry_after)  # naive-ok: Mongo UTC convention
+        return {"refreshed": False, "bank_synced_to": ar._iso(acc.get("bank_synced_to")),
+                "next_allowed_at": ar._iso(nxt), "message": sync_throttle.MESSAGE}
+
+    if not await ar.claim_refresh(account_id):
+        return {"refreshed": False, "in_progress": True,
+                "bank_synced_to": ar._iso(acc.get("bank_synced_to")),
+                "next_allowed_at": None, "message": ar.MSG_BUSY}
+
+    await bump_daily_counters(account_refreshes=1)
+    task = asyncio.create_task(ar.run_refresh(uid, acc))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    done, _pending = await asyncio.wait({task}, timeout=ar.INLINE_WAIT_S)
+    if task in done:
+        return task.result()
+    return {"refreshed": False, "in_progress": True,
+            "bank_synced_to": ar._iso(acc.get("bank_synced_to")),
+            "next_allowed_at": None, "message": "Still refreshing. This can take a minute."}
 
 
 @router.patch("/accounts/{account_id}")
