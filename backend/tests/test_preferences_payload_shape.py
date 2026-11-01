@@ -76,6 +76,7 @@ EXPECTED_KEYS = {
     "hide_net_worth",
     "show_tips",
     "dark_mode",
+    "penny_appearance",
     "pay_period_config",
     "debt_target_months",
     "notification_prefs",

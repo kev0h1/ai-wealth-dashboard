@@ -6,7 +6,6 @@ import { ArrowDown, ChevronUp, WalletCards, X } from "lucide-react";
 import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
-import PennyMark from "@/components/PennyMark";
 import MoneyText, { AmountText } from "@/components/MoneyText";
 import { useBalancesHidden } from "@/lib/balancesHidden";
 import ActionLabel from "@/components/ActionLabel";
@@ -81,7 +80,7 @@ interface PaydayPlanCardProps {
 
 // Multi-destination fork of MoveCard — one payday_plan item can fan money out
 // to several destination accounts, each with its own sources. Reuses MoveCard's
-// visual language throughout: Penny gradient chip, a contained allocation ledger,
+// visual language throughout: a contained allocation ledger,
 // BankBadge/resolveBankChip logos, £ formatting + hideNetWorth masking, and the
 // same indigo action-button styling. Dismiss mirrors CelebrationCard/CliffCard
 // (self-contained: local `hidden` state + a direct api.dismissTodayItem call —
@@ -132,13 +131,13 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
 
   // No glow/ring here (owner, 2026-08-29): the "payday" rung was removed
   // outright from lib/attention.ts — this card is a large, full-bleed
-  // Penny-branded surface (gradient chip, hero £ figure) and is already
+  // prominent surface (hero £ figure) and is already
   // its own attention; a halo on top of that reads as decoration, not
   // signal. Plain glass-card in every state (live, preview, ask).
   return (
     <div data-payday-plan-card="allocation-ledger" className="glass-card overflow-hidden rounded-2xl">
-      {/* Penny gradient chip — marks this as a proactive advice surface, same
-          treatment as MoveCard/AskPaydayCard/AskGenericCard. Close/dismiss
+      {/* The compact task row keeps the payday plan clear without a repeated
+          Penny badge. Close/dismiss
           sits on the same row, gated by `showCloseButton` (see above): a
           collapse-only chevron-up whenever `onClose` is passed (the
           entry-row preview toggle — never persists, safe on both Home and
@@ -162,13 +161,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
             <span aria-hidden="true" className="grid size-4 place-items-center text-slate-500 dark:text-slate-300">
               <WalletCards size={16} />
             </span>
-            <span
-              className="inline-flex w-fit shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
-              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-            >
-              <PennyMark size={11} />
-              Penny
-            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Payday plan</span>
             <h2 className="col-span-2 text-[15px] font-bold leading-5 text-slate-950 dark:text-white">Your payday plan</h2>
           </div>
           {showCloseButton && (
@@ -462,7 +455,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
           <button
             type="button"
             onClick={() => router.push(actionHref(item.action!.route))}
-            className="inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-1 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white [-webkit-tap-highlight-color:transparent] transition-[transform,background-color] hover:bg-indigo-700 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800"
+            className="inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-1 rounded-xl bg-[#4f46e5] px-4 py-2 text-sm font-semibold text-white opacity-100 [-webkit-tap-highlight-color:transparent] transition-[transform,background-color] [@media(hover:hover)]:hover:bg-[#4338ca] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-800"
           >
             <ActionLabel>{item.preview ? "See the full plan" : item.action.label}</ActionLabel>
           </button>

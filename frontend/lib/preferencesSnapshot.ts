@@ -83,8 +83,18 @@
  * type-stripping erases entirely and never tries to resolve at runtime. */
 import type { PayPeriodConfig } from "./payPeriod.js";
 import type { GuideId } from "./paySplitReference.js";
+import type { PennyAppearance } from "./pennyAppearance.js";
 
 export const DEFAULT_PAY_SPLIT_REFERENCE: GuideId = "50-30-20";
+const DEFAULT_PENNY_APPEARANCE: PennyAppearance = "original";
+
+/** Kept local so this framework-free module remains directly runnable by
+ * Node's TypeScript strip-types tests, like the neighbouring split helper. */
+function pennyAppearanceFromSnapshot(value: unknown): PennyAppearance {
+  return value === "original" || value === "outline" || value === "ink"
+    ? value
+    : DEFAULT_PENNY_APPEARANCE;
+}
 
 /** Return a picker-supported ID without repairing legacy stored data. */
 export function paySplitReferenceFromSnapshot(value: unknown): GuideId {
@@ -164,6 +174,7 @@ export function makeFieldReconcile<T>(
 export interface WholeDocumentApplyCallbacks {
   applyHideNetWorth: (v: boolean) => void;
   applyDarkMode: (v: boolean) => void;
+  applyPennyAppearance?: (v: PennyAppearance) => void;
   /** G189: optional so older callers and tests need not supply it. */
   applyShowTips?: (v: boolean) => void;
   applyPayPeriodConfig: (v: PayPeriodConfig) => void;
@@ -191,6 +202,7 @@ export interface WholeDocumentApplyCallbacks {
 export interface WholeDocumentApplySkip {
   hideNetWorth?: () => boolean;
   darkMode?: () => boolean;
+  pennyAppearance?: () => boolean;
   showTips?: () => boolean;
   payPeriodConfig?: () => boolean;
   debtTargetMonths?: () => boolean;
@@ -220,6 +232,7 @@ export function applyWholeDocument(
 ): void {
   if (!skip.hideNetWorth?.()) cb.applyHideNetWorth(p.hide_net_worth);
   if (p.dark_mode !== undefined && !skip.darkMode?.()) cb.applyDarkMode(p.dark_mode);
+  if (!skip.pennyAppearance?.()) cb.applyPennyAppearance?.(pennyAppearanceFromSnapshot(p.penny_appearance));
   if (p.show_tips !== undefined && !skip.showTips?.()) cb.applyShowTips?.(p.show_tips);
   if (p.pay_period_config && !skip.payPeriodConfig?.()) cb.applyPayPeriodConfig(p.pay_period_config as PayPeriodConfig);
   if (p.debt_target_months && !skip.debtTargetMonths?.()) cb.applyDebtTargetMonths(p.debt_target_months as number);

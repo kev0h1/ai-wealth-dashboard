@@ -3707,6 +3707,7 @@ export const api = {
     open_last_chat?: boolean;
     show_tips?: boolean;
     dark_mode?: boolean;
+    penny_appearance?: import("@/lib/pennyAppearance").PennyAppearance;
     notification_prefs?: NotificationPrefs;
     income_bracket?: string;
     income_value?: number;
@@ -3741,6 +3742,7 @@ export const api = {
     open_last_chat: boolean;
     show_tips: boolean;
     dark_mode: boolean;
+    penny_appearance: import("@/lib/pennyAppearance").PennyAppearance;
     pay_period_config: unknown;
     notification_prefs: NotificationPrefs;
     income_bracket: string;
