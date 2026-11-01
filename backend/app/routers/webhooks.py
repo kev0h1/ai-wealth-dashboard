@@ -298,10 +298,15 @@ async def _mark_account_closed(account_id: str) -> None:
     accounts only; status is left alone because no UI state exists for
     closed). Best effort, never raises."""
     try:
-        await accounts_col.update_one(
+        res = await accounts_col.update_one(
             {"_id": account_id, "source": "finexer"},
             {"$set": {"closed_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
         )
+        if not getattr(res, "matched_count", 1):
+            await accounts_col.update_one(  # A184: a re-keyed account
+                {"finexer_account_id": account_id, "source": "finexer"},
+                {"$set": {"closed_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+            )
     except Exception:
         logger.exception("Finexer webhook: could not mark account closed")
 
@@ -411,6 +416,10 @@ async def finexer_webhook(secret: str, request: Request):
     # account-to-consent map (accounts.connection_id, written by the sync).
     if not consent_ref and account_id:
         acc = await accounts_col.find_one({"_id": account_id}, {"connection_id": 1, "source": 1})
+        if not acc:
+            # A184: a reconnected account keeps its local _id; the event names
+            # the bank account id Finexer knows it by now.
+            acc = await accounts_col.find_one({"finexer_account_id": account_id}, {"connection_id": 1, "source": 1})
         if acc and acc.get("source") == "finexer" and isinstance(acc.get("connection_id"), str):
             consent_ref = acc["connection_id"]
             await _set({"consent_id": consent_ref, "consent_resolved_via": "account_map"})
