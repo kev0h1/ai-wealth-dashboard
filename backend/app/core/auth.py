@@ -8,6 +8,7 @@ from app.core.config import (
     API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
 )
 from app.core.ratelimit import check_rate_limit
+from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked
 
 # F2/F8/F11: the value an unauthenticated (or expired-token) request to /mcp
@@ -110,6 +111,17 @@ async def current_user(request: Request) -> dict:
     # a possibly-revoked token through as if nothing happened.
     try:
         if await is_revoked(result.get("email"), issued_at):
+            raise HTTPException(401, "Session expired")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Session check unavailable")
+
+    # E12: a revoked allow-list entry is signed out at its next request. The
+    # session token itself stays valid (consents and data are left in place),
+    # so this is a live lookup, not a tombstone. Fails CLOSED like the above.
+    try:
+        if await is_access_revoked(result.get("email")):
             raise HTTPException(401, "Session expired")
     except HTTPException:
         raise

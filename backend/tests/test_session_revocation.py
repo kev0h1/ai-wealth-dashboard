@@ -42,6 +42,7 @@ import app.routers.auth as auth_router
 import app.routers.mcp as mcp_router
 import app.routers.oauth as oauth_router
 import app.routers.profile as profile_router
+import app.services.account_erasure as account_erasure
 import app.services.retention as retention
 from app.core.config import serializer
 
@@ -220,6 +221,20 @@ def _seed_oauth_pair(email: str, *, client_id: str = "claude-1", created_at: dat
         "expires_at": now + timedelta(days=29), "rotated_from": None,
     }
     return access_raw, refresh_raw
+
+
+class _NoAllowlistRows:
+    """E12: current_user / validate_session now look the email up on the allow
+    list (a revoked row signs the person out). These tests are not about that,
+    so stand in an empty collection, same doctrine as the tombstone fake."""
+    async def find_one(self, *a, **k):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_allowlist_rows(monkeypatch):
+    import app.core.allowlist as _allowlist
+    monkeypatch.setattr(_allowlist, "allowed_signups_col", _NoAllowlistRows())
 
 
 @pytest.fixture(autouse=True)
@@ -418,8 +433,8 @@ def test_delete_account_revokes_before_erasing(monkeypatch):
         calls.append(("erase", uid))
         return {}
 
-    monkeypatch.setattr(profile_router, "revoke_sessions", fake_revoke)
-    monkeypatch.setattr(profile_router, "erase_user", fake_erase)
+    monkeypatch.setattr(account_erasure, "revoke_sessions", fake_revoke)
+    monkeypatch.setattr(account_erasure, "erase_user", fake_erase)
 
     result = _run(profile_router.delete_account(
         {"confirm": "DELETE"}, user={"email": EMAIL, "name": "Test"},
@@ -441,7 +456,7 @@ def test_old_token_rejected_after_delete_account_before_any_profile_write(monkey
 
     async def fake_erase(uid):
         return {}
-    monkeypatch.setattr(profile_router, "erase_user", fake_erase)
+    monkeypatch.setattr(account_erasure, "erase_user", fake_erase)
 
     # A real gap past the second boundary — delete_account calls
     # revoke_sessions(uid) with no `now=` override to inject, and the
@@ -528,7 +543,7 @@ def test_sweep_dormant_users_revokes_before_erasing_each_user(monkeypatch):
 async def _delete_account(monkeypatch, email=EMAIL):
     async def fake_erase(uid):
         return {}
-    monkeypatch.setattr(profile_router, "erase_user", fake_erase)
+    monkeypatch.setattr(account_erasure, "erase_user", fake_erase)
     return await profile_router.delete_account(
         {"confirm": "DELETE"}, user={"email": email, "name": "Test"},
     )

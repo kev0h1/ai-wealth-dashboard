@@ -48,3 +48,21 @@ async def resolve_allowed_signup(email: str) -> str | None:
     if not doc:
         return None
     return (doc.get("email") or email).strip().lower()
+
+
+async def is_access_revoked(email: str) -> bool:
+    """E12: True when `email` has an allow-list row with status "revoked", so
+    a session minted before the revoke stops working at the very next
+    request instead of living out its 7 days. The owner is never revoked
+    (checked first, no Mongo touch). Someone with no row at all (open
+    sign-up, or an account that predates the list) is not revoked. Unlike
+    `resolve_allowed_signup` this RAISES on a Mongo failure: its callers
+    (app.core.auth.current_user, POST /auth/session/validate) fail closed
+    with a 503, the same shape as the A84 tombstone check beside it."""
+    if not email or resolve_owner_email(email):
+        return False
+    key = _gmail_key(email.strip().lower())
+    doc = await allowed_signups_col.find_one(
+        {"key": key}, {"status": 1}, max_time_ms=_MAX_TIME_MS
+    )
+    return bool(doc) and doc.get("status") == "revoked"

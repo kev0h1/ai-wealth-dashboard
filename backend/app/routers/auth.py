@@ -28,6 +28,7 @@ from app.core.pending_login import (
 )
 from app.core.signin_handoff import signin_error_response, signin_handoff_csp, signin_handoff_html
 from app.core.push import drop_user_push_registrations
+from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked, revoke_sessions
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
@@ -82,6 +83,15 @@ async def validate_session(request: Request):
     # possibly-revoked token as valid.
     try:
         if await is_revoked(email, issued_at):
+            raise HTTPException(401, "Session expired")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Session check unavailable")
+    # E12: same revoked-allow-list check as app.core.auth.current_user, so
+    # AuthProvider's load-time validate also reports a revoked person signed out.
+    try:
+        if await is_access_revoked(email):
             raise HTTPException(401, "Session expired")
     except HTTPException:
         raise
