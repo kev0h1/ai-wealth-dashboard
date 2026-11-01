@@ -317,6 +317,8 @@ export type CashflowPeriod = {
 };
 
 export type CashflowData = {
+  /** G386: the Safe to Spend verdict (same payload as GET /safe-to-spend, minus pace), present only when requested with `include=forecast` on an API that supports it. Lets Upcoming's hero render figure and status from one response. */
+  forecast?: SafeToSpend;
   weekly_projection: CashflowWeek[];
   upcoming_bills: UpcomingBill[];
   upcoming_income: UpcomingBill[];
@@ -3077,6 +3079,8 @@ export const api = {
   dismissUnresolvedAsk: (txnId: string) =>
     post<{ ok: boolean }>("/spend/verdict/dismiss-unresolved", { txn_id: txnId }),
   cashflow: () => get<CashflowData>("/cashflow"),
+  /** G386: cashflow plus the embedded forecast verdict, for Upcoming's hero. */
+  cashflowWithForecast: () => get<CashflowData>("/cashflow?include=forecast"),
   getMirror: (refresh = false) =>
     get<MirrorPortrait>(`/mirror${refresh ? "?refresh=1" : ""}`),
   // F2: OAuth 2.1 authorisation server. getOAuthRequest/decideOAuthRequest

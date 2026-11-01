@@ -221,7 +221,13 @@ export default function PlanningPage() {
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [cashflowError, setCashflowError] = useState(false);
-  const forecastContext = useForecastContext(cashflow, api.safeToSpend);
+  // G386: the verdict rides in the cashflow payload (`forecast`), so figure and
+  // status render from one response. Only an older API that omits the key falls
+  // back to the second request, and the hero holds its chip and coloured word
+  // together in a placeholder until that lands (never a neutral chip that flips).
+  const embeddedForecast = cashflow?.forecast ?? null;
+  const fetchedForecast = useForecastContext(embeddedForecast ? null : cashflow, api.safeToSpend);
+  const forecastContext = embeddedForecast ? { data: embeddedForecast, pending: false } : fetchedForecast;
 
   // Tour readiness — the runway hero and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
@@ -273,7 +279,7 @@ export default function PlanningPage() {
   // can still wait for the browser's first idle slot instead of competing with
   // the forecast for initial render time.
   useEffect(() => {
-    api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
+    api.cashflowWithForecast().then(setCashflow).catch(() => setCashflowError(true));
   }, []);
 
   useEffect(() => {
@@ -325,7 +331,7 @@ export default function PlanningPage() {
   function refreshAllocations() {
     reloadAccountPositions();
     api.listAllocations().then(setAllocations).catch(() => {});
-    api.cashflow().then(setCashflow).catch(() => {});
+    api.cashflowWithForecast().then(setCashflow).catch(() => {});
     api.listAccountPlans().then((items) => { setAccountPlans(items); setAccountPlansError(false); }).catch(() => setAccountPlansError(true));
   }
 
@@ -334,7 +340,7 @@ export default function PlanningPage() {
     // If it fails after a write, retry only this refresh, never the mutation.
     reloadAccountPositions();
     try {
-      const [forecast, envelopes, plans] = await Promise.all([api.cashflow(), api.listAllocations(), api.listAccountPlans()]);
+      const [forecast, envelopes, plans] = await Promise.all([api.cashflowWithForecast(), api.listAllocations(), api.listAccountPlans()]);
       setCashflow(forecast); setAllocations(envelopes); setAccountPlans(plans);
       setAccountPlansError(false); setAllocationsError(false);
     } catch (error) {
@@ -350,7 +356,7 @@ export default function PlanningPage() {
 
   function retryCashflow() {
     setCashflowError(false);
-    api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
+    api.cashflowWithForecast().then(setCashflow).catch(() => setCashflowError(true));
   }
 
   // Pay period deep link
@@ -532,7 +538,7 @@ export default function PlanningPage() {
       api.deletePlanned(id).catch(() => {});
       lastPlannedDeleteRef.current = null;
       setUndoBar(null);
-      api.cashflow().then(setCashflow).catch(() => {});
+      api.cashflowWithForecast().then(setCashflow).catch(() => {});
     }, 6000);
     lastPlannedDeleteRef.current = { id, bills: stashedBills, timer };
     setUndoBar({ kind: "planned", id });
@@ -593,7 +599,7 @@ export default function PlanningPage() {
             ),
           };
         });
-        api.cashflow().then(setCashflow).catch(() => {});
+        api.cashflowWithForecast().then(setCashflow).catch(() => {});
       });
   }
 
@@ -610,7 +616,7 @@ export default function PlanningPage() {
     try {
       await last.request;
       await api.restoreRecurring(last.name);
-      const fresh = await api.cashflow();
+      const fresh = await api.cashflowWithForecast();
       setCashflow(fresh);
     } catch {}
   }
@@ -1161,7 +1167,7 @@ export default function PlanningPage() {
         <PlanOneOffSheet
           accounts={accounts}
           onClose={() => setPlanSheetOpen(false)}
-          onSaved={() => { api.cashflow().then(setCashflow).catch(() => {}); }}
+          onSaved={() => { api.cashflowWithForecast().then(setCashflow).catch(() => {}); }}
         />
       )}
 
