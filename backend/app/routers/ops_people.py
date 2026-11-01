@@ -32,6 +32,22 @@ from its own listing. Every id is of the canonical key (Gmail dots and
 googlemail.com folded), so no spelling of the owner's address can slip past the
 owner check; an id that resolves to nothing is a 404.
 
+E13 access state. Every row carries `access`: "owner" | "allowed" | "no_access"
+| "revoked", derived by app.core.allowlist.state_from_status, the same rule
+sign-in (resolve_allowed_signup) and the live-session check (is_access_revoked)
+use, so the page can never offer Revoke on someone sign-in already refuses.
+  - POST /ops/people/{id}/allow   no_access -> allowed (an invited row, source
+                                  "allowed_from_people"). Revoked people use Restore.
+  - GET  /ops/people/backfill     preview: a COUNT of signed-up accounts with no
+                                  allow-list row (never addresses).
+  - POST /ops/people/backfill     body {"confirm": "ALLOW"}; creates invited rows
+                                  (source "pre_list_backfill") for those accounts.
+                                  Idempotent, never touches the owner or an existing
+                                  row, one audit row with the count.
+  - backend/scripts/backfill_allowlist.py does the same from a shell: dry run by
+    default, --apply to write, refuses unless MONGO_DB is set explicitly, prints
+    counts only. Both call app.services.allowlist_backfill.
+
 Every action writes one `ops_audit` row. Logs and Sentry only ever see
 mask_email(...); the page itself is the one place a full email is shown.
 """
@@ -44,12 +60,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
+from app.core.allowlist import state_from_status
 from app.core.auth import current_user
 from app.core.config import PRIMARY_EMAIL, _gmail_key, mask_email
 from app.core.timeutil import as_utc
 from app.db import collections as cols
 from app.routers.admin_allowlist import _EMAIL_RE, invite_email
 from app.routers.ops import _require_owner_session
+from app.services import allowlist_backfill
 from app.services.account_erasure import erase_account
 
 logger = logging.getLogger(__name__)
@@ -84,6 +102,10 @@ class InviteBody(BaseModel):
 
 class EraseBody(BaseModel):
     confirm_email: str
+
+
+class BackfillBody(BaseModel):
+    confirm: str
 
 
 def _key_of(uid: str) -> str:
@@ -210,6 +232,8 @@ async def _rows(cursor: str | None) -> tuple[list[dict], str | None]:
             source = "open_signup"
         elif (doc.get("source") or invited_by) == "env_migration":
             source = "migrated"
+        elif doc.get("source") == "pre_list_backfill":
+            source = "backfill"
         else:
             source = "invite"
         row = {
@@ -217,6 +241,7 @@ async def _rows(cursor: str | None) -> tuple[list[dict], str | None]:
             "email": uid,
             "owner": owner,
             "allowlist_status": (doc or {}).get("status") or "none",
+            "access": state_from_status(owner, (doc or {}).get("status")),
             "source": "owner" if owner else source,
             "invited_at": _iso((doc or {}).get("created_at")),
             "signed_up": bool(prof) or owner,
@@ -264,6 +289,49 @@ async def invite(body: InviteBody, user: dict = Depends(current_user)):
     await invite_email(body.email, actor)
     await _audit(actor, "invite", body.email, _pid(body.email))
     logger.info("ops_people: invited %s", mask_email(body.email))
+    return {"ok": True}
+
+
+@router.get("/backfill")
+async def backfill_preview(user: dict = Depends(current_user)):
+    _require_owner_session(user)
+    return {"count": await allowlist_backfill.preview_count()}
+
+
+@router.post("/backfill")
+async def backfill_apply(body: BackfillBody, user: dict = Depends(current_user)):
+    actor = _require_owner_session(user)
+    if (body.confirm or "").strip() != "ALLOW":
+        raise HTTPException(400, "Type ALLOW to confirm.")
+    added = await allowlist_backfill.apply_backfill()
+    await _audit(actor, "backfill", "signed-up accounts", "backfill", f"{added} accounts allowed")
+    logger.info("ops_people: backfill allowed %d accounts", added)
+    return {"ok": True, "added": added}
+
+
+@router.post("/{pid}/allow")
+async def allow(pid: str, user: dict = Depends(current_user)):
+    actor = _require_owner_session(user)
+    key = await _resolve(pid)
+    doc = await cols.allowed_signups_col.find_one({"key": key})
+    state = state_from_status(False, (doc or {}).get("status"))
+    if state == "revoked":
+        raise HTTPException(409, "This person's access was revoked. Use Restore instead.")
+    if state == "allowed":
+        return {"ok": True}
+    ids = await _profile_ids_for_key(key)
+    email = (ids[0] if ids else (doc or {}).get("email") or key).strip().lower()
+    now = datetime.now(timezone.utc)  # naive-ok: persisted timestamp, aware UTC
+    await cols.allowed_signups_col.update_one(
+        {"key": key},
+        {"$set": {"email": email, "status": "invited", "invited_by": actor,
+                  "source": "allowed_from_people", "updated_at": now},
+         "$unset": {"revoked_at": ""},
+         "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    await _audit(actor, "allow", email, pid)
+    logger.info("ops_people: allow %s", mask_email(key))
     return {"ok": True}
 
 
