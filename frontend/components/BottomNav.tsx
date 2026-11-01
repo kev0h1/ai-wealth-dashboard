@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Home, PieChart, CalendarClock, Target } from "lucide-react";
 import { api } from "@/lib/api";
-import PennyMark from "@/components/PennyMark";
+import PennyLauncherButton from "@/components/PennyLauncherButton";
+import { usePreferences } from "@/components/PreferencesContext";
 import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProvider";
 import { isNavExemptPath } from "@/lib/navExemptRoutes";
@@ -127,6 +128,7 @@ const TABS: { id: TabId; href: string; label: string; Icon: typeof Home; slot: n
 ];
 
 export default function BottomNav() {
+  const { pennyAppearance } = usePreferences();
   const pathname = usePathname();
   const { open: openPennySheet, close: closePennySheet, isOpen: pennySheetOpen } = usePennySheet();
   const atRisk = useAtRiskCount();
@@ -191,64 +193,14 @@ export default function BottomNav() {
         style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 10px)" }}
       >
         <div className="relative w-[calc(100%-28px)] max-w-[402px]">
-          {/* Raised Penny button — the ONLY place the indigo→violet gradient
-              appears in this nav. Overlaps the rail's top edge. Opens/closes
-              the Penny window (usePennySheet, PennySheetProvider.tsx) —
-              now a floating popover anchored to this button rather than an
-              edge-to-edge sheet (PennySheet.tsx's header comment) — over
-              whatever screen is underneath, rather than navigating; tapping
-              it a second time while the window is open closes it (same
-              button doubles as trigger and close control, 2026-08-25 owner
-              redesign). The halo (`pennyActive`, below) lights on the
-              /penny hub route OR while the window is open, since the
-              button is what the window visually emerged from — a soft
-              indigo halo ring, same colour/alpha as the rail's own sliding
-              pill indicator, so it reads as part of the same active-state
-              language. The living dot mirrors the amber
-              Planning dot's treatment/position, lit whenever the payday
-              window (lib/paydayWindow.ts) is active. It used to also be
-              handed into `open()` as `paydayActive: true` so the sheet could
-              inject a deterministic lead bubble on open — removed
-              (2026-08-25, owner: that bubble duplicated the Safe-to-Spend
-              hero already on Home, see PennyConversation.tsx's own comment
-              at the thread's former lead-bubble slot for the full history).
-              The dot's promise is now redeemed inside the sheet itself, via
-              the payday chip in its chip row and the header's "Your plan
-              and updates" link (PennySheet.tsx), not by data forwarded at
-              open time — so `open()` here no longer takes a payday payload
-              at all. */}
-          <button
-            type="button"
-            // Toggle, not just launch — the owner's floating-window redesign
-            // (PennySheet.tsx) makes the button double as the window's own
-            // close control when it's already open, matching how a real
-            // popover trigger behaves. `aria-current="page"` stays tied to
-            // the actual route (not the window's open state, which is a
-            // transient overlay, not a page) — `aria-pressed` is the correct
-            // ARIA role for the toggle behaviour instead.
+          <PennyLauncherButton
+            appearance={pennyAppearance}
+            active={pennyActive}
+            open={pennySheetOpen}
+            current={pathname === "/penny"}
+            paydayActive={paydayActive}
             onClick={() => (pennySheetOpen ? closePennySheet() : openPennySheet({ screen: screenForPathname(pathname) }))}
-            aria-label="Penny"
-            aria-current={pathname === "/penny" ? "page" : undefined}
-            aria-pressed={pennySheetOpen}
-            className="absolute left-1/2 -translate-x-1/2 -top-7 z-10 w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform motion-reduce:transition-none"
-            style={{
-              background: "linear-gradient(135deg, #4f46e5, #7c3aed)",
-              boxShadow: pennyActive
-                ? "0 4px 14px rgba(79,70,229,0.35), 0 0 0 6px rgba(79,70,229,0.18)"
-                : "0 4px 14px rgba(79,70,229,0.35)",
-            }}
-          >
-            <span className="relative flex items-center justify-center">
-              <PennyMark size={22} className="text-white" />
-              {paydayActive && (
-                <span
-                  aria-hidden="true"
-                  className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full"
-                  style={{ background: "#f59e0b", boxShadow: "0 0 0 1.5px rgba(79,70,229,1)" }}
-                />
-              )}
-            </span>
-          </button>
+          />
 
           {/* Matte rail surface */}
           <div className="glass-rail relative rounded-[22px]">

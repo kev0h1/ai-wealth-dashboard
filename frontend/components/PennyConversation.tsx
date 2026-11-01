@@ -123,7 +123,8 @@ import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLi
 import type { PennyChatSession } from "@/lib/usePennyChatSession";
 import { PENNY_FULL_ACTION, PENNY_FULL_NOTICE, PENNY_MAX_TURNS } from "@/lib/pennyConversationSession";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import PennyMark from "@/components/PennyMark";
+import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
+import { usePreferences } from "@/components/PreferencesContext";
 import PennyComposer from "@/components/PennyComposer";
 import { usePennyThreadAnchor } from "@/lib/usePennyThreadAnchor";
 import CommitmentSheet from "@/components/CommitmentSheet";
@@ -2405,6 +2406,7 @@ export function PennyPromptBar({
    * show, so no reason to make the request. */
   showChips?: boolean;
 }) {
+  const { pennyAppearance } = usePreferences();
   const [chips, setChips] = useState<CanISuggestionChip[] | null>(null);
 
   useEffect(() => {
@@ -2421,12 +2423,7 @@ export function PennyPromptBar({
         onClick={onCompose}
         className="w-full glass-card rounded-2xl min-h-[44px] px-3.5 py-3 flex items-center gap-2.5 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
-        <span
-          className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: BG }}
-        >
-          <PennyMark size={13} className="text-white" />
-        </span>
+        <PennyAppearanceIcon appearance={pennyAppearance} size={28} originalMarkSize={13} />
         <span className="text-[14px] text-slate-500 dark:text-slate-400 truncate">
           Ask Penny&hellip; Can I spend <span className="font-mono tabular-nums">£45</span> this weekend?
         </span>

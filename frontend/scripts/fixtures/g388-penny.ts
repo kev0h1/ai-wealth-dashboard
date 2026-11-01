@@ -1,9 +1,5 @@
 import type { CompanionItem, PaydayPlanDest, PaydayPlanSalary } from "@/lib/api";
 
-/** Public knobs consumed by the local G388 design shell. */
-export type PresenceVariant = "current" | "a" | "b" | "c" | "d" | "e" | "f";
-export type PresenceState = "stack" | "card-detail" | "cover-plan" | "payday-plan" | "covered";
-
 const EVERYDAY = {
   account_id: "g388-everyday",
   name: "Everyday account",
@@ -64,7 +60,7 @@ const PAYDAY_DESTINATIONS: PaydayPlanDest[] = [
   },
 ];
 
-/** Synthetic only. The dates are deliberately current or upcoming in this preview. */
+/** Synthetic fixtures retained from the approved G388 comparison for regression checks. */
 export const PRESENCE_FIXTURES = {
   cardDetail: {
     id: "g388:card-detail",
@@ -136,14 +132,3 @@ export const PRESENCE_FIXTURES = {
 } as const;
 
 export const PRESENCE_STACK_ORDER = ["cardDetail", "coverPlan", "paydayPlan", "covered"] as const;
-
-export const PRESENCE_ACTION_ROUTES: Record<string, string> = {
-  "Add my rates": "/cards",
-  "See what’s due": "/upcoming",
-  "See the full plan": "/upcoming",
-  "View in Upcoming": "/upcoming",
-  "Home": "/",
-  "Spend": "/spend",
-  "Upcoming": "/upcoming",
-  "Planning": "/planning",
-};

@@ -43,6 +43,7 @@ import { clearOnboarded } from "@/lib/onboardingGate";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import { SettingsDirectory, resolveSettingsSection, type SettingsSection } from "@/components/settings/SettingsDirectory";
 import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "@/lib/settingsNavigation";
+import PennyAppearanceSetting from "@/components/settings/PennyAppearanceSetting";
 
 // D keeps orientation on the canvas; only related controls share a surface.
 function SettingsGroup({ visible, title, intro, children, surface = true }: {
@@ -142,7 +143,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, logout, clearLocalSession } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips, payPeriodConfig, setPayPeriodConfig } = usePreferences();
+  const { darkMode, setDarkMode, pennyAppearance, setPennyAppearance, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips, payPeriodConfig, setPayPeriodConfig } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -1218,6 +1219,13 @@ export default function SettingsPage() {
               aria-live="polite"
               className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300"
             >
+              <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span>{preferencesSaveError.message}</span>
+            </p>
+          )}
+          <PennyAppearanceSetting value={pennyAppearance} onChange={setPennyAppearance} />
+          {preferencesSaveError?.field === "penny_appearance" && (
+            <p role="status" aria-live="polite" className="flex items-start gap-1.5 px-4 pb-3.5 text-xs font-medium text-slate-600 dark:text-slate-300">
               <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
               <span>{preferencesSaveError.message}</span>
             </p>

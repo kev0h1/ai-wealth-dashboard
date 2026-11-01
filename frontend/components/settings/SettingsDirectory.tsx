@@ -50,7 +50,7 @@ export function buildSettingsGroups(status: SettingsDirectoryStatus): Group[] {
       { section: "cover", label: "Cover-plan safeguards", keywords: "cover plan safeguards accounts payment short", value: status.coverSummary },
     ] },
     { title: "Make the app yours", intro: "Choose what you see and what Sorted highlights.", tasks: [
-      { section: "display", label: "Display and privacy", keywords: "display dark mode theme balances privacy hide tips spend transactions", value: "Display choices" },
+      { section: "display", label: "Display and privacy", keywords: "display dark mode theme Penny icon outline ink balances privacy hide tips spend transactions", value: "Display choices" },
     ] },
     { title: "Notifications", intro: "Permission, delivery and the alerts you receive.", tasks: [
       { section: "notifications", label: "Notifications", keywords: "notifications push alerts test delivery bills transactions digest insights registration topics", value: status.notificationSummary },

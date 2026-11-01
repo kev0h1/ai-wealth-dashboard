@@ -144,6 +144,8 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 
 **The Penny Gradient Rule.** The indigo→violet gradient belongs to the AI adviser alone. Any surface wearing it must be a place the user can get advice.
 
+**Penny presence and icon choice (G388, Kevin 2026-11-01).** Kevin chose “C” and asked for “the customisation choice between what we have in prod, C1 and C3” beside the dark theme toggle. Home brief advice cards and Payday plan retain their kind/cue and financial content without repeated Penny attribution pills. Their primary actions use full-strength Adviser Indigo with white labels, 12px corners and at least 44px targets in both themes. Display settings, immediately after Dark mode, offer Original, Outline (C1) and Ink (C3) as a saved account preference; Original is the default for existing and new users. Original keeps the production gradient button and mark. Outline and Ink use a neutral 56px raised mobile door with one direct 26px glyph, no inner tile. None has a visible Penny caption underneath; the button retains its accessible Penny name, pressed state and payday indicator. The desktop adviser entry, chat header and composer entry use the same selected appearance. Chat titles, usage-ring interaction and keyboard behaviour stay intact. This supersedes the repeated attribution treatment in G292/G295 below. C2 chat bubble is not offered. The temporary comparison is retired at fold-in.
+
 **Flows vs Positions.** Home speaks only in flows (what's moving: in hand, due, movement since payday). Position totals (net worth, total across cards) live in the estate — the Accounts page — visited by choice, never greeting the user.
 
 ## 3. Typography
