@@ -240,3 +240,66 @@ def test_reconcile_refuses_without_mongo_db(monkeypatch, capsys):
     monkeypatch.delenv("MONGO_DB", raising=False)
     assert m.main([]) == 2
     assert "MONGO_DB" in capsys.readouterr().err
+
+
+# ── review fixes ─────────────────────────────────────────────────────────────
+def test_failed_customer_create_on_retry_keeps_cached_record(monkeypatch, env):
+    customers, _ = env
+    client = Client({"/consents": [Resp(400, UNKNOWN_CUSTOMER)],
+                     "/customers": [Resp(500, {})]})
+    _install(monkeypatch, client)
+    with pytest.raises(fs.FinexerConsentError):
+        _run(fs.create_consent(EMAIL, "cus_dead", "amex", "st", user={"email": EMAIL}))
+    assert customers.docs == [{"_id": EMAIL, "customer_id": "cus_dead"}]
+
+
+def test_scrub_redacts_basic_auth_form_and_28_char_runs(monkeypatch, env):
+    import base64
+    basic = base64.b64encode(f"{KEY}:".encode()).decode()
+    run28 = "A" * 28
+    out = fs._scrub_reason(f"Authorization: Basic {basic} also {run28} end")
+    assert basic not in out and basic.rstrip("=") not in out and run28 not in out
+
+
+class _AcctClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None):
+        if url.startswith("/consents/"):
+            return Resp(200, {"status": "authorized"})
+        return Resp(503, {})
+
+
+class _EmptyExcl:
+    def find(self, q=None, projection=None):
+        return self
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+def test_bank_accounts_failure_stamps_error_without_expiring(monkeypatch, env):
+    consents = Col([{"_id": "fx-1", "user_id": "u1", "status": "authorized", "last_synced": None}])
+    monkeypatch.setattr(fs, "finexer_consents_col", consents)
+    monkeypatch.setattr(fs, "_client", lambda: _AcctClient())
+    monkeypatch.setattr("app.db.collections.excluded_accounts_col", _EmptyExcl())
+    expired = []
+
+    async def mark(cid):
+        expired.append(cid)
+
+    async def ident(uid):
+        return None
+    monkeypatch.setattr(fs, "_mark_finexer_accounts_expired", mark)
+    monkeypatch.setattr(fs, "user_identity", ident)
+    assert _run(fs.sync_finexer_consent("fx-1", "u1")) == ([], 0)
+    assert consents.docs[0]["last_sync_error"] == "bank_accounts_http_503"
+    assert "last_sync_error_at" in consents.docs[0]
+    assert expired == []

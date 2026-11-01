@@ -615,7 +615,7 @@ _PROVIDER_REJECTED_MESSAGE = "This bank is not available right now. Try another 
 
 _SCRUB_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _SCRUB_SECRET = re.compile(r"\b(?:sk|pk|rk|key|tok|token|secret)_[A-Za-z0-9_\-]{6,}\b", re.IGNORECASE)
-_SCRUB_LONG = re.compile(r"\b[A-Za-z0-9_\-]{32,}\b")
+_SCRUB_LONG = re.compile(r"\b[A-Za-z0-9_\-]{24,}\b")
 
 
 def _scrub_reason(text: str, limit: int = 200) -> str:
@@ -625,7 +625,10 @@ def _scrub_reason(text: str, limit: int = 200) -> str:
     from app.core.config import mask_email
     out = _SCRUB_EMAIL.sub(lambda m: mask_email(m.group(0)), text or "")
     if FINEXER_API_KEY:
+        import base64
         out = out.replace(FINEXER_API_KEY, "[redacted]")
+        basic = base64.b64encode(f"{FINEXER_API_KEY}:".encode()).decode()
+        out = out.replace(basic, "[redacted]").replace(basic.rstrip("="), "[redacted]")
     out = _SCRUB_SECRET.sub("[redacted]", out)
     out = _SCRUB_LONG.sub("[redacted]", out)
     return " ".join(out.split())[:limit]
@@ -693,9 +696,7 @@ async def get_or_create_customer(user: dict, *, force_new: bool = False) -> str:
     `force_new` (A178) ignores and replaces the cached record: used when
     Finexer says the cached customer no longer exists."""
     user_id = user["email"]
-    if force_new:
-        await finexer_customers_col.delete_one({"_id": user_id})
-    else:
+    if not force_new:
         doc = await finexer_customers_col.find_one({"_id": user_id})
         if doc:
             return doc["customer_id"]
@@ -1131,6 +1132,14 @@ async def sync_finexer_consent(
         if ar.status_code != 200:
             logger.error("Finexer GET /bank_accounts failed: HTTP %s (upstream error)", ar.status_code)
             logger.debug("Finexer GET /bank_accounts failed body: %.400s", ar.text)
+            # A178: stamp the failure so it is visible, without expiring accounts.
+            await finexer_consents_col.update_one(
+                {"_id": consent_id},
+                {"$set": {
+                    "last_sync_error": f"bank_accounts_http_{ar.status_code}",
+                    "last_sync_error_at": datetime.utcnow(),  # naive-ok: matches last_synced convention
+                }},
+            )
             return [], 0
 
         acc_data = ar.json()
