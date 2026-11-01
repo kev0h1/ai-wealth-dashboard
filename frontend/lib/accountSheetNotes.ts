@@ -6,6 +6,8 @@ import type { Account } from "@wealth/shared";
 
 export const NO_BANK_TRANSACTIONS = "No transactions have arrived from this bank connection yet. The balance still updates.";
 export const SAVINGS_NOT_COUNTED = "Savings are not counted in Left to spend.";
+/** A181: shown under the switch on a business account that is not counted. */
+export const BUSINESS_NOT_COUNTED = "Business accounts are not counted in Left to spend unless you switch this on.";
 
 /** Matches "saving" in subtype or type. That is a superset of the backend's
  *  subtype rule (analytics._account_pool_kind); harmless because it only picks

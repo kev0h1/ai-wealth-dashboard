@@ -18,7 +18,7 @@ import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectSt
 import PausedBanksStrip from "@/components/PausedBanksStrip";
 import { pausedAccountCount } from "@/lib/billingCopy";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
-import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
+import { accountKind, accountKindLabel, isBusinessAccount, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { DateField } from "@/components/DatePicker";
@@ -2497,7 +2497,7 @@ export default function AccountsPage() {
             </button>
           ) : null)}
 
-          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} />
+          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} />
           {available && (
             <div data-account-availability-working className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">
               {available.kind === "ready" ? <>

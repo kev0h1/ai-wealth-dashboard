@@ -1364,6 +1364,11 @@ async def sync_finexer_consent(
             }
             if unset_doc:
                 update_ops["$unset"] = unset_doc
+            if acc_holder_type == "business" and kind_info["kind"] in ("current", "savings"):
+                # A181: a business account starts out not counted in Left to
+                # spend. $setOnInsert only, so a later sync, a reconnect or the
+                # user's own switch is never overwritten.
+                update_ops["$setOnInsert"]["include_in_safe_to_spend"] = False
             await accounts_col.update_one({"_id": account_id}, update_ops, upsert=True)
             fetched_account_ids.append(account_id)
 

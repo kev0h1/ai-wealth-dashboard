@@ -10,7 +10,7 @@
 
 import { AlertTriangle, Info, Star } from "lucide-react";
 import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
-import { accountKindLabel } from "@/lib/accountKind";
+import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { MaskedAmount } from "@/lib/balancesHidden";
@@ -152,6 +152,8 @@ export default function AccountLedgerRow({
   // G231: a bank account the user does not count towards Safe to Spend. The
   // balance still shows; only a quiet slate tag says it is not counted.
   const notCounted = row.source === "bank" && (row.raw as Account).include_in_safe_to_spend === false;
+  // A181: Finexer reports business accounts; a quiet tag says so.
+  const isBusiness = row.source === "bank" && isBusinessAccount(row.raw as Account);
 
   // Direction of money, not just account kind — an overdrawn current/savings
   // account is genuine risk (Red Is Risk), a credit card in credit is not
@@ -224,7 +226,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -246,6 +248,11 @@ export default function AccountLedgerRow({
           <span className="truncate">
             {row.provider} · {accountKindLabel(row.kind)}
           </span>
+          {isBusiness && (
+            <span data-a181-business className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span aria-hidden="true">· </span>Business
+            </span>
+          )}
           {notCounted && (
             <span data-g231-not-counted className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
               <span aria-hidden="true">· </span>Not counted

@@ -114,3 +114,63 @@ def test_truelayer_and_manual_classification_unchanged():
     assert _account_pool_kind(tl_card) is None
     assert not is_debt_account(tl_current) and not is_debt_account(tl_savings) and not is_debt_account(tl_card)
     assert not is_debt_account({"type": "bank"})
+
+
+# ---- part 2: business accounts default to not counted, at first import only
+
+
+class _InsertCol:
+    """Applies $set and $setOnInsert the way Mongo does, and $unset on update."""
+
+    def __init__(self, docs=None):
+        self.docs = [dict(d) for d in (docs or [])]
+
+    async def find_one(self, q=None, projection=None):
+        q = q or {}
+        return next((dict(d) for d in self.docs if all(d.get(k) == v for k, v in q.items() if not isinstance(v, dict))), None)
+
+    async def update_one(self, filt, update, upsert=False):
+        for d in self.docs:
+            if d.get("_id") == filt.get("_id"):
+                d.update(update.get("$set") or {})
+                for k in (update.get("$unset") or {}):
+                    d.pop(k, None)
+                return
+        if upsert:
+            nd = dict(update.get("$setOnInsert") or {})
+            nd.update(update.get("$set") or {})
+            self.docs.append(nd)
+
+
+def _business_run(monkeypatch, klass, acc_type, existing=None):
+    import app.services.finexer_sync as fs
+    accts, _ = _finexer_world(monkeypatch, client=_client(klass, acc_type))
+    col = _InsertCol(existing)
+    monkeypatch.setattr(fs, "accounts_col", col)
+    _call("acc1")
+    return _doc(col)
+
+
+def test_business_current_defaults_to_not_counted(monkeypatch, recomputes):
+    assert _business_run(monkeypatch, "current", "business")["include_in_safe_to_spend"] is False
+
+
+def test_business_savings_defaults_to_not_counted(monkeypatch, recomputes):
+    assert _business_run(monkeypatch, "savings", "business")["include_in_safe_to_spend"] is False
+
+
+def test_personal_and_unknown_type_leave_the_flag_absent(monkeypatch, recomputes):
+    assert "include_in_safe_to_spend" not in _business_run(monkeypatch, "current", "personal")
+    assert "include_in_safe_to_spend" not in _business_run(monkeypatch, "current", "unknown")
+
+
+def test_existing_user_choice_is_never_flipped(monkeypatch, recomputes):
+    d = _business_run(monkeypatch, "current", "business",
+                      existing=[{"_id": "acc1", "include_in_safe_to_spend": True}])
+    assert d["include_in_safe_to_spend"] is True
+    d = _business_run(monkeypatch, "current", "business", existing=[{"_id": "acc1"}])
+    assert "include_in_safe_to_spend" not in d
+
+
+def test_business_card_has_no_flag_set(monkeypatch, recomputes):
+    assert "include_in_safe_to_spend" not in _business_run(monkeypatch, "charge_card", "business")

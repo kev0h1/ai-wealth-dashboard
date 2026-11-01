@@ -69,3 +69,9 @@ export function isDormant(a: Account): boolean {
 export function needsAttention(a: Account): boolean {
   return a.status === "expired";
 }
+
+/** A181: Finexer reports the account holder type; "business" accounts are
+ *  tagged on the row and sheet and start out not counted in Left to spend. */
+export function isBusinessAccount(a: { finexer_type?: string | null }): boolean {
+  return (a.finexer_type ?? "").toLowerCase() === "business";
+}

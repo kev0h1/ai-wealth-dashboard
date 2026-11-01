@@ -7,10 +7,10 @@
 // whose flag is already false (counted === false), so it can be switched back on.
 
 import CountTowardsSafeToSpendRow, { type CountTowardsSafeToSpendRowProps } from "@/components/CountTowardsSafeToSpendRow";
-import { SAVINGS_NOT_COUNTED, isSavingsAccount } from "@/lib/accountSheetNotes";
+import { BUSINESS_NOT_COUNTED, SAVINGS_NOT_COUNTED, isSavingsAccount } from "@/lib/accountSheetNotes";
 
 export interface AccountCountRowProps extends CountTowardsSafeToSpendRowProps {
-  account: { type: string; subtype?: string | null };
+  account: { type: string; subtype?: string | null; finexer_type?: string | null };
 }
 
 export default function AccountCountRow({ account, ...row }: AccountCountRowProps) {
@@ -20,6 +20,16 @@ export default function AccountCountRow({ account, ...row }: AccountCountRowProp
       <p data-a175-savings-line className="px-1 text-[12.5px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
         {SAVINGS_NOT_COUNTED}
       </p>
+    );
+  }
+  if (!row.counted && (account.finexer_type ?? "").toLowerCase() === "business") {
+    return (
+      <>
+        <CountTowardsSafeToSpendRow {...row} />
+        <p data-a181-business-line className="mt-2 px-1 text-[12.5px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
+          {BUSINESS_NOT_COUNTED}
+        </p>
+      </>
     );
   }
   return <CountTowardsSafeToSpendRow {...row} />;
