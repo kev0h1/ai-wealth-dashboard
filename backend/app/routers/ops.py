@@ -306,7 +306,24 @@ async def ops_health(user: dict = Depends(current_user)):
         finexer_sync = await sync_health()
     except Exception:
         finexer_sync = None
-    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks, "finexer_sync": finexer_sync}
+    # A184: the last List events reconcile (counts only). Never blanks the page.
+    try:
+        from app.services.finexer_event_reconcile import reconcile_health
+        finexer_events = await reconcile_health()
+    except Exception:
+        finexer_events = None
+    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks,
+            "finexer_sync": finexer_sync, "finexer_events": finexer_events}
+
+
+@router.post("/health/finexer-events/reconcile")
+async def ops_finexer_events_reconcile(user: dict = Depends(current_user)):
+    """A184: owner-triggered List events reconcile (the nightly job runs the
+    same pass). Owner session only; at most one run every two minutes. Returns
+    counts and a short reason code, never event content."""
+    _require_owner_session(user)
+    from app.services.finexer_event_reconcile import reconcile_events
+    return await reconcile_events()
 
 
 @router.get("/webhooks/recent")

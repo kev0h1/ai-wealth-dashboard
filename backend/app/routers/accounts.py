@@ -448,10 +448,14 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         # failure leaves a retry marker for the nightly sweep and never blocks
         # or fails the user's own delete.
         if tl_acc.get("finexer") or tl_acc.get("source") == "finexer":
+            remote_id = tl_acc.get("finexer_account_id") or account_id
+
             async def _finexer_delete():
                 try:
                     from app.services.retention import delete_finexer_resource
-                    await delete_finexer_resource(uid, "bank_account", account_id)
+                    # A184: Finexer knows a reconnected account by its current
+                    # bank account id, not the stable local one.
+                    await delete_finexer_resource(uid, "bank_account", remote_id)
                 except Exception:
                     logger.exception("Finexer bank account delete failed (non-fatal)")
             # Background, like the refresh route: a slow Finexer never delays
