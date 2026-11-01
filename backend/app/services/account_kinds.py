@@ -15,6 +15,50 @@ of why it belongs on its own.
 """
 
 
+# A181: Finexer's bank-account `class`, mapped in ONE place. Every other
+# classifier in this module (and `analytics._account_pool_kind`) reads the
+# stored `type`/`subtype` this produces, so a class is never re-interpreted at
+# a call site.
+#
+#   class        kind     stored type   stored subtype
+#   credit_card  card     credit_card   CREDIT_CARD
+#   charge_card  card     credit_card   CREDIT_CARD
+#   savings      savings  bank          SAVINGS        (any class containing "saving")
+#   current      current  bank          TRANSACTION
+#   emoney       current  bank          TRANSACTION
+#   prepaid      current  bank          TRANSACTION
+#   loan         debt     debt          LOAN
+#   mortgage     debt     debt          MORTGAGE
+#   anything else / blank current bank  TRANSACTION     + class_unknown True
+_FINEXER_CARD_CLASSES = frozenset({"credit_card", "charge_card"})
+_FINEXER_CURRENT_CLASSES = frozenset({"current", "emoney", "prepaid"})
+_FINEXER_DEBT_CLASSES = {"loan": "LOAN", "mortgage": "MORTGAGE"}
+
+
+def finexer_account_kind(acc_class) -> dict:
+    """Map a Finexer `class` string to `{kind, type, subtype, class_unknown}`.
+    `kind` is one of card, savings, current, debt. An unrecognised or missing
+    class falls back to a current account with `class_unknown` True."""
+    c = str(acc_class or "").strip().lower()
+    if c in _FINEXER_CARD_CLASSES:
+        return {"kind": "card", "type": "credit_card", "subtype": "CREDIT_CARD", "class_unknown": False}
+    if c in _FINEXER_DEBT_CLASSES:
+        return {"kind": "debt", "type": "debt", "subtype": _FINEXER_DEBT_CLASSES[c], "class_unknown": False}
+    if "saving" in c:
+        return {"kind": "savings", "type": "bank", "subtype": "SAVINGS", "class_unknown": False}
+    if c in _FINEXER_CURRENT_CLASSES:
+        return {"kind": "current", "type": "bank", "subtype": "TRANSACTION", "class_unknown": False}
+    return {"kind": "current", "type": "bank", "subtype": "TRANSACTION", "class_unknown": True}
+
+
+def is_debt_account(acc: dict) -> bool:
+    """True for a loan or mortgage account (A181): owed money that is never
+    cash and never a source for a move."""
+    subtype = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
+    atype = (acc.get("account_type") or acc.get("type") or "").lower()
+    return atype == "debt" or subtype in ("LOAN", "MORTGAGE")
+
+
 def is_credit_card_account(acc: dict) -> bool:
     """True when an account doc (TrueLayer or Finexer row in accounts_col,
     or a yapily row) is a credit card — same test as needle.py."""

@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+from app.services.account_kinds import finexer_account_kind
 from app.services.sync_freshness import sync_error_code, sync_in_progress
 
 logger = logging.getLogger(__name__)
@@ -1228,15 +1229,12 @@ async def sync_finexer_consent(
             name = acc.get("nickname") or acc.get("holder_name") or "Account"
 
             acc_class = (acc.get("class") or "").lower()
-            if acc_class == "credit_card":
-                acc_type = "credit_card"
-                subtype  = "CREDIT_CARD"
-            elif "saving" in acc_class:
-                acc_type = "bank"
-                subtype  = "SAVINGS"
-            else:
-                acc_type = "bank"
-                subtype  = "TRANSACTION"
+            # A181: ONE mapping for every Finexer class (services/account_kinds.py).
+            kind_info = finexer_account_kind(acc_class)
+            acc_type = kind_info["type"]
+            subtype = kind_info["subtype"]
+            is_card = kind_info["kind"] == "card"
+            acc_holder_type = str(acc.get("type") or "").lower() or None
 
             ident = acc.get("identification") or {}
             account_number = (
@@ -1295,7 +1293,7 @@ async def sync_finexer_consent(
                 if chosen is None and bal_entries:
                     chosen = bal_entries[0]
                 if chosen:
-                    if acc_class == "credit_card":
+                    if is_card:
                         card_diag = {
                             "entry_type": str(chosen.get("type"))[:30] if chosen.get("type") is not None else None,
                             "keys": sorted(str(k)[:30] for k in chosen.keys())[:20],
@@ -1306,7 +1304,7 @@ async def sync_finexer_consent(
                         balance = float(chosen.get("current") or 0.0)
                     except (TypeError, ValueError):
                         balance = 0.0
-                    if acc_class == "credit_card":
+                    if is_card:
                         # Known limit: an overpaid card will display as owed until per-provider sign handling exists; the raw sign is logged per card for that.
                         # A180: banks pass their own sign through (some report
                         # owed as positive). App convention is negative = owed,
@@ -1337,6 +1335,9 @@ async def sync_finexer_consent(
                 "sort_code":      sort_code,
                 "finexer":        True,
                 "source":         "finexer",
+                # A181: the raw Finexer class and type, stored on every account.
+                "finexer_class":  acc_class or None,
+                "finexer_type":   acc_holder_type,
                 "logo_url":       pinfo.get("logo") or None,
                 "bg_colors":      pinfo.get("bg_colors") or [],
                 "updated_at":     datetime.utcnow(),
@@ -1348,18 +1349,22 @@ async def sync_finexer_consent(
                 set_doc["card_current_sign"] = card_diag["current_sign"]
                 set_doc["card_available_sign"] = card_diag["available_sign"]
             set_doc.update(bank_sync_set)
+            unset_doc: dict = {}
+            if kind_info["class_unknown"]:
+                set_doc["class_unknown"] = True
+            else:
+                unset_doc["class_unknown"] = ""
 
-            await accounts_col.update_one(
-                {"_id": account_id},
-                {
-                    "$set": set_doc,
-                    "$setOnInsert": {
-                        "_id":     account_id,
-                        "user_id": user_id,
-                    },
+            update_ops: dict = {
+                "$set": set_doc,
+                "$setOnInsert": {
+                    "_id":     account_id,
+                    "user_id": user_id,
                 },
-                upsert=True,
-            )
+            }
+            if unset_doc:
+                update_ops["$unset"] = unset_doc
+            await accounts_col.update_one({"_id": account_id}, update_ops, upsert=True)
             fetched_account_ids.append(account_id)
 
             # Fetch transactions (paginated). A bank_account.synced event may

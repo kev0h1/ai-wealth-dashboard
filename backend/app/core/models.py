@@ -41,6 +41,12 @@ class Account(BaseModel):
     # A179: when the bank's once-an-hour rule next allows a refresh of this
     # account (ISO UTC); null when one is allowed now or the account is not Finexer.
     bank_next_refresh_at: Optional[str] = None
+    # A181: Finexer's raw account class and holder type (personal, business,
+    # unknown), stored as returned; class_unknown is true when the class was
+    # not recognised and the account fell back to a current account.
+    finexer_class: Optional[str] = None
+    finexer_type: Optional[str] = None
+    class_unknown: Optional[bool] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.

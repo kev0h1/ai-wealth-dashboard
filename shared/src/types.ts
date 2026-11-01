@@ -41,6 +41,13 @@ export interface Account {
   /** A179: when the bank's once-an-hour rule next allows a refresh of this
    *  account (ISO UTC). Absent or null when one is allowed now. */
   bank_next_refresh_at?: string | null;
+  /** A181: Finexer's raw account class (current, savings, credit_card,
+   *  charge_card, emoney, loan, mortgage, ...) and holder type (personal,
+   *  business, unknown), as returned. `class_unknown` is true when the class
+   *  was not recognised and the account fell back to a current account. */
+  finexer_class?: string | null;
+  finexer_type?: string | null;
+  class_unknown?: boolean | null;
 }
 
 /** One live bank connection/consent, from GET /connections

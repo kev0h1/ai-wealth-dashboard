@@ -13,13 +13,15 @@
 
 import type { Account } from "@wealth/shared";
 
-export type AccountKind = "Current" | "Savings" | "Credit" | "Investment" | "Offline";
+export type AccountKind = "Current" | "Savings" | "Credit" | "Debt" | "Investment" | "Offline";
 
 export function accountKind(a: Account): AccountKind {
   if (a.manual) return "Offline";
   const type = (a.type ?? "").toLowerCase();
   const sub = (a.subtype ?? "").toLowerCase();
   if (type.includes("credit") || sub.includes("credit")) return "Credit";
+  // A181: a loan or mortgage from Finexer (stored type "debt").
+  if (type === "debt" || sub === "loan" || sub === "mortgage") return "Debt";
   if (
     sub.includes("isa") ||
     sub.includes("sipp") ||
@@ -41,6 +43,8 @@ export function accountKindLabel(kind: AccountKind): string {
       return "Savings";
     case "Credit":
       return "Credit card";
+    case "Debt":
+      return "Loan or mortgage";
     case "Investment":
       return "Investment";
     case "Offline":
@@ -59,7 +63,7 @@ export function isSavings(a: Account): boolean {
 /** A £0 credit card is PAID OFF, not dormant. A £0 current/savings account
  *  with no balance is dormant — likely unused/kept around for records. */
 export function isDormant(a: Account): boolean {
-  return a.balance === 0 && !isCredit(a);
+  return a.balance === 0 && !isCredit(a) && accountKind(a) !== "Debt";
 }
 
 export function needsAttention(a: Account): boolean {
