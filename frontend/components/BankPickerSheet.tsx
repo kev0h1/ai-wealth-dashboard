@@ -103,6 +103,9 @@ export function pickerFooter(placement: DisclosurePlacement, initiallyExpanded =
   if (placement === "expandable") return <ExpandableDisclosure initiallyExpanded={initiallyExpanded} />;
   return undefined;
 }
+// A178: banks Finexer rejected outright this session (in-memory, cleared on reload).
+const unavailableBankIds = new Set<string>();
+
 export default function BankPickerSheet({ onClose, onConnecting, provider = "finexer", stayOnReturn = false, disclosurePlacement = "footer", stickySearch = false, banksOverride, initialQuery = "", initiallyExpanded = false, preselectName }: BankPickerSheetProps) {
   const [banks, setBanks] = useState<Bank[]>(banksOverride ?? []);
   const [loading, setLoading] = useState(!banksOverride);
@@ -111,6 +114,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [unavailableVersion, setUnavailableVersion] = useState(0);
   const connectingRef = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<(() => void) | null>(null);
@@ -174,9 +178,10 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     setLoadAttempt(attempt => attempt + 1);
   }
 
+  const available = unavailableVersion >= 0 ? banks.filter(b => !unavailableBankIds.has(b.id)) : banks;
   const filtered = query.trim()
-    ? banks.filter(b => b.name.toLowerCase().includes(query.toLowerCase()))
-    : banks;
+    ? available.filter(b => b.name.toLowerCase().includes(query.toLowerCase()))
+    : available;
 
   async function handleSelect(bank: Bank, close: () => void) {
     // Archived fixtures must never create a live connection. Approved G's
@@ -212,7 +217,17 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
         window.location.href = auth_url;
       }
     } catch (err) {
-      const msg = err instanceof ApiError && err.status === 402
+      // A178: the server sends a plain message for a bank link it could not
+      // start (502) or a bank Finexer rejected outright (422). Show it, keep
+      // the list tappable for a retry, and for a rejected bank drop it from
+      // the list for the rest of this session.
+      const rejected = err instanceof ApiError && err.status === 422
+        && (err.detail as { code?: string } | null)?.code === "BANK_PROVIDER_REJECTED";
+      if (rejected) {
+        unavailableBankIds.add(bank.id);
+        setUnavailableVersion(v => v + 1);
+      }
+      const msg = err instanceof ApiError && (err.status === 402 || err.status === 422 || err.status === 502)
         ? err.message
         : "Failed to connect. Please try again.";
       setError(msg);
@@ -222,7 +237,7 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
   }
 
   if (provider === "finexer" && !banksOverride) return <BankConnectionFlow
-    banks={banks} loading={loading} loadError={loadError} connectionError={error} connecting={connecting}
+    banks={available} loading={loading} loadError={loadError} connectionError={error} connecting={connecting}
     onRetry={retryBanks} onConnect={handleSelect} onClose={onClose} preselectName={preselectName} />;
 
   return <SheetFrame
