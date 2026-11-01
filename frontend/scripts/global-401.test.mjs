@@ -110,7 +110,7 @@ async function expectRejects(promise) {
 
 // ── 3. A 401 on the login/session-check/public surface does not fire the
 //      hook — checked across get<T> (getProfile), post<T> (addCategory),
-//      del<T> (revokeAllowlist) and the raw-fetch+toJson path
+//      del<T> (deletePennyConversation) and the raw-fetch+toJson path
 //      (deleteCategory), so all four functions named in A124 are proven,
 //      not just one ───────────────────────────────────────────────────────
 {
@@ -139,7 +139,7 @@ async function expectRejects(promise) {
     check(`401 whose response.url is ${url} does not fire the hook (post)`, fireCount === 0);
 
     fetchImpl = async () => fakeResponse({ status: 401, url });
-    await expectRejects(api.revokeAllowlist("some-key")); // del<T>
+    await expectRejects(api.deletePennyConversation("some-id")); // del<T>
     check(`401 whose response.url is ${url} does not fire the hook (del)`, fireCount === 0);
 
     fetchImpl = async () => fakeResponse({ status: 401, url });
@@ -155,7 +155,7 @@ async function expectRejects(promise) {
   const cases = [
     ["get", () => api.getProfile()],
     ["post", () => api.addCategory("Test")],
-    ["del", () => api.revokeAllowlist("some-key")],
+    ["del", () => api.deletePennyConversation("some-id")],
     ["toJson", () => api.deleteCategory("Test")],
   ];
   for (const [label, call] of cases) {
