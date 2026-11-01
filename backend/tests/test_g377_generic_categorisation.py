@@ -117,7 +117,7 @@ def test_user_correction_while_model_is_running_wins(env, monkeypatch, path):
 
 
 def bulk_setup(monkeypatch, rules=()):
-    for name in ("accounts_col", "user_profiles_col", "merchant_categories_col", "confirmed_transfer_pairs_col", "teaching_events_col"):
+    for name in ("accounts_col", "user_profiles_col", "merchant_categories_col", "confirmed_transfer_pairs_col", "teaching_events_col", "preferences_col"):
         monkeypatch.setattr(cat, name, Rows())
     monkeypatch.setattr(cat, "user_rules_col", Rows(rules))
     async def kinds(*args): return CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
