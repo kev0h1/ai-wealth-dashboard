@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { ChevronDown } from "lucide-react";
-import { api, type AllowlistResponse, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
+import { api, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
 import { LegalTable, splitMarkdownIntoSegments } from "@/components/LegalDocument";
 import {
   DEFAULT_GO_LIVE_FILTERS,
@@ -46,7 +46,6 @@ import { HeaderHero } from "./HeaderHero";
 import { ListView } from "./ListView";
 import { BoardView } from "./BoardView";
 import { QuestionsSection } from "./QuestionsSection";
-import { AllowlistSection } from "./AllowlistSection";
 
 type SaveNote = { ok: boolean; text: string } | null;
 
@@ -67,7 +66,6 @@ export default function GoLivePage() {
   const [saveNotes, setSaveNotes] = useState<Record<string, SaveNote>>({});
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
   const [ui, setUi] = useState<GoLiveUiState>(DEFAULT_GO_LIVE_UI);
-  const [allowlist, setAllowlist] = useState<AllowlistResponse | null>(null);
 
   // Filters and section-collapse state are read from localStorage once on
   // mount (after hydration, so server and first client render match) and
@@ -124,25 +122,6 @@ export default function GoLivePage() {
         else setError(true);
       } finally {
         if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Allowlist has its own gate (bot-or-owner, same pairing as GoLive's
-  // owner check) and its own failure mode — a hiccup here shouldn't block
-  // the rest of the page, so it's a separate best-effort fetch rather than
-  // Promise.all'd with getGoLive above.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.listAllowlist();
-        if (!cancelled) setAllowlist(res);
-      } catch {
-        /* AllowlistSection just doesn't render if this never resolves */
       }
     })();
     return () => {
@@ -274,6 +253,9 @@ export default function GoLivePage() {
           <Link href="/ops/broadcast" className="mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
             Send an offer broadcast
           </Link>
+          <Link href="/ops/people" className="ml-4 mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+            People
+          </Link>
           <Link href="/ops/health" className="ml-4 mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
             Platform health
           </Link>
@@ -404,7 +386,22 @@ export default function GoLivePage() {
           </section>
         )}
 
-        {allowlist && <AllowlistSection data={allowlist} onChange={setAllowlist} />}
+        <section className="mb-8">
+          <Link
+            href="/ops/people"
+            className="glass-card flex min-h-11 items-center justify-between gap-3 rounded-2xl p-4 text-sm font-semibold text-slate-800 dark:text-slate-100"
+          >
+            <span>
+              People
+              <span className="mt-0.5 block text-xs font-normal text-slate-500 dark:text-slate-400">
+                Who can use Sorted, who has signed up, and invites
+              </span>
+            </span>
+            <span aria-hidden="true" className="text-indigo-600 dark:text-indigo-400">
+              Open
+            </span>
+          </Link>
+        </section>
 
         <footer className="border-t border-slate-200 pt-4 dark:border-white/10">
           <p className="text-xs text-slate-400 dark:text-slate-500">
