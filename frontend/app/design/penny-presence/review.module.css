@@ -33,6 +33,8 @@
 .dark .status { color: #cbd5e1; }
 .demoMark { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; color: #fff; }
 .roundMark { border-radius: 50%; }
+.inkMark { color: #4338ca; }
+:global(.dark) .inkMark { color: #c7d2fe; }
 .tonalMark { background: #fff; border: 1px solid #cbd5e1; }
 .innerMark { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; }
 :global(.dark) .tonalMark { background: #1e293b; border-color: #475569; }

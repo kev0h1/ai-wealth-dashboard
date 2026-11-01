@@ -8,6 +8,7 @@ import { PRESENCE_FIXTURES, PRESENCE_STACK_ORDER } from "./fixtures.ts";
 import { AskGenericCard, CelebrationCard, MoveCard } from "@/components/HomeBrief";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import { BalancesHiddenContext, maskMoneyText } from "@/lib/balancesHidden";
+import PresenceGlyph from "./PresenceGlyph.tsx";
 
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: async () => {} };
@@ -36,7 +37,7 @@ const cardText = (html, key) => {
   throw new Error(`Unclosed card region ${key}`);
 };
 
-const variants = ["a", "b", "c", "current"];
+const variants = ["a", "b", "c", "d", "e", "f", "current"];
 const states = ["card-detail", "cover-plan", "payday-plan", "covered"];
 
 // Every comparison is the real Home card family, with only the preview shell changing.
@@ -111,5 +112,13 @@ for (const component of ["AskGenericCard", "MoveCard", "PaydayPlanCard", "Celebr
 const pageSource = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
 assert.match(pageSource, /PennyPresenceClient/);
 assert.doesNotMatch(pageSource, /@\/lib\/api|fetch\(|localStorage|sessionStorage/);
+
+// The outline proposals draw an outline, rather than putting the old filled tile in a border.
+for (const variant of ["d", "e"]) {
+  const glyph = renderToStaticMarkup(React.createElement(PresenceGlyph, { variant }));
+  assert.match(glyph, /fill="none"/);
+  assert.match(glyph, /stroke="currentColor"/);
+  assert.doesNotMatch(glyph, /fill="currentColor"|opacity=|linear-gradient|linearGradient/);
+}
 
 console.log("G388 contracts: four real Home card families, cross-variant fidelity, Covered attribution boundary, masking, local actions, dates and preview-only I/O covered.");

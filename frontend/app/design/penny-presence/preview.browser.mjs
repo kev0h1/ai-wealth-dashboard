@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { openBrowser } from "../../../scripts/_plan-browser.mjs";
 
 const output = process.argv[2];
+const phase = process.argv[3] || "all";
+assert.ok(["all", "capture", "interactions"].includes(phase));
 const browser = await openBrowser({ origin: process.env.G388_TEST_ORIGIN || "http://127.0.0.1:3188", output });
 const { evaluate, waitFor, navigate, viewport, activate, key, shot, save, settle } = browser;
 const results = [];
-const variants = ["a", "b", "c", "current"];
+const proposals = ["d", "e", "f"];
+const variants = [...proposals, "c"];
 const states = ["stack", "card-detail", "cover-plan", "payday-plan", "covered"];
 const route = (variant, state, mode, options = {}) => `/design/penny-presence?${new URLSearchParams({ variant, state, mode, clean: "1", ...options })}`;
 const ready = variant => `document.querySelector('[data-g388-ready="true"][data-g388-variant="${variant}"]')`;
@@ -25,18 +28,20 @@ async function measure() {
     const badges=[...root.querySelectorAll('[data-g388-card] span[style*="linear-gradient"]')];
     const visible=e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(e).display!=='none'};
     return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,root:rect(root),cards:cards.map(e=>({kind:e.dataset.g388Card,...rect(e)})),nav:nav?rect(nav):null,door:door?rect(door):null,
-      primary:primaries.map(e=>({label:e.textContent.trim(),...rect(e),radius:getComputedStyle(e).borderRadius,background:getComputedStyle(e).backgroundColor,colour:getComputedStyle(e).color,contrast:contrast(getComputedStyle(e).color,getComputedStyle(e).backgroundColor)})),
+      primary:primaries.map(e=>({label:e.textContent.trim(),...rect(e),radius:getComputedStyle(e).borderRadius,background:getComputedStyle(e).backgroundColor,colour:getComputedStyle(e).color,opacity:getComputedStyle(e).opacity,disabled:e.disabled===true||e.getAttribute("aria-disabled")==="true",contrast:contrast(getComputedStyle(e).color,getComputedStyle(e).backgroundColor)})),
       badges:badges.map(e=>({text:e.textContent.trim(),visible:visible(e),background:getComputedStyle(e).backgroundImage,colour:getComputedStyle(e).color})),
+      glyph:door?(()=>{const svg=door.querySelector("svg");return svg?{...rect(svg),direct:svg.parentElement===door,gradient:!!door.querySelector('[style*="linear-gradient"]'),contrast:contrast(getComputedStyle(svg).color,getComputedStyle(door).backgroundColor)}:null})():null,
       covered:cards.find(e=>e.dataset.g388Card==='covered')?.textContent??null};
   })()`);
 }
 
 try {
+  if(phase!=="interactions") {
   const matrix=[];
   for(const mode of ["light","dark"]) for(const variant of variants) {
-    for(const state of states) matrix.push({mode,variant,state,width:390});
-    if(variant!=="current") for(const width of [320,1280]) matrix.push({mode,variant,state:"stack",width});
-    matrix.push({mode,variant,state:"stack",width:390,masked:true});
+    for(const state of phase==="capture"?["stack"]:states) matrix.push({mode,variant,state,width:390});
+    if(proposals.includes(variant)) for(const width of [320,1280]) matrix.push({mode,variant,state:"stack",width});
+    if(phase!=="capture"||proposals.includes(variant)) matrix.push({mode,variant,state:"stack",width:390,masked:true});
   }
   for(const test of matrix) {
     const {variant,state,mode,width,masked=false}=test;
@@ -57,7 +62,18 @@ try {
       if(variant!=="current") assert.ok(primary.contrast>=4.5,JSON.stringify({test,primary}));
     }
     if(variant!=="current") assert.ok(result.badges.every(b=>!b.visible||b.background==="none"),"no proposal puts the gradient on passive card attribution");
-    if(variant==="c") assert.ok(result.badges.every(b=>!b.visible),"C removes repeated attribution badges");
+    assert.ok(result.badges.every(b=>!b.visible),"C and its refinements remove repeated attribution badges");
+    if(proposals.includes(variant)) {
+      assert.ok(result.glyph?.direct && result.glyph.width===26 && result.glyph.height===26,"one full-size glyph sits directly in the adviser door");
+      assert.equal(result.glyph.gradient,false,"the nested purple tile is removed");
+      assert.ok(result.glyph.contrast>=4.5,"monochrome glyph stays visible in either theme");
+      for(const primary of result.primary) {
+        assert.equal(primary.background,"rgb(79, 70, 229)","primary actions are solid Adviser Indigo");
+        assert.equal(primary.colour,"rgb(255, 255, 255)");
+        assert.equal(primary.opacity,"1");
+        assert.equal(primary.disabled,false);
+      }
+    }
     if(masked) {
       const markup=await evaluate("document.querySelector('#presence-example').outerHTML");
       assert.doesNotMatch(markup,/£\\?\d/,"money stays hidden in DOM and accessible names");
@@ -66,15 +82,22 @@ try {
     if(capture) {
       await evaluate("scrollTo(0,0)");
       await settle();
-      await shot(`${variant}-${mode}-${width}-stack`,{full:true});
+      await shot(`${variant}-${mode}-${width}-stack`);
+      if(proposals.includes(variant)&&width===390) {
+        await evaluate("scrollTo(0,document.documentElement.scrollHeight)");
+        await settle();
+        await shot(`${variant}-${mode}-390-lower`);
+      }
     }
     results.push({...test,...result});
   }
   await save("matrix",results);
+  }
 
+  if(phase!=="capture") {
   // Touch the actual production-shaped actions and ordinary nav slots.
   await viewport(390,900);
-  for(const variant of ["a","b","c"]) {
+  for(const variant of proposals) {
     for(const state of ["card-detail","cover-plan","payday-plan"]) {
       await navigate(route(variant,state,"dark"),ready(variant));
       await activate("document.querySelector('[data-g388-card] button.bg-indigo-600, [data-g388-card] a.bg-indigo-600')",true);
@@ -93,18 +116,23 @@ try {
       await waitFor(`document.querySelector('[data-g388-action]').textContent.includes('${label}')`);
       assert.equal(await evaluate("location.pathname"),"/design/penny-presence");
     }
-    await activate("document.querySelector('[data-g388-nav] button[aria-label=\"Ask Penny\"]')",true);
-    await waitFor("!![...document.querySelectorAll('[role=dialog]')].find(e=>e.textContent.includes('Penny preview'))");
-    await shot(`${variant}-dark-390-adviser`);
-    assert.match(await evaluate("document.body.innerText"),/does not read your accounts or send a message/);
-    await key("Escape","Escape",27);
-    await waitFor("![...document.querySelectorAll('[role=dialog]')].some(e=>e.textContent.includes('Penny preview'))");
-    await settle();
-    assert.equal(await evaluate("document.activeElement?.getAttribute('aria-label')"),"Ask Penny","focus returns to the adviser door");
+    for(const mode of ["light","dark"]) {
+      await navigate(route(variant,"stack",mode),ready(variant));
+      await activate("document.querySelector('[data-g388-nav] button[aria-label=\"Ask Penny\"]')",true);
+      await waitFor("!![...document.querySelectorAll('[role=dialog]')].find(e=>e.textContent.includes('Penny preview'))");
+      const header=await evaluate("(()=>{const entry=document.querySelector('[data-presence-entry]');const svg=entry.querySelector('svg');return {direct:svg.parentElement===entry,width:svg.getBoundingClientRect().width,gradient:entry.outerHTML.includes('linear-gradient'),same:svg.innerHTML===document.querySelector('[data-g388-nav] button svg').innerHTML};})()");
+      assert.deepEqual(header,{direct:true,width:26,gradient:false,same:true},"header and door use the same direct glyph without a tile");
+      await shot(`${variant}-${mode}-390-adviser`);
+      assert.match(await evaluate("document.body.innerText"),/does not read your accounts or send a message/);
+      await key("Escape","Escape",27);
+      await waitFor("![...document.querySelectorAll('[role=dialog]')].some(e=>e.textContent.includes('Penny preview'))");
+      await settle();
+      assert.equal(await evaluate("document.activeElement?.getAttribute('aria-label')"),"Ask Penny","focus returns to the adviser door");
+    }
   }
 
   // Real keyboard activation, and reversible review controls.
-  await navigate(route("a","card-detail","light",{clean:"0"}),ready("a"));
+  await navigate(route("d","card-detail","light",{clean:"0"}),ready("d"));
   await evaluate("document.querySelector('[data-g388-nav] button').focus()");
   await key("Enter","Enter",13);
   await waitFor("[...document.querySelectorAll('[role=dialog]')].some(e=>e.textContent.includes('Penny preview'))");
@@ -117,10 +145,11 @@ try {
   await activate("document.querySelector('summary')",true);
   await activate("[...document.querySelectorAll('a')].find(e=>e.textContent.trim()==='Show example figures')",true);
   await waitFor("location.search.includes('masked=0')&&document.querySelector('[data-g388-ready=\"true\"]')");
-  await navigate(route("invalid","invalid","invalid"),ready("a"));
+  await navigate(route("invalid","invalid","invalid"),ready("d"));
   assert.equal((await measure()).cards.length,4,"malformed knobs fall back to the normal stack");
+  }
   assert.deepEqual(browser.exceptions,[],"no page exceptions");
   assert.deepEqual(browser.apiRequests,[],"no customer API attempts");
-  await save("results",{layouts:results.length,interactions:"card/nav touch, role-button interception, adviser open/close, keyboard, focus, masking and parameter fallback",exceptions:browser.exceptions,apiRequests:browser.apiRequests});
-  console.log(JSON.stringify({layouts:results.length,interactions:"passed",output}));
+  await save(`results-${phase}`,{phase,layouts:results.length,interactions:phase==="capture"?"separate phase":"card/nav touch, role-button interception, adviser open/close, keyboard, focus, masking and parameter fallback passed",exceptions:browser.exceptions,apiRequests:browser.apiRequests});
+  console.log(JSON.stringify({phase,layouts:results.length,interactions:phase==="capture"?"separate phase":"passed",output}));
 } finally { browser.close(); }

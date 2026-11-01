@@ -61,6 +61,25 @@
 :global(.dark) .variantB .fixtureCard :global([style*="linear-gradient"] svg) { border-color: #a5b4fc; }
 
 .variantC .fixtureCard :global([style*="linear-gradient"]) { display: none !important; }
+.refined .fixtureCard :global([style*="linear-gradient"]) { display: none !important; }
+
+/* C refinements: enabled actions have full-strength colour in both themes. */
+.refined .fixtureCard :global(button.bg-indigo-600),
+.refined .fixtureCard :global(a.bg-indigo-600) {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 12px !important;
+  background: #4f46e5 !important;
+  color: #fff !important;
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .refined .fixtureCard :global(button.bg-indigo-600:hover),
+  .refined .fixtureCard :global(a.bg-indigo-600:hover) { background: #4338ca !important; }
+}
+.refined .fixtureCard :global(button.bg-indigo-600:active),
+.refined .fixtureCard :global(a.bg-indigo-600:active) { background: #3730a3 !important; }
 
 /* These selectors only reach real card action controls inside this gallery. */
 .variantA .fixtureCard :global(button.bg-indigo-600),
@@ -177,6 +196,8 @@
   border: 0;
   color: white;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: transform 150ms ease-out, box-shadow 150ms ease-out;
 }
 
@@ -185,6 +206,12 @@
 .doorCurrent { box-shadow: 0 12px 24px rgb(79 70 229 / 28%); }
 .doorB { border-radius: 999px; box-shadow: 0 10px 18px rgb(49 46 129 / 22%); }
 .doorC { border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; box-shadow: 0 10px 18px rgb(15 23 42 / 14%); }
+.doorRefined { border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; color: #4338ca; box-shadow: 0 10px 18px rgb(15 23 42 / 14%); }
+:global(.dark) .doorRefined { border-color: #475569; background: #1e293b; color: #c7d2fe; box-shadow: none; }
+@media (hover: hover) and (pointer: fine) {
+  .doorRefined:hover { border-color: #818cf8; color: #3730a3; }
+  :global(.dark) .doorRefined:hover { border-color: #a5b4fc; color: #e0e7ff; }
+}
 
 :global(.dark) .doorC { border-color: #475569; background: #1e293b; box-shadow: none; }
 .doorMark { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; }
