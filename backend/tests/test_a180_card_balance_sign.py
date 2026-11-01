@@ -26,19 +26,19 @@ def _doc(accts):
 
 
 def test_positive_reporting_card_stores_negative(monkeypatch, recomputes):
-    accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", 446.01, 1000.0))
+    accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", 123.45, 1000.0))
     _call("acc1")
     d = _doc(accts)
-    assert d["balance"] == -446.01
+    assert d["balance"] == -123.45
     assert d["available"] == 1000.0
     assert d["card_current_sign"] == "positive"
 
 
 def test_negative_reporting_card_stores_negative_same_magnitude(monkeypatch, recomputes):
-    accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", -446.01, -50.0))
+    accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", -123.45, -50.0))
     _call("acc1")
     d = _doc(accts)
-    assert d["balance"] == -446.01
+    assert d["balance"] == -123.45
     assert d["available"] == -50.0
     assert d["card_current_sign"] == "negative"
 
@@ -59,19 +59,19 @@ def test_current_account_sign_unchanged(monkeypatch, recomputes):
 
 
 def test_log_line_records_raw_sign_before_flip(monkeypatch, recomputes, caplog):
-    _finexer_world(monkeypatch, client=_client("credit_card", 446.01, -1.0))
+    _finexer_world(monkeypatch, client=_client("credit_card", 123.45, -1.0))
     with caplog.at_level(logging.INFO, logger="app.services.finexer_sync"):
         _call("acc1")
     line = next(r.getMessage() for r in caplog.records if "card balance shape" in r.getMessage())
     assert "raw_current_sign=positive" in line and "available_sign=negative" in line
-    assert "446" not in line
+    assert "123" not in line
 
 
 def test_full_consent_path_applies_the_flip(monkeypatch):
     accts = Col([])
     _wire_sync(monkeypatch, accts)
-    monkeypatch.setattr(fs, "_client", lambda: _client("credit_card", 2541.49, 100.0))
+    monkeypatch.setattr(fs, "_client", lambda: _client("credit_card", 987.60, 100.0))
     asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
     d = _doc(accts)
-    assert d["balance"] == -2541.49 and d["available"] == 100.0
+    assert d["balance"] == -987.60 and d["available"] == 100.0
     assert d["card_current_sign"] == "positive"

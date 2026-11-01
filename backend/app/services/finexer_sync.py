@@ -1307,6 +1307,7 @@ async def sync_finexer_consent(
                     except (TypeError, ValueError):
                         balance = 0.0
                     if acc_class == "credit_card":
+                        # Known limit: an overpaid card will display as owed until per-provider sign handling exists; the raw sign is logged per card for that.
                         # A180: banks pass their own sign through (some report
                         # owed as positive). App convention is negative = owed,
                         # so cards always store -abs(current). The raw sign is
