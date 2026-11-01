@@ -71,7 +71,7 @@ def _setup(monkeypatch, captured_consent_calls=None, consent_url="https://consen
     async def fake_get_or_create_customer(user):
         return "cus_test_1"
 
-    async def fake_create_consent(user_id, customer_id, provider, state):
+    async def fake_create_consent(user_id, customer_id, provider, state, user=None):
         if captured_consent_calls is not None:
             captured_consent_calls.append({
                 "user_id": user_id,
