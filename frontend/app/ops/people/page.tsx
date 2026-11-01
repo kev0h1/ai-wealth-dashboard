@@ -9,11 +9,12 @@
 // does not apply. Red is used once: the destructive button of the remove
 // confirmation. Errors are ink text with an amber dot.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, ApiError, type OpsAuditEntry, type OpsPerson } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import SubscriptionSection from "./SubscriptionSection";
 import {
   ACTION_LABELS,
   accessAction,
@@ -310,6 +311,7 @@ function PersonCard({
           value={person.penny_messages_this_month === null ? "None" : `${person.penny_messages_this_month} messages`}
         />
       </div>
+      {person.signed_up && <SubscriptionSection personId={person.id} />}
     </li>
   );
 }
@@ -352,7 +354,8 @@ function PeopleTable({
         <tbody>
           {people.map((p) => {
             return (
-              <tr key={p.id} className="border-b border-slate-100 last:border-0 dark:border-white/5">
+              <Fragment key={p.id}>
+              <tr className="border-b border-slate-100 last:border-0 dark:border-white/5">
                 <td className={`${td} max-w-[240px] truncate font-semibold`}>{p.email}</td>
                 <td className={td}>
                   <AccessChip person={p} />
@@ -386,6 +389,14 @@ function PeopleTable({
                   )}
                 </td>
               </tr>
+              {p.signed_up && (
+                <tr className="border-b border-slate-100 last:border-0 dark:border-white/5">
+                  <td colSpan={9} className="px-3 pb-3">
+                    <SubscriptionSection personId={p.id} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>

@@ -93,6 +93,10 @@ export const ACTION_LABELS: Record<string, string> = {
   revoke: "Revoked access",
   restore: "Restored access",
   erase: "Removed user",
+  set_tier: "Set plan",
+  grant_topup: "Granted Penny pack",
+  reset_trial: "Reset trial",
+  cancel_grant: "Cancelled manual grant",
 };
 
 export function revokeMessage(email: string): string {

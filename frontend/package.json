@@ -13,6 +13,7 @@
     "check:e9-recent-webhooks": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e9-recent-webhooks.test.mjs",
     "check:e12-people": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e12-people.test.mjs",
     "check:e13-access-state": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e13-access-state.test.mjs",
+    "check:e14-subscription": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e14-subscription.test.mjs",
     "check:e7-health-page": "node --no-warnings --experimental-strip-types scripts/e7-health-page.test.mjs",
     "check:calendar": "node --no-warnings --experimental-strip-types scripts/calendar.test.mjs",
     "check:date-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/date-picker.test.mjs",

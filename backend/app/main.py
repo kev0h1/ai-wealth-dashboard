@@ -55,7 +55,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, allocations, money_shape,
-    penny_chip, penny_conversations, ops, ops_people, admin_usage, admin_allowlist, billing as billing_router,
+    penny_chip, penny_conversations, ops, ops_people, ops_people_subscription, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
     diagnostics, uat_trial_reset, play_billing as play_billing_router,
 )
@@ -125,6 +125,7 @@ def _routers(
         admin_usage.router,
         admin_allowlist.router,
         ops_people.router,
+        ops_people_subscription.router,
         billing_router.router,
         play_billing_router.router,
         broadcast_router.router,

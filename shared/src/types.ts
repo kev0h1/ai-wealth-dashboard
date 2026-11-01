@@ -862,6 +862,9 @@ export interface SubscriptionInfo {
   tier_source?: "default" | "free_selected" | "manual" | "stripe" | "apple" | "google" | "unknown" | null;
   /** C37: true when `tier_source` is "default". */
   is_default_tier?: boolean;
+  /** E14: when `tier_source` is "manual", the date the hand-made grant ends
+   *  (ISO), or null when it has no end. */
+  tier_expires_at?: string | null;
   /** F9: this month's MCP connector call allowance. Optional for the same
    *  older-backend reason as `billing_live`. */
   mcp?: SubscriptionMcpAllowance;
