@@ -3205,6 +3205,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-10-31, codex): Using impeccable for two compact availability/shortfall variants across Accounts, Home and detail. Preserve Spend from calculation and whole-pound row formatting; production layout awaits selection.
   - note (2026-10-31, codex): Two preview options ready: A paired figures (recommended), B verdict line. Whole-pound row balance/Available/shortfall; exact pence in Working. 23 browser checks pass including both themes, 320/390/desktop, plans-only gap, loading/unknown/error, pennies and masking. Independent review and final screenshot review completed. Required finish gates running with --uat-review.
   - note (2026-10-31, codex): Delivery complete: 6648 backend tests (4 skipped), 43 scenario-order checks, TypeScript and all 178 frontend checks passed. Branch pushed and marked review with --uat-review. Local builds and mobile/theme screenshots verified; dry merge checks against G382 and G383 are clean. Preview /design/account-availability-shortfall will be available after coordinator integration.
+- [ ] **G386. Upcoming hero paints its verdict late (Kevin 2026-11-01, prod): the page renders, then the green left colouring and the Looks on track chip appear noticeably after everything else, so the card visibly flips from neutral to green** [owner: claude]
 
 ## H. Repo hygiene
 
