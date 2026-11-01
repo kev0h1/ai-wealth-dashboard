@@ -57,6 +57,7 @@ from app.core.signin_handoff import signin_error_response
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
+from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
 from app.db.collections import oauth_clients_col, oauth_codes_col, oauth_tokens_col
@@ -491,6 +492,11 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     # response.
     if await is_revoked(doc["uid"], doc["created_at"]):
         return _oauth_error("invalid_grant")
+    try:  # E12: an allow-list revoke ends refresh too; fails closed
+        if await is_access_revoked(doc["uid"]):
+            return _oauth_error("invalid_grant")
+    except Exception:
+        return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
     if doc.get("client_id") != client_id:
         return _oauth_error("invalid_client")
 

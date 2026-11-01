@@ -72,6 +72,21 @@ def _no_tombstones(monkeypatch):
     monkeypatch.setattr(db_collections, "session_tombstones_col", _FakeTombstoneCol())
 
 
+class _NoAllowlistRows:
+    """E12: resolve_mcp_principal and the refresh grant now consult the allow
+    list (a revoked row ends MCP access). Not what these tests are about, so an
+    empty collection stands in for it, like the tombstone fake above."""
+
+    async def find_one(self, *a, **k):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_allowlist_rows(monkeypatch):
+    import app.core.allowlist as _allowlist
+    monkeypatch.setattr(_allowlist, "allowed_signups_col", _NoAllowlistRows())
+
+
 # ── shared fakes ─────────────────────────────────────────────────────────
 
 class _FakeResult:
