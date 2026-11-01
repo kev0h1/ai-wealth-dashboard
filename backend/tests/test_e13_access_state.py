@@ -212,3 +212,10 @@ def test_script_refuses_without_mongo_db_set():
     out = subprocess.run([sys.executable, str(backend / "scripts" / "backfill_allowlist.py")],
                          env=env, capture_output=True, text=True, cwd=backend, timeout=60)
     assert out.returncode == 2 and "MONGO_DB" in out.stderr
+
+
+def test_listing_reports_whether_open_signup_is_on(env, monkeypatch):
+    monkeypatch.setattr(people, "is_signup_open", lambda: True)
+    assert _run(people.list_people(user=OWNER))["open_signup"] is True
+    monkeypatch.setattr(people, "is_signup_open", lambda: False)
+    assert _run(people.list_people(user=OWNER))["open_signup"] is False

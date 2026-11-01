@@ -411,6 +411,7 @@ export default function PeoplePage() {
   const [revoking, setRevoking] = useState<OpsPerson | null>(null);
   const [removing, setRemoving] = useState<OpsPerson | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [openSignup, setOpenSignup] = useState(false);
   const [backfillCount, setBackfillCount] = useState(0);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillError, setBackfillError] = useState<string | null>(null);
@@ -421,6 +422,7 @@ export default function PeoplePage() {
       const res = await api.getOpsPeople();
       setPeople(res.people);
       setAudit(res.audit);
+      setOpenSignup(res.open_signup === true);
       setCursor(res.next_cursor);
       setLoadError(false);
       try {
@@ -596,6 +598,10 @@ export default function PeoplePage() {
               );
             })}
           </div>
+
+          {openSignup && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">{WORDING.openSignupHint}</p>
+          )}
 
           {actionError && <ErrorLine text={actionError} />}
 

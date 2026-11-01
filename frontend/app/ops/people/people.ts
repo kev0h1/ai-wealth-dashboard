@@ -30,6 +30,7 @@ export const WORDING = {
   removeConfirm: "Remove user",
   removeTypeLabel: "Type their email address to confirm",
   loadMore: "Show more",
+  openSignupHint: "Open sign-up is on, so people with no access can still sign in.",
   allowButton: "Allow",
   restoreButton: "Restore",
   backfillButton: "Allow all",

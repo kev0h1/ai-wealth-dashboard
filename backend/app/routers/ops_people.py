@@ -62,7 +62,7 @@ from pydantic import BaseModel, field_validator
 
 from app.core.allowlist import state_from_status
 from app.core.auth import current_user
-from app.core.config import PRIMARY_EMAIL, _gmail_key, mask_email
+from app.core.config import PRIMARY_EMAIL, _gmail_key, is_signup_open, mask_email
 from app.core.timeutil import as_utc
 from app.db import collections as cols
 from app.routers.admin_allowlist import _EMAIL_RE, invite_email
@@ -273,7 +273,13 @@ async def _audit_list() -> list[dict]:
 async def list_people(cursor: str | None = None, user: dict = Depends(current_user)):
     _require_owner_session(user)
     rows, next_cursor = await _rows(cursor)
+    try:
+        from app.services import runtime_settings
+        await runtime_settings.ensure_fresh()
+    except Exception:
+        logger.warning("ops_people: runtime settings refresh failed")
     return {
+        "open_signup": bool(is_signup_open()),
         "people": rows,
         "next_cursor": next_cursor,
         "audit": await _audit_list(),

@@ -2261,6 +2261,8 @@ export type OpsAuditEntry = {
   detail: string | null;
 };
 export type OpsPeopleResponse = {
+  // E13: true when open sign-up is on, so people with no access can still sign in.
+  open_signup?: boolean;
   people: OpsPerson[];
   next_cursor: string | null;
   audit: OpsAuditEntry[];

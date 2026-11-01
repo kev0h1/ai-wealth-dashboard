@@ -52,6 +52,11 @@ assert.match(page, /disabled=\{!ok \|\| busy\}/);
 assert.match(page, /backfillConfirmed\(typed\)/);
 assert.match(page, /api\.applyOpsBackfill\(typed\)/);
 
+// Open sign-up hint, only when the server says so.
+assert.equal(WORDING.openSignupHint, "Open sign-up is on, so people with no access can still sign in.");
+assert.match(page, /openSignup && \(/);
+assert.match(page, /res\.open_signup === true/);
+
 // Sign-in screen: request-access line using the shared address, Try another account kept.
 assert.match(login, /If you already use Sorted, or you were invited, email/);
 assert.match(login, /and we can look into it\./);
