@@ -78,33 +78,42 @@ async def list_allowlist(user: dict = Depends(current_user)):
     return await _payload()
 
 
-@router.post("")
-async def add_allowlist(body: InviteRequest, user: dict = Depends(current_user)):
-    _require_admin(user)
-    key = _gmail_key(body.email)
+async def invite_email(email: str, invited_by: str, note: str | None = None) -> bool:
+    """Idempotent invite, shared with /ops/people (E12). Returns False when
+    the address is the account owner (always allowed, so no row is written).
+
+    Inviting an address that's already invited is a no-op (besides
+    refreshing note/invited_by); inviting a REVOKED address flips it
+    straight back to "invited" rather than erroring or creating a duplicate
+    doc, and $setOnInsert keeps the original created_at on a true re-invite
+    so "invited" date reflects first invitation, not last."""
+    key = _gmail_key(email)
     if key == _gmail_key(PRIMARY_EMAIL):
         # The owner is always allowed via PRIMARY_EMAIL; no redundant row.
-        return await _payload()
+        return False
     now = datetime.now(timezone.utc)
-    # Idempotent: inviting an address that's already invited is a no-op
-    # (besides refreshing note/invited_by); inviting a REVOKED address
-    # flips it straight back to "invited" rather than erroring or creating
-    # a duplicate doc, and $setOnInsert keeps the original created_at on a
-    # true re-invite so "invited" date reflects first invitation, not last.
     await allowed_signups_col.update_one(
         {"key": key},
         {
             "$set": {
-                "email": body.email,
+                "email": email,
                 "status": "invited",
-                "invited_by": (user.get("email") or "").strip().lower(),
-                "note": body.note,
+                "invited_by": invited_by,
+                "note": note,
                 "updated_at": now,
             },
+            "$unset": {"revoked_at": ""},
             "$setOnInsert": {"created_at": now},
         },
         upsert=True,
     )
+    return True
+
+
+@router.post("")
+async def add_allowlist(body: InviteRequest, user: dict = Depends(current_user)):
+    _require_admin(user)
+    await invite_email(body.email, (user.get("email") or "").strip().lower(), body.note)
     return await _payload()
 
 
