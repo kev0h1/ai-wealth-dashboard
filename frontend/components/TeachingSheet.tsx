@@ -66,6 +66,7 @@ function saveErrorMessage(e: unknown): string {
 
 type Step =
   | "spend-root"
+  | "review-card"
   | "spend-naming"
   | "movement-root"
   | "movement-kind"
@@ -91,9 +92,16 @@ interface TeachingSheetProps {
    *  guess. Keeps preview (/design/spend-live) and production identical:
    *  both now land on movement-root for the ask handoff. */
   forceMovementRoot?: boolean;
+  /**
+   * A review surface can start at one clear next step without recreating the
+   * correction logic here. It deliberately does not save anything on mount:
+   * the person still confirms the choice in this sheet.
+   */
+  initialReviewChoice?: "savings" | "spending" | "card";
+  nested?: boolean;
 }
 
-export default function TeachingSheet({ transaction, onClose, onUpdated, account, forceMovementRoot }: TeachingSheetProps) {
+export default function TeachingSheet({ transaction, onClose, onUpdated, account, forceMovementRoot, initialReviewChoice, nested }: TeachingSheetProps) {
 
   const { colours } = useColours();
   const { hideNetWorth, preferencesReady } = usePreferences();
@@ -105,7 +113,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   const isMovementRead = originalKind === "movement";
   const isCredit = transaction.transaction_type === "credit";
   const name = transaction.merchant_name || transaction.description || "(no description)";
-  const [step, setStep] = useState<Step>(isMovementRead || forceMovementRoot ? "movement-root" : "spend-root");
+  const [step, setStep] = useState<Step>(() => {
+    // These are explicit review choices. Savings still asks for the kind and
+    // destination; card repayment still asks for a final confirmation.
+    if (initialReviewChoice === "savings" && !isCredit) return "movement-kind";
+    if (initialReviewChoice === "card" && !isCredit) return "review-card";
+    if (initialReviewChoice === "spending") return "spend-root";
+    return isMovementRead || forceMovementRoot ? "movement-root" : "spend-root";
+  });
   // True once the movement fork was reached via the spend fork's escape
   // hatch (not because the row was already filed as movement) — suppresses
   // the redundant "No — this was spending" option and shows a back link.
@@ -395,6 +410,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   return (
     <SheetFrame
+      nested={nested}
       title={goalSetupOpen ? "Create a goal" : "Tell me what this was"}
       onClose={onClose}
       dismissDisabled={busy || goalSetupBusy}
@@ -742,6 +758,37 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   Back
                 </button>
               </div>
+            </>
+          )}
+
+          {step === "review-card" && (
+            <>
+              <p className="mt-4 text-[13px] leading-5 text-slate-500 dark:text-slate-400">
+                Confirm this was a payment to one of your cards.
+              </p>
+              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-700/60">
+                <p className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Paying off a card</p>
+                <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
+                  This only changes this payment. It does not match it to a card automatically.
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => commitSpend("Debt")}
+                  className="mt-3 min-h-[44px] w-full rounded-xl bg-indigo-600 px-3 py-2 text-[13px] font-semibold text-white active:scale-[0.99] transition-transform disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:ring-offset-slate-900"
+                >
+                  Save this payment
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setStep("movement-root")}
+                className="mt-3 inline-flex min-h-[44px] items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+              >
+                Choose something else
+                <ChevronRight size={13} className="flex-shrink-0" aria-hidden="true" />
+              </button>
             </>
           )}
 

@@ -213,6 +213,7 @@ def _run_pass4(monkeypatch, txns, *, teaching_events=None):
     monkeypatch.setattr(categorisation, "merchant_categories_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "user_rules_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "confirmed_transfer_pairs_col", FakeCol([]))
+    monkeypatch.setattr(categorisation, "preferences_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "teaching_events_col", FakeCol(teaching_events or []))
     monkeypatch.setattr(categorisation, "get_category_kinds", _fake_get_category_kinds)
     asyncio.run(categorisation.apply_rules_bulk(UID, structural=False))
@@ -401,6 +402,7 @@ def test_auto_categorise_merchant_map_uses_recency_not_first_match(monkeypatch):
     monkeypatch.setattr(categorisation, "merchant_categories_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "user_rules_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "confirmed_transfer_pairs_col", FakeCol([]))
+    monkeypatch.setattr(categorisation, "preferences_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "teaching_events_col", FakeCol([]))
     monkeypatch.setattr(categorisation, "get_category_kinds", _fake_get_category_kinds)
     # auto_categorise itself reads/writes transactions_col via its OWN

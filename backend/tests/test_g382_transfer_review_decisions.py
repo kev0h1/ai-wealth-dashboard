@@ -117,3 +117,25 @@ def test_review_only_reads_debit_candidates_and_their_exact_counterparts(monkeyp
     assert '$nin' in queries[0]['category']
     assert queries[1]['_id'] == {'$in': ['c1']}
     assert all(q['user_id'] == UID for q in queries)
+
+
+def test_review_decisions_await_cross_process_cache_invalidation(monkeypatch):
+    """A returned save must not race the shared version bump on the next GET."""
+    for action in ("confirm", "separate", "series", "single"):
+        rows = _setup_pair_and_series(monkeypatch)
+        finished = []
+
+        async def awaited_invalidation(uid):
+            await asyncio.sleep(0)
+            finished.append(uid)
+
+        monkeypatch.setattr(analytics.response_cache, "ainvalidate", awaited_invalidation)
+        if action == "confirm":
+            _run_confirm(monkeypatch, rows, "c1", "d1")
+        elif action == "separate":
+            asyncio.run(analytics.dismiss_transfer_pair({"pair_key": "c1:d1"}, {"email": UID}))
+        elif action == "series":
+            asyncio.run(analytics.dismiss_miscategorised_series({"series_key": "example"}, {"email": UID}))
+        else:
+            asyncio.run(analytics.dismiss_miscategorised("d1", {"email": UID}))
+        assert finished == [UID], action

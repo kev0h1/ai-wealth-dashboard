@@ -151,6 +151,7 @@ def test_reconcile_stamps_auto_rows_and_keeps_a_user_anchor():
             "account_collection": _Collection([{**value, "user_id": "kevin"} for value in ACCOUNTS.values()]),
             "pair_collection": _Collection([]),
             "profile_collection": _Collection([{ "_id": "kevin", "name_tokens": TOKENS }]),
+            "preference_collection": _Collection([]),
             "mark_stale_fn": mark,
             "movement_categories": {"Savings", "Investment", "Debt", "Transfer"},
         }
@@ -174,6 +175,7 @@ def _service_collections(rows, accounts, *, name_tokens=TOKENS):
         "account_collection": _Collection(accounts),
         "pair_collection": _Collection([]),
         "profile_collection": _Collection([{ "_id": "kevin", "name_tokens": name_tokens }]),
+        "preference_collection": _Collection([]),
         "mark_stale_fn": mark,
         "movement_categories": {"Savings", "Investment", "Debt", "Transfer", "House fund"},
     }

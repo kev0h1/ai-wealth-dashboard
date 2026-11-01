@@ -5807,6 +5807,137 @@ def _pair_leg_ids(pairs: list[dict]) -> frozenset:
     return frozenset(ids)
 
 
+def _separate_review_snapshot(credit: dict, debit: dict) -> dict:
+    """Bank facts that make a rejected candidate safe to show separately."""
+    def leg(row: dict) -> dict:
+        date = row.get("date")
+        return {
+            "id": str(row["_id"]), "transaction_type": row.get("transaction_type"),
+            "account_id": row.get("account_id"), "amount": row.get("amount"),
+            "currency": str(row.get("currency") or "").upper(),
+            "date": date.isoformat() if hasattr(date, "isoformat") else date,
+            "merchant_name": row.get("merchant_name"), "description": row.get("description"),
+        }
+    return {"credit": leg(credit), "debit": leg(debit)}
+
+
+def _same_separate_review_leg(row: dict, snapshot: dict) -> bool:
+    date = row.get("date")
+    row_date = date.isoformat() if hasattr(date, "isoformat") else date
+    return (
+        str(row.get("_id")) == str(snapshot.get("id"))
+        and row.get("transaction_type") == snapshot.get("transaction_type")
+        and row.get("account_id") == snapshot.get("account_id")
+        and row.get("amount") == snapshot.get("amount")
+        and str(row.get("currency") or "").upper() == str(snapshot.get("currency") or "").upper()
+        and row_date == snapshot.get("date")
+        and row.get("merchant_name") == snapshot.get("merchant_name")
+        and row.get("description") == snapshot.get("description")
+    )
+
+
+async def _separate_pair_review_items(uid: str) -> list[dict]:
+    """Still-unanswered legs from pairs the user chose to review separately.
+
+    A declined pair is not a category decision. Its saved snapshot merely
+    keeps the two individual questions available until each is answered or
+    its own provider record changes.
+    """
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    raw_snapshots = prefs.get("separate_transfer_pair_reviews") or []
+    # The original experimental shape was a mapping.  Read it for one
+    # release, but new writes use an array and $addToSet so concurrent review
+    # decisions cannot overwrite one another with a read-modify-write race.
+    if isinstance(raw_snapshots, dict):
+        snapshots = [{"pair_key": key, **value} for key, value in raw_snapshots.items() if isinstance(value, dict)]
+    elif isinstance(raw_snapshots, list):
+        snapshots = [value for value in raw_snapshots if isinstance(value, dict)]
+    else:
+        snapshots = []
+    if not snapshots:
+        return []
+    ids = {str(leg.get("id")) for pair in snapshots
+           for leg in (pair.get("credit"), pair.get("debit"))
+           if isinstance(leg, dict) and leg.get("id")}
+    if not ids:
+        return []
+    rows = await transactions_col.find(
+        {"user_id": uid, "_id": {"$in": list(ids)}},
+        {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+         "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+         "account_id": 1, "is_pending": 1, "own_transfer_match": 1},
+    ).to_list(None)
+    counterpart_ids = {
+        (row.get("own_transfer_match") or {}).get("counterpart_id") for row in rows
+    } - {None} - {str(row.get("_id")) for row in rows}
+    if counterpart_ids:
+        rows.extend(await transactions_col.find(
+            {"user_id": uid, "_id": {"$in": list(counterpart_ids)}},
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+             "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+             "account_id": 1, "is_pending": 1, "own_transfer_match": 1},
+        ).to_list(None))
+    account_ids = {row.get("account_id") for row in rows} - {None}
+    accounts = {account["_id"]: account async for account in accounts_col.find(
+        {"user_id": uid, "_id": {"$in": list(account_ids)}}, {"currency": 1},
+    )}
+    # Dismissal uses the account currency when a provider did not carry one
+    # on its transaction row.  Use the same normalisation on every read so
+    # that a valid saved review does not disappear after a refresh.
+    rows = [{**row, "currency": str(row.get("currency") or accounts.get(row.get("account_id"), {}).get("currency") or "").upper()}
+            for row in rows]
+    by_id = {str(row["_id"]): row for row in rows}
+    kinds = await get_category_kinds(uid)
+    movement_categories = {name for name, kind in kinds.items() if kind == MOVEMENT}
+    def unresolved(row: dict) -> bool:
+        # The queue exists because the user deliberately declined to treat
+        # these two payments as one transfer.  An automatic category is not
+        # an answer to either individual question. Only a saved custom choice
+        # or a pending bank record removes it from review.
+        return not row.get("is_pending") and row.get("custom_category") is None
+
+    result: list[dict] = []
+    seen: set[str] = set()
+    for snapshot in snapshots:
+        credit_snapshot, debit_snapshot = snapshot.get("credit"), snapshot.get("debit")
+        if not isinstance(credit_snapshot, dict) or not isinstance(debit_snapshot, dict):
+            continue
+        credit = by_id.get(str(credit_snapshot.get("id")))
+        debit = by_id.get(str(debit_snapshot.get("id")))
+        # A provider can amend one leg without changing the other.  Retire
+        # only the amended leg's question: the unchanged payment still needs
+        # the user's answer, and a category decision on its counterpart must
+        # never make it disappear.
+        valid_rows = (
+            (debit, debit_snapshot) if debit and _same_separate_review_leg(debit, debit_snapshot) else (None, None),
+            (credit, credit_snapshot) if credit and _same_separate_review_leg(credit, credit_snapshot) else (None, None),
+        )
+        for row, _snapshot in valid_rows:
+            if row is None:
+                continue
+            from app.services.own_account_transfers import has_valid_explicit_confirmation
+            if has_valid_explicit_confirmation(row, by_id, accounts, movement_categories=movement_categories):
+                continue
+            row_id = str(row["_id"])
+            if row_id in seen or not unresolved(row):
+                continue
+            seen.add(row_id)
+            date = row.get("date")
+            iso_date = date.isoformat() if hasattr(date, "isoformat") else date
+            result.append({
+                "id": row_id, "ids": [row_id], "count": 1,
+                "series_key": f"separate:{row_id}",
+                "merchant_name": row.get("merchant_name"), "description": row.get("description"),
+                "amount": row.get("amount"), "amount_min": row.get("amount"), "amount_max": row.get("amount"),
+                "date": iso_date, "first_date": iso_date, "currency": row.get("currency"),
+                "category": row.get("custom_category") or row.get("category"),
+                "transaction_type": row.get("transaction_type"), "account_id": row.get("account_id") or "",
+                "reason": None, "members": [],
+            })
+    result.sort(key=lambda item: item.get("date") or "", reverse=True)
+    return result
+
+
 @router.get("/transactions/miscategorised-count")
 async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current_user)):
     """Read-only guardrail feeding the Spend page's quiet banner: how many
@@ -5826,7 +5957,7 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
 
     Additive field `review_total` breaks from the period-scoped semantics
     above on purpose: it's the all-time count the review sheet will actually
-    show (series + pairs), so the Spend banner can say "N to review" and
+    show (series + pairs + individually reviewed rejected-pair legs), so the Spend banner can say "N to review" and
     have tapping it land on exactly N items instead of a smaller
     period-scoped number. `count` and `pair_count` stay period-scoped
     unchanged for whatever other UI still keys off them."""
@@ -5843,7 +5974,12 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
     # transaction gets one ask, and the pair (fixes both legs + learns) beats
     # the series ask. This also feeds `pair_count` further down, unchanged.
     pairs = await _transfer_pair_suggestions(uid)
-    txns = await _flagged_miscategorised(uid, exclude_ids=_pair_leg_ids(pairs))
+    # The three review shapes are a disjoint partition.  Filtering raw rows
+    # before grouping is important: a paired payment can be the newest member
+    # of a wider recurring series, while its older siblings remain useful.
+    separate_items = await _separate_pair_review_items(uid)
+    excluded_ids = _pair_leg_ids(pairs) | frozenset(item["id"] for item in separate_items)
+    txns = await _flagged_miscategorised(uid, exclude_ids=excluded_ids)
     period_start, period_end = await _resolve_period_bounds(uid, off)
     in_period_keys = _series_touching_period(txns, period_start, period_end)
     period_txns = [t for t in txns if t["_series_key"] in in_period_keys]
@@ -5867,7 +6003,7 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
     # pair, already capped at 10 by _transfer_pair_suggestions itself) — so
     # the Spend banner can report exactly what tapping it reveals. `count`
     # and `pair_count` above stay period-scoped, unchanged, for other UI.
-    review_total = len(_group_miscategorised(txns)) + len(pairs)
+    review_total = min(50, len(_group_miscategorised(txns))) + len(pairs) + len(separate_items)
 
     result = {"count": len(groups), "ids": [g["id"] for g in groups][:50], "pair_count": pair_count, "review_total": review_total}
     await response_cache.aput(cache_name, uid, result, version=v)
@@ -5893,8 +6029,13 @@ async def get_miscategorised_transactions(user: dict = Depends(current_user)):
     v = await response_cache.snapshot(uid)
 
     pairs = await _transfer_pair_suggestions(uid)
-    items = _group_miscategorised(await _flagged_miscategorised(uid, exclude_ids=_pair_leg_ids(pairs)))[:50]
-    result = {"items": items}
+    separate_items = await _separate_pair_review_items(uid)
+    excluded_ids = _pair_leg_ids(pairs) | frozenset(item["id"] for item in separate_items)
+    items = _group_miscategorised(await _flagged_miscategorised(uid, exclude_ids=excluded_ids))[:50]
+    # Additive response field.  These single-payment questions include a
+    # credit where appropriate, so keeping them distinct lets old clients
+    # continue their debit-series rendering unchanged.
+    result = {"items": items, "separate_items": separate_items}
     await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
@@ -5910,9 +6051,9 @@ async def dismiss_miscategorised(txn_id: str, user: dict = Depends(current_user)
         {"$addToSet": {"dismissed_miscategorised": txn_id}, "$set": {"user_id": uid}},
         upsert=True,
     )
-    response_cache.invalidate(uid, "miscategorised_count")
-    response_cache.invalidate(uid, "miscategorised_list")
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    # A successful decision must be visible to the very next read, including
+    # another API process or the shared response cache.
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 
@@ -5930,9 +6071,9 @@ async def dismiss_miscategorised_series(body: dict, user: dict = Depends(current
         {"$addToSet": {"dismissed_miscategorised_series": series}, "$set": {"user_id": uid}},
         upsert=True,
     )
-    response_cache.invalidate(uid, "miscategorised_count")
-    response_cache.invalidate(uid, "miscategorised_list")
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    # A successful decision must be visible to the very next read, including
+    # another API process or the shared response cache.
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 
@@ -6084,6 +6225,7 @@ def _pair_leg(t: dict) -> dict:
         "account_id": t.get("account_id") or "",
         "date": d.isoformat() if hasattr(d, "isoformat") else d,
         "amount": t.get("amount"),
+        "currency": t.get("currency"),
         "description": t.get("description"),
         "merchant_name": t.get("merchant_name"),
         # "Effective category" — custom_category always wins when present,
@@ -6111,6 +6253,22 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     dismissed_pairs = set(prefs.get("dismissed_transfer_pairs") or [])
     dismissed_rows = set(prefs.get("dismissed_miscategorised") or [])
     dismissed_series = set(prefs.get("dismissed_miscategorised_series") or [])
+    raw_snapshots = prefs.get("separate_transfer_pair_reviews") or []
+    if isinstance(raw_snapshots, dict):
+        pair_snapshots = [{"pair_key": key, **value} for key, value in raw_snapshots.items() if isinstance(value, dict)]
+    elif isinstance(raw_snapshots, list):
+        pair_snapshots = [value for value in raw_snapshots if isinstance(value, dict)]
+    else:
+        pair_snapshots = []
+    snapshots_by_key: dict[str, list[dict]] = defaultdict(list)
+    for snapshot in pair_snapshots:
+        if isinstance(snapshot.get("pair_key"), str):
+            snapshots_by_key[snapshot["pair_key"]].append(snapshot)
+    # Once a candidate is deliberately split into individual questions, an
+    # unchanged leg cannot be quietly reused by another same-amount pair.
+    # The separate queue validates bank facts, so amended rows drop out and
+    # may be matched again on their new facts.
+    active_separate_ids = frozenset(item["id"] for item in await _separate_pair_review_items(uid))
 
     learned_docs = await confirmed_transfer_pairs_col.find(
         {"user_id": uid}, {"key_a": 1, "key_b": 1}
@@ -6173,8 +6331,12 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
 
     candidates = []  # (date_diff, amount, credit, debit, pair_key)
     for c in credits:
+        if str(c["_id"]) in active_separate_ids:
+            continue
         c_day = _day(c)
         for d in debits:
+            if str(d["_id"]) in active_separate_ids:
+                continue
             if _pair_key(c) is None or _pair_key(c) != _pair_key(d):
                 continue
             if c.get("account_id") == d.get("account_id"):
@@ -6204,7 +6366,17 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
                 continue
             pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
             if pair_key in dismissed_pairs:
-                continue
+                snapshots = snapshots_by_key.get(pair_key)
+                # Legacy bare dismissals deliberately retain their permanent
+                # behaviour. New snapshot-backed dismissals apply only while
+                # both original bank records still match, so two amended
+                # records can be reviewed as a fresh possible pair.
+                if not snapshots or any(
+                    _same_separate_review_leg(c, snapshot.get("credit") or {})
+                    and _same_separate_review_leg(d, snapshot.get("debit") or {})
+                    for snapshot in snapshots
+                ):
+                    continue
             c_key = canonical_merchant_key(c.get("merchant_name") or "", c.get("description") or "")
             d_key = canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")
             # A learned description-pair auto-matches at the next sync — no
@@ -6386,9 +6558,9 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         )
         learned = True
 
-    response_cache.invalidate(uid, "miscategorised_count")
-    response_cache.invalidate(uid, "miscategorised_list")
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    # A successful decision must be visible to the very next read, including
+    # another API process or the shared response cache.
+    await response_cache.ainvalidate(uid)
 
     if changed:
         from app.services.derived_caches import mark_stale
@@ -6421,20 +6593,57 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
     pair_key = body.get("pair_key")
     if not pair_key:
         raise HTTPException(400, "Provide 'pair_key'")
+    pair_ids = str(pair_key).split(":")
+    if len(pair_ids) != 2 or not all(pair_ids):
+        raise HTTPException(400, "pair_key must identify two payments")
+    rows = await transactions_col.find(
+        {"user_id": uid, "_id": {"$in": pair_ids}},
+        {"account_id": 1, "amount": 1, "currency": 1, "date": 1,
+         "transaction_type": 1, "is_pending": 1, "merchant_name": 1, "description": 1},
+    ).to_list(None)
+    if len(rows) != 2:
+        raise HTTPException(404, "Transfer pair not found")
+    credit = next((row for row in rows if row.get("transaction_type") == "credit"), None)
+    debit = next((row for row in rows if row.get("transaction_type") == "debit"), None)
+    if not credit or not debit or credit.get("is_pending") or debit.get("is_pending"):
+        raise HTTPException(400, "Transfer pair is no longer available")
+    if credit.get("account_id") == debit.get("account_id") or credit.get("amount") != debit.get("amount"):
+        raise HTTPException(400, "Transfer pair is no longer available")
+    account_ids = {credit.get("account_id"), debit.get("account_id")} - {None}
+    accounts = {a["_id"]: a async for a in accounts_col.find(
+        {"user_id": uid, "_id": {"$in": list(account_ids)}}, {"currency": 1},
+    )}
+    if credit.get("account_id") not in accounts or debit.get("account_id") not in accounts:
+        raise HTTPException(400, "Transfer pair is no longer available")
+    credit = {**credit, "currency": credit.get("currency") or accounts[credit["account_id"]].get("currency")}
+    debit = {**debit, "currency": debit.get("currency") or accounts[debit["account_id"]].get("currency")}
+    credit_date, debit_date = credit.get("date"), debit.get("date")
+    def _day(value):
+        if hasattr(value, "date"):
+            return value.date()
+        if isinstance(value, str):
+            return _date.fromisoformat(value[:10])
+        return None
+    try:
+        date_distance = abs((_day(credit_date) - _day(debit_date)).days)
+    except (TypeError, ValueError):
+        date_distance = None
+    if not credit_date or not debit_date or date_distance is None or date_distance > 5:
+        raise HTTPException(400, "Transfer pair is no longer available")
+    # Avoid writing a snapshot for arbitrary IDs posted directly to this
+    # endpoint.  Currency equality is sourced from the transaction itself;
+    # providers commonly carry it there, but absence is treated as unknown
+    # rather than a reason to infer a pairing.
+    if str(credit.get("currency") or "").upper() != str(debit.get("currency") or "").upper():
+        raise HTTPException(400, "Transfer pair is no longer available")
+    snapshot = {"pair_key": pair_key, **_separate_review_snapshot(credit, debit)}
     await preferences_col.update_one(
         {"user_id": uid},
-        {"$addToSet": {"dismissed_transfer_pairs": pair_key}, "$set": {"user_id": uid}},
+        {"$addToSet": {"dismissed_transfer_pairs": pair_key,
+                         "separate_transfer_pair_reviews": snapshot},
+         "$set": {"user_id": uid}},
         upsert=True,
     )
-    response_cache.invalidate(uid, "transfer_pair_suggestions")
-    response_cache.invalidate(uid, "miscategorised_count")
-    # Owner device-testing fix 2 — the dismissed pair's legs are no longer
-    # excluded from the miscategorised list (they only lose their exclusion
-    # once _pair_leg_ids no longer contains them, i.e. once the suggestions
-    # list is recomputed without this pair), so the cached list must be
-    # invalidated too or the transaction stays hidden from BOTH surfaces
-    # until the 90s response-cache TTL expires. Without this line the
-    # transaction only naturally reappears in miscategorised_list once its
-    # own TTL lapses, not immediately on dismissal.
-    response_cache.invalidate(uid, "miscategorised_list")
+    # Await the shared version bump before the UI reloads its review queue.
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
