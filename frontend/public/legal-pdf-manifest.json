@@ -36,7 +36,7 @@
     {
       "pdf": "SECURITY.pdf",
       "source": "SECURITY.md",
-      "source_sha256": "14b3306351c243aea41ccdba15ab3f1854c488cb6fd1799c85faca65e197176d",
+      "source_sha256": "c151b19d08eb94ef96538d782e1af98526408ee57aa31548e44c093f9293d827",
       "exported": "2026-11-01",
       "pages": 17,
       "mcp_connector": "full-text"
