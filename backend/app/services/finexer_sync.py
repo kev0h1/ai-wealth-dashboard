@@ -214,6 +214,22 @@ async def _write_account_fields(account_id: str, set_fields: dict, unset_fields:
         logger.exception("Finexer bank sync field write failed for %s", account_id)
 
 
+def bank_sync_next_allowed(doc: Optional[dict], now: Optional[datetime] = None) -> Optional[datetime]:
+    """A179: when the stored 60-minute rule next allows a POST /sync for this
+    account doc (naive UTC), or None when one is allowed now. The single
+    source for `trigger_bank_sync` and the per-account refresh route."""
+    now = now or _utcnow()
+    doc = doc or {}
+    last = doc.get("bank_sync_requested_at")
+    nxt = doc.get("bank_sync_next_at")
+    next_at = None
+    if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+        next_at = last + BANK_SYNC_MIN_GAP
+    if isinstance(nxt, datetime) and nxt > now and (next_at is None or nxt > next_at):
+        next_at = nxt
+    return next_at
+
+
 async def trigger_bank_sync(
     client: httpx.AsyncClient,
     account_id: str,
@@ -235,13 +251,7 @@ async def trigger_bank_sync(
         ) or {}
     except Exception:
         doc = {}
-    last = doc.get("bank_sync_requested_at")
-    nxt = doc.get("bank_sync_next_at")
-    next_at = None
-    if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
-        next_at = last + BANK_SYNC_MIN_GAP
-    if isinstance(nxt, datetime) and nxt > now and (next_at is None or nxt > next_at):
-        next_at = nxt
+    next_at = bank_sync_next_allowed(doc, now)
     if next_at is not None:
         return {"outcome": "skipped_local", "status": None, "next_request_at": next_at, "set": {}, "unset": {}}
 
@@ -1022,6 +1032,7 @@ async def sync_finexer_consent(
     request_bank_sync: bool = False,
     event_id: Optional[str] = None,
     event_account_id: Optional[str] = None,
+    only_account_id: Optional[str] = None,
 ) -> tuple[list, int]:
     """
     Sync all accounts and transactions for one Finexer consent.
@@ -1034,6 +1045,11 @@ async def sync_finexer_consent(
     webhook-driven syncs leave it off. `event_id` and `event_account_id` (a
     bank_account.synced event) narrow that one account's booked walk when
     USE_TXN_EVENT_FILTER is on; any failure falls back to the full walk.
+
+    A179: `only_account_id` limits the walk to that one bank account (the
+    per-account refresh); every other account on the consent is skipped and
+    the consent's own `last_synced` bookkeeping is left alone. Default None
+    leaves the consent path unchanged.
     """
     # ── Guard: do not sync a consent that was locally deleted/revoked ────────
     local_consent = await finexer_consents_col.find_one({"_id": consent_id})
@@ -1157,6 +1173,8 @@ async def sync_finexer_consent(
             account_id = acc.get("id")
             if not account_id:
                 logger.warning("Finexer account missing id: %s", acc)
+                continue
+            if only_account_id is not None and account_id != only_account_id:
                 continue
             if account_id in consent_excluded:
                 logger.info("Finexer: skipping consent-excluded account %s for consent %s", account_id, consent_id)
@@ -1405,6 +1423,10 @@ async def sync_finexer_consent(
             {"$set": {"status": "connected"}},
         )
 
+    if only_account_id is not None:
+        # A179: a one-account pass is not a consent sync; do not stamp it.
+        return fetched_account_ids, len(all_new_txns)
+
     # Update last_synced on the consent record, alongside this sync's true
     # Finexer request volume (E2 — see `_get`'s docstring).
     await finexer_consents_col.update_one(
@@ -1428,6 +1450,7 @@ async def finexer_sync_pipeline(
     request_bank_sync: bool = False,
     event_id: Optional[str] = None,
     event_account_id: Optional[str] = None,
+    only_account_id: Optional[str] = None,
 ) -> dict:
     """
     Full sync pipeline: sync consent → post-sync rules → notifications.
@@ -1453,9 +1476,12 @@ async def finexer_sync_pipeline(
 
     try:
         async with sync_in_progress(finexer_consents_col, consent_id):
+            # only_account_id is passed only when set, so the consent path's
+            # call shape is exactly what it was before A179.
+            extra = {"only_account_id": only_account_id} if only_account_id is not None else {}
             fetched_ids, new_count = await sync_finexer_consent(
                 consent_id, user_id, request_bank_sync=request_bank_sync,
-                event_id=event_id, event_account_id=event_account_id,
+                event_id=event_id, event_account_id=event_account_id, **extra,
             )
     except Exception as exc:
         logger.exception("finexer_sync_pipeline failed for consent %s user %s", consent_id, user_id)
