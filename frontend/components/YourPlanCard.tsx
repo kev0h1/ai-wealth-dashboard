@@ -63,6 +63,10 @@ function planReading(info: SubscriptionInfo): { title: string; detail: string; p
   if (info.status === "expired") {
     return { title, detail: "Your paid plan has ended.", price: null, period: null, attention: false };
   }
+  if (!info.has_paid_subscription && info.tier_source === "manual") {
+    // E14: a plan the owner set by hand. Hedged: it can be changed or ended.
+    return { title, detail: info.tier_expires_at ? `Set by Sorted until ${shortDate(info.tier_expires_at)}.` : "Set by Sorted.", price: null, period: null, attention: false };
+  }
   if (!info.has_paid_subscription && info.is_default_tier === true) {
     // C37: no subscription at all, the plan is only the server default.
     return { title: `${tier}, by default`, detail: "No paid subscription. You are not subscribed yet.", price: null, period: null, attention: false };

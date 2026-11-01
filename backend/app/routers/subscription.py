@@ -35,7 +35,8 @@ def _tier_source(doc: dict | None, sub) -> str:
         return "default"
     managed = doc.get("managed_by")
     if managed == "manual":
-        return "manual"
+        # E14: a lapsed grant leaves the user on the default tier.
+        return "default" if sub.status == "expired" else "manual"
     if managed == "self":
         return "free_selected"
     if sub.status == "expired" and not getattr(sub, "has_paid_subscription", False):
@@ -140,9 +141,14 @@ async def get_subscription_info(user: dict = Depends(current_user)):
     channels = await _billing_channels(BILLING_ENABLED)
     try:
         docs = [d async for d in subscriptions_col.find({"user_id": email})]
-        tier_source = _tier_source(pick_subscription_doc(docs)[0], sub)
+        picked = pick_subscription_doc(docs)[0]
+        tier_source = _tier_source(picked, sub)
+        # E14: when a manual grant has an end date, Your plan says so.
+        grant_end = timeutil.as_utc((picked or {}).get("expires_at")) if tier_source == "manual" else None
+        tier_expires_at = grant_end.isoformat() if grant_end else None
     except Exception:
         tier_source = None  # unknown: the client then shows the plain label
+        tier_expires_at = None
 
     return {
         "trial_eligible": trial_eligible,
@@ -181,6 +187,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "billing_live_any": channels["any_live"],
         "tier_source": tier_source,
         "is_default_tier": tier_source == "default",
+        "tier_expires_at": tier_expires_at,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.
         "topup":        PENNY_TOPUP,
