@@ -18,7 +18,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type OpsAlert, type OpsAlerts, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSetting, type OpsSyncStats, type OpsTrends } from "@/lib/api";
+import { api, type OpsFinexerEvents, type OpsAlert, type OpsAlerts, type OpsCollector, type OpsHealth, type OpsLlmUsage, type OpsSetting, type OpsSyncStats, type OpsTrends } from "@/lib/api";
 import RecentWebhooks, { RECENT_WEBHOOKS_TITLE } from "./RecentWebhooks";
 import RuntimeSettings, { RUNTIME_SETTINGS_TITLE, RUNTIME_SETTINGS_WORDING } from "./RuntimeSettings";
 import { ALERTS_TITLE, ALERTS_WORDING, SECTIONS, TRENDS_TITLE, WORDING } from "./sections";
@@ -97,8 +97,56 @@ function formatDate(iso?: string): string {
   }
 }
 
+// A184: Finexer's List events compared with the webhooks we received. Counts
+// only; the button runs the same pass as the nightly job.
+function EventReconcile({ initial }: { initial: OpsFinexerEvents | null }) {
+  const [info, setInfo] = useState<OpsFinexerEvents | null>(initial);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await api.reconcileFinexerEvents();
+      if (!r.ran) {
+        setNote("Checked a moment ago. Try again in a couple of minutes.");
+      } else {
+        setNote(r.complete ? `Checked: ${r.missed} missed, ${r.replayed} replayed.` : "The check did not finish. It will pick up again at the next run.");
+        const h = await api.getOpsHealth();
+        setInfo(h.finexer_events ?? null);
+      }
+    } catch {
+      setNote("Could not run the check.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const line = !info || !info.last_completed_at
+    ? "Missed events: not checked yet"
+    : `Missed events: last checked ${info.minutes_ago ?? 0} min ago, ${info.received} received, ${info.missed} missed, ${info.replayed} replayed`;
+  return (
+    <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+      <p className={`text-sm ${info && info.last_status === "incomplete" ? WARN : MUTED}`}>
+        {line}
+        {info && info.last_status === "incomplete" ? ", the last check did not finish" : ""}
+      </p>
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="mt-2 min-h-[44px] rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-800 disabled:opacity-60 dark:border-slate-600 dark:text-slate-100"
+      >
+        {busy ? "Checking" : "Check for missed events"}
+      </button>
+      {note && <p className={`mt-2 ${MUTED}`} role="status">{note}</p>}
+    </div>
+  );
+}
+
 function HealthBlocks({ health }: { health: OpsHealth }) {
-  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs, finexer_consents: fxc } = health;
+  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs, finexer_consents: fxc, finexer_events: fxe } = health;
   const loadPerCpu = load ? load.load_5m / load.cpus : null;
   return (
     <>
@@ -181,6 +229,7 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
               <Stat label="API calls today" value={`${fxw.api_calls_today}`} hint={`yesterday ${fxw.api_calls_yesterday}`} />
               <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook, ${fxw.poll_syncs_today} polled, ${fxw.user_syncs_today} user, ${fxw.history_syncs_today} history`} hint={`yesterday ${fxw.user_syncs_yesterday} user, ${fxw.history_syncs_yesterday} history`} />
             </div>
+            <EventReconcile initial={fxe ?? null} />
           </div>
         </Block>
       )}

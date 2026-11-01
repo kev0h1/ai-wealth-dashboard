@@ -1,7 +1,7 @@
 """A182 part 4: consent failure codes and the consent.failed / opened /
 initiated webhook events."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -158,3 +158,44 @@ def test_ops_consent_health_lists_reason_history_and_reconfirm_without_ids(monke
     assert barclays["history_requested_from"] == "2025-11-01" and barclays["next_reconfirm_by"]
     monzo = next(r for r in out["consents"] if r["bank"] == "ob-monzo")
     assert monzo["failure_code"] == "access_denied" and monzo["next_reconfirm_by"] is None
+
+
+# ── A184 replay guard also covers consent.failed ────────────────────────
+def _replayed_failed(evt, created):
+    ev = _failed(evt, "access_denied", "late")
+    ev["created"] = int(created.timestamp())
+    return ev
+
+
+def test_replayed_failed_event_older_than_authed_at_is_stale(env, monkeypatch):
+    async def boom(cid):
+        raise AssertionError("must not touch accounts")
+    monkeypatch.setattr(wh, "_mark_accounts_expired", boom)
+    now = datetime.utcnow()
+    env["consents"].docs[0]["authed_at"] = now
+    asyncio.run(wh.process_finexer_event(_replayed_failed("evt_s1", now.replace(microsecond=0) - timedelta(hours=1)),
+                                         source="reconcile"))
+    c = env["consents"].docs[0]
+    assert c["status"] == "authorized" and "failure_code" not in c
+    assert env["events"].docs[0].get("skip_reason") == "stale_event"
+
+
+def test_replayed_failed_event_older_than_status_changed_at_is_stale(env, monkeypatch):
+    async def boom(cid):
+        raise AssertionError("must not touch accounts")
+    monkeypatch.setattr(wh, "_mark_accounts_expired", boom)
+    now = datetime.utcnow()
+    env["consents"].docs[0]["status_changed_at"] = now
+    asyncio.run(wh.process_finexer_event(_replayed_failed("evt_s2", now - timedelta(hours=1)), source="reconcile"))
+    assert env["consents"].docs[0]["status"] == "authorized"
+
+
+def test_replayed_failed_event_newer_than_both_applies(env, monkeypatch):
+    async def mark(cid):
+        return None
+    monkeypatch.setattr(wh, "_mark_accounts_expired", mark)
+    now = datetime.utcnow()
+    env["consents"].docs[0]["authed_at"] = now - timedelta(days=3)
+    asyncio.run(wh.process_finexer_event(_replayed_failed("evt_s3", now - timedelta(hours=1)), source="reconcile"))
+    c = env["consents"].docs[0]
+    assert c["status"] == "failed" and c["failure_code"] == "access_denied"

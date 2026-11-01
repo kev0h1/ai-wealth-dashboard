@@ -1,6 +1,7 @@
 """Finexer open-banking sync — HTTP Basic auth, consent-based flow."""
 import asyncio
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -214,6 +215,75 @@ def _retry_after_delta(resp: httpx.Response) -> timedelta:
         return BANK_SYNC_MIN_GAP
 
 
+# A184: the LOCAL account id stays stable across a reconnect. A Finexer bank
+# account id is new for every consent, but `fingerprint` identifies the same
+# underlying account across consents. An account doc's `_id` is the local id
+# every reference in the app points at (transactions, commitments, allocations,
+# learned transfers, income streams, confirmations); `finexer_account_id` is
+# the id Finexer knows it by NOW. Every Finexer API call for an account uses
+# `finexer_remote_id(doc)`; every local read and write uses `doc["_id"]`.
+FINGERPRINT_RE = re.compile(r"^[A-Za-z0-9]{24}$")
+try:
+    RECONNECT_DEDUPE_DAYS = int(os.getenv("FINEXER_RECONNECT_DEDUPE_DAYS", "90"))
+except ValueError:
+    RECONNECT_DEDUPE_DAYS = 90
+DEDUPE_SKIPPED_CAP = 5000
+# The overlap window should follow A182's `retro_date` (days of history asked
+# for, at least 90) once that lands: max(90, days back to retro_date).
+
+
+def finexer_remote_id(doc: dict) -> str:
+    """The id Finexer knows this account by: `finexer_account_id` when the doc
+    was re-keyed onto a later consent, else the local `_id` (every account
+    created before A184, and every first connect)."""
+    return doc.get("finexer_account_id") or doc["_id"]
+
+
+def _clean_fingerprint(value) -> Optional[str]:
+    return value if isinstance(value, str) and FINGERPRINT_RE.match(value) else None
+
+
+async def resolve_local_account(
+    user_id: str, finexer_id: str, fingerprint: Optional[str], finexer_class: Optional[str] = None,
+) -> Optional[dict]:
+    """The existing account doc of THIS user that `finexer_id` (with its
+    `fingerprint`) belongs to, or None for a genuinely new account.
+
+    Matching is by fingerprint first, across every consent the user ever had
+    (connected, expired or revoked), and never across users. Several docs
+    sharing one fingerprint prefer the one already on this Finexer id, then the
+    most recently synced; the ambiguity is logged without ids."""
+    if fingerprint:
+        cands = [d async for d in accounts_col.find({"user_id": user_id, "fingerprint": fingerprint})]
+        if finexer_class:
+            # A cheap guard: a fingerprint match whose stored class differs
+            # from the incoming one (both set) is refused, a new doc is made.
+            kept = [d for d in cands if not d.get("finexer_class") or d["finexer_class"] == finexer_class]
+            if len(kept) != len(cands):
+                logger.warning("Finexer: refused a fingerprint match with a different account class")
+                if not kept:
+                    return None
+            cands = kept
+        if cands:
+            if len(cands) > 1:
+                logger.warning(
+                    "Finexer: %d accounts share one fingerprint for a user; using the one on this "
+                    "bank account id, else the most recently synced", len(cands),
+                )
+                for d in cands:
+                    if finexer_remote_id(d) == finexer_id or d["_id"] == finexer_id:
+                        return d
+                return max(cands, key=lambda d: d.get("updated_at") or datetime.min)
+            return cands[0]
+    by_remote = await accounts_col.find_one({"user_id": user_id, "finexer_account_id": finexer_id})
+    if by_remote:
+        return by_remote
+    direct = await accounts_col.find_one({"_id": finexer_id})
+    if direct and direct.get("user_id") == user_id:
+        return direct
+    return None
+
+
 def _sync_object(body) -> dict:
     """The sync object, tolerating a `data` envelope (shape unconfirmed)."""
     if isinstance(body, dict) and isinstance(body.get("data"), dict) and "status" not in body:
@@ -275,6 +345,7 @@ async def trigger_bank_sync(
     counter: Optional[dict] = None,
     *,
     now: Optional[datetime] = None,
+    finexer_id: Optional[str] = None,
 ) -> dict:
     """POST /bank_accounts/{id}/sync, honouring the 60-minute rule locally.
 
@@ -295,7 +366,7 @@ async def trigger_bank_sync(
         return {"outcome": "skipped_local", "status": None, "next_request_at": next_at, "set": {}, "unset": {}}
 
     try:
-        resp = await _post(client, f"/bank_accounts/{account_id}/sync", counter=counter)
+        resp = await _post(client, f"/bank_accounts/{finexer_id or account_id}/sync", counter=counter)
     except httpx.HTTPError:
         logger.warning("Finexer POST bank sync transport error for %s", account_id)
         sets = {"bank_sync_error": "request_failed", "bank_sync_error_at": now}
@@ -339,11 +410,13 @@ async def read_bank_sync(
     client: httpx.AsyncClient,
     account_id: str,
     counter: Optional[dict] = None,
+    *,
+    finexer_id: Optional[str] = None,
 ) -> Optional[dict]:
     """GET /bank_accounts/{id}/sync and store its status and as-of window.
     Returns the `$set` fields written, or None when the read failed."""
     try:
-        resp = await _get(client, f"/bank_accounts/{account_id}/sync", counter=counter)
+        resp = await _get(client, f"/bank_accounts/{finexer_id or account_id}/sync", counter=counter)
     except httpx.HTTPError:
         return None
     if resp.status_code != 200:
@@ -366,6 +439,7 @@ async def wait_bank_sync_idle(
     *,
     budget: Optional[dict] = None,
     sleep=None,
+    finexer_id: Optional[str] = None,
 ) -> dict:
     """Poll GET /sync with bounded backoff while `result["status"]` reads
     running. Returns when idle, when the bound or the consent-wide budget is
@@ -382,7 +456,7 @@ async def wait_bank_sync_idle(
                 break
             budget["remaining"] = budget["remaining"] - delay
         await sleep(delay)
-        fields = await read_bank_sync(client, account_id, counter)
+        fields = await read_bank_sync(client, account_id, counter, finexer_id=finexer_id)
         if fields is None:
             break
         result["set"].update(fields)
@@ -398,12 +472,15 @@ async def request_and_wait_bank_sync(
     *,
     budget: Optional[dict] = None,
     sleep=None,
+    finexer_id: Optional[str] = None,
 ) -> dict:
     """Trigger a bank sync and poll until idle (see `wait_bank_sync_idle`)."""
-    result = await trigger_bank_sync(client, account_id, counter)
+    result = await trigger_bank_sync(client, account_id, counter, finexer_id=finexer_id)
     if result["outcome"] != "requested":
         return result
-    return await wait_bank_sync_idle(client, account_id, counter, result, budget=budget, sleep=sleep)
+    return await wait_bank_sync_idle(
+        client, account_id, counter, result, budget=budget, sleep=sleep, finexer_id=finexer_id,
+    )
 
 
 def _echoes_interval(obj: dict, hours: int) -> bool:
@@ -424,6 +501,7 @@ async def ensure_auto_sync(
     counter: Optional[dict] = None,
     *,
     now: Optional[datetime] = None,
+    finexer_id: Optional[str] = None,
 ) -> dict:
     """Set the account's automatic sync interval (hours, 1 to 720).
 
@@ -468,7 +546,7 @@ async def ensure_auto_sync(
         return res
     try:
         resp = await _post(
-            client, f"/bank_accounts/{account_id}/sync",
+            client, f"/bank_accounts/{finexer_id or account_id}/sync",
             data={"auto_sync_interval": str(hours)}, counter=counter,
         )
     except httpx.HTTPError:
@@ -1064,15 +1142,67 @@ async def _upsert_finexer_transactions(
     account_id: str,
     user_id: str,
     identity: dict | None = None,
+    dedupe: dict | None = None,
 ) -> tuple[list, list]:
     """Walk and upsert (see `_upsert_finexer_walk`); G177: if the walk raises
-    part way, rows already written still mark the cashflow cache stale."""
-    state = {"changed": False}
+    part way, rows already written still mark the cashflow cache stale.
+    `dedupe` (A184) is set only for an account re-keyed onto a new consent."""
+    state = {"changed": False, "dedupe": dedupe}
     try:
         return await _upsert_finexer_walk(txns, account_id, user_id, identity, state)
     finally:
         if state["changed"]:
             await mark_stale(user_id)
+
+
+async def _reconnect_duplicate(txn_id: str, tdoc: dict, account_id: str, dedupe: dict) -> bool:
+    """A184: True when `tdoc`, a row Finexer sent under a NEW transaction id
+    after a reconnect, is the same bank transaction as a row stored under the
+    old consent: same local account, same calendar day, same signed amount and
+    same canonical merchant key, within the overlap window. Conservative:
+    each old row can be claimed by ONE new id (so two genuine identical
+    purchases are never both swallowed by one old row), only rows first seen
+    before the reconnect are candidates, and nothing is ever deleted. A skipped
+    id is remembered on the account so later syncs skip it silently instead of
+    inserting it."""
+    skipped: set = dedupe["skipped"]
+    if txn_id in skipped:
+        return True
+    when = tdoc["date"]
+    reconnected_at = dedupe["reconnected_at"]
+    if when < reconnected_at - timedelta(days=RECONNECT_DEDUPE_DAYS):
+        return False
+    day = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    if day > reconnected_at.replace(hour=0, minute=0, second=0, microsecond=0):
+        return False  # dated after the reconnect: not part of the overlap
+    # Only rows inside the window reach a query.
+    if await transactions_col.find_one({"_id": txn_id}, {"_id": 1}):
+        return False
+    claimed = await transactions_col.find_one_and_update(
+        {
+            "account_id": account_id,
+            "date": {"$gte": day, "$lt": day + timedelta(days=1)},
+            "amount": tdoc["amount"],
+            "transaction_type": tdoc["transaction_type"],
+            "merchant_key": tdoc["merchant_key"],
+            "first_seen": {"$lt": reconnected_at},
+            "dedupe_claimed_by": {"$exists": False},
+            "_id": {"$ne": txn_id},
+        },
+        {"$set": {"dedupe_claimed_by": txn_id}},
+        projection={"_id": 1},
+    )
+    if not claimed:
+        return False
+    skipped.add(txn_id)
+    dedupe["count"] = dedupe.get("count", 0) + 1
+    await accounts_col.update_one(
+        {"_id": account_id},
+        {"$push": {"dedupe_skipped_ids": {"$each": [txn_id], "$slice": -DEDUPE_SKIPPED_CAP}}},
+    )
+    if len(skipped) >= DEDUPE_SKIPPED_CAP:
+        logger.warning("Finexer: the reconnect dedupe skip list reached its cap; the oldest ids are dropped")
+    return True
 
 
 async def _upsert_finexer_walk(
@@ -1191,6 +1321,9 @@ async def _upsert_finexer_walk(
                 tdoc["running_balance"] = float(running_balance)
             except (TypeError, ValueError):
                 pass
+
+        if state.get("dedupe") and await _reconnect_duplicate(txn_id, tdoc, account_id, state["dedupe"]):
+            continue
 
         # BEFORE image (None on insert) so a material update to an existing
         # row is told apart from a no-op re-pull (G177).
@@ -1328,8 +1461,11 @@ async def _walk_transactions(
     *,
     params: Optional[dict] = None,
     force_pending: bool = False,
+    finexer_id: Optional[str] = None,
+    dedupe: Optional[dict] = None,
 ) -> dict:
-    """Page through GET /bank_accounts/{id}/transactions.
+    """Page through GET /bank_accounts/{id}/transactions. `account_id` is the
+    LOCAL id rows are stored under; `finexer_id` (A184) is the id the URL uses.
 
     `force_pending` is for the status=pending fetch: a row whose status is
     absent or already pending is treated as pending, so it can never be written
@@ -1337,7 +1473,7 @@ async def _walk_transactions(
     settled) is dropped and counted, never forced. Returns
     {"ok", "rows", "new", "pending", "dropped"};
     on a non-200 `ok` is False and the caller must not wipe stored state."""
-    url: Optional[str] = f"/bank_accounts/{account_id}/transactions"
+    url: Optional[str] = f"/bank_accounts/{finexer_id or account_id}/transactions"
     first_page = True
     first_txn_logged = False
     out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0,
@@ -1371,7 +1507,12 @@ async def _walk_transactions(
                 out["credit" if _infer_transaction_type(t) == "credit" else "debit"] += 1
         for key, n in _count_fields(txns).items():
             out["fields"][key] += n
-        new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
+        if dedupe is not None:
+            new, pending_rows = await _upsert_finexer_transactions(
+                txns, account_id, user_id, identity=identity, dedupe=dedupe,
+            )
+        else:
+            new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
         out["new"].extend(new)
         out["pending"].extend(pending_rows)
         next_url = (txn_data.get("paging") or {}).get("next")
@@ -1527,16 +1668,28 @@ async def sync_finexer_consent(
         prov_map = {p["id"]: p for p in provs}
 
         for acc in accounts:
-            account_id = acc.get("id")
-            if not account_id:
+            finexer_id = acc.get("id")
+            if not finexer_id:
                 logger.warning("Finexer account missing id: %s", acc)
                 continue
+            # A184: the LOCAL id (`account_id`) is the existing doc's `_id` when
+            # this bank account is one we already hold (matched by fingerprint
+            # across consents, never across users); `finexer_id` is the id
+            # Finexer knows it by under THIS consent and is the only one used
+            # in Finexer URLs.
+            fingerprint = _clean_fingerprint(acc.get("fingerprint"))
+            local_doc = await resolve_local_account(
+                user_id, finexer_id, fingerprint, (acc.get("class") or "").lower() or None,
+            )
+            account_id = local_doc["_id"] if local_doc else finexer_id
+            previous_remote = finexer_remote_id(local_doc) if local_doc else None
+            rekeyed = bool(local_doc) and previous_remote != finexer_id
             if only_account_id is not None and account_id != only_account_id:
                 continue
-            if account_id in consent_excluded:
+            if account_id in consent_excluded or finexer_id in consent_excluded:
                 logger.info("Finexer: skipping consent-excluded account %s for consent %s", account_id, consent_id)
                 continue
-            if account_id in user_excluded:
+            if account_id in user_excluded or finexer_id in user_excluded:
                 if is_initial_sync:
                     # Reconnect wins: a freshly authorized consent is the user
                     # explicitly asking for these accounts. Account ids are
@@ -1544,6 +1697,7 @@ async def sync_finexer_consent(
                     # a source that no longer exists — clear it and sync.
                     await _excl_col.delete_many({"user_id": user_id, "account_id": account_id})
                     user_excluded.discard(account_id)
+                    user_excluded.discard(finexer_id)
                     logger.info(
                         "Finexer reconnect-wins: cleared stale user-level exclusion for %s (new consent %s)",
                         account_id, consent_id,
@@ -1588,20 +1742,23 @@ async def sync_finexer_consent(
             # skipped for this account (one POST, not two within seconds).
             if is_initial_sync and auto_sync_hours:
                 try:
-                    au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter)
+                    au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter, finexer_id=finexer_id)
                     bank_sync_set.update(au.get("set") or {})
                     if au.get("triggered"):
                         setter_triggered = True
                         await wait_bank_sync_idle(
                             client, account_id, counter,
                             {"status": au.get("status"), "set": bank_sync_set}, budget=bank_sync_budget,
+                            finexer_id=finexer_id,
                         )
                         sync_current = True
                 except Exception:
                     logger.exception("Finexer auto sync setup failed for an account; continuing")
             if request_bank_sync and not setter_triggered:
                 try:
-                    bs = await request_and_wait_bank_sync(client, account_id, counter, budget=bank_sync_budget)
+                    bs = await request_and_wait_bank_sync(
+                        client, account_id, counter, budget=bank_sync_budget, finexer_id=finexer_id,
+                    )
                     bank_sync_set.update(bs.get("set") or {})
                     sync_current = bs.get("outcome") == "requested" and (bs.get("status") or "") != "running"
                 except Exception:
@@ -1616,7 +1773,7 @@ async def sync_finexer_consent(
             debt_sign = None
             overdraft_limit = None
             overdraft_type = None
-            br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
+            br = await _get(client, f"/bank_accounts/{finexer_id}/balance", counter=counter)
             if br.status_code == 200:
                 bal_data = br.json()
                 bal_entries = bal_data.get("data") or []
@@ -1663,7 +1820,7 @@ async def sync_finexer_consent(
             else:
                 logger.warning(
                     "Finexer GET /bank_accounts/%s/balance failed: HTTP %s",
-                    account_id, br.status_code,
+                    finexer_id, br.status_code,
                 )
 
             set_doc: dict = {
@@ -1680,6 +1837,9 @@ async def sync_finexer_consent(
                 "sort_code":      sort_code,
                 "finexer":        True,
                 "source":         "finexer",
+                # A184: the id Finexer knows this account by under the current
+                # consent; the doc's `_id` stays the local id.
+                "finexer_account_id": finexer_id,
                 # A181: the raw Finexer class and type, stored on every account.
                 "finexer_class":  acc_class or None,
                 "finexer_type":   acc_holder_type,
@@ -1687,6 +1847,19 @@ async def sync_finexer_consent(
                 "bg_colors":      pinfo.get("bg_colors") or [],
                 "updated_at":     datetime.utcnow(),
             }
+            if fingerprint:
+                set_doc["fingerprint"] = fingerprint
+            if rekeyed:
+                # The dedupe window opens only when the previous consent is no
+                # longer authorised; with both consents live the same bank
+                # transactions are not a reconnect overlap yet.
+                prev_consent = await finexer_consents_col.find_one({"_id": local_doc.get("connection_id")}) \
+                    if local_doc.get("connection_id") and local_doc.get("connection_id") != consent_id else None
+                if prev_consent and prev_consent.get("status") == "authorized":
+                    logger.warning("Finexer: a re-keyed account's previous consent is still authorised; dedupe not opened")
+                else:
+                    set_doc["reconnected_at"] = datetime.utcnow()  # naive-ok: Mongo UTC convention
+                logger.info("Finexer: a reconnected account was matched by fingerprint and kept its local id")
             if available is not None:
                 set_doc["available"] = available
             if card_diag:
@@ -1737,18 +1910,35 @@ async def sync_finexer_consent(
             # Fetch transactions (paginated). A bank_account.synced event may
             # narrow this account's booked walk (off by default, see
             # USE_TXN_EVENT_FILTER); a failed filtered walk falls back to full.
-            filtered = bool(USE_TXN_EVENT_FILTER and event_id and event_account_id == account_id)
+            filtered = bool(USE_TXN_EVENT_FILTER and event_id and event_account_id in (account_id, finexer_id))
             booked = None
+            # A184: for an account re-keyed onto a new consent, rows Finexer
+            # resends under new transaction ids are matched against the rows
+            # already stored (see `_reconnect_duplicate`).
+            dedupe = None
+            if local_doc is not None:
+                reconnected_at = set_doc.get("reconnected_at") or local_doc.get("reconnected_at")
+                if isinstance(reconnected_at, datetime):
+                    dedupe = {
+                        "reconnected_at": reconnected_at,
+                        "skipped": set(local_doc.get("dedupe_skipped_ids") or []),
+                        "count": 0,
+                    }
             if filtered:
                 booked = await _walk_transactions(
                     client, account_id, user_id, identity, counter,
                     params={TXN_EVENT_FILTER_PARAM: event_id},
+                    finexer_id=finexer_id, dedupe=dedupe,
                 )
                 if not booked["ok"]:
                     filtered = False
                     booked = None
             if booked is None:
-                booked = await _walk_transactions(client, account_id, user_id, identity, counter)
+                booked = await _walk_transactions(
+                    client, account_id, user_id, identity, counter, finexer_id=finexer_id, dedupe=dedupe,
+                )
+            if dedupe and dedupe["count"]:
+                logger.info("Finexer: skipped %d reconnect duplicate transaction(s) for one account", dedupe["count"])
             fetch_failed = not booked["ok"]
             if card_diag:
                 try:
@@ -1770,7 +1960,7 @@ async def sync_finexer_consent(
                 try:
                     pend = await _walk_transactions(
                         client, account_id, user_id, identity, counter,
-                        params={"status": "pending"}, force_pending=True,
+                        params={"status": "pending"}, force_pending=True, finexer_id=finexer_id,
                     )
                 except (httpx.HTTPError, ValueError):
                     logger.warning("Finexer pending walk failed for an account; keeping its stored pending set")
@@ -1827,7 +2017,7 @@ async def sync_finexer_consent(
             # Skipped only when this pass already read a fresh idle one.
             if not sync_current:
                 try:
-                    await read_bank_sync(client, account_id, counter)
+                    await read_bank_sync(client, account_id, counter, finexer_id=finexer_id)
                 except Exception:
                     logger.exception("Finexer bank sync read failed for an account; continuing")
 

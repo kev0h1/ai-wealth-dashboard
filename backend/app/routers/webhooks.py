@@ -298,10 +298,22 @@ async def _mark_account_closed(account_id: str) -> None:
     accounts only; status is left alone because no UI state exists for
     closed). Best effort, never raises."""
     try:
-        await accounts_col.update_one(
-            {"_id": account_id, "source": "finexer"},
-            {"$set": {"closed_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
-        )
+        now = datetime.utcnow()  # naive-ok: matches last_synced convention
+        # A184: a reconnected account is known to Finexer by a new id, so match
+        # that first. A doc that matches only on its local _id but is now on a
+        # different Finexer id is the LIVE account: a stale event for the old
+        # id must not close it.
+        rekeyed = await accounts_col.find_one({"finexer_account_id": account_id, "source": "finexer"}, {"_id": 1})
+        if rekeyed:
+            await accounts_col.update_one({"_id": rekeyed["_id"]}, {"$set": {"closed_at": now}})
+            return
+        local = await accounts_col.find_one({"_id": account_id, "source": "finexer"}, {"finexer_account_id": 1})
+        if local is None:
+            return
+        if local.get("finexer_account_id") not in (None, account_id):
+            logger.info("Finexer webhook: ignored a bank_account.deleted for a superseded bank account id")
+            return
+        await accounts_col.update_one({"_id": account_id, "source": "finexer"}, {"$set": {"closed_at": now}})
     except Exception:
         logger.exception("Finexer webhook: could not mark account closed")
 
@@ -374,6 +386,17 @@ async def finexer_webhook(secret: str, request: Request):
     if not isinstance(event, dict):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
+    await process_finexer_event(event)
+    return {"ok": True}
+
+
+async def process_finexer_event(event: dict, *, source: str = "webhook") -> dict:
+    """Dispatch one Finexer event envelope (A184: shared by the webhook receiver
+    and the List events reconcile, so a replayed event takes exactly the path a
+    delivered one does). Idempotent on the event id (unique index, insert if
+    absent): a repeat returns {"ok": True, "duplicate": True} and does nothing.
+    Raises HTTPException(503) on a genuine enqueue failure, after releasing the
+    event id so a retry or a later replay is processed. Never logs payloads."""
     event_type = fxw.extract_event_type(event)
     event_id = fxw.extract_event_id(event)
     action = fxw.resolve_action(event_type)
@@ -389,6 +412,8 @@ async def finexer_webhook(secret: str, request: Request):
         "status": "pending",
         "provider": "finexer",
     }
+    if source != "webhook":
+        log_doc["source"] = source
     if event_id:
         log_doc["event_id"] = event_id
     try:
@@ -397,7 +422,7 @@ async def finexer_webhook(secret: str, request: Request):
         # Same event id already recorded: a retry or a replay. Acknowledge so
         # Finexer stops retrying, do nothing else.
         logger.info("Finexer webhook duplicate event ignored (type %s)", fxw.safe_type_for_log(event_type))
-        return {"ok": True}
+        return {"ok": True, "duplicate": True}
     await fxw.bump_daily_counters(webhook_events=1)
 
     async def _set(fields: dict):
@@ -411,6 +436,10 @@ async def finexer_webhook(secret: str, request: Request):
     # account-to-consent map (accounts.connection_id, written by the sync).
     if not consent_ref and account_id:
         acc = await accounts_col.find_one({"_id": account_id}, {"connection_id": 1, "source": 1})
+        if not acc:
+            # A184: a reconnected account keeps its local _id; the event names
+            # the bank account id Finexer knows it by now.
+            acc = await accounts_col.find_one({"finexer_account_id": account_id}, {"connection_id": 1, "source": 1})
         if acc and acc.get("source") == "finexer" and isinstance(acc.get("connection_id"), str):
             consent_ref = acc["connection_id"]
             await _set({"consent_id": consent_ref, "consent_resolved_via": "account_map"})
@@ -449,6 +478,20 @@ async def finexer_webhook(secret: str, request: Request):
         await _set({"status": "noted"})
         await _stamp()
         return {"ok": True}
+
+    if source != "webhook" and action in (fxw.ACTION_CONSENT_REVOKED, fxw.ACTION_CONSENT_EXPIRED,
+                                          fxw.ACTION_CONSENT_FAILED):
+        # A184: a replayed status flip must not undo a newer state (the user
+        # reconnected, or the sync already moved the consent on).
+        from app.services.finexer_event_reconcile import _created_at
+        ev_created = _created_at(event)
+        newest = max(
+            (t for t in (doc.get("authed_at"), doc.get("status_changed_at")) if isinstance(t, datetime)),
+            default=None,
+        )
+        if ev_created is None or (newest is not None and newest >= ev_created):
+            await _set({"status": "noted", "skip_reason": "stale_event"})
+            return {"ok": True}
 
     if action == fxw.ACTION_CONSENT_REVOKED:
         # consent.canceled. Local status only: the event means the consent is
