@@ -38,6 +38,9 @@ class Account(BaseModel):
     # A176: when the bank's own data was last refreshed (Finexer's sync object
     # synced_to, ISO UTC). Null where Finexer has not reported one.
     bank_synced_to: Optional[str] = None
+    # A179: when the bank's once-an-hour rule next allows a refresh of this
+    # account (ISO UTC); null when one is allowed now or the account is not Finexer.
+    bank_next_refresh_at: Optional[str] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.

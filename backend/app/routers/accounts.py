@@ -103,7 +103,12 @@ def _transaction_diagnostics(d: dict) -> dict:
         bank_to = bank_to.isoformat() + ("Z" if bank_to.tzinfo is None else "")
     elif not isinstance(bank_to, str):
         bank_to = None
-    return {"transactions_synced_at": at, "transactions_last_count": count, "bank_synced_to": bank_to}
+    # A179: when the stored 60-minute rule next allows a bank refresh.
+    from app.services.finexer_sync import bank_sync_next_allowed
+    nxt = bank_sync_next_allowed(d) if (d.get("finexer") or d.get("source") == "finexer") else None
+    nxt = nxt.isoformat() + ("Z" if nxt.tzinfo is None else "") if nxt else None
+    return {"transactions_synced_at": at, "transactions_last_count": count, "bank_synced_to": bank_to,
+            "bank_next_refresh_at": nxt}
 
 
 def _manual_to_account(a: dict, currency: str) -> Account:
@@ -151,7 +156,7 @@ async def get_accounts(user: dict = Depends(current_user)):
     result = [
         Account(
             id=d["_id"],
-            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused", "transactions_synced_at", "transactions_last_count", "bank_synced_to"}},
+            **{k: v for k, v in d.items() if k not in {"_id", "cover_source_eligible", "paused", "transactions_synced_at", "transactions_last_count", "bank_synced_to", "bank_next_refresh_at"}},
             **_transaction_diagnostics(d),
             paused=paused,
             # G55: `_engine_source_eligible` is companion.py's OWN
