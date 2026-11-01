@@ -31,6 +31,7 @@ from app.services.finexer_sync import (
     FinexerConsentError,
     finexer_sync_pipeline,
     _client as _finexer_client,
+    log_finexer_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ async def _dark_template_id() -> Optional[str]:
             r = await client.get(f"/apps/{FINEXER_APP_ID}/templates/{tid}", timeout=5.0)
         ok = r.status_code == 200
         if not ok:
+            log_finexer_error(r, "GET /apps/{id}/templates/{id}")
             logger.warning("Finexer dark template check failed: HTTP %s", r.status_code)
     except Exception as exc:  # network failure: fall back to the default template
         logger.warning("Finexer dark template check failed: %s", type(exc).__name__)

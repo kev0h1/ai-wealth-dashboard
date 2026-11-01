@@ -106,6 +106,8 @@ async def _get(
         # A167: per-day API-call counter (before/after measurement).
         from app.services.finexer_webhooks import bump_daily_counters
         await bump_daily_counters(requests=1, rate_limited=1 if resp.status_code == 429 else 0)
+        if isinstance(resp.status_code, int) and resp.status_code >= 400:
+            log_finexer_error(resp, f"GET {url.split('?')[0]}")
         if resp.status_code != 429:
             return resp
         if counter is not None:
@@ -189,6 +191,8 @@ async def _post(
     await bump_daily_counters(requests=1, rate_limited=1 if limited else 0)
     if limited and counter is not None:
         counter["429s"] = counter.get("429s", 0) + 1
+    if isinstance(resp.status_code, int) and resp.status_code >= 400:
+        log_finexer_error(resp, f"POST {url.split('?')[0]}")
     return resp
 
 
@@ -720,6 +724,7 @@ async def _create_customer(user: dict) -> str:
     from app.services.finexer_webhooks import bump_daily_counters
     await bump_daily_counters(requests=1)
     if r.status_code not in (200, 201):
+        log_finexer_error(r, "POST /customers")
         logger.error("Finexer POST /customers failed: HTTP %s (upstream error)", r.status_code)
         logger.warning("Finexer POST /customers failed: status=%s reason=%s", r.status_code, _scrub_reason(r.text))
         raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_UNAVAILABLE, None,
