@@ -3268,7 +3268,7 @@ export const api = {
   legacyBankConnectLink: (provider?: string, native?: boolean) => LEGACY_BANK_AVAILABLE
     ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${linkQuery(provider, native)}`)
     : Promise.reject(new Error("This bank connection method is not available.")),
-  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
+  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[]; health_status?: string }[]>("/auth/finexer/providers"),
   finexerConnectLink: (provider?: string, native?: boolean) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${linkQuery(provider, native)}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>

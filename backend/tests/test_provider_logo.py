@@ -207,6 +207,10 @@ def test_provider_list_emits_same_origin_path(monkeypatch):
             {"id": "a", "name": "Alpha", "logo": "", "bg_colors": []},
         ]
 
+    async def _no_health():
+        return {}
+
+    monkeypatch.setattr(finexer_router, "provider_health_map", _no_health)
     monkeypatch.setattr(finexer_router, "list_providers", _providers)
     monkeypatch.setattr(finexer_router, "_providers_cache", [])
     out = _run(finexer_router.finexer_providers(user={"email": "t@example.com"}))

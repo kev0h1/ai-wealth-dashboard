@@ -62,6 +62,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from app.db.collections import pending_transactions_col
 from app.services.categorisation import canonical_merchant_key
@@ -69,6 +70,92 @@ from app.services.categorisation import canonical_merchant_key
 logger = logging.getLogger(__name__)
 
 PENDING_TXN_MAX_AGE_DAYS = 7  # banks expire pending authorisations/DDs around this horizon
+
+# A183 handover window: the booked twin carries the same date as the pending
+# row or a later one (settlement), never a materially earlier one. One day of
+# slack before covers a pending date stamped by the bank's cut-off.
+HANDOVER_DAYS_BEFORE = 1
+HANDOVER_DAYS_AFTER = 5
+
+
+def _pennies(value):
+    try:
+        amount = Decimal(str(value)).copy_abs().quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        return None
+    return amount if amount.is_finite() else None
+
+
+def _identity(row: dict):
+    """Counterparty account first, else the merchant key; None when neither."""
+    from app.services.own_account_transfers import counterparty_key
+    party = counterparty_key(row.get("party_sort_code"), row.get("party_number"))
+    key = row.get("merchant_key")
+    if not key and (row.get("merchant_name") or row.get("description")):
+        key = canonical_merchant_key(row.get("merchant_name") or "", row.get("description") or "")
+    return party, key or None
+
+
+def booked_replaces_pending(pending: dict, booked: dict) -> bool:
+    """A183: whether a newly booked row is the settled version of a pending
+    row. Never by id (the two ids differ): same direction, same amount to the
+    penny, a settlement date from a day before to a few days after, and the
+    same counterparty account (or, where neither side has one, the same
+    merchant key). With no identity on either side there is no match, so a
+    coincidental equal amount is never swallowed."""
+    if pending.get("transaction_type", "debit") != booked.get("transaction_type", "debit"):
+        return False
+    p_amount, b_amount = _pennies(pending.get("amount")), _pennies(booked.get("amount"))
+    if p_amount is None or p_amount != b_amount:
+        return False
+    p_date, b_date = pending.get("date"), booked.get("date")
+    if not isinstance(p_date, datetime) or not isinstance(b_date, datetime):
+        return False
+    delta = (b_date.date() - p_date.date()).days
+    if delta < -HANDOVER_DAYS_BEFORE or delta > HANDOVER_DAYS_AFTER:
+        return False
+    p_party, p_key = _identity(pending)
+    b_party, b_key = _identity(booked)
+    if p_party and b_party:
+        return p_party == b_party
+    return bool(p_key) and p_key == b_key
+
+
+def drop_handed_over(pending_rows: list[dict], booked_rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split `pending_rows` into (still pending, handed over). Each booked row
+    settles at most one pending row, so two identical pending payments are
+    not both swallowed by one booked twin."""
+    remaining = list(booked_rows)
+    kept: list[dict] = []
+    handed: list[dict] = []
+    for pending in pending_rows:
+        match = next((b for b in remaining if booked_replaces_pending(pending, b)), None)
+        if match is None:
+            kept.append(pending)
+        else:
+            remaining.remove(match)
+            handed.append(pending)
+    return kept, handed
+
+
+async def remove_handed_over_pending(
+    booked_rows: list[dict], account_id: str, user_id: str, provider: str,
+) -> int:
+    """Delete stored pending rows for this account that a newly booked row has
+    replaced. For the sync where the booked walk succeeded but the pending walk
+    failed, so the wholesale replace did not run. Returns the number removed."""
+    if not booked_rows:
+        return 0
+    stored = await pending_transactions_col.find(
+        {"account_id": account_id, "user_id": user_id, "provider": provider},
+    ).to_list(None)
+    _, handed = drop_handed_over(stored, booked_rows)
+    ids = [row["_id"] for row in handed]
+    if ids:
+        await pending_transactions_col.delete_many({
+            "_id": {"$in": ids}, "account_id": account_id, "user_id": user_id, "provider": provider,
+        })
+    return len(ids)
 
 
 async def replace_pending_for_account(
@@ -121,6 +208,9 @@ async def replace_pending_for_account(
             "merchant_key":     canonical_merchant_key(merchant_name, description),
             "last_seen":        now,
         }
+        for key in ("party_name", "party_sort_code", "party_number"):
+            if row.get(key):
+                doc[key] = row[key]
         await pending_transactions_col.update_one(
             {"_id": storage_id, "user_id": user_id, "account_id": account_id, "provider": provider},
             {"$set": doc, "$setOnInsert": {"first_seen": first_seen}},

@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -23,7 +24,13 @@ from app.db.collections import (
 )
 from app.services.categorisation import rule_categorise_directed, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
-from app.services.pending_transactions import replace_pending_for_account
+from app.services.pending_transactions import (
+    drop_handed_over, remove_handed_over_pending, replace_pending_for_account,
+)
+from app.services.own_account_transfers import (
+    counterparty_category, counterparty_key, load_own_account_index, resolve_own_account,
+    normalise_account_number, normalise_sort_code,
+)
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
 from pymongo import ReturnDocument
 
@@ -555,6 +562,62 @@ _PROVIDERS_MAX_TIME_MS = 3000
 _providers_memo: Optional[dict] = None  # {"providers": [...], "fetched_at": datetime}
 
 
+def provider_health(value) -> str:
+    """A183: Finexer's provider health as one of operational, degraded, down.
+    An absent or unrecognised value reads as operational: a bank is only
+    flagged when Finexer says so."""
+    v = str(value or "").strip().lower()
+    if v in ("degraded", "down"):
+        return v
+    if v in ("unavailable", "outage", "offline", "major_outage"):
+        return "down"
+    if v in ("partial_outage", "partial", "issues", "impaired"):
+        return "degraded"
+    return "operational"
+
+
+_HEALTH_TTL_SECONDS = 600  # A183: provider health refreshes far faster than the 24h list
+_health_memo: Optional[dict] = None  # {"map": {id: status}, "at": monotonic seconds}
+
+
+async def provider_health_map(counter: Optional[dict] = None) -> dict:
+    """A183: provider id -> health_status, re-read from GET /providers at most
+    every 10 minutes (health only; the 24h list cache is untouched). A failed
+    read serves the last map, or {} when there is none, never an error."""
+    global _health_memo
+    now = time.monotonic()
+    if _health_memo is not None and now - _health_memo["at"] < _HEALTH_TTL_SECONDS:
+        return dict(_health_memo["map"])
+    fresh: dict = {}
+    ok = True
+    try:
+        async with _client() as client:
+            offset = 0
+            while True:
+                r = await _get(client, "/providers", params={"offset": offset}, counter=counter)
+                if r.status_code != 200:
+                    ok = False
+                    break
+                data = r.json()
+                items = data.get("data") or []
+                for p in items:
+                    if p.get("id"):
+                        fresh[p["id"]] = provider_health(p.get("health_status"))
+                if not (data.get("paging") or {}).get("next") or not items:
+                    break
+                offset += len(items)
+    except Exception:
+        ok = False
+    if ok and fresh:
+        _health_memo = {"map": fresh, "at": now}
+        return dict(fresh)
+    if _health_memo is not None:
+        # Retry after a short pause rather than on every request.
+        _health_memo = {"map": _health_memo["map"], "at": now - _HEALTH_TTL_SECONDS + 60}
+        return dict(_health_memo["map"])
+    return {}
+
+
 def _providers_fresh(fetched_at, ttl_hours: float) -> bool:
     if not isinstance(fetched_at, datetime):
         return False
@@ -632,7 +695,11 @@ async def list_providers(counter: Optional[dict] = None, *, force: bool = False)
                         "id":       p["id"],
                         "name":     p.get("name", p["id"]),
                         "logo":     p.get("logo_url", ""),
+                        # A183: the rest of what Finexer says about a provider.
+                        "logo_url": p.get("logo_url", ""),
                         "bg_colors": p.get("bg_colors") or [],
+                        "roles":    list(p.get("roles") or []),
+                        "health_status": provider_health(p.get("health_status")),
                     })
             paging = data.get("paging") or {}
             if not paging.get("next"):
@@ -885,6 +952,100 @@ def _parse_date(txn: dict) -> datetime:
     return _parse_iso_utc(str(raw)) or datetime.utcnow()  # naive-ok: fallback bank timestamp uses Mongo UTC convention
 
 
+def _shape(obj) -> str:
+    """Keys only: the sorted top-level keys plus the keys of a nested metadata
+    or identification dict. Never a value (A183 privacy fix)."""
+    if not isinstance(obj, dict):
+        return "type=" + type(obj).__name__
+    parts = ["keys=" + ",".join(sorted(str(k)[:30] for k in obj)[:40])]
+    for nested in ("metadata", "identification"):
+        if isinstance(obj.get(nested), dict):
+            parts.append(nested + "_keys=" + ",".join(sorted(str(k)[:30] for k in obj[nested])[:40]))
+    return " ".join(parts)
+
+
+def _clean_str(value, limit: int = 200) -> str:
+    if isinstance(value, dict):
+        value = value.get("name") or value.get("display_name") or ""
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())[:limit]
+
+
+def _txn_fields(txn: dict) -> dict:
+    """A183: the optional bank-supplied metadata on a Finexer transaction, read
+    from the top level first and then a nested `metadata` object. Returns only
+    the keys that are present: `merchant` (the clean name), `party_name`,
+    `party_sort_code` (six digits), `party_number` (eight digits) and
+    `category_group`. A sort code or number that does not normalise is
+    treated as absent."""
+    meta = txn.get("metadata") if isinstance(txn.get("metadata"), dict) else {}
+
+    def pick(*names):
+        for source in (txn, meta):
+            for name in names:
+                if source.get(name) not in (None, "", {}, []):
+                    return source.get(name)
+        return None
+
+    out: dict = {}
+    merchant = _clean_str(pick("merchant", "merchant_name", "counterparty_name"))
+    if merchant:
+        out["merchant"] = merchant
+    party_name = _clean_str(pick("party_name"))
+    if party_name:
+        out["party_name"] = party_name
+    sort_code = normalise_sort_code(pick("party_sort_code"))
+    if sort_code:
+        out["party_sort_code"] = sort_code
+    number = normalise_account_number(pick("party_number"))
+    if number:
+        out["party_number"] = number
+    group = _clean_str(pick("category_group"), 60)
+    if group:
+        out["category_group"] = group
+    return out
+
+
+def _count_fields(txns: list) -> dict:
+    """A183: counts only (never values) of rows carrying each optional field."""
+    counts = {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0}
+    for t in txns:
+        if not isinstance(t, dict):
+            continue
+        f = _txn_fields(t)
+        counts["rows"] += 1
+        counts["party"] += 1 if (f.get("party_name") or f.get("party_sort_code") or f.get("party_number")) else 0
+        counts["party_account"] += 1 if (f.get("party_sort_code") and f.get("party_number")) else 0
+        counts["merchant"] += 1 if f.get("merchant") else 0
+        counts["category_group"] += 1 if f.get("category_group") else 0
+    return counts
+
+
+def _tally_fields(per_provider: dict, provider: Optional[str], walk: dict) -> None:
+    """A183: add one walk's field counts to the per-provider tally."""
+    fields = (walk or {}).get("fields")
+    if not fields:
+        return
+    bucket = per_provider.setdefault(
+        str(provider or "unknown")[:60],
+        {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0},
+    )
+    for key in bucket:
+        bucket[key] += int(fields.get(key, 0))
+
+
+def _log_field_counts(per_provider: dict) -> None:
+    """A183: one INFO line per provider per sync, so production shows which
+    banks populate counterparty and merchant fields. Counts only."""
+    for provider, c in sorted(per_provider.items()):
+        logger.info(
+            "Finexer transaction fields: provider=%s rows=%d with_party=%d with_party_account=%d "
+            "with_merchant=%d with_category_group=%d",
+            provider, c["rows"], c["party"], c["party_account"], c["merchant"], c["category_group"],
+        )
+
+
 async def _upsert_finexer_transactions(
     txns: list,
     account_id: str,
@@ -965,7 +1126,16 @@ async def _upsert_finexer_walk(
     learning/spend history would all treat a provisional debit as real).
     Any other/absent status (e.g. "booked") takes the existing settled path
     unchanged. Returns (new_txn_summaries, pending_rows) — `pending_rows` is
-    the normalised shape `replace_pending_for_account` expects."""
+    the normalised shape `replace_pending_for_account` expects.
+
+    A183: `category` is $set on every re-pull by design, so a re-pulled row's
+    category is recomputed from the rules and, when the bank's counterparty
+    sort code and account number equal one of the user's other connected
+    accounts, from that evidence (this may re-label an existing row). The
+    user's `custom_category` is never written here. `finexer_sync_pipeline`
+    then runs `apply_rules_bulk(structural=True)`, which calls
+    `reconcile_own_account_transfers` (categorisation.py), so a confirmed
+    own-transfer match is reapplied after every sync."""
     new_txns = []
     pending_rows = []
     now = datetime.utcnow()  # naive-ok: persisted first-seen bank timestamp
@@ -981,7 +1151,11 @@ async def _upsert_finexer_walk(
             continue
 
         description  = txn.get("description") or txn.get("reference") or txn.get("narrative") or ""
-        merchant     = txn.get("merchant_name") or txn.get("merchant") or txn.get("counterparty_name") or ""
+        fields       = _txn_fields(txn)
+        # A183: Finexer's own clean merchant name leads; the raw description
+        # stays as the description. This is the stored display name source.
+        merchant     = fields.get("merchant", "")
+        party        = {k: v for k, v in fields.items() if k in ("party_name", "party_sort_code", "party_number")}
 
         if (txn.get("status") or "").strip().lower() == "pending":
             pending_rows.append({
@@ -992,6 +1166,7 @@ async def _upsert_finexer_walk(
                 "merchant_name":    merchant,
                 "currency":         txn.get("currency"),
                 "transaction_type": _infer_transaction_type(txn),
+                **party,
             })
             continue
 
@@ -1018,6 +1193,19 @@ async def _upsert_finexer_walk(
         else:
             category = rule_categorise_directed(merchant, description, is_credit=False) or None
 
+        # A183: the counterparty's sort code and account number equal one of
+        # the user's own connected accounts: an own-account transfer, decided
+        # from the bank's data and not from the narrative.
+        own_account = None
+        own_key = counterparty_key(party.get("party_sort_code"), party.get("party_number"))
+        if own_key is not None:
+            if "own_index" not in state:
+                state["own_index"] = await load_own_account_index(user_id)
+            candidate = resolve_own_account(state["own_index"], own_key, account_id)
+            if candidate is not None:
+                own_account = candidate
+                category = counterparty_category(own_account, txn_type)
+
         tdoc: dict = {
             "account_id":       account_id,
             "user_id":          user_id,
@@ -1031,6 +1219,9 @@ async def _upsert_finexer_walk(
             "provider":         "Finexer",
             "merchant_key":     canonical_merchant_key(merchant, description),
         }
+        tdoc.update(party)
+        if fields.get("category_group"):
+            tdoc["category_group"] = fields["category_group"]
         if running_balance is not None:
             try:
                 tdoc["running_balance"] = float(running_balance)
@@ -1061,6 +1252,12 @@ async def _upsert_finexer_walk(
                 "merchant_name": merchant or None,
                 "amount":        amount,
                 "currency":      currency,
+                # A183: what the pending handover needs to recognise this
+                # booked row as the settled version of a pending one.
+                "date":             tdoc["date"],
+                "transaction_type": txn_type,
+                "merchant_key":     tdoc["merchant_key"],
+                **party,
             })
     return new_txns, pending_rows
 
@@ -1185,7 +1382,8 @@ async def _walk_transactions(
     url: Optional[str] = f"/bank_accounts/{finexer_id or account_id}/transactions"
     first_page = True
     first_txn_logged = False
-    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0}
+    out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0,
+           "fields": {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0}}
     while url:
         tr = await _get(client, url, params if first_page else None, counter=counter)
         first_page = False
@@ -1197,7 +1395,7 @@ async def _walk_transactions(
         txns = txn_data.get("data") or txn_data.get("results") or []
         out["rows"] += len(txns)
         if txns and not first_txn_logged and not force_pending:
-            logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
+            logger.info("FINEXER first transaction shape for account %s: %s", account_id, _shape(txns[0]))
             first_txn_logged = True
         if force_pending:
             kept = []
@@ -1213,6 +1411,8 @@ async def _walk_transactions(
         for t in txns:
             if isinstance(t, dict):
                 out["credit" if _infer_transaction_type(t) == "credit" else "debit"] += 1
+        for key, n in _count_fields(txns).items():
+            out["fields"][key] += n
         if dedupe is not None:
             new, pending_rows = await _upsert_finexer_transactions(
                 txns, account_id, user_id, identity=identity, dedupe=dedupe,
@@ -1279,6 +1479,7 @@ async def sync_finexer_consent(
     # observable (see `_get`, `last_sync_requests`/`last_sync_429s` below,
     # and GET /admin/sync-stats).
     counter: dict = {"requests": 0, "429s": 0}
+    field_counts: dict = {}  # A183: provider -> counts of rows carrying party/merchant fields
     bank_sync_budget: dict = {"remaining": BANK_SYNC_CONSENT_BUDGET_S}
     from app.services import runtime_settings
     try:
@@ -1364,7 +1565,7 @@ async def sync_finexer_consent(
 
         # Log raw shape of first account for field discovery
         if accounts:
-            logger.info("FINEXER raw first account JSON: %s", accounts[0])
+            logger.info("FINEXER first account shape: %s", _shape(accounts[0]))
 
         # Build provider info map once (id → full provider dict with name, logo, bg_colors)
         provs = await list_providers(counter=counter)
@@ -1640,6 +1841,7 @@ async def sync_finexer_consent(
                     logger.exception("card balance shape log failed")
             walk_row_count = booked["rows"]
             all_new_txns.extend(booked["new"])
+            _tally_fields(field_counts, provider_code, booked)
 
             # A176: pending rows come from GET ...?status=pending (the default
             # is booked only), merged with any pending rows the booked list
@@ -1671,6 +1873,7 @@ async def sync_finexer_consent(
                     )
                     pend = {"ok": False}
                 if pend["ok"]:
+                    _tally_fields(field_counts, provider_code, pend)
                     for row in pend["pending"]:
                         merged_pending.setdefault(row.get("transaction_id") or row.get("id"), row)
                     walk_row_count += pend["rows"]
@@ -1684,11 +1887,23 @@ async def sync_finexer_consent(
             # (same "never overwrite a known good value with a failure" rule
             # as the balance fetch above). A filtered booked walk is partial
             # for booked rows only; pending comes from its own full fetch.
+            # A183 handover: a pending row a newly booked row has replaced is
+            # removed by amount, account, counterparty (or merchant) and a
+            # short date window, never by id (the ids differ). Only rows new
+            # this sync count as the settled twin.
             if not fetch_failed and not pending_failed:
+                kept_pending, handed_over = drop_handed_over(list(merged_pending.values()), booked["new"])
+                if handed_over:
+                    logger.info("Finexer pending handover: %d pending row(s) replaced by booked for an account", len(handed_over))
                 await replace_pending_for_account(
-                    list(merged_pending.values()), account_id, user_id, provider="Finexer",
+                    kept_pending, account_id, user_id, provider="Finexer",
                     account_currency=currency,
                 )
+            elif not fetch_failed and pending_failed:
+                try:
+                    await remove_handed_over_pending(booked["new"], account_id, user_id, provider="Finexer")
+                except Exception:
+                    logger.exception("Finexer pending handover failed for an account; continuing")
 
             # A176 (F1): in EVERY sync path, read the sync object once after the
             # walk (a GET, no documented hourly limit) so bank_synced_to tracks
@@ -1722,6 +1937,8 @@ async def sync_finexer_consent(
                 await accounts_col.update_one({"_id": account_id}, {"$set": diag_set})
             except Exception:
                 logger.exception("Finexer transaction diagnostics write failed for %s", account_id)
+
+    _log_field_counts(field_counts)
 
     # A renewed consent should clear the "needs reconnecting" banner on the
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse
