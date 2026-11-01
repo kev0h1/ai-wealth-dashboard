@@ -190,7 +190,8 @@
     "check:g324-home-declutter": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g324-home-declutter.test.mjs",
     "check:g351-scheduled-goal": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g351-scheduled-goal.test.mjs",
     "check:g373-pending-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g373-pending-payments.test.mjs",
-    "check:g379-home-transfers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g379-home-transfers.test.mjs"
+    "check:g379-home-transfers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g379-home-transfers.test.mjs",
+    "check:g387-transfer-review": "node --no-warnings --experimental-strip-types scripts/g387-transfer-review.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

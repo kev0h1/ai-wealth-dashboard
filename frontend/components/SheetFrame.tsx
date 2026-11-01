@@ -29,6 +29,7 @@ export function SheetFrame({
   footer,
   bodyHeader,
   onClose,
+  beforeClose,
   labelledBy,
   themeClass,
   leading,
@@ -53,6 +54,9 @@ export function SheetFrame({
   /** Fixed task controls, between the title and the independently scrolling body. */
   bodyHeader?: ReactNode;
   onClose: () => void;
+  /** Persist a pending task before consuming this sheet's history entry.
+   * Return false to keep the sheet open with a recoverable error. */
+  beforeClose?: () => Promise<boolean>;
   labelledBy?: string;
   themeClass?: string;
   leading?: ReactNode;
@@ -73,6 +77,9 @@ export function SheetFrame({
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const reactId = useId();
   const nextRef = useRef<(() => void) | null>(null);
+  const preparingClose = useRef(false);
+  const live = useRef(true);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
   const [viewport, setViewport] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   useSheetOpen();
   const finishClose = useCallback(() => {
@@ -82,15 +89,29 @@ export function SheetFrame({
     if (next) queueMicrotask(next);
   }, [onClose]);
   const { ref, close: requestClose } = useSheetA11y<HTMLElement>(finishClose, {
-    lockScroll: true, backToClose: manageHistory, dismissDisabled, onEscape, onHistoryBack,
+    lockScroll: true, backToClose: manageHistory, dismissDisabled,
+    onEscape: onEscape ?? (beforeClose ? () => { void close(); } : undefined),
+    onHistoryBack: onHistoryBack ?? (beforeClose ? () => { void close(); } : undefined),
   });
   // Programmatic completion may close during the final saving render. Only
   // user dismissal (X, backdrop, Escape/Back) is disabled during submission.
-  const close = requestClose;
+  const close = useCallback(async () => {
+    if (preparingClose.current) return;
+    if (!beforeClose) { requestClose(); return; }
+    preparingClose.current = true;
+    try {
+      if (await beforeClose() && live.current) requestClose();
+      else nextRef.current = null;
+    } catch {
+      // The caller owns the error message. Never navigate to a replacement
+      // sheet after a preparation failure or leave an unhandled rejection.
+      nextRef.current = null;
+    } finally { preparingClose.current = false; }
+  }, [beforeClose, requestClose]);
   const closeThen = useCallback((next: () => void) => {
     nextRef.current = next;
-    requestClose();
-  }, [requestClose]);
+    void close();
+  }, [close]);
   // G205: swipe down to dismiss on phones. The drag ends in `close`, the very
   // function the X button calls, so history, focus restore, teardown pops
   // and any confirm-on-close the caller wires into onClose behave the same.

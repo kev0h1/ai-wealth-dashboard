@@ -81,7 +81,7 @@ interface TeachingSheetProps {
   onClose: () => void;
   /** Mirrors TransactionSheet's contract so existing callers (SpendPage's
    *  cache invalidation / verdict refetch) plug in unchanged. */
-  onUpdated: (tx: Transaction, additionalIds?: string[]) => void;
+  onUpdated: (tx: Transaction, additionalIds?: string[], reverted?: boolean) => void;
   account?: Account;
   /** Opens straight on "Is this account yours?" instead of the category
    *  picker, without changing what `transaction.category` says (so the
@@ -99,9 +99,11 @@ interface TeachingSheetProps {
    */
   initialReviewChoice?: "savings" | "spending" | "card";
   nested?: boolean;
+  /** Transfer review saves immediately and refreshes totals once on close. */
+  deferRecompute?: boolean;
 }
 
-export default function TeachingSheet({ transaction, onClose, onUpdated, account, forceMovementRoot, initialReviewChoice, nested }: TeachingSheetProps) {
+export default function TeachingSheet({ transaction, onClose, onUpdated, account, forceMovementRoot, initialReviewChoice, nested, deferRecompute = false }: TeachingSheetProps) {
 
   const { colours } = useColours();
   const { hideNetWorth, preferencesReady } = usePreferences();
@@ -194,7 +196,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   // solitary `invalidateVerdictCache()` call in here too — same effect,
   // one fewer call — so every correction clears all four caches that can
   // hold stale figures for it in one place.
-  function notifyUpdated(tx: Transaction, additionalIds?: string[]) {
+  function notifyUpdated(tx: Transaction, additionalIds?: string[], reverted = false) {
+    if (deferRecompute) { onUpdated(tx, additionalIds, reverted); return; }
     invalidateAfterTransactionCorrection(tx.id, { oldCategory: originalCategory, newCategory: tx.category });
     onUpdated(tx, additionalIds);
     notifyTransactionsChanged([tx.id, ...(additionalIds ?? [])], tx.category);
@@ -210,12 +213,12 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setError(null);
     try {
       if (isMovementRead) {
-        await api.resolveMovement(transaction.id, { resolution: "spending", category });
+        await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category });
         notifyUpdated({ ...transaction, category });
         finish(`Filed as ${category}.`, () => undoToSpend(category));
         return;
       }
-      const res = await api.patchTransaction(transaction.id, { category });
+      const res = await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category });
       notifyUpdated(
         { ...transaction, category },
         res.affected_ids?.filter((id) => id !== transaction.id),
@@ -236,11 +239,11 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   async function undoToSpend(_appliedCategory: string) {
     try {
       if (isMovementRead) {
-        await api.resolveMovement(transaction.id, { resolution: "spending", category: originalCategory });
+        await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
       } else {
-        await api.patchTransaction(transaction.id, { category: originalCategory });
+        await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
       }
-      notifyUpdated({ ...transaction, category: originalCategory });
+      notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
     } catch {
       // Undo failing quietly is the least-bad outcome here — the sheet is
       // already closing and there's no surface left to report to.
@@ -270,7 +273,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setBusy(true);
     setError(null);
     try {
-      const result = await api.resolveMovement(transaction.id, { resolution, ...extra });
+      const result = await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution, ...extra });
       const category = resolution === "mine-savings"
         ? "Savings"
         : resolution === "mine-investment"
@@ -287,8 +290,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   async function undoMovement() {
     try {
-      await api.resolveMovement(transaction.id, { resolution: "spending", category: originalCategory });
-      notifyUpdated({ ...transaction, category: originalCategory });
+      await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
+      notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
     } catch {
       // see undoToSpend
     }
@@ -310,7 +313,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setBusy(true);
     setError(null);
     try {
-      await api.patchTransaction(transaction.id, { category });
+      await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category });
       notifyUpdated({ ...transaction, category });
       finish(`Filed as ${category}.`, undoCreditMovement);
     } catch (e) {
@@ -322,8 +325,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   async function undoCreditMovement() {
     try {
-      await api.patchTransaction(transaction.id, { category: originalCategory });
-      notifyUpdated({ ...transaction, category: originalCategory });
+      await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
+      notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
     } catch {
       // see undoToSpend
     }
@@ -335,7 +338,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setBusy(true);
     try {
       const merchantLabel = name;
-      const saved = await api.addRule(`${merchantLabel} → ${proposal.category}`, proposal.pattern, proposal.category);
+      const saved = await api.addRule(`${merchantLabel} → ${proposal.category}`, proposal.pattern, proposal.category, deferRecompute);
       // G83 fix-round: this bulk-recategorises every past `saved.affected`
       // sibling too, on top of the primary transaction `commitSpend`'s own
       // `notifyUpdated` already invalidated for — those siblings are a
@@ -348,7 +351,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       // the primary transaction did, so this uses the same shared
       // invalidator `notifyUpdated` does above, not the narrower verdict-
       // only clear this used before that item.
-      invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: proposal.category });
+      if (!deferRecompute) invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: proposal.category });
       // G358: tell the host list every row the rule re-filed, so a filtered
       // list drops them and counts settle without a full reload.
       onUpdated(
@@ -365,12 +368,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           (saved.affected || [])
             .filter((a) => a.id !== transaction.id)
             .map((a) =>
-              api.patchTransaction(a.id, { category: a.previous_category || "Other" }).catch(() => {
-                /* best-effort — see undoToSpend */
+              api.patchTransaction(a.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: a.previous_category || "Other" }).then(() => {
+                if (deferRecompute) onUpdated({ ...transaction, id: a.id, category: a.previous_category || "Other" }, undefined, true);
+              }).catch(() => {
+                /* A failed rollback stays resolved locally, matching the server. */
               }),
             ),
         );
-        notifyTransactionsChanged();
+        if (!deferRecompute) notifyTransactionsChanged();
       });
     } catch {
       // Rule save failed (e.g. free-tier gate) — the categorisation itself
@@ -938,10 +943,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">{toast.message}</p>
               <button
                 type="button"
+                disabled={busy}
                 onClick={async () => {
                   if (toastTimer.current) clearTimeout(toastTimer.current);
-                  await toast.undo();
-                  close();
+                  setBusy(true);
+                  try {
+                    await toast.undo();
+                    close();
+                  } finally { setBusy(false); }
                 }}
                 className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
               >

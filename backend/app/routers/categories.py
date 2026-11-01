@@ -396,6 +396,13 @@ async def add_rule(body: dict, user: dict = Depends(current_user)):
     # response can carry exactly which sibling rows it recategorised —
     # TeachingSheet's "Undo" reverts each one by id (fix-round HIGH finding).
     affected = await apply_single_rule(uid, pattern.lower(), category)
+    # A transfer-review choice can offer an "Always" rule from its nested
+    # teaching sheet.  Its rows are still saved now, but join the review's
+    # one close-time forecast rebuild rather than leaving the pending marker
+    # absent because this route normally has no cashflow recompute of its own.
+    if affected and body.get("defer_recompute") is True:
+        from app.services.derived_caches import defer_transfer_review_recompute
+        await defer_transfer_review_recompute(uid)
     # G358: wipe the response caches now (the bulk task below only bumps the
     # data version later), so a refetch straight after this response is fresh.
     await response_cache.ainvalidate(uid)
