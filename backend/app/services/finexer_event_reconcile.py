@@ -90,7 +90,7 @@ async def reconcile_events(*, now: Optional[datetime] = None, force: bool = Fals
     last_started = state.get("last_started_at")
     if not force and isinstance(last_started, datetime) and now - last_started < MIN_GAP:
         return {"ran": False, "complete": False, "reason": "too_soon", "received": 0, "missed": 0,
-                "replayed": 0, "failed": 0, "skipped_type": 0, "pages": 0}
+                "replayed": 0, "failed": 0, "skipped_type": 0, "skipped_no_created": 0, "pages": 0}
 
     last_done = state.get("last_completed_at")
     if isinstance(last_done, datetime):
@@ -100,7 +100,7 @@ async def reconcile_events(*, now: Optional[datetime] = None, force: bool = Fals
     await _write_state({"last_started_at": now})
 
     out = {"ran": True, "complete": False, "reason": None, "received": 0, "missed": 0,
-           "replayed": 0, "failed": 0, "skipped_type": 0, "pages": 0}
+           "replayed": 0, "failed": 0, "skipped_type": 0, "skipped_no_created": 0, "pages": 0}
     table = fxw.event_actions()
     seen: set = set()
 
@@ -134,13 +134,18 @@ async def reconcile_events(*, now: Optional[datetime] = None, force: bool = Fals
                 if not isinstance(ev, dict):
                     continue
                 created = _created_at(ev)
-                if created is not None and created < since:
+                if created is None:
+                    out["skipped_no_created"] += 1  # no time, so no safe window or order
+                    continue
+                if created < since:
                     continue
                 eid = fxw.extract_event_id(ev)
                 if not eid or eid in seen:
                     continue
                 seen.add(eid)
-                batch.append((eid, ev))
+                batch.append((created, eid, ev))
+            batch.sort(key=lambda t: t[0])  # replay oldest first
+            batch = [(eid, ev) for _c, eid, ev in batch]
             if batch:
                 ids = [eid for eid, _ in batch]
                 known = {d.get("event_id") async for d in webhook_events_col.find({"event_id": {"$in": ids}}, {"event_id": 1})}
@@ -184,7 +189,7 @@ async def reconcile_events(*, now: Optional[datetime] = None, force: bool = Fals
         "last_attempt_at": now,
         "last_status": "complete" if out["complete"] else "incomplete",
         "last_reason": out["reason"] or ("replay_failed" if out["failed"] else None),
-        "last_counts": {k: out[k] for k in ("received", "missed", "replayed", "failed", "skipped_type", "pages")},
+        "last_counts": {k: out[k] for k in ("received", "missed", "replayed", "failed", "skipped_type", "skipped_no_created", "pages")},
     }
     if out["complete"]:
         fields["last_completed_at"] = now

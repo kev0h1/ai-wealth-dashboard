@@ -180,3 +180,40 @@ def test_ops_endpoint_is_owner_only(monkeypatch):
     assert e.value.status_code == 403
     with pytest.raises(HTTPException):
         asyncio.run(ops.ops_finexer_events_reconcile(user={"bot_name": "x"}))
+
+
+def test_events_without_created_are_skipped_and_counted(env):
+    ev = _ev("evt_nc")
+    ev.pop("created")
+    out, _c = _run([(200, {"data": [ev], "paging": {}})])
+    assert out["skipped_no_created"] == 1 and out["missed"] == 0 and env["calls"] == []
+
+
+def test_a_batch_is_replayed_oldest_first(env):
+    a = _ev("evt_late", created=NOW - timedelta(minutes=10))
+    b = _ev("evt_early", created=NOW - timedelta(hours=1))
+    _run([(200, {"data": [a, b], "paging": {}})])
+    order = [d["event_id"] for d in env["events"].docs]
+    assert order == ["evt_early", "evt_late"]
+
+
+def test_a_stale_replayed_cancel_does_not_flip_a_reconnected_consent(env):
+    env["consents"].docs[0]["authed_at"] = NOW - timedelta(minutes=5)
+    ev = _ev("evt_cx", typ="consent.canceled", created=NOW - timedelta(hours=1))
+    out, _c = _run([(200, {"data": [ev], "paging": {}})])
+    assert env["consents"].docs[0]["status"] == "authorized"
+    assert out["missed"] == 1 and out["replayed"] == 1
+
+
+def test_a_stale_replayed_expiry_respects_status_changed_at(env):
+    env["consents"].docs[0]["status_changed_at"] = NOW - timedelta(minutes=5)
+    ev = _ev("evt_ex", typ="consent.expired", created=NOW - timedelta(hours=1))
+    _run([(200, {"data": [ev], "paging": {}})])
+    assert env["consents"].docs[0]["status"] == "authorized"
+
+
+def test_a_fresh_replayed_cancel_still_applies(env):
+    env["consents"].docs[0]["authed_at"] = NOW - timedelta(days=3)
+    ev = _ev("evt_c2", typ="consent.canceled", created=NOW - timedelta(hours=1))
+    _run([(200, {"data": [ev], "paging": {}})])
+    assert env["consents"].docs[0]["status"] == "revoked"
