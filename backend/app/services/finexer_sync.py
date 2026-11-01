@@ -35,6 +35,33 @@ def _client() -> httpx.AsyncClient:
     )
 
 
+def _request_id(resp) -> Optional[str]:
+    """Finexer's `fx-request-id` response header, for support tickets. Masked
+    to [redacted] only when it looks like a key or token (the same shapes
+    `_scrub_reason` removes); an ordinary request id is logged as is."""
+    try:
+        raw = resp.headers.get("fx-request-id")
+    except Exception:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip()[:120]
+    if (FINEXER_API_KEY and FINEXER_API_KEY in value) or _SCRUB_SECRET.search(value):
+        return "[redacted]"
+    return value
+
+
+def log_finexer_error(resp, where: str) -> None:
+    """One warning line for a failed Finexer call: where, status and the
+    fx-request-id header. Never the body (see `_scrub_reason` for that) and
+    never raises."""
+    try:
+        status = resp.status_code
+        logger.warning("Finexer error on %s: status=%s fx-request-id=%s", where, status, _request_id(resp))
+    except Exception:
+        pass
+
+
 # E2: Finexer's documented rate limit is unknown (see DEPLOY.md's "Railway
 # Pro and replicas (E2)" section), so a real 429 is the ground truth. Rather
 # than fail a whole sync the first time the API pushes back, this backs off
@@ -1128,6 +1155,11 @@ async def sync_finexer_consent(
                 "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
                 "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
             }
+            # A182: the 90-day reconfirmation date follows what Finexer reports.
+            from app.services.finexer_consent import next_reconfirm_by as _next_reconfirm_by
+            update_fields["next_reconfirm_by"] = _next_reconfirm_by(
+                local_consent.get("authed_at"), update_fields["renewed_at"], update_fields["expiry_date"],
+            )
             # Stamp the moment the status actually changed away from
             # "authorized" (local_consent was verified authorized above), so
             # the retention sweep (app.services.retention) has a timestamp to

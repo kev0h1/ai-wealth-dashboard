@@ -478,6 +478,7 @@ async def task_consent_watch(ctx):
 
     nagged = 0
     warned = 0
+    reconfirm_nagged = 0
 
     # ---- TrueLayer connections ----
     tl_conns = await connections_col.find(
@@ -576,7 +577,46 @@ async def task_consent_watch(ctx):
         else:
             warned += 1
 
-    summary = {"nagged": nagged, "warned": warned}
+    # ---- A182: 90-day reconfirmation (Finexer) ----
+    # Authorised consents whose reconfirmation falls due within 7 days (or is
+    # overdue) are stamped for /ops/health and get one gentle push, throttled
+    # to once per 72h. Reconfirming clears the throttle (finexer_consent).
+    from app.services.finexer_consent import (
+        RECONFIRM_PUSH_DAYS, consent_next_reconfirm_by, reconfirm_push_due,
+    )
+    reconfirm_due = 0
+    rc_consents = await finexer_consents_col.find(
+        {"status": "authorized"},
+        {"_id": 1, "user_id": 1, "status": 1, "authed_at": 1, "renewed_at": 1, "expiry_date": 1,
+         "provider": 1, "last_reconfirm_nag": 1},
+    ).to_list(None)
+    for fx in rc_consents:
+        uid = fx.get("user_id")
+        if not uid or not reconfirm_push_due(fx, now):
+            continue
+        reconfirm_due += 1
+        due = consent_next_reconfirm_by(fx)
+        fields = {"reconfirm_due_flagged_at": now, "next_reconfirm_by": due}
+        last_nag = fx.get("last_reconfirm_nag")
+        if (isinstance(last_nag, datetime) and last_nag > throttle_cutoff) or not await notif_pref(uid, "connection_health"):
+            await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+            continue
+        bank = _bank_display_name(fx.get("provider"))
+        try:
+            await send_push_to_user(
+                uid, f"Still OK for Sorted to read your {bank} data?",
+                "Open Sorted and confirm. It takes one tap and no bank login.", url="/",
+            )
+        except Exception:
+            logger.exception("consent watch reconfirm push failed for Finexer consent %s", fx["_id"])
+            await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+            continue
+        fields["last_reconfirm_nag"] = now
+        await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+        reconfirm_nagged += 1
+
+    summary = {"nagged": nagged, "warned": warned, "reconfirm_due": reconfirm_due,
+               "reconfirm_nagged": reconfirm_nagged, "reconfirm_window_days": RECONFIRM_PUSH_DAYS}
     logger.info("consent watch: %s", summary)
     return summary
 

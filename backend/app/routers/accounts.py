@@ -17,6 +17,10 @@ from app.db.collections import (
 )
 from app.services.truelayer_sync import sync_connection
 from app.db.collections import finexer_consents_col as _finexer_consents_col
+from app.services.finexer_consent import (
+    consent_next_reconfirm_by as _consent_next_reconfirm_by,
+    reconfirm_prompt_due,
+)
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
@@ -621,9 +625,14 @@ async def list_connections(user: dict = Depends(current_user)):
         result.append({
             "connection_id": fc["_id"],
             "provider": "finexer",
+            "provider_id": fc.get("provider"),
             "status": fc.get("status"),
             "expires_at": fc.get("expiry_date"),
             "accounts": account_count,
+            # A182: the 90-day reconfirmation.
+            "renewed_at": fc.get("renewed_at"),
+            "next_reconfirm_by": _consent_next_reconfirm_by(fc),
+            "reconfirm_prompt": reconfirm_prompt_due(fc),
         })
 
     return result

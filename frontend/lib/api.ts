@@ -2139,6 +2139,21 @@ export type OpsHealth = {
     consents: { last_synced_to: string | null; age_hours: number | null }[];
     line: string;
   } | null;
+  // A182: per consent, no ids. Null when it could not be built.
+  finexer_consents?: {
+    consents: {
+      bank: string | null;
+      status: string | null;
+      renewed_at: string | null;
+      next_reconfirm_by: string | null;
+      reconfirm_overdue: boolean;
+      history_requested_from: string | null;
+      failure_code: string | null;
+      failure_message: string | null;
+    }[];
+    reconfirm_due: number;
+    failed: number;
+  } | null;
 };
 // E9: GET /ops/webhooks/recent (owner-only, allowlist projection).
 export type OpsRecentWebhooks = {
@@ -3247,6 +3262,12 @@ export const api = {
     ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${linkQuery(provider, native)}`)
     : Promise.reject(new Error("This bank connection method is not available.")),
   finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
+  /** A182: confirm in the app that Sorted may keep reading this bank's data (90-day
+   *  reconfirmation). No bank login; never extends the consent's end date. */
+  finexerReconfirm: (consentId: string) =>
+    post<{ ok: boolean; renewed_at: string; next_reconfirm_by: string | null }>(
+      `/auth/finexer/consents/${encodeURIComponent(consentId)}/reconfirm`,
+    ),
   finexerConnectLink: (provider?: string, native?: boolean) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${linkQuery(provider, native)}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>

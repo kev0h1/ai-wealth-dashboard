@@ -13,6 +13,12 @@ from typing import Optional
 
 from app.core.auth import current_user
 from app.services import runtime_settings
+from app.services.finexer_consent import (
+    ReconfirmError,
+    next_reconfirm_by,
+    reconfirm_consent,
+    RECONFIRM_FAILED_MESSAGE,
+)
 from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
 from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
@@ -200,6 +206,32 @@ async def finexer_link(
     return {"auth_url": consent_url, "connection_id": consent_id}
 
 
+_RECONFIRM_FAILED = {"code": "RECONFIRM_FAILED", "message": RECONFIRM_FAILED_MESSAGE}
+
+
+@router.post("/auth/finexer/consents/{consent_id}/reconfirm")
+async def finexer_reconfirm(consent_id: str, user: dict = Depends(current_user)):
+    """A182: the user confirms in the app that Sorted may keep reading this
+    bank's data (the 90-day reconfirmation). Writes renewed_at at Finexer, no
+    bank login, never extends the consent's expiry. Owner of the consent only;
+    a Finexer failure leaves the record unchanged."""
+    doc = await finexer_consents_col.find_one({"_id": consent_id})
+    # Another user's consent answers exactly like a missing one.
+    if not doc or doc.get("user_id") != user["email"]:
+        raise HTTPException(status_code=404, detail={"code": "CONSENT_NOT_FOUND", "message": "We could not find that bank connection."})
+    if doc.get("status") != "authorized":
+        raise HTTPException(status_code=409, detail={"code": "CONSENT_NOT_ACTIVE", "message": "This bank connection needs reconnecting first."})
+    try:
+        out = await reconfirm_consent(consent_id)
+    except ReconfirmError:
+        raise HTTPException(status_code=502, detail=_RECONFIRM_FAILED)
+    return {
+        "ok": True,
+        "renewed_at": out["renewed_at"].isoformat() + "Z",
+        "next_reconfirm_by": out["next_reconfirm_by"].isoformat() + "Z" if out["next_reconfirm_by"] else None,
+    }
+
+
 @router.get("/auth/finexer/callback")
 async def finexer_callback(
     consent: str = "",
@@ -244,9 +276,11 @@ async def finexer_callback(
         return RedirectResponse(f"{APP_URL}/accounts?connect=cancelled", status_code=303)
 
 
+    authed_at = datetime.utcnow()  # naive-ok: matches last_synced convention
     await finexer_consents_col.update_one(
         {"_id": consent_id},
-        {"$set": {"status": "authorized", "authed_at": datetime.utcnow()}},
+        {"$set": {"status": "authorized", "authed_at": authed_at,
+                  "next_reconfirm_by": next_reconfirm_by(authed_at, None, doc.get("expiry_date"))}},
     )
 
     user_id = doc["user_id"]

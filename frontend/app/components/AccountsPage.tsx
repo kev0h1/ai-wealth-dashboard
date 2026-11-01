@@ -50,6 +50,7 @@ import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
+import { connectionNotes } from "@/lib/reconfirm";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
@@ -2497,7 +2498,7 @@ export default function AccountsPage() {
             </button>
           ) : null)}
 
-          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} />
+          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} connectionNotes={isExpired ? [] : connectionNotes(consentConnection)} />
           {available && (
             <div data-account-availability-working className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">
               {available.kind === "ready" ? <>

@@ -306,7 +306,15 @@ async def ops_health(user: dict = Depends(current_user)):
         finexer_sync = await sync_health()
     except Exception:
         finexer_sync = None
-    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks, "finexer_sync": finexer_sync}
+    # A182: per-consent reconfirmation date (and, later, history and failure
+    # reason). Same rule: a failure here never blanks the page.
+    try:
+        from app.services.finexer_consent import consent_health
+        finexer_consents = await consent_health()
+    except Exception:
+        finexer_consents = None
+    return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks,
+            "finexer_sync": finexer_sync, "finexer_consents": finexer_consents}
 
 
 @router.get("/webhooks/recent")
