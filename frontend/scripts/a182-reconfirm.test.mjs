@@ -53,3 +53,12 @@ assert.match(text, /Yes, carry on/);
 assert.doesNotMatch(html, /red-|amber-|—/);
 assert.equal(renderToStaticMarkup(h(ReconfirmPrompt, { connections: [conn({ reconfirm_prompt: false })], bankNameFor: () => "Barclays" })), "");
 console.log("a182-reconfirm ok");
+
+// Part 4: the reconnect strip shows the plain reason when there is one.
+import ReconnectStrip from "../components/ReconnectStrip.tsx";
+const reason = "Your bank ended this connection. Reconnect to give access again.";
+const strip = renderToStaticMarkup(h(ReconnectStrip, { providers: [{ provider: "Barclays", reason }], onReconnect() {} }));
+assert.match(strip.replace(/<[^>]+>/g, "|"), /Barclays needs reconnecting\|?.*Your bank ended this connection\. Reconnect to give access again\./);
+const plain = renderToStaticMarkup(h(ReconnectStrip, { providers: [{ provider: "Barclays" }], onReconnect() {} }));
+assert.doesNotMatch(plain, /Your bank/);
+console.log("a182 reconnect reason ok");

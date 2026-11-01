@@ -184,6 +184,26 @@ def consent_failure_fields(obj: Any) -> dict:
     return out
 
 
+def consent_sync_fields(consent_doc: dict, local_consent: dict) -> dict:
+    """What the sync stores from GET /consents/{id} beyond status and expiry:
+    a failure code and message when the consent carries them (a healthy
+    authorised one clears an earlier failure), and next_reconfirm_by from the
+    renewed_at and expiry_date Finexer reports."""
+    from app.services.finexer_sync import _parse_iso_utc
+    out: dict = {}
+    failure = consent_failure_fields(consent_doc)
+    if failure:
+        out.update(failure)
+    elif consent_doc.get("status") == "authorized":
+        out.update({"failure_code": None, "failure_message": None})
+    out["next_reconfirm_by"] = next_reconfirm_by(
+        local_consent.get("authed_at"),
+        _parse_iso_utc(consent_doc.get("renewed_at")),
+        _parse_iso_utc(consent_doc.get("expiry_date")),
+    )
+    return out
+
+
 def plain_failure_reason(doc: dict) -> Optional[str]:
     """One plain sentence for the reconnect banner, or None when the consent
     carries no failure at all. Known codes get their own sentence, anything

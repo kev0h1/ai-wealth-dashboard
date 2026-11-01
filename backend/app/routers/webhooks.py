@@ -480,6 +480,36 @@ async def finexer_webhook(secret: str, request: Request):
         await _stamp()
         return {"ok": True}
 
+    if action == fxw.ACTION_CONSENT_AUDIT:
+        # consent.opened / consent.initiated: audit only. Never touches status,
+        # accounts or the sync; just remembers the last journey step seen.
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"last_consent_event": str(event_type).strip().lower()[:40],
+                      "last_consent_event_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+        )
+        await _set({"status": "noted"})
+        await _stamp()
+        return {"ok": True}
+
+    if action == fxw.ACTION_CONSENT_FAILED:
+        # consent.failed: keep Finexer's failure_code and failure_message, mark
+        # the consent, flag its accounts so the reconnect banner shows the plain
+        # reason, and clear the nag throttle so task_consent_watch speaks next run.
+        from app.services.finexer_consent import consent_failure_fields
+        is_consent = obj.get("object") == "consent"
+        remote = obj.get("status") if is_consent and isinstance(obj.get("status"), str) else None
+        fields = {"status": remote or "failed",
+                  "status_changed_at": datetime.utcnow(),  # naive-ok: retention grace-period clock
+                  **consent_failure_fields(obj if is_consent else {})}
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]}, {"$set": fields, "$unset": {"last_connection_nag": ""}},
+        )
+        await _mark_accounts_expired(str(doc["_id"]))
+        await _set({"status": "noted"})
+        await _stamp()
+        return {"ok": True}
+
     if action == fxw.ACTION_CONSENT_EXPIRING:
         await finexer_consents_col.update_one(
             {"_id": doc["_id"]},

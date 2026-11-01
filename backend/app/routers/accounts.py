@@ -19,6 +19,7 @@ from app.services.truelayer_sync import sync_connection
 from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_consent import (
     consent_next_reconfirm_by as _consent_next_reconfirm_by,
+    plain_failure_reason,
     reconfirm_prompt_due,
 )
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
@@ -635,6 +636,8 @@ async def list_connections(user: dict = Depends(current_user)):
             "reconfirm_prompt": reconfirm_prompt_due(fc),
             # A182: the history start we asked the bank for (its maximum applies).
             "history_requested_from": fc.get("retro_date_requested"),
+            # A182: one plain sentence for the reconnect banner, never the raw bank text.
+            "failure_reason": plain_failure_reason(fc),
         })
 
     return result

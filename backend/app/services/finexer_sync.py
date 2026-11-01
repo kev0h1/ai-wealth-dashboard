@@ -1201,11 +1201,9 @@ async def sync_finexer_consent(
                 "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
                 "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
             }
-            # A182: the 90-day reconfirmation date follows what Finexer reports.
-            from app.services.finexer_consent import next_reconfirm_by as _next_reconfirm_by
-            update_fields["next_reconfirm_by"] = _next_reconfirm_by(
-                local_consent.get("authed_at"), update_fields["renewed_at"], update_fields["expiry_date"],
-            )
+            # A182: failure code and message, and the 90-day reconfirmation date.
+            from app.services.finexer_consent import consent_sync_fields
+            update_fields.update(consent_sync_fields(consent_doc, local_consent))
             # Stamp the moment the status actually changed away from
             # "authorized" (local_consent was verified authorized above), so
             # the retention sweep (app.services.retention) has a timestamp to

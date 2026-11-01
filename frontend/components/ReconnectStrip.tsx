@@ -25,6 +25,8 @@ export type ReconnectProvider = {
   provider_id?: string;
   source?: string;
   account_count?: number;
+  /** A182: plain sentence from the bank's failure code, when there is one. */
+  reason?: string | null;
 };
 
 interface ReconnectStripProps {
@@ -65,8 +67,11 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
     return (
       <div className="glass-card rounded-2xl p-4 flex items-center gap-3">
         <span aria-hidden="true" className="flex-shrink-0 w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400" />
-        <span className="flex-1 min-w-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100 truncate">
+        <span className={`flex-1 min-w-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100${provider.reason ? "" : " truncate"}`}>
           {meta.label} needs reconnecting
+          {provider.reason && (
+            <span className="block text-[11px] font-normal text-slate-500 dark:text-slate-400">{provider.reason}</span>
+          )}
         </span>
         <button
           type="button"
@@ -117,6 +122,9 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
                 <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
                   {p.account_count ?? 1} {(p.account_count ?? 1) === 1 ? "account" : "accounts"} · stopped syncing
                 </span>
+                {p.reason && (
+                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">{p.reason}</span>
+                )}
               </span>
               <button
                 type="button"

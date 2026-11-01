@@ -1662,16 +1662,20 @@ export default function AccountsPage() {
       const source = (account as Account & { source?: string }).source;
       const key = `${source ?? "bank"}:${account.provider_id ?? account.provider}`;
       const existing = grouped.get(key);
-      if (existing) existing.account_count = (existing.account_count ?? 1) + 1;
-      else grouped.set(key, {
+      const reason = connections.find((c) => c.connection_id === account.connection_id)?.failure_reason ?? null;
+      if (existing) {
+        existing.account_count = (existing.account_count ?? 1) + 1;
+        if (!existing.reason && reason) existing.reason = reason;
+      } else grouped.set(key, {
         provider: account.provider,
         provider_id: account.provider_id,
         source,
         account_count: 1,
+        reason,
       });
     }
     return [...grouped.values()];
-  }, [bankAccounts]);
+  }, [bankAccounts, connections]);
   function handleEstateReconnect(provider: ReconnectProvider) {
     const account = bankAccounts.find((candidate) => {
       if (candidate.status !== "expired") return false;

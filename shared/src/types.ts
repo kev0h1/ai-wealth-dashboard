@@ -66,6 +66,8 @@ export interface Connection {
   reconfirm_prompt?: boolean;
   /** YYYY-MM-DD: the history start we asked the bank for. Its own maximum applies. */
   history_requested_from?: string | null;
+  /** A182: one plain sentence for the reconnect banner when the bank failed or ended the consent. */
+  failure_reason?: string | null;
 }
 
 export type ManualAccountType = "savings" | "current" | "credit_card";

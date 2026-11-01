@@ -876,17 +876,20 @@ export default function HomePage() {
   );
 
   const expiredProviders = useMemo(() => {
-    const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number }>();
+    const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number; reason?: string | null }>();
     for (const a of accounts) {
       if (a.status !== "expired") continue;
       const source = (a as Account & { source?: string }).source;
       const key = `${source ?? "bank"}:${a.provider_id ?? a.provider}`;
       const existing = grouped.get(key);
-      if (existing) existing.account_count += 1;
-      else grouped.set(key, { provider: a.provider, provider_id: a.provider_id, source, account_count: 1 });
+      const reason = bankConnections.find((c) => c.connection_id === a.connection_id)?.failure_reason ?? null;
+      if (existing) {
+        existing.account_count += 1;
+        if (!existing.reason && reason) existing.reason = reason;
+      } else grouped.set(key, { provider: a.provider, provider_id: a.provider_id, source, account_count: 1, reason });
     }
     return [...grouped.values()];
-  }, [accounts]);
+  }, [accounts, bankConnections]);
 
   // A67: reconnect REPAIRS one named connection, so it must go back to the
   // provider that owns that consent — sending an expired TrueLayer account

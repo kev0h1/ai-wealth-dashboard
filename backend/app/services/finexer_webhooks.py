@@ -35,13 +35,15 @@ ACTION_CONSENT_AUTHORISED = "consent_authorised"
 ACTION_CONSENT_EXPIRING = "consent_expiring"
 ACTION_CONSENT_EXPIRED = "consent_expired"
 ACTION_CONSENT_REVOKED = "consent_revoked"
+ACTION_CONSENT_FAILED = "consent_failed"
+ACTION_CONSENT_AUDIT = "consent_audit"
 ACTION_ACCOUNT_DELETED = "account_deleted"
 ACTION_RECORD_ONLY = "record_only"
 ACTION_UNKNOWN = "unknown"
 VALID_ACTIONS = frozenset({
     ACTION_SYNC_CONSENT, ACTION_CONSENT_AUTHORISED, ACTION_CONSENT_EXPIRING,
     ACTION_CONSENT_EXPIRED, ACTION_CONSENT_REVOKED, ACTION_ACCOUNT_DELETED,
-    ACTION_RECORD_ONLY, ACTION_UNKNOWN,
+    ACTION_RECORD_ONLY, ACTION_UNKNOWN, ACTION_CONSENT_FAILED, ACTION_CONSENT_AUDIT,
 })
 
 # Finexer docs, Set up webhooks, read 2026-10-18: the dashboard offers exactly
@@ -60,6 +62,12 @@ DEFAULT_EVENT_ACTIONS: dict[str, str] = {
     # (A6.2A, task_consent_watch), it does not revoke.
     "consent.expired": ACTION_CONSENT_EXPIRED,
     "consent.created": ACTION_RECORD_ONLY,
+    # A182: a failed consent carries failure_code and failure_message; opened
+    # and initiated are the user's progress through the bank journey, kept as
+    # an audit line on the consent and nothing else.
+    "consent.failed": ACTION_CONSENT_FAILED,
+    "consent.opened": ACTION_CONSENT_AUDIT,
+    "consent.initiated": ACTION_CONSENT_AUDIT,
 }
 
 
