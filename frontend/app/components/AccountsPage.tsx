@@ -18,7 +18,7 @@ import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectSt
 import PausedBanksStrip from "@/components/PausedBanksStrip";
 import { pausedAccountCount } from "@/lib/billingCopy";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
-import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
+import { accountKind, accountKindLabel, isBusinessAccount, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { DateField } from "@/components/DatePicker";
@@ -48,6 +48,7 @@ import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTic
 import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
+import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
@@ -2292,6 +2293,8 @@ export default function AccountsPage() {
   // --- Account detail view ---
   if (selectedAccount) {
     const isCredit = accountKind(selectedAccount) === "Credit";
+    // A181: a loan or mortgage is owed, not overdrawn; no red, no Left to spend switch.
+    const isDebt = accountKind(selectedAccount) === "Debt";
     const balance = selectedAccount.balance;
     const available = accountAvailability(selectedAccount, currentAvailabilitySnapshot);
     const position = currentAvailabilitySnapshot.status === "ready" ? currentAvailabilitySnapshot.positions?.[selectedAccount.id] : undefined;
@@ -2458,7 +2461,7 @@ export default function AccountsPage() {
           />
 
           <p
-            className={`text-[30px] leading-none font-bold money ${balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
+            className={`text-[30px] leading-none font-bold money ${balance < 0 && !isDebt ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
           >
             {hideNetWorth ? "••••" : `${!isCredit && balance < 0 ? "−" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </p>
@@ -2467,7 +2470,8 @@ export default function AccountsPage() {
               gets no caption. */}
           {isCredit && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
           {isCredit && balance > 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">in credit</p>}
-          {!isCredit && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
+          {isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
+          {!isCredit && !isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
 
           {isCredit && (termsPill ? (
             <button
@@ -2497,7 +2501,12 @@ export default function AccountsPage() {
             </button>
           ) : null)}
 
-          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} />
+          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} />
+          {overdraftAvailable(selectedAccount) !== null && (
+            <p data-a181-overdraft className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">
+              <MoneyText text={availableWithOverdraftText(hideNetWorth ? "£••••" : formatAvailabilityAmount(overdraftAvailable(selectedAccount) as number))} />
+            </p>
+          )}
           {available && (
             <div data-account-availability-working className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">
               {available.kind === "ready" ? <>
@@ -2532,7 +2541,7 @@ export default function AccountsPage() {
 
         {/* G231: only a connected bank current or savings account can be left
             out of Safe to Spend; cards, offline accounts and statements cannot. */}
-        {!isManual && !isStatement && !isCredit && (
+        {!isManual && !isStatement && !isCredit && !isDebt && (
           <div className="px-4 pt-4">
             <AccountCountRow
               account={selectedAccount}

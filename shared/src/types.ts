@@ -41,6 +41,21 @@ export interface Account {
   /** A179: when the bank's once-an-hour rule next allows a refresh of this
    *  account (ISO UTC). Absent or null when one is allowed now. */
   bank_next_refresh_at?: string | null;
+  /** A181: Finexer's raw account class (current, savings, credit_card,
+   *  charge_card, emoney, loan, mortgage, ...) and holder type (personal,
+   *  business, unknown), as returned. `class_unknown` is true when the class
+   *  was not recognised and the account fell back to a current account. */
+  finexer_class?: string | null;
+  finexer_type?: string | null;
+  class_unknown?: boolean | null;
+  /** A181: a card's credit limit as the bank reports it (Finexer
+   *  overdraft.limit with type credit). Absent or null when not reported. */
+  credit_limit?: number | null;
+  /** A181: the bank's own available figure and, on a current account, its
+   *  overdraft limit and type. For display only, never counted as cash. */
+  available?: number | null;
+  overdraft_limit?: number | null;
+  overdraft_type?: string | null;
 }
 
 /** One live bank connection/consent, from GET /connections

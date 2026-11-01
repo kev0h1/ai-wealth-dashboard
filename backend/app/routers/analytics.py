@@ -44,7 +44,7 @@ from app.services.categorisation import (
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
     _CHANNEL_CODES,
 )
-from app.services.account_kinds import is_credit_card_account
+from app.services.account_kinds import is_credit_card_account, is_debt_account
 from app.services.spending import try_build_spending_context
 from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT, is_card_repayment
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
@@ -2004,6 +2004,9 @@ def _account_pool_kind(acc: dict) -> str | None:
     subtype = (acc.get("subtype") or "").lower()
     acc_type = (acc.get("type") or "").lower()
     if "credit" in acc_type or "credit" in subtype:
+        return None
+    if is_debt_account(acc):
+        # A181: a loan or mortgage is owed money, never cash and never a source.
         return None
     if "saving" in subtype:
         return "savings"
@@ -5154,6 +5157,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
         if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
             continue
         if _is_savings(acc):
+            continue
+        if is_debt_account(acc):
+            # A181: a loan or mortgage is not a card bill; kept out of card_debt.
             continue
         bal = float(acc.get("balance") or 0)
         if bal < 0:

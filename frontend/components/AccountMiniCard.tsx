@@ -414,6 +414,7 @@ export function RadioDot({ selected }: { selected: boolean }) {
 export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin, calm, glass, termsPill, onTermsClick, onAddRates, index }: AccountMiniCardProps) {
   const brand = accountBrand(account);
   const isCredit = account.type.toLowerCase().includes("credit");
+  const isDebt = (account.type ?? "").toLowerCase() === "debt";
   const balance = account.balance;
   const currSym = account.currency === "KES" ? "KES " : "£";
   const balanceStr = `${currSym}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -465,7 +466,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           {!hidden && isCredit && balance > 0 && (
             <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">in credit</p>
           )}
-          {!hidden && !isCredit && balance < 0 && (
+          {!hidden && !isCredit && !isDebt && balance < 0 && (
             <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">overdrawn</p>
           )}
 
@@ -586,7 +587,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
       {/* Balance */}
       <p
         className={`text-xl font-bold tracking-tight leading-none font-mono tabular-nums`}
-        style={{ color: balance < 0 ? (tc === "#fff" ? "#fca5a5" : "#b91c1c") : tc }}
+        style={{ color: balance < 0 && !isDebt ? (tc === "#fff" ? "#fca5a5" : "#b91c1c") : tc }}
       >
         {hidden ? "••••" : `${balance < 0 ? "−" : ""}${balanceStr}`}
       </p>

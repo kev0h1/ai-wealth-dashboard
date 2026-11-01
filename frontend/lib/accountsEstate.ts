@@ -79,7 +79,7 @@ export interface Estate {
 
 /** Live-group order (matches the approved preview's ACCOUNT_GROUPS). Offline
  *  (manual) accounts aren't a live group in this pass. */
-const GROUP_ORDER: AccountKind[] = ["Current", "Savings", "Credit", "Investment"];
+const GROUP_ORDER: AccountKind[] = ["Current", "Savings", "Credit", "Debt", "Investment"];
 
 /** Plural collection labels for group headers — distinct from
  *  accountKindLabel's singular per-row label ("Credit card" vs "Credit
@@ -88,6 +88,7 @@ const GROUP_LABELS: Record<AccountKind, string> = {
   Current: "Current",
   Savings: "Savings",
   Credit: "Credit cards",
+  Debt: "Loans and mortgages",
   Investment: "Investments",
   Offline: "Offline",
 };

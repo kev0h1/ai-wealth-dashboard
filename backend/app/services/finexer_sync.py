@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+from app.services.account_kinds import finexer_account_kind
 from app.services.sync_freshness import sync_error_code, sync_in_progress
 
 logger = logging.getLogger(__name__)
@@ -983,6 +984,51 @@ def _sign_word(value) -> str:
     return "positive" if f > 0 else "negative" if f < 0 else "zero"
 
 
+def card_balance_from_finexer(current, available=None, overdraft=None) -> float:
+    """The stored balance for a card (credit_card or charge_card) from Finexer's
+    balance entry. App convention is negative = owed, so the rule is
+    -abs(current): a card never shows in credit when it is owed, whichever sign
+    the bank sent. `available` and `overdraft` are accepted so a per-bank rule
+    can use them, but they play no part today.
+
+    Known limit: an overpaid card also reads as owed. The raw signs are logged
+    per card (A179, `_log_card_balance_shape`) and stored as `card_current_sign`
+    and `card_available_sign`; once those show each bank's real convention,
+    per-bank conventions can replace this single rule here and nowhere else."""
+    try:
+        value = float(current or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return -abs(value)
+
+
+def debt_balance_from_finexer(current) -> float:
+    """The stored balance for a loan or mortgage: -abs(current), so owed is
+    negative whichever sign the bank sent (net worth and the Owed lens then
+    read it correctly). Same known limit as `card_balance_from_finexer`: an
+    overpaid account also reads as owed, and per-bank conventions can replace
+    this rule once the raw sign (stored as `debt_current_sign`) is known."""
+    try:
+        return -abs(float(current or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _overdraft_parts(overdraft) -> tuple:
+    """(limit, type) from a Finexer balance `overdraft` object: limit as a
+    positive float or None, type lower-cased or None. Never raises."""
+    if not isinstance(overdraft, dict):
+        return None, None
+    try:
+        limit = float(overdraft.get("limit"))
+    except (TypeError, ValueError):
+        limit = None
+    if limit is not None and not limit > 0:
+        limit = None
+    otype = str(overdraft.get("type") or "").strip().lower() or None
+    return limit, otype
+
+
 def _log_card_balance_shape(acc_class: str, diag: dict, walk: dict) -> None:
     """A179: one INFO line per credit card sync that settles the card sign
     question in production: class, the chosen balance entry's type, the key
@@ -1228,15 +1274,12 @@ async def sync_finexer_consent(
             name = acc.get("nickname") or acc.get("holder_name") or "Account"
 
             acc_class = (acc.get("class") or "").lower()
-            if acc_class == "credit_card":
-                acc_type = "credit_card"
-                subtype  = "CREDIT_CARD"
-            elif "saving" in acc_class:
-                acc_type = "bank"
-                subtype  = "SAVINGS"
-            else:
-                acc_type = "bank"
-                subtype  = "TRANSACTION"
+            # A181: ONE mapping for every Finexer class (services/account_kinds.py).
+            kind_info = finexer_account_kind(acc_class)
+            acc_type = kind_info["type"]
+            subtype = kind_info["subtype"]
+            is_card = kind_info["kind"] == "card"
+            acc_holder_type = str(acc.get("type") or "").lower() or None
 
             ident = acc.get("identification") or {}
             account_number = (
@@ -1287,6 +1330,11 @@ async def sync_finexer_consent(
             balance: float = 0.0
             available = None
             card_diag: dict = {}
+            balance_seen = False  # a balance entry came back, so limits below are current
+            credit_limit = None
+            debt_sign = None
+            overdraft_limit = None
+            overdraft_type = None
             br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
             if br.status_code == 200:
                 bal_data = br.json()
@@ -1295,28 +1343,42 @@ async def sync_finexer_consent(
                 if chosen is None and bal_entries:
                     chosen = bal_entries[0]
                 if chosen:
-                    if acc_class == "credit_card":
+                    if is_card:
                         card_diag = {
                             "entry_type": str(chosen.get("type"))[:30] if chosen.get("type") is not None else None,
                             "keys": sorted(str(k)[:30] for k in chosen.keys())[:20],
                             "current_sign": _sign_word(chosen.get("current")),
                             "available_sign": _sign_word(chosen.get("available")),
                         }
-                    try:
-                        balance = float(chosen.get("current") or 0.0)
-                    except (TypeError, ValueError):
-                        balance = 0.0
-                    if acc_class == "credit_card":
-                        # Known limit: an overpaid card will display as owed until per-provider sign handling exists; the raw sign is logged per card for that.
-                        # A180: banks pass their own sign through (some report
-                        # owed as positive). App convention is negative = owed,
-                        # so cards always store -abs(current). The raw sign is
-                        # still recorded in card_diag above.
-                        balance = -abs(balance)
+                    if is_card:
+                        # A180/A181: credit_card and charge_card. The raw sign is
+                        # recorded in card_diag above and logged by A179.
+                        balance = card_balance_from_finexer(
+                            chosen.get("current"), chosen.get("available"), chosen.get("overdraft"),
+                        )
+                    elif kind_info["kind"] == "debt":
+                        debt_sign = _sign_word(chosen.get("current"))
+                        balance = debt_balance_from_finexer(chosen.get("current"))
+                    else:
+                        try:
+                            balance = float(chosen.get("current") or 0.0)
+                        except (TypeError, ValueError):
+                            balance = 0.0
                     try:
                         available = float(chosen["available"]) if chosen.get("available") is not None else None
                     except (TypeError, ValueError):
                         available = None
+                    balance_seen = True
+                    od_limit, od_type = _overdraft_parts(chosen.get("overdraft"))
+                    if is_card and od_type == "credit":
+                        # A181: a card's credit limit is overdraft.limit with type credit.
+                        credit_limit = od_limit
+                    elif not is_card and od_limit is not None and od_type != "credit":
+                        # A181: an arranged (or other non-credit) overdraft on a
+                        # current-style account. Kept so the Accounts page can say
+                        # what is available with it; never added to cash.
+                        overdraft_limit = od_limit
+                        overdraft_type = od_type
             else:
                 logger.warning(
                     "Finexer GET /bank_accounts/%s/balance failed: HTTP %s",
@@ -1337,6 +1399,9 @@ async def sync_finexer_consent(
                 "sort_code":      sort_code,
                 "finexer":        True,
                 "source":         "finexer",
+                # A181: the raw Finexer class and type, stored on every account.
+                "finexer_class":  acc_class or None,
+                "finexer_type":   acc_holder_type,
                 "logo_url":       pinfo.get("logo") or None,
                 "bg_colors":      pinfo.get("bg_colors") or [],
                 "updated_at":     datetime.utcnow(),
@@ -1348,18 +1413,44 @@ async def sync_finexer_consent(
                 set_doc["card_current_sign"] = card_diag["current_sign"]
                 set_doc["card_available_sign"] = card_diag["available_sign"]
             set_doc.update(bank_sync_set)
+            unset_doc: dict = {}
+            if debt_sign is not None:
+                set_doc["debt_current_sign"] = debt_sign  # raw sign only, for diagnostics
+            if balance_seen and is_card:
+                if credit_limit is not None:
+                    set_doc["credit_limit"] = credit_limit
+                else:
+                    unset_doc["credit_limit"] = ""
+            if balance_seen and not is_card:
+                if overdraft_limit is not None:
+                    set_doc["overdraft_limit"] = overdraft_limit
+                    if overdraft_type:
+                        set_doc["overdraft_type"] = overdraft_type
+                    else:
+                        unset_doc["overdraft_type"] = ""
+                else:
+                    unset_doc["overdraft_limit"] = ""
+                    unset_doc["overdraft_type"] = ""
+            if kind_info["class_unknown"]:
+                set_doc["class_unknown"] = True
+            else:
+                unset_doc["class_unknown"] = ""
 
-            await accounts_col.update_one(
-                {"_id": account_id},
-                {
-                    "$set": set_doc,
-                    "$setOnInsert": {
-                        "_id":     account_id,
-                        "user_id": user_id,
-                    },
+            update_ops: dict = {
+                "$set": set_doc,
+                "$setOnInsert": {
+                    "_id":     account_id,
+                    "user_id": user_id,
                 },
-                upsert=True,
-            )
+            }
+            if unset_doc:
+                update_ops["$unset"] = unset_doc
+            if acc_holder_type == "business" and kind_info["kind"] in ("current", "savings"):
+                # A181: a business account starts out not counted in Left to
+                # spend. $setOnInsert only, so a later sync, a reconnect or the
+                # user's own switch is never overwritten.
+                update_ops["$setOnInsert"]["include_in_safe_to_spend"] = False
+            await accounts_col.update_one({"_id": account_id}, update_ops, upsert=True)
             fetched_account_ids.append(account_id)
 
             # Fetch transactions (paginated). A bank_account.synced event may

@@ -76,6 +76,7 @@
     "check:g176-preview": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-preview.test.mjs",
     "check:a179-account-refresh": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a179-account-refresh.test.mjs",
     "check:a175-account-empty-state": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a175-account-empty-state.test.mjs",
+    "check:a181-accounts": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/a181-accounts.test.mjs",
     "check:g176-accounts": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-accounts.test.mjs",
     "check:g176-account-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-plans.test.mjs",
     "check:g176-account-status": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-status.test.mjs",

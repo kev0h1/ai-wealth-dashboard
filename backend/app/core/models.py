@@ -41,6 +41,21 @@ class Account(BaseModel):
     # A179: when the bank's once-an-hour rule next allows a refresh of this
     # account (ISO UTC); null when one is allowed now or the account is not Finexer.
     bank_next_refresh_at: Optional[str] = None
+    # A181: Finexer's raw account class and holder type (personal, business,
+    # unknown), stored as returned; class_unknown is true when the class was
+    # not recognised and the account fell back to a current account.
+    finexer_class: Optional[str] = None
+    finexer_type: Optional[str] = None
+    class_unknown: Optional[bool] = None
+    # A181: a card's credit limit (Finexer overdraft.limit with type credit).
+    # Absent when the bank does not report one.
+    credit_limit: Optional[float] = None
+    # A181: what the bank reports as available (current plus any credit line,
+    # 0 when current is negative), and the arranged overdraft limit and type on
+    # a current account. Display only: Left to spend uses balance, never these.
+    available: Optional[float] = None
+    overdraft_limit: Optional[float] = None
+    overdraft_type: Optional[str] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.
