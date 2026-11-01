@@ -48,6 +48,7 @@ import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTic
 import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
+import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
@@ -2498,6 +2499,11 @@ export default function AccountsPage() {
           ) : null)}
 
           <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} />
+          {overdraftAvailable(selectedAccount) !== null && (
+            <p data-a181-overdraft className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">
+              <MoneyText text={availableWithOverdraftText(hideNetWorth ? "£••••" : formatAvailabilityAmount(overdraftAvailable(selectedAccount) as number))} />
+            </p>
+          )}
           {available && (
             <div data-account-availability-working className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">
               {available.kind === "ready" ? <>

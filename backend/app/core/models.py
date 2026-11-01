@@ -50,6 +50,12 @@ class Account(BaseModel):
     # A181: a card's credit limit (Finexer overdraft.limit with type credit).
     # Absent when the bank does not report one.
     credit_limit: Optional[float] = None
+    # A181: what the bank reports as available (current plus any credit line,
+    # 0 when current is negative), and the arranged overdraft limit and type on
+    # a current account. Display only: Left to spend uses balance, never these.
+    available: Optional[float] = None
+    overdraft_limit: Optional[float] = None
+    overdraft_type: Optional[str] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.

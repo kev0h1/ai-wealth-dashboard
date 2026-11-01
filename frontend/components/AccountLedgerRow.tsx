@@ -14,6 +14,7 @@ import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { MaskedAmount } from "@/lib/balancesHidden";
+import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import type { AccountAvailabilityReading } from "@/lib/accountAvailability";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 import ActionLabel from "@/components/ActionLabel";
@@ -205,6 +206,10 @@ export default function AccountLedgerRow({
   // updating, and excluded accounts never surface a spendable reading.
   const availabilityReading =
     row.source === "bank" && row.kind === "Current" && !notCounted && !sync ? availability : undefined;
+  // A181: with an arranged overdraft the current balance stays the headline and
+  // the reach with the overdraft is a hedged secondary line. Never cash.
+  const overdraftReading =
+    row.source === "bank" && !sync && !availabilityReading ? overdraftAvailable(row.raw as Account) : null;
   const availabilityAria = availabilityReading
     ? availabilityReading.kind === "ready"
       ? `, available: ${hideAmount ? "amount hidden" : moneyStr(availabilityReading.value)}${
@@ -226,7 +231,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : moneyStr(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -300,6 +305,11 @@ export default function AccountLedgerRow({
             ) : (
               "Unavailable"
             )}
+          </p>
+        ) : null}
+        {overdraftReading !== null ? (
+          <p data-a181-overdraft className="max-w-[10rem] text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+            {availableWithOverdraftText(hideAmount ? "£••••" : moneyStr(overdraftReading))}
           </p>
         ) : null}
         {/* Visual "owed"/"in credit" caption is gone on credit rows per

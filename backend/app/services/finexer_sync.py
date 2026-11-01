@@ -1320,6 +1320,8 @@ async def sync_finexer_consent(
             card_diag: dict = {}
             balance_seen = False  # a balance entry came back, so limits below are current
             credit_limit = None
+            overdraft_limit = None
+            overdraft_type = None
             br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
             if br.status_code == 200:
                 bal_data = br.json()
@@ -1355,6 +1357,12 @@ async def sync_finexer_consent(
                     if is_card and od_type == "credit":
                         # A181: a card's credit limit is overdraft.limit with type credit.
                         credit_limit = od_limit
+                    elif not is_card and od_limit is not None and od_type != "credit":
+                        # A181: an arranged (or other non-credit) overdraft on a
+                        # current-style account. Kept so the Accounts page can say
+                        # what is available with it; never added to cash.
+                        overdraft_limit = od_limit
+                        overdraft_type = od_type
             else:
                 logger.warning(
                     "Finexer GET /bank_accounts/%s/balance failed: HTTP %s",
@@ -1395,6 +1403,16 @@ async def sync_finexer_consent(
                     set_doc["credit_limit"] = credit_limit
                 else:
                     unset_doc["credit_limit"] = ""
+            if balance_seen and not is_card:
+                if overdraft_limit is not None:
+                    set_doc["overdraft_limit"] = overdraft_limit
+                    if overdraft_type:
+                        set_doc["overdraft_type"] = overdraft_type
+                    else:
+                        unset_doc["overdraft_type"] = ""
+                else:
+                    unset_doc["overdraft_limit"] = ""
+                    unset_doc["overdraft_type"] = ""
             if kind_info["class_unknown"]:
                 set_doc["class_unknown"] = True
             else:

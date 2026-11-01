@@ -51,6 +51,11 @@ export interface Account {
   /** A181: a card's credit limit as the bank reports it (Finexer
    *  overdraft.limit with type credit). Absent or null when not reported. */
   credit_limit?: number | null;
+  /** A181: the bank's own available figure and, on a current account, its
+   *  overdraft limit and type. For display only, never counted as cash. */
+  available?: number | null;
+  overdraft_limit?: number | null;
+  overdraft_type?: string | null;
 }
 
 /** One live bank connection/consent, from GET /connections

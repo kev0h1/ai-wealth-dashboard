@@ -252,3 +252,57 @@ def test_accounts_api_model_exposes_credit_limit_as_optional():
     base = dict(id="a", name="n", type="credit_card", balance=-1.0, provider="p")
     assert Account(**base, credit_limit=5000.0).model_dump()["credit_limit"] == 5000.0
     assert Account(**base).model_dump()["credit_limit"] is None
+
+
+# ---- part 5: available and overdraft
+
+
+def test_available_is_stored_where_returned(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client("current", current=120.0, available=620.0,
+                                                          overdraft={"limit": 500, "type": "arranged"}))
+    _call("acc1")
+    d = _doc(accts)
+    assert d["balance"] == 120.0 and d["available"] == 620.0
+    assert d["overdraft_limit"] == 500.0 and d["overdraft_type"] == "arranged"
+
+
+def test_overdraft_without_a_type_stores_the_limit_only(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client("current", overdraft={"limit": 250}))
+    _call("acc1")
+    d = _doc(accts)
+    assert d["overdraft_limit"] == 250.0 and "overdraft_type" not in d
+
+
+def test_credit_type_overdraft_on_a_current_account_is_not_an_overdraft(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client("current", overdraft={"limit": 500, "type": "credit"}))
+    _call("acc1")
+    assert "overdraft_limit" not in _doc(accts)
+
+
+def test_overdraft_cleared_when_the_bank_drops_it(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client("current", overdraft=None))
+    accts.docs.append({"_id": "acc1", "overdraft_limit": 500.0, "overdraft_type": "arranged"})
+    _call("acc1")
+    d = _doc(accts)
+    assert "overdraft_limit" not in d and "overdraft_type" not in d
+
+
+def test_card_stores_no_overdraft_limit(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", overdraft={"limit": 500, "type": "arranged"}))
+    _call("acc1")
+    assert "overdraft_limit" not in _doc(accts)
+
+
+def test_accounts_api_model_exposes_available_and_overdraft():
+    from app.core.models import Account
+    base = dict(id="a", name="n", type="bank", balance=120.0, provider="p")
+    dumped = Account(**base, available=620.0, overdraft_limit=500.0, overdraft_type="arranged").model_dump()
+    assert (dumped["available"], dumped["overdraft_limit"], dumped["overdraft_type"]) == (620.0, 500.0, "arranged")
+    assert Account(**base).model_dump()["overdraft_limit"] is None
+
+
+def test_left_to_spend_pool_uses_balance_never_available_or_overdraft():
+    from app.routers.analytics import _live_pool_balances
+    acc = {"_id": "a", "type": "bank", "subtype": "TRANSACTION", "currency": "GBP", "balance": 120.0,
+           "available": 620.0, "overdraft_limit": 500.0}
+    assert _live_pool_balances([acc])["spendable_balance"] == 120.0
