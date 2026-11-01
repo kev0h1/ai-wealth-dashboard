@@ -235,6 +235,7 @@ def test_every_allowlisted_field_is_accepted_and_written(monkeypatch):
         "hide_net_worth": True,
         "show_tips": False,
         "dark_mode": True,
+        "penny_appearance": "outline",
         "pay_period_config": {"type": "calendar_month"},
         "income_value": 50000,
         "income_bracket": "under_100k",
