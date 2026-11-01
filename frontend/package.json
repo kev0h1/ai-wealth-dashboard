@@ -158,6 +158,7 @@
     "check:open-banking-access": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/open-banking-access.test.mjs",
     "check:billing-copy": "node --no-warnings --experimental-strip-types scripts/billing-copy.test.mjs",
     "check:legacy-bank-provider": "node --no-warnings --experimental-strip-types scripts/legacy-bank-provider.test.mjs",
+    "check:a183-provider-health": "node --no-warnings --experimental-strip-types scripts/a183-provider-health.test.mjs",
     "check:consent-expiry": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/consent-expiry.test.mjs",
     "check:c21-iap": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/c21-iap.test.mjs",
     "check:purchase-availability-ssr": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/purchase-availability-ssr.test.mjs",
