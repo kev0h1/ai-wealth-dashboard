@@ -195,6 +195,11 @@ error_types_seen_col    = db["error_types_seen"]
 # append-only audit log. Operational values only, never secrets, no user id.
 settings_col            = db["settings"]
 settings_audit_col      = db["settings_audit"]
+# E12: append-only audit of the owner's actions on /ops/people (invite, revoke,
+# restore, erase). {at, actor (owner email), action, target, detail}. An erase
+# entry stores a masked target, and an erase also masks that person's earlier
+# entries, so no full email of an erased person survives here. No user_id field.
+ops_audit_col           = db["ops_audit"]
 
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
@@ -638,6 +643,11 @@ ERASURE_MANIFEST = frozenset({
     # in `actor`, a row of the audit trail, kept for the account's lifetime of
     # the deployment, not user data), no `user_id` on any document.
     "settings_col", "settings_audit_col",
+    # E12: the owner's action log. Keyed by the owner as `actor`, with no
+    # `user_id` on any document, so erase_user's sweep matches nothing; the
+    # erase action itself masks the erased person's own entries (see
+    # app.routers.ops_people), which is the only per-person scrub it needs.
+    "ops_audit_col",
 })
 
 # A99/A101: these five collections lost their `*_col` binding when A98

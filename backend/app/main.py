@@ -18,6 +18,7 @@ from app.core.auth import auth_middleware
 from app.core.security_headers import security_headers_middleware
 from app.db.collections import (
     settings_audit_col,
+    ops_audit_col,
     instrument_prices_col, investment_holdings_col, investment_valuations_col, tip_research_col,
     vendors_col, user_vendor_categories_col, vendor_claims_col,
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -54,7 +55,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, allocations, money_shape,
-    penny_chip, penny_conversations, ops, admin_usage, admin_allowlist, billing as billing_router,
+    penny_chip, penny_conversations, ops, ops_people, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
     diagnostics, uat_trial_reset, play_billing as play_billing_router,
 )
@@ -123,6 +124,7 @@ def _routers(
         ops.router,
         admin_usage.router,
         admin_allowlist.router,
+        ops_people.router,
         billing_router.router,
         play_billing_router.router,
         broadcast_router.router,
@@ -433,6 +435,8 @@ async def _create_indexes():
     await _ensure_index(investment_valuations_col, "user_id", name="valuation_user_id")
     # E10: runtime settings audit trail, read per key newest first.
     await _ensure_index(settings_audit_col, [("key", 1), ("at", -1)], name="settings_audit_key_at")
+    # E12: People page audit trail, read newest first.
+    await _ensure_index(ops_audit_col, [("at", -1)], name="ops_audit_at")
     await _ensure_index(accounts_col, "connection_id")
     await _ensure_index(accounts_col, "user_id")
     await _ensure_index(connections_col, "user_id")

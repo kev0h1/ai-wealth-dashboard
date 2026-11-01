@@ -51,6 +51,7 @@ from app.core.config import (
 )
 from app.core.ratelimit import check_keyed_limit
 from app.core.redis_client import get_redis, redis_ok
+from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
 from app.db.collections import mcp_call_counters_col, mcp_calls_col, oauth_tokens_col
@@ -346,7 +347,8 @@ async def resolve_mcp_principal(request: Request) -> dict:
                 headers={"WWW-Authenticate": MCP_WWW_AUTHENTICATE},
             )
         try:
-            revoked = await is_revoked(doc["uid"], doc["created_at"])
+            # E12: an owner-revoked allow-list entry also ends MCP access.
+            revoked = await is_revoked(doc["uid"], doc["created_at"]) or await is_access_revoked(doc["uid"])
         except Exception:
             raise HTTPException(503, "Session check unavailable")
         if revoked:

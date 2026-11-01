@@ -42,6 +42,20 @@ def _no_tombstones(monkeypatch):
     monkeypatch.setattr(db_collections, "session_tombstones_col", _EmptyTombstoneCol())
 
 
+class _NoAllowlistRows:
+    """E12: current_user / validate_session now look the email up on the allow
+    list (a revoked row signs the person out). These tests are not about that,
+    so stand in an empty collection, same doctrine as the tombstone fake."""
+    async def find_one(self, *a, **k):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_allowlist_rows(monkeypatch):
+    import app.core.allowlist as _allowlist
+    monkeypatch.setattr(_allowlist, "allowed_signups_col", _NoAllowlistRows())
+
+
 class _FakeRequest:
     def __init__(self, headers):
         self.headers = headers
