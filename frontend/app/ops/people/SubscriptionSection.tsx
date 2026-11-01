@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { api, type OpsSubscription } from "@/lib/api";
+import { DateField } from "@/components/DatePicker";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import {
   PACKS,
@@ -108,8 +109,9 @@ function ActionSheet({
                 <option key={t} value={t}>{capitalise(t)}</option>
               ))}
             </select>
-            <label className={`${LABEL} mt-4 block`} htmlFor="sub-expiry">{SUB_WORDING.expiryLabel}</label>
-            <input id="sub-expiry" type="date" value={expires} onChange={(e) => setExpires(e.target.value)} className={`${INPUT} mt-1`} />
+            <div className="mt-4">
+              <DateField mode="day" label={SUB_WORDING.expiryLabel} value={expires} onChange={setExpires} appearance="outlined" placeholder="No end date" allowClear emptyDescription="not set, no end date" />
+            </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{SUB_WORDING.expiryHint}</p>
           </>
         )}
