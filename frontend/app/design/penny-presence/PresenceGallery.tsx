@@ -65,12 +65,13 @@ function CardByKey({ card, masked, onAction }: { card: typeof PRESENCE_STACK_ORD
 
 /** Real Home card families in a safely intercepted, synthetic preview. */
 export function PresenceGallery({ variant, state, masked, onAction, onPennyOpen }: PresenceGalleryProps) {
+  const refined = variant === "d" || variant === "e" || variant === "f";
   const shown: readonly (typeof PRESENCE_STACK_ORDER)[number][] = state === "stack"
     ? PRESENCE_STACK_ORDER
     : [state === "card-detail" ? "cardDetail" : state === "cover-plan" ? "coverPlan" : state === "payday-plan" ? "paydayPlan" : "covered"];
   return (
     <BalancesHiddenContext.Provider value={masked}>
-      <section className={`${styles.gallery} ${styles[`variant${variant === "current" ? "Current" : variant.toUpperCase()}`]}`} aria-label="Penny presence preview">
+      <section className={`${styles.gallery} ${refined ? styles.refined : styles[`variant${variant === "current" ? "Current" : variant.toUpperCase()}`]}`} aria-label="Penny presence preview">
         <PresenceNav variant={variant} onAction={onAction} onPennyOpen={onPennyOpen} />
         <div className={styles.cardStack}>
           {shown.map((card) => <CardByKey key={card} card={card} masked={masked} onAction={onAction} />)}

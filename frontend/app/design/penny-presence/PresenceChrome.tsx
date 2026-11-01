@@ -6,6 +6,7 @@ import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import type { PresenceVariant } from "./fixtures";
 import styles from "./presence.module.css";
+import PresenceGlyph from "./PresenceGlyph";
 
 type PresenceDoorProps = {
   variant: PresenceVariant;
@@ -13,18 +14,19 @@ type PresenceDoorProps = {
 };
 
 export function PresenceDoor({ variant, onPennyOpen }: PresenceDoorProps) {
-  const style = variant === "c" ? undefined : { background: BRAND_GRADIENT };
+  const refined = variant === "d" || variant === "e" || variant === "f";
+  const style = variant === "c" || refined ? undefined : { background: BRAND_GRADIENT };
   return (
     <button
       type="button"
-      className={`${styles.pennyDoor} ${styles[`door${variant === "current" ? "Current" : variant.toUpperCase()}`]}`}
+      className={`${styles.pennyDoor} ${refined ? styles.doorRefined : styles[`door${variant === "current" ? "Current" : variant.toUpperCase()}`]}`}
       style={style}
       onClick={onPennyOpen}
       aria-label="Ask Penny"
     >
-      <span className={styles.doorMark} style={variant === "c" ? { background: BRAND_GRADIENT } : undefined}>
+      {refined ? <PresenceGlyph variant={variant} /> : <span className={styles.doorMark} style={variant === "c" ? { background: BRAND_GRADIENT } : undefined}>
         <PennyMark size={18} />
-      </span>
+      </span>}
       {variant !== "current" && <span className={styles.doorLabel}>Penny</span>}
     </button>
   );

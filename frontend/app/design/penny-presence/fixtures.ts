@@ -1,7 +1,7 @@
 import type { CompanionItem, PaydayPlanDest, PaydayPlanSalary } from "@/lib/api";
 
 /** Public knobs consumed by the local G388 design shell. */
-export type PresenceVariant = "current" | "a" | "b" | "c";
+export type PresenceVariant = "current" | "a" | "b" | "c" | "d" | "e" | "f";
 export type PresenceState = "stack" | "card-detail" | "cover-plan" | "payday-plan" | "covered";
 
 const EVERYDAY = {
