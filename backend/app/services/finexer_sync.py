@@ -986,10 +986,11 @@ def _sign_word(value) -> str:
 def _log_card_balance_shape(acc_class: str, diag: dict, walk: dict) -> None:
     """A179: one INFO line per credit card sync that settles the card sign
     question in production: class, the chosen balance entry's type, the key
-    names present, the sign of current and of available, and the debit and
+    names present, the RAW sign of current (as Finexer sent it, before the A180
+    flip to negative = owed) and of available, and the debit and
     credit row counts from this account's walk. Never an amount or an id."""
     logger.info(
-        "Finexer card balance shape: class=%s entry_type=%s keys=%s current_sign=%s available_sign=%s "
+        "Finexer card balance shape: class=%s entry_type=%s keys=%s raw_current_sign=%s available_sign=%s "
         "debit_rows=%d credit_rows=%d",
         acc_class, diag.get("entry_type"), ",".join(diag.get("keys") or []),
         diag.get("current_sign"), diag.get("available_sign"),
@@ -1305,6 +1306,12 @@ async def sync_finexer_consent(
                         balance = float(chosen.get("current") or 0.0)
                     except (TypeError, ValueError):
                         balance = 0.0
+                    if acc_class == "credit_card":
+                        # A180: banks pass their own sign through (some report
+                        # owed as positive). App convention is negative = owed,
+                        # so cards always store -abs(current). The raw sign is
+                        # still recorded in card_diag above.
+                        balance = -abs(balance)
                     try:
                         available = float(chosen["available"]) if chosen.get("available") is not None else None
                     except (TypeError, ValueError):

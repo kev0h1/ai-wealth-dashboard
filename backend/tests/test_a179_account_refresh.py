@@ -532,7 +532,7 @@ def test_card_log_line_has_signs_and_counts_but_no_amounts_or_ids(monkeypatch, c
         _call("acc1")
     line = next(r.getMessage() for r in caplog.records if "card balance shape" in r.getMessage())
     assert "class=credit_card" in line and "entry_type=actual" in line
-    assert "current_sign=positive" in line and "available_sign=negative" in line
+    assert "raw_current_sign=positive" in line and "available_sign=negative" in line
     assert "debit_rows=2" in line and "credit_rows=1" in line
     assert "available,current,type" in line
     for banned in ("446", "1234", "12.5", "300", "acc1", "t1", CONSENT, UID):
