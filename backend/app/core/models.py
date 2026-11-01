@@ -47,6 +47,9 @@ class Account(BaseModel):
     finexer_class: Optional[str] = None
     finexer_type: Optional[str] = None
     class_unknown: Optional[bool] = None
+    # A181: a card's credit limit (Finexer overdraft.limit with type credit).
+    # Absent when the bank does not report one.
+    credit_limit: Optional[float] = None
 
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.

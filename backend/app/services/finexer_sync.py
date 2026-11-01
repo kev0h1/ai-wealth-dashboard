@@ -1002,6 +1002,21 @@ def card_balance_from_finexer(current, available=None, overdraft=None) -> float:
     return -abs(value)
 
 
+def _overdraft_parts(overdraft) -> tuple:
+    """(limit, type) from a Finexer balance `overdraft` object: limit as a
+    positive float or None, type lower-cased or None. Never raises."""
+    if not isinstance(overdraft, dict):
+        return None, None
+    try:
+        limit = float(overdraft.get("limit"))
+    except (TypeError, ValueError):
+        limit = None
+    if limit is not None and not limit > 0:
+        limit = None
+    otype = str(overdraft.get("type") or "").strip().lower() or None
+    return limit, otype
+
+
 def _log_card_balance_shape(acc_class: str, diag: dict, walk: dict) -> None:
     """A179: one INFO line per credit card sync that settles the card sign
     question in production: class, the chosen balance entry's type, the key
@@ -1303,6 +1318,8 @@ async def sync_finexer_consent(
             balance: float = 0.0
             available = None
             card_diag: dict = {}
+            balance_seen = False  # a balance entry came back, so limits below are current
+            credit_limit = None
             br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
             if br.status_code == 200:
                 bal_data = br.json()
@@ -1333,6 +1350,11 @@ async def sync_finexer_consent(
                         available = float(chosen["available"]) if chosen.get("available") is not None else None
                     except (TypeError, ValueError):
                         available = None
+                    balance_seen = True
+                    od_limit, od_type = _overdraft_parts(chosen.get("overdraft"))
+                    if is_card and od_type == "credit":
+                        # A181: a card's credit limit is overdraft.limit with type credit.
+                        credit_limit = od_limit
             else:
                 logger.warning(
                     "Finexer GET /bank_accounts/%s/balance failed: HTTP %s",
@@ -1368,6 +1390,11 @@ async def sync_finexer_consent(
                 set_doc["card_available_sign"] = card_diag["available_sign"]
             set_doc.update(bank_sync_set)
             unset_doc: dict = {}
+            if balance_seen and is_card:
+                if credit_limit is not None:
+                    set_doc["credit_limit"] = credit_limit
+                else:
+                    unset_doc["credit_limit"] = ""
             if kind_info["class_unknown"]:
                 set_doc["class_unknown"] = True
             else:

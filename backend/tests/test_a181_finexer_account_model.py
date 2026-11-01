@@ -212,3 +212,43 @@ def test_non_card_balance_sign_untouched(monkeypatch, recomputes, klass):
     accts, _ = _finexer_world(monkeypatch, client=_client(klass, current=-80.0, available=0))
     _call("acc1")
     assert _doc(accts)["balance"] == -80.0
+
+
+# ---- part 4: card credit limit
+
+
+@pytest.mark.parametrize("klass", ["credit_card", "charge_card"])
+def test_card_credit_limit_is_stored(monkeypatch, recomputes, klass):
+    accts, _ = _finexer_world(monkeypatch, client=_client(
+        klass, current=300.0, overdraft={"limit": 5000, "type": "credit"}))
+    _call("acc1")
+    assert _doc(accts)["credit_limit"] == 5000.0
+
+
+def test_card_without_a_credit_overdraft_stores_no_limit(monkeypatch, recomputes):
+    for od in (None, {"limit": 800, "type": "arranged"}, {"limit": 0, "type": "credit"},
+               {"limit": "n/a", "type": "credit"}):
+        accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", overdraft=od))
+        _call("acc1")
+        assert "credit_limit" not in _doc(accts)
+
+
+def test_credit_limit_cleared_when_the_bank_stops_reporting_it(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client("credit_card", overdraft=None))
+    accts.docs.append({"_id": "acc1", "credit_limit": 4000.0})
+    _call("acc1")
+    assert "credit_limit" not in _doc(accts)
+
+
+def test_credit_limit_not_stored_on_a_current_account(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, client=_client(
+        "current", overdraft={"limit": 5000, "type": "credit"}))
+    _call("acc1")
+    assert "credit_limit" not in _doc(accts)
+
+
+def test_accounts_api_model_exposes_credit_limit_as_optional():
+    from app.core.models import Account
+    base = dict(id="a", name="n", type="credit_card", balance=-1.0, provider="p")
+    assert Account(**base, credit_limit=5000.0).model_dump()["credit_limit"] == 5000.0
+    assert Account(**base).model_dump()["credit_limit"] is None

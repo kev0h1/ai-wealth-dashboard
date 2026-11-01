@@ -48,6 +48,9 @@ export interface Account {
   finexer_class?: string | null;
   finexer_type?: string | null;
   class_unknown?: boolean | null;
+  /** A181: a card's credit limit as the bank reports it (Finexer
+   *  overdraft.limit with type credit). Absent or null when not reported. */
+  credit_limit?: number | null;
 }
 
 /** One live bank connection/consent, from GET /connections
