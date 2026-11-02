@@ -252,3 +252,33 @@ def test_savings_rule_has_word_boundary_and_amex_no_longer_hardcoded_transfer():
     assert rule_categorise("", "CASH ISA TOP UP") == "Savings"
     assert rule_categorise("", "AMERICAN EXPRESS PAYMENT") is None
     assert rule_categorise("", "AMEX DDR") == "Transfer"
+
+
+def test_returned_direct_debit_credit_is_transfer_never_income():
+    # Invented 15 digit hyphenated PAN. A credit naming an issuer and a PAN
+    # fragment, or an issuer with unpaid or returned wording, is the card's own
+    # money moving: Transfer, so it never reaches the Income default.
+    from app.services.categorisation import rule_categorise_directed
+    assert rule_categorise_directed("", "AMERICAN EXPRESS 3712-345678-90777 UNP", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "AMERICAN EXPRESS 3712-345678-90777", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "B/CARD 4929123456784321", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "AMEX REFUND", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "NATWEST RETURNED DD", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "AMERICAN EXPRESS UNPAID DIRECT DEBIT", is_credit=True) == "Transfer"
+
+
+def test_same_narratives_as_debits_and_ordinary_amex_purchase_unchanged():
+    from app.services.categorisation import rule_categorise_directed
+    assert rule_categorise_directed("", "AMERICAN EXPRESS 3712-345678-90777 UNP", is_credit=False) == "Debt"
+    assert rule_categorise_directed("", "AMERICAN EXPRESS 3712-345678-90777", is_credit=False) == "Debt"
+    assert rule_categorise_directed("", "AMEX EXPERIENCES", is_credit=False) is None
+    assert rule_categorise_directed("", "AMEX EXPERIENCES", is_credit=True) is None
+    assert rule_categorise_directed("", "AMEX REFUND", is_credit=False) is None
+
+
+def test_bulk_pass_runs_rules_before_the_credit_income_default():
+    import inspect
+    from app.services import categorisation
+    src = inspect.getsource(categorisation.apply_rules_bulk)
+    i = src.index("_match = rule_categorise_directed(merchant, description, is_credit=True)")
+    assert src.index('else "Income"', i) > i

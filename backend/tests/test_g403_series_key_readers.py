@@ -175,8 +175,9 @@ def test_card_repayment_debt_rule_never_files_a_credit():
     from app.services.categorisation import rule_categorise_directed
     narrative = "AMEX 3712-345678-90555"
     assert rule_categorise_directed("", narrative, is_credit=False) == "Debt"
-    assert rule_categorise_directed("", narrative, is_credit=True) is None
-    assert rule_categorise_directed("", "B/CARD 4929123456784321", is_credit=True) is None
+    # A credit is never Debt: the credit-only rule files it as Transfer.
+    assert rule_categorise_directed("", narrative, is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "B/CARD 4929123456784321", is_credit=True) == "Transfer"
     assert rule_categorise_directed("", "B/CARD DIRECT DEBIT", is_credit=True) is None
 
 

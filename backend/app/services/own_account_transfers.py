@@ -16,6 +16,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Iterable
 
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
+from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
 from app.services.categorisation import canonical_merchant_key, name_matches_owner, series_key as _base_series_key
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
@@ -25,20 +26,7 @@ RECONCILE_DAYS = 90
 PAIR_DAYS = 5
 CARD_REPAY_DAYS = 3
 
-# G403: ONE issuer table for the card repayment link, keyed by canonical issuer
-# key. `codes` are normalised provider codes a card account may carry (see
-# `_provider_code`); `printed` are the forms an issuer is printed in on a bank
-# narrative. Add an issuer here, nowhere else.
-CARD_ISSUERS: dict[str, dict] = {
-    "american_express": {"label": "American Express", "codes": ("amex", "americanexpress"),
-                         "printed": (r"american\s+express", r"amex")},
-    "barclaycard": {"label": "Barclaycard", "codes": ("barclaycard", "barclays"),
-                    "printed": (r"barclaycard", r"b/card", r"b\s+card")},
-    "natwest": {"label": "NatWest", "codes": ("natwest", "rbs"),
-                "printed": (r"natwest", r"nw\s+world\s+master\w*", r"nw\s+master\w*")},
-    "hsbc": {"label": "HSBC", "codes": ("hsbc",), "printed": (r"hsbc\s+credit\s+card",)},
-    "chase": {"label": "Chase", "codes": ("chase",), "printed": (r"chase",)},
-}
+# G403: the issuer table lives in card_issuers (shared with categorisation).
 _ISSUER_PRINTED = {
     key: re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(spec["printed"]) + r")(?![A-Za-z0-9])", re.I)
     for key, spec in CARD_ISSUERS.items()

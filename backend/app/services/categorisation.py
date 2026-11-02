@@ -15,6 +15,7 @@ from app.db.collections import (
     merchant_categories_col, confirmed_transfer_pairs_col, preferences_col,
     statement_transactions_col, teaching_events_col,
 )
+from app.services.card_issuers import CARD_ISSUERS
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS, GENERIC_MANUAL_CATEGORIES
 # G39: the mortgage/car-finance savings insights (app.routers.savings_insights)
 # already maintain a merchant-keyword trigger list per category, built to
@@ -108,6 +109,22 @@ _G403_CARD_REPAYMENT = re.compile(
     r'(?:american express|amex|b/card)\W+(?=(?:\d[- ]?){11,}\d)\d|b/card\W+(?:direct debit|ddr?)\b', re.I)
 DEBIT_ONLY_PATTERNS: frozenset = frozenset({_G403_CARD_REPAYMENT})
 
+# G403: credit-only, the mirror of the list above. On a credit, an issuer
+# printed form followed by a 12+ digit PAN-shaped fragment, or issuer wording
+# with an unpaid or returned marker (an unpaid direct debit coming back, a
+# refund), is the card's own money moving, never Income. `rule_categorise`
+# checks these first on a credit; debits are unaffected.
+_ISSUER_FORMS = "|".join(f for spec in CARD_ISSUERS.values() for f in spec["printed"])
+_G403_CREDIT_PAN = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + _ISSUER_FORMS + r")\W+(?=(?:\d[- ]?){11,}\d)\d", re.I)
+_G403_CREDIT_RETURNED = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + _ISSUER_FORMS + r")(?![A-Za-z0-9]).*?(?<![A-Za-z0-9])"
+    r"(?:unp|unpaid|returned|reversal|reversed|refund)(?![A-Za-z0-9])", re.I)
+CREDIT_ONLY_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (_G403_CREDIT_PAN, 'Transfer'),
+    (_G403_CREDIT_RETURNED, 'Transfer'),
+]
+
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
     (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I), 'Transfer'),
@@ -175,6 +192,10 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
 
 def rule_categorise(merchant: str, description: str, *, is_credit: Optional[bool] = None) -> Optional[str]:
     text = f"{merchant} {description}"
+    if is_credit:
+        for pattern, category in CREDIT_ONLY_PATTERNS:
+            if pattern.search(text):
+                return category
     for pattern, category in MERCHANT_PATTERNS:
         if is_credit and pattern in DEBIT_ONLY_PATTERNS:
             continue
