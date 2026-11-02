@@ -30,7 +30,7 @@ const wait=async(expr)=>{for(let n=0;n<100;n++){if(await b.evaluate(`!!(${expr})
 const text=()=>b.evaluate('document.body.innerText');
 try {
  await b.viewport(390,844); await b.navigate('/', 'window.requests?.length===1');
- assert.match(await text(),/Checking for transfers/); assert.doesNotMatch(await text(),/all checked/);
+ assert.doesNotMatch(await text(),/Checking for transfers|all checked|Check your transfers/);
  await b.evaluate('window.requests[0].resolve({review_total:14,count:0,pair_count:0})'); await wait('document.body.innerText.includes("Check your transfers")');
  await b.activate('Array.from(document.querySelectorAll("button")).find(v=>v.textContent.includes("Review transfers"))');
  assert.equal(await b.evaluate('window.reviews'),1);
