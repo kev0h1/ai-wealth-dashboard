@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
 import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -590,6 +591,7 @@ export default function PlanningPage() {
     // forecast ordering or roll back a different simultaneous dismissal.
     return api.skipUpcomingOccurrence(item.name, dateKey)
       .then(() => {
+        invalidateVerdictCache();
         setCashflow(prev => {
           if (!prev) return prev;
           return {

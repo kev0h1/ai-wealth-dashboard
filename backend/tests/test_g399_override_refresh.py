@@ -3,15 +3,13 @@ dismiss-recurring ("Not a bill") refresh the stored results before they
 return, instead of leaving the next read to recompute cold.
 
 Per endpoint: the response cache is invalidated with the AWAITED
-`ainvalidate`, the derived caches are recomputed with trigger "user" (or, for
-Not a bill, whose own forecast rebuild already ran, the money shape), and
-the Home responses are warmed. Each step runs AFTER the write: the stubs
-below read the fake override collection at the moment they are called.
+`ainvalidate`, and the Home responses are warmed. No forecast recompute runs for skip,
+clear or edit (overrides apply at response build); Not a bill rebuilds the
+forecast itself first. The warm stub reads the fake override collection at
+the moment it is called, proving the write came first.
 
 Overrides are applied at read time by `_build_cashflow_response`, so the
-stored forecast doc never lists them; the ordering assertion (the override
-is already in the collection when the recompute runs, or already gone for a
-clear) is what guarantees a recompute sees the change.
+stored forecast doc never lists them.
 
 No database: every collection is a tiny in-memory fake.
 """
@@ -21,7 +19,6 @@ import pytest
 
 import app.routers.analytics as analytics
 import app.services.derived_caches as derived_caches
-import app.services.money_shape as money_shape
 import app.services.warmup as warmup
 
 UID = "fixture-user@example.com"
@@ -75,14 +72,11 @@ def harness(monkeypatch):
 
     async def recompute(uid, *, new_count, trigger):
         calls.append(("recompute", uid, new_count, trigger))
-        snapshots["overrides_at_recompute"] = list(overrides.docs)
         return {"recomputed": True, "reason": "test"}
-
-    async def shape(uid, *, background=False):
-        calls.append(("money_shape", uid, background))
 
     async def warm(uid):
         calls.append(("warm_user", uid))
+        snapshots["overrides_at_warm"] = list(overrides.docs)
         return {"warmed": [], "failed": []}
 
     async def cashflow(uid, clear_ai_cache=True):
@@ -91,7 +85,6 @@ def harness(monkeypatch):
     monkeypatch.setattr(analytics.response_cache, "ainvalidate", ainvalidate)
     monkeypatch.setattr(analytics.response_cache, "invalidate", sync_invalidate)
     monkeypatch.setattr(derived_caches, "recompute_derived_caches", recompute)
-    monkeypatch.setattr(money_shape, "compute_and_cache_money_shape", shape)
     monkeypatch.setattr(warmup, "warm_user", warm)
     monkeypatch.setattr(analytics, "compute_and_cache_cashflow", cashflow)
     return overrides, calls, snapshots
@@ -106,10 +99,10 @@ def test_skip_occurrence_refreshes_after_the_write(harness):
     out = asyncio.run(analytics.skip_occurrence({"key": "NETFLIX", "date": "2026-11-05"}, USER))
     assert out == {"ok": True}
     assert ("ainvalidate", UID) in calls and "invalidate" not in _names(calls)
-    assert ("recompute", UID, 1, "user") in calls
-    assert _names(calls).index("ainvalidate") < _names(calls).index("recompute") < _names(calls).index("warm_user")
-    # The skip override was already stored when the recompute ran.
-    assert any(d["key"] == "NETFLIX" and d["date"] == "2026-11-05" and d["skip"] for d in snaps["overrides_at_recompute"])
+    assert "recompute" not in _names(calls)
+    assert _names(calls).index("ainvalidate") < _names(calls).index("warm_user")
+    # The skip override was already stored when the warm-up ran.
+    assert any(d["key"] == "NETFLIX" and d["date"] == "2026-11-05" and d["skip"] for d in snaps["overrides_at_warm"])
     # The discarded read-time rebuild is gone: nothing stamps the cache doc.
     assert "_override_rebuild" not in analytics.cashflow_cache_col.docs[0]
 
@@ -128,8 +121,8 @@ def test_clear_override_refreshes_after_the_delete(harness):
     out = asyncio.run(analytics.clear_override({"key": "NETFLIX", "date": "2026-11-05"}, USER))
     assert out == {"ok": True}
     assert ("ainvalidate", UID) in calls and "invalidate" not in _names(calls)
-    assert ("recompute", UID, 1, "user") in calls
-    assert snaps["overrides_at_recompute"] == []  # already deleted when it recomputed
+    assert "recompute" not in _names(calls)
+    assert snaps["overrides_at_warm"] == []  # already deleted when it warmed
     assert "warm_user" in _names(calls)
 
 
@@ -139,8 +132,8 @@ def test_edit_upcoming_refreshes_after_the_write(harness):
         {"key": "RENT", "date": "2026-11-01", "new_date": "2026-11-03", "new_amount": 500}, USER))
     assert out == {"ok": True}
     assert ("ainvalidate", UID) in calls
-    assert ("recompute", UID, 1, "user") in calls
-    assert any(d["key"] == "RENT" and d["new_amount"] == 500.0 for d in snaps["overrides_at_recompute"])
+    assert "recompute" not in _names(calls)
+    assert any(d["key"] == "RENT" and d["new_amount"] == 500.0 for d in snaps["overrides_at_warm"])
     assert "warm_user" in _names(calls)
 
 
@@ -157,9 +150,8 @@ def test_not_a_bill_refreshes_after_its_own_rebuild(harness):
     out = asyncio.run(analytics.dismiss_recurring({"key": "GYM"}, USER))
     assert out == {"ok": True}
     names = _names(calls)
-    # Its own forecast rebuild already ran, so the shared helper only redoes
-    # the money shape rather than paying a second full forecast recompute.
-    assert names.index("compute_cashflow") < names.index("ainvalidate") < names.index("money_shape") < names.index("warm_user")
+    # Its own forecast rebuild runs first, then the helper warms.
+    assert names.index("compute_cashflow") < names.index("ainvalidate") < names.index("warm_user")
     assert "recompute" not in names
 
 

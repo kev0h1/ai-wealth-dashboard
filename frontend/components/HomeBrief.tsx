@@ -816,6 +816,7 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
       if (collapses) setHidden(false);
       return;
     }
+    invalidateVerdictCache();
     // G399: the skip landed, so reload Home (brief, Left to spend, cover
     // plan). A failed refresh never reverts a skip that succeeded.
     try { await onRefresh?.(); } catch { /* the skip is saved; the next load picks it up */ }
@@ -1223,6 +1224,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
     }
     try {
       await api.skipUpcomingOccurrence(bill.key, bill.expected_date);
+      invalidateVerdictCache();
       await onRefresh?.();
       setSkippingKey(null);
     } catch {

@@ -3431,7 +3431,7 @@ async def dismiss_recurring(body: dict, user: dict = Depends(current_user)):
         upsert=True,
     )
     await compute_and_cache_cashflow(uid, clear_ai_cache=False)
-    await _refresh_after_override(uid, cashflow_recomputed=True)
+    await _refresh_after_override(uid)
     return {"ok": True}
 
 
@@ -3779,32 +3779,18 @@ def _validate_schedule(schedule: dict) -> dict | None:
     return None
 
 
-async def _refresh_after_override(uid: str, *, cashflow_recomputed: bool = False) -> None:
-    """G399 (H145): after a write that changes what Home and Upcoming show
-    (skip, clear, edit, Not a bill), make the stored results current before
-    the request returns, so the client's refetch is a fast read.
+async def _refresh_after_override(uid: str) -> None:
+    """G399 (H145): after a write that changes what Home and Upcoming show,
+    drop the response cache (awaited) and re-warm the Home responses before
+    returning, so the client's refetch is a warm read.
 
-    1. awaited response-cache invalidation (not the fire-and-forget form);
-    2. recompute the stored forecast and money shape
-       (recompute_derived_caches, trigger "user", new_count=1, which always
-       runs). `cashflow_recomputed=True` means the caller already rebuilt
-       the forecast itself (Not a bill), so only the money shape is redone;
-    3. warm the Home responses (warm_user: today, left to spend, spend
-       verdict, grow, commitments) the way the post-sync path does.
+    No forecast recompute here: overrides apply when the cashflow response is
+    built, so they never change the stored forecast or money shape. Not a bill
+    rebuilds the stored forecast itself before calling this.
 
-    The override is already written, so a failure in 2 or 3 is logged and
-    swallowed: the user's change must not read as failed, and the next read
-    simply recomputes cold, as before this change."""
+    The override is already written, so a warm-up failure is logged and
+    swallowed: the user's change must not read as failed."""
     await response_cache.ainvalidate(uid)
-    try:
-        if cashflow_recomputed:
-            from app.services.money_shape import compute_and_cache_money_shape
-            await compute_and_cache_money_shape(uid, background=True)
-        else:
-            from app.services.derived_caches import recompute_derived_caches
-            await recompute_derived_caches(uid, new_count=1, trigger="user")
-    except Exception:
-        logger.exception("override refresh: derived caches failed for %s", uid)
     try:
         from app.services.warmup import warm_user
         await warm_user(uid)

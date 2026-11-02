@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { api } from "@/lib/api";
 import { DateField } from "./DatePicker";
 import { DisclosureSummary } from "./Disclosure";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { dateLabel } from "@/lib/upcomingPlans";
 import { EditorActions, EditorError, editorField, editorSecondary, useEditorRequest, validDate } from "./upcoming/editorSupport";
 
@@ -33,7 +34,7 @@ export function UpcomingEditForm({ item, onCancel, onDone, onDismiss, onSaved, s
   const previewGeneration = useRef(0);
   useEffect(() => () => { previewGeneration.current += 1; }, []);
   const originalDate = item.original_date ?? item.expected_date;
-  async function mutate(operation: () => Promise<unknown>) { await request.run(operation, onDone ?? onCancel, undefined, onSaved); }
+  async function mutate(operation: () => Promise<unknown>) { await request.run(operation, onDone ?? onCancel, undefined, async () => { invalidateVerdictCache(); await onSaved(); }); }
   function save(event: FormEvent) {
     event.preventDefault();
     if (request.needsRefresh) { void request.retryRefresh(); return; }

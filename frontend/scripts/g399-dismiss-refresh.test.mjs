@@ -35,7 +35,7 @@ assert.ok(upcoming.indexOf("api.skipUpcomingOccurrence(") < upcoming.indexOf(".t
 assert.match(upcoming, /api\.cashflowWithForecast\(\)\.then\(setCashflow\)/);
 
 // Edit sheet: operation awaited, then onSaved (the owner's refresh), then close.
-assert.match(editForm, /request\.run\(operation, onDone \?\? onCancel, undefined, onSaved\)/);
+assert.match(editForm, /request\.run\(operation, onDone \?\? onCancel, undefined, async \(\) => \{ invalidateVerdictCache\(\); await onSaved\(\); \}\)/);
 for (const call of ["services.editUpcoming(", "services.clearUpcomingOverride(", "services.skipUpcomingOccurrence("]) {
   assert.match(editForm, new RegExp(`mutate\\(\\(\\) => ${call.replace(/[().]/g, "\\$&")}`), `${call} goes through mutate`);
 }
@@ -43,5 +43,12 @@ const run = body(editorSupport, "async function run(", 1400);
 assert.ok(run.indexOf("await operation()") < run.indexOf("await current.refresh()"));
 assert.match(detailFlow, /async function saved\(\) \{ await props\.onRefresh\(\); \}/);
 assert.match(planning, /onSaved=\{\(\) => \{ api\.cashflowWithForecast\(\)\.then\(setCashflow\)/);
+
+// The Spend verdict client cache is cleared at every site.
+assert.match(unfunded, /invalidateVerdictCache\(\)/);
+assert.ok(unfunded.indexOf("invalidateVerdictCache()") < unfunded.indexOf("await onRefresh?.()"));
+assert.match(move, /invalidateVerdictCache\(\)/);
+assert.match(upcoming, /invalidateVerdictCache\(\)/);
+assert.match(editForm, /invalidateVerdictCache\(\); await onSaved\(\)/);
 
 console.log("g399-dismiss-refresh: ok");
