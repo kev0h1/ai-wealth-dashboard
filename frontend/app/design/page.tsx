@@ -33,6 +33,15 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
+    slug: "left-to-spend-disclosures",
+    name: "Behind Left to spend · G408",
+    description: "G408 · frontend-design · A keeps the three estimate disclosures within the hero. B groups them in one separate detail card. Shared chevrons, one reconciled ledger, labelled daily amount and expected pay, purchases distinguished from card holds, and an active Cards action in both themes. Synthetic figures and local actions; production awaits a choice.",
+    variants: [{ label: "A · Within the estimate", value: "a" }, { label: "B · One detail card", value: "b" }],
+    states: [{ label: "Unconfirmed repayment", value: "unconfirmed" }, { label: "Confirmed repayment", value: "confirmed" }, { label: "Balance includes a transfer", value: "transfer" }, { label: "Card amount exceeds cash", value: "card-gap" }, { label: "Bill before later income", value: "earlier-gap" }, { label: "Buffer and plans", value: "reserves" }, { label: "No new card spending", value: "no-activity" }, { label: "Updating bank data", value: "syncing" }, { label: "Forecast unavailable", value: "unavailable" }],
+    group: "current",
+  },
+
+  {
     slug: "account-detail-calm",
     name: "A simpler account page · G407",
     description: "G407 · frontend-design · C groups the account and spending summary in one card. D gives activity more room with an open account header. Both join tabs, search and transactions into one activity surface and use a shorter Account details sheet, including the estimate setting. Earlier A/B remain available. Exact synthetic figures, visible shortfalls and hidden balances. Production awaits a choice.",
