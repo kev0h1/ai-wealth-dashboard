@@ -125,6 +125,25 @@ from Kevin's reading of the reference on 2026-10-31. Confirm each in one pass:
    response: an echoed `auto_sync_interval` records `bank_auto_sync_hours` (never
    on a bare 2xx), and a sync object (`status` idle or running) means the POST
    also triggered a sync, so the manual trigger is skipped for that account.
+   **A185 (2 Nov 2026):** the setter no longer runs only on a consent's first
+   sync. Every sync pass, including the 4-hourly reconcile cron (the only way
+   accounts connected before A176 ever get it), sends it once for any account
+   with neither `bank_auto_sync_hours` nor `bank_auto_sync_refused_at`, subject
+   to the stored 60-minute rule (a skip inside the hour logs at debug only). The
+   cron still never POSTs the manual trigger. If Finexer refuses the setter, the
+   first production pass logs one WARNING per process from
+   `app.services.finexer_sync`: "Finexer refused the auto_sync_interval request
+   (HTTP <status>); the verb or body is an unconfirmed assumption. Continuing
+   without it.", and each refused account gets `bank_auto_sync_refused_at` (so it
+   is not retried). That line, or a run of accounts with the stamp and no
+   `bank_auto_sync_hours`, settles this assumption as wrong and needs Finexer's
+   answer. Accounts that gain `bank_auto_sync_hours` after the pass settle it as
+   right.
+   A response that does not echo the interval is stamped with
+   `bank_auto_sync_requested_at` and not retried for 24 hours. A user tap on a
+   later sync sends the manual trigger first and leaves the setter to the next
+   cron pass after the hour; setter-first stays on the initial sync. `backend/scripts/finexer_backfill_auto_sync.py` selects the same
+   accounts and can be run first (dry run, then `--apply --limit 1`).
 3. Whether the setter POST counts towards the one-call-per-account-per-60-minutes
    limit. The code assumes it may.
 4. A 429 on a POST means the hourly limit. The next request time comes from

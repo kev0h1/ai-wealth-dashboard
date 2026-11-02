@@ -297,7 +297,8 @@ def test_remote_id_helper_prefers_the_finexer_id_and_falls_back_to_the_local_one
 
 
 def test_per_account_refresh_on_a_rekeyed_account_uses_the_new_id(monkeypatch):
-    rekeyed = dict(OLD, connection_id=NEW_CONSENT, finexer_account_id="fx_new", status="connected")
+    rekeyed = dict(OLD, connection_id=NEW_CONSENT, finexer_account_id="fx_new", status="connected",
+                   bank_auto_sync_hours=6)  # A185: auto sync already set
     accts, c, upserts = _world(monkeypatch, [rekeyed], consent_last_synced=datetime(2026, 10, 1))
     monkeypatch.setattr(ar, "accounts_col", accts)
     monkeypatch.setattr(ar, "finexer_consents_col", fs.finexer_consents_col)
