@@ -25,7 +25,7 @@ DEFAULT_HOME_PINNED_WIDGET = "period_compare"
 # It is a display preference only: no financial calculations derive from it.
 DEFAULT_PAY_SPLIT_REFERENCE = "50-30-20"
 VALID_PAY_SPLIT_REFERENCES = frozenset({"50-30-20", "conscious", "first"})
-DEFAULT_PENNY_APPEARANCE = "original"
+DEFAULT_PENNY_APPEARANCE = "ink"
 VALID_PENNY_APPEARANCES = frozenset({"original", "outline", "ink"})
 
 # A85 (pentest A51-2026-09-20, API-08): the exact set of top-level fields

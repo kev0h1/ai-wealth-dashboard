@@ -86,7 +86,7 @@ import type { GuideId } from "./paySplitReference.js";
 import type { PennyAppearance } from "./pennyAppearance.js";
 
 export const DEFAULT_PAY_SPLIT_REFERENCE: GuideId = "50-30-20";
-const DEFAULT_PENNY_APPEARANCE: PennyAppearance = "original";
+const DEFAULT_PENNY_APPEARANCE: PennyAppearance = "ink";
 
 /** Kept local so this framework-free module remains directly runnable by
  * Node's TypeScript strip-types tests, like the neighbouring split helper. */

@@ -1296,7 +1296,7 @@ export default function SpendPage() {
                   <BarChart3 size={12} />
                 </span>
                 <h2 className="text-xl font-bold text-slate-950 dark:text-white">Your charts</h2>
-                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Choose what appears here, drag the handle to reorder, or pin one chart to Home.</p>
+                <p className="mt-1 max-w-2xl text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-400">Start with the category breakdown. Add more charts, drag the handle to reorder, or pin one chart to Home.</p>
                 {!chartsRequested || pageLoading ? (
                   <div className="flex min-h-36 items-center justify-center" aria-label="Loading charts"><Spinner size={32} /></div>
                 ) : (

@@ -17,13 +17,14 @@ export type SpendWidgetId =
   | "category_pie" | "daily_bars" | "period_compare" | "size_distribution"
   | "transport_modes" | "pace_curve" | "debt_burndown";
 
-/** What a user with no saved chart preferences sees, in order: Category
- *  breakdown first, the rest below it. Nothing here pins a chart to Home. */
-export const DEFAULT_SPEND_WIDGETS: SpendWidgetId[] = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
+/** What a user with no saved chart preferences sees (G398): Category
+ *  breakdown only. Every other chart is added from the picker. Nothing here
+ *  pins a chart to Home. */
+export const DEFAULT_SPEND_WIDGETS: SpendWidgetId[] = ["category_pie"];
 
 /** Saved preferences win untouched (an empty saved list means the person
  *  removed every chart, so it is kept empty). Only a user with nothing saved
- *  gets the default, and the donut is always first in it. */
+ *  gets the default. */
 export function resolveSpendWidgets(saved: string[] | null | undefined, isValid: (id: string) => boolean): SpendWidgetId[] {
   if (Array.isArray(saved)) return saved.filter(isValid) as SpendWidgetId[];
   return [...DEFAULT_SPEND_WIDGETS];
