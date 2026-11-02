@@ -285,12 +285,20 @@ async def admin_sync_stats(user: dict = Depends(current_user)):
     # B44: savings-insights research health. `line` is null while healthy.
     from app.services import tips_research_health
     research_doc = await tips_research_health.load()
+    # G405: counts only (pages fetched or failed, listings from pages versus
+    # snippets, regulator figures read) over the last 14 days of research runs.
+    try:
+        from app.services import tip_research
+        fetch_counts = await tip_research.fetch_summary(14)
+    except Exception:
+        fetch_counts = None
 
     return {
         "last_reconcile": last_reconcile,
         "tips_research": {
             "status": (research_doc or {}).get("research_status") or "unknown",
             "line": tips_research_health.status_line(research_doc),
+            "fetch_counts": fetch_counts,
             "last_error_code": (research_doc or {}).get("last_error_code"),
             "last_error_at": (
                 research_doc["last_error_at"].isoformat() + "Z"

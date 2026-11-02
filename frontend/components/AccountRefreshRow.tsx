@@ -20,9 +20,11 @@ export interface AccountRefreshRowProps {
   /** POST /accounts/{id}/refresh; the page also reloads the accounts after. */
   onRefresh: (id: string) => Promise<AccountRefreshResult>;
   now?: number;
+  /** G406: quiet account-facts row, retaining the same refresh lifecycle. */
+  compact?: boolean;
 }
 
-export default function AccountRefreshRow({ account, onRefresh, now }: AccountRefreshRowProps) {
+export default function AccountRefreshRow({ account, onRefresh, now, compact = false }: AccountRefreshRowProps) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AccountRefreshResult | null>(null);
   const [failed, setFailed] = useState(false);
@@ -59,9 +61,9 @@ export default function AccountRefreshRow({ account, onRefresh, now }: AccountRe
   }
 
   return (
-    <div data-a179-refresh-row className="glass-card rounded-2xl px-4 py-2">
-      <div className="flex min-h-11 items-center justify-between gap-3">
-        <p data-a179-asof className="min-w-0 flex-1 text-[13px] leading-snug text-slate-600 dark:text-slate-300">
+    <div data-a179-refresh-row className={compact ? "" : "glass-card rounded-2xl px-4 py-2"}>
+      <div className={`flex min-h-11 items-center justify-between gap-x-3 ${compact ? "flex-wrap" : ""}`}>
+        <p data-a179-asof className={`${compact ? "basis-40" : ""} min-w-0 flex-1 text-[13px] leading-snug text-slate-600 dark:text-slate-300`}>
           {asOf ?? "Bank data time not reported yet"}
         </p>
         <button

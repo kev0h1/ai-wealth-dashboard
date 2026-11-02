@@ -17,15 +17,17 @@ export interface CountTowardsSafeToSpendRowProps {
   busy?: boolean;
   /** The server's plain refusal reason, shown inline until the next attempt. */
   reason?: string | null;
+  /** G406: part of the account facts, without a separate card surface. */
+  compact?: boolean;
 }
 
-export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, reason }: CountTowardsSafeToSpendRowProps) {
+export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, reason, compact = false }: CountTowardsSafeToSpendRowProps) {
   return (
-    <div data-g231-count-row className="glass-card rounded-2xl px-4 py-2">
+    <div data-g231-count-row className={compact ? "py-1" : "glass-card rounded-2xl px-4 py-2"}>
       <div className="flex min-h-11 items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{COUNT_TOWARDS_LABEL}</p>
-          <p className="mt-0.5 text-[12.5px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{COUNT_TOWARDS_HELPER}</p>
+          <p className={`${compact ? "text-[13px] font-medium" : "text-[15px] font-semibold"} text-slate-900 dark:text-slate-100`}>{COUNT_TOWARDS_LABEL}</p>
+          <p className={`mt-0.5 text-[12.5px] leading-snug text-pretty ${compact ? "text-slate-600 dark:text-slate-300" : "text-slate-500 dark:text-slate-400"}`}>{COUNT_TOWARDS_HELPER}</p>
         </div>
         <Toggle checked={counted} disabled={busy} onChange={() => onChange(!counted)} label={COUNT_TOWARDS_LABEL} />
       </div>

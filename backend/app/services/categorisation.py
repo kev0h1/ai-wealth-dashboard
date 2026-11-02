@@ -833,9 +833,10 @@ async def _key_looks_user_relative(key: str, uid: str) -> bool:
 
 async def cache_merchant(
     key: str, category: str, source: str, uid: str | None = None, *, prefer_global: bool = False,
-) -> None:
-    """Persist a merchant->category decision. 'user' entries win: an 'llm' write
-    will not overwrite a category a user has explicitly corrected.
+) -> bool:
+    """Persist a merchant->category decision. Returns True when written, False
+    when refused by source precedence (G404: user > rule > llm; llm never
+    overwrites an existing doc, so the first judgement for a key stands).
 
     `uid` is the acting user and is always used to scope a per-user write
     (id = uid::key) so that name-based decisions don't leak between users.
@@ -865,13 +866,13 @@ async def cache_merchant(
     everyone). A custom category therefore always forces `prefer_global` off.
     """
     if not key:
-        return
+        return False
     if category not in VALID_CATEGORIES:
         if not uid:
-            return
+            return False
         allowed = await user_allowed_categories(uid)
         if category not in allowed:
-            return
+            return False
         prefer_global = False  # Firewall Rule — custom vocabulary is never global.
 
     write_global = prefer_global
@@ -881,21 +882,104 @@ async def cache_merchant(
         write_global = False  # PERSON/REFERENCE GATE
 
     if not write_global and not uid:
-        return  # nothing to scope a per-user write to
+        return False  # nothing to scope a per-user write to
 
     store_id = key if write_global else f"{uid}::{key}"
-    if source != "user":
-        existing = await merchant_categories_col.find_one({"_id": store_id}, {"source": 1})
-        if existing and existing.get("source") == "user":
-            return
+    # G404 source precedence: user > rule > llm. A write replaces an existing
+    # doc only when it STRICTLY outranks it, except that user replaces user and
+    # rule replaces rule (the latest deliberate decision of that rank wins).
+    # llm never overwrites llm, rule or user: the first judgement for a key
+    # stands, so identical rows stop drifting between two categories. Any
+    # other automated source value ranks as llm.
+    rank = _SOURCE_RANK.get(source, 1)
+    existing = await merchant_categories_col.find_one({"_id": store_id}, {"source": 1, "category": 1})
+    previous_category = existing.get("category") if existing else None
+    if existing:
+        existing_rank = _SOURCE_RANK.get(existing.get("source"), 1)
+        if rank < existing_rank or (rank == existing_rank and rank == 1):
+            log.debug("cache_merchant: refused %s write over %s doc for key %s",
+                      source, existing.get("source"), key)
+            return False
     doc = {"category": category, "source": source, "updated_at": datetime.utcnow()}
     if not write_global:
         doc["uid"] = uid
-    await merchant_categories_col.update_one(
-        {"_id": store_id},
-        {"$set": doc},
-        upsert=True,
-    )
+    if rank == 1:
+        # An llm write is insert-only and atomic: $setOnInsert on an upsert, so
+        # two concurrent llm writes cannot both pass the check above. True only
+        # when THIS call inserted the doc.
+        try:
+            result = await merchant_categories_col.update_one(
+                {"_id": store_id}, {"$setOnInsert": doc}, upsert=True,
+            )
+        except Exception as exc:  # a concurrent insert of the same _id
+            if "duplicate key" in str(exc).lower() or exc.__class__.__name__ == "DuplicateKeyError":
+                return False
+            raise
+        if getattr(result, "upserted_id", None) is None:
+            return False
+    else:
+        await merchant_categories_col.update_one(
+            {"_id": store_id},
+            {"$set": doc},
+            upsert=True,
+        )
+    if uid and (not existing or previous_category != category):
+        await _restamp_rows_for_key(
+            uid, key, category, first_llm_write=(source != "user" and rank == 1), automatic=(source != "user"),
+        )
+    return True
+
+
+async def _stored_category(uid: str, key: str) -> str | None:
+    """G404: the category the cache currently holds for `key` (the user's own
+    doc first, then the global one), so a caller whose llm write was refused
+    can apply the standing judgement to its rows instead of its own."""
+    for store_id in (f"{uid}::{key}", key):
+        doc = await merchant_categories_col.find_one({"_id": store_id}, {"category": 1})
+        if doc and doc.get("category"):
+            return doc["category"]
+    return None
+
+
+# G404: cache source precedence, higher wins. Unknown sources rank as llm.
+_SOURCE_RANK = {"llm": 1, "rule": 2, "user": 3}
+
+
+async def _restamp_rows_for_key(
+    uid: str, key: str, category: str, *, first_llm_write: bool, automatic: bool,
+) -> int:
+    """G404: after the stored category for `key` changes, bring the caller's own
+    rows of that merchant key in line, so identical rows never carry two
+    engine categories. Writes only the engine `category` field on rows whose
+    `custom_category` is null (a user's own label is never touched), found by
+    one update_many per collection on (user_id, merchant_key).
+
+    Scope is ALWAYS the calling user, even when the cache doc itself was a
+    global write: other users' rows are re-stamped by their own pipeline reads,
+    and one user's decision must never rewrite another user's transactions.
+
+    A first llm judgement only fills unresolved rows (category null or Other):
+    it is a guess, and must not overwrite a category some other pipeline stage
+    (own-transfer detection, rules) already settled. user and rule writes are
+    deliberate and re-stamp every non-custom row of the key."""
+    query: dict = {"user_id": uid, "merchant_key": key, "custom_category": None}
+    if first_llm_write:
+        query["category"] = {"$in": [None, "Other"]}
+    else:
+        # A detected own transfer does not flip on a merchant correction.
+        query["category"] = {"$nin": [category, "Transfer"]}
+    if automatic and automatic_category_for_direction(category, "debit") is None:
+        # Same direction rule as every automatic path: a debit is never
+        # automatically filed as Income. A user write stays authoritative.
+        query["transaction_type"] = "credit"
+    modified = 0
+    for col in (transactions_col, statement_transactions_col):
+        result = await col.update_many(query, {"$set": {"category": category}})
+        modified += getattr(result, "modified_count", 0) or 0
+    if modified:
+        from app.services.derived_caches import mark_stale
+        await mark_stale(uid, reason="merchant_category_restamp")
+    return modified
 
 
 async def tavily_lookup_merchants(merchants: list[str]) -> dict[str, str]:
@@ -1660,16 +1744,24 @@ async def categorise_others_bg(uid: str) -> int:
             update: dict = {"ai_attempted": True}
             if final and final != "Other":
                 update["category"] = final
-                total_updated += len(seen[key])
                 # A custom category (Padel, ...) is this user's private
                 # vocabulary — scope the cache write to them (Firewall Rule).
                 # A built-in category MAY go global, but only after the KIND
                 # and PERSON/REFERENCE gates inside cache_merchant both pass
                 # (see its docstring — the MAINGI KM incident this closes).
-                await cache_merchant(
-                    canonical_merchant_key("", label), final, "llm",
+                # G404: the first judgement for a key stands. When the cache
+                # refuses this write, the rows take the standing category.
+                ckey = canonical_merchant_key("", label)
+                written = await cache_merchant(
+                    ckey, final, "llm",
                     uid=uid, prefer_global=final in VALID_CATEGORIES,
                 )
+                if written is False:
+                    standing = await _stored_category(uid, ckey)
+                    if standing and standing in allowed_cats and standing != "Other":
+                        final = standing
+                        update["category"] = final
+                total_updated += len(seen[key])
             await col.update_many({"_id": {"$in": seen[key]}, "user_id": uid, "custom_category": None}, {"$set": update})
 
         reached_ids = {_id for ids in seen.values() for _id in ids}
@@ -1685,6 +1777,8 @@ async def categorise_others_bg(uid: str) -> int:
 
 
 async def llm_name_check(uid: str) -> int:
+    # G404: no production caller today. If it is wired in, it needs the
+    # standing-category check first (cache_merchant may refuse its write).
     """LLM pass that judges whether a transaction references the account owner's name.
 
     Prefilter: any transaction (custom_category=None, not already Transfer) whose
