@@ -260,7 +260,8 @@
       "no_rows": [
         "acc-mz",
         "acc-sav"
-      ]
+      ],
+      "stays": 2765
     },
     "at_risk_count": 0,
     "pinned_wrong": [

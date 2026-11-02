@@ -456,6 +456,8 @@ def _check_expected(snap: dict, spec: dict) -> None:
         if "dests" in want_plan:
             got = {d["account_id"]: _r2(d["move"]) for d in plan["dests"] if d["move"] > 0}
             chk.check("payday_plan dests", got, {k: _r2(v) for k, v in want_plan["dests"].items()})
+        if "stays" in want_plan:
+            chk.check("payday_plan stays", plan["salary"]["stays"], want_plan["stays"])
         if "habitual_note" in want_plan:
             chk.check("payday_plan habitual_note", bool(plan.get("habitual_note")), want_plan["habitual_note"])
         for acct_id in want_plan.get("no_rows") or []:

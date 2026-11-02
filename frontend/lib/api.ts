@@ -1824,13 +1824,13 @@ export type CompanionItem = {
   dests?: PaydayPlanDest[];
   salary?: PaydayPlanSalary;
   trimmed?: boolean;
-  /** G350: present only when the suggested moves exceed the expected pay. */
   /**
    * G402: true when the user has a habitual payday transfer the plan did not
    * include (no row for that account, or a move below the usual amount). The
    * card then says so in one line beside the "stays with you" figure.
    */
   habitual_note?: boolean;
+  /** G350: present only when the suggested moves exceed the expected pay. */
   over_salary?: PaydayPlanOverSalary | null;
   /** G350: moves left out of this month's plan (empty when nothing was). */
   left_out?: PaydayPlanLeftOut[];

@@ -108,7 +108,7 @@ def test_buffer_only_trim_is_trimmed_not_left_out(monkeypatch):
     assert plan["trimmed"] is True
     assert plan["left_out"] == []
     assert plan["over_salary"] is None
-    assert plan["body"].startswith("A tight month: spending top-ups trimmed so it fits.")
+    assert plan["body"].startswith("A tight month: buffers trimmed so it fits.")
 
 
 def test_destinations_past_the_cap_are_listed(monkeypatch):

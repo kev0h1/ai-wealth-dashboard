@@ -4161,11 +4161,11 @@ async def compute_today_items(
             elif left_out and covered:
                 body = f"£{_gbp_num(total)} distributed. Some moves were left out this month."
             elif covered and trimmed:
-                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp_num(total)} distributed."
+                body = f"A tight month: buffers trimmed so it fits. £{_gbp_num(total)} distributed."
             elif covered:
                 body = f"£{total:,} distributed, £{stays:,} stays in {_salary_name}."
             elif trimmed:
-                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp_num(total)} distributed."
+                body = f"A tight month: buffers trimmed so it fits. £{_gbp_num(total)} distributed."
             else:
                 body = f"£{total:,} distributed across {n_moves} accounts."
 

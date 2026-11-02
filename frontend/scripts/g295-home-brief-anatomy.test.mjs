@@ -88,12 +88,12 @@ assert.equal(F.PAYDAY_PLAN_ITEM.over_salary ?? null, null, "a plan within the pa
   const text = html.replace(/<[^>]+>/g, "");
   assert.match(text, /These moves add up to £3,070, more than the ~£2,960 pay expected\. £110 would need to come from other accounts\./, "over-pay line leads the plan");
   assert.match(text, /Left out this month: Kitchen fund £200, Saving Challenge £120, Rainy day £50 and 1 more/, "left-out line names three then counts the rest");
-  assert.match(html, /Spending top-ups trimmed to fit this month\./, "trimmed notice names spending top-ups");
+  assert.match(html, /Buffers trimmed to fit this month\./, "trimmed notice names buffers");
   assert.match(text, /covers your Saving Challenge set-aside/, "a source row says why its move includes set-aside money");
   assert.match(text, /keeps £100 for Summer break/, "the salary ledger says what it keeps for goals");
   assert.doesNotMatch(text, /funds Summer break/, "a goal is never described as funding its pot");
   assert.match(text, /Due on payday itself/, "payday-day payments are not called moves");
-  assert.doesNotMatch(html, /buffer/i, "the per-destination buffer is no longer spelled out");
+  assert.doesNotMatch(html.replace(/Buffers trimmed to fit this month\./, ""), /buffer/i, "the per-destination buffer is no longer spelled out");
   assert.doesNotMatch(html, /text-red|bg-red/, "over-pay warning is amber, never red");
 }
 assert.equal(F.ALLOCATION_ITEM.allocation_shortfall.moves.reduce((sum, move) => sum + move.amount, 0), F.ALLOCATION_ITEM.allocation_shortfall.shortfall, "allocation movement reconciles to its shortfall");

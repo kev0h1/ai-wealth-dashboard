@@ -77,6 +77,7 @@ def test_salary_account_buffer_follows_its_own_bills(monkeypatch):
 
 def test_account_already_covered_keeps_its_row_at_zero(monkeypatch):
     # BILLS owes 100 and holds 500, above its 150 target: a row, move 0.
+    # (The card hides a move-0 row with no usual; this asserts the payload only.)
     plan = _plan(
         monkeypatch,
         [_account(SALARY_ACCT, 1000.0, "Pay"), _account(BILLS, 500.0, "Bills")],
