@@ -65,9 +65,15 @@ export interface BankEmptyState {
 /** The empty-state copy for a connected bank account with no transactions, or
  *  null when the diagnostics are absent and the plain "No transactions" stays. */
 export function bankEmptyState(
-  a: Pick<Account, "manual" | "transactions_last_count" | "transactions_synced_at" | "bank_synced_to">,
+  a: Pick<Account, "manual" | "transactions_last_count" | "transactions_synced_at" | "bank_synced_to"> &
+    Partial<Pick<Account, "balance_only" | "balance_only_reason">>,
   now: number = Date.now(),
 ): BankEmptyState | null {
-  if (a.manual || a.transactions_last_count !== 0) return null;
+  if (a.manual) return null;
+  // A186: the bank is not expected to share transactions for this account.
+  if (a.balance_only === true && a.balance_only_reason) {
+    return { message: `${a.balance_only_reason} The balance still updates.`, updated: bankDataTimeLine(a, now) };
+  }
+  if (a.transactions_last_count !== 0) return null;
   return { message: NO_BANK_TRANSACTIONS, updated: bankDataTimeLine(a, now) };
 }

@@ -8,7 +8,7 @@ import AccountCountRow from "../components/AccountCountRow.tsx";
 import AccountBankEmpty from "../components/AccountBankEmpty.tsx";
 import { COUNT_TOWARDS_LABEL } from "../components/CountTowardsSafeToSpendRow.tsx";
 import {
-  NO_BANK_TRANSACTIONS, SAVINGS_NOT_COUNTED, bankDataUpdatedLine, bankDataFromLine, bankDataTimeLine, isSavingsAccount,
+  NO_BANK_TRANSACTIONS, SAVINGS_NOT_COUNTED, bankDataUpdatedLine, bankDataFromLine, bankDataTimeLine, isSavingsAccount, bankEmptyState,
 } from "../lib/accountSheetNotes.ts";
 
 const now = Date.parse("2026-10-29T12:00:00Z");
@@ -39,6 +39,21 @@ for (const account of [acct(), acct({ transactions_last_count: null }), acct({ t
   assert.match(html, />No transactions</);
   assert.doesNotMatch(html, /have arrived/);
 }
+// A186: a balance-only account says why, with the balance line, even with no count.
+html = render(React.createElement(AccountBankEmpty, {
+  account: acct({
+    balance_only: true, balance_only_reason: "Monzo does not share pot transactions through Open Banking.",
+    transactions_last_count: null,
+  }), now,
+}));
+assert.match(html, /Monzo does not share pot transactions through Open Banking\. The balance still updates\./);
+assert.doesNotMatch(html, /have arrived/);
+html = render(React.createElement(AccountBankEmpty, {
+  account: acct({ balance_only: false, balance_only_reason: null, transactions_last_count: 0 }), now,
+}));
+assert.match(html, /No transactions have arrived/);
+assert.equal(bankEmptyState(acct({ balance_only: true, balance_only_reason: "X.", manual: true }), now), null);
+assert.equal(bankEmptyState(acct({ balance_only: true, balance_only_reason: "" }), now), null);
 assert.equal(bankDataUpdatedLine("not a date", now), undefined);
 assert.equal(bankDataUpdatedLine("2026-10-29T11:59:30Z", now), "Bank data updated just now");
 

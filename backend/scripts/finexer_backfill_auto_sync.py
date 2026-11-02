@@ -61,8 +61,10 @@ async def run(apply: bool = False, limit: int | None = None, hours: int | None =
     # (AUTO_SYNC_MISSING_QUERY, auto_sync_blocked_until), so the two agree.
     async for a in accounts_col.find(
         {"source": "finexer", "connection_id": {"$in": consent_ids}, **AUTO_SYNC_MISSING_QUERY},
-        {"_id": 1, "bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
+        {"_id": 1, "bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1, "balance_only": 1},
     ):
+        if a.get("balance_only") is True:
+            continue  # A186: the loop skips these, so the backfill must too
         if auto_sync_blocked_until(a, now) is not None:
             continue
         todo.append(a["_id"])
