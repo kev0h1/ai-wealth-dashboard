@@ -144,6 +144,8 @@ async def exec_get_payday_plan(uid: str) -> dict:
 
     label = await _labeller(uid)
     plan = pt._shape_payday_plan(item)
+    # G402: true when the user has a habitual transfer this plan does not include.
+    plan["habitual_note"] = bool(item.get("habitual_note"))
     salary = item.get("salary") or {}
     plan["salary"]["name"] = label(salary.get("account_id"), salary.get("name"), salary.get("provider"))
     for shaped, raw in zip(plan["dests"], item.get("dests") or []):
