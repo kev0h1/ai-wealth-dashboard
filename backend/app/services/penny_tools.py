@@ -4347,6 +4347,8 @@ def _shape_payday_plan(item: dict) -> dict:
         "trimmed": bool(item.get("trimmed")),
         "covered": item.get("covered"),
         "preview": bool(item.get("preview")),
+        # G402: true when the user has a habitual transfer this plan does not include.
+        "habitual_note": bool(item.get("habitual_note")),
         "salary": {
             "name": salary.get("name"),
             "amount": _money(salary.get("amount")),
