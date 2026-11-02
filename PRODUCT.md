@@ -18,7 +18,11 @@ An AI wealth dashboard that turns live bank data into judgement: spending by pay
 
 ## The payday plan (2026-11-02)
 
-The payday plan answers one question: can next period's requirements be met from the account pay lands in? It is about meeting bills, not about saving. From that account it tracks the transfers to the other accounts on file. For each of those accounts it shows the recurring payments and amounts required, plus any goals, one-offs and set-asides on file. It never asks for money to be moved to a savings account where it would just sit.
+The payday plan answers one question: can next period's requirements be met from the account pay lands in? It is about meeting bills, not about saving.
+
+What counts as a destination is one positive test, and it is the whole test: a destination is any account on file that an upcoming payment, set-aside, goal or one-off is taken from in the coming period. The plan never reasons from account type (current, savings, pot, ISA), because the bank feed's typing is not reliable. An account qualifies only by having something leaving from it, so an account with nothing leaving from it gets no row.
+
+For each destination the plan shows the recurring payments and amounts required, plus the goals, one-offs and set-asides taken from it. A goal or set-aside is a requirement on the account it is funded from, not on the account it goes to. When that source is the account pay lands in, the money simply stays there and no move is shown. A habitual standing order into any account is the user's own and is covered by the one line below.
 
 Three decisions shape it (Kevin, 2026-11-02):
 
@@ -28,7 +32,6 @@ Three decisions shape it (Kevin, 2026-11-02):
 
 What the plan never does:
 
-- Ask for a savings top-up, unless a goal or set-aside names that account.
 - Pad for spending.
 - Add a flat buffer to every account.
 - Run a lifecycle. There is nothing to verify and nothing to celebrate (G172).
