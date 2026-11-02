@@ -749,6 +749,8 @@ interface UnfundedMoveCardProps {
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
   dismissible?: boolean;
   onHomeDismiss?: (id: string) => void;
+  /** G399: reloads Home (brief, Left to spend, cover plan) after a skip lands. */
+  onRefresh?: () => void | Promise<void>;
 }
 
 // Owner decision (Kevin, 2026-08-27): due-but-unfunded OWN transfers get a
@@ -764,7 +766,7 @@ interface UnfundedMoveCardProps {
 // when the last move is skipped the whole card quietly resolves
 // (setHidden(true), the same no-animation pattern every sibling card in
 // this file uses for a resolved/dismissed state).
-export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
+export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, previewMode = false, hideAttribution, dismissible, onHomeDismiss, onRefresh }: UnfundedMoveCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
   const ctxHidden = useBalancesHidden();
   const hideNetWorth = hideNetWorthProp || ctxHidden;
@@ -792,7 +794,7 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
     }
   }
 
-  function handleSkip(move: UnfundedMoveEntry) {
+  async function handleSkip(move: UnfundedMoveEntry) {
     const remaining = moves.filter(m => !(m.key === move.key && m.expected_date === move.expected_date));
     const collapses = remaining.length === 0;
     setMoves(remaining);
@@ -802,7 +804,9 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
     // is the series identifier, `expected_date` is already the original
     // due date, so no new dismiss path exists for this card.
     if (previewMode) return;
-    api.skipUpcomingOccurrence(move.key, move.expected_date ?? "").catch(() => {
+    try {
+      await api.skipUpcomingOccurrence(move.key, move.expected_date ?? "");
+    } catch {
       // Revert: restore the move (and the card, if skipping it collapsed
       // the last one) — same fail-safe-visible approach as PlanningPage's
       // own skipOccurrence.
@@ -810,7 +814,12 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
         prev.some(m => m.key === move.key && m.expected_date === move.expected_date) ? prev : [...prev, move]
       );
       if (collapses) setHidden(false);
-    });
+      return;
+    }
+    invalidateVerdictCache();
+    // G399: the skip landed, so reload Home (brief, Left to spend, cover
+    // plan). A failed refresh never reverts a skip that succeeded.
+    try { await onRefresh?.(); } catch { /* the skip is saved; the next load picks it up */ }
   }
 
   // Existing companion documents may still carry the route used before
@@ -1215,6 +1224,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
     }
     try {
       await api.skipUpcomingOccurrence(bill.key, bill.expected_date);
+      invalidateVerdictCache();
       await onRefresh?.();
       setSkippingKey(null);
     } catch {
@@ -2211,7 +2221,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
         {/* Unfunded moves — Penny's quiet flag for a due-but-unfunded own
             transfer (owner, 2026-08-27); see UnfundedMoveCard's docstring */}
         {unfundedMoveItems.map(item => (
-          <UnfundedMoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+          <UnfundedMoveCard key={item.id} item={item} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} onRefresh={onRefresh} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline (unaffected

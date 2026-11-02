@@ -3431,6 +3431,7 @@ async def dismiss_recurring(body: dict, user: dict = Depends(current_user)):
         upsert=True,
     )
     await compute_and_cache_cashflow(uid, clear_ai_cache=False)
+    await _refresh_after_override(uid)
     return {"ok": True}
 
 
@@ -3778,6 +3779,25 @@ def _validate_schedule(schedule: dict) -> dict | None:
     return None
 
 
+async def _refresh_after_override(uid: str) -> None:
+    """G399 (H145): after a write that changes what Home and Upcoming show,
+    drop the response cache (awaited) and re-warm the Home responses before
+    returning, so the client's refetch is a warm read.
+
+    No forecast recompute here: overrides apply when the cashflow response is
+    built, so they never change the stored forecast or money shape. Not a bill
+    rebuilds the stored forecast itself before calling this.
+
+    The override is already written, so a warm-up failure is logged and
+    swallowed: the user's change must not read as failed."""
+    await response_cache.ainvalidate(uid)
+    try:
+        from app.services.warmup import warm_user
+        await warm_user(uid)
+    except Exception:
+        logger.exception("override refresh: warm_user failed for %s", uid)
+
+
 @router.post("/cashflow/edit-upcoming")
 async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
     """Override a single upcoming occurrence's date and/or amount."""
@@ -3825,15 +3845,10 @@ async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
         {"$set": doc},
         upsert=True,
     )
-    # Fast rebuild from cached patterns — no AI re-run
-    cached = await cashflow_cache_col.find_one({"_id": uid})
-    if cached:
-        result = await _build_cashflow_response(cached, uid=uid)
-        await cashflow_cache_col.update_one(
-            {"_id": uid},
-            {"$set": {"_override_rebuild": datetime.now()}},
-        )
-    await response_cache.ainvalidate(uid)
+    # Overrides are applied at read time by _build_cashflow_response, so the
+    # old rebuild here (result discarded) was redundant; G399 refreshes the
+    # stored results instead.
+    await _refresh_after_override(uid)
     return {"ok": True}
 
 
@@ -3848,7 +3863,7 @@ async def clear_override(body: dict, user: dict = Depends(current_user)):
     if not date_str:
         raise HTTPException(400, "date required")
     await upcoming_overrides_col.delete_many({"uid": uid, "key": key, "date": date_str})
-    response_cache.invalidate(uid)
+    await _refresh_after_override(uid)
     return {"ok": True}
 
 
@@ -3883,15 +3898,10 @@ async def skip_occurrence(body: dict, user: dict = Depends(current_user)):
         {"$set": doc},
         upsert=True,
     )
-    # Fast rebuild from cached patterns — mirror edit_upcoming's cache-invalidation pattern
-    cached = await cashflow_cache_col.find_one({"_id": uid})
-    if cached:
-        result = await _build_cashflow_response(cached, uid=uid)
-        await cashflow_cache_col.update_one(
-            {"_id": uid},
-            {"$set": {"_override_rebuild": datetime.now()}},
-        )
-    response_cache.invalidate(uid)
+    # The discarded read-time rebuild that used to sit here was redundant:
+    # overrides are applied when the response is built, and nothing reads
+    # the `_override_rebuild` stamp. G399 refreshes the stored results.
+    await _refresh_after_override(uid)
     return {"ok": True}
 
 
