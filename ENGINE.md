@@ -186,6 +186,28 @@ A tip never claims or estimates a saving. It states what the user pays, to whom 
 
 ---
 
+## No live calculation on screen load (H145, Kevin 2026-11-02)
+
+> "there shouldn't be any live calculations done when we load any screen it should be super fast, most calculations should be done on sync as this is when the data changes, we should have this as a fundamental design rule"
+
+**The Load-Path Rule.** Opening a screen is a read. A screen, and every endpoint it calls on load, may read stored results and format them. It may not compute money figures, forecasts, matches or candidates on request. Formatting, filtering, sorting and summing a stored list for display are reads; arithmetic over raw transactions or balances is computation and belongs to a recompute trigger.
+
+A stored figure is produced only at these triggers:
+
+- **Bank sync**: the scheduled reconcile, a user refresh, the first connection.
+- **Webhook**: a provider event that changes accounts or transactions.
+- **User edit**: a plan, a set-aside, a category, a confirmation, a dismissal.
+- **Settings change**: pay period, accounts counted, anything a figure reads from preferences.
+- **Day rollover**: a scheduled job just after London midnight for date-dependent figures, such as days to payday and the pay period window, so the first open of the day reads a stored result like every other open.
+
+**How a store behaves.** Each stored result is stamped with the version of its inputs, its shape version and the London day it was computed for (the G390 `transfer_review_store` and the G386 forecast carried on the payload are the templates). A request that finds the store missing or stale does not recompute. It serves the last stored result with its as-of time, or an explicit "being prepared" state, never a blank, and queues the recompute. `warm_user` stays only as a safety net for a store a trigger missed; it is not the mechanism.
+
+**Budget.** 300 ms p95 per screen on a warm server: every load-path endpoint a screen calls answers within it.
+
+**How it is held.** The audit of every screen is `docs/engine/LOAD-PATH-AUDIT.md`; the endpoints that still compute on request are debts to retire, not precedent. `backend/tests/test_load_path_no_live_compute.py` fails when a load-path handler reaches a compute function beyond its recorded allowance, and fails when an allowance is stale, so each precompute step tightens it. Every precompute step must leave the H140 scenario snapshots byte-identical: the figure is the same, only the moment it is computed moves. The shared per-period, per-account walk (G363) is where the precompute lives.
+
+---
+
 ## What Dies / What Survives
 
 Deletion, not relocation. These surfaces contradict the doctrine and go away:

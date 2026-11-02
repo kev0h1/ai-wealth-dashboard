@@ -91,6 +91,10 @@ Production releases: docs/ops/RELEASE.md, only via scripts/release.py.
 Never kill, restart, or modify any process or file outside this directory.
 Do not use broad pkill patterns that could match unrelated services.
 
+## Load-path rule
+
+No live calculation on screen load (Kevin 2026-11-02, H145). A screen, and every endpoint it calls on load, may read stored results and format them; it may not compute money figures, forecasts, matches or candidates on request. Compute at a recompute trigger (bank sync, webhook, user edit, settings change, or the nightly day-rollover job for date-dependent figures) and store it version-stamped; budget 300 ms p95 per screen on a warm server; `warm_user` is only a safety net. Full rule: the "No live calculation on screen load" section of `ENGINE.md`. Audit: `docs/engine/LOAD-PATH-AUDIT.md`. Gate: `backend/tests/test_load_path_no_live_compute.py` (do not add a compute function to a route's allowance to make a new live call pass; remove entries as precompute lands). Reviewers check every diff that touches a load-path endpoint against it.
+
 ## After every code change
 
 Restart only the relevant service(s) using systemctl:
