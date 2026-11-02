@@ -164,6 +164,8 @@ async def _recompute(uid: str) -> None:
         await apply_rules_bulk(uid, structural=True)
         await categorise_others_bg(uid)
         await apply_mirror_rules(uid)
+        from app.services import transfer_review_store
+        await transfer_review_store.refresh(uid)
         await mark_stale(uid)
         await cashflow_cache_col.update_one(
             {"_id": uid}, {"$set": {"synced_at": _utcnow()}}, upsert=True,

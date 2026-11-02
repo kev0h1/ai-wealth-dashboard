@@ -2132,6 +2132,9 @@ async def finexer_sync_pipeline(
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
+    # G390: decide at sync, serve from storage.
+    from app.services import transfer_review_store
+    await transfer_review_store.refresh(user_id)
 
     if recompute:
         from app.services.derived_caches import recompute_derived_caches

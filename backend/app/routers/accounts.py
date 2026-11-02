@@ -289,6 +289,8 @@ async def sync_all(user: dict = Depends(current_user)):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)
+        from app.services import transfer_review_store
+        await transfer_review_store.refresh(u)
         # Always stamp sync time so the staleness clock resets even with no new data
         await cashflow_cache_col.update_one(
             {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
@@ -346,6 +348,8 @@ async def sync_history(user: dict = Depends(current_user)):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
         await apply_mirror_rules(u)
+        from app.services import transfer_review_store
+        await transfer_review_store.refresh(u)
         await cashflow_cache_col.update_one(
             {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
         )

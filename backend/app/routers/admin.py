@@ -79,4 +79,6 @@ async def fix_card_transactions(user: dict = Depends(current_user)):
         {"account_id": {"$in": cc_ids}, "transaction_type": "_fixing"},
         {"$set": {"transaction_type": "debit"}},
     )
+    from app.services import transfer_review_store
+    await transfer_review_store.mark_stale(uid)
     return {"message": "Card transactions fixed, run auto-categorise next", "fixed": result.modified_count}

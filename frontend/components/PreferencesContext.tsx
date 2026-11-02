@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback, useRef, ReactNode } from "react";
 import { api, DebtBurndownOverrides } from "@/lib/api";
 import { PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
@@ -10,7 +10,7 @@ import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 import { todayIso } from "@/lib/calendar";
 import type { GuideId } from "@/lib/paySplitReference";
-import { DEFAULT_PENNY_APPEARANCE, pennyAppearanceFromSnapshot, type PennyAppearance } from "@/lib/pennyAppearance";
+import { DEFAULT_PENNY_APPEARANCE, pennyAppearanceFromSnapshot, readSeededPennyAppearance, writeSeededPennyAppearance, type PennyAppearance } from "@/lib/pennyAppearance";
 
 /** G60: which of this context's five server-backed setters last failed to
  * save, and what to tell the user. A single slot, not one per field —
@@ -39,6 +39,10 @@ interface Prefs {
   preferencesReady: boolean;
   darkMode: boolean;
   pennyAppearance: PennyAppearance;
+  /** G390: true once the appearance is known on this device, from the stored
+   * seed or the server. Until then `pennyAppearance` is only the default and
+   * the launcher must not paint it. */
+  pennyAppearanceResolved: boolean;
   /** G189: display preference, default true. False hides the Spend and
    * Transactions tips (the server also serves none). */
   showTips: boolean;
@@ -115,6 +119,7 @@ const Ctx = createContext<PrefsCtx>({
   preferencesReady: false,
   darkMode: false,
   pennyAppearance: DEFAULT_PENNY_APPEARANCE,
+  pennyAppearanceResolved: false,
   showTips: true,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   debtTargetMonths: 12,
@@ -142,6 +147,8 @@ const Ctx = createContext<PrefsCtx>({
   notePreferencesVersion: () => {},
 });
 
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [hideNetWorth, setHideNetWorthState] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -159,6 +166,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     try { return localStorage.getItem("wd_dark") === "1"; } catch { return false; }
   });
   const [pennyAppearance, setPennyAppearanceState] = useState<PennyAppearance>(DEFAULT_PENNY_APPEARANCE);
+  // G390: seeded from localStorage before first paint (see the layout effect
+  // below); stays false on a device that has never stored one.
+  const [pennyAppearanceSeeded, setPennyAppearanceSeeded] = useState(false);
   const [showTips, setShowTipsState] = useState(() => {
     if (typeof window === "undefined") return true;
     try { return localStorage.getItem("wd_show_tips") !== "0"; } catch { return true; }
@@ -204,6 +214,21 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     const next = pennyAppearanceFromSnapshot(v);
     pennyAppearanceRef.current = next;
     setPennyAppearanceState(next);
+    writeSeededPennyAppearance(next);
+  }, []);
+
+  // G390: read the seed in a layout effect, not a lazy initial state. The
+  // server render and the hydrating render both use the default, so React
+  // never sees a mismatch; the effect then runs before the browser paints, so
+  // the first painted frame already carries the stored choice (the same
+  // outcome as `wd_hide_balances`, without a hydration difference in the
+  // launcher's markup).
+  useIsomorphicLayoutEffect(() => {
+    const seed = readSeededPennyAppearance();
+    if (seed == null) return;
+    pennyAppearanceRef.current = seed;
+    setPennyAppearanceState(seed);
+    setPennyAppearanceSeeded(true);
   }, []);
 
   const showTipsRef = useRef(showTips);
@@ -565,7 +590,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, preferencesReady, darkMode, pennyAppearance, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, pennyAppearance, pennyAppearanceResolved: pennyAppearanceSeeded || preferencesReady, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
       openLastChat, paySplitReference, spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
       setHideNetWorth, setDarkMode, setPennyAppearance, setShowTips, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
       setOpenLastChat, setPaySplitReference, setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,

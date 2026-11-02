@@ -65,6 +65,15 @@ async def _compute_miscategorised_count(uid: str) -> dict:
     return await get_miscategorised_count(offset=0, user={"email": uid})
 
 
+async def _compute_miscategorised_list(uid: str) -> dict:
+    # G390: the transfers review list, warmed with the count. The router
+    # self-caches, and both read the same stored candidates
+    # (app.services.transfer_review_store), so this is also what rebuilds the
+    # store after a sync when a pipeline has not already.
+    from app.routers.analytics import get_miscategorised_transactions
+    return await get_miscategorised_transactions(user={"email": uid})
+
+
 async def _compute_grow(uid: str) -> dict:
     from app.routers.grow import grow_view
     return await grow_view({"email": uid})
@@ -173,6 +182,7 @@ async def _warm_user_impl(uid: str) -> dict:
     await _step("today", _compute_today, self_caching=False)
     await _step("safe_to_spend", _compute_safe_to_spend, self_caching=False)
     await _step("spend_verdict:0", _compute_spend_verdict, self_caching=False)
+    await _step("miscategorised_list", _compute_miscategorised_list, self_caching=True)
     await _step("miscategorised_count:0", _compute_miscategorised_count, self_caching=True)
     await _step("grow", _compute_grow, self_caching=True)
     await _step("commitments", _compute_commitments, self_caching=True)

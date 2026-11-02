@@ -1421,6 +1421,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         confirmed_only=not structural,
     )
 
+    # G390: categories may have changed under the stored transfer-review
+    # candidates; the next read (or the pipeline's own refresh) rebuilds them.
+    from app.services import transfer_review_store
+    await transfer_review_store.mark_stale(user_id)
     return updated
 
 
@@ -1499,6 +1503,11 @@ async def apply_single_rule(user_id: str, pattern: str, category: str) -> list[d
             {"_id": m["id"]},
             {"$set": {"category": category, "custom_category": None, "rule_applied_at": stamp}},
         )
+    if matched:
+        # G390: rows were recategorised, so the stored transfer-review
+        # candidates are stale for every caller (create_rule's refetch too).
+        from app.services import transfer_review_store
+        await transfer_review_store.mark_stale(user_id)
     return matched
 
 
@@ -1532,6 +1541,9 @@ async def categorise_others_bg(uid: str) -> int:
         ladder_updated = (await run_vendor_ladder(uid)).get("rows_updated", 0)
     except Exception:
         log.exception("categorise_others_bg: vendor ladder failed for %s", uid)
+    if ladder_updated:
+        from app.services import transfer_review_store
+        await transfer_review_store.mark_stale(uid)
     if not OPENROUTER_API_KEY:
         return ladder_updated
     identity = await user_identity(uid)
@@ -1652,6 +1664,9 @@ async def categorise_others_bg(uid: str) -> int:
         if missed:
             await col.update_many({"_id": {"$in": missed}}, {"$set": {"ai_attempted": True}})
 
+    if total_updated:
+        from app.services import transfer_review_store
+        await transfer_review_store.mark_stale(uid)
     return total_updated + ladder_updated
 
 
