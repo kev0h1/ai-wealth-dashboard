@@ -34,6 +34,11 @@ from app.workers.ai_worker import task_refresh_savings_insights
 from app.services.retention import run_retention_sweep
 from app.services.safe_to_spend_history import run_safe_to_spend_snapshot
 
+from app.core.log_config import configure_diagnostic_logging
+
+# A190: arq only configures its own 'arq' logger, so app INFO is dropped.
+configure_diagnostic_logging()
+
 logger = logging.getLogger(__name__)
 
 # Specials that don't round-trip through a plain "strip 'ob-', title-case"

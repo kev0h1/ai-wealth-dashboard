@@ -52,6 +52,8 @@ starts sending the header. This is a hypothesis until Finexer confirms it.
 
 ## Diagnostics added by A175
 
+Reading logs after release (A190): the Finexer INFO lines (card sign line, field counts, first-sync shape lines) now print in Railway for the `app.services.finexer_*`, `app.routers.webhooks` and `app.services.account_refresh` loggers; grep one sync for those logger names.
+
 Written on the account document after each walk:
 
 - `transactions_synced_at`: UTC time of the last successful walk.
