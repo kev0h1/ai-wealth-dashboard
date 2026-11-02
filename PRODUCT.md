@@ -16,6 +16,29 @@ UK consumers who connect their real bank accounts (via open banking) and want th
 
 An AI wealth dashboard that turns live bank data into judgement: spending by pay period, budgets, debt payoff, safety-net savings, upcoming bills, tax efficiency, and savings opportunities — all auto-tracked from transactions with no manual logging. Success on any given screen is instant clarity: within ten seconds the user knows *am I okay, what changed, and what should I do next*, without digging.
 
+## The payday plan (2026-11-02)
+
+The payday plan answers one question: can next period's requirements be met from the account pay lands in? It is about meeting bills, not about saving.
+
+What counts as a destination is one positive test, and it is the whole test: a destination is any account on file that an upcoming payment, set-aside, goal or one-off is taken from in the coming period. The plan never reasons from account type (current, savings, pot, ISA), because the bank feed's typing is not reliable. An account qualifies only by having something leaving from it, so an account with nothing leaving from it gets no row.
+
+For each destination the plan shows the recurring payments and amounts required, plus the goals, one-offs and set-asides taken from it. A goal or set-aside is a requirement on the account it is funded from, not on the account it goes to. When that source is the account pay lands in, the money simply stays there and no move is shown. A habitual standing order into any account is the user's own and is covered by the one line below.
+
+Three decisions shape it (Kevin, 2026-11-02):
+
+1. Everyday spending is not a requirement. The app already shows where to spend from, so the plan does not pad any account for it.
+2. Habitual transfers are the user's own. The plan does not include them and says so in one line, working copy "This doesn't include your habitual transfers".
+3. A buffer sits only on accounts that have bills leaving them, because bills vary, and only after each predicted bill is covered first.
+
+What the plan never does:
+
+- Pad for spending.
+- Add a flat buffer to every account.
+- Run a lifecycle. There is nothing to verify and nothing to celebrate (G172).
+- Move money. The plan is a recommendation, and the app never moves money.
+
+The engine rule that implements this lives in G402 and, once built, in MONEY-ENGINE.md.
+
 ## Positioning
 
 The money app that tells you what to do next — every screen turns live bank data into a concrete next action, not just charts.
