@@ -160,3 +160,57 @@ def test_plan_skips_an_expired_destination_and_keeps_the_rest(monkeypatch):
     assert kept is not None
     for k in ("balance", "bills_total", "move", "target"):
         assert kept[k] == live_other[k]
+
+
+class FlipOnConnectedAccounts(Col):
+    """Revokes the consent in the gap between the connected write and the
+    final re-check, by side effect of the connected update_many."""
+
+    def __init__(self, docs, consents):
+        super().__init__(docs)
+        self.consents = consents
+
+    async def update_many(self, filt, update, upsert=False):
+        res = await super().update_many(filt, update, upsert)
+        if (update.get("$set") or {}).get("status") == "connected":
+            await self.consents.update_one({"_id": CONSENT}, {"$set": {"status": "revoked"}})
+        return res
+
+
+def test_revoke_after_the_connected_write_is_still_resolved_to_expired(monkeypatch):
+    consents, accts = _wire(
+        monkeypatch,
+        lambda cs: FlipOnConnectedAccounts([_acc("acc1", CONSENT, "expired")], cs),
+    )
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert consents.docs[0]["status"] == "revoked"
+    assert next(d for d in accts.docs if d["_id"] == "acc1")["status"] == "expired"
+
+
+def test_sweep_counts_a_pending_consent_with_no_accounts(monkeypatch):
+    monkeypatch.setattr(fs, "finexer_consents_col", Col([{"_id": "p", "status": "pending"}]))
+    monkeypatch.setattr(fs, "accounts_col", Col([]))
+    assert asyncio.run(fs.expire_accounts_on_dead_consents()) == {
+        "consents_scanned": 1, "accounts_flipped": 0}
+
+
+def test_reconcile_enqueue_loop_survives_a_failing_sweep(monkeypatch):
+    from tests import test_e11_poll_settings as e11
+
+    async def _boom():
+        raise RuntimeError("sweep down")
+
+    monkeypatch.setattr(fs, "expire_accounts_on_dead_consents", _boom)
+    arq, result = e11._run(monkeypatch, [e11._fx(synced_h=10)])
+    assert result["reconciled"] == 1
+    assert len(arq.calls) == 1
+
+
+def test_startup_wrapper_swallows_a_failing_sweep(monkeypatch):
+    import app.workers.sync_worker as sw
+
+    async def _boom():
+        raise RuntimeError("sweep down")
+
+    monkeypatch.setattr(fs, "expire_accounts_on_dead_consents", _boom)
+    asyncio.run(sw._dead_consent_sweep_on_startup())

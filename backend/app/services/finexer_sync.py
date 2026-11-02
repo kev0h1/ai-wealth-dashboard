@@ -2242,6 +2242,16 @@ async def sync_finexer_consent(
                 {"_id": {"$in": fetched_account_ids}, "connection_id": consent_id},
                 {"$set": {"status": "connected"}},
             )
+            # A189: close the last window, a revoke landing between the
+            # re-read above and the write must still resolve to expired.
+            after = await finexer_consents_col.find_one({"_id": consent_id}, {"status": 1})
+            if not after or after.get("status") != "authorized":
+                logger.info(
+                    "Finexer consent %s was revoked during the end-of-sync reset, "
+                    "marking its accounts expired",
+                    consent_id,
+                )
+                await _mark_finexer_accounts_expired(consent_id)
         else:
             logger.info(
                 "Finexer consent %s is no longer authorized at end of sync, "

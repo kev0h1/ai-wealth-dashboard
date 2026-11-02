@@ -86,6 +86,7 @@ as live with a frozen balance and no reconnect banner.
   not already expired to expired. It runs at the end of every 4-hourly
   `task_reconcile_truelayer` pass and logs counts only (`consents_scanned`,
   `accounts_flipped`), so production self-heals within four hours of release
-  with no manual step.
+  with no manual step. The worker also runs it once at startup
+  (`_dead_consent_sweep_on_startup`), so the release restart heals it at once.
 - The payday plan skips a destination whose account status is expired. The
   amount stays unallocated, as it does for an account the user excluded.
