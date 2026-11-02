@@ -368,6 +368,7 @@
           "usual": null
         }
       ],
+      "habitual_note": false,
       "id": "payday_plan:2026-10-30:842a06788d",
       "salary": {
         "account_id": "acc-bc",

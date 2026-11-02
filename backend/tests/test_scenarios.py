@@ -295,7 +295,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "account_eligibility": elig,
         "account_plans": plans,
         "items": [
-            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note")
+            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note")
              if k in i}
             for i in items
         ],
@@ -456,6 +456,11 @@ def _check_expected(snap: dict, spec: dict) -> None:
         if "dests" in want_plan:
             got = {d["account_id"]: _r2(d["move"]) for d in plan["dests"] if d["move"] > 0}
             chk.check("payday_plan dests", got, {k: _r2(v) for k, v in want_plan["dests"].items()})
+        if "habitual_note" in want_plan:
+            chk.check("payday_plan habitual_note", bool(plan.get("habitual_note")), want_plan["habitual_note"])
+        for acct_id in want_plan.get("no_rows") or []:
+            # G402: no requirement, no row; a pot or savings account is never a destination.
+            assert all(d["account_id"] != acct_id for d in plan["dests"]), f"{acct_id} must have no payday plan row"
         if "keeps" in want_plan:
             got = {k["name"]: _r2(k["amount"]) for k in (plan["salary"].get("keeps") or [])}
             chk.check("payday_plan keeps", got, {k: _r2(v) for k, v in want_plan["keeps"].items()})
