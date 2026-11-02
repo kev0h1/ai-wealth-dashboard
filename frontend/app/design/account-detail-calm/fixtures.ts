@@ -3,7 +3,7 @@ import type { Account, AccountEligibility, Transaction } from "@/lib/api";
 import type { AccountAvailabilityReading } from "@/lib/accountAvailability";
 
 export type Variant = "a" | "b";
-export type ScenarioId = "plans" | "payments" | "available" | "checking" | "unavailable" | "empty" | "long";
+export type ScenarioId = "plans" | "payments" | "available" | "excluded" | "checking" | "unavailable" | "empty" | "long";
 export type Scenario = {
   id: ScenarioId;
   label: string;
@@ -40,6 +40,7 @@ export const SCENARIOS: Record<ScenarioId, Scenario> = {
   plans: { id: "plans", label: "Short after plans", account, reading: { kind: "ready", value: 0, warning: "plans" }, position: position(233.98, 336.56, -102.58, 0), shortfall: { amount: 102.58, kind: "plans" }, transactions: TRANSACTIONS },
   payments: { id: "payments", label: "Payments short", account, reading: { kind: "ready", value: 0, warning: "payments" }, position: position(-76.50, 0, -76.50, 0), shortfall: { amount: 76.50, kind: "payments" }, transactions: TRANSACTIONS },
   available: { id: "available", label: "Money available", account, reading: { kind: "ready", value: 103.98 }, position: position(183.98, 80, 103.98, 103.98), transactions: TRANSACTIONS },
+  excluded: { id: "excluded", label: "Excluded from estimate", account: { ...account, include_in_safe_to_spend: false }, reading: { kind: "unavailable" }, transactions: TRANSACTIONS },
   checking: { id: "checking", label: "Checking forecast", account, reading: { kind: "checking" }, transactions: TRANSACTIONS },
   unavailable: { id: "unavailable", label: "Forecast unavailable", account: { ...account, bank_synced_to: null }, reading: { kind: "unavailable" }, transactions: TRANSACTIONS },
   empty: { id: "empty", label: "No transactions", account, reading: { kind: "ready", value: 103.98 }, position: position(183.98, 80, 103.98, 103.98), transactions: [] },

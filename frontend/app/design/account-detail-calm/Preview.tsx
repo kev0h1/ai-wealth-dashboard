@@ -1,12 +1,11 @@
 "use client";
 
 // G407: temporary account-detail alternatives with invented, local-only data.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, CircleAlert, Pin, Trash2 } from "lucide-react";
 import { BankIcon } from "@/components/AccountMiniCard";
-import AccountCountRow from "@/components/AccountCountRow";
 import AccountRefreshRow from "@/components/AccountRefreshRow";
 import { AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -24,6 +23,20 @@ const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
 const quiet = `inline-flex min-h-11 touch-manipulation items-center justify-center gap-1 rounded-lg px-2 text-[13px] font-semibold text-slate-700 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white ${focus}`;
 const fixtureNow = Date.parse("2026-11-02T20:00:00Z");
 
+function IncludeInEstimate({ scenario, included, onChange }: { scenario: Scenario; included: boolean; onChange: (next: boolean) => void }) {
+  const helperId = useId();
+  const locked = included && !!scenario.shortfall;
+  const helper = locked
+    ? `Included while this account is short ${scenario.shortfall?.kind === "payments" ? "for payments" : "after plans"}.`
+    : included ? "Turn off for an account you do not spend from." : "Excluded from this estimate.";
+  return <div data-g407-inclusion className="flex items-start justify-between gap-3">
+    <div className="min-w-0 flex-1 py-1"><p className="text-[13px] font-medium">Include in estimated left to spend</p><p id={helperId} className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">{helper}</p></div>
+    <button type="button" role="switch" aria-label="Include in estimated left to spend" aria-describedby={helperId} aria-checked={included} disabled={locked} onClick={() => onChange(!included)} className={`grid h-11 min-w-12 shrink-0 touch-manipulation place-items-center rounded-lg disabled:cursor-not-allowed ${focus}`}>
+      <span aria-hidden="true" className={`relative h-6 w-12 rounded-full transition-colors ${included ? "bg-[#4f46e5]" : "bg-slate-300 dark:bg-slate-600"} ${locked ? "opacity-60" : ""}`}><span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${included ? "translate-x-6" : ""}`} /></span>
+    </button>
+  </div>;
+}
+
 function StatusMark({ scenario }: { scenario: Scenario }) {
   return <CircleAlert aria-hidden="true" size={14} className={`shrink-0 ${scenario.shortfall?.kind === "payments" ? "text-rose-700 dark:text-rose-300" : "text-amber-800 dark:text-amber-200"}`} />;
 }
@@ -32,7 +45,7 @@ function Forecast({ scenario, variant, hidden, counted, openDetails }: {
   scenario: Scenario; variant: Variant; hidden: boolean; counted: boolean; openDetails: () => void;
 }) {
   const m = (value: number | null | undefined) => typeof value === "number" ? formatMoney(value, hidden) : "Unavailable";
-  if (!counted) return <button onClick={openDetails} className={`${quiet} mt-2 -ml-2`}>Not counted towards Left to spend</button>;
+  if (!counted) return <button onClick={openDetails} className={`${quiet} mt-2 -ml-2`}>Excluded from estimated left to spend</button>;
   if (scenario.reading.kind !== "ready") return <div data-g407-forecast className="mt-3 flex min-h-11 items-center justify-between gap-3 text-[13px] text-slate-600 dark:text-slate-300">
     <span>{scenario.reading.kind === "checking" ? "Checking availability…" : "Availability unavailable"}</span>
   </div>;
@@ -41,14 +54,14 @@ function Forecast({ scenario, variant, hidden, counted, openDetails }: {
     ? `${m(short.amount)} short ${short.kind === "payments" ? "for payments" : "after plans"}`
     : `${m(scenario.reading.value)} available to spend`;
   return <details data-g407-forecast className="group mt-3">
-    <summary className={`flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-lg text-[13px] text-slate-800 hover:text-slate-950 dark:text-slate-100 dark:hover:text-white [&::-webkit-details-marker]:hidden ${focus}`}>
+    <summary className={`grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_16px] touch-manipulation items-start gap-3 rounded-lg py-2 text-[13px] leading-5 text-slate-800 hover:text-slate-950 dark:text-slate-100 dark:hover:text-white [&::-webkit-details-marker]:hidden ${focus}`}>
       <span className="min-w-0 flex-1">
-        {variant === "a" && <span className="block">Available to spend <MoneyText text={m(scenario.reading.value)} className="font-semibold" /></span>}
+        {variant === "a" && <span className="flex items-baseline justify-between gap-3"><span>Available to spend</span><MoneyText text={m(scenario.reading.value)} className="shrink-0 font-semibold" /></span>}
         {(variant === "b" || short) && <span className={`flex items-center gap-2 ${variant === "a" ? "mt-1" : ""}`}>
-          {short && <StatusMark scenario={scenario} />}<MoneyText text={verdict} />
+          <MoneyText text={verdict} />{short && <StatusMark scenario={scenario} />}
         </span>}
       </span>
-      <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-150 group-open:rotate-180 motion-reduce:transition-none" />
+      <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 transition-transform duration-150 group-open:rotate-180 motion-reduce:transition-none" />
     </summary>
     <div className="pb-2 pt-3 text-[13px] leading-5 text-slate-600 dark:text-slate-300">
       {variant === "b" && <p className="mb-3">Available to spend <MoneyText text={m(scenario.reading.value)} className="font-semibold" /></p>}
@@ -96,16 +109,16 @@ function Activity({ scenario, hidden, onOpen }: { scenario: Scenario; hidden: bo
 
 function AccountSurface({ variant, scenario, hidden, dark }: { variant: Variant; scenario: Scenario; hidden: boolean; dark: boolean }) {
   const [details, setDetails] = useState(false);
-  const [counted, setCounted] = useState(true);
+  const [counted, setCounted] = useState(scenario.account.include_in_safe_to_spend !== false);
   const [pinned, setPinned] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState("");
   const [transaction, setTransaction] = useState<Transaction | null>(null);
-  const detailButton = <button type="button" aria-label="Account details" className={quiet} onClick={() => { setNotice(""); setDetails(true); }}>Details</button>;
+  const detailButton = <button type="button" aria-label="Account details" className={`${quiet} -mr-2`} onClick={() => { setNotice(""); setDetails(true); }}>Details</button>;
   return <BalancesHiddenContext.Provider value={hidden}>
     <section data-g407-surface className="mx-auto max-w-2xl">
       {variant === "a" ? <>
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-3">
           <BankIcon identity={scenario.account} size={36} altText="" />
           <div className="min-w-0 flex-1"><h2 className="break-words text-base font-semibold">Monzo</h2><p className="mt-0.5 break-words text-[13px] text-slate-600 dark:text-slate-300">{scenario.account.name}</p></div>
           {detailButton}
@@ -120,15 +133,17 @@ function AccountSurface({ variant, scenario, hidden, dark }: { variant: Variant;
       {notice && <p role="status" className="mt-3 text-[13px] text-slate-600 dark:text-slate-300">{notice}</p>}
     </section>
     {details && <SheetFrame title="Account details" onClose={() => { setDetails(false); setConfirmRemove(false); }} themeClass={dark ? "dark" : undefined}>
-      <div className="space-y-5">
+      <div className="space-y-4">
         <div><p className="font-semibold">Monzo · Current account</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Connected until 21 November 2026</p></div>
+        <IncludeInEstimate scenario={scenario} included={counted} onChange={setCounted} />
+        <div className="[&_[data-a179-refresh-button]]:pr-0">
         <AccountRefreshRow account={scenario.account} now={fixtureNow} compact onRefresh={async () => {
           return { refreshed: false, message: "Preview only. No bank refresh was requested." };
         }} />
-        {!scenario.shortfall && <AccountCountRow account={scenario.account} counted={counted} onChange={setCounted} compact />}
+        </div>
         <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
-          <button className={`${quiet} w-full justify-start`} onClick={() => setPinned(!pinned)}><Pin size={15} aria-hidden="true" />{pinned ? "Unpin account" : "Pin account"}</button>
-          <button className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm font-medium text-rose-700 dark:text-rose-300 ${focus}`} onClick={() => setConfirmRemove(true)}><Trash2 size={15} aria-hidden="true" />Remove account</button>
+          <button type="button" className={`flex min-h-11 w-full touch-manipulation items-center justify-between gap-2 rounded-lg text-left text-[13px] font-medium text-slate-700 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white ${focus}`} onClick={() => setPinned(!pinned)}><span>{pinned ? "Unpin account" : "Pin account"}</span><span className="grid size-6 shrink-0 place-items-center"><Pin size={15} aria-hidden="true" /></span></button>
+          <button type="button" className={`flex min-h-11 w-full touch-manipulation items-center justify-between gap-2 rounded-lg text-left text-[13px] font-medium text-rose-700 dark:text-rose-300 ${focus}`} onClick={() => setConfirmRemove(true)}><span>Remove account</span><span className="grid size-6 shrink-0 place-items-center"><Trash2 size={15} aria-hidden="true" /></span></button>
           {confirmRemove && <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-600"><p className="text-sm">Remove this account?</p><div className="mt-2 flex gap-3"><button className={`min-h-11 rounded-lg bg-rose-700 px-3 text-sm font-semibold text-white ${focus}`} onClick={() => { setDetails(false); setConfirmRemove(false); setNotice("Preview only: no account was removed."); }}>Remove account</button><button className={quiet} onClick={() => setConfirmRemove(false)}>Cancel</button></div></div>}
         </div>
       </div>
