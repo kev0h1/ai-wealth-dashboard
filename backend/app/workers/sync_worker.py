@@ -393,6 +393,15 @@ async def task_reconcile_truelayer(ctx):
 
     await bump_daily_counters(poll_syncs_enqueued=len(fx_ordered))
 
+    # A189: repair sweep, so accounts on a dead consent never linger as
+    # connected (idempotent; counts only).
+    try:
+        from app.services.finexer_sync import expire_accounts_on_dead_consents
+        sweep = await expire_accounts_on_dead_consents()
+        logger.info("reconcile: finexer dead-consent sweep %s", sweep)
+    except Exception:
+        logger.exception("reconcile: finexer dead-consent sweep failed")
+
     last_offset_seconds = offsets[-1] if offsets else 0
     if overflow:
         logger.warning(

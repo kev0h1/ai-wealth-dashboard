@@ -1495,6 +1495,24 @@ async def _mark_finexer_accounts_expired(consent_id: str) -> None:
     )
 
 
+async def expire_accounts_on_dead_consents() -> dict:
+    """A189 repair sweep: for every Finexer consent whose status is not
+    "authorized", set status expired on its accounts that are not already
+    expired. Idempotent; returns counts only."""
+    consents_scanned = 0
+    accounts_flipped = 0
+    async for c in finexer_consents_col.find(
+        {"status": {"$ne": "authorized"}}, {"_id": 1}
+    ):
+        consents_scanned += 1
+        res = await accounts_col.update_many(
+            {"connection_id": c["_id"], "status": {"$ne": "expired"}},
+            {"$set": {"status": "expired"}},
+        )
+        accounts_flipped += int(getattr(res, "modified_count", 0) or 0)
+    return {"consents_scanned": consents_scanned, "accounts_flipped": accounts_flipped}
+
+
 def _carry_params(next_url: str, params: Optional[dict]) -> str:
     """A `paging.next` path may drop the query filters of the first page, so
     re-add any that are missing (status=pending must survive paging). The
@@ -2205,10 +2223,23 @@ async def sync_finexer_consent(
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse
     # sweep here (unfetched accounts on this consent are left alone).
     if fetched_account_ids:
-        await accounts_col.update_many(
-            {"_id": {"$in": fetched_account_ids}},
-            {"$set": {"status": "connected"}},
-        )
+        # A189: a consent.canceled / consent.expired webhook can land while
+        # this run is still writing accounts. Re-read the consent so a revoke
+        # that arrived mid-sync is never overwritten, and scope the reset to
+        # this consent's own accounts.
+        current = await finexer_consents_col.find_one({"_id": consent_id}, {"status": 1})
+        if current and current.get("status") == "authorized":
+            await accounts_col.update_many(
+                {"_id": {"$in": fetched_account_ids}, "connection_id": consent_id},
+                {"$set": {"status": "connected"}},
+            )
+        else:
+            logger.info(
+                "Finexer consent %s is no longer authorized at end of sync, "
+                "leaving its accounts expired",
+                consent_id,
+            )
+            await _mark_finexer_accounts_expired(consent_id)
 
     if only_account_id is not None:
         # A179: a one-account pass is not a consent sync; do not stamp it.
