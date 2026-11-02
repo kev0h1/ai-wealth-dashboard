@@ -486,6 +486,8 @@ _OTHER_FRESHNESS_RE = re.compile(r"\bResearched\b|\bValid until\b", re.IGNORECAS
 _TRUNCATED_NAME_RE = re.compile(r"\b(?:Leisur|Birmin|Birming|Bromw|Supermark|S/Mkts?)\b")
 
 
+_TYPICAL_RE = re.compile(r"Typical: £[\d,]+(?:\.\d{2})? a month \([A-Za-z0-9.&' ]+, \d{1,2} [A-Z][a-z]{2} \d{4}\)\.")
+_TYPICAL_START_RE = re.compile(r"\bTypical:")
 _MISSING_STOP_RE = re.compile(r"[a-z0-9\u00a3)] (?:That|Checked|Also listed|Offer listed)\b")
 
 
@@ -543,6 +545,10 @@ def card_violations(card: dict, category: str, label: Optional[str] = None) -> l
             if not _ALSO_ITEM_RE.match(it) or RESELLER_RE.search(it):
                 found.append("also_listed_not_like_for_like")
                 break
+    if _TYPICAL_START_RE.search(body):
+        # G405: a regulator's figure, exactly this shape, never on a regulated product
+        if is_regulated_category(category, label) or len(_TYPICAL_START_RE.findall(body)) != len(_TYPICAL_RE.findall(body)):
+            found.append("typical_not_allowed")
     if is_regulated_category(category, label) and re.search(r"\blisted\b|\bcompar", body, re.IGNORECASE):
         found.append("regulated_market_text")
     lead = card.get("lead_line")
