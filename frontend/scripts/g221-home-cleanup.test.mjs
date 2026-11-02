@@ -50,7 +50,11 @@ for (const c of ["1", "4", "20"]) {
   assert.ok(text(html).includes(LABEL[c]), `${c}: footer reads "${LABEL[c]}"`);
   assert.ok(!html.includes("Manage"), `${c}: no Manage`);
   assert.ok(!/more accounts/.test(html), `${c}: no +N more row`);
-  assert.equal(count(html, "<button"), 1, `${c}: the footer is the only button in the block`);
+  const e = estateFor(c);
+  const { top } = topPicks(e.accounts, e.pinnedIds, e.investment);
+  const openers = top.length + (e.investment ? 1 : 0);
+  assert.equal(count(html, '<button type="button"'), openers, `${c}: each account row has a native keyboard opener`);
+  assert.equal(count(html, "<button"), openers + 1, `${c}: the footer is the only action beyond account openers`);
   assert.ok(html.includes("border-t border-slate-100"), `${c}: footer has a top border when rows precede it`);
   assert.ok(html.includes("min-h-11"), `${c}: footer is a 44px target`);
   assert.ok(!/text-indigo/.test(html.slice(html.indexOf("data-accounts-route"))), `${c}: footer ink is slate, not indigo`);
