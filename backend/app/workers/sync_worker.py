@@ -393,6 +393,15 @@ async def task_reconcile_truelayer(ctx):
 
     await bump_daily_counters(poll_syncs_enqueued=len(fx_ordered))
 
+    # A189: repair sweep, so accounts on a dead consent never linger as
+    # connected (idempotent; counts only).
+    try:
+        from app.services.finexer_sync import expire_accounts_on_dead_consents
+        sweep = await expire_accounts_on_dead_consents()
+        logger.info("reconcile: finexer dead-consent sweep %s", sweep)
+    except Exception:
+        logger.exception("reconcile: finexer dead-consent sweep failed")
+
     last_offset_seconds = offsets[-1] if offsets else 0
     if overflow:
         logger.warning(
@@ -802,6 +811,17 @@ async def _engine_refresh_on_startup() -> None:
         logger.exception("engine refresh on worker startup failed")
 
 
+async def _dead_consent_sweep_on_startup() -> None:
+    """A189: expire accounts on dead Finexer consents at the release restart,
+    so production heals without waiting for the next reconcile. Counts only."""
+    try:
+        from app.services.finexer_sync import expire_accounts_on_dead_consents
+        logger.info("worker startup: finexer dead-consent sweep %s",
+                    await expire_accounts_on_dead_consents())
+    except Exception:
+        logger.exception("finexer dead-consent sweep on worker startup failed")
+
+
 async def _on_startup(ctx: dict) -> None:
     """Deploy-time recompute of every user's forecast whose cache doc was
     written by a different engine build (G159, app.services.derived_caches).
@@ -823,6 +843,7 @@ async def _on_startup(ctx: dict) -> None:
     except Exception as exc:
         logger.warning("error type tracking not started: %s", type(exc).__name__)
     ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
+    ctx["dead_consent_sweep_task"] = asyncio.create_task(_dead_consent_sweep_on_startup())
 
 
 async def task_health_samples(ctx) -> dict:

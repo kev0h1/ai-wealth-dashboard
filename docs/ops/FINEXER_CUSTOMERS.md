@@ -68,3 +68,25 @@ You no longer need to delete customers in the Finexer dashboard.
 
 If you do still delete a customer in the dashboard, the reconciliation above
 remains the way to clear the stale cached id.
+
+## Revoked consents and the account status sweep (A189)
+
+A consent.canceled or consent.expired webhook can arrive while a sync of that
+consent is still writing its accounts. Before A189 the sync's end-of-run reset
+then set the accounts back to connected, so a revoked connection kept showing
+as live with a frozen balance and no reconnect banner.
+
+- The end-of-run reset in `finexer_sync.sync_finexer_consent` now re-reads the
+  consent and only marks accounts connected while it is still authorized, and
+  only accounts carrying that consent's `connection_id`. If the consent is no
+  longer authorized it logs one INFO line (consent id only) and marks the
+  accounts expired.
+- `finexer_sync.expire_accounts_on_dead_consents()` is an idempotent repair
+  sweep: for every consent whose status is not authorized it sets any account
+  not already expired to expired. It runs at the end of every 4-hourly
+  `task_reconcile_truelayer` pass and logs counts only (`consents_scanned`,
+  `accounts_flipped`), so production self-heals within four hours of release
+  with no manual step. The worker also runs it once at startup
+  (`_dead_consent_sweep_on_startup`), so the release restart heals it at once.
+- The payday plan skips a destination whose account status is expired. The
+  amount stays unallocated, as it does for an account the user excluded.

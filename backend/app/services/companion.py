@@ -2548,7 +2548,8 @@ async def compute_today_items(
 
     _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
                   "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
-                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1}
+                  "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1,
+                  "status": 1}
     wi = await build_window_inputs(
         uid, resp, prefs,
         load_balances=user_accounts_loader(
@@ -3860,6 +3861,12 @@ async def compute_today_items(
                 if acct_id == salary_acct:
                     continue
                 if acct_id in excluded_sources:
+                    continue
+                if acc.get("status") == "expired":
+                    # A189: a disconnected account already shows the reconnect
+                    # banner and its balance is frozen, so the plan does not
+                    # route money to it; the amount stays unallocated, as for
+                    # an excluded account.
                     continue
                 bills_total, bill_count, own_transfers_skipped = _acct_bills(acct_id)
                 balance = _bal(acct_id)
