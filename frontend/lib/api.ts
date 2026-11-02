@@ -1543,9 +1543,12 @@ export type PaydayPlanDest = {
    */
   destination_kind?: "savings" | "spend";
   /**
-   * True when this is a savings pot with nothing owed (no bills) but a
-   * habitual amount still moving — an accumulation top-up, not a shortfall
-   * to cover (G129, G128 note). Server-computed; never infer this from
+   * @deprecated G402: always false. A savings pot is never a payday plan
+   * destination any more and habitual mirroring is gone; the plan carries
+   * `habitual_note` instead. Kept so older frozen fixtures still type-check.
+   * Formerly: true when this was a savings pot with nothing owed (no bills)
+   * but a habitual amount still moving — an accumulation top-up, not a
+   * shortfall to cover (G129, G128 note). Server-computed; never infer this from
    * `target === 0`, which only ever held by accident of a backend defect
    * (G129) now fixed. Optional only for the same frozen-fixture reason as
    * `destination_kind` above.
@@ -1824,6 +1827,12 @@ export type CompanionItem = {
   salary?: PaydayPlanSalary;
   trimmed?: boolean;
   /** G350: present only when the suggested moves exceed the expected pay. */
+  /**
+   * G402: true when the user has a habitual payday transfer the plan did not
+   * include (no row for that account, or a move below the usual amount). The
+   * card then says so in one line beside the "stays with you" figure.
+   */
+  habitual_note?: boolean;
   over_salary?: PaydayPlanOverSalary | null;
   /** G350: moves left out of this month's plan (empty when nothing was). */
   left_out?: PaydayPlanLeftOut[];

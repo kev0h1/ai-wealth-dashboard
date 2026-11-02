@@ -446,6 +446,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
           <MoneyText text={maskAmounts(`£${Math.round(item.salary.stays).toLocaleString("en-GB")} stays with you in ${item.salary.name}.`)} />
         </p>
       )}
+      {/* G402: the plan leaves habitual transfers to the user, and says so. */}
+      {item.habitual_note && (
+        <p className="mt-0.5 text-[12px] text-slate-400 dark:text-slate-500 leading-snug">
+          This doesn&apos;t include your habitual transfers
+        </p>
+      )}
 
       {/* Footer — action button only; the hero figure above replaced the old
           12px total line, so the footer no longer needs to restate it. */}
