@@ -32,14 +32,7 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
 
-  {
-    slug: "account-detail-calm",
-    name: "A simpler account page · G407",
-    description: "G407 · frontend-design · C groups the account and spending summary in one card. D gives activity more room with an open account header. Both join tabs, search and transactions into one activity surface and use a shorter Account details sheet, including the estimate setting. Earlier A/B remain available. Exact synthetic figures, visible shortfalls and hidden balances. Production awaits a choice.",
-    variants: [{ label: "C · One account card", value: "c" }, { label: "D · Open layout", value: "d" }, { label: "A · Previous account first", value: "a" }, { label: "B · Previous activity first", value: "b" }],
-    states: [{ label: "Short after plans", value: "plans" }, { label: "Payments short", value: "payments" }, { label: "Money available", value: "available" }, { label: "Excluded from estimate", value: "excluded" }, { label: "Checking forecast", value: "checking" }, { label: "Forecast unavailable", value: "unavailable" }, { label: "No transactions", value: "empty" }, { label: "Long account name", value: "long" }],
-    group: "current",
-  },
+
 
   {
     slug: "spend-patterns-charts",

@@ -51,9 +51,12 @@ export function AccountTransactionsToolbar({
   return (
     <div className="mb-5 flex items-center gap-3" data-account-toolbar>
       <div className="relative flex-1 min-w-0">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
+        <Search size={14} aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
         <input
           type="search"
+          aria-label="Search transactions"
+          name="transaction-search"
+          autoComplete="off"
           value={searchQuery}
           onChange={e => onSearchChange(e.target.value)}
           placeholder="Search transactions…"
@@ -62,11 +65,11 @@ export function AccountTransactionsToolbar({
         {searchQuery && (
           <button
             type="button"
-            onClick={onClearSearch}
+            onClick={(event) => { onClearSearch(); event.currentTarget.parentElement?.querySelector("input")?.focus(); }}
             aria-label="Clear search"
-            className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+            className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         )}
       </div>
