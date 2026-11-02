@@ -139,6 +139,15 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
+    slug: "bank-coverage",
+    name: "Bank coverage before connecting · G395",
+    description: "Compare a quiet coverage line with three labelled marks in bank search and connection review. Includes limited coverage, a bank service notice and unavailable coverage. Dated preview fixtures pending A186.",
+    variants: [{ label: "A · Coverage line", value: "a" }, { label: "B · Coverage marks", value: "b" }],
+    states: [{ label: "Banks", value: "normal" }, { label: "Service notice", value: "health" }, { label: "Unknown coverage", value: "unknown" }, { label: "No banks", value: "empty" }],
+    group: "current",
+  },
+
+  {
     slug: "bank-consent-journeys",
     name: "Bank connection journeys · A155 · approved G",
     description: "Approved G renders the production BankConnectionFlow with fixture banks and inert operations. The search is fixed below the header, outside the scrolling results. Full unchanged notice before Continue to Finexer. H and I are earlier alternatives, not production; I still needs Finexer approval. No live connection starts.",
