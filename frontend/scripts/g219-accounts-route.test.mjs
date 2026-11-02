@@ -1,6 +1,5 @@
-// G219 (approved B, folded in): the quiet "Your accounts" link ships by default
-// in the Safe to Spend action row. One link to /accounts in every state that
-// renders a figure (including syncing), none on loading, error or degraded.
+// G397 supersedes G219's standalone hero Accounts action. Account captions
+// stay plain; the counted-account exception and shortfall recovery remain.
 //
 // Run: npm run -s check:g219-accounts-route
 
@@ -27,16 +26,16 @@ const hrefs = (html) => [...html.replace(/<div data-g304-ledger-explainer[\s\S]*
 const count = (html, needle) => html.split(needle).length - 1;
 const text = (html) => html.replace(/<[^>]+>/g, " ");
 
-// 1. Exactly one link to /accounts wherever a figure renders, syncing included.
+// 1. No standalone Accounts action or empty action row.
 for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
   const html = render({ data: FIGURE_DATA[key] });
-  assert.equal(count(html, "Your accounts<"), 1, `${key}: one Your accounts link`);
-  assert.deepEqual(hrefs(html), ["/accounts"], `${key}: it points at /accounts`);
-  assert.ok(html.includes("data-g219-action-row"), `${key}: link sits in the action row`);
+  assert.doesNotMatch(html, /data-g219-accounts-link/);
+  assert.ok(!hrefs(html).includes("/accounts"), `${key}: standalone Accounts link removed`);
+  assert.equal(html.includes("data-g219-action-row"), ["card", "short-cash", "short-plans"].includes(key), `${key}: only recovery needs a hero action row`);
 }
 const syncing = render({ syncing: SYNCING_INFO });
-assert.equal(count(syncing, "Your accounts<"), 1, "syncing: one link");
-assert.deepEqual(hrefs(syncing), ["/accounts"]);
+assert.doesNotMatch(syncing, /data-g219-action-row|See your cards/);
+assert.ok(!hrefs(syncing).includes("/accounts"));
 
 // 2. None where no figure renders.
 for (const [name, props] of [
@@ -49,17 +48,11 @@ for (const [name, props] of [
   assert.deepEqual(hrefs(html), [], `${name}: no anchors to /accounts`);
 }
 
-// 3. The link carries no colour meaning: no indigo fill, red, amber or gradient.
-for (const key of ["on-track", "short-cash"]) {
-  const html = render({ data: FIGURE_DATA[key] });
-  const cls = [...html.matchAll(/<a [^>]*data-g219-accounts-link[^>]*class="([^"]+)"/g)].map((m) => m[1])
-    .concat([...html.matchAll(/<a [^>]*class="([^"]+)"[^>]*data-g219-accounts-link/g)].map((m) => m[1]));
-  assert.equal(cls.length, 1, `${key}: found the link anchor`);
-  assert.doesNotMatch(cls[0], /bg-indigo|red-|amber-|violet-|gradient/, `no new colour meaning: ${cls[0]}`);
-  assert.ok(cls[0].includes("min-h-11"), "44px target");
-  assert.ok(cls[0].includes("text-slate-600"), "secondary slate ink");
-  assert.match(html, /<svg[^>]*aria-hidden="true"[^>]*>(?:(?!<\/a>).)*<\/svg><\/a>/s, "arrow is aria-hidden");
-}
+// 3. The separate, actionable counted-account exception stays.
+const excluded = render({ data: FIGURE_DATA.excluded });
+assert.equal(count(excluded, 'href="/accounts"'), 1);
+assert.match(excluded, /data-g231-not-counting/);
+assert.match(excluded, /Not counting 2 accounts/);
 
 // 4. Copy: no em dash or exclamation mark in rendered text.
 for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
@@ -72,16 +65,42 @@ for (const key of ["on-track", "tight", "card", "short-cash", "short-plans"]) {
 const BIG_POOL = { data: { ...FIGURE_DATA["on-track"], safe_to_spend: 10000 } };
 const rail = render(BIG_POOL);
 assert.ok(rail.includes('data-g115-treatment="bank-rail"'), "bank rail renders");
-assert.deepEqual(hrefs(rail), ["/accounts"], "rail rows are not links");
+assert.ok(!hrefs(rail).includes("/accounts"), "rail and caption remain plain");
+assert.match(rail, /See all in Your accounts\./, "existing caption wording retained");
 const named = render({ ...BIG_POOL, spendFrom: SPEND_FROM_NAMED });
 assert.ok(named.includes('data-g115-treatment="name-fallback"'), "name fallback renders");
-assert.deepEqual(hrefs(named), ["/accounts"], "name rows are not links");
+assert.ok(!hrefs(named).includes("/accounts"), "name rows are not links");
 
-// 6. The recovery button still renders in its state, with the link beside it in one row.
+// 6. Genuine shortfall recovery still renders inside the hero.
 const short = render({ data: FIGURE_DATA["short-cash"] });
 const row = short.slice(short.indexOf("data-g219-action-row"));
 assert.ok(row.includes("See what’s due"), "recovery button in the action row");
-assert.ok(row.indexOf("See what’s due") < row.indexOf("Your accounts<"), "primary action precedes the link");
 assert.equal(count(short, "<button"), count(short, "See what’s due"), "one primary button only");
+assert.match(render({ data: FIGURE_DATA.card }), /Review card bill/);
 
-console.log("g219-accounts-route: all assertions passed");
+// 7. The existing tight/high-card-debt route lives inside card evidence,
+// including when repayments leave zero growth or there is no period activity.
+const hero = html => html.slice(html.indexOf("data-g324-hero"), html.indexOf("data-g324-evidence"));
+for (const patch of [
+  { card_growth_total: 420, card_new_spend_total: 420, card_growth_reserved: 0 },
+  { card_growth_total: 420, card_new_spend_total: 200, card_growth_reserved: 20 },
+  { card_growth_total: 0, card_new_spend_total: 420, card_growth_reserved: 0 },
+  { card_growth_total: 0, card_new_spend_total: 0, card_growth_reserved: 0 },
+]) {
+  const data = { ...FIGURE_DATA.tight, card_debt: 1800, ...patch };
+  for (const hidden of [false, true]) {
+    const html = render({ data, previewBalancesVisible: !hidden });
+    assert.doesNotMatch(hero(html), /See your cards|data-g219-action-row/);
+    const card = html.slice(html.indexOf("data-g324-card-activity"));
+    assert.equal(count(card, 'href="/cards"'), 1, "one real Cards route within card evidence");
+    assert.match(card, /min-h-11[^>]*>See your cards/);
+    assert.match(card, /focus-visible:ring-2/);
+    if (patch.card_growth_reserved) assert.match(card, /Repayment not confirmed/);
+    if (hidden) assert.doesNotMatch(html, /£\d/, "amounts remain masked in DOM and accessible names");
+  }
+  assert.doesNotMatch(render({ data, syncing: SYNCING_INFO }), /See your cards/, "sync does not offer a stale recovery action");
+  assert.doesNotMatch(render({ data: { ...data, card_debt: 999 } }), /See your cards/, "existing debt threshold remains");
+  assert.doesNotMatch(render({ data: { ...data, state: "comfortable" } }), /See your cards/, "existing tight-state gate remains");
+}
+
+console.log("G219/G397: quiet hero, account exception, card route placement/eligibility, shortfall recovery and masking passed");

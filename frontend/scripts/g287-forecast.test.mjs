@@ -27,7 +27,7 @@ for (const key of G287_ORDER) {
     assert.doesNotMatch(home, /data-forecast-tone/, `${key}: no invented status badge`);
     continue;
   }
-  assert.match(home, /data-g219-accounts-link/, `${key}: accounts route survives`);
+  assert.doesNotMatch(home, /data-g219-accounts-link/, `${key}: G397 removes the standalone hero Accounts route`);
   assert.match(home, /An estimate from your bank data\. It can be wrong, so check your bank for your latest balance\. Not financial advice\./, `${key}: safety disclaimer survives`);
   const cash = data.lowest_projected_balance - data.buffer - (data.commitments_reserved ?? 0) - (data.allocations_reserved ?? 0);
   assert.equal(cash, data.safe_to_spend_cash, `${key}: Home cash reconciles with reserves`);

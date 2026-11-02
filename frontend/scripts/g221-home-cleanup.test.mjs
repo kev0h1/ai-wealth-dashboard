@@ -80,11 +80,11 @@ for (const c of ["1", "4", "20"]) {
 // Names are tidied on Home rows.
 assert.ok(estate("20").includes("Premier Current"), "Home rows show the shared display name") // G282, Kevin 2026-10-17;
 
-// Hero keeps its one route; the fresh user's route stays on the connect card.
+// G397 removes the duplicate hero route; estate and fresh-user routes stay.
 const hero = renderToStaticMarkup(
   h(AppRouterContext.Provider, { value: router },
     h(SafeToSpendCard, { loading: false, onRetry: noop, previewBalancesVisible: true, data: FIGURE_DATA["on-track"], spendFrom: SPEND_FROM_RAIL })));
-assert.equal(count(hero, 'href="/accounts"'), 1, "the hero carries exactly one Your accounts route");
+assert.equal(count(hero, 'href="/accounts"'), 0, "the hero has no duplicate Your accounts route");
 const fresh = renderToStaticMarkup(h(FirstAccountCard, { canConnect: true, onConnect: noop, onUploadStatement: noop, onOtherWays: noop }));
 assert.equal(count(fresh, "Other ways to add accounts"), 1, "fresh: the connect card carries the one route");
 
