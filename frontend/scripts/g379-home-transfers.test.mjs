@@ -32,4 +32,4 @@ assert.match(failed, /couldn’t be checked/);
 assert.match(failed, /Try again/);
 assert.match(failed, /<button/);
 assert.doesNotMatch(failed, /all checked/);
-console.log('G379: all-time count and approved loading, pending, empty and failure treatments pass');
+console.log('G379: all-time count, loading renders nothing, refetch keeps the prior count, empty and failure treatments pass');
