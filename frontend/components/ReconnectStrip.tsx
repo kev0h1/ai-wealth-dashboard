@@ -26,6 +26,8 @@ export type ReconnectProvider = {
   provider_id?: string;
   source?: string;
   account_count?: number;
+  /** A182: plain sentence from the bank's failure code, when there is one. */
+  reason?: string | null;
   /** A183: Finexer's health for this bank; degraded or down adds a plain notice. */
   health_status?: string;
 };
@@ -72,6 +74,9 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
           <span className="block text-[13px] font-semibold text-slate-900 dark:text-slate-100 truncate">
             {meta.label} needs reconnecting
           </span>
+          {provider.reason && (
+            <span className="block text-[11px] leading-4 text-slate-500 dark:text-slate-400">{provider.reason}</span>
+          )}
           {providerHealthNotice(meta.label, provider.health_status) && (
             <span data-provider-health className="block text-[11px] leading-4 text-slate-600 dark:text-slate-300">
               {providerHealthNotice(meta.label, provider.health_status)}
@@ -127,6 +132,9 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
                 <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
                   {p.account_count ?? 1} {(p.account_count ?? 1) === 1 ? "account" : "accounts"} · stopped syncing
                 </span>
+                {p.reason && (
+                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">{p.reason}</span>
+                )}
                 {providerHealthNotice(meta.label, p.health_status) && (
                   <span data-provider-health className="block text-[11px] leading-4 text-slate-600 dark:text-slate-300">
                     {providerHealthNotice(meta.label, p.health_status)}

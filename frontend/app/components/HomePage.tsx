@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
+import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import FirstSyncCard from "@/components/FirstSyncCard";
@@ -27,6 +27,7 @@ import { getHomeCache, setHomeCache } from "@/lib/homeCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import HomeTransfersCheck from "@/components/HomeTransfersCheck";
 import ReconnectStrip from "@/components/ReconnectStrip";
+import ReconfirmPrompt from "@/components/ReconfirmPrompt";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
@@ -191,6 +192,9 @@ export default function HomePage() {
   useEffect(() => {
     api.getProfile().then((p) => setProfileFullName(p.full_name || undefined)).catch(() => {});
   }, []);
+  // A182: bank connections, for the 90-day reconfirmation prompt and the
+  // plain reason on the reconnect strip.
+  const [bankConnections, setBankConnections] = useState<Connection[]>([]);
   const nameSources = { fullName: profileFullName, sessionName: user?.name, email: user?.email };
   const displayName = resolveFullName(nameSources) ?? undefined;
   const firstName = resolveDisplayName(nameSources) ?? undefined;
@@ -869,18 +873,32 @@ export default function HomePage() {
     [accountEligibility, accounts, todayStatus, accountsStatus],
   );
 
+  // Fetched only when something needs it: the prompt gate is on (the flag rides
+  // on the existing /sync/status payload, absent when off) or a bank has
+  // expired and may carry a plain reason. Otherwise Home makes no extra request.
+  const needsConnections = Boolean(syncStatus?.reconfirm_prompt_enabled) || accounts.some((a) => a.status === "expired");
+  useEffect(() => {
+    if (!needsConnections) return;
+    let cancelled = false;
+    api.connections().then((c) => { if (!cancelled) setBankConnections(c); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [needsConnections]);
+
   const expiredProviders = useMemo(() => {
-    const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number }>();
+    const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number; reason?: string | null }>();
     for (const a of accounts) {
       if (a.status !== "expired") continue;
       const source = (a as Account & { source?: string }).source;
       const key = `${source ?? "bank"}:${a.provider_id ?? a.provider}`;
       const existing = grouped.get(key);
-      if (existing) existing.account_count += 1;
-      else grouped.set(key, { provider: a.provider, provider_id: a.provider_id, source, account_count: 1 });
+      const reason = bankConnections.find((c) => c.connection_id === a.connection_id)?.failure_reason ?? null;
+      if (existing) {
+        existing.account_count += 1;
+        if (!existing.reason && reason) existing.reason = reason;
+      } else grouped.set(key, { provider: a.provider, provider_id: a.provider_id, source, account_count: 1, reason });
     }
     return [...grouped.values()];
-  }, [accounts]);
+  }, [accounts, bankConnections]);
   const providerHealth = useProviderHealth(expiredProviders.length > 0);
 
   // A67: reconnect REPAIRS one named connection, so it must go back to the
@@ -1071,6 +1089,10 @@ export default function HomePage() {
               onCoverMoveVisibleChange={onCoverMoveVisibleChange}
               banner={<div className="space-y-4">
                 {reauthBanner}
+                <ReconfirmPrompt
+                  connections={bankConnections}
+                  bankNameFor={(c) => accounts.find((a) => a.connection_id === c.connection_id)?.provider}
+                />
                 <HomeTransfersCheck refreshKey={bulkNonce} enabled={!hasNoAccounts} onReady={onTransfersReady} onReview={openTransferReview} />
               </div>}
             />

@@ -51,6 +51,7 @@ import MoneyText from "@/components/MoneyText";
 import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
+import { connectionNotes } from "@/lib/reconfirm";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
@@ -1663,16 +1664,20 @@ export default function AccountsPage() {
       const source = (account as Account & { source?: string }).source;
       const key = `${source ?? "bank"}:${account.provider_id ?? account.provider}`;
       const existing = grouped.get(key);
-      if (existing) existing.account_count = (existing.account_count ?? 1) + 1;
-      else grouped.set(key, {
+      const reason = connections.find((c) => c.connection_id === account.connection_id)?.failure_reason ?? null;
+      if (existing) {
+        existing.account_count = (existing.account_count ?? 1) + 1;
+        if (!existing.reason && reason) existing.reason = reason;
+      } else grouped.set(key, {
         provider: account.provider,
         provider_id: account.provider_id,
         source,
         account_count: 1,
+        reason,
       });
     }
     return [...grouped.values()];
-  }, [bankAccounts]);
+  }, [bankAccounts, connections]);
   const providerHealth = useProviderHealth(reconnectProviders.length > 0);
   function handleEstateReconnect(provider: ReconnectProvider) {
     const account = bankAccounts.find((candidate) => {
@@ -2503,7 +2508,7 @@ export default function AccountsPage() {
             </button>
           ) : null)}
 
-          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} />
+          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} connectionNotes={isExpired ? [] : connectionNotes(consentConnection)} />
           {overdraftAvailable(selectedAccount) !== null && (
             <p data-a181-overdraft className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">
               <MoneyText text={availableWithOverdraftText(hideNetWorth ? "£••••" : formatAvailabilityAmount(overdraftAvailable(selectedAccount) as number))} />

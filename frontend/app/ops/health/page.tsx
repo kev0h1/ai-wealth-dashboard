@@ -146,7 +146,7 @@ function EventReconcile({ initial }: { initial: OpsFinexerEvents | null }) {
 }
 
 function HealthBlocks({ health }: { health: OpsHealth }) {
-  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs, finexer_events: fxe } = health;
+  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs, finexer_consents: fxc, finexer_events: fxe } = health;
   const loadPerCpu = load ? load.load_5m / load.cpus : null;
   return (
     <>
@@ -230,6 +230,26 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
               <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook, ${fxw.poll_syncs_today} polled, ${fxw.user_syncs_today} user, ${fxw.history_syncs_today} history`} hint={`yesterday ${fxw.user_syncs_yesterday} user, ${fxw.history_syncs_yesterday} history`} />
             </div>
             <EventReconcile initial={fxe ?? null} />
+          </div>
+        </Block>
+      )}
+
+      {fxc && fxc.consents.length > 0 && (
+        <Block title="Finexer consents">
+          <div className={CARD}>
+            <p className={`text-sm font-semibold ${fxc.reconfirm_due > 0 ? WARN : "text-slate-900 dark:text-slate-100"}`}>
+              {fxc.reconfirm_due} due for reconfirmation within 7 days
+            </p>
+            <ul className="mt-3 space-y-2">
+              {fxc.consents.map((c, i) => (
+                <li key={i} className="text-[13px] text-slate-700 dark:text-slate-300">
+                  <span className="font-semibold">{c.bank ?? "Bank"}</span>, {c.status ?? "unknown"}
+                  {c.next_reconfirm_by ? `, reconfirm by ${c.next_reconfirm_by.slice(0, 10)}${c.reconfirm_overdue ? " (overdue)" : ""}` : ", no reconfirmation needed"}
+                  {c.history_requested_from ? `, history requested from ${c.history_requested_from}` : ""}
+                  {c.failure_code || c.status === "failed" ? `, failed: ${c.failure_code ?? "no code"}${c.failure_message ? ` (${c.failure_message})` : ""}` : ""}
+                </li>
+              ))}
+            </ul>
           </div>
         </Block>
       )}

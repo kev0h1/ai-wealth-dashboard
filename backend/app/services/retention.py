@@ -554,6 +554,8 @@ async def revoke_finexer_consent_remote(consent_id: str) -> str | None:
                 if gcode == 404 or _consent_is_revoked(gbody):
                     return None
                 return "404_unconfirmed"
+            from app.services.finexer_sync import log_finexer_error
+            log_finexer_error(rv, "POST /consents/{id}/revoke")
             logger.warning("Finexer revoke consent %s: HTTP %s", consent_id, code)
             return str(code)
     except Exception as exc:

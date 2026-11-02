@@ -313,7 +313,7 @@ async def ops_health(user: dict = Depends(current_user)):
     except Exception:
         finexer_events = None
     return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks,
-            "finexer_sync": finexer_sync, "finexer_events": finexer_events}
+            "finexer_sync": finexer_sync, "finexer_events": finexer_events, "finexer_consents": await _finexer_consents_health()}
 
 
 @router.post("/health/finexer-events/reconcile")
@@ -450,3 +450,14 @@ async def ops_settings_delete(key: str, user: dict = Depends(current_user)):
         raise HTTPException(404, "Unknown setting")
     except runtime_settings.SettingsUnavailable:
         raise HTTPException(503, "Settings store unavailable")
+
+
+async def _finexer_consents_health():
+    """A182: per-consent reconfirmation date, history start and failure reason.
+    A failure here never blanks the page (kept at the end of the file so the
+    line-keyed allowlist in test_no_raw_exception_leak stays valid)."""
+    try:
+        from app.services.finexer_consent import consent_health
+        return await consent_health()
+    except Exception:
+        return None

@@ -479,7 +479,8 @@ async def process_finexer_event(event: dict, *, source: str = "webhook") -> dict
         await _stamp()
         return {"ok": True}
 
-    if source != "webhook" and action in (fxw.ACTION_CONSENT_REVOKED, fxw.ACTION_CONSENT_EXPIRED):
+    if source != "webhook" and action in (fxw.ACTION_CONSENT_REVOKED, fxw.ACTION_CONSENT_EXPIRED,
+                                          fxw.ACTION_CONSENT_FAILED):
         # A184: a replayed status flip must not undo a newer state (the user
         # reconnected, or the sync already moved the consent on).
         from app.services.finexer_event_reconcile import _created_at
@@ -514,6 +515,43 @@ async def process_finexer_event(event: dict, *, source: str = "webhook") -> dict
         exp = _parse_iso_utc(obj.get("expiry_date")) if obj.get("object") == "consent" else None
         if exp:
             fields["expiry_date"] = exp
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]}, {"$set": fields, "$unset": {"last_connection_nag": ""}},
+        )
+        await _mark_accounts_expired(str(doc["_id"]))
+        await _set({"status": "noted"})
+        await _stamp()
+        return {"ok": True}
+
+    if action == fxw.ACTION_CONSENT_AUDIT:
+        # consent.opened / consent.initiated: audit only. Never touches status,
+        # accounts or the sync; just remembers the last journey step seen.
+        await finexer_consents_col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"last_consent_event": str(event_type).strip().lower()[:40],
+                      "last_consent_event_at": datetime.utcnow()}},  # naive-ok: matches last_synced convention
+        )
+        await _set({"status": "noted"})
+        await _stamp()
+        return {"ok": True}
+
+    if action == fxw.ACTION_CONSENT_FAILED:
+        # consent.failed: keep Finexer's failure_code and failure_message, mark
+        # the consent, flag its accounts so the reconnect banner shows the plain
+        # reason, and clear the nag throttle so task_consent_watch speaks next run.
+        # Events can arrive late or out of order: apply it only to a consent that
+        # is still pending or authorised and only when the object itself says
+        # "failed". Anything else (a revoked or expired consent, another remote
+        # status) is recorded and ignored, never overwriting a later state.
+        from app.services.finexer_consent import consent_failure_fields
+        is_consent = obj.get("object") == "consent"
+        if doc.get("status") not in ("pending", "authorized") or not (is_consent and obj.get("status") == "failed"):
+            await _set({"status": "ignored"})
+            await _stamp()
+            return {"ok": True}
+        fields = {"status": "failed",
+                  "status_changed_at": datetime.utcnow(),  # naive-ok: retention grace-period clock
+                  **consent_failure_fields(obj)}
         await finexer_consents_col.update_one(
             {"_id": doc["_id"]}, {"$set": fields, "$unset": {"last_connection_nag": ""}},
         )

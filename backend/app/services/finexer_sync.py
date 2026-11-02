@@ -44,6 +44,33 @@ def _client() -> httpx.AsyncClient:
     )
 
 
+def _request_id(resp) -> Optional[str]:
+    """Finexer's `fx-request-id` response header, for support tickets. Masked
+    to [redacted] only when it looks like a key or token (the same shapes
+    `_scrub_reason` removes); an ordinary request id is logged as is."""
+    try:
+        raw = resp.headers.get("fx-request-id")
+    except Exception:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip()[:120]
+    if (FINEXER_API_KEY and FINEXER_API_KEY in value) or _SCRUB_SECRET.search(value):
+        return "[redacted]"
+    return value
+
+
+def log_finexer_error(resp, where: str) -> None:
+    """One warning line for a failed Finexer call: where, status and the
+    fx-request-id header. Never the body (see `_scrub_reason` for that) and
+    never raises."""
+    try:
+        status = resp.status_code
+        logger.warning("Finexer error on %s: status=%s fx-request-id=%s", where, status, _request_id(resp))
+    except Exception:
+        pass
+
+
 # E2: Finexer's documented rate limit is unknown (see DEPLOY.md's "Railway
 # Pro and replicas (E2)" section), so a real 429 is the ground truth. Rather
 # than fail a whole sync the first time the API pushes back, this backs off
@@ -88,6 +115,8 @@ async def _get(
         # A167: per-day API-call counter (before/after measurement).
         from app.services.finexer_webhooks import bump_daily_counters
         await bump_daily_counters(requests=1, rate_limited=1 if resp.status_code == 429 else 0)
+        if isinstance(resp.status_code, int) and resp.status_code >= 400:
+            log_finexer_error(resp, f"GET {url.split('?')[0]}")
         if resp.status_code != 429:
             return resp
         if counter is not None:
@@ -171,6 +200,8 @@ async def _post(
     await bump_daily_counters(requests=1, rate_limited=1 if limited else 0)
     if limited and counter is not None:
         counter["429s"] = counter.get("429s", 0) + 1
+    if isinstance(resp.status_code, int) and resp.status_code >= 400:
+        log_finexer_error(resp, f"POST {url.split('?')[0]}")
     return resp
 
 
@@ -839,6 +870,7 @@ async def _create_customer(user: dict) -> str:
     from app.services.finexer_webhooks import bump_daily_counters
     await bump_daily_counters(requests=1)
     if r.status_code not in (200, 201):
+        log_finexer_error(r, "POST /customers")
         logger.error("Finexer POST /customers failed: HTTP %s (upstream error)", r.status_code)
         logger.warning("Finexer POST /customers failed: status=%s reason=%s", r.status_code, _scrub_reason(r.text))
         raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_UNAVAILABLE, None,
@@ -866,18 +898,41 @@ async def get_or_create_customer(user: dict, *, force_new: bool = False) -> str:
     return customer_id
 
 
-async def _post_consent(customer_id: str, provider: Optional[str], state: str) -> httpx.Response:
+async def _post_consent(customer_id: str, provider: Optional[str], state: str,
+                        retro_date: Optional[str] = None) -> httpx.Response:
     data: dict = {
         "customer":   customer_id,
         "return_url": f"{FINEXER_RETURN_URL}?state={state}",
     }
     if provider:
         data["provider"] = provider
+    # A182: how far back the consent may read. Finexer's default is 90 days
+    # before today, which is all a rebuilt account would otherwise get (G359).
+    if retro_date:
+        data["retro_date"] = retro_date
+    # A182 scopes: NOT sent. The 2026-07-23 contract recorded `scopes` being
+    # rejected as invalid_parameter, and no documented shape has been seen since
+    # (the saved API reference is not in the repo), so the default scopes stay
+    # (accounts, balance and transactions are what the default consent grants).
+    # Do not guess a shape here: confirm it against Finexer's reference first.
     async with _client() as client:
         r = await client.post("/consents", data=data)
     from app.services.finexer_webhooks import bump_daily_counters
     await bump_daily_counters(requests=1)
     return r
+
+
+class ConsentDict(dict):
+    """The consent object Finexer returned. Equal to the plain dict; also
+    carries what we asked for (A182) so the caller can store it."""
+    retro_date_requested: Optional[str] = None
+
+
+def _rejected_first_attempt(resp) -> bool:
+    """Any 400 or 422 on an attempt that carried retro_date, except the unknown
+    customer case (A178 handles that one and keeps the date). The contract for
+    retro_date is unconfirmed, so a rejection of any kind retries without it."""
+    return resp.status_code in (400, 422) and not _is_unknown_customer(resp)
 
 
 async def create_consent(
@@ -894,22 +949,39 @@ async def create_consent(
     deleted in the Finexer dashboard while we still cache its id), the cached
     record is dropped, a fresh customer is created and the consent retried
     exactly once. Any other failure raises FinexerConsentError (never a bare
-    RuntimeError), after logging provider, status and a scrubbed reason."""
-    r = await _post_consent(customer_id, provider, state)
+    RuntimeError), after logging provider, status and a scrubbed reason.
+
+    A182: sends `retro_date` (FINEXER_RETRO_MONTHS months back, default 0 = none
+    until the contract is confirmed against the sandbox) so a connection can read more than the default 90 days; the
+    bank's own maximum still applies. If Finexer answers the first attempt with a
+    400 or 422 the consent is retried once without it. The date asked for rides on the
+    returned dict as `.retro_date_requested`."""
+    from app.services.finexer_consent import retro_date_for, retro_months_setting
+    retro = retro_date_for(await retro_months_setting())
+
+    r = await _post_consent(customer_id, provider, state, retro)
+    if r.status_code not in (200, 201) and retro and _rejected_first_attempt(r):
+        log_finexer_error(r, "POST /consents (first attempt rejected, retrying without retro_date)")
+        logger.warning("Finexer POST /consents: retro_date rejected, retrying without it (reason=%s)",
+                       _scrub_reason(r.text))
+        retro = None
+        r = await _post_consent(customer_id, provider, state, None)
     if r.status_code in (200, 201):
-        return r.json()
+        return _consent_result(r, retro)
 
     if _is_unknown_customer(r):
+        log_finexer_error(r, "POST /consents (unknown customer)")
         logger.warning(
             "Finexer POST /consents: customer rejected as unknown (provider=%s status=%s reason=%s); "
             "dropping the cached customer and retrying once",
             provider, r.status_code, _scrub_reason(r.text),
         )
         new_customer = await get_or_create_customer(user or {"email": user_id}, force_new=True)
-        r = await _post_consent(new_customer, provider, state)
+        r = await _post_consent(new_customer, provider, state, retro)
         if r.status_code in (200, 201):
-            return r.json()
+            return _consent_result(r, retro)
 
+    log_finexer_error(r, "POST /consents")
     logger.warning(
         "Finexer POST /consents failed: provider=%s status=%s reason=%s",
         provider, r.status_code, _scrub_reason(r.text),
@@ -919,6 +991,12 @@ async def create_consent(
                                   _PROVIDER_REJECTED_MESSAGE)
     raise FinexerConsentError(r.status_code, FinexerConsentError.CODE_UNAVAILABLE, provider,
                               _CONSENT_FAILED_MESSAGE)
+
+
+def _consent_result(r, retro: Optional[str]) -> dict:
+    out = ConsentDict(r.json())
+    out.retro_date_requested = retro
+    return out
 
 
 def _infer_transaction_type(txn: dict) -> str:
@@ -1514,8 +1592,10 @@ async def sync_finexer_consent(
             update_fields = {
                 "status":      remote_status,
                 "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
-                "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
             }
+            # A182: failure code and message, and the 90-day reconfirmation date.
+            from app.services.finexer_consent import consent_sync_fields
+            update_fields.update(consent_sync_fields(consent_doc, local_consent))
             # Stamp the moment the status actually changed away from
             # "authorized" (local_consent was verified authorized above), so
             # the retention sweep (app.services.retention) has a timestamp to

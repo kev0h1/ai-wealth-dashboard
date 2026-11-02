@@ -23,11 +23,16 @@ export function AccountDetailIdentity({
   );
 }
 
-export function AccountDetailKindLine({ kindLabel, provider, consentExpiry, business }: { kindLabel: string; provider?: string | null; consentExpiry?: string | null; business?: boolean }) {
+export function AccountDetailKindLine({ kindLabel, provider, consentExpiry, business, connectionNotes }: { kindLabel: string; provider?: string | null; consentExpiry?: string | null; business?: boolean; connectionNotes?: string[] }) {
   return (
-    <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
-      {accountDetailKindText(kindLabel, provider, consentExpiry, business)}
-    </p>
+    <>
+      <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
+        {accountDetailKindText(kindLabel, provider, consentExpiry, business)}
+      </p>
+      {(connectionNotes ?? []).map((note) => (
+        <p key={note} className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">{note}</p>
+      ))}
+    </>
   );
 }
 
