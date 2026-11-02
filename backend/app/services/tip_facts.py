@@ -197,7 +197,10 @@ def host_of(value: str) -> str:
     v = (value or "").strip().lower()
     if "//" in v:
         v = urlparse(v).netloc or ""
-    v = v.split("/")[0].split(":")[0]
+    v = v.split("/")[0]
+    if "@" in v:
+        return ""  # userinfo ("good.com:x@evil.com") is never a host (G405 review B1)
+    v = v.split(":")[0]
     return v[4:] if v.startswith("www.") else v
 
 
@@ -486,7 +489,9 @@ _OTHER_FRESHNESS_RE = re.compile(r"\bResearched\b|\bValid until\b", re.IGNORECAS
 _TRUNCATED_NAME_RE = re.compile(r"\b(?:Leisur|Birmin|Birming|Bromw|Supermark|S/Mkts?)\b")
 
 
-_TYPICAL_RE = re.compile(r"Typical: £[\d,]+(?:\.\d{2})? a month \([A-Za-z0-9.&' ]+, \d{1,2} [A-Z][a-z]{2} \d{4}\)\.")
+_TYPICAL_RE = re.compile(
+    r"Typical: £[\d,]+ a month \([A-Za-z0-9.&' ]+ price cap £[\d,]+ a year, \d{1,2} [A-Z][a-z]{2} \d{4}\)\."
+)
 _TYPICAL_START_RE = re.compile(r"\bTypical:")
 _MISSING_STOP_RE = re.compile(r"[a-z0-9\u00a3)] (?:That|Checked|Also listed|Offer listed)\b")
 

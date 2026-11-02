@@ -1301,7 +1301,7 @@ async def _tavily_search(
                             web_snippets.append(f"Page {page}: {snippet}" if page else snippet)
                     for res in (data.get("results") or [])[:3]:
                         url = str(res.get("url") or "")
-                        if url.startswith("https://") and len(url) <= 200:
+                        if url.startswith("https://") and len(url) <= 200 and tip_pages.safe_https_host(url):
                             urls.append(url)
                     await tips_research_health.record_success(datetime.utcnow())  # naive-ok: persisted provider-health audit timestamp
                 else:
@@ -1467,7 +1467,7 @@ def _clean_sources(urls: list[str]) -> list[str]:
     out: list[str] = []
     for u in urls:
         parts = urlparse(str(u))
-        if parts.scheme != "https" or not parts.netloc:
+        if parts.scheme != "https" or not parts.netloc or not tip_pages.safe_https_host(str(u)):
             continue
         clean = f"https://{parts.netloc}{parts.path}"
         try:
@@ -1492,10 +1492,19 @@ def _is_shareable_text(text: str) -> bool:
 _POUND_FIGURE_RE = re.compile(r"£\s*\d[\d,]*(?:\.\d+)?")
 
 
+_LIST_BEFORE_RE = re.compile(r"(?:,|&|\band|\bor|\bvs\.?|/)\s*$", re.IGNORECASE)
+_LIST_AFTER_RE = re.compile(r"^\s*(?:,|&|and\b|or\b|vs\.?|/)\s*[A-Z0-9]")
+
+
 def _provider_named_before_price(text: str, name: str, price: float) -> bool:
-    want = re.sub(r"[^a-z0-9]", "", name.lower())
-    if not want:
+    """The provider's name sits in the clause just before the figure (within 80
+    characters, after the previous £ figure) and is the ONLY provider named
+    there: a name that is part of a list ("Octopus, EDF, British Gas deals from
+    £146") is not tied to the price. G405."""
+    chars = [re.escape(c) for c in re.sub(r"[^a-z0-9]", "", name.lower())]
+    if not chars:
         return False
+    name_re = re.compile(r"[^A-Za-z0-9]*".join(chars), re.IGNORECASE)
     figures = list(_POUND_FIGURE_RE.finditer(text))
     for i, m in enumerate(figures):
         try:
@@ -1505,8 +1514,14 @@ def _provider_named_before_price(text: str, name: str, price: float) -> bool:
         if abs(value - price) > 0.005:
             continue
         start = max(m.start() - 80, figures[i - 1].end() if i else 0)
-        if want in re.sub(r"[^a-z0-9]", "", text[start:m.start()].lower()):
-            return True
+        window = text[start:m.start()]
+        hits = list(name_re.finditer(window))
+        if not hits:
+            continue
+        hit = hits[-1]
+        if _LIST_BEFORE_RE.search(window[:hit.start()]) or _LIST_AFTER_RE.match(window[hit.end():]):
+            continue
+        return True
     return False
 
 
@@ -1700,7 +1715,10 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
         return tip_research.FetchOutcome(failure=outcome.get("failure") or "error")
     # a regulator's typical figure, read from its own page by a strict rule (no
     # model, nothing hardcoded); None when it cannot be read
-    typical_regulated = await tip_regulators.fetch_typical(key.category, stats, today)
+    async def _regulator_search(q: str):
+        return await _tavily_search(q, key.category, {}, pipeline="tip_research_tavily")
+
+    typical_regulated = await tip_regulators.fetch_typical(key.category, stats, today, _regulator_search)
     if not OPENROUTER_API_KEY:
         log.warning("tip research: OPENROUTER_API_KEY not configured, aborting for category=%s", key.category)
         return _regulator_only("error")
@@ -1878,10 +1896,11 @@ def _compose_tip_content(
         reg = tip_regulators.valid_typical(category_key, f.get("typical_regulated"))
         if reg:
             read = datetime.strptime(reg["read_on"], "%Y-%m-%d")
-            amt = float(reg["figure"])
-            figure = tip_facts.money(amt) if amt == int(amt) else tip_facts.money2(amt)
+            annual = float(reg["figure_annual"])
             sentences.append(
-                f"Typical: {figure} a month ({reg['source_name']}, {read.day} {read.strftime('%b')} {read.year})."
+                f"Typical: {tip_facts.money(tip_regulators.monthly_for(annual))} a month "
+                f"({reg['source_name']} price cap {tip_facts.money(annual)} a year, "
+                f"{read.day} {read.strftime('%b')} {read.year})."
             )
         low, high = f.get("typical_low"), f.get("typical_high")
         noun = _RANGE_NOUN.get(category_key)

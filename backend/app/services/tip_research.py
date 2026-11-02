@@ -170,7 +170,7 @@ _PERSONAL_WORD_RE = re.compile(r"\b(?:you|your|yours|i|my|me|we|our|ours)\b", re
 _MONEY_OR_DECIMAL_RE = re.compile(r"£|\d\.\d")
 # The only places a figure may live: grounded numbers, not text.
 _NUMBER_PATHS = re.compile(
-    r"^findings\.(?:typical_low|typical_high|typical_regulated\.figure|deal\.price|alternatives\.\d+\.price)$"
+    r"^findings\.(?:typical_low|typical_high|typical_regulated\.figure_annual|deal\.price|alternatives\.\d+\.price)$"
 )
 
 
@@ -199,7 +199,7 @@ def assert_no_user_data(doc) -> None:
             where = path.rstrip(".")
             if _EMAIL_RE.search(node):
                 raise ValueError(f"tip_research document carries an email address at {where}")
-            if where.startswith("findings.sources."):
+            if where.startswith("findings.sources.") or where == "findings.typical_regulated.source_url":
                 low = node.lower()
                 if not node.startswith("https://") or any(b in low for b in ("?", "#", "%40", "£", "%c2%a3")):
                     raise ValueError(f"tip_research source is not a plain scheme, host and path at {where}")
@@ -381,7 +381,9 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
 
 # G405: counts-only history of what each research read, so the two-week measure
 # (how many tips gain a line) can be summed without a second collection.
-HISTORY_KEEP = 8
+# Worst case in 14 days: a key that fails is retried every RETRY_AFTER (6 h), so
+# 4 a day x 14 days = 56 runs; a healthy key runs once per 7 day TTL. 60 covers both.
+HISTORY_KEEP = 60
 STAT_KEYS = ("pages_fetched", "pages_failed", "listings_from_pages", "listings_from_snippets",
              "regulator_read", "regulator_failed")
 
