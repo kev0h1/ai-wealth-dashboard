@@ -76,4 +76,10 @@ for (const f of ["../lib/accountRefresh.ts", "../components/AccountRefreshRow.ts
 }
 const row = fs.readFileSync(new URL("../components/AccountRefreshRow.tsx", import.meta.url), "utf8");
 assert.match(row, /dark:text-slate-100/, "dark theme classes present");
+const compact = render(React.createElement(AccountRefreshRow, { account: acct({ bank_synced_to: "2026-11-01T10:00:00Z", bank_next_refresh_at: "2026-11-01T12:45:00Z" }), onRefresh: noop, now, compact: true }));
+assert.doesNotMatch(compact, /glass-card/, "G406 freshness is an unboxed facts row");
+assert.match(compact, /Next refresh from/);
+assert.match(compact, /disabled=""/, "compact mode preserves the hourly cooldown");
+const facts = page.slice(page.indexOf("<div data-account-facts"), page.indexOf("{pinMsg &&"));
+assert.match(facts, /<AccountRefreshRow[^>]+\bcompact\s*\/>/, "refresh lives with the account facts");
 console.log("a179 account refresh: ok");
