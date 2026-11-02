@@ -172,6 +172,33 @@ from Kevin's reading of the reference on 2026-10-31. Confirm each in one pass:
     free-tier (Statements) consents should be excluded from it. Today every
     authorised consent counts.
 
+## Coverage map and balance-only accounts (A186)
+
+`backend/app/services/finexer_coverage.py` holds a static map of provider code to
+the account kinds Finexer shares (current, savings, card). It was captured on
+2026-11-02 from the Supported banking institutions page on finexer.com and is
+advisory only: it decides whether we send bank sync requests and what the account
+sheet says when nothing arrives, and it never drops rows. Any transaction that
+does come back for a balance-only account is stored as normal.
+
+An account is balance-only when its provider is in the map and does not share the
+account's kind, or when a Monzo, Revolut or Starling account has no sort code and
+no account number (a pot, vault or space). Unknown providers and unrecognised
+account classes are never balance-only.
+
+During a sync, balance-only accounts skip the auto sync setter and every manual
+bank sync request (nothing is stamped for sync), still have their balance fetched
+and transactions walked, and get `balance_only` and `balance_only_reason` on the
+account doc, cleared to false on the next pass if the map changes. `GET /accounts`
+returns both fields, the account sheet shows the reason followed by "The balance
+still updates.", and `/ops/health` leaves these accounts out of the stale alert
+and `consents_without_bank_data`.
+
+To check whether Finexer already exposes account type support: on a forced
+provider refresh the API logs one INFO line, `Finexer GET /providers item keys:
+[...]`, listing the key names (never values) of the first provider item. If a
+field for supported account types appears, prefer it over the static map.
+
 ## A187 timezone assumption for Finexer timestamps
 
 Evidence (production, 2 Nov 2026): every account refreshed at 06:25 to 06:26 UTC carried `bank_synced_to` exactly one hour after `bank_sync_requested_at`. Finexer appears to send `synced_from` and `synced_to` without a zone offset, on a Europe/London clock.

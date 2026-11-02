@@ -140,7 +140,7 @@ class FpClient(Client):
 
     async def get(self, url, params=None):
         if url == "/bank_accounts":
-            row = {"id": self.bank_id, "class": "current", "provider": "monzo"}
+            row = {"id": self.bank_id, "class": "current", "provider": "monzo", "identification": {"sort_code": "040004", "account_number": "12345678"}}
             if self.fingerprint:
                 row["fingerprint"] = self.fingerprint
             return Resp(200, {"data": [row]})

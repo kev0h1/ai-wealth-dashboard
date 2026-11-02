@@ -134,7 +134,7 @@ class Client:
         if url.startswith("/consents/"):
             return Resp(200, {"status": "authorized"})
         if url == "/bank_accounts":
-            return Resp(200, {"data": [{"id": "acc1", "class": "current", "provider": "monzo"}]})
+            return Resp(200, {"data": [{"id": "acc1", "class": "current", "provider": "monzo", "identification": {"sort_code": "040004", "account_number": "12345678"}}]})
         if url.endswith("/balance"):
             return Resp(200, {"data": [{"type": "actual", "current": 10.0}]})
         if url.endswith("/sync"):
