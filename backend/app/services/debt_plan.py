@@ -38,7 +38,7 @@ from typing import Optional
 from app.db.collections import accounts_col, card_terms_col, cashflow_cache_col, preferences_col, transactions_col
 from app.services import response_cache
 from app.services.account_kinds import is_credit_card_account
-from app.services.own_account_transfers import series_key  # G403: per-card key for a linked repayment
+from app.services.own_account_transfers import series_key, repayment_display_name  # G403: per-card key for a linked repayment
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.routers.card_terms import _promos_from_legacy
 
@@ -496,7 +496,10 @@ async def _map_upcoming_bills_to_cards(
                 if not recorded_occurrence:
                     # Record bill info once per pattern
                     bills_by_card[card_aid].append({
-                        "name": pat_key,
+                        # G403: never show the card account id inside a per-card key.
+                        "name": repayment_display_name(pat_key, next(
+                            (str(a_.get("name") or "") for a_ in cc_accounts if str(a_["_id"]) == card_aid), None,
+                        )) or pat_key,
                         "amount": _r2(avg_amount),
                         "next_date": cur_d.isoformat(),
                         "confidence": confidence,

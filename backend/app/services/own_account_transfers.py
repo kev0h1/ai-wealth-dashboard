@@ -169,6 +169,30 @@ def _pan_fragments(text: str) -> list[str]:
     return out
 
 
+def _fragment_matches_card(fragment: str, card: dict) -> bool:
+    """Route 1 for ONE fragment against ONE card's stored number.
+
+    A 15 digit fragment (an Amex PAN) is checked against the stored digits S
+    with masks removed: with 4 digits stored it may END or START with S (Amex
+    stores are sometimes the leading four); with a visible prefix and suffix
+    both must match; a bare unmasked number must equal the fragment. Any other
+    length keeps the suffix-only rule on the stored last four."""
+    stored = str(card.get("account_number") or "")
+    parts = re.findall(r"\d+", stored)
+    if len(fragment) != 15:
+        tail = _card_tail(card)
+        return bool(tail) and fragment.endswith(tail)
+    digits = "".join(parts)
+    if len(digits) == 4:
+        return fragment.endswith(digits) or fragment.startswith(digits)
+    if len(parts) >= 2:
+        return fragment.startswith(parts[0]) and fragment.endswith(parts[-1])
+    if len(digits) >= 8:
+        return fragment == digits
+    tail = _card_tail(card)
+    return bool(tail) and fragment.endswith(tail)
+
+
 def card_repayment_issuer(
     credit: dict, debit: dict, accounts: dict[str, dict],
     cards_by_issuer: dict[str, list[str]], same_amount: list[dict],
@@ -202,11 +226,19 @@ def card_repayment_issuer(
         return None
     c_text, d_text = _text(credit), _text(debit)
     tail = _card_tail(card)
+    fragments = _pan_fragments(c_text) + _pan_fragments(d_text)
+    if fragments and (_names_issuer(d_text, issuer) or _names_issuer(c_text, issuer)):
+        # Exactly one of the user's cards from this issuer may match a 15 digit
+        # fragment (two Amex cards sharing a prefix or suffix never link).
+        siblings = [accounts[i] for i in cards_by_issuer.get(issuer, []) if i in accounts]
+        for frag in fragments:
+            if len(frag) == 15:
+                matching = [c for c in siblings if _fragment_matches_card(frag, c)]
+                if len(matching) == 1 and matching[0] is card:
+                    return issuer
+            elif _fragment_matches_card(frag, card):
+                return issuer
     if tail:
-        if (_names_issuer(d_text, issuer) or _names_issuer(c_text, issuer)) and any(
-            frag.endswith(tail) for frag in _pan_fragments(c_text) + _pan_fragments(d_text)
-        ):
-            return issuer
         if _names_issuer(d_text, issuer) and re.search(rf"(?<!\d){tail}(?!\d)", c_text):
             return issuer
     if (_names_issuer(d_text, issuer) and len(cards_by_issuer.get(issuer, [])) == 1
@@ -234,6 +266,24 @@ def repayment_series_key(txn: dict) -> str | None:
     if not isinstance(link, dict) or link.get("issuer") not in CARD_ISSUERS or not link.get("card_account_id"):
         return None
     return f"{CARD_ISSUERS[link['issuer']]['label']} {link['card_account_id']}"
+
+
+def repayment_display_name(key: str, card_name: str | None = None) -> str | None:
+    """Clean label for a per-card repayment key, never the account id.
+
+    The key stays the stable identity for dismiss, edit and skip; only
+    presentation uses this. Returns None when `key` is not shaped like
+    "<issuer label> <card account id>" (an id is one token of 12+ chars)."""
+    for spec in CARD_ISSUERS.values():
+        label = spec["label"]
+        if key.startswith(label + " "):
+            rest = key[len(label) + 1:]
+            if rest and " " not in rest and len(rest) >= 12:
+                name = (card_name or "").strip()
+                if not name:
+                    return label
+                return name if label.lower() in name.lower() else f"{label} {name}"
+    return None
 
 
 def series_key(txn: dict) -> str:

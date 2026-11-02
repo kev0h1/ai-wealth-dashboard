@@ -128,6 +128,7 @@ export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps 
     .filter(b => b.days_away < 14)
     .map(b => ({
       name: b.name,
+      display_name: b.display_name,
       amount: b.amount,
       daysAway: b.days_away,
       date: formatShortDate(b.expected_date),

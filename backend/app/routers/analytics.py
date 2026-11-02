@@ -40,7 +40,7 @@ from app.services.account_names import display_account_name
 from app.services.pay_period import current_period_facts, get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
-from app.services.own_account_transfers import series_key  # G403: per-card key for a linked repayment
+from app.services.own_account_transfers import series_key, repayment_display_name  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
@@ -3082,7 +3082,10 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
-            "display_name":    r.get("display_name"),
+            # G403: a per-card repayment key carries the card account id, so
+            # present issuer plus card name instead. The key stays the identity.
+            "display_name":    r.get("display_name") or repayment_display_name(
+                r["key"], display_account_name(card_dest["dest_account_name"]) if card_dest else None),
             # G174: set only on a DETECTED entry `_confirmed_income_fallback`
             # deferred to instead of synthesising a duplicate (see its
             # dedupe-guard comment) -- the confirmed stream's own key, so
@@ -3553,7 +3556,8 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
         return {}
 
     cutoff = datetime.now() - timedelta(days=_ENRICH_LOOKBACK_DAYS)
-    proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1}
+    proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1,
+            "own_transfer_match": 1}
     raw: list = await transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
     raw += await yapily_transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
 
@@ -3574,10 +3578,11 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
     for key in keys:
         items = sorted(buckets.get(key, []), key=lambda t: t["date"])
         if not items:
-            result[key] = {**empty, "display_name": key}
+            result[key] = {**empty, "display_name": repayment_display_name(key) or key}
             continue
         latest = items[-1]
         display_name = (latest.get("merchant_name") or latest.get("description") or key).strip() or key
+        display_name = repayment_display_name(key, None) or display_name
         amounts = sorted(abs(float(t.get("amount", 0))) for t in items)
         typical_amount = round(amounts[len(amounts) // 2], 2)
         last_seen_dt = latest["date"]
@@ -4466,6 +4471,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             _occ_kind = kind_of(kind_map, r.get("category"))
             entries.append({
                 "name":            r["key"],
+                "display_name":    r.get("display_name") or repayment_display_name(
+                    r["key"], r.get("card_dest_account_name") and display_account_name(r.get("card_dest_account_name"))),
                 "amount":          final_amount,
                 "expected_date":   display_d.isoformat(),
                 "days_away":       (display_d - today_d).days,

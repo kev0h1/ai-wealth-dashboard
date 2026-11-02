@@ -13,9 +13,12 @@
 
 import { Fragment, type ReactNode } from "react";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
+import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 
 export type ComingUpBill = {
   name: string;
+  /** Readable label; name stays the identity (G403: a per-card repayment key holds the card id). */
+  display_name?: string | null;
   amount: number;
   daysAway: number; // 0 = today, 1 = tomorrow, up to 13 = the 14th day
   date: string; // pre-formatted display date, e.g. "Wed 19 Aug" (used when daysAway > 1)
@@ -204,7 +207,7 @@ export function HeadsUpSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; 
   // place fmt/fmtSum formatting happens), mirroring DropSentence — raw bank
   // descriptors (B/CARD, digit-run reference noise, ALL-CAPS) must never
   // reach the card.
-  const heaviestName = humaniseBillName(heaviestLead.name) + (heaviestExtra > 0 ? ` +${heaviestExtra} more` : "");
+  const heaviestName = humaniseBillName(upcomingDisplayName(heaviestLead)) + (heaviestExtra > 0 ? ` +${heaviestExtra} more` : "");
   if (sameDay) {
     return (
       <Fragment>
@@ -215,7 +218,7 @@ export function HeadsUpSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; 
   }
   return (
     <Fragment>
-      Next up {humaniseBillName(nextBill.name)},{" "}
+      Next up {humaniseBillName(upcomingDisplayName(nextBill))},{" "}
       <span className="font-mono tabular-nums">{fmt(nextBill.amount, sym)}</span>, {nextPaymentWhen(nextBill)}.
       Heaviest hit is {heaviestName},{" "}
       <span className="font-mono tabular-nums">{fmtSum(heaviestTotal, sym)}</span>, {nextPaymentWhen(heaviestLead)}.

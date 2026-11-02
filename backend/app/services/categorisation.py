@@ -105,6 +105,12 @@ def is_rent_payee(text: str) -> bool:
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
     (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I), 'Transfer'),
+    # G403: a repayment to a card the user does not hold. An issuer printed form
+    # followed by a 12+ digit PAN-shaped fragment (or, for B/CARD, direct debit
+    # wording) is a card repayment, never the bare issuer name, so a purchase
+    # from the same brand is not caught. Amex direct debit wording is already
+    # the Transfer rule above.
+    (re.compile(r'(?:american express|amex|b/card)\W+(?=(?:\d[- ]?){11,}\d)\d|b/card\W+(?:direct debit|ddr?)\b', re.I), 'Debt'),
     (re.compile(r'interest received|interest earned|interest credit|gross interest|net interest|interest payment to you|interest paid to you|credit interest', re.I), 'Income'),
     (re.compile(r'\bmarcus\b', re.I), 'Transfer'),
     (re.compile(r'nw world mastercar|natwest.*mastercard|world mastercard payment', re.I), 'Debt'),

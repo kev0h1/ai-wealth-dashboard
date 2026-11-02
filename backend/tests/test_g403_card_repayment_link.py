@@ -32,7 +32,7 @@ BANK = acct("bank", "hsbc")
 
 
 def test_hyphenated_15_digit_pan_in_bank_narrative_with_issuer_provider():
-    card = acct("amex", "amex", "card", "7777")
+    card = acct("amex", "amex", "card", "0777")
     debit = row("d", "debit", "bank", 600.25, "AMERICAN EXPRESS 3712-345678-90777 DDR")
     credit = row("c", "credit", "amex", 600.25, "PAYMENT RECEIVED", days=1, category="Transfer")
     assert link([debit, credit], [BANK, card]) == [(credit, debit)]
@@ -61,8 +61,8 @@ def test_issuer_printed_form_with_one_card_held_and_payment_wording():
 
 def test_inter_bank_balance_transfer_to_a_current_account_is_never_linked():
     other_current = acct("chase", "chase", "current", "22334455")
-    debit = row("d", "debit", "bank", 415.74, "HSBC COMP BAL XFR CHASE")
-    credit = row("c", "credit", "chase", 415.74, "BALANCE TRANSFER IN CHASE")
+    debit = row("d", "debit", "bank", 388.16, "HSBC COMP BAL XFR CHASE")
+    credit = row("c", "credit", "chase", 388.16, "BALANCE TRANSFER IN CHASE")
     assert link([debit, credit], [BANK, other_current]) == []
 
 
@@ -103,7 +103,7 @@ def test_wrong_issuer_never_links():
 
 
 def test_reconcile_stamps_both_legs_debt_on_debit_transfer_on_credit_and_survives_resync():
-    card = acct("amex", "amex", "card", "7777")
+    card = acct("amex", "amex", "card", "0777")
     now = datetime.utcnow()
     debit = row("d", "debit", "bank", 600.25, "AMERICAN EXPRESS 3712-345678-90777", category="Other")
     credit = row("c", "credit", "amex", 600.25, "PAYMENT RECEIVED", category="Income")
@@ -179,6 +179,70 @@ def test_detect_recurring_gives_two_series_for_two_cards_of_one_issuer():
                          "own_transfer_match": {"card_repayment": {"issuer": "american_express", "card_account_id": card_id}}})
     keys = {s["key"] for s in _detect_recurring(txns, today=datetime(2026, 11, 1).date())}
     assert keys == {"American Express card-a", "American Express card-b"}
+
+
+def test_three_days_is_inclusive_and_fifteen_digit_prefix_links():
+    card = acct("amex", "amex", "card", "3712")
+    debit = row("d", "debit", "bank", 120.5, "AMERICAN EXPRESS 3712-345678-90555")
+    for days, expected in ((3, True), (-3, True), (4, False)):
+        credit = row("c", "credit", "amex", 120.5, "PAYMENT RECEIVED", days=days)
+        got = link([debit, credit], [BANK, card])
+        assert bool(got) is expected, days
+
+
+def test_bare_four_digit_prefix_links_without_payment_wording():
+    # Two cards: route 3 is unavailable, so only the prefix rule can link.
+    c1, c2 = acct("a1", "amex", "card", "3712"), acct("a2", "amex", "card", "3799")
+    debit = row("d", "debit", "bank", 64.0, "AMEX 3712-345678-90555")
+    credit = row("c", "credit", "a1", 64.0, "ANYTHING")
+    assert link([debit, credit], [BANK, c1, c2]) == [(credit, debit)]
+
+
+def test_two_amex_cards_sharing_the_first_four_never_link():
+    c1, c2 = acct("a1", "amex", "card", "3712"), acct("a2", "amex", "card", "3712")
+    debit = row("d", "debit", "bank", 64.0, "AMEX 3712-345678-90555")
+    credit = row("c", "credit", "a1", 64.0, "PAYMENT RECEIVED")
+    assert link([debit, credit], [BANK, c1, c2]) == []
+
+
+def test_prefix_of_one_card_and_suffix_of_another_never_link():
+    c1, c2 = acct("a1", "amex", "card", "3712"), acct("a2", "amex", "card", "0555")
+    debit = row("d", "debit", "bank", 64.0, "AMEX 3712-345678-90555")
+    credit = row("c", "credit", "a1", 64.0, "ANYTHING")
+    assert link([debit, credit], [BANK, c1, c2]) == []
+
+
+def test_masked_number_needs_prefix_and_suffix_and_16_digits_stay_suffix_only():
+    masked = acct("a1", "amex", "card", "371234******90555")
+    other = acct("a2", "amex", "card", "999999******11111")
+    debit = row("d", "debit", "bank", 64.0, "AMEX 3712-345678-90555")
+    credit = row("c", "credit", "a1", 64.0, "ANYTHING")
+    assert link([debit, credit], [BANK, masked, other]) == [(credit, debit)]
+    bc = acct("b1", "barclaycard", "card", "4321")
+    b2 = acct("b2", "barclaycard", "card", "9999")
+    # A 16 digit fragment STARTING with the stored four is not a match.
+    d2 = row("d2", "debit", "bank", 20.0, "B/CARD 4321123456789012")
+    c2 = row("c2", "credit", "b1", 20.0, "ANYTHING")
+    assert link([d2, c2], [BANK, bc, b2]) == []
+
+
+def test_unheld_card_repayment_rules_and_bare_issuer_purchase():
+    assert rule_categorise("", "AMERICAN EXPRESS 3712-345678-90777") == "Debt"
+    assert rule_categorise("", "B/CARD 4929123456784321") == "Debt"
+    assert rule_categorise("", "B/CARD DIRECT DEBIT") == "Debt"
+    assert rule_categorise("", "AMEX EXPERIENCES") is None
+    assert rule_categorise("", "AMEX 2026 11 02 SHOP") is None
+
+
+def test_display_name_never_carries_the_account_id():
+    from app.services.own_account_transfers import repayment_display_name
+    key = "American Express 64f1a2b3c4d5e6f708192a3b"
+    assert repayment_display_name(key, "American Express Gold") == "American Express Gold"
+    assert repayment_display_name(key, "Gold") == "American Express Gold"
+    assert repayment_display_name(key) == "American Express"
+    assert "64f1" not in repayment_display_name(key, "Gold")
+    assert repayment_display_name("American Express") is None
+    assert repayment_display_name("American Express Experiences Ltd") is None
 
 
 def test_savings_rule_has_word_boundary_and_amex_no_longer_hardcoded_transfer():
