@@ -16,6 +16,26 @@ UK consumers who connect their real bank accounts (via open banking) and want th
 
 An AI wealth dashboard that turns live bank data into judgement: spending by pay period, budgets, debt payoff, safety-net savings, upcoming bills, tax efficiency, and savings opportunities — all auto-tracked from transactions with no manual logging. Success on any given screen is instant clarity: within ten seconds the user knows *am I okay, what changed, and what should I do next*, without digging.
 
+## The payday plan (2026-11-02)
+
+The payday plan answers one question: can next period's requirements be met from the account pay lands in? It is about meeting bills, not about saving. From that account it tracks the transfers to the other accounts on file. For each of those accounts it shows the recurring payments and amounts required, plus any goals, one-offs and set-asides on file. It never asks for money to be moved to a savings account where it would just sit.
+
+Three decisions shape it (Kevin, 2026-11-02):
+
+1. Everyday spending is not a requirement. The app already shows where to spend from, so the plan does not pad any account for it.
+2. Habitual transfers are the user's own. The plan does not include them and says so in one line, working copy "This doesn't include your habitual transfers".
+3. A buffer sits only on accounts that have bills leaving them, because bills vary, and only after each predicted bill is covered first.
+
+What the plan never does:
+
+- Ask for a savings top-up, unless a goal or set-aside names that account.
+- Pad for spending.
+- Add a flat buffer to every account.
+- Run a lifecycle. There is nothing to verify and nothing to celebrate (G172).
+- Move money. The plan is a recommendation, and the app never moves money.
+
+The engine rule that implements this lives in G402 and, once built, in MONEY-ENGINE.md.
+
 ## Positioning
 
 The money app that tells you what to do next — every screen turns live bank data into a concrete next action, not just charts.
