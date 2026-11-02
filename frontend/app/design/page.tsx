@@ -33,6 +33,15 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
+    slug: "accounts-layout",
+    name: "Accounts layout · G391",
+    description: "Compare a compact account directory with a bank-grouped picture of your money. One balance per row, with Available and its working in the account detail. Synthetic examples with search, pinned and dormant accounts, masking and a short account.",
+    variants: [{ label: "A · Find an account", value: "a" }, { label: "B · Where your money is", value: "b" }],
+    states: [{ label: "Accounts", value: "normal" }, { label: "Loading", value: "loading" }, { label: "Unavailable", value: "error" }, { label: "No accounts", value: "empty" }, { label: "Updating", value: "syncing" }, { label: "Unknown balance", value: "unknown" }],
+    group: "current",
+  },
+
+  {
     slug: "accounts-refresh",
     name: "Accounts refresh placement · G389",
     description: "Home A is approved. Compare A, refresh beside Add, with B, a labelled refresh beside bank-data status. Try updating, partial completion, failure, cooldown and no connected banks, plus clearer Add choices. Synthetic examples only.",
