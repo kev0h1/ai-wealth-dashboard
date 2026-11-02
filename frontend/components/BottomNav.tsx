@@ -128,7 +128,7 @@ const TABS: { id: TabId; href: string; label: string; Icon: typeof Home; slot: n
 ];
 
 export default function BottomNav() {
-  const { pennyAppearance } = usePreferences();
+  const { pennyAppearance, pennyAppearanceResolved } = usePreferences();
   const pathname = usePathname();
   const { open: openPennySheet, close: closePennySheet, isOpen: pennySheetOpen } = usePennySheet();
   const atRisk = useAtRiskCount();
@@ -195,6 +195,7 @@ export default function BottomNav() {
         <div className="relative w-[calc(100%-28px)] max-w-[402px]">
           <PennyLauncherButton
             appearance={pennyAppearance}
+            resolved={pennyAppearanceResolved}
             active={pennyActive}
             open={pennySheetOpen}
             current={pathname === "/penny"}
