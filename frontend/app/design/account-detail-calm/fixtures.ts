@@ -2,7 +2,7 @@
 import type { Account, AccountEligibility, Transaction } from "@/lib/api";
 import type { AccountAvailabilityReading } from "@/lib/accountAvailability";
 
-export type Variant = "a" | "b";
+export type Variant = "a" | "b" | "c" | "d";
 export type ScenarioId = "plans" | "payments" | "available" | "excluded" | "checking" | "unavailable" | "empty" | "long";
 export type Scenario = {
   id: ScenarioId;

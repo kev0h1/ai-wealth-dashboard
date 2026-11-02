@@ -4,7 +4,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, CircleAlert, Pin, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, CircleAlert, Pin, Search, Trash2, X } from "lucide-react";
 import { BankIcon } from "@/components/AccountMiniCard";
 import AccountRefreshRow from "@/components/AccountRefreshRow";
 import { AccountTransactionsToolbar } from "@/components/AccountDetailParts";
@@ -17,6 +17,8 @@ import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import type { Transaction } from "@/lib/api";
 import { SCENARIOS, SCENARIO_IDS, type Scenario, type ScenarioId, type Variant, formatMoney } from "./fixtures";
+import RefinedAccount from "./RefinedAccount";
+import styles from "./refined.module.css";
 
 type Tab = "Transactions" | "Categories";
 const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
@@ -50,21 +52,22 @@ function Forecast({ scenario, variant, hidden, counted, openDetails }: {
     <span>{scenario.reading.kind === "checking" ? "Checking availability…" : "Availability unavailable"}</span>
   </div>;
   const short = scenario.shortfall;
+  const full = variant === "a" || variant === "c";
   const verdict = short
     ? `${m(short.amount)} short ${short.kind === "payments" ? "for payments" : "after plans"}`
     : `${m(scenario.reading.value)} available to spend`;
   return <details data-g407-forecast className="group mt-3">
     <summary className={`grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_16px] touch-manipulation items-start gap-3 rounded-lg py-2 text-[13px] leading-5 text-slate-800 hover:text-slate-950 dark:text-slate-100 dark:hover:text-white [&::-webkit-details-marker]:hidden ${focus}`}>
       <span className="min-w-0 flex-1">
-        {variant === "a" && <span className="flex items-baseline justify-between gap-3"><span>Available to spend</span><MoneyText text={m(scenario.reading.value)} className="shrink-0 font-semibold" /></span>}
-        {(variant === "b" || short) && <span className={`flex items-center gap-2 ${variant === "a" ? "mt-1" : ""}`}>
+        {full && <span className="flex items-baseline justify-between gap-3"><span>Available to spend</span><MoneyText text={m(scenario.reading.value)} className="shrink-0 font-semibold" /></span>}
+        {(!full || short) && <span className={`flex items-center gap-2 ${full ? "mt-1" : ""}`}>
           <MoneyText text={verdict} />{short && <StatusMark scenario={scenario} />}
         </span>}
       </span>
       <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 transition-transform duration-150 group-open:rotate-180 motion-reduce:transition-none" />
     </summary>
     <div className="pb-2 pt-3 text-[13px] leading-5 text-slate-600 dark:text-slate-300">
-      {variant === "b" && <p className="mb-3">Available to spend <MoneyText text={m(scenario.reading.value)} className="font-semibold" /></p>}
+      {!full && <p className="mb-3">Available to spend <MoneyText text={m(scenario.reading.value)} className="font-semibold" /></p>}
       {short && <p className="mb-3">{short.kind === "payments" ? "Scheduled payments" : "Plans"} take the forecast below zero. Your bank balance is separate.</p>}
       <dl className="space-y-2">
         <div className="flex justify-between gap-3"><dt>After scheduled payments</dt><dd className="shrink-0"><MoneyText text={m(scenario.position?.after_payments)} /></dd></div>
@@ -76,7 +79,7 @@ function Forecast({ scenario, variant, hidden, counted, openDetails }: {
   </details>;
 }
 
-function Activity({ scenario, hidden, onOpen }: { scenario: Scenario; hidden: boolean; onOpen: (tx: Transaction) => void }) {
+function Activity({ scenario, hidden, onOpen, unified = false }: { scenario: Scenario; hidden: boolean; onOpen: (tx: Transaction) => void; unified?: boolean }) {
   const [tab, setTab] = useState<Tab>("Transactions");
   const [query, setQuery] = useState("");
   const filtered = scenario.transactions.filter(tx => `${tx.merchant_name ?? ""} ${tx.description} ${tx.category ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
@@ -86,14 +89,18 @@ function Activity({ scenario, hidden, onOpen }: { scenario: Scenario; hidden: bo
     all[name] = { total: prior.total + tx.amount, count: prior.count + 1 };
     return all;
   }, {})), [scenario.transactions]);
-  return <section aria-label="Account activity" className="mt-5">
-    <SegmentedControl options={["Transactions", "Categories"]} value={tab} onChange={value => setTab(value as Tab)} ariaLabel="Account activity view" />
-    {tab === "Transactions" ? <div className="mt-3 [&_[data-account-toolbar]]:mb-3">
-      <AccountTransactionsToolbar searchQuery={query} onSearchChange={setQuery} onClearSearch={() => setQuery("")} />
-      {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white dark:border-slate-700 dark:bg-slate-800">
+  return <section data-g407-activity aria-label="Account activity" className={unified ? styles.activity : "mt-5"}>
+    <div className={unified ? styles.activityHeader : undefined}><SegmentedControl options={["Transactions", "Categories"]} value={tab} onChange={value => setTab(value as Tab)} ariaLabel="Account activity view" className={unified ? styles.activityTabs : undefined} /></div>
+    {tab === "Transactions" ? <div className={unified ? undefined : "mt-3 [&_[data-account-toolbar]]:mb-3"}>
+      {unified ? <div className={styles.search}><div className="relative">
+        <Search size={15} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400" />
+        <input type="search" name="transaction-search" autoComplete="off" aria-label="Search transactions" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search transactions…" className={`min-h-11 w-full rounded-xl border border-slate-200 py-2 pl-9 pr-11 text-sm dark:border-slate-600 [&::-webkit-search-cancel-button]:hidden ${focus}`} />
+        {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className={`absolute top-0 grid size-11 place-items-center rounded-lg ${focus}`}><X size={15} aria-hidden="true" /></button>}
+      </div></div> : <AccountTransactionsToolbar searchQuery={query} onSearchChange={setQuery} onClearSearch={() => setQuery("")} />}
+      {filtered.length ? <div className={unified ? styles.rows : "overflow-hidden rounded-2xl border border-slate-100 bg-white dark:border-slate-700 dark:bg-slate-800"}>
         {filtered.map(tx => <TransactionRowContent key={tx.id} transaction={tx} hidden={hidden} onClick={() => onOpen(tx)} />)}
       </div> : <p className="py-8 text-center text-sm text-slate-600 dark:text-slate-300">{scenario.transactions.length ? "No transactions match your search." : "No transactions yet."}</p>}
-    </div> : <div className="mt-3 overflow-hidden rounded-2xl bg-white dark:bg-slate-800">
+    </div> : <div className={unified ? styles.rows : "mt-3 overflow-hidden rounded-2xl bg-white dark:bg-slate-800"}>
       {categories.length ? categories.map(([name, value]) => {
         const Icon = getCategoryIcon(name, {});
         const colour = getCategoryColour(name, {});
@@ -114,10 +121,14 @@ function AccountSurface({ variant, scenario, hidden, dark }: { variant: Variant;
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState("");
   const [transaction, setTransaction] = useState<Transaction | null>(null);
+  const refined = variant === "c" || variant === "d";
   const detailButton = <button type="button" aria-label="Account details" className={`${quiet} -mr-2`} onClick={() => { setNotice(""); setDetails(true); }}>Details</button>;
   return <BalancesHiddenContext.Provider value={hidden}>
-    <section data-g407-surface className="mx-auto max-w-2xl">
-      {variant === "a" ? <>
+    <section data-g407-surface className={`mx-auto ${refined ? "max-w-5xl" : "max-w-2xl"}`}>
+      {refined ? <RefinedAccount scenario={scenario} hidden={hidden} variant={variant} onDetails={() => { setNotice(""); setDetails(true); }}
+        forecast={<Forecast scenario={scenario} variant={variant} hidden={hidden} counted={counted} openDetails={() => setDetails(true)} />}
+        activity={<Activity scenario={scenario} hidden={hidden} onOpen={setTransaction} unified />}
+      /> : <>{variant === "a" ? <>
         <div className="flex items-center gap-3">
           <BankIcon identity={scenario.account} size={36} altText="" />
           <div className="min-w-0 flex-1"><h2 className="break-words text-base font-semibold">Monzo</h2><p className="mt-0.5 break-words text-[13px] text-slate-600 dark:text-slate-300">{scenario.account.name}</p></div>
@@ -130,13 +141,15 @@ function AccountSurface({ variant, scenario, hidden, dark }: { variant: Variant;
       </div>}
       <Forecast scenario={scenario} variant={variant} hidden={hidden} counted={counted} openDetails={() => setDetails(true)} />
       <Activity scenario={scenario} hidden={hidden} onOpen={setTransaction} />
+      </>}
       {notice && <p role="status" className="mt-3 text-[13px] text-slate-600 dark:text-slate-300">{notice}</p>}
     </section>
-    {details && <SheetFrame title="Account details" onClose={() => { setDetails(false); setConfirmRemove(false); }} themeClass={dark ? "dark" : undefined}>
-      <div className="space-y-4">
-        <div><p className="font-semibold">Monzo · Current account</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Connected until 21 November 2026</p></div>
+    {details && <SheetFrame title="Account details" description={refined ? "Monzo · Current account" : undefined} variant={refined ? "compact" : "focused"} onClose={() => { setDetails(false); setConfirmRemove(false); }} themeClass={dark ? "dark" : undefined}>
+      <div className={refined ? "space-y-5" : "space-y-4"}>
+        {!refined && <div><p className="font-semibold">Monzo · Current account</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Connected until 21 November 2026</p></div>}
         <IncludeInEstimate scenario={scenario} included={counted} onChange={setCounted} />
-        <div className="[&_[data-a179-refresh-button]]:pr-0">
+        <div className={`${refined ? "border-t border-slate-200 pt-3 dark:border-slate-700" : ""} [&_[data-a179-refresh-button]]:pr-0`}>
+        {refined && <dl className="mb-1 text-[13px]"><div className="flex justify-between gap-3"><dt className="text-slate-600 dark:text-slate-300">Connected until</dt><dd className="text-right">21 November 2026</dd></div></dl>}
         <AccountRefreshRow account={scenario.account} now={fixtureNow} compact onRefresh={async () => {
           return { refreshed: false, message: "Preview only. No bank refresh was requested." };
         }} />
@@ -157,7 +170,8 @@ function AccountSurface({ variant, scenario, hidden, dark }: { variant: Variant;
 
 export default function Preview() {
   const params = useSearchParams();
-  const variant: Variant = params.get("variant") === "b" ? "b" : "a";
+  const requestedVariant = params.get("variant");
+  const variant: Variant = requestedVariant === "a" || requestedVariant === "b" || requestedVariant === "d" ? requestedVariant : "c";
   const state: ScenarioId = SCENARIO_IDS.includes(params.get("state") as ScenarioId) ? params.get("state") as ScenarioId : "plans";
   const dark = params.get("mode") === "dark";
   const hidden = params.get("hidden") === "1";
@@ -178,18 +192,18 @@ export default function Preview() {
   }
   const control = `inline-flex min-h-11 items-center justify-center rounded-xl border px-3 text-[13px] font-medium ${focus}`;
   return <div className={dark ? "dark" : ""}><main className="min-h-dvh bg-[#f0f2f7] px-4 pb-12 pt-5 text-slate-900 dark:bg-[#0f172a] dark:text-slate-100 sm:px-6">
-    {!clean && <header className="mx-auto mb-5 max-w-2xl">
+    {!clean && <header className={`mx-auto mb-5 ${variant === "c" || variant === "d" ? "max-w-5xl" : "max-w-2xl"}`}>
       <div className="flex items-center justify-between gap-3"><h1 className="text-xl font-bold">A simpler account page</h1><Link href="/design" className={quiet}><ChevronLeft size={15} aria-hidden="true" />Designs</Link></div>
-      <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">G407 · Invented examples. Compare the layout and try its controls.</p>
+      <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">G407 · Refined with frontend-design. Invented examples and local controls.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {(["a", "b"] as const).map(id => <Link key={id} aria-current={variant === id ? "page" : undefined} href={href({ variant: id })} className={`${control} ${variant === id ? "border-[#4f46e5] bg-[#4f46e5] text-white" : "border-slate-300 dark:border-slate-600"}`}>{id === "a" ? "A · Account first" : "B · Activity first"}</Link>)}
+        {(["c", "d"] as const).map(id => <Link key={id} aria-current={variant === id ? "page" : undefined} href={href({ variant: id })} className={`${control} ${variant === id ? "border-[#4f46e5] bg-[#4f46e5] text-white" : "border-slate-300 dark:border-slate-600"}`}>{id === "c" ? "C · One account card" : "D · Open layout"}</Link>)}
         <Link href={href({ clean: "1" })} className={quiet}>Open full screen</Link>
       </div>
-      <details className="mt-2"><summary className={`min-h-11 cursor-pointer rounded-lg py-3 text-[13px] font-medium ${focus}`}>Examples and display</summary><div className="flex flex-wrap gap-2 pb-3">
+      <details className="group mt-2" open={variant === "a" || variant === "b"}><summary className={`flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg py-3 text-[13px] font-medium [&::-webkit-details-marker]:hidden ${focus}`}>Examples and display<ChevronDown size={15} aria-hidden="true" className="group-open:rotate-180" /></summary><div className="flex flex-wrap gap-2 pb-3">
         {SCENARIO_IDS.map(id => <Link key={id} href={href({ state: id })} aria-current={id === state ? "page" : undefined} className={`${control} ${id === state ? "border-slate-600 bg-slate-200 dark:bg-slate-700" : "border-slate-300 dark:border-slate-600"}`}>{SCENARIOS[id].label}</Link>)}
         <Link href={href({ mode: dark ? "light" : "dark" })} className={control}>{dark ? "Light theme" : "Dark theme"}</Link>
         <Link href={href({ hidden: hidden ? "0" : "1" })} className={control}>{hidden ? "Show amounts" : "Hide amounts"}</Link>
-      </div></details>
+      </div><p className="mb-2 text-xs text-slate-600 dark:text-slate-300">Previous layouts</p><div className="flex flex-wrap gap-2 pb-3">{(["a", "b"] as const).map(id => <Link key={id} aria-current={variant === id ? "page" : undefined} href={href({ variant: id })} className={control}>{id === "a" ? "A · Account first" : "B · Activity first"}</Link>)}</div></details>
     </header>}
     <AccountSurface key={`${variant}-${state}-${hidden}-${dark}`} variant={variant} scenario={SCENARIOS[state]} hidden={hidden} dark={dark} />
   </main></div>;

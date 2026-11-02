@@ -35,8 +35,8 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "account-detail-calm",
     name: "A simpler account page · G407",
-    description: "G407 · impeccable distill · Two responses to the clutter left after G406. A leads with the bank balance and a compact spending summary. B brings activity higher with a compact balance and one forecast verdict. Secondary account controls and connection information sit behind Account details; shortfalls stay visible. Synthetic examples, real transaction rows, searchable activity, precise calculations and hidden figures. Production awaits a choice.",
-    variants: [{ label: "A · Account first", value: "a" }, { label: "B · Activity first", value: "b" }],
+    description: "G407 · frontend-design · C groups the account and spending summary in one card. D gives activity more room with an open account header. Both join tabs, search and transactions into one activity surface and use a shorter Account details sheet, including the estimate setting. Earlier A/B remain available. Exact synthetic figures, visible shortfalls and hidden balances. Production awaits a choice.",
+    variants: [{ label: "C · One account card", value: "c" }, { label: "D · Open layout", value: "d" }, { label: "A · Previous account first", value: "a" }, { label: "B · Previous activity first", value: "b" }],
     states: [{ label: "Short after plans", value: "plans" }, { label: "Payments short", value: "payments" }, { label: "Money available", value: "available" }, { label: "Excluded from estimate", value: "excluded" }, { label: "Checking forecast", value: "checking" }, { label: "Forecast unavailable", value: "unavailable" }, { label: "No transactions", value: "empty" }, { label: "Long account name", value: "long" }],
     group: "current",
   },
