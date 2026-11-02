@@ -128,3 +128,51 @@ def test_learned_card_repayment_destination_uses_the_per_card_key():
     result = _learn_card_repayment_destinations(raw, account_map, kinds)
     assert set(result) == {KEY}
     assert result[KEY]["dest_account_id"] == CARD_ID
+
+
+# ── X1: no reader shows the per-card key ─────────────────────────────────
+
+def _long_tokens(value) -> list[str]:
+    import json
+    import re
+    return [t for t in re.findall(r"[A-Za-z0-9]{12,}", json.dumps(value, default=str))]
+
+
+def test_notification_body_and_penny_tool_output_carry_no_account_id(monkeypatch):
+    import app.services.penny_tools as pt
+    from app.services.notifications import _bill_shortfall_body
+    _freeze(monkeypatch)
+    pattern = {**_bill(), "card_dest_account_name": "Platinum"}
+    resp = _run_build_response(monkeypatch, [pattern])
+    bill = resp["upcoming_bills"][0]
+    bill = {**bill, "account_bank": "Bank", "account_balance": 10.0}
+    assert bill["name"] == KEY and CARD_ID in bill["name"]
+    assert _long_tokens(_bill_shortfall_body(bill, "£")) == []
+
+    async def cache(_uid): return {"x": 1}
+    async def build(_cached, uid=None): return {"upcoming_bills": [bill], "upcoming_income": []}
+    monkeypatch.setattr(pt, "_load_cashflow_cache", cache)
+    monkeypatch.setattr(pt, "_build_cashflow_response", build)
+    out = asyncio.run(pt._exec_get_upcoming_bills("u"))
+    assert out["upcoming_bills"][0]["name"] == "American Express Platinum"
+    assert _long_tokens(out) == []
+
+
+def test_recurring_payments_label_and_plan_label_are_clean():
+    from app.services.companion import _humanise_bill_name
+    from app.services.own_account_transfers import repayment_display_name
+    label = repayment_display_name(KEY, "Platinum")
+    assert _long_tokens(_humanise_bill_name(label)) == []
+    # The raw key, by contrast, still leaks hex through _humanise_bill_name.
+    assert _long_tokens(_humanise_bill_name(KEY)) != []
+
+
+# ── X2: the Debt rule is debit-only ──────────────────────────────────────
+
+def test_card_repayment_debt_rule_never_files_a_credit():
+    from app.services.categorisation import rule_categorise_directed
+    narrative = "AMEX 3712-345678-90555"
+    assert rule_categorise_directed("", narrative, is_credit=False) == "Debt"
+    assert rule_categorise_directed("", narrative, is_credit=True) is None
+    assert rule_categorise_directed("", "B/CARD 4929123456784321", is_credit=True) is None
+    assert rule_categorise_directed("", "B/CARD DIRECT DEBIT", is_credit=True) is None

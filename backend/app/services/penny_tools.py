@@ -102,6 +102,7 @@ from app.services.categories import (
     EXCLUDED, get_category_kinds, is_non_spend, kind_of, normalise_name, resolve_category_name,
 )
 from app.services.account_names import display_account_name
+from app.services.own_account_transfers import repayment_display_name  # G403
 from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
@@ -2213,7 +2214,8 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
     return {
         "upcoming_bills": [
             {
-                "name": b.get("name"),
+                # G403: a per-card repayment bill carries a clean display_name; never the key.
+                "name": b.get("display_name") or b.get("name"),
                 "amount": _money(b.get("amount")),
                 "expected_date": b.get("expected_date"),
                 "days_away": b.get("days_away"),
@@ -2322,7 +2324,8 @@ async def _exec_get_recurring_payments(uid: str) -> dict:
     for p in ranked[:_RECURRING_CAP]:
         occ = occ_by_name.get(p.get("key")) or {}
         series.append({
-            "name": p.get("key"),
+            "name": p.get("display_name") or repayment_display_name(
+                p.get("key") or "", p.get("card_dest_account_name")) or p.get("key"),
             "cadence": occ.get("rule_label") or _cadence_label(p.get("avg_interval")),
             "typical_amount": _money(p.get("avg_amount")),
             "next_expected_date": p.get("next_date"),

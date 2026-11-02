@@ -425,7 +425,7 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
         bill = candidates[0]
         bill_date = date.fromisoformat(bill["expected_date"])
         return {
-            "bill": _humanise_bill_name(bill.get("name", "bill")),
+            "bill": _humanise_bill_name(bill.get("display_name") or bill.get("name", "bill")),
             "date": _humanise_bill_date(bill_date, today_d),
             "amount": int(round(float(bill.get("amount", 0)))),
         }

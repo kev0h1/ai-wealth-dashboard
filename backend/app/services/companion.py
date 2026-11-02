@@ -3259,7 +3259,7 @@ async def compute_today_items(
         """Return one regular-card payment row with safe optional metadata."""
         _expected_date = b.get("expected_date")
         _row = {
-            "label": _humanise_bill_name(b.get("name", "bill")),
+            "label": _humanise_bill_name(b.get("display_name") or b.get("name", "bill")),
             "amount": int(round(float(b.get("amount") or 0))),
             "expected_date": _expected_date,
         }
@@ -3304,7 +3304,7 @@ async def compute_today_items(
             bill_amount = None
             bill_weekday = None
         else:
-            bill_name = bill.get("name", "bill")
+            bill_name = bill.get("display_name") or bill.get("name", "bill")
             bill_amount = int(round(float(bill.get("amount", 0))))
             bill_date = date.fromisoformat(bill["expected_date"])
             bill_weekday = _when_label(bill_date, today_d)
@@ -4622,7 +4622,7 @@ async def compute_today_items(
                 _um_found = _um_sugg.get("kind") == "found"
                 _um_moves.append({
                     "key": _b.get("name", ""),
-                    "label": _humanise_bill_name(_b.get("name", "")),
+                    "label": _humanise_bill_name(_b.get("display_name") or _b.get("name", "")),
                     "amount": int(round(float(_b.get("amount") or 0))),
                     "expected_date": _um_due,
                     "days_past_due": int(_b.get("days_past_due") or 0),

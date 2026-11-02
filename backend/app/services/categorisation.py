@@ -102,6 +102,12 @@ def is_rent_payee(text: str) -> bool:
     return bool(RENT_PATTERN.search(t)) and not _RENT_NOT_PATTERN.search(t)
 
 
+# G403: debit-only. A credit narrated with the same words (a refund, a statement
+# credit) is never a card repayment, so `rule_categorise` skips these on a credit.
+_G403_CARD_REPAYMENT = re.compile(
+    r'(?:american express|amex|b/card)\W+(?=(?:\d[- ]?){11,}\d)\d|b/card\W+(?:direct debit|ddr?)\b', re.I)
+DEBIT_ONLY_PATTERNS: frozenset = frozenset({_G403_CARD_REPAYMENT})
+
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
     (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I), 'Transfer'),
@@ -110,7 +116,7 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # wording) is a card repayment, never the bare issuer name, so a purchase
     # from the same brand is not caught. Amex direct debit wording is already
     # the Transfer rule above.
-    (re.compile(r'(?:american express|amex|b/card)\W+(?=(?:\d[- ]?){11,}\d)\d|b/card\W+(?:direct debit|ddr?)\b', re.I), 'Debt'),
+    (_G403_CARD_REPAYMENT, 'Debt'),
     (re.compile(r'interest received|interest earned|interest credit|gross interest|net interest|interest payment to you|interest paid to you|credit interest', re.I), 'Income'),
     (re.compile(r'\bmarcus\b', re.I), 'Transfer'),
     (re.compile(r'nw world mastercar|natwest.*mastercard|world mastercard payment', re.I), 'Debt'),
@@ -167,9 +173,11 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
-def rule_categorise(merchant: str, description: str) -> Optional[str]:
+def rule_categorise(merchant: str, description: str, *, is_credit: Optional[bool] = None) -> Optional[str]:
     text = f"{merchant} {description}"
     for pattern, category in MERCHANT_PATTERNS:
+        if is_credit and pattern in DEBIT_ONLY_PATTERNS:
+            continue
         if pattern.search(text):
             if category == "Rent" and not is_rent_payee(text):
                 continue
@@ -185,7 +193,7 @@ def rule_categorise_directed(merchant: str, description: str, *, is_credit: bool
     merchant refunds still net against their category. Ingest (TrueLayer,
     Finexer, Yapily, statements) and `apply_rules_bulk` all call this, so a
     credit gets the same category whichever path sees it first."""
-    return credit_guard(rule_categorise(merchant, description), is_credit=is_credit)
+    return credit_guard(rule_categorise(merchant, description, is_credit=is_credit), is_credit=is_credit)
 
 
 def automatic_category_for_direction(cat: Optional[str], transaction_type: Optional[str]) -> Optional[str]:
