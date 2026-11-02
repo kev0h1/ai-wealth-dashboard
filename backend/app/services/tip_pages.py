@@ -43,6 +43,7 @@ USER_AGENT = "SortedTipResearch/1.0 (+https://wealth.auriqltd.co.uk)"
 
 _BLOCK_RE = re.compile(r"<(script|style|noscript|svg|head|template)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title\s*>", re.IGNORECASE | re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]*>")
 _REDIRECTS = (301, 302, 303, 307, 308)
 
@@ -51,7 +52,11 @@ def html_to_text(raw: str, limit: int = MAX_CHARS) -> str:
     """Visible text of an HTML (or plain text) body: scripts, styles and tags
     removed, entities decoded, whitespace collapsed to single spaces."""
     t = _COMMENT_RE.sub(" ", raw or "")
+    tm = _TITLE_RE.search(t)
+    title = (tm.group(1) if tm else "").strip()
     t = _BLOCK_RE.sub(" ", t)
+    if title:
+        t = f"{title}. {t}"  # the page title is part of the text (it can name a period)
     t = _TAG_RE.sub(" ", t)
     t = html.unescape(t).replace("\xa0", " ")
     return " ".join(t.split())[:limit]

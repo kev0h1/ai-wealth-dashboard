@@ -10,9 +10,9 @@ ofgem.gov.uk pages it returns (`tip_pages`) and reads the figure with a strict,
 model-free rule. When the wording is absent, ambiguous or unreadable, nothing
 is stored and the card has no Typical line.
 
-Stored: {"figure_annual": 1663.0, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
+Stored: {"figure_annual": 1663.0, "period_start": "2026-10-01", "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
          "source_url": "https://www.ofgem.gov.uk/...", "read_on": "2026-11-02"}
-The card shows "Typical: £139 a month (Ofgem price cap £1,663 a year, 2 Nov 2026)."
+The card shows "Typical: £139 a month (Ofgem price cap £1,663 a year from 1 October 2026, read 2 Nov 2026)."
 with the monthly figure derived as annual divided by 12, rounded to the pound,
 at compose time.
 
@@ -55,30 +55,71 @@ REGULATORS: dict[str, Regulator] = {
 _POUND_RE = re.compile(r"£\s*(\d{1,3}(?:,\d{3})+|\d{1,6})(?:\.\d{1,2})?")
 
 
-def extract_annual(category: str, text: str) -> Optional[float]:
-    """The one annual figure on `text` for `category`, or None. Strict: the
-    category's phrases must all sit within the WINDOW characters before the
-    figure; the window never reaches back past an earlier pound figure of any
-    kind (so "...is £1,663 ... will rise by £60 per year to £1,723" qualifies
-    only £1,663); the value must be inside the plausibility bounds; two
-    different qualifying figures mean the page is ambiguous and yield None."""
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December")
+_RISE_RE = re.compile(r"will\s+(?:rise|fall|go\s+up|go\s+down|increase|decrease)\b", re.IGNORECASE)
+_TO_RE = re.compile(r"\bto\s+$", re.IGNORECASE)
+
+
+def current_period(today: date) -> tuple[date, date]:
+    """The Ofgem price cap period (a calendar quarter, 1 Jan, 1 Apr, 1 Jul or
+    1 Oct) that `today` falls in: (first day, last day)."""
+    start = date(today.year, 3 * ((today.month - 1) // 3) + 1, 1)
+    end_month = start.month + 2
+    end_day = 30 if end_month in (6, 9) else 31
+    return start, date(start.year, end_month, end_day)
+
+
+def names_period(text: str, start: date, end: date) -> bool:
+    """True when `text` (page text, title included) names the period: the start
+    month with its year ("October 2026"), or the "1 October" and "31 December"
+    pair."""
+    low = (text or "").lower()
+    sm, em = MONTHS[start.month - 1].lower(), MONTHS[end.month - 1].lower()
+    return f"{sm} {start.year}" in low or (f"1 {sm}" in low and f"{end.day} {em}" in low)
+
+
+def extract_annual(category: str, text: str, today: date) -> Optional[tuple[float, date]]:
+    """(annual figure, period start) for `category` from `text`, or None. No model.
+    Period-aware: the page must name the CURRENT cap period (see names_period),
+    else it is a stale or future release and yields None.
+    On an accepted page a sentence "... will rise/fall/go up/go down/increase/
+    decrease ... to £Y" with "price cap", "typical household" and "direct debit"
+    in the 200 characters before Y gives Y (the level for the named period);
+    otherwise the "is £X" figure, whose phrases must all sit in the 200
+    characters before it and whose window never reaches back past an earlier
+    pound figure of any kind. Bounds £600 to £4,000; exactly one distinct
+    qualifying figure, else None."""
     reg = REGULATORS.get(category)
     if reg is None or not text:
         return None
-    found: set[float] = set()
+    start, end = current_period(today)
+    if not names_period(text, start, end):
+        return None
+    to_figs: set[float] = set()
+    is_figs: set[float] = set()
     prev_end = 0
     for m in _POUND_RE.finditer(text):
-        window = text[max(prev_end, m.start() - WINDOW):m.start()].lower()
-        prev_end = m.end()
-        if not all(p in window for p in reg.must_have):
-            continue
         try:
             value = float(m.group(0).replace("£", "").replace(",", "").strip())
         except ValueError:
             continue
-        if reg.low <= value <= reg.high:
-            found.add(round(value, 2))
-    return next(iter(found)) if len(found) == 1 else None
+        in_bounds = reg.low <= value <= reg.high
+        long_window = text[max(0, m.start() - WINDOW):m.start()]
+        if _TO_RE.search(long_window) and _RISE_RE.search(long_window) and all(
+            p in long_window.lower() for p in reg.must_have
+        ):
+            if in_bounds:
+                to_figs.add(round(value, 2))
+        else:
+            # the window never reaches back past the previous pound figure, so one
+            # figure's wording cannot qualify the next one
+            window = text[max(prev_end, m.start() - WINDOW):m.start()].lower()
+            if in_bounds and all(p in window for p in reg.must_have):
+                is_figs.add(round(value, 2))
+        prev_end = m.end()
+    chosen = to_figs or is_figs
+    return (next(iter(chosen)), start) if len(chosen) == 1 else None
 
 
 def monthly_for(figure_annual: float) -> int:
@@ -119,11 +160,12 @@ async def fetch_typical(
             try:
                 for u in urls:
                     try:
-                        figure = extract_annual(category, await tip_pages.fetch_url_text(c, u))
+                        found = extract_annual(category, await tip_pages.fetch_url_text(c, u), today)
                     except Exception:
-                        figure = None
-                    if figure is not None:
-                        result = {"figure_annual": figure, "source_host": reg.host, "source_name": name,
+                        found = None
+                    if found is not None:
+                        result = {"figure_annual": found[0], "period_start": found[1].isoformat(),
+                                  "source_host": reg.host, "source_name": name,
                                   "source_url": _plain_url(u), "read_on": today.isoformat()}
                         break
             finally:
@@ -138,7 +180,7 @@ async def fetch_typical(
     return result
 
 
-def valid_typical(category: str, value) -> Optional[dict]:
+def valid_typical(category: str, value, today: Optional[date] = None) -> Optional[dict]:
     """`value` (a stored typical_regulated) if it is well formed and from the
     category's own regulator, else None. Used at compose time."""
     reg = REGULATORS.get(category)
@@ -156,6 +198,9 @@ def valid_typical(category: str, value) -> Optional[dict]:
         return None
     try:
         date.fromisoformat(str(value.get("read_on")))
+        period = date.fromisoformat(str(value.get("period_start")))
     except ValueError:
         return None
+    if today is not None and period != current_period(today)[0]:
+        return None  # the cap period has moved on since it was read
     return value

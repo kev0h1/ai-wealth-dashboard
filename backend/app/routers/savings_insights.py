@@ -1893,14 +1893,16 @@ def _compose_tip_content(
         doc_sources = tip_facts.source_names(list(f.get("sources") or []))
         # G405: a regulator's typical monthly figure, read from its own page, with
         # its source name and the date it was read. Nothing else is said.
-        reg = tip_regulators.valid_typical(category_key, f.get("typical_regulated"))
+        reg = tip_regulators.valid_typical(category_key, f.get("typical_regulated"), today)
         if reg:
             read = datetime.strptime(reg["read_on"], "%Y-%m-%d")
+            period = datetime.strptime(reg["period_start"], "%Y-%m-%d")
             annual = float(reg["figure_annual"])
             sentences.append(
                 f"Typical: {tip_facts.money(tip_regulators.monthly_for(annual))} a month "
-                f"({reg['source_name']} price cap {tip_facts.money(annual)} a year, "
-                f"{read.day} {read.strftime('%b')} {read.year})."
+                f"({reg['source_name']} price cap {tip_facts.money(annual)} a year from "
+                f"{period.day} {tip_regulators.MONTHS[period.month - 1]} {period.year}, "
+                f"read {read.day} {read.strftime('%b')} {read.year})."
             )
         low, high = f.get("typical_low"), f.get("typical_high")
         noun = _RANGE_NOUN.get(category_key)

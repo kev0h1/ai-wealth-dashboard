@@ -48,7 +48,7 @@ def test_html_to_text_strips_tags_scripts_and_collapses_whitespace():
     raw = ("<html><head><title>x</title><style>p{}</style></head><body><script>var a=1;</script>"
            "<p>Giffgaff&nbsp;SIM</p>\n\n<p>from &pound;10 a month</p><!-- c --></body></html>")
     out = tip_pages.html_to_text(raw)
-    assert out == "Giffgaff SIM from £10 a month"
+    assert out == "x. Giffgaff SIM from £10 a month"  # the page title leads the text
     assert "\n" not in out and "var a" not in out
     assert len(tip_pages.html_to_text("a " * 10000)) <= tip_pages.MAX_CHARS
 
@@ -300,28 +300,53 @@ def test_regulated_category_is_never_researched_or_fetched(monkeypatch):
 
 # ── regulator extractor (Ofgem price cap press release) ─────────────────────
 
-REG = {"figure_annual": 1723.0, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
+REG = {"figure_annual": 1723.0, "period_start": "2026-10-01", "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
        "source_url": "https://www.ofgem.gov.uk/press-release/price-cap-rise-example", "read_on": "2026-11-02"}
-PRESS = ("Ofgem announces the price cap for January to March. The current price cap for a typical household paying by "
-         "direct debit for gas and electricity is £1,663 a year. From 1 January it will rise by £60 per year "
-         "(or £5 per month) to £1,723. Other costs apply.")
+PRESS = ("Ofgem announces the price cap for October to December 2026. The current price cap for a typical household "
+         "paying by direct debit for gas and electricity is £1,663 a year. From 1 October to 31 December 2026 it will "
+         "rise by £60 per year (or £5 per month) to £1,723. Other costs apply.")
+OCT, SEP = datetime(2026, 11, 2).date(), datetime(2026, 9, 15).date()
 
 
-def test_ofgem_extractor_reads_the_current_cap_not_the_new_one():
-    assert tip_regulators.extract_annual("energy", PRESS) == 1663.0
-    only = "The price cap for a typical household paying by direct debit is £1,723 a year."
-    assert tip_regulators.extract_annual("energy", only) == 1723.0
+def test_august_style_release_read_in_november_gives_the_new_level_and_period():
+    assert tip_regulators.extract_annual("energy", PRESS, OCT) == (1723.0, datetime(2026, 10, 1).date())
+    assert tip_regulators.current_period(OCT) == (datetime(2026, 10, 1).date(), datetime(2026, 12, 31).date())
+    assert tip_regulators.current_period(datetime(2026, 2, 3).date()) == (datetime(2026, 1, 1).date(), datetime(2026, 3, 31).date())
+    assert tip_regulators.current_period(datetime(2026, 5, 3).date())[1] == datetime(2026, 6, 30).date()
+    assert tip_regulators.current_period(datetime(2026, 8, 3).date())[1] == datetime(2026, 9, 30).date()
+
+
+def test_period_not_current_gives_none():
+    assert tip_regulators.extract_annual("energy", PRESS, SEP) is None  # same page read in September: future release
+    older = PRESS.replace("October to December 2026", "July 2026").replace("1 October to 31 December 2026", "1 July to 30 September 2026")
+    assert tip_regulators.extract_annual("energy", older, OCT) is None  # older release naming July 2026
+    assert tip_regulators.extract_annual("energy", older, datetime(2026, 8, 1).date()) == (1723.0, datetime(2026, 7, 1).date())
+
+
+def test_period_may_be_named_by_the_title_or_the_day_pair():
+    html_page = f"<html><head><title>Price cap October 2026</title></head><body><p>{PRESS.replace('October to December 2026', 'the quarter').replace('1 October to 31 December 2026', 'then')}</p></body></html>"
+    assert tip_pages.html_to_text(html_page, limit=10000).startswith("Price cap October 2026.")
+    only = "The price cap for a typical household paying by direct debit is £1,663 a year from 1 October until 31 December."
+    assert tip_regulators.extract_annual("energy", only, OCT) == (1663.0, datetime(2026, 10, 1).date())
+
+
+def test_current_period_page_with_only_an_is_sentence_gives_that_figure():
+    only = "October 2026. The price cap for a typical household paying by direct debit is £1,663 a year."
+    assert tip_regulators.extract_annual("energy", only, OCT)[0] == 1663.0
 
 
 def test_ofgem_extractor_is_none_when_wording_is_absent_or_ambiguous():
-    assert tip_regulators.extract_annual("energy", "The price cap is £1,663 a year.") is None
-    assert tip_regulators.extract_annual("energy", "A typical household pays by direct debit £1,663 a year.") is None
-    assert tip_regulators.extract_annual("energy", "price cap typical household direct debit £50 a year") is None
-    assert tip_regulators.extract_annual("energy", "price cap typical household direct debit £9,000 a year") is None
-    two = ("The price cap for a typical household paying by direct debit is £1,663 a year. "
+    assert tip_regulators.extract_annual("energy", "October 2026. The price cap is £1,663 a year.", OCT) is None
+    assert tip_regulators.extract_annual("energy", "October 2026. A typical household pays by direct debit £1,663 a year.", OCT) is None
+    assert tip_regulators.extract_annual("energy", "October 2026 price cap typical household direct debit £50 a year", OCT) is None
+    assert tip_regulators.extract_annual("energy", "October 2026 price cap typical household direct debit £9,000 a year", OCT) is None
+    two = ("October 2026. The price cap for a typical household paying by direct debit is £1,663 a year. "
            "The price cap for a typical household paying by direct debit is £1,723 a year.")
-    assert tip_regulators.extract_annual("energy", two) is None
-    assert tip_regulators.extract_annual("mobile", PRESS) is None and tip_regulators.extract_annual("broadband", PRESS) is None
+    assert tip_regulators.extract_annual("energy", two, OCT) is None
+    two_to = ("October 2026. The price cap for a typical household paying by direct debit will rise to £1,723 a year. "
+              "The price cap for a typical household paying by direct debit will fall to £1,650 a year.")
+    assert tip_regulators.extract_annual("energy", two_to, OCT) is None
+    assert tip_regulators.extract_annual("mobile", PRESS, OCT) is None and tip_regulators.extract_annual("broadband", PRESS, OCT) is None
     assert set(tip_regulators.REGULATORS) == {"energy"}
 
 
@@ -339,7 +364,7 @@ def test_fetch_typical_searches_once_picks_ofgem_urls_and_stores_source():
     stats = tip_pages.new_stats()
     v = run(tip_regulators.fetch_typical("energy", stats, TODAY, search, client_for(handler)))
     assert queries == ['site:ofgem.gov.uk "price cap" "typical household"'] and hosts == ["www.ofgem.gov.uk"]
-    assert v == {"figure_annual": 1663.0, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
+    assert v == {"figure_annual": 1723.0, "period_start": "2026-10-01", "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
                  "source_url": "https://www.ofgem.gov.uk/press-release/a", "read_on": "2026-11-02"}
     assert stats["regulator_read"] == 1
 
@@ -370,6 +395,9 @@ def test_fetch_typical_returns_none_and_counts_on_every_failure():
 
 def test_stored_value_is_only_accepted_from_the_categorys_own_regulator():
     assert tip_regulators.valid_typical("energy", REG) == REG
+    assert tip_regulators.valid_typical("energy", REG, OCT) == REG
+    assert tip_regulators.valid_typical("energy", REG, datetime(2027, 1, 5).date()) is None  # period moved on
+    assert tip_regulators.valid_typical("energy", {**REG, "period_start": "later"}) is None
     assert tip_regulators.valid_typical("mobile", REG) is None
     assert tip_regulators.valid_typical("energy", {**REG, "source_name": "Which?"}) is None
     assert tip_regulators.valid_typical("energy", {**REG, "read_on": "soon"}) is None
@@ -390,7 +418,7 @@ def _energy_doc(**over):
 def test_card_line_text_is_exactly_the_typical_style_with_source_and_date():
     rows = [row("British Gas", 303.0, recurring=False, n=3)]
     out = si._compose_tip_content("energy", _energy_doc(), rows, None, TODAY)
-    assert "Typical: £144 a month (Ofgem price cap £1,723 a year, 2 Nov 2026)." in out["body"]
+    assert "Typical: £144 a month (Ofgem price cap £1,723 a year from 1 October 2026, read 2 Nov 2026)." in out["body"]
     assert out["body"].count("Typical") == 1
     card = {"title": out["title"], "body": out["body"], "lead_line": out["title"],
             "triggered_by": tip_facts.present_triggers("energy", rows)}
@@ -415,7 +443,7 @@ def test_typical_shape_is_policed_by_the_card_gate():
     bad2 = dict(base, body="Typical: £150 a month (Ofgem, 2 Nov 2026). Checked 1 Nov.")
     assert "typical_not_allowed" in tip_facts.card_violations(bad2, "energy", "Energy")
     assert "typical_not_allowed" in tip_facts.card_violations(bad, "energy", "Energy")
-    good = dict(base, body="Typical: £144 a month (Ofgem price cap £1,723 a year, 2 Nov 2026). Checked 1 Nov.")
+    good = dict(base, body="Typical: £144 a month (Ofgem price cap £1,723 a year from 1 October 2026, read 2 Nov 2026). Checked 1 Nov.")
     assert tip_facts.card_violations(good, "energy", "Energy") == []
     assert "typical_not_allowed" in tip_facts.card_violations(good, "mortgage", "Mortgage")
 
@@ -508,10 +536,11 @@ def test_energy_research_stores_the_regulator_figure(research, monkeypatch):
         return R()
 
     monkeypatch.setattr(si, "openrouter_chat", fake_llm)
+    monkeypatch.setattr(si.timeutil, "user_today", lambda: OCT)
     res = run(tr.ensure_research(tr.make_key("energy", None, None), si._fetch_market_findings))
     assert res.state == "fetched"
     t = res.doc["findings"]["typical_regulated"]
-    assert t["figure_annual"] == 1663.0 and t["source_name"] == "Ofgem" and len(t["read_on"]) == 10
+    assert t["figure_annual"] == 1723.0 and t["period_start"] == "2026-10-01" and t["source_name"] == "Ofgem" and len(t["read_on"]) == 10
     assert t["source_url"] == "https://www.ofgem.gov.uk/press-release/a"
     assert sum(q.startswith("site:ofgem.gov.uk") for q in state["searches"]) == 1
     assert res.doc["fetch_stats"]["regulator_read"] == 1

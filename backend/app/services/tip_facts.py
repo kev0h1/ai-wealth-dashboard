@@ -490,7 +490,8 @@ _TRUNCATED_NAME_RE = re.compile(r"\b(?:Leisur|Birmin|Birming|Bromw|Supermark|S/M
 
 
 _TYPICAL_RE = re.compile(
-    r"Typical: £[\d,]+ a month \([A-Za-z0-9.&' ]+ price cap £[\d,]+ a year, \d{1,2} [A-Z][a-z]{2} \d{4}\)\."
+    r"Typical: £[\d,]+ a month \([A-Za-z0-9.&' ]+ price cap £[\d,]+ a year from \d{1,2} [A-Z][a-z]+ \d{4}, "
+    r"read \d{1,2} [A-Z][a-z]{2} \d{4}\)\."
 )
 _TYPICAL_START_RE = re.compile(r"\bTypical:")
 _MISSING_STOP_RE = re.compile(r"[a-z0-9\u00a3)] (?:That|Checked|Also listed|Offer listed)\b")
