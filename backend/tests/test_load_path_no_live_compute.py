@@ -40,6 +40,22 @@ HOW TO TIGHTEN (each precompute step of H145's plan does this):
 A cache-miss fallback that calls a compute function counts as reaching it; the
 end state is a handler that returns "not ready" or the last stored result and
 lets the recompute triggers fill the store, with warm_user as a safety net.
+
+LIMITS (read before trusting an empty allowance):
+  * Matching is by bare called name. A compute function reached through an
+    alias (`f = compute_x; f()`, `from m import compute_x as g`, `getattr`,
+    a callable passed in as an argument, `functools.partial`) is NOT seen.
+  * A helper in another module that is not listed in COMPUTE_FUNCTIONS is not
+    descended into; only same-module helpers are.
+  * Inline aggregation inside a handler (a Mongo pipeline or loop that sums raw
+    transactions) is not a named function and is invisible. Routes known to do
+    this are listed in KNOWN_INLINE so that an empty or short allowance on them
+    is never read as "clean". Add a route there when you find inline compute;
+    remove it only when the inline work has moved to a recompute trigger.
+  * Computation in the browser is outside this test (see the audit, section 3).
+  * Every GET route under app/routers must be classified: in LOAD_PATH (gated)
+    or in NOT_LOAD_PATH (not called on the load of an audited screen). A new
+    GET therefore cannot slip in unclassified; decide which list it belongs to.
 """
 import ast
 from pathlib import Path
@@ -273,3 +289,126 @@ def test_allowances_only_name_known_compute_functions():
         (r, f) for r, fs in LOAD_PATH.items() for f in fs if f not in COMPUTE_FUNCTIONS
     )
     assert not unknown, f"allowance names a function missing from COMPUTE_FUNCTIONS: {unknown}"
+
+
+# Routes whose handlers aggregate inline, so the static check cannot see the
+# computation. An empty allowance on one of these means "no named compute
+# function", not "clean". Value: what the inline work is.
+KNOWN_INLINE: dict[str, str] = {
+    "GET /accounts/{account_id}/categories": "per-request aggregation over 90 days of the account's debits",
+    "GET /kpis": "runway divides cash by a burn averaged inline from 90 days of debits, besides the named helpers",
+}
+
+# Every other GET under app/routers. Not called on the load of Home, Spend,
+# Upcoming, Planning, Accounts, the account page, Penny or the transfers
+# review; they belong to Settings, ops, auth and OAuth, billing, drill-downs
+# and screens not yet audited (cards, tax, receipts, fuel, challenges, cycle).
+# Moving a route here is a decision that it is not on a load path; if a screen
+# starts calling it on load, move it to LOAD_PATH.
+NOT_LOAD_PATH: frozenset[str] = frozenset({
+    "GET ",
+    "GET /.well-known/oauth-authorization-server",
+    "GET /.well-known/oauth-protected-resource",
+    "GET /.well-known/oauth-protected-resource/{resource_path:path}",
+    "GET /.well-known/openid-configuration",
+    "GET /accounts/{account_id}/rate",
+    "GET /admin/broadcast",
+    "GET /admin/broadcast/{broadcast_id}",
+    "GET /admin/llm-usage",
+    "GET /admin/sync-stats",
+    "GET /allocations/fill-candidates",
+    "GET /allocations/{allocation_id}/contribution-preview",
+    "GET /auth/finexer/callback",
+    "GET /auth/finexer/link",
+    "GET /auth/finexer/providers",
+    "GET /auth/google",
+    "GET /auth/google/callback",
+    "GET /auth/google/mobile",
+    "GET /auth/google/mobile-callback",
+    "GET /auth/identities",
+    "GET /auth/mobile/poll",
+    "GET /auth/oauth/authorize",
+    "GET /auth/truelayer/callback",
+    "GET /auth/truelayer/link",
+    "GET /auth/truelayer/providers",
+    "GET /backfill",
+    "GET /baskets",
+    "GET /baskets/{basket_id}",
+    "GET /billing/apple/account-token",
+    "GET /billing/play/config",
+    "GET /billing/status",
+    "GET /cards/story",
+    "GET /categories/groups",
+    "GET /challenges",
+    "GET /checkpoints",
+    "GET /checkpoints/history",
+    "GET /checkpoints/{checkpoint_id}/evidence",
+    "GET /commitments/fill-candidates",
+    "GET /commitments/{commitment_id}",
+    "GET /commitments/{commitment_id}/contribution-preview",
+    "GET /commitments/{commitment_id}/ease-preview",
+    "GET /cycle/story",
+    "GET /fuel/nearby",
+    "GET /fuel/status",
+    "GET /go-live",
+    "GET /health",
+    "GET /health/alerts",
+    "GET /health/collectors",
+    "GET /health/collectors/{name}",
+    "GET /health/trends",
+    "GET /income/streams",
+    "GET /insights",
+    "GET /investment/accounts/{account_id}/holdings",
+    "GET /investment/accounts/{account_id}/notes",
+    "GET /logo/provider/{provider_id}",
+    "GET /logo/{domain}",
+    "GET /manual-account-rules",
+    "GET /manual-accounts/{acc_id}/transactions",
+    "GET /mcp",
+    "GET /mcp/audit",
+    "GET /mirror/payment-records",
+    "GET /money-basics",
+    "GET /money-basics/daily",
+    "GET /needle/summary",
+    "GET /oauth/connections",
+    "GET /oauth/request/{req_id}",
+    "GET /offers",
+    "GET /penny/conversations/export",
+    "GET /penny/conversations/{conversation_id}",
+    "GET /planned",
+    "GET /proxy",
+    "GET /push/native/status",
+    "GET /push/vapid-public-key",
+    "GET /rules",
+    "GET /savings-insights/labels",
+    "GET /savings-insights/new-count",
+    "GET /savings-insights/unknown-bills",
+    "GET /savings-insights/workflows",
+    "GET /settings",
+    "GET /tax/annualised-income",
+    "GET /today/cover-plan",
+    "GET /transactions/transfer-pair-suggestions",
+    "GET /transactions/{transaction_id}/similar",
+    "GET /transport/summary",
+    "GET /webhooks/recent",
+    "GET /{pid}/subscription",
+})
+
+
+def test_known_inline_routes_are_gated():
+    for route, reason in KNOWN_INLINE.items():
+        assert route in LOAD_PATH, f"{route} is KNOWN_INLINE but not in LOAD_PATH"
+        assert reason.strip(), f"{route} needs a reason in KNOWN_INLINE"
+
+
+def test_every_get_route_is_classified():
+    gets = {k for k in _decorated_routes() if k.startswith("GET ")}
+    both = sorted(set(LOAD_PATH) & NOT_LOAD_PATH)
+    assert not both, f"in both LOAD_PATH and NOT_LOAD_PATH: {both}"
+    unclassified = sorted(gets - set(LOAD_PATH) - NOT_LOAD_PATH)
+    assert not unclassified, (
+        f"GET routes not in LOAD_PATH or NOT_LOAD_PATH: {unclassified}. "
+        "Decide whether a screen calls it on load (LOAD_PATH, with its allowance) or not (NOT_LOAD_PATH)."
+    )
+    stale = sorted(NOT_LOAD_PATH - gets)
+    assert not stale, f"NOT_LOAD_PATH names routes that no longer exist: {stale}"
