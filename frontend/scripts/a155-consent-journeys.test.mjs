@@ -62,7 +62,7 @@ const productionFlow = readSource("../components/bank-connect/BankConnectionFlow
 assert.match(productionFlow, /bodyHeader: <BankSearch/);
 assert.match(productionFlow, /body: <BankResults/);
 assert.match(productionFlow, /onChoose=\{bank => \{ setSelected\(bank\); navigation.goTo\("review"\); \}\}/);
-assert.match(productionFlow, /<ConnectionNotice \/>/);
+assert.match(productionFlow, /<ConnectionNotice bank=\{selected\} \/>/, "G395 notice uses the selected bank coverage without changing the hand-off");
 assert.match(productionFlow, /onContinue=\{\(\) => onConnect\(selected, navigation.close\)\}/);
 const sheet = readSource("../components/SheetFrame.tsx");
 assert.ok(sheet.indexOf("data-sheet-body-header") > sheet.indexOf("</header>"));

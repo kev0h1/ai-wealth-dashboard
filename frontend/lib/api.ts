@@ -3285,7 +3285,7 @@ export const api = {
   legacyBankConnectLink: (provider?: string, native?: boolean) => LEGACY_BANK_AVAILABLE
     ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${linkQuery(provider, native)}`)
     : Promise.reject(new Error("This bank connection method is not available.")),
-  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[]; health_status?: string }[]>("/auth/finexer/providers"),
+  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[]; health_status?: string; supported_kinds: string[]; coverage_captured_on: string | null }[]>("/auth/finexer/providers"),
   /** A182: confirm in the app that Sorted may keep reading this bank's data (90-day
    *  reconfirmation). No bank login; never extends the consent's end date. */
   finexerReconfirm: (consentId: string) =>

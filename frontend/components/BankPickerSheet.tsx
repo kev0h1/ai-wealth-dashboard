@@ -22,6 +22,10 @@ export interface Bank {
   logo: string;
   /** A183: operational, degraded or down, from Finexer's provider list. */
   health_status?: string;
+  /** G395: advisory account kinds from Finexer's published provider listing. */
+  supported_kinds?: string[];
+  /** Date the advisory listing was captured, or null when this provider is unlisted. */
+  coverage_captured_on?: string | null;
 }
 
 /** Archived A155 exploration and legacy picker placements. Finexer production

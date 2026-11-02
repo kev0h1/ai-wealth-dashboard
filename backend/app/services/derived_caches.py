@@ -353,7 +353,7 @@ async def recompute_derived_caches(uid: str, *, new_count: int, trigger: SyncTri
     await compute_and_cache_cashflow(uid)
     try:
         from app.services.money_shape import compute_and_cache_money_shape
-        await compute_and_cache_money_shape(uid)
+        await compute_and_cache_money_shape(uid, background=True)
     except Exception:
         logger.exception("money_shape compute failed for %s", uid)
     logger.info("derived caches recomputed for %s (trigger=%s, reason=%s)", uid, trigger, reason)
