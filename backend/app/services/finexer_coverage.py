@@ -100,6 +100,19 @@ def _provider_label(provider_code: str) -> str:
     return provider_code.replace("_", " ").title()
 
 
+def is_pot_account(provider_code, acc) -> bool:
+    """A188: True for a Monzo pot, Revolut vault or pocket, or Starling space.
+
+    These banks share the main account with a sort code and account number
+    but a sub-account with neither. One rule, used by `is_balance_only` and
+    by the sync's pot subtype override."""
+    code = str(provider_code or "").strip().lower()
+    if code not in _POT_PROVIDERS:
+        return False
+    ident = (acc or {}).get("identification") or {}
+    return not (ident.get("sort_code") or ident.get("account_number") or ident.get("number"))
+
+
 def is_balance_only(provider_code, acc, display_name=None) -> tuple:
     """(True, reason) when this account is unlikely to share transactions.
 
@@ -115,10 +128,8 @@ def is_balance_only(provider_code, acc, display_name=None) -> tuple:
         return False, ""
     acc = acc or {}
     label = (str(display_name).strip() if display_name else "") or _provider_label(code)
-    if code in _POT_PROVIDERS:
-        ident = acc.get("identification") or {}
-        if not (ident.get("sort_code") or ident.get("account_number") or ident.get("number")):
-            return True, f"{label} does not share {_POT_PROVIDERS[code]} transactions through Open Banking."
+    if is_pot_account(code, acc):
+        return True, f"{label} does not share {_POT_PROVIDERS[code]} transactions through Open Banking."
     info = finexer_account_kind(acc.get("class"))
     kind = info["kind"]
     if info.get("class_unknown") or kind not in _KIND_WORDS:

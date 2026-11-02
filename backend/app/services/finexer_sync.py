@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 from app.services.account_kinds import finexer_account_kind
-from app.services.finexer_coverage import is_balance_only
+from app.services.finexer_coverage import is_balance_only, is_pot_account
 from app.services.sync_freshness import sync_error_code, sync_in_progress
 
 logger = logging.getLogger(__name__)
@@ -1859,6 +1859,15 @@ async def sync_finexer_consent(
             acc_class = (acc.get("class") or "").lower()
             # A181: ONE mapping for every Finexer class (services/account_kinds.py).
             kind_info = finexer_account_kind(acc_class)
+            if (
+                kind_info["kind"] in ("current", "savings")
+                and str(acc.get("type") or "").lower() != "business"
+                and is_pot_account(acc.get("provider"), acc)
+            ):
+                # A188: a pot is savings whatever class Finexer sends (the payday
+                # plan buffers any non-savings destination, so a class-current pot
+                # was asked for the everyday spend buffer).
+                kind_info = {**kind_info, "kind": "savings", "type": "bank", "subtype": "SAVINGS"}
             acc_type = kind_info["type"]
             subtype = kind_info["subtype"]
             is_card = kind_info["kind"] == "card"
