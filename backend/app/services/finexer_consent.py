@@ -130,7 +130,7 @@ async def reconfirm_consent(consent_id: str, now: Optional[datetime] = None) -> 
     except Exception:
         body = {}
     body = body if isinstance(body, dict) else {}
-    renewed = fs._parse_iso_utc(body.get("renewed_at")) or now
+    renewed = fs.parse_finexer_timestamp(body.get("renewed_at")) or now
     doc = await finexer_consents_col.find_one({"_id": consent_id}) or {}
     fields: dict = {"renewed_at": renewed, "reconfirmed_at": now}
     due = next_reconfirm_by(doc.get("authed_at"), renewed, doc.get("expiry_date"))
@@ -203,7 +203,7 @@ def consent_sync_fields(consent_doc: dict, local_consent: dict) -> dict:
     a failure code and message when the consent carries them (a healthy
     authorised one clears an earlier failure), and next_reconfirm_by from the
     renewed_at and expiry_date Finexer reports."""
-    from app.services.finexer_sync import _parse_iso_utc
+    from app.services.finexer_sync import parse_finexer_timestamp
     out: dict = {}
     failure = consent_failure_fields(consent_doc)
     if failure:
@@ -213,14 +213,14 @@ def consent_sync_fields(consent_doc: dict, local_consent: dict) -> dict:
     # renewed_at: only from Finexer when it is present, and never earlier than
     # what we already hold (a GET that omits or lags it must not erase a
     # reconfirmation we just recorded).
-    remote_renewed = _parse_iso_utc(consent_doc.get("renewed_at"))
+    remote_renewed = parse_finexer_timestamp(consent_doc.get("renewed_at"))
     local_renewed = local_consent.get("renewed_at")
     local_renewed = local_renewed if isinstance(local_renewed, datetime) else None
     renewed = max([d for d in (remote_renewed, local_renewed) if d], default=None)
     if remote_renewed and (local_renewed is None or remote_renewed > local_renewed):
         out["renewed_at"] = remote_renewed
     out["next_reconfirm_by"] = next_reconfirm_by(
-        local_consent.get("authed_at"), renewed, _parse_iso_utc(consent_doc.get("expiry_date")),
+        local_consent.get("authed_at"), renewed, parse_finexer_timestamp(consent_doc.get("expiry_date")),
     )
     return out
 

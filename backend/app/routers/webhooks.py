@@ -289,7 +289,7 @@ async def _mark_accounts_expired(consent_id: str) -> None:
 
 
 def _parse_iso_utc(v):
-    from app.services.finexer_sync import _parse_iso_utc as _p
+    from app.services.finexer_sync import parse_finexer_timestamp as _p
     return _p(v)
 
 
