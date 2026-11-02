@@ -74,8 +74,8 @@ class TwoAccountClient(Client):
     async def get(self, url, params=None):
         if url == "/bank_accounts":
             return Resp(200, {"data": [
-                {"id": "acc1", "class": "current", "provider": "monzo"},
-                {"id": "acc2", "class": "current", "provider": "monzo"},
+                {"id": "acc1", "class": "current", "provider": "monzo", "identification": {"sort_code": "040004", "account_number": "12345678"}},
+                {"id": "acc2", "class": "current", "provider": "monzo", "identification": {"sort_code": "040004", "account_number": "12345678"}},
             ]})
         return await super().get(url, params)
 
