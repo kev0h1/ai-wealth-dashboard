@@ -129,6 +129,11 @@ def _patch_router_cols(monkeypatch, prefs_docs=None, cashflow_docs=None,
         async def _noop_recompute(uid, clear_ai_cache=True):
             return None
         monkeypatch.setattr(analytics, "compute_and_cache_cashflow", _noop_recompute)
+    # G399: the post-write refresh (cache invalidation, recompute, warm-up) is
+    # covered by test_g399_override_refresh.py; keep these tests off any DB.
+    async def _noop_refresh(uid, **kwargs):
+        return None
+    monkeypatch.setattr(analytics, "_refresh_after_override", _noop_refresh)
     return prefs_col, cashflow_col
 
 
