@@ -1047,16 +1047,27 @@ def timestamp_shape(s) -> str:
     return f"{kind} len={len(t)}"
 
 
+_shape_logged = False
+_future_warned = False
+
+
 def _log_timestamp_shape(field: str, raw) -> None:
+    """INFO shape line, once per process."""
+    global _shape_logged
+    if _shape_logged:
+        return
+    _shape_logged = True
     logger.info("Finexer %s timestamp shape: %s", field, timestamp_shape(raw))
 
 
 def _check_not_in_future(field: str, parsed: datetime, raw, requested_at: Optional[datetime]) -> None:
     """A187: a parsed Finexer time more than five minutes after our own request
-    stamp is suspicious (the zone may be wrong). Log the shape once, never the
+    stamp is suspicious (the zone may be wrong). Log the shape once per process, never the
     value, and keep the data regardless."""
+    global _future_warned
     ref = requested_at or _utcnow()
-    if parsed - ref > timedelta(minutes=5):
+    if parsed - ref > timedelta(minutes=5) and not _future_warned:
+        _future_warned = True  # once per process; no await between check and set
         logger.warning(
             "Finexer %s parsed more than 5 minutes after our request stamp (shape: %s); stored anyway",
             field, timestamp_shape(raw),
@@ -1083,7 +1094,9 @@ def parse_finexer_timestamp(s) -> Optional[datetime]:
     except (ValueError, TypeError):
         return None
     if dt.tzinfo is None:
-        # fold=0: an ambiguous autumn hour resolves to BST; a spring-gap time shifts forward.
+        # fold=0: an ambiguous autumn hour resolves to BST; a nonexistent spring-gap
+        # time resolves with the pre-transition GMT offset. A date-only string reads
+        # as London midnight (deliberate, harmless for expiry_date).
         dt = dt.replace(tzinfo=_LONDON)
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 

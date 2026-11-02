@@ -52,6 +52,7 @@ def test_consent_expiry_and_renewed_naive_convert_same_way():
 
 
 def test_shape_log_carries_no_value(caplog):
+    fs._shape_logged = False
     raw = "2026-07-02T07:25:55"
     with caplog.at_level(logging.INFO, logger=LOGGER):
         fs._sync_fields({"synced_to": raw}, requested_at=datetime(2026, 7, 2, 6, 25, 55))
@@ -66,7 +67,8 @@ def test_shape_kinds():
     assert fs.timestamp_shape("2026-07-02T07:25:55").startswith("naive ")
 
 
-def test_future_clamp_logs_once_and_stores(caplog):
+def test_future_clamp_warns_and_stores(caplog):
+    fs._future_warned = False
     with caplog.at_level(logging.INFO, logger=LOGGER):
         out = fs._sync_fields({"synced_to": "2026-07-02T09:00:00Z"}, requested_at=datetime(2026, 7, 2, 6, 25, 55))
     warns = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -78,3 +80,27 @@ def test_no_future_warning_when_close(caplog):
     with caplog.at_level(logging.INFO, logger=LOGGER):
         fs._sync_fields({"synced_to": "2026-07-02T06:27:00Z"}, requested_at=datetime(2026, 7, 2, 6, 25, 55))
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_future_warning_once_per_process_across_calls(caplog):
+    fs._future_warned = False
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        for _ in range(2):
+            fs._sync_fields({"synced_to": "2026-07-02T09:00:00Z"}, requested_at=datetime(2026, 7, 2, 6, 25, 55))
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+def test_shape_info_once_per_process(caplog):
+    fs._shape_logged = False
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        for _ in range(2):
+            fs._sync_fields({"synced_to": "2026-07-02T06:26:00"}, requested_at=datetime(2026, 7, 2, 6, 25, 55))
+    assert len([r for r in caplog.records if "timestamp shape" in r.getMessage()]) == 1
+
+
+def test_ambiguous_autumn_hour_resolves_to_bst():
+    assert fs.parse_finexer_timestamp("2026-10-25T01:30:00") == datetime(2026, 10, 25, 0, 30, 0)
+
+
+def test_spring_gap_does_not_raise():
+    assert isinstance(fs.parse_finexer_timestamp("2026-03-29T01:30:00"), datetime)
