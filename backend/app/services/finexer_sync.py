@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 from app.services.account_kinds import finexer_account_kind
+from app.services.finexer_coverage import is_balance_only
 from app.services.sync_freshness import sync_error_code, sync_in_progress
 
 logger = logging.getLogger(__name__)
@@ -644,6 +645,11 @@ async def provider_health_map(counter: Optional[dict] = None) -> dict:
                     break
                 data = r.json()
                 items = data.get("data") or []
+                if items and offset == 0 and isinstance(items[0], dict):
+                    # A186: key names only, never values, so production shows whether
+                    # GET /providers already exposes account type support.
+                    logger.info("Finexer GET /providers item keys: %s",
+                                sorted(str(k)[:30] for k in items[0].keys())[:40])
                 for p in items:
                     if p.get("id"):
                         fresh[p["id"]] = provider_health(p.get("health_status"))
@@ -1731,6 +1737,11 @@ async def sync_finexer_consent(
 
             currency = (acc.get("currency") or "GBP").upper()
 
+            # A186: accounts the provider does not share transactions for skip the
+            # sync requests below (they only fail). Advisory: the balance is still
+            # fetched and any transactions that return are still stored.
+            balance_only, balance_only_reason = is_balance_only(provider_code, acc)
+
             # A176: ask Finexer to refresh this account from the bank first, so
             # the balance and transactions below are the bank's current ones.
             bank_sync_set: dict = {}
@@ -1740,7 +1751,7 @@ async def sync_finexer_consent(
             # setter is a POST to the same path as the manual trigger and may
             # itself trigger a sync, in which case the manual trigger is
             # skipped for this account (one POST, not two within seconds).
-            if is_initial_sync and auto_sync_hours:
+            if is_initial_sync and auto_sync_hours and not balance_only:
                 try:
                     au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter, finexer_id=finexer_id)
                     bank_sync_set.update(au.get("set") or {})
@@ -1754,7 +1765,7 @@ async def sync_finexer_consent(
                         sync_current = True
                 except Exception:
                     logger.exception("Finexer auto sync setup failed for an account; continuing")
-            if request_bank_sync and not setter_triggered:
+            if request_bank_sync and not setter_triggered and not balance_only:
                 try:
                     bs = await request_and_wait_bank_sync(
                         client, account_id, counter, budget=bank_sync_budget, finexer_id=finexer_id,
@@ -1846,6 +1857,9 @@ async def sync_finexer_consent(
                 "logo_url":       pinfo.get("logo") or None,
                 "bg_colors":      pinfo.get("bg_colors") or [],
                 "updated_at":     datetime.utcnow(),
+                # A186: stamped every pass so a corrected map heals the flag.
+                "balance_only":   bool(balance_only),
+                "balance_only_reason": balance_only_reason if balance_only else None,
             }
             if fingerprint:
                 set_doc["fingerprint"] = fingerprint

@@ -489,11 +489,15 @@ async def _compute_sync_health(now: datetime) -> dict:
     n429 = 0
     n_err = 0
     card_signs: list = []
+    # A186: accounts the provider does not share transactions for are left out
+    # of the stale alert; a consent holding only such accounts is not "without data".
+    has_syncing: set = set()
+    has_balance_only: set = set()
     if consent_ids:
         async for a in accounts_col.find(
             {"connection_id": {"$in": consent_ids}, "source": "finexer"},
             {"connection_id": 1, "bank_synced_to": 1, "bank_sync_last_429_at": 1,
-             "bank_sync_error": 1, "bank_sync_error_at": 1,
+             "bank_sync_error": 1, "bank_sync_error_at": 1, "balance_only": 1,
              "card_current_sign": 1, "card_available_sign": 1},
         ):
             if a.get("card_current_sign"):
@@ -501,6 +505,10 @@ async def _compute_sync_health(now: datetime) -> dict:
                                    "available": a.get("card_available_sign")})
             to = a.get("bank_synced_to")
             cid = a.get("connection_id")
+            if a.get("balance_only") is True:
+                has_balance_only.add(cid)
+                continue
+            has_syncing.add(cid)
             if isinstance(to, datetime) and cid in newest and (newest[cid] is None or to > newest[cid]):
                 newest[cid] = to
             at429 = a.get("bank_sync_last_429_at")
@@ -511,6 +519,9 @@ async def _compute_sync_health(now: datetime) -> dict:
                     and a.get("bank_sync_error") not in (None, "rate_limited")):
                 n_err += 1
 
+    balance_only_consents = has_balance_only - has_syncing
+    for cid in balance_only_consents:
+        newest.pop(cid, None)
     known = [v for v in newest.values() if v is not None]
     stale = [v for v in known if v < stale_cut]
     consents = sorted(
@@ -536,7 +547,7 @@ async def _compute_sync_health(now: datetime) -> dict:
         "alert": alert,
         "stale_hours": BANK_DATA_STALE_HOURS,
         "authorized_consents": len(consent_ids),
-        "consents_without_bank_data": len(consent_ids) - len(known),
+        "consents_without_bank_data": len(consent_ids) - len(known) - len(balance_only_consents & set(consent_ids)),
         "consents_stale": len(stale),
         "oldest_bank_data_at": (oldest.isoformat() + "Z") if oldest else None,
         "sync_429s_24h": n429,
