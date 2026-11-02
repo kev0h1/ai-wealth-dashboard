@@ -61,6 +61,6 @@ assert.match(odHtml, /aria-label="[^"]*overdrawn/);
 assert.equal(sourceClass(loan), "none");
 assert.equal(sourceClass(acc()), "current");
 const page = readFileSync(new URL("../app/components/AccountsPage.tsx", import.meta.url), "utf8");
-assert.match(page, /!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !\(available\?\.kind === "ready" && available\.warning\) && \(/, "no Left to spend switch on debt");
+assert.match(page, /!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && \(/, "no Left to spend switch on debt");
 assert.match(page, /const isDebt = accountKind\(selectedAccount\) === "Debt"/);
 console.log("a181-accounts ok");
