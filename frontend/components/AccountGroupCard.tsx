@@ -31,14 +31,14 @@ export default function AccountGroupCard({ label, count, subtotal, hidden, colla
         aria-expanded={!collapsed}
         className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${collapsed ? "rounded-2xl" : "rounded-t-2xl"}`}
       >
-        <span>
+        <span className="min-w-0 py-3">
           <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">{label}</span>
           <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{count} {count === 1 ? "account" : "accounts"}</span>
         </span>
-        <span className="flex items-center gap-2">
-          <span className="money text-[14px] font-semibold text-slate-800 dark:text-slate-200">
-            {hidden
-              ? "£••••"
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="money whitespace-nowrap text-[14px] font-semibold text-slate-800 dark:text-slate-200">
+            {!Number.isFinite(subtotal) ? "Pending" : hidden
+              ? `${subtotal < 0 ? MINUS : ""}£••••`
               : `${subtotal < 0 ? MINUS : ""}£${Math.abs(Math.round(subtotal)).toLocaleString("en-GB")}`}
           </span>
           <ChevronDown
@@ -49,6 +49,7 @@ export default function AccountGroupCard({ label, count, subtotal, hidden, colla
         </span>
       </button>
       <div
+        inert={collapsed}
         className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
           collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
         }`}

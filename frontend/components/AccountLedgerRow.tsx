@@ -102,7 +102,9 @@ function brandAccountFor(row: EstateRow): Account {
 export interface AccountLedgerRowProps {
   row: EstateRow;
   pinned?: boolean;
-  onClick?: (row: EstateRow) => void;
+  onClick?: (row: EstateRow, trigger?: HTMLElement) => void;
+  /** Identifies the exact source row when a pinned account appears twice. */
+  focusKey?: string;
   /** Utilisation bar is OFF by default — no live credit-limit data source
    *  exists yet. Only pass `utilisation` once one does. */
   showUtilisation?: boolean;
@@ -135,6 +137,7 @@ export default function AccountLedgerRow({
   row,
   pinned,
   onClick,
+  focusKey,
   showUtilisation,
   utilisation,
   sparkline,
@@ -171,7 +174,7 @@ export default function AccountLedgerRow({
   // the sign has to do that job on its own (matches design/account-rows
   // shared.tsx's amountText). Non-credit output is unchanged: isOverdrawn
   // and `negative` are equivalent there.
-  const amountText = hideAmount ? "£••••" : negative ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
+  const amountText = hideAmount ? `${negative ? MINUS : ""}£••••` : negative ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
   // Spoken/aria state word — unchanged from before the redesign, so screen
   // readers still hear "owed" / "in credit" / "overdrawn" even though the
   // visual caption below only survives for non-credit rows.
@@ -197,7 +200,7 @@ export default function AccountLedgerRow({
     : null;
   const syncWord = syncPhaseNow === "failed" ? "Not updated" : syncPhaseNow === "stalled" ? "Delayed" : "Updating";
   // A bank that has never synced has no balance to keep: say so, never £0.
-  const balancePending = sync?.kind === "new-bank";
+  const balancePending = sync?.kind === "new-bank" || !Number.isFinite(row.balance);
   const amountToneClass = sync
     ? balancePending
       ? "!text-[13px] font-medium text-slate-600 dark:text-slate-300"
@@ -207,11 +210,11 @@ export default function AccountLedgerRow({
   // current-account rows. Sync owns this compact caption slot while a bank is
   // updating, and excluded accounts never surface a spendable reading.
   const availabilityReading =
-    row.source === "bank" && row.kind === "Current" && !notCounted && !sync ? availability : undefined;
+    row.source === "bank" && row.kind === "Current" && !notCounted && !sync && !balancePending ? availability : undefined;
   // A181: with an arranged overdraft the current balance stays the headline and
   // the reach with the overdraft is a hedged secondary line. Never cash.
   const overdraftReading =
-    row.source === "bank" && !sync && !availabilityReading ? overdraftAvailable(row.raw as Account) : null;
+    row.source === "bank" && !sync && !balancePending && !availabilityReading ? overdraftAvailable(row.raw as Account) : null;
   const availabilityAria = availabilityReading
     ? availabilityReading.kind === "ready"
       ? `, available: ${hideAmount ? "amount hidden" : moneyStr(availabilityReading.value)}${
@@ -224,18 +227,16 @@ export default function AccountLedgerRow({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick ? () => onClick(row) : undefined}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick?.(row);
-        }
-      }}
-      aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : moneyStr(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
-      className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
+      className="relative isolate w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
+      <button
+        type="button"
+        data-account-row-id={focusKey}
+        disabled={!onClick}
+        onClick={(event) => onClick?.(row, event.currentTarget)}
+        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : moneyStr(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+        className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+      />
       <BankIcon identity={brandAccountFor(row)} altText={brand.label} />
 
       <div className="flex-1 min-w-0">
@@ -335,7 +336,7 @@ export default function AccountLedgerRow({
               onTermsClick();
             }}
             aria-label={`${termsPill.label}, edit this card's rates`}
-            className="mt-0.5 min-h-[28px] flex items-center active:opacity-70 transition-opacity motion-reduce:transition-none"
+            className="relative z-20 mt-0.5 min-h-[28px] before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] flex items-center active:opacity-70 transition-opacity motion-reduce:transition-none"
           >
             <span
               className={`text-[10px] font-semibold px-2 py-0.5 rounded-full num ${
@@ -361,7 +362,7 @@ export default function AccountLedgerRow({
               e.stopPropagation();
               onAddRates();
             }}
-            className="relative mt-0.5 min-h-[22px] flex items-center gap-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/25 text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity motion-reduce:transition-none before:absolute before:-inset-y-[11px] before:-inset-x-2 before:content-['']"
+            className="relative z-20 mt-0.5 min-h-[22px] flex items-center gap-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/25 text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity motion-reduce:transition-none before:absolute before:-inset-y-[11px] before:-inset-x-2 before:content-['']"
           >
             Add APR ›
           </button>

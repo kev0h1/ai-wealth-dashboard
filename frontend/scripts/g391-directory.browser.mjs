@@ -1,4 +1,4 @@
-// G391 evidence uses production directory/header/detail components with synthetic local rows only.
+// G391 restoration evidence uses production list/header/detail components with synthetic local rows only.
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { createServer } from "node:http";
@@ -10,15 +10,42 @@ import tailwind from "@tailwindcss/postcss";
 import { openBrowser } from "./_plan-browser.mjs";
 
 const out = await mkdtemp(path.join(tmpdir(), "g391-directory-"));
-const evidence = path.resolve("../.impeccable/review/g391-foldin");
+const evidence = path.resolve("../.impeccable/review/g391-restore");
 await mkdir(evidence, { recursive: true });
 const entry = `
-import React,{useEffect,useRef,useState} from 'react';import{createRoot}from'react-dom/client';
-import AccountsDirectory from './components/AccountsDirectory';import AccountsHeader from './components/AccountsHeader';import AccountAvailabilityDetail from './components/AccountAvailabilityDetail';import {AccountDetailIdentity} from './components/AccountDetailParts';import MoneyText from './components/MoneyText';
-const kinds=['Current','Current','Credit','Debt','Investment','Current','Savings','Credit','Debt','Investment','Current','Savings','Credit','Debt','Investment','Current','Savings','Credit','Debt','Investment','Current'];
-const raw=(id,name,type,balance,more={})=>({id,name,type:type.toLowerCase(),balance,currency:'GBP',provider:more.provider||'Northbridge',status:more.status||'connected',...more});
-const rows=kinds.map((kind,i)=>{const id=['long','overdrawn','credit','mortgage','isa','offline','old','syncing','unknown'][i]||'account-'+i;const balance=id==='overdrawn'?-42:id==='credit'?-90:id==='mortgage'?-500:id==='unknown'?NaN:(i+1)*100;const manual=id==='offline';return {id,name:id==='long'?'A deliberately long household current account name that must still fit':id==='old'?'Old saver':id==='offline'?'Offline cash reserve':id,provider:manual?'Offline':'Northbridge',kind,balance,status:'connected',pinned:id==='long'||id==='credit',dormant:id==='old',attention:false,source:kind==='Investment'?'investment':'bank',raw:kind==='Investment'?{id,provider:'Northbridge',account_type:'ISA',display_value:balance,total_value:balance}:raw(id,id,kind,balance,{manual,provider:manual?'Offline':'Northbridge'})};});
-function App(){const[q,setQ]=useState('');const[pinned,setPinned]=useState(false);const[dormant,setDormant]=useState(false);const[hidden,setHidden]=useState(false);useEffect(()=>{window.setHidden=setHidden},[]);const[collapsed,setCollapsed]=useState({});const[selected,setSelected]=useState(null);const triggerId=useRef('');const[menu,setMenu]=useState(false);const restore=()=>{setSelected(null);requestAnimationFrame(()=>document.querySelector('[data-account-row-id="'+triggerId.current+'"]').focus())};useEffect(()=>{const onKey=e=>{if(e.key==='Escape'&&selected)restore()};addEventListener('keydown',onKey);return()=>removeEventListener('keydown',onKey)},[selected]);if(selected){const amount=Number.isFinite(selected.balance)?(selected.balance<0?'−':'')+'£'+(hidden?'••••':Math.round(Math.abs(selected.balance)).toLocaleString('en-GB')):'Pending';return <main data-detail className='mx-auto max-w-3xl p-4 text-slate-900 dark:text-slate-100'><button data-back className='min-h-11 rounded-lg px-3 focus-visible:ring-2 focus-visible:ring-indigo-500' onClick={restore}>Back to accounts</button><div className='mt-4'><AccountDetailIdentity name={selected.name} logoSrc={null} initials='NB' label={selected.provider}/><p data-bank-balance className='money text-xl font-bold'>Bank balance <MoneyText text={amount}/></p><AccountAvailabilityDetail hidden={hidden} reading={{kind:'ready',value:0,warning:'payments'}} position={{after_payments:-289,after_payments_and_plans:-289,low_point:-289,plans_reserved:0}}/></div></main>}return <main data-ready className='mx-auto max-w-3xl p-4 text-slate-900 dark:text-slate-100'><AccountsHeader directory netWorth={null} hidden={hidden} showChip={hidden} onShow={()=>setHidden(false)} onAdd={()=>setMenu(v=>!v)} addOpen={menu} addRef={{current:null}} onAddClose={()=>setMenu(false)} refresh={{onRefresh:()=>window.refreshes++,disabled:false,busy:false,freshness:'Oldest bank data from 2 hours ago.',message:''}} addMenu={menu?<div role='menu'><button role='menuitem' onClick={()=>window.added='offline'}>Add an offline account</button></div>:null}/><AccountsDirectory rows={rows} hidden={hidden} query={q} onQuery={setQ} pinnedOnly={pinned} onPinnedOnly={setPinned} showDormant={dormant} onShowDormant={setDormant} collapsed={collapsed} onToggleGroup={key=>setCollapsed(v=>({...v,[key]:!v[key]}))} onOpen={(row)=>{triggerId.current=row.id;setSelected(row)}} syncFor={row=>row.id==='syncing'?{kind:'refresh',bank:'Northbridge'}:row.id==='unknown'?{kind:'new-bank',bank:'Northbridge'}:undefined}/></main>};window.refreshes=0;window.added='';createRoot(document.getElementById('root')).render(<App/>);`;
+import React,{useEffect,useRef,useState} from 'react';
+import{createRoot}from'react-dom/client';
+import AccountsDirectory from './components/AccountsDirectory';
+import AccountsHeader from './components/AccountsHeader';
+import AccountAvailabilityDetail from './components/AccountAvailabilityDetail';
+import {buildEstate} from './lib/accountsEstate';
+const bank=(id,name,type,balance,extra={})=>({id,name,type,balance,currency:'GBP',provider:'Northbridge',status:'connected',...extra});
+const accounts=[
+ bank('main','Household current account','current',1453), bank('bills','Bills account','current',300),
+ bank('long','A deliberately long current account name that must still fit','current',278),
+ bank('short','Everyday spending','current',259), bank('other','Personal current account','current',246),
+ bank('overdrawn','Joint current account','current',-42),bank('saving','Rainy day savings','savings',700),
+ bank('old','Old saver','savings',0),bank('mortgage','Home mortgage','debt',-150000),
+ ...Array.from({length:5},(_,i)=>bank('card-'+i,'Credit card '+(i+1),'credit',-(i+1)*90)),
+ bank('syncing','Updating saver','savings',125),bank('unknown','New bank account','savings',NaN)
+];
+const investments=[{id:'isa',provider:'Northbridge',account_type:'Stocks and shares ISA',total_value:3000}];
+const manual={id:'offline',name:'Offline cash reserve',provider:'Offline',kind:'Current',balance:70,status:'connected',pinned:false,dormant:false,attention:false,source:'bank',raw:bank('offline','Offline cash reserve','current',70,{manual:true})};
+function App(){
+ const[q,setQ]=useState(''); const[lens,setLens]=useState('All'); const[dormant,setDormant]=useState(false);
+ const[hidden,setHidden]=useState(false);const[pins,setPins]=useState([]);const[collapsed,setCollapsed]=useState({});
+ const[selected,setSelected]=useState(null);const triggerId=useRef('');const[menu,setMenu]=useState(false);
+ useEffect(()=>{window.setHidden=setHidden;window.setPins=setPins},[]);
+ const restore=()=>{setSelected(null);requestAnimationFrame(()=>document.querySelector('[data-account-row-id="'+triggerId.current+'"]').focus())};
+ useEffect(()=>{const onKey=e=>{if(e.key==='Escape'&&selected)restore()};addEventListener('keydown',onKey);return()=>removeEventListener('keydown',onKey)},[selected]);
+ if(selected)return <main data-detail className='mx-auto max-w-3xl p-4 text-slate-900 dark:text-slate-100'><button data-back className='min-h-11 rounded-lg px-3 focus-visible:ring-2 focus-visible:ring-indigo-500' onClick={restore}>Back to accounts</button><h1>{selected.name}</h1><AccountAvailabilityDetail hidden={hidden} reading={{kind:'ready',value:0,warning:'payments'}} position={{after_payments:-289,after_payments_and_plans:-289,low_point:-289,plans_reserved:0}}/></main>;
+ return <main data-ready className='mx-auto max-w-3xl p-4 text-slate-900 dark:text-slate-100'>
+  <AccountsHeader directory netWorth={null} hidden={hidden} showChip={hidden} onShow={()=>setHidden(false)} onAdd={()=>setMenu(v=>!v)} addOpen={menu} addRef={{current:null}} onAddClose={()=>setMenu(false)} refresh={{onRefresh:()=>window.refreshes++,disabled:false,busy:false,freshness:'Oldest bank data from 2 hours ago.',message:'Ready to refresh your connected bank data.'}} addMenu={menu?<div role='menu'><button role='menuitem' onClick={()=>window.added='offline'}>Add an offline account</button></div>:null}/>
+  <AccountsDirectory estate={buildEstate(accounts,investments,pins)} manualRows={[manual]} hidden={hidden} query={q} onQuery={setQ} lens={lens} onLens={setLens} showDormant={dormant} onShowDormant={setDormant} collapsed={collapsed} onToggleGroup={(key,closed)=>setCollapsed(v=>({...v,[key]:!closed}))} onOpen={(row,trigger)=>{triggerId.current=trigger.dataset.accountRowId;setSelected(row)}} syncFor={row=>row.id==='syncing'?{kind:'refresh',bank:'Northbridge'}:row.id==='unknown'?{kind:'new-bank',bank:'Northbridge'}:undefined} availabilityFor={row=>row.kind==='Current'&&row.id!=='offline'?{kind:'ready',value:row.id==='short'||row.id==='overdrawn'?0:row.id==='main'?10:170,warning:row.id==='short'?'payments':undefined}:undefined} termsFor={row=>row.kind==='Credit'?{termsPill:{label:'0% until December',amber:false},onTermsClick:()=>window.rates++}:{}}/>
+ </main>
+}
+window.refreshes=0;window.added='';window.rates=0;createRoot(document.getElementById('root')).render(<App/>);
+`;
 await build({ stdin:{contents:entry,resolveDir:process.cwd(),loader:"tsx"}, bundle:true, outfile:path.join(out,"bundle.js"), jsx:"automatic", define:{"process.env":"{}"} });
 const css=(await postcss([tailwind({base:process.cwd()})]).process(await readFile("app/globals.css","utf8"),{from:path.resolve("app/globals.css")})).css;
 await writeFile(path.join(out,"styles.css"),css);
@@ -27,14 +54,56 @@ const server=createServer(async(req,res)=>{try{const url=req.url??"/";if(url==="
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await openBrowser({origin:`http://127.0.0.1:${server.address().port}`,output:evidence});
 const act=async selector=>{await browser.activate(selector, false);await browser.settle();};
-try { await browser.navigate("/","document.querySelector('[data-ready]')");assert.equal(await browser.evaluate("document.fonts.check('14px Figtree')"),true);assert.equal(await browser.evaluate("document.fonts.check('14px JetBrains')"),true);
- for(const theme of ["light","dark"]) for(const width of [320,390,1280]){await browser.viewport(width,844);await browser.evaluate(`document.documentElement.className=${JSON.stringify(theme==='dark'?'dark':'')}`);await browser.settle();assert.equal(await browser.evaluate("document.documentElement.scrollWidth>innerWidth"),false);assert.equal(await browser.evaluate("document.querySelector(\"input[name=account-search]\").closest(\"label\").getBoundingClientRect().height >= 44"),true,"search has a 44px target");assert.equal(await browser.evaluate("document.querySelectorAll('[data-account-row-id]').length>=20"),true);await browser.shot(`${theme}-${width}`,{full:true});}
- await browser.viewport(390,844);await browser.evaluate("document.documentElement.className='' ");await browser.type("document.querySelector('input[name=account-search]')","Offline cash reserve");await browser.waitFor("document.body.innerText.includes('Offline cash reserve')&&document.querySelectorAll('[data-account-row-id]').length===1");await act("document.querySelector('[aria-label=\"Clear search\"]')");assert.equal(await browser.evaluate("document.activeElement?.getAttribute('name')"),"account-search");
- await act("[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='Pinned')");assert.equal(await browser.evaluate("document.querySelectorAll('[data-account-row-id]').length"),2);assert.equal(await browser.evaluate("document.querySelectorAll('[data-account-row-id=long]').length"),1);await act("[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='All')");await act("[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='Dormant')");assert.equal(await browser.evaluate("Boolean(document.querySelector('[data-account-row-id=old]'))"),true);
- await act("[...document.querySelectorAll('button')].find(e=>e.textContent.includes('Current')&&e.getAttribute('aria-expanded')==='true')");assert.equal(await browser.evaluate("Boolean(document.querySelector('#accounts-current-rows'))"),false);await browser.shot("collapsed-390",{full:true});await act("[...document.querySelectorAll('button')].find(e=>e.textContent.includes('Current')&&e.getAttribute('aria-expanded')==='false')");
- const tones=await browser.evaluate("(()=>({current:getComputedStyle(document.querySelector('[data-account-row-id=overdrawn] .money')).color,credit:getComputedStyle(document.querySelector('[data-account-row-id=credit] .money')).color}))()");assert.notEqual(tones.current,tones.credit,"overdrawn current is risk-toned while unconfirmed credit remains neutral");
- await browser.evaluate("window.setHidden(true)");await browser.settle();assert.equal(await browser.evaluate("document.body.innerText.includes('−£••••')"),true);assert.equal(await browser.evaluate("document.body.innerText.includes('−£42')"),false);await browser.shot("masked-390",{full:true});await browser.evaluate("window.setHidden(false)");await browser.settle();
- for(const theme of ["light","dark"]){await browser.evaluate(`document.documentElement.className=${JSON.stringify(theme==='dark'?'dark':'')}`);await browser.settle();await act("document.querySelector('[data-account-row-id=overdrawn]')");await browser.waitFor("Boolean(document.querySelector('[data-account-availability-working]'))");assert.equal(await browser.evaluate("document.body.innerText.includes('Bank balance')&&document.body.innerText.includes('Available stays at')&&document.body.innerText.includes('£0')"),true);await act("document.querySelector('summary')");await browser.waitFor("document.body.innerText.includes('After scheduled payments')");await browser.shot(`detail-working-${theme}-390`,{full:true});await browser.key('Escape','Escape',27);await browser.waitFor("document.activeElement?.getAttribute('data-account-row-id')==='overdrawn'");}
- await act("document.querySelector('[aria-label=\"Refresh connected banks\"]')");assert.equal(await browser.evaluate("window.refreshes"),1);await act("document.querySelector('[data-add-control]')");await browser.waitFor("Boolean(document.querySelector('[role=menuitem]'))");await act("document.querySelector('[role=menuitem]')");assert.equal(await browser.evaluate("window.added"),"offline");
- assert.deepEqual(browser.exceptions,[]);assert.deepEqual(browser.apiRequests,[]);await browser.save("result",{passed:true,synthetic:true,rows:21,widths:[320,390,1280],themes:["light","dark"],checks:["actual directory/header/detail identity/availability components","filters, masking, collapse, Escape focus return, refresh/add"]});console.log("G391 browser matrix passed");
-} finally { browser.close();await new Promise(resolve=>server.close(resolve)); }
+try {
+ await browser.navigate("/","document.querySelector('[data-ready]')");
+ assert.equal(await browser.evaluate("document.fonts.check('14px Figtree') && document.fonts.check('14px JetBrains')"),true);
+ for(const theme of ["light","dark"]) for(const width of [320,390,1280]) {
+  await browser.viewport(width,844);await browser.evaluate(`document.documentElement.className=${JSON.stringify(theme==='dark'?'dark':'')}`);await browser.settle();
+  assert.equal(await browser.evaluate("document.documentElement.scrollWidth>innerWidth"),false,"no page overflow");
+  assert.equal(await browser.evaluate("document.querySelector('input[name=account-search]').closest('label').getBoundingClientRect().height>=44"),true,"search keeps its 44px target");
+  assert.equal(await browser.evaluate("document.querySelectorAll('[data-g339-availability]').length"),6,"Available visible on eligible current rows");
+  assert.equal(await browser.evaluate("document.querySelector('[aria-label=\"Current accounts\"] > button').innerText.includes('£2,494')"),true,"group subtotal reconciles bank balances");
+  assert.equal(await browser.evaluate("getComputedStyle(document.querySelector('[aria-label=\"Loans and mortgages accounts\"] > button .money')).whiteSpace"),"nowrap","signed group total stays together at narrow widths");
+  await browser.shot(`${theme}-${width}`,{full:true});
+ }
+ await browser.viewport(390,844);
+ await browser.type("document.querySelector('input[name=account-search]')","Offline cash reserve");
+ await browser.waitFor("document.querySelectorAll('[data-account-row-id]').length===1 && document.body.innerText.includes('Offline cash reserve')");
+ await act("document.querySelector('[aria-label=\"Clear search\"]')");
+ assert.equal(await browser.evaluate("document.activeElement?.getAttribute('name')"),"account-search");
+ await act("[...document.querySelectorAll('[aria-label=\"Account filters\"] button')].find(e=>e.textContent==='Credit')");
+ assert.equal(await browser.evaluate("document.querySelectorAll('[data-account-row-id]').length"),5);
+ await act("[...document.querySelectorAll('[aria-label=\"Account filters\"] button')].find(e=>e.textContent==='Owed')");
+ assert.equal(await browser.evaluate("document.querySelectorAll('[data-account-row-id]').length"),7);
+ await act("[...document.querySelectorAll('[aria-label=\"Account filters\"] button')].find(e=>e.textContent==='All')");
+ await act("document.querySelector('[aria-label=\"Credit cards accounts\"] > button')");
+ assert.equal(await browser.evaluate("document.querySelector('[aria-label=\"Credit cards accounts\"] > button').getAttribute('aria-expanded')"),"true","first click expands default-collapsed credit group");
+ await browser.evaluate("document.querySelector('[aria-label=\"Credit cards accounts\"] [data-account-row-id]').parentElement.querySelector('button[aria-label*=\"edit this card\"]').focus(); true");
+ await browser.key('Enter','Enter',13);await browser.settle();
+ assert.equal(await browser.evaluate("window.rates===1 && !document.querySelector('[data-detail]')"),true,"rate button keyboard activation never opens the parent row");
+ await act("document.querySelector('[aria-label=\"Inactive accounts\"] > button')");
+ assert.equal(await browser.evaluate("Boolean(document.querySelector('[data-account-row-id=\"inactive:old\"]').closest('[inert]'))"),false);
+ await act("document.querySelector('[aria-label=\"Current accounts\"] > button')");
+ assert.equal(await browser.evaluate("Boolean(document.querySelector('[data-account-row-id=\"group:Current:main\"]').closest('[inert]'))"),true);
+ await act("document.querySelector('[aria-label=\"Current accounts\"] > button')");
+ await browser.evaluate("window.setHidden(true)");await browser.settle();
+ assert.equal(await browser.evaluate("document.body.innerText.includes('−£••••') && !document.body.innerText.includes('£2,494') && !document.body.innerText.includes('£1,453')"),true);
+ await browser.shot("masked-dark-390",{full:true});await browser.evaluate("window.setHidden(false); window.setPins(['main'])");await browser.settle();
+ for(const key of ['pinned:main','group:Current:main']) {
+  await act(`document.querySelector('[data-account-row-id="${key}"]')`);
+  await browser.waitFor("Boolean(document.querySelector('[data-account-availability-working]'))");
+  await act("document.querySelector('summary')");
+  assert.equal(await browser.evaluate("document.body.innerText.includes('After scheduled payments')"),true);
+  await browser.key('Escape','Escape',27);
+  await browser.waitFor(`document.activeElement?.getAttribute('data-account-row-id')===${JSON.stringify(key)}`);
+ }
+ await browser.shot("pinned-dark-390",{full:true});
+ await browser.viewport(320,844);await browser.settle();assert.equal(await browser.evaluate("document.documentElement.scrollWidth>innerWidth"),false,"expanded credit terms fit a narrow phone");await browser.shot("expanded-dark-320",{full:true});
+ await browser.viewport(390,844);
+ await act("document.querySelector('[aria-label=\"Refresh connected banks\"]')");assert.equal(await browser.evaluate("window.refreshes"),1);
+ await act("document.querySelector('[data-add-control]')");await browser.waitFor("Boolean(document.querySelector('[role=menuitem]'))");await act("document.querySelector('[role=menuitem]')");assert.equal(await browser.evaluate("window.added"),"offline");
+ assert.equal(await browser.evaluate("document.querySelectorAll('button button, [role=button] button').length"),0,"account openers and rate actions have independent native semantics");
+ assert.deepEqual(browser.exceptions,[]);assert.deepEqual(browser.apiRequests,[]);
+ await browser.save("result",{passed:true,synthetic:true,widths:[320,390,1280],themes:["light","dark"],checks:["actual restored list/header/detail components","type filters, group bank totals, Available warnings, masked signs, pinned/inactive, collapse, credit rates keyboard, source focus return, refresh/add"]});
+ console.log("G391 restoration browser matrix passed");
+} finally {browser.close();await new Promise(resolve=>server.close(resolve));}

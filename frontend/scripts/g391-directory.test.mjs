@@ -1,52 +1,44 @@
-// G391 directory semantics. Runs under the repository's TSX-aware Node test runner.
+// G391 correction: restore the original list without losing financial/detail safeguards.
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import AccountsDirectory, { directoryGroup, directoryRows } from "../components/AccountsDirectory.tsx";
+import AccountsDirectory from "../components/AccountsDirectory.tsx";
 import AccountAvailabilityDetail from "../components/AccountAvailabilityDetail.tsx";
+import { buildEstate, filterEstate } from "../lib/accountsEstate.ts";
 
 const h = React.createElement;
 const noop = () => {};
-const row = (id, kind, balance, extra = {}) => ({
-  id, name: `${kind} account ${id}`, provider: "Northbridge", kind, balance, status: "connected",
-  pinned: false, dormant: false, attention: false, source: kind === "Investment" ? "investment" : "bank",
-  raw: { id, name: `${kind} account ${id}`, provider: "Northbridge", type: kind, balance, currency: "GBP", status: "connected" }, ...extra,
-});
-const rows = [
-  row("current", "Current", 1200, { pinned: true }), row("saving", "Savings", 200),
-  row("credit", "Credit", -90), row("debt", "Debt", -500), row("investment", "Investment", 300),
-  row("manual", "Current", 70, { raw: { id: "manual", name: "Manual", provider: "Northbridge", type: "current", manual: true, balance: 70, currency: "GBP", status: "connected" } }),
-  row("dormant", "Savings", 0, { dormant: true }), row("unknown", "Current", Number.NaN),
-];
-const props = { rows, hidden: false, query: "", onQuery: noop, pinnedOnly: false, onPinnedOnly: noop, showDormant: true, onShowDormant: noop, collapsed: {}, onToggleGroup: noop, onOpen: noop };
+const bank = (id, type, balance, extra = {}) => ({ id, name: id, provider: "Northbridge", type, balance, currency: "GBP", status: "connected", ...extra });
+const accounts = [bank("Main", "current", 1200), bank("Bills", "current", 200), bank("Card", "credit", -90), bank("Mortgage", "debt", -500), bank("Old saver", "savings", 0)];
+const estate = buildEstate(accounts, [{id:"ISA",provider:"Northbridge",account_type:"ISA",total_value:300}], ["Main"]);
+const manual = {id:"offline",name:"Offline cash",provider:"Offline",kind:"Current",balance:70,status:"connected",pinned:false,dormant:false,attention:false,source:"bank",raw:bank("offline","current",70,{manual:true})};
+const props = { estate, manualRows: [manual], hidden: false, query: "", onQuery: noop, lens: "All", onLens: noop, showDormant: false, onShowDormant: noop, collapsed: {}, onToggleGroup: noop, onOpen: noop, availabilityFor: row => row.id === "Main" ? {kind:"ready",value:10} : row.id === "Bills" ? {kind:"ready",value:0,warning:"payments"} : undefined };
+const render = (more = {}) => renderToStaticMarkup(h(AccountsDirectory, {...props,...more}));
+const html = render();
+for (const label of ["All","Current","Savings","Credit","Investment","Owed"]) assert.ok(html.includes(`>${label}</button>`), `${label} type filter restored`);
+assert.ok(html.includes('aria-label="Current accounts"') && html.includes("£1,400"), "group subtotal uses bank balances, not Available or duplicated pins");
+assert.ok(html.includes('aria-label="Pinned accounts"') && html.includes('data-account-row-id="pinned:Main"') && html.includes('data-account-row-id="group:Current:Main"'), "pinned and group rows have distinct focus destinations");
+assert.ok(html.includes("Available:") && html.includes("£10") && html.includes("£0") && html.includes("lucide-triangle-alert"), "Available and its zero-floor warning return to rows");
+assert.ok(html.includes('aria-label="Inactive accounts"') && html.includes('inert=""'), "inactive rows stay collapsed and out of keyboard navigation");
+assert.ok(!html.includes('data-account-row-id="results:offline"'), "offline accounts keep their separate section in All");
+assert.ok(render({query:"Offline cash"}).includes('data-account-row-id="results:offline"'), "search includes offline accounts");
+assert.ok(render({lens:"Current"}).includes('data-account-row-id="results:Main"'), "type chips filter the estate");
+assert.deepEqual(filterEstate([...estate.rows,manual],{lens:"Owed"}).map(r=>r.id),["Card","Mortgage"],"Owed includes typed liabilities, never positive balances");
+assert.ok(render({query:"does not exist"}).includes("No accounts match"), "empty search stays explicit");
+const masked = render({hidden:true});
+assert.ok(masked.includes("−£••••") && !masked.includes("£1,400") && !masked.includes("£1,200") && !masked.includes("£10<"), "global privacy masks rows, group totals and Available while retaining signs");
+const pending = render({estate:buildEstate([bank("Unknown","current",Number.NaN)],[],[])});
+assert.ok(pending.includes("Pending") && !pending.includes("£0") && !pending.includes("£NaN"), "unknown bank and subtotal are unavailable, never fake zero");
+const firstSync = render({estate:buildEstate([bank("New bank","current",999)],[],[]),syncFor:()=>({kind:"new-bank"})});
+assert.ok(firstSync.includes("Pending") && !firstSync.includes("£999"), "first sync masks both the row and its group subtotal");
+const rates = render({termsFor:r=>r.kind==="Credit"?{termsPill:{label:"0% until December",amber:false},onTermsClick:noop}:{}});
+assert.ok(rates.includes("edit this card&#x27;s rates"), "credit terms remain reachable directly on the original row");
 
-assert.deepEqual(directoryRows(rows, { query: "northbridge credit", pinnedOnly: false, showDormant: true }).map(r => r.id), ["credit"], "search matches canonical kind and provider");
-assert.deepEqual(directoryRows(rows, { query: "", pinnedOnly: true, showDormant: true }).map(r => r.id), ["current"], "pinned filter does not create a second band");
-assert.ok(!directoryRows(rows, { query: "", pinnedOnly: false, showDormant: false }).some(r => r.id === "dormant"), "dormant stays hidden until requested");
-assert.equal(directoryGroup(rows[5]), "Offline", "raw.manual determines Offline, not account name");
-assert.equal(directoryGroup(rows[4]), "Investment", "typed canonical kinds stay canonical");
-
-const html = renderToStaticMarkup(h(AccountsDirectory, props));
-for (const label of ["Current", "Savings", "Credit cards", "Loans and mortgages", "Investments", "Offline"]) assert.ok(html.includes(`>${label}<`), `canonical ${label} group`);
-assert.ok(html.includes("−£90"), "signed balance keeps U+2212");
-assert.ok(html.includes('data-account-row-id="manual"'), "rows expose stable focus-return ids");
-const unknownOnly = renderToStaticMarkup(h(AccountsDirectory, { ...props, rows: [rows.at(-1)] }));
-assert.ok(unknownOnly.includes("Pending") && !unknownOnly.includes("£0"), "non-finite balances never become £0");
-const masked = renderToStaticMarkup(h(AccountsDirectory, { ...props, hidden: true }));
-assert.ok(masked.includes("−£••••") && !masked.includes("−£90"), "hidden negative keeps sign while masking value");
-assert.ok(masked.includes("negative balance hidden") && !masked.includes("£90"), "masked aria output does not leak the amount");
-
-const availability = renderToStaticMarkup(h(AccountAvailabilityDetail, {
-  hidden: false,
-  reading: { kind: "ready", value: 0, warning: "payments" },
-  position: { after_payments: -289, after_payments_and_plans: -289, low_point: -289, plans_reserved: 0 },
-}));
-assert.ok(availability.includes("Available to spend") && availability.includes("£0") && availability.includes("Projected shortfall") && availability.includes("£289"), "detail keeps the available floor and native shortfall evidence");
-assert.ok(availability.includes("Working") && availability.includes("After scheduled payments"), "detail exposes native working disclosure");
-const pending = renderToStaticMarkup(h(AccountsDirectory, { ...props, rows: [rows[0]], syncFor: () => ({ kind: "new-bank" }) }));
-assert.ok(pending.includes("Pending") && !pending.includes("£1,200"), "first sync withholds the synthetic stored balance");
-const hiddenWorking = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden: true, reading: {kind: "ready", value: 0, warning: "payments"}, position: {low_point: -289, after_payments: -289}}));
-assert.ok(!hiddenWorking.includes("289") && hiddenWorking.includes("−£••••"), "Working preserves signs without leaking hidden figures");
-const unavailable = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden: false, reading: {kind: "unavailable"}}));
-assert.ok(!unavailable.includes("£0") && !unavailable.includes("<details"), "unavailable estimate never fabricates a zero or working");
-console.log("g391 directory semantics: ok");
+const availability = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"ready",value:0,warning:"payments"},position:{after_payments:-289,after_payments_and_plans:-289,low_point:-289,plans_reserved:0}}));
+assert.ok(availability.includes("Available to spend") && availability.includes("£0") && availability.includes("Projected shortfall") && availability.includes("£289"), "detail retains the Available floor and actual shortfall");
+assert.ok(availability.includes("Working") && availability.includes("After scheduled payments"), "detail retains stored projection disclosure");
+const hiddenWorking = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:true,reading:{kind:"ready",value:0,warning:"payments"},position:{low_point:-289,after_payments:-289}}));
+assert.ok(!hiddenWorking.includes("289") && hiddenWorking.includes("−£••••"), "Working keeps signs without leaking figures");
+const unavailable = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"unavailable"}}));
+assert.ok(!unavailable.includes("£0") && !unavailable.includes("<details"), "unavailable detail never fabricates zero or Working");
+console.log("g391 original account list restoration: ok");
