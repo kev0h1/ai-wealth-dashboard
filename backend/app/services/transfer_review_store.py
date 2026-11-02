@@ -71,7 +71,7 @@ def is_valid(doc: dict | None, fingerprint: str) -> bool:
         return False
     if built.tzinfo is None:
         built = built.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) - built > MAX_AGE:
+    if datetime.now(timezone.utc) - built > MAX_AGE:  # naive-ok: tz-aware 24h safety bound on a cache document
         return False
     return isinstance(doc.get("state"), dict)
 
@@ -84,7 +84,7 @@ async def save(uid: str, state: dict, fingerprint: str, built_epoch: int) -> Non
             {"$set": {
                 "user_id": uid, "state": state, "fingerprint": fingerprint,
                 "built_epoch": built_epoch, "shape": STORE_SHAPE,
-                "built_at": datetime.now(timezone.utc),
+                "built_at": datetime.now(timezone.utc),  # naive-ok: tz-aware persisted build stamp
             }},
             upsert=True,
         )
