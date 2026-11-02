@@ -10,9 +10,9 @@ ofgem.gov.uk pages it returns (`tip_pages`) and reads the figure with a strict,
 model-free rule. When the wording is absent, ambiguous or unreadable, nothing
 is stored and the card has no Typical line.
 
-Stored: {"figure_annual": 1663.0, "period_start": "2026-10-01", "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
+Stored: {"figure_annual": 1723.0, "period_start": "2026-10-01", "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
          "source_url": "https://www.ofgem.gov.uk/...", "read_on": "2026-11-02"}
-The card shows "Typical: £139 a month (Ofgem price cap £1,663 a year from 1 October 2026, read 2 Nov 2026)."
+The card shows "Typical: £144 a month (Ofgem price cap £1,723 a year from 1 October 2026, read 2 Nov 2026)."
 with the monthly figure derived as annual divided by 12, rounded to the pound,
 at compose time.
 
@@ -59,6 +59,12 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augus
           "November", "December")
 _RISE_RE = re.compile(r"will\s+(?:rise|fall|go\s+up|go\s+down|increase|decrease)\b", re.IGNORECASE)
 _TO_RE = re.compile(r"\bto\s+$", re.IGNORECASE)
+# a rise or fall sentence that gives a new level: "will rise by £60 per year (or £5 per month) to £1,723"
+_RISE_TO_RE = re.compile(
+    r"will\s+(?:rise|fall|go\s+up|go\s+down|increase|decrease)\b.{0,250}?\bto\s+£", re.IGNORECASE | re.DOTALL,
+)
+_HOUSEHOLD_RE = re.compile(r"typical(?:\s+\w+)?\s+household", re.IGNORECASE)
+TO_WINDOW = 350
 
 
 def current_period(today: date) -> tuple[date, date]:
@@ -84,9 +90,11 @@ def extract_annual(category: str, text: str, today: date) -> Optional[tuple[floa
     Period-aware: the page must name the CURRENT cap period (see names_period),
     else it is a stale or future release and yields None.
     On an accepted page a sentence "... will rise/fall/go up/go down/increase/
-    decrease ... to £Y" with "price cap", "typical household" and "direct debit"
-    in the 200 characters before Y gives Y (the level for the named period);
-    otherwise the "is £X" figure, whose phrases must all sit in the 200
+    decrease ... to £Y" with "price cap", "direct debit" and "typical household"
+    (or "typical domestic household") in the 350 characters before Y gives Y (the level for the named period);
+    otherwise the "is £X" figure, but ONLY on a page with no rise/fall sentence
+    at all (a page that says the cap will change and gives no readable new level
+    yields None, never the outgoing cap), whose phrases must all sit in the 200
     characters before it and whose window never reaches back past an earlier
     pound figure of any kind. Bounds £600 to £4,000; exactly one distinct
     qualifying figure, else None."""
@@ -105,10 +113,10 @@ def extract_annual(category: str, text: str, today: date) -> Optional[tuple[floa
         except ValueError:
             continue
         in_bounds = reg.low <= value <= reg.high
-        long_window = text[max(0, m.start() - WINDOW):m.start()]
+        long_window = text[max(0, m.start() - TO_WINDOW):m.start()]
         if _TO_RE.search(long_window) and _RISE_RE.search(long_window) and all(
-            p in long_window.lower() for p in reg.must_have
-        ):
+            p in long_window.lower() for p in ("price cap", "direct debit")
+        ) and _HOUSEHOLD_RE.search(long_window):
             if in_bounds:
                 to_figs.add(round(value, 2))
         else:
@@ -118,6 +126,8 @@ def extract_annual(category: str, text: str, today: date) -> Optional[tuple[floa
             if in_bounds and all(p in window for p in reg.must_have):
                 is_figs.add(round(value, 2))
         prev_end = m.end()
+    if not to_figs and _RISE_TO_RE.search(text):
+        return None  # the page announces a change we could not read: never the outgoing cap
     chosen = to_figs or is_figs
     return (next(iter(chosen)), start) if len(chosen) == 1 else None
 

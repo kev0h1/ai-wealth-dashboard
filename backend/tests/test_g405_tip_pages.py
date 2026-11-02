@@ -196,6 +196,38 @@ def test_userinfo_redirect_location_is_refused_and_counted():
     assert stats["pages_failed"] == 1 and hits == ["www.uswitch.com"]
 
 
+def _stream_handler(chunks, headers, state):
+    async def body():
+        yield b"Giffgaff SIM only, \xc2\xa310 a month. "
+        for _ in range(chunks):
+            state["sent"] += 1
+            yield b"x" * 8000 + b" "
+
+    def handler(req):
+        return httpx.Response(200, content=body(), headers=headers)
+
+    return handler
+
+
+def test_streamed_body_stops_at_the_byte_cap():
+    state = {"sent": 0}
+    handler = _stream_handler(100, {"content-type": "text/html"}, state)
+    stats = tip_pages.new_stats()
+    out = run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, stats, client_for(handler)))
+    assert state["sent"] < 100  # reading stopped at the cap, not after the whole 800 KB
+    assert tip_pages.MAX_BYTES // 8001 - 2 <= state["sent"] <= tip_pages.MAX_BYTES // 8001 + 3
+    assert out["uswitch.com"].startswith("Giffgaff SIM only, £10 a month.")
+    assert stats["pages_fetched"] == 1
+
+
+def test_streamed_gzip_body_is_refused_before_any_chunk_is_read():
+    state = {"sent": 0}
+    handler = _stream_handler(100, {"content-type": "text/html", "content-encoding": "gzip"}, state)
+    stats = tip_pages.new_stats()
+    assert run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, stats, client_for(handler))) == {}
+    assert state["sent"] == 0 and stats["pages_failed"] == 1
+
+
 def test_compressed_body_is_refused_and_request_asks_for_identity():
     seen = {}
 
@@ -314,6 +346,28 @@ def test_august_style_release_read_in_november_gives_the_new_level_and_period():
     assert tip_regulators.current_period(datetime(2026, 2, 3).date()) == (datetime(2026, 1, 1).date(), datetime(2026, 3, 31).date())
     assert tip_regulators.current_period(datetime(2026, 5, 3).date())[1] == datetime(2026, 6, 30).date()
     assert tip_regulators.current_period(datetime(2026, 8, 3).date())[1] == datetime(2026, 9, 30).date()
+
+
+REAL = ("<html><head><title>Energy price cap will rise by 4% from October 2026</title></head><body><p>"
+        "The current price cap for a typical household paying by direct debit for gas and electricity is £1,663. "
+        "Based on the energy use of a typical domestic household, from October, the price cap will rise by £60 per "
+        "year (or £5 per month) to £1,723.</p></body></html>")
+
+
+def test_verbatim_real_wording_gives_the_new_level_not_the_outgoing_cap():
+    text = tip_pages.html_to_text(REAL, limit=10000)
+    assert tip_regulators.extract_annual("energy", text, OCT) == (1723.0, datetime(2026, 10, 1).date())
+    assert tip_regulators.extract_annual("energy", text, SEP) is None
+    assert tip_regulators.monthly_for(1723.0) == 144
+
+
+def test_a_rise_page_whose_to_sentence_fails_the_window_gives_none_not_the_is_figure():
+    page = ("October 2026. The price cap for a typical household paying by direct debit is £1,663 a year. "
+            + "Filler words about energy markets and wholesale costs. " * 8
+            + "The price cap will rise by £60 per year to £1,723.")
+    assert tip_regulators.extract_annual("energy", page, OCT) is None
+    no_rise = page.split("Filler")[0]
+    assert tip_regulators.extract_annual("energy", no_rise, OCT)[0] == 1663.0
 
 
 def test_period_not_current_gives_none():
