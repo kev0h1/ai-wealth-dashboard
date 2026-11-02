@@ -75,8 +75,11 @@ def test_sixty_minute_rule_skips_the_setter_without_a_post(monkeypatch):
 
 
 def test_sync_object_response_stamps_requested_at_and_skips_manual_trigger(monkeypatch):
-    accts, c = _later(monkeypatch, [{"_id": "acc1", "user_id": UID}],
-                      [Resp(200, {**IDLE, "auto_sync_interval": 6}), Resp(200, IDLE)])
+    # The initial sync keeps setter-first (a tap on a later sync sends the trigger first).
+    accts = Col([])
+    t._wire_sync(monkeypatch, accts)
+    c = Client(post_responses=[Resp(200, {**IDLE, "auto_sync_interval": 6}), Resp(200, IDLE)], booked=[])
+    monkeypatch.setattr(fs, "_client", lambda: c)
     asyncio.run(fs.sync_finexer_consent(CONSENT, UID, request_bank_sync=True))
     assert len(c.posts) == 1, "the setter already triggered a sync"
     d = _acc(accts)
@@ -160,3 +163,45 @@ def test_backfill_selection_equals_the_sync_selection(monkeypatch):
     # And the Mongo-side query agrees with the Python predicate.
     assert {d["_id"] for d in docs if t._match(d, fs.AUTO_SYNC_MISSING_QUERY)} == {
         d["_id"] for d in docs if fs.account_needs_auto_sync(d)}
+
+
+def test_user_tap_on_a_missing_account_sends_only_the_trigger_then_cron_runs_the_setter(monkeypatch):
+    accts, c = _later(monkeypatch, [{"_id": "acc1", "user_id": UID}],
+                      [Resp(200, IDLE), Resp(200, {"auto_sync_interval": 6})])
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID, request_bank_sync=True))
+    assert [d for u, d in c.posts] == [None], "exactly one POST: the manual trigger"
+    assert "bank_auto_sync_hours" not in _acc(accts)
+    # Cron inside the hour: the stored rule still blocks the setter.
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert len(c.posts) == 1
+    # After the hour has passed the cron pass runs the setter.
+    _acc(accts)["bank_sync_requested_at"] = datetime.utcnow() - timedelta(minutes=61)  # naive-ok: test fixture
+    _acc(accts).pop("bank_sync_next_at", None)
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert [d for u, d in c.posts][1:] == [{"auto_sync_interval": "6"}]
+    assert _acc(accts)["bank_auto_sync_hours"] == 6
+
+
+def test_per_account_refresh_behaves_the_same(monkeypatch):
+    import tests.test_a179_account_refresh as ar_t
+    accts, c = ar_t._finexer_world(monkeypatch, acc_extra={"bank_auto_sync_hours": None})
+    _acc(accts).pop("bank_auto_sync_hours")
+    ar_t._call("acc1")
+    assert [d for u, d in c.posts] == [None], "the refresh sends the trigger only, no setter"
+
+
+def test_no_echo_is_stamped_and_not_reposted_within_24_hours(monkeypatch):
+    accts, c = _later(monkeypatch, [{"_id": "acc1", "user_id": UID}], [Resp(200, {})])
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert len(c.posts) == 1
+    d = _acc(accts)
+    assert d["bank_auto_sync_requested_at"] and "bank_auto_sync_hours" not in d
+    # Even once the hourly rule has passed, the next pass does not re-POST.
+    d["bank_sync_next_at"] = datetime.utcnow() - timedelta(hours=2)  # naive-ok: test fixture
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert len(c.posts) == 1
+    # After 24 hours it is retried.
+    d["bank_auto_sync_requested_at"] = datetime.utcnow() - timedelta(hours=25)  # naive-ok: test fixture
+    asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
+    assert len(c.posts) == 2
+    assert fs.account_needs_auto_sync({"bank_auto_sync_requested_at": datetime.utcnow()}) is False  # naive-ok: test fixture

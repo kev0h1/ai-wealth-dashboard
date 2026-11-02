@@ -280,13 +280,14 @@ def test_auto_sync_setter_echo_records_hours_and_does_not_claim_a_sync(monkeypat
     assert "bank_sync_requested_at" not in accts.docs[0]
 
 
-def test_auto_sync_setter_bare_2xx_writes_nothing(monkeypatch):
+def test_auto_sync_setter_bare_2xx_never_records_hours(monkeypatch):
     accts = Col([{"_id": "acc1"}])
     monkeypatch.setattr(fs, "accounts_col", accts)
     c = Client(post_responses=[Resp(200, {}), Resp(204, None)])
     r = asyncio.run(fs.ensure_auto_sync(c, "acc1", 6, {}, now=NOW))
-    assert r["ok"] is False and r["triggered"] is False and r["set"] == {}
-    assert accts.docs[0] == {"_id": "acc1"}
+    # A185: only the no-echo stamp is written, never the hours.
+    assert r["ok"] is False and r["triggered"] is False and r["set"] == {"bank_auto_sync_requested_at": NOW}
+    assert accts.docs[0] == {"_id": "acc1", "bank_auto_sync_requested_at": NOW}
 
 
 def test_auto_sync_setter_sync_object_stamps_the_trigger(monkeypatch):

@@ -138,7 +138,11 @@ from Kevin's reading of the reference on 2026-10-31. Confirm each in one pass:
    is not retried). That line, or a run of accounts with the stamp and no
    `bank_auto_sync_hours`, settles this assumption as wrong and needs Finexer's
    answer. Accounts that gain `bank_auto_sync_hours` after the pass settle it as
-   right. `backend/scripts/finexer_backfill_auto_sync.py` selects the same
+   right.
+   A response that does not echo the interval is stamped with
+   `bank_auto_sync_requested_at` and not retried for 24 hours. A user tap on a
+   later sync sends the manual trigger first and leaves the setter to the next
+   cron pass after the hour; setter-first stays on the initial sync. `backend/scripts/finexer_backfill_auto_sync.py` selects the same
    accounts and can be run first (dry run, then `--apply --limit 1`).
 3. Whether the setter POST counts towards the one-call-per-account-per-60-minutes
    limit. The code assumes it may.

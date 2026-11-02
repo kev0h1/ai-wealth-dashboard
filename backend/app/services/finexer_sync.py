@@ -498,18 +498,27 @@ def _looks_like_sync_object(obj: dict) -> bool:
 # set": it carries neither bank_auto_sync_hours (Finexer echoed it) nor
 # bank_auto_sync_refused_at (Finexer refused the setter). The sync pass and the
 # A176 backfill script both select with this, so the two always agree.
+# A185 review: a setter response that does not echo the interval is stamped
+# (bank_auto_sync_requested_at) and not retried for this long.
+AUTO_SYNC_NO_ECHO_RETRY = timedelta(hours=24)
 AUTO_SYNC_MISSING_QUERY: dict = {
     "bank_auto_sync_hours": {"$exists": False},
     "bank_auto_sync_refused_at": {"$exists": False},
 }
 
 
-def account_needs_auto_sync(doc: Optional[dict]) -> bool:
+def account_needs_auto_sync(doc: Optional[dict], now: Optional[datetime] = None) -> bool:
     """A185: True for an account doc with neither bank_auto_sync_hours nor
-    bank_auto_sync_refused_at (a missing doc is a new account, so True).
-    Mirrors AUTO_SYNC_MISSING_QUERY."""
+    bank_auto_sync_refused_at (a missing doc is a new account, so True), and
+    no no-echo attempt within AUTO_SYNC_NO_ECHO_RETRY. Mirrors
+    AUTO_SYNC_MISSING_QUERY plus the no-echo window."""
     doc = doc or {}
-    return "bank_auto_sync_hours" not in doc and "bank_auto_sync_refused_at" not in doc
+    if "bank_auto_sync_hours" in doc or "bank_auto_sync_refused_at" in doc:
+        return False
+    last = doc.get("bank_auto_sync_requested_at")
+    if isinstance(last, datetime) and (now or _utcnow()) - last < AUTO_SYNC_NO_ECHO_RETRY:
+        return False
+    return True
 
 
 def auto_sync_blocked_until(doc: Optional[dict], now: datetime) -> Optional[datetime]:
@@ -524,6 +533,10 @@ def auto_sync_blocked_until(doc: Optional[dict], now: datetime) -> Optional[date
         if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
             cand = last + BANK_SYNC_MIN_GAP
             until = cand if until is None or cand > until else until
+    noecho = doc.get("bank_auto_sync_requested_at")
+    if isinstance(noecho, datetime) and now - noecho < AUTO_SYNC_NO_ECHO_RETRY:
+        cand = noecho + AUTO_SYNC_NO_ECHO_RETRY
+        until = cand if until is None or cand > until else until
     nxt = doc.get("bank_sync_next_at")
     if isinstance(nxt, datetime) and nxt > now and (until is None or nxt > until):
         until = nxt
@@ -568,7 +581,8 @@ async def ensure_auto_sync(
     try:
         doc = await accounts_col.find_one(
             {"_id": account_id},
-            {"bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
+            {"bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1,
+             "bank_auto_sync_requested_at": 1},
         ) or {}
     except Exception:
         doc = {}
@@ -613,12 +627,16 @@ async def ensure_auto_sync(
     if _echoes_interval(obj, hours):
         sets["bank_auto_sync_hours"] = hours
         res["ok"] = True
+    else:
+        # No echo (bare 2xx or a different interval): stamp it so the account
+        # is not re-POSTed on every pass; retried after AUTO_SYNC_NO_ECHO_RETRY.
+        sets["bank_auto_sync_requested_at"] = now
     if _looks_like_sync_object(obj):
         sets.update({"bank_sync_requested_at": now, "bank_sync_next_at": now + BANK_SYNC_MIN_GAP, **_sync_fields(obj)})
         unsets = {"bank_sync_error": "", "bank_sync_error_at": ""}
         res["triggered"] = True
         res["status"] = sets.get("bank_sync_status")
-    res["outcome"] = "accepted" if sets else "no_echo"
+    res["outcome"] = "accepted" if (res["ok"] or res["triggered"]) else "no_echo"
     res["set"] = sets
     await _write_account_fields(account_id, sets, unsets)
     return res
@@ -1780,7 +1798,13 @@ async def sync_finexer_consent(
             # get automatic sync. The cron still never POSTs the manual trigger
             # itself (the `request_bank_sync` gate below); if the setter's own
             # response is a sync object that already counts as the refresh.
-            if auto_sync_hours and (is_initial_sync or account_needs_auto_sync(local_doc)):
+            # A185 review: on a user tap (request_bank_sync) that is not the
+            # initial sync, the manual trigger goes FIRST and the setter is left
+            # to the next cron pass (the trigger stamps requested_at, so the
+            # setter is blocked for the hour anyway). Two POSTs to the same path
+            # within seconds is avoided; setter-first stays on the initial sync.
+            tap_trigger_first = request_bank_sync and not is_initial_sync
+            if auto_sync_hours and not tap_trigger_first and (is_initial_sync or account_needs_auto_sync(local_doc)):
                 try:
                     au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter, finexer_id=finexer_id)
                     bank_sync_set.update(au.get("set") or {})

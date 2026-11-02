@@ -2,9 +2,10 @@
 """A176: switch on Finexer's automatic sync for existing bank accounts.
 
 Since A185 every sync pass sets auto_sync_interval for any account with neither
-bank_auto_sync_hours nor bank_auto_sync_refused_at; this one-off does the same
+bank_auto_sync_hours nor a refusal or no-echo stamp; this one-off does the same
 selection on demand, so existing accounts need not wait for their next sync.
-DRY RUN BY DEFAULT: it only counts the accounts that would be changed. --apply sends one request per account.
+DRY RUN BY DEFAULT: it only counts the accounts that would be changed.
+--apply sends one request per account.
 
 The setter honours the 60-minute rule and stamps bank_sync_requested_at when
 Finexer answers with a sync object (the POST may also trigger a sync).
