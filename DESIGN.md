@@ -349,9 +349,11 @@ A group opens signed, reconciled category evidence from that exact period or mea
 
 **G346 A, explain in place (approved 2026-10-27).** Explore your pay retains all three saved choices: 50/30/20 example, Example ranges, Saving before spending. The savings view defines the habit before showing actual amounts, and does not infer timing or savings growth. One contextual help disclosure replaces the duplicated info/mapping explanations. The picker says the choice only changes the view, creates no budget and moves no money; remove the opaque No budget or target is set footer. This copy sits alongside G344 A compact range rows. Reference IDs, arithmetic and authenticated preference persistence stay unchanged.
 
-### Connecting a bank (A155 G)
+### Connecting a bank (A155 G, G395 A)
 
 - **Choose, review, hand off (shipped, the default).** "Choose your bank" with a fixed 44px search, then Sorted's own "Review your connection" step carrying the full A4.1 agency sentence, then "Continue to Finexer" (four taps before the bank's page, counting Finexer's Next and Connect).
+
+**G395 A, coverage line (approved 2026-11-02).** The picker and selected bank show one quiet factual line for partial published coverage. Full current/savings/card coverage adds no row furniture. Unknown coverage is labelled unavailable. The review explains that unlisted pots and account types may be balance only without transactions, includes the validated capture date from A186, and says coverage is not a guarantee. Finexer remains the source of the requested permissions. The agency disclosure and explicit Continue hand-off stay unchanged.
 
 A merged single-sheet step (A159 B) was trialled on UAT and reverted on 2026-10-12: with the keyboard up the sheet left room for one bank row.
 

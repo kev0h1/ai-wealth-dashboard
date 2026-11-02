@@ -71,7 +71,7 @@ export default function BankConnectionFlow({ banks, loading, loadError, connecti
             {providerHealthNotice(selected.name, selected.health_status)}
           </p>
         )}
-        <ConnectionNotice />
+        <ConnectionNotice bank={selected} />
       </>,
       footer: <>
         {connectionError && <p role="alert" className="mb-3 text-sm leading-5 text-slate-700 dark:text-slate-200">{connectionError}</p>}

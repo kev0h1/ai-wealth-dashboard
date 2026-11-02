@@ -9,6 +9,43 @@ import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy"
 export const primary = "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-900";
 export const quiet = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 dark:text-indigo-300 dark:hover:bg-slate-800";
 
+const COVERAGE_ORDER = ["current", "savings", "card"] as const;
+const COVERAGE_LABELS: Record<(typeof COVERAGE_ORDER)[number], { first: string; later: string }> = {
+  current: { first: "Current accounts", later: "current accounts" },
+  savings: { first: "Savings", later: "savings" },
+  card: { first: "Credit cards", later: "credit cards" },
+};
+
+/** The compact advisory fact from Finexer's published provider listing. */
+export function bankCoverageLabel(bank: Bank): string | null {
+  const kinds = new Set(bank.supported_kinds ?? []);
+  const knownKinds = COVERAGE_ORDER.filter(kind => kinds.has(kind));
+  if (!knownKinds.length) return "Coverage unavailable for this bank";
+  if (knownKinds.length === COVERAGE_ORDER.length) return null;
+  if (knownKinds.length === 1) return `${COVERAGE_LABELS[knownKinds[0]].first} only`;
+  return knownKinds.map((kind, index) => COVERAGE_LABELS[kind][index === 0 ? "first" : "later"]).join(" and ");
+}
+
+export function BankCoverage({ bank }: { bank: Bank }) {
+  const label = bankCoverageLabel(bank);
+  return label ? <span data-bank-coverage className="mt-1 block text-xs leading-5 text-slate-600 dark:text-slate-300">{label}</span> : null;
+}
+
+function capturedCoverageDate(value: string | null | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+/** A dated source note only when the API supplied a valid capture date. */
+export function bankCoverageAdvisory(bank: Bank): string | null {
+  const hasKnownCoverage = COVERAGE_ORDER.some(kind => (bank.supported_kinds ?? []).includes(kind));
+  if (!hasKnownCoverage) return null;
+  const capturedOn = capturedCoverageDate(bank.coverage_captured_on);
+  return capturedOn ? `Finexer listing captured ${capturedOn}. Coverage is not a guarantee.` : "Coverage is not a guarantee.";
+}
+
 export function BankMark({ bank }: { bank: Bank }) {
   const source = bank.logo ? resolveApiAsset(bank.logo) : null;
   const [failedSource, setFailedSource] = useState<string | null>(null);
@@ -25,16 +62,24 @@ export function BankMark({ bank }: { bank: Bank }) {
 export function ChosenBank({ bank, onChange, disabled = false }: { bank: Bank; onChange(): void; disabled?: boolean }) {
   return <div className="flex items-center gap-3 border-b border-slate-200 pb-5 dark:border-slate-700" data-selected-bank>
     <BankMark bank={bank} />
-    <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{bank.name}</p><p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">Your selected bank</p></div>
+    <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{bank.name}</p><p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">Your selected bank</p><BankCoverage bank={bank} /></div>
     <button type="button" onClick={onChange} disabled={disabled} className={quiet} aria-label="Change bank">Change</button>
   </div>;
 }
 
-export function ConnectionNotice() {
+export function ConnectionNotice({ bank }: { bank?: Bank }) {
+  const coverageKnown = bank === undefined || (bank.supported_kinds ?? []).length > 0;
+  const coverageAdvisory = bank ? bankCoverageAdvisory(bank) ?? "Coverage is not a guarantee." : null;
+  const scopeCopy = bank === undefined
+    ? "Read-only access to account details, balances and transactions. This connection does not authorise a payment."
+    : coverageKnown
+      ? "Read-only access can include account details, balances and transactions within the listed coverage. Review the requested access with Finexer. This connection does not authorise a payment."
+      : "We cannot show the data available for this bank yet. Review the requested access with Finexer before you approve. Access is read-only and does not authorise a payment.";
   return <div data-connection-notice>
     <section className="py-5" aria-labelledby="connection-scope">
       <h3 id="connection-scope" className="text-sm font-semibold text-slate-900 dark:text-slate-100">See your money in one place</h3>
-      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Read-only access to account details, balances and transactions. This connection does not authorise a payment.</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{scopeCopy}</p>
+      {bank && <p className="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Unlisted pots and account types may show only a balance without transactions. {coverageAdvisory}</p>}
     </section>
     <section aria-labelledby="connection-provider" className="border-t border-slate-200 pt-5 dark:border-slate-700">
       <h3 id="connection-provider" className="text-sm font-semibold text-slate-900 dark:text-slate-100">Who provides the connection</h3>
@@ -76,11 +121,13 @@ export function BankResults({ banks, query, setQuery, searchRef, onChoose, selec
 
   return <div data-bank-results>
     <p role="status" aria-live="polite" className="sr-only">{filtered.length} {filtered.length === 1 ? "bank" : "banks"} found</p>
-    {filtered.length ? <ul className="-mx-2 divide-y divide-slate-100 dark:divide-slate-800">{filtered.map(bank => <li key={bank.id}>
-      <button type="button" aria-label={`Choose ${bank.name}`} data-flow-focus={`bank-${bank.id}`} onClick={() => onChoose(bank)} disabled={disabled} className="flex min-h-[68px] w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-slate-800">
-        <BankMark bank={bank} /><span className="min-w-0 flex-1 break-words text-sm font-medium text-slate-900 dark:text-slate-100">{bank.name}{selected?.id === bank.id && <span className="mt-0.5 block text-xs font-normal text-slate-600 dark:text-slate-300">Selected</span>}</span><ChevronRight size={16} aria-hidden="true" className="shrink-0 text-slate-500 dark:text-slate-300" />
+    {filtered.length ? <ul className="-mx-2 divide-y divide-slate-100 dark:divide-slate-800">{filtered.map(bank => {
+      const coverage = bankCoverageLabel(bank);
+      return <li key={bank.id}>
+      <button type="button" aria-label={`Choose ${bank.name}${coverage ? `, ${coverage}` : ""}`} data-flow-focus={`bank-${bank.id}`} onClick={() => onChoose(bank)} disabled={disabled} className="flex min-h-[68px] w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-slate-800">
+        <BankMark bank={bank} /><span className="min-w-0 flex-1 break-words text-sm font-medium text-slate-900 dark:text-slate-100">{bank.name}{selected?.id === bank.id && <span className="mt-0.5 block text-xs font-normal text-slate-600 dark:text-slate-300">Selected</span>}<BankCoverage bank={bank} /></span><ChevronRight size={16} aria-hidden="true" className="shrink-0 text-slate-500 dark:text-slate-300" />
       </button>
-    </li>)}</ul> : banks.length === 0 && !hasQuery
+    </li>})}</ul> : banks.length === 0 && !hasQuery
       ? <div className="py-9 text-center"><h3 className="text-sm font-semibold">No banks are available right now</h3><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Please try again later.</p></div>
       : <div className="py-9 text-center"><h3 className="text-sm font-semibold">No banks found</h3><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Try a different name or clear your search.</p><button type="button" className={`${quiet} mt-2`} onClick={() => { setQuery(""); searchRef.current?.focus(); }}>Show all banks</button></div>}
   </div>;
