@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, ArrowRight, CircleAlert, LoaderCircle } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, CircleAlert } from "lucide-react";
 import { api } from "@/lib/api";
 import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
 
@@ -16,12 +16,16 @@ export function transferReviewCount(data: { review_total?: number }): number {
   return data.review_total!;
 }
 
+/** G386 no-flip rule: a refetch keeps an already-shown ready state on screen.
+ * Only the very first fetch (no prior ready state) starts from loading. */
+export function beginRefetch(prev: TransferCheckState): TransferCheckState {
+  return prev.status === "ready" ? prev : { status: "loading" };
+}
+
 export function HomeTransfersCheckView({ state, onRetry, onReview }: { state: TransferCheckState; onRetry: () => void; onReview: () => void }) {
-  if (state.status === "loading") return (
-    <div role="status" className="flex min-h-11 items-center gap-2.5 px-1 py-2 text-sm text-slate-600 dark:text-slate-300">
-      <LoaderCircle size={18} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />Checking for transfers…
-    </div>
-  );
+  // G400: loading is never rendered on Home. No spinner, placeholder or
+  // min-height, so a zero count cannot cause a layout shift.
+  if (state.status === "loading") return null;
   if (state.status === "failed") return (
     <section className={`${surface} p-4`} aria-label="Transfer check unavailable">
       <div className="flex items-start gap-3"><CircleAlert size={19} aria-hidden="true" className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-300" /><div>
@@ -59,7 +63,7 @@ export default function HomeTransfersCheck({ refreshKey, enabled = true, onReady
   useEffect(() => {
     if (!enabled) { onReadyRef.current?.(); return; }
     let current = true;
-    setState({ status: "loading" });
+    setState(beginRefetch);
     api.getMiscategorisedCount().then(data => {
       const count = transferReviewCount(data);
       if (current) setState({ status: "ready", count });
