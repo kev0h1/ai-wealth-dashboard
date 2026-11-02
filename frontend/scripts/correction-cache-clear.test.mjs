@@ -368,11 +368,19 @@ for (const [fnName, sig] of FUNCTIONS_CALLING_NOTIFY_ONCE) {
 
 const handleAlwaysBody = extractBody(teachingSheetSrc, /async function handleAlways\(\)\s*/);
 check("handleAlways extracted (regex still matches the real source)", handleAlwaysBody !== null, true);
+// G392 adds a deferred Undo callback inside this function. It is a separate
+// successful write wave, not a second invalidation during the original save.
+const siblingUndoBody = extractBody(handleAlwaysBody ?? "", /run: async \(\) =>\s*/);
+check("the sibling Undo callback is present", siblingUndoBody !== null, true);
+check("each successful sibling Undo clears its correction caches once", countOccurrences(siblingUndoBody, "invalidateAfterTransactionCorrection("), 1);
+check("sibling Undo invalidation follows the acknowledged PATCH", (siblingUndoBody?.indexOf("await api.patchTransaction(") ?? -1) >= 0 && siblingUndoBody.indexOf("await api.patchTransaction(") < siblingUndoBody.indexOf("invalidateAfterTransactionCorrection("), true);
+check("deferred sibling Undo returns before clearing batch caches", /if \(deferRecompute\)\s*\{[^}]*onUpdated\([\s\S]*?return;\s*\}\s*invalidateAfterTransactionCorrection\(/.test(siblingUndoBody ?? ""), true);
 check(
-  "handleAlways calls the shared invalidator exactly once, for the sibling bulk-recategorise wave, only after addRule's await succeeds",
-  countOccurrences(handleAlwaysBody, "invalidateAfterTransactionCorrection("),
+  "handleAlways has one original-save invalidation outside the later sibling Undo callback",
+  countOccurrences(handleAlwaysBody, "invalidateAfterTransactionCorrection(") - countOccurrences(siblingUndoBody, "invalidateAfterTransactionCorrection("),
   1,
 );
+check("the original-save invalidation follows the acknowledged addRule", (handleAlwaysBody?.indexOf("await api.addRule(") ?? -1) >= 0 && handleAlwaysBody.indexOf("await api.addRule(") < handleAlwaysBody.indexOf("invalidateAfterTransactionCorrection("), true);
 
 // ── MiscategorisedReviewSheet.tsx ────────────────────────────────────────
 
