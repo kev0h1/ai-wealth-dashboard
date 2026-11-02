@@ -111,15 +111,18 @@ DEBIT_ONLY_PATTERNS: frozenset = frozenset({_G403_CARD_REPAYMENT})
 
 # G403: credit-only, the mirror of the list above. On a credit, an issuer
 # printed form followed by a 12+ digit PAN-shaped fragment, or issuer wording
-# with an unpaid or returned marker (an unpaid direct debit coming back, a
-# refund), is the card's own money moving, never Income. `rule_categorise`
+# with unpaid or returned wording and direct debit context (an unpaid direct
+# debit coming back; a bare refund is NOT a trigger, so merchant and fee refunds
+# keep netting against spend), is the card's own money moving, never Income. `rule_categorise`
 # checks these first on a credit; debits are unaffected.
 _ISSUER_FORMS = "|".join(f for spec in CARD_ISSUERS.values() for f in spec["printed"])
 _G403_CREDIT_PAN = re.compile(
     r"(?<![A-Za-z0-9])(?:" + _ISSUER_FORMS + r")\W+(?=(?:\d[- ]?){11,}\d)\d", re.I)
+_CARD_FORMS = "|".join(f for spec in CARD_ISSUERS.values() for f in spec["card_forms"])
 _G403_CREDIT_RETURNED = re.compile(
-    r"(?<![A-Za-z0-9])(?:" + _ISSUER_FORMS + r")(?![A-Za-z0-9]).*?(?<![A-Za-z0-9])"
-    r"(?:unp|unpaid|returned|reversal|reversed|refund)(?![A-Za-z0-9])", re.I)
+    r"(?=.*(?<![A-Za-z0-9])(?:direct\s+debit|ddr|d/d|dd)(?![A-Za-z0-9]))"
+    r"(?=.*(?<![A-Za-z0-9])(?:unp|unpaid|returned|reversal|reversed)(?![A-Za-z0-9]))"
+    r".*(?<![A-Za-z0-9])(?:" + _CARD_FORMS + r")(?![A-Za-z0-9])", re.I | re.S)
 CREDIT_ONLY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (_G403_CREDIT_PAN, 'Transfer'),
     (_G403_CREDIT_RETURNED, 'Transfer'),

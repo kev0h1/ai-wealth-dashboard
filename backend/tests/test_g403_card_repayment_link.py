@@ -262,9 +262,16 @@ def test_returned_direct_debit_credit_is_transfer_never_income():
     assert rule_categorise_directed("", "AMERICAN EXPRESS 3712-345678-90777 UNP", is_credit=True) == "Transfer"
     assert rule_categorise_directed("", "AMERICAN EXPRESS 3712-345678-90777", is_credit=True) == "Transfer"
     assert rule_categorise_directed("", "B/CARD 4929123456784321", is_credit=True) == "Transfer"
-    assert rule_categorise_directed("", "AMEX REFUND", is_credit=True) == "Transfer"
-    assert rule_categorise_directed("", "NATWEST RETURNED DD", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "AMEX 3712-345678-90777 UNP DDR", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "B/CARD DD RETURNED", is_credit=True) == "Transfer"
+    assert rule_categorise_directed("", "NW WORLD MASTERCAR DIRECT DEBIT REVERSED", is_credit=True) == "Transfer"
     assert rule_categorise_directed("", "AMERICAN EXPRESS UNPAID DIRECT DEBIT", is_credit=True) == "Transfer"
+
+
+def test_merchant_and_fee_refund_credits_fall_through():
+    from app.services.categorisation import rule_categorise_directed
+    for text in ("AMEX TRAVEL REFUND", "CHASE VETS REFUND", "NATWEST BANK CHARGES REFUND", "AMEX REFUND"):
+        assert rule_categorise_directed("", text, is_credit=True) != "Transfer", text
 
 
 def test_same_narratives_as_debits_and_ordinary_amex_purchase_unchanged():
