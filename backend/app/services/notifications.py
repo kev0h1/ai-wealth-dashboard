@@ -296,7 +296,7 @@ def _bill_shortfall_body(b: dict, sym: str) -> str:
         timing = f"in {days}d"
     account_label = b.get("account_bank") or "your account"
     return (
-        f"{b['name']} ({sym}{b['amount']:,.2f}) is due {timing}"
+        f"{b.get('display_name') or b['name']} ({sym}{b['amount']:,.2f}) is due {timing}"
         f", {account_label} only has {sym}{b['account_balance']:,.2f}."
     )
 

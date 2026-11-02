@@ -134,7 +134,7 @@ export function walkUpcomingAccounts(
             riskByBill.set(event.bill, risk);
           }
         }
-        if (event.kind === "movement") movementsSince.push({ name: event.bill.name, amount: event.bill.amount, expected_date: event.expected_date });
+        if (event.kind === "movement") movementsSince.push({ name: upcomingDisplayName(event.bill), amount: event.bill.amount, expected_date: event.expected_date });
       } else if (!event.bill && event.credited !== false) {
         movementsSince = [];
       }

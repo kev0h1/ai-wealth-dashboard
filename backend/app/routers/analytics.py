@@ -40,8 +40,10 @@ from app.services.account_names import display_account_name
 from app.services.pay_period import current_period_facts, get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
+from app.services.own_account_transfers import series_key, repayment_display_name  # G403: per-card key for a linked repayment
+from app.services.categorisation import series_key as _base_series_key
 from app.services.categorisation import (
-    series_key, has_date_fragment, own_transfer_evidence, user_identity,
+    has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
     _CHANNEL_CODES,
 )
@@ -3080,7 +3082,10 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
-            "display_name":    r.get("display_name"),
+            # G403: a per-card repayment key carries the card account id, so
+            # present issuer plus card name instead. The key stays the identity.
+            "display_name":    r.get("display_name") or repayment_display_name(
+                r["key"], display_account_name(card_dest["dest_account_name"]) if card_dest else None),
             # G174: set only on a DETECTED entry `_confirmed_income_fallback`
             # deferred to instead of synthesising a duplicate (see its
             # dedupe-guard comment) -- the confirmed stream's own key, so
@@ -3551,7 +3556,8 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
         return {}
 
     cutoff = datetime.now() - timedelta(days=_ENRICH_LOOKBACK_DAYS)
-    proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1}
+    proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1,
+            "own_transfer_match": 1}
     raw: list = await transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
     raw += await yapily_transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
 
@@ -3572,10 +3578,11 @@ async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
     for key in keys:
         items = sorted(buckets.get(key, []), key=lambda t: t["date"])
         if not items:
-            result[key] = {**empty, "display_name": key}
+            result[key] = {**empty, "display_name": repayment_display_name(key) or key}
             continue
         latest = items[-1]
         display_name = (latest.get("merchant_name") or latest.get("description") or key).strip() or key
+        display_name = repayment_display_name(key, None) or display_name
         amounts = sorted(abs(float(t.get("amount", 0))) for t in items)
         typical_amount = round(amounts[len(amounts) // 2], 2)
         last_seen_dt = latest["date"]
@@ -4083,6 +4090,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     # --- observation index for bill matching ---
     observed: dict = {}
+    card_keys_by_base: dict[str, set] = {}
     if uid:
         _obs_since = today - timedelta(days=PENDING_GIVE_UP_DAYS + OBSERVATION_LOOKBACK_DAYS + 1)
         async def _load_recent_observations(_col):
@@ -4091,7 +4099,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 async for _t in _col.find(
                     {"user_id": uid, "date": {"$gte": _obs_since}, "transaction_type": "debit"},
                     {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
-                     "category": 1, "custom_category": 1, "account_id": 1}
+                     "category": 1, "custom_category": 1, "account_id": 1,
+                     "own_transfer_match": 1}  # G403: the wrapper keys a linked repayment per card
                 ):
                     rows.append(_t)
             except Exception:
@@ -4116,6 +4125,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             _key = series_key(_t)
             if not _key:
                 continue
+            if _key != _base_series_key(_t):
+                # G403: remember which per-card keys a base key resolves to, so
+                # an (unstampable) pending row can be matched to the same bill.
+                card_keys_by_base.setdefault(_base_series_key(_t), set()).add(_key)
             _raw_d = _t.get("date")
             _d_obj = _raw_d.date() if hasattr(_raw_d, "date") else _raw_d
             observed.setdefault(_key, []).append({
@@ -4147,12 +4160,18 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     continue
                 _praw_d = _pt.get("date")
                 _pd_obj = _praw_d.date() if hasattr(_praw_d, "date") else _praw_d
-                pending_observed.setdefault(_pkey, []).append({
+                _entry = {
                     "date": _pd_obj,
                     "amount": abs(float(_pt.get("amount", 0))),
                     "account_id": str(_pt.get("account_id") or ""),
                     "used": False,
-                })
+                }
+                pending_observed.setdefault(_pkey, []).append(_entry)
+                # G403: a pending row is never stamped, so it carries the base
+                # key; also register it under each per-card key that base key
+                # resolves to (same dict, so one use consumes both).
+                for _card_key in card_keys_by_base.get(_pkey, ()):
+                    pending_observed.setdefault(_card_key, []).append(_entry)
         except Exception:
             pass
 
@@ -4450,8 +4469,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             if display_d > window_end.date():
                 continue
             _occ_kind = kind_of(kind_map, r.get("category"))
+            _bill_label = r.get("display_name") or repayment_display_name(
+                r["key"], r.get("card_dest_account_name") and display_account_name(r.get("card_dest_account_name")))
             entries.append({
                 "name":            r["key"],
+                # Only present for a per-card repayment key (G403), so every other bill keeps its shape.
+                **({"display_name": _bill_label} if _bill_label else {}),
                 "amount":          final_amount,
                 "expected_date":   display_d.isoformat(),
                 "days_away":       (display_d - today_d).days,

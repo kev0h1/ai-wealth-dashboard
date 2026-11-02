@@ -15,6 +15,7 @@ from app.db.collections import (
     merchant_categories_col, confirmed_transfer_pairs_col, preferences_col,
     statement_transactions_col, teaching_events_col,
 )
+from app.services.card_issuers import CARD_ISSUERS
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS, GENERIC_MANUAL_CATEGORIES
 # G39: the mortgage/car-finance savings insights (app.routers.savings_insights)
 # already maintain a merchant-keyword trigger list per category, built to
@@ -102,9 +103,40 @@ def is_rent_payee(text: str) -> bool:
     return bool(RENT_PATTERN.search(t)) and not _RENT_NOT_PATTERN.search(t)
 
 
+# G403: debit-only. A credit narrated with the same words (a refund, a statement
+# credit) is never a card repayment, so `rule_categorise` skips these on a credit.
+_G403_CARD_REPAYMENT = re.compile(
+    r'(?:american express|amex|b/card)\W+(?=(?:\d[- ]?){11,}\d)\d|b/card\W+(?:direct debit|ddr?)\b', re.I)
+DEBIT_ONLY_PATTERNS: frozenset = frozenset({_G403_CARD_REPAYMENT})
+
+# G403: credit-only, the mirror of the list above. On a credit, an issuer
+# printed form followed by a 12+ digit PAN-shaped fragment, or issuer wording
+# with unpaid or returned wording and direct debit context (an unpaid direct
+# debit coming back; a bare refund is NOT a trigger, so merchant and fee refunds
+# keep netting against spend), is the card's own money moving, never Income. `rule_categorise`
+# checks these first on a credit; debits are unaffected.
+_ISSUER_FORMS = "|".join(f for spec in CARD_ISSUERS.values() for f in spec["printed"])
+_G403_CREDIT_PAN = re.compile(
+    r"(?<![A-Za-z0-9])(?:" + _ISSUER_FORMS + r")\W+(?=(?:\d[- ]?){11,}\d)\d", re.I)
+_CARD_FORMS = "|".join(f for spec in CARD_ISSUERS.values() for f in spec["card_forms"])
+_G403_CREDIT_RETURNED = re.compile(
+    r"(?=.*(?<![A-Za-z0-9])(?:direct\s+debit|ddr|d/d|dd)(?![A-Za-z0-9]))"
+    r"(?=.*(?<![A-Za-z0-9])(?:unp|unpaid|returned|reversal|reversed)(?![A-Za-z0-9]))"
+    r".*(?<![A-Za-z0-9])(?:" + _CARD_FORMS + r")(?![A-Za-z0-9])", re.I | re.S)
+CREDIT_ONLY_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (_G403_CREDIT_PAN, 'Transfer'),
+    (_G403_CREDIT_RETURNED, 'Transfer'),
+]
+
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
-    (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit|\bAMERICAN EXPRESS\b', re.I), 'Transfer'),
+    (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I), 'Transfer'),
+    # G403: a repayment to a card the user does not hold. An issuer printed form
+    # followed by a 12+ digit PAN-shaped fragment (or, for B/CARD, direct debit
+    # wording) is a card repayment, never the bare issuer name, so a purchase
+    # from the same brand is not caught. Amex direct debit wording is already
+    # the Transfer rule above.
+    (_G403_CARD_REPAYMENT, 'Debt'),
     (re.compile(r'interest received|interest earned|interest credit|gross interest|net interest|interest payment to you|interest paid to you|credit interest', re.I), 'Income'),
     (re.compile(r'\bmarcus\b', re.I), 'Transfer'),
     (re.compile(r'nw world mastercar|natwest.*mastercard|world mastercard payment', re.I), 'Debt'),
@@ -140,7 +172,7 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'airbnb|booking\.com|hotels\.com|expedia|trivago|ryanair|easyjet|british airways|jet2|tui\b|virgin atlantic|wizz air|blue air|hilton|marriott|premier inn|travelodge|holiday inn|ibis\b|accor|airfare|holiday|travel insurance', re.I), 'Travel'),
     (re.compile(r'github\b|digitalocean|aws\b|amazon web services|google cloud|azure\b|heroku|netlify|vercel|cloudflare|linode|hetzner|namecheap|godaddy|1password|lastpass|dashlane|bitwarden|notion\b|figma\b|slack\b|zoom\b|webflow|railway\b|supabase|mongodb atlas|datadog|sentry\b|linear\b', re.I), 'Software'),
     (re.compile(r'vanguard|nutmeg|wealthify|wealthsimple|hargreaves lansdown|hl invest|fidelity|trading ?212|freetrade|interactive investor|\bii\b', re.I), 'Investment'),
-    (re.compile(r'\bsavings?\b|\bsaver\b|isa|moneybox|plum\b|chip\b|pension', re.I), 'Savings'),
+    (re.compile(r'\bsavings?\b|\bsaver\b|\bisa\b|moneybox|plum\b|chip\b|pension', re.I), 'Savings'),
     (re.compile(r'interest on your|interest charge|late fee|overdraft fee|annual fee|card fee|bank charge', re.I), 'Bills'),
     (re.compile(r'balance transfer|internal transfer|faster payment|bacs payment|chaps payment|from .* pot\b', re.I), 'Transfer'),
 
@@ -161,9 +193,15 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
-def rule_categorise(merchant: str, description: str) -> Optional[str]:
+def rule_categorise(merchant: str, description: str, *, is_credit: Optional[bool] = None) -> Optional[str]:
     text = f"{merchant} {description}"
+    if is_credit:
+        for pattern, category in CREDIT_ONLY_PATTERNS:
+            if pattern.search(text):
+                return category
     for pattern, category in MERCHANT_PATTERNS:
+        if is_credit and pattern in DEBIT_ONLY_PATTERNS:
+            continue
         if pattern.search(text):
             if category == "Rent" and not is_rent_payee(text):
                 continue
@@ -179,7 +217,7 @@ def rule_categorise_directed(merchant: str, description: str, *, is_credit: bool
     merchant refunds still net against their category. Ingest (TrueLayer,
     Finexer, Yapily, statements) and `apply_rules_bulk` all call this, so a
     credit gets the same category whichever path sees it first."""
-    return credit_guard(rule_categorise(merchant, description), is_credit=is_credit)
+    return credit_guard(rule_categorise(merchant, description, is_credit=is_credit), is_credit=is_credit)
 
 
 def automatic_category_for_direction(cat: Optional[str], transaction_type: Optional[str]) -> Optional[str]:

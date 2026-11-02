@@ -920,7 +920,7 @@ PROPOSE_TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "A recurring series key or name from get_recurring_payments."},
+                    "key": {"type": "string", "description": "A recurring series key (the key field from get_recurring_payments) or its name."},
                 },
                 "required": ["key"],
             },
@@ -2213,7 +2213,7 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
     return {
         "upcoming_bills": [
             {
-                "name": b.get("name"),
+                "name": b.get("display_name") or b.get("name"), "key": b.get("name"),
                 "amount": _money(b.get("amount")),
                 "expected_date": b.get("expected_date"),
                 "days_away": b.get("days_away"),
@@ -2322,7 +2322,7 @@ async def _exec_get_recurring_payments(uid: str) -> dict:
     for p in ranked[:_RECURRING_CAP]:
         occ = occ_by_name.get(p.get("key")) or {}
         series.append({
-            "name": p.get("key"),
+            "name": p.get("display_name") or p.get("key"), "key": p.get("key"),  # G403: clean label, real key
             "cadence": occ.get("rule_label") or _cadence_label(p.get("avg_interval")),
             "typical_amount": _money(p.get("avg_amount")),
             "next_expected_date": p.get("next_date"),
@@ -5518,17 +5518,17 @@ async def _resolve_recurring_key(uid: str, key_or_name: str, *, dismissed: bool)
         recurring = await _exec_get_recurring_payments(uid)
         if recurring.get("error"):
             return {"error": recurring["error"]}
-        candidates = [{"key": s["name"], "name": s["name"]} for s in (recurring.get("series") or [])]
+        candidates = [{"key": s.get("key") or s["name"], "name": s["name"]} for s in (recurring.get("series") or [])]
     if not candidates:
         return {"error": f"no {'dismissed' if dismissed else 'recurring'} series matching '{key_or_name}'", "available": []}
     exact = next((c for c in candidates if c["key"] == key_or_name), None)
     if exact:
-        return {"key": exact["key"]}
+        return {"key": exact["key"], "label": exact["name"]}
     matches = [c for c in candidates if _name_matches(key_or_name, c["name"])]
     if len(matches) > 1:
         return {"ambiguous": True, "matches": [{"key": m["key"], "name": m["name"]} for m in matches]}
     if len(matches) == 1:
-        return {"key": matches[0]["key"]}
+        return {"key": matches[0]["key"], "label": matches[0]["name"]}
     return {
         "error": f"no {'dismissed' if dismissed else 'recurring'} series matching '{key_or_name}'",
         "available": [c["name"] for c in candidates],
@@ -5760,8 +5760,8 @@ async def _exec_propose_dismiss_recurring(uid: str, key) -> dict:
     if resolved.get("error"):
         return _tool_error(resolved["error"])
     resolved_key = resolved["key"]
-    summary = f"Mark '{resolved_key}' as not a bill"
-    consequence = f"'{resolved_key}' stops appearing in your upcoming bills and predictions."
+    summary = f"Mark '{resolved.get('label') or resolved_key}' as not a bill"
+    consequence = f"'{resolved.get('label') or resolved_key}' stops appearing in your upcoming bills and predictions."
     params = {"key": resolved_key}
     return await _create_proposal(uid, "dismiss_recurring", params, summary, consequence)
 
@@ -5776,8 +5776,8 @@ async def _exec_propose_restore_recurring(uid: str, key) -> dict:
     if resolved.get("error"):
         return _tool_error(resolved["error"])
     resolved_key = resolved["key"]
-    summary = f"Restore '{resolved_key}' to predictions"
-    consequence = f"'{resolved_key}' returns to your upcoming bills and predictions."
+    summary = f"Restore '{resolved.get('label') or resolved_key}' to predictions"
+    consequence = f"'{resolved.get('label') or resolved_key}' returns to your upcoming bills and predictions."
     params = {"key": resolved_key}
     return await _create_proposal(uid, "restore_recurring", params, summary, consequence)
 
@@ -6264,9 +6264,9 @@ async def _exec_propose_skip_occurrence(uid: str, key_or_name, date_str) -> dict
     date_label = date.fromisoformat(date_str).strftime("%-d %b")
     if occ and occ.get("amount") is not None:
         amount_fmt = _money(occ["amount"])["formatted"]
-        summary = f"Skip the {key} payment of {amount_fmt} on {date_label}"
+        summary = f"Skip the {resolved.get('label') or key} payment of {amount_fmt} on {date_label}"
     else:
-        summary = f"Skip the {key} payment on {date_label}"
+        summary = f"Skip the {resolved.get('label') or key} payment on {date_label}"
     consequence = "This occurrence stops counting in your upcoming bills and predictions. You can undo it from Upcoming."
     params = {"key": key, "date": date_str}
     return await _create_proposal(uid, "skip_occurrence", params, summary, consequence)
@@ -6322,7 +6322,7 @@ async def _exec_propose_edit_occurrence(
         new_date_label = date.fromisoformat(str(new_date)).strftime("%-d %b")
         bits.append(f"date to {new_date_label}")
     scope_note = "" if scope == "one" else " and every future occurrence"
-    summary = f"Change the {key} payment on {date_label} " + ", ".join(bits) + scope_note
+    summary = f"Change the {resolved.get('label') or key} payment on {date_label} " + ", ".join(bits) + scope_note
     consequence = (
         "This changes what's expected in your upcoming bills and predictions, "
         "it doesn't move any money itself."
@@ -6332,7 +6332,7 @@ async def _exec_propose_edit_occurrence(
         "new_date": str(new_date) if new_date is not None else None,
         "new_amount": round(new_amount, 2) if new_amount is not None else None,
     }
-    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence, **_occurrence_change_text(key, occ, date_str, new_date, new_amount))  # B60
+    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence, **_occurrence_change_text(resolved.get("label") or key, occ, date_str, new_date, new_amount))  # B60
 
 
 async def _exec_propose_clear_override(uid: str, key_or_name, date_str) -> dict:
@@ -6356,7 +6356,7 @@ async def _exec_propose_clear_override(uid: str, key_or_name, date_str) -> dict:
         date_label = date.fromisoformat(date_str).strftime("%-d %b")
     except ValueError:
         date_label = date_str
-    summary = f"Clear the change on the {key} payment's {date_label} occurrence"
+    summary = f"Clear the change on the {resolved.get('label') or key} payment's {date_label} occurrence"
     consequence = "Reverts to the predicted date and amount for that occurrence."
     params = {"key": key, "date": date_str}
     return await _create_proposal(uid, "clear_override", params, summary, consequence)
