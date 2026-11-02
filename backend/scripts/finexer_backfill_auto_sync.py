@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """A176: switch on Finexer's automatic sync for existing bank accounts.
 
-New consents get auto_sync_interval at their first sync; this one-off covers
-accounts connected before that. DRY RUN BY DEFAULT: it only counts the
-accounts that would be changed. --apply sends one request per account.
+Since A185 every sync pass sets auto_sync_interval for any account with neither
+bank_auto_sync_hours nor bank_auto_sync_refused_at; this one-off does the same
+selection on demand, so existing accounts need not wait for their next sync.
+DRY RUN BY DEFAULT: it only counts the accounts that would be changed. --apply sends one request per account.
 
 The setter honours the 60-minute rule and stamps bank_sync_requested_at when
 Finexer answers with a sync object (the POST may also trigger a sync).
@@ -26,7 +27,7 @@ import argparse
 import asyncio
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parents[1]
@@ -46,26 +47,22 @@ def check_env(env=None) -> None:
 async def run(apply: bool = False, limit: int | None = None, hours: int | None = None) -> dict:
     from app.db.collections import accounts_col, finexer_consents_col
     from app.services import runtime_settings
-    from app.services.finexer_sync import _client, ensure_auto_sync
+    from app.services.finexer_sync import (
+        AUTO_SYNC_MISSING_QUERY, _client, auto_sync_blocked_until, ensure_auto_sync,
+    )
 
     if hours is None:
         hours = int(await runtime_settings.asetting("FINEXER_AUTO_SYNC_HOURS"))
     consent_ids = [d["_id"] async for d in finexer_consents_col.find({"status": "authorized"}, {"_id": 1})]
     now = datetime.utcnow()  # naive-ok: compared with Mongo's naive UTC datetimes
-    gap = timedelta(minutes=60)
     todo = []
+    # A185: the same selection and 60-minute rule as sync_finexer_consent
+    # (AUTO_SYNC_MISSING_QUERY, auto_sync_blocked_until), so the two agree.
     async for a in accounts_col.find(
-        {"source": "finexer", "connection_id": {"$in": consent_ids},
-         "bank_auto_sync_hours": {"$exists": False}},
+        {"source": "finexer", "connection_id": {"$in": consent_ids}, **AUTO_SYNC_MISSING_QUERY},
         {"_id": 1, "bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
     ):
-        # The same 60-minute rule as the sync itself: an account asked or
-        # refused within the hour (a 429 or a 4xx) is not reselected.
-        recent = [a.get("bank_sync_requested_at"), a.get("bank_auto_sync_refused_at")]
-        if any(isinstance(t, datetime) and now - t < gap for t in recent):
-            continue
-        nxt = a.get("bank_sync_next_at")
-        if isinstance(nxt, datetime) and nxt > now:
+        if auto_sync_blocked_until(a, now) is not None:
             continue
         todo.append(a["_id"])
     summary = {"hours": hours, "apply": apply, "eligible": len(todo), "attempted": 0, "accepted": 0, "refused": 0}

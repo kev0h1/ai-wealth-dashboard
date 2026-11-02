@@ -452,8 +452,8 @@ def test_next_page_keeps_the_pending_filter():
 
 # ── who triggers ──────────────────────────────────────────────────────────
 
-def test_default_sync_never_posts_and_user_sync_does(monkeypatch):
-    accts = Col([])
+def test_default_sync_never_posts_the_manual_trigger_and_user_sync_does(monkeypatch):
+    accts = Col([{"_id": "acc1", "user_id": UID, "bank_auto_sync_hours": 6}])  # A185: setter already done
     consents = _wire_sync(monkeypatch, accts)
     consents.docs[0]["last_synced"] = NOW  # not the first sync
     c = Client(post_responses=[Resp(200, IDLE)], booked=[])
@@ -473,7 +473,7 @@ def test_first_sync_setter_echoes_interval_manual_trigger_still_runs(monkeypatch
     assert [d for u, d in c.posts] == [{"auto_sync_interval": "6"}, None], "setter first, then one manual POST"
     d = next(x for x in accts.docs if x["_id"] == "acc1")
     assert d["bank_auto_sync_hours"] == 6 and d["bank_sync_requested_at"]
-    # Later syncs never call the setter.
+    # Later syncs never call the setter once the interval is recorded.
     consents.docs[0]["last_synced"] = NOW
     c.posts.clear()
     asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
@@ -503,7 +503,7 @@ def test_first_sync_setter_429_is_recorded_and_the_sync_carries_on(monkeypatch):
 
 
 def test_worker_path_sync_updates_bank_synced_to_without_any_post(monkeypatch):
-    accts = Col([])
+    accts = Col([{"_id": "acc1", "user_id": UID, "bank_auto_sync_hours": 6}])  # A185: setter already done
     consents = _wire_sync(monkeypatch, accts)
     consents.docs[0]["last_synced"] = NOW  # reconcile or webhook sync, not first
     c = Client(sync_get_responses=[Resp(200, IDLE)], booked=[])

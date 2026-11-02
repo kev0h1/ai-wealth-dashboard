@@ -494,6 +494,42 @@ def _looks_like_sync_object(obj: dict) -> bool:
     return str(obj.get("status") or "").strip().lower() in ("idle", "running")
 
 
+# A185: the ONE definition of "this account still needs its automatic sync
+# set": it carries neither bank_auto_sync_hours (Finexer echoed it) nor
+# bank_auto_sync_refused_at (Finexer refused the setter). The sync pass and the
+# A176 backfill script both select with this, so the two always agree.
+AUTO_SYNC_MISSING_QUERY: dict = {
+    "bank_auto_sync_hours": {"$exists": False},
+    "bank_auto_sync_refused_at": {"$exists": False},
+}
+
+
+def account_needs_auto_sync(doc: Optional[dict]) -> bool:
+    """A185: True for an account doc with neither bank_auto_sync_hours nor
+    bank_auto_sync_refused_at (a missing doc is a new account, so True).
+    Mirrors AUTO_SYNC_MISSING_QUERY."""
+    doc = doc or {}
+    return "bank_auto_sync_hours" not in doc and "bank_auto_sync_refused_at" not in doc
+
+
+def auto_sync_blocked_until(doc: Optional[dict], now: datetime) -> Optional[datetime]:
+    """A185: the stored 60-minute rule for the setter, shared with the backfill
+    script. Returns when the setter may next POST for this doc (naive UTC), or
+    None when it may go now. An account asked or refused within the hour, or
+    with a stored next-request time still ahead, is blocked."""
+    doc = doc or {}
+    until = None
+    for key in ("bank_sync_requested_at", "bank_auto_sync_refused_at"):
+        last = doc.get(key)
+        if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+            cand = last + BANK_SYNC_MIN_GAP
+            until = cand if until is None or cand > until else until
+    nxt = doc.get("bank_sync_next_at")
+    if isinstance(nxt, datetime) and nxt > now and (until is None or nxt > until):
+        until = nxt
+    return until
+
+
 async def ensure_auto_sync(
     client: httpx.AsyncClient,
     account_id: str,
@@ -516,7 +552,8 @@ async def ensure_auto_sync(
         triggered a sync, so bank_sync_requested_at and the as-of window are
         stamped from it and the caller skips its own manual trigger;
       - 429: recorded like any other bank sync 429.
-    The same 60-minute rule as the manual trigger applies. A 4xx is logged
+    The same 60-minute rule as the manual trigger applies (a skip inside the
+    hour is logged at debug). A 4xx stamps bank_auto_sync_refused_at, is logged
     once per process and tolerated, and a failure never fails the sync.
     `hours` of 0 means off here and nothing is sent.
 
@@ -535,13 +572,8 @@ async def ensure_auto_sync(
         ) or {}
     except Exception:
         doc = {}
-    for key in ("bank_sync_requested_at", "bank_auto_sync_refused_at"):
-        last = doc.get(key)
-        if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
-            res["outcome"] = "skipped_local"
-            return res
-    nxt = doc.get("bank_sync_next_at")
-    if isinstance(nxt, datetime) and nxt > now:
+    if auto_sync_blocked_until(doc, now) is not None:
+        logger.debug("Finexer auto sync setter skipped: inside the 60-minute rule")
         res["outcome"] = "skipped_local"
         return res
     try:
@@ -1740,7 +1772,15 @@ async def sync_finexer_consent(
             # setter is a POST to the same path as the manual trigger and may
             # itself trigger a sync, in which case the manual trigger is
             # skipped for this account (one POST, not two within seconds).
-            if is_initial_sync and auto_sync_hours:
+            # A185: not only on the first sync. Accounts connected before A176
+            # shipped never got the setter, so any account with neither
+            # bank_auto_sync_hours nor bank_auto_sync_refused_at gets one
+            # attempt per pass, on every path. That includes the reconcile cron
+            # (request_bank_sync False): it is the only way those accounts ever
+            # get automatic sync. The cron still never POSTs the manual trigger
+            # itself (the `request_bank_sync` gate below); if the setter's own
+            # response is a sync object that already counts as the refresh.
+            if auto_sync_hours and (is_initial_sync or account_needs_auto_sync(local_doc)):
                 try:
                     au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter, finexer_id=finexer_id)
                     bank_sync_set.update(au.get("set") or {})
