@@ -13,6 +13,13 @@ from typing import Optional
 
 from app.core.auth import current_user
 from app.services import runtime_settings
+from app.services.finexer_consent import (
+    ReconfirmError,
+    next_reconfirm_by,
+    reconfirm_consent,
+    reconfirm_enabled,
+    RECONFIRM_FAILED_MESSAGE,
+)
 from app.core.config import APP_URL, FINEXER_API_KEY, FINEXER_APP_ID, FINEXER_TEMPLATE_DARK
 from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
@@ -26,6 +33,7 @@ from app.services.finexer_sync import (
     FinexerConsentError,
     finexer_sync_pipeline,
     _client as _finexer_client,
+    log_finexer_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,6 +142,7 @@ async def _dark_template_id() -> Optional[str]:
             r = await client.get(f"/apps/{FINEXER_APP_ID}/templates/{tid}", timeout=5.0)
         ok = r.status_code == 200
         if not ok:
+            log_finexer_error(r, "GET /apps/{id}/templates/{id}")
             logger.warning("Finexer dark template check failed: HTTP %s", r.status_code)
     except Exception as exc:  # network failure: fall back to the default template
         logger.warning("Finexer dark template check failed: %s", type(exc).__name__)
@@ -208,6 +217,8 @@ async def finexer_link(
             "status":      "pending",
             "native":      bool(native),
             "created_at":  datetime.utcnow(),
+            # A182: the history start we asked for (the bank's maximum applies).
+            "retro_date_requested": getattr(consent, "retro_date_requested", None),
         }},
         upsert=True,
     )
@@ -218,6 +229,39 @@ async def finexer_link(
         if dark_id:
             consent_url = _with_template(consent_url, dark_id)
     return {"auth_url": consent_url, "connection_id": consent_id}
+
+
+_RECONFIRM_FAILED = {"code": "RECONFIRM_FAILED", "message": RECONFIRM_FAILED_MESSAGE}
+
+
+@router.post("/auth/finexer/consents/{consent_id}/reconfirm")
+async def finexer_reconfirm(consent_id: str, user: dict = Depends(current_user)):
+    """A182: the user confirms in the app that Sorted may keep reading this
+    bank's data (the 90-day reconfirmation). Writes renewed_at at Finexer, no
+    bank login, never extends the consent's expiry. Owner of the consent only;
+    a Finexer failure leaves the record unchanged.
+
+    Gated by FINEXER_RECONFIRM_PROMPT_ENABLED (default off): A6.2A says a
+    reconfirmation shown in our own interface is a consent screen whose exact
+    wording needs Finexer's written approval first. Off, this answers 404. The
+    A6.3 fallback is Finexer's hosted reconfirmation, which needs no approval."""
+    if not await reconfirm_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    doc = await finexer_consents_col.find_one({"_id": consent_id})
+    # Another user's consent answers exactly like a missing one.
+    if not doc or doc.get("user_id") != user["email"]:
+        raise HTTPException(status_code=404, detail={"code": "CONSENT_NOT_FOUND", "message": "We could not find that bank connection."})
+    if doc.get("status") != "authorized":
+        raise HTTPException(status_code=409, detail={"code": "CONSENT_NOT_ACTIVE", "message": "This bank connection needs reconnecting first."})
+    try:
+        out = await reconfirm_consent(consent_id)
+    except ReconfirmError:
+        raise HTTPException(status_code=502, detail=_RECONFIRM_FAILED)
+    return {
+        "ok": True,
+        "renewed_at": out["renewed_at"].isoformat() + "Z",
+        "next_reconfirm_by": out["next_reconfirm_by"].isoformat() + "Z" if out["next_reconfirm_by"] else None,
+    }
 
 
 @router.get("/auth/finexer/callback")
@@ -264,9 +308,11 @@ async def finexer_callback(
         return RedirectResponse(f"{APP_URL}/accounts?connect=cancelled", status_code=303)
 
 
+    authed_at = datetime.utcnow()  # naive-ok: matches last_synced convention
     await finexer_consents_col.update_one(
         {"_id": consent_id},
-        {"$set": {"status": "authorized", "authed_at": datetime.utcnow()}},
+        {"$set": {"status": "authorized", "authed_at": authed_at,
+                  "next_reconfirm_by": next_reconfirm_by(authed_at, None, doc.get("expiry_date"))}},
     )
 
     user_id = doc["user_id"]

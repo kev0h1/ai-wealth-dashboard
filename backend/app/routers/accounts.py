@@ -17,6 +17,12 @@ from app.db.collections import (
 )
 from app.services.truelayer_sync import sync_connection
 from app.db.collections import finexer_consents_col as _finexer_consents_col
+from app.services.finexer_consent import (
+    consent_next_reconfirm_by as _consent_next_reconfirm_by,
+    plain_failure_reason,
+    reconfirm_enabled,
+    reconfirm_prompt_due,
+)
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
@@ -221,7 +227,12 @@ async def get_accounts(user: dict = Depends(current_user)):
 async def sync_status(user: dict = Depends(current_user)):
     """G210: first-sync state (idle / syncing / stalled / failed) for Home."""
     from app.services.sync_freshness import first_sync_state
-    return await first_sync_state(user["email"])
+    out = await first_sync_state(user["email"])
+    # A182: tells Home whether to fetch /connections for the reconfirmation
+    # prompt. Only present when on, so the off payload is unchanged.
+    if isinstance(out, dict) and await reconfirm_enabled():
+        out = {**out, "reconfirm_prompt_enabled": True}
+    return out
 
 
 @router.post("/accounts/sync")
@@ -448,10 +459,14 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         # failure leaves a retry marker for the nightly sweep and never blocks
         # or fails the user's own delete.
         if tl_acc.get("finexer") or tl_acc.get("source") == "finexer":
+            remote_id = tl_acc.get("finexer_account_id") or account_id
+
             async def _finexer_delete():
                 try:
                     from app.services.retention import delete_finexer_resource
-                    await delete_finexer_resource(uid, "bank_account", account_id)
+                    # A184: Finexer knows a reconnected account by its current
+                    # bank account id, not the stable local one.
+                    await delete_finexer_resource(uid, "bank_account", remote_id)
                 except Exception:
                     logger.exception("Finexer bank account delete failed (non-fatal)")
             # Background, like the refresh route: a slow Finexer never delays
@@ -612,6 +627,7 @@ async def list_connections(user: dict = Depends(current_user)):
             "accounts": account_count,
         })
 
+    prompt_on = await reconfirm_enabled()
     fx_consents = await _finexer_consents_col.find(
         {"user_id": uid},
         {"access_token": 0, "refresh_token": 0, "secret": 0, "token": 0},
@@ -621,9 +637,18 @@ async def list_connections(user: dict = Depends(current_user)):
         result.append({
             "connection_id": fc["_id"],
             "provider": "finexer",
+            "provider_id": fc.get("provider"),
             "status": fc.get("status"),
             "expires_at": fc.get("expiry_date"),
             "accounts": account_count,
+            # A182: the 90-day reconfirmation.
+            "renewed_at": fc.get("renewed_at"),
+            "next_reconfirm_by": _consent_next_reconfirm_by(fc),
+            "reconfirm_prompt": prompt_on and reconfirm_prompt_due(fc),
+            # A182: the history start we asked the bank for (its maximum applies).
+            "history_requested_from": fc.get("retro_date_requested"),
+            # A182: one plain sentence for the reconnect banner, never the raw bank text.
+            "failure_reason": plain_failure_reason(fc),
         })
 
     return result

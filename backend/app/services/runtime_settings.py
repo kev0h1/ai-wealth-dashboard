@@ -133,6 +133,11 @@ REGISTRY: dict[str, Spec] = {s.key: s for s in [
          help="Master switch for iOS purchases. Turning it off is the emergency stop."),
     Spec("PLAY_IAP_ENABLED", "bool", False, "Google Play purchase", "Purchases", confirm_on=True, env_truthy=("1", "true", "on"),
          help="Master switch for Android purchases. Turning it off is the emergency stop."),
+    # A182: A6.2A makes an in-app reconfirmation a consent screen that needs
+    # Finexer's written approval of the exact wording, so it ships dark.
+    Spec("FINEXER_RECONFIRM_PROMPT_ENABLED", "bool", False, "Bank reconfirmation prompt", "Bank sync",
+         env_truthy=("1", "true", "yes"),
+         help="Shows the 90-day bank reconfirmation question in the app, sends its push and accepts the reconfirm call. Off until Finexer has approved the exact wording in writing (clause A6.2A)."),
     Spec("ALERTS_ENABLED", "bool", False, "Push alerts", "Alerts",
          help="Master switch for health alerts to the owner."),
     Spec("ALERT_COOLDOWN_HOURS", "float", 6.0, "Alert cooldown (hours)", "Alerts", min=0, max=168),
@@ -158,6 +163,9 @@ REGISTRY: dict[str, Spec] = {s.key: s for s in [
     # the PSD2 four-a-day limit (E11).
     Spec("FINEXER_AUTO_SYNC_HOURS", "int", 6, "Finexer automatic sync (hours)", "Bank sync", min=0, max=720,
          help="Minimum hours between Finexer's own automatic syncs with the bank, 1 to 720. 0 is off: no interval is set on new accounts. 6 keeps unattended access within four a day."),
+    # A182: how far back a new consent may read, sent as retro_date on create.
+    Spec("FINEXER_RETRO_MONTHS", "int", 0, "Finexer history requested (months)", "Bank sync", min=0, max=60,
+         help="How many months of history to ask the bank for when a connection is made, 0 to 60. 0 (the default) sends nothing, so Finexer's default 90 days applies; leave it at 0 until the retro_date contract is confirmed against the sandbox. The bank's own maximum still applies. Only affects new connections."),
 ]}
 
 for _k in REGISTRY:

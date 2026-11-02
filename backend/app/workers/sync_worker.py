@@ -478,6 +478,7 @@ async def task_consent_watch(ctx):
 
     nagged = 0
     warned = 0
+    reconfirm_nagged = 0
 
     # ---- TrueLayer connections ----
     tl_conns = await connections_col.find(
@@ -576,7 +577,50 @@ async def task_consent_watch(ctx):
         else:
             warned += 1
 
-    summary = {"nagged": nagged, "warned": warned}
+    # ---- A182: 90-day reconfirmation (Finexer) ----
+    # Authorised consents whose reconfirmation falls due within 7 days (or is
+    # overdue) are stamped for /ops/health and get one gentle push, throttled
+    # to once per 72h. Reconfirming clears the throttle (finexer_consent).
+    from app.services.finexer_consent import (
+        RECONFIRM_PUSH_DAYS, consent_next_reconfirm_by, reconfirm_enabled, reconfirm_push_due,
+    )
+    reconfirm_due = 0
+    # The flag stays stamped; the push stays off until Finexer approves the wording (A6.2A,
+    # FINEXER_RECONFIRM_PROMPT_ENABLED); next_reconfirm_by is stored regardless.
+    rc_on = await reconfirm_enabled()
+    rc_consents = await finexer_consents_col.find(
+        {"status": "authorized"},
+        {"_id": 1, "user_id": 1, "status": 1, "authed_at": 1, "renewed_at": 1, "expiry_date": 1,
+         "provider": 1, "last_reconfirm_nag": 1},
+    ).to_list(None)
+    for fx in rc_consents:
+        uid = fx.get("user_id")
+        if not uid or not reconfirm_push_due(fx, now):
+            continue
+        reconfirm_due += 1
+        due = consent_next_reconfirm_by(fx)
+        fields = {"reconfirm_due_flagged_at": now, "next_reconfirm_by": due}
+        last_nag = fx.get("last_reconfirm_nag")
+        if (not rc_on or (isinstance(last_nag, datetime) and last_nag > throttle_cutoff)
+                or not await notif_pref(uid, "connection_health")):
+            await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+            continue
+        bank = _bank_display_name(fx.get("provider"))
+        try:
+            await send_push_to_user(
+                uid, f"Still OK for Sorted to read your {bank} data?",
+                "Open Sorted and confirm. It takes one tap and no bank login.", url="/",
+            )
+        except Exception:
+            logger.exception("consent watch reconfirm push failed for Finexer consent %s", fx["_id"])
+            await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+            continue
+        fields["last_reconfirm_nag"] = now
+        await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+        reconfirm_nagged += 1
+
+    summary = {"nagged": nagged, "warned": warned, "reconfirm_due": reconfirm_due,
+               "reconfirm_nagged": reconfirm_nagged, "reconfirm_window_days": RECONFIRM_PUSH_DAYS}
     logger.info("consent watch: %s", summary)
     return summary
 
@@ -725,6 +769,17 @@ async def task_retention_sweep(ctx):
     return summary
 
 
+async def task_reconcile_finexer_events(ctx):
+    """Nightly: compare Finexer's List events with the webhook deliveries we
+    stored and replay anything missed (A184, services/finexer_event_reconcile).
+    Counts only in the log; a failed or rate limited pass is simply not marked
+    complete and the next run covers the same window."""
+    from app.services.finexer_event_reconcile import reconcile_events
+    summary = await reconcile_events(force=True)
+    logger.info("finexer event reconcile: %s", {k: v for k, v in summary.items() if k != "reason"})
+    return {k: summary[k] for k in ("complete", "received", "missed", "replayed", "failed")}
+
+
 async def task_safe_to_spend_snapshot(ctx):
     """B18: daily Safe-to-Spend history snapshot — one row per user per
     calendar day of the headline figure's own components (spendable_now,
@@ -802,7 +857,7 @@ class WorkerSettings:
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
-                 task_safe_to_spend_snapshot, task_health_samples]
+                 task_reconcile_finexer_events, task_safe_to_spend_snapshot, task_health_samples]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -814,6 +869,8 @@ class WorkerSettings:
         # 03:30 UTC nightly: enforces SECURITY.md section 6 (connections 30
         # days after consent ends, dormant accounts after 12 months).
         cron(task_retention_sweep, hour=3, minute=30, run_at_startup=False),
+        # 02:45 UTC nightly: A184, replay any Finexer webhook we never received.
+        cron(task_reconcile_finexer_events, hour=2, minute=45, run_at_startup=False),
         # 05:00 UTC daily: B18's Safe-to-Spend snapshot, timed just after the
         # 04:00 task_reconcile_truelayer tick so the day's snapshot reads
         # freshly-synced data, and well clear of the 06:30/07:00/08:15 jobs.

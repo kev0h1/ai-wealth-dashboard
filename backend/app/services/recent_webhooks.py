@@ -64,6 +64,7 @@ EVENT_TYPES: dict[str, frozenset[str]] = {
     "finexer": frozenset({
         "bank_account.created", "bank_account.updated", "bank_account.synced", "bank_account.deleted",
         "consent.authorized", "consent.canceled", "consent.expired", "consent.created",
+        "consent.failed", "consent.opened", "consent.initiated",
     }),
     "truelayer": frozenset({
         "transaction.created", "transaction.updated", "data_status.updated", "connection.disconnected",

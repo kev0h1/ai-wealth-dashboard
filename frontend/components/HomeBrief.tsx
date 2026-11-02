@@ -330,7 +330,9 @@ export function DismissChip({
 export const BRIEF_CARD = "relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800";
 const ACTION_DOCK = "-mx-4 -mb-4 mt-4 border-t border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-slate-700/70 dark:bg-slate-900/25";
 export const ACTION_BASE = "inline-flex min-h-11 flex-1 touch-manipulation items-center justify-center gap-1 rounded-xl px-4 py-2 text-sm font-semibold [-webkit-tap-highlight-color:transparent] active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-offset-slate-800";
-const PRIMARY_ACTION = `${ACTION_BASE} bg-indigo-600 text-white [@media(hover:hover)]:hover:bg-indigo-700`;
+// Approved G388 C action treatment: use the named brand hex rather than
+// Tailwind's perceptual indigo token, whose computed value is not #4f46e5.
+const PRIMARY_ACTION = `${ACTION_BASE} bg-[#4f46e5] text-white opacity-100 [@media(hover:hover)]:hover:bg-[#4338ca]`;
 export const SECONDARY_ACTION = `${ACTION_BASE} border border-slate-200 bg-white text-slate-700 [@media(hover:hover)]:hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:[@media(hover:hover)]:hover:bg-slate-700`;
 export const QUIET_ACTION = `${ACTION_BASE} text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 dark:text-slate-300 dark:[@media(hover:hover)]:hover:bg-slate-700`;
 const EVIDENCE_BLOCK = "divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-700/70 dark:border-slate-700/70";
@@ -359,21 +361,9 @@ export function KindLabel({ children, tone = "neutral", signifier = true }: { ch
   return <span className={`${labelClass} text-slate-500 dark:text-slate-400`}>{children}</span>;
 }
 
-function PennyKindLabel({ hideAttribution, children, tone = "neutral" }: { hideAttribution?: boolean; children: React.ReactNode; tone?: "neutral" | "watch" }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      {!hideAttribution && (
-        <span
-          className="inline-flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-semibold uppercase tracking-wide text-white"
-          style={{ background: BRAND_GRADIENT }}
-        >
-          <PennyMark size={11} />
-          Penny
-        </span>
-      )}
-      <KindLabel tone={tone}>{children}</KindLabel>
-    </div>
-  );
+/** Advice cards identify their task; Penny lives in the single adviser door. */
+function PennyKindLabel({ hideAttribution: _hideAttribution, children, tone = "neutral" }: { hideAttribution?: boolean; children: React.ReactNode; tone?: "neutral" | "watch" }) {
+  return <KindLabel tone={tone}>{children}</KindLabel>;
 }
 
 function BriefLead({ item, maskAmounts }: { item: CompanionItem; maskAmounts: (text: string) => string }) {
@@ -398,9 +388,7 @@ interface AskPaydayCardProps {
   onRefresh?: () => void;
   /** Design previews keep the real component but must not write user data. */
   previewMode?: boolean;
-  /** Penny screen only — the page header already establishes Penny's voice,
-   * so the per-card "✦ Penny" chip is redundant branding there. Home keeps
-   * the chip exactly as before (prop omitted/false). */
+  /** Retained for callers during the G388 card-treatment transition. */
   hideAttribution?: boolean;
 }
 
@@ -446,7 +434,7 @@ export function AskPaydayCard({ item, router, maskAmounts, onRefresh, previewMod
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      {/* Penny gradient chip — suppressed on the Penny screen itself */}
+      {/* A compact task label keeps the card scannable without repeated branding. */}
       <div data-brief-header className={BRIEF_HEADER}>
         <BriefIcon><CalendarDays size={16} /></BriefIcon>
         <div className="flex min-w-0 items-center">
@@ -493,12 +481,12 @@ interface AskGenericCardProps {
   /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
   dismissible?: boolean;
   onHomeDismiss?: (id: string) => void;
-  /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
+  /** Retained for callers during the G388 card-treatment transition. */
   hideAttribution?: boolean;
 }
 
-// Generic ask card — same visual family as the payday ask (glass card, Penny
-// chip, headline + body ramp), but the primary action is a route push from
+// Generic ask card — same visual family as the payday ask (glass card,
+// compact kind label, headline + body ramp), but the primary action is a route push from
 // item.action. "Not now" only renders when `dismissible` (Home): it hides
 // the card Home-only via localStorage, so it keeps showing on Penny's
 // archive. Penny never renders "Not now" at all — for asks like
@@ -535,7 +523,7 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      {/* Penny gradient chip — suppressed on the Penny screen itself */}
+      {/* A compact task label keeps the card scannable without repeated branding. */}
       <div data-brief-header className={BRIEF_HEADER}>
         <BriefIcon><CreditCard size={16} /></BriefIcon>
         <div className="flex min-w-0 items-center">
@@ -1311,9 +1299,8 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
 
   return (
     <div data-move-card="fallback" className={`${BRIEF_CARD} p-4`}>
-      {/* The Penny signifier is suppressed on the Penny screen itself, whose
-          header already establishes that voice. The card-kind label stays so
-          the family remains scannable in both contexts. */}
+      {/* The compact card-kind label stays scannable without repeating the
+          adviser identity on either Home or Penny. */}
       <div className="pr-9">
         <div className="min-w-0 flex-1">
           <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>

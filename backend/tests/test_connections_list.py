@@ -168,4 +168,8 @@ def test_token_and_secret_fields_never_appear_in_response(monkeypatch):
     for leaked in ("tl-secret-abc", "tl-refresh-xyz", "fx-token-abc", "fx-secret-xyz"):
         assert leaked not in blob
     for row in result:
-        assert set(row.keys()) == {"connection_id", "provider", "status", "expires_at", "accounts"}
+        base = {"connection_id", "provider", "status", "expires_at", "accounts"}
+        # A182: Finexer rows also carry the reconfirmation, history and failure-reason fields.
+        extra = {"provider_id", "renewed_at", "next_reconfirm_by", "reconfirm_prompt",
+                 "history_requested_from", "failure_reason"} if row["provider"] == "finexer" else set()
+        assert set(row.keys()) == base | extra

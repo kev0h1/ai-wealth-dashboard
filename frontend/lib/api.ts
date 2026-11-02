@@ -2139,6 +2139,43 @@ export type OpsHealth = {
     consents: { last_synced_to: string | null; age_hours: number | null }[];
     line: string;
   } | null;
+  // A182: per consent, no ids. Null when it could not be built.
+  finexer_consents?: {
+    consents: {
+      bank: string | null;
+      status: string | null;
+      renewed_at: string | null;
+      next_reconfirm_by: string | null;
+      reconfirm_overdue: boolean;
+      history_requested_from: string | null;
+      failure_code: string | null;
+      failure_message: string | null;
+    }[];
+    reconfirm_due: number;
+    failed: number;
+  } | null;
+  // A184: the last List events reconcile (counts only); null when it could not be built.
+  finexer_events?: OpsFinexerEvents | null;
+};
+export type OpsFinexerEvents = {
+  last_completed_at: string | null;
+  minutes_ago: number | null;
+  last_attempt_at: string | null;
+  last_status: string | null;
+  last_reason: string | null;
+  received: number;
+  missed: number;
+  replayed: number;
+  failed: number;
+};
+export type OpsFinexerEventsRun = {
+  ran: boolean;
+  complete: boolean;
+  reason: string | null;
+  received: number;
+  missed: number;
+  replayed: number;
+  failed: number;
 };
 // E9: GET /ops/webhooks/recent (owner-only, allowlist projection).
 export type OpsRecentWebhooks = {
@@ -3032,6 +3069,8 @@ export type SyncStatus = {
   state: "idle" | "syncing" | "stalled" | "failed";
   /** True only when no connection has ever synced (a genuine first sync). */
   first_sync?: boolean;
+  /** A182: present (true) only when the bank reconfirmation prompt is switched on. */
+  reconfirm_prompt_enabled?: boolean;
   connections: {
     provider: "finexer" | "truelayer";
     connection_id?: string | null;
@@ -3247,6 +3286,12 @@ export const api = {
     ? get<{ auth_url: string }>(`/auth/${LEGACY_BANK_ID}/link${linkQuery(provider, native)}`)
     : Promise.reject(new Error("This bank connection method is not available.")),
   finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[]; health_status?: string }[]>("/auth/finexer/providers"),
+  /** A182: confirm in the app that Sorted may keep reading this bank's data (90-day
+   *  reconfirmation). No bank login; never extends the consent's end date. */
+  finexerReconfirm: (consentId: string) =>
+    post<{ ok: boolean; renewed_at: string; next_reconfirm_by: string | null }>(
+      `/auth/finexer/consents/${encodeURIComponent(consentId)}/reconfirm`,
+    ),
   finexerConnectLink: (provider?: string, native?: boolean) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${linkQuery(provider, native)}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>
@@ -3707,6 +3752,7 @@ export const api = {
     open_last_chat?: boolean;
     show_tips?: boolean;
     dark_mode?: boolean;
+    penny_appearance?: import("@/lib/pennyAppearance").PennyAppearance;
     notification_prefs?: NotificationPrefs;
     income_bracket?: string;
     income_value?: number;
@@ -3741,6 +3787,7 @@ export const api = {
     open_last_chat: boolean;
     show_tips: boolean;
     dark_mode: boolean;
+    penny_appearance: import("@/lib/pennyAppearance").PennyAppearance;
     pay_period_config: unknown;
     notification_prefs: NotificationPrefs;
     income_bracket: string;
@@ -4412,6 +4459,7 @@ export const api = {
   },
   clearOpsSetting: (key: string) => del<OpsSetting>(`/ops/settings/${encodeURIComponent(key)}`),
   sendOpsTestAlert: () => post<OpsAlertTest>("/ops/health/alerts/test"),
+  reconcileFinexerEvents: () => post<OpsFinexerEventsRun>("/ops/health/finexer-events/reconcile"),
   getOpsLlmUsage: () => get<OpsLlmUsage>("/admin/llm-usage"),
   getOpsSyncStats: () => get<OpsSyncStats>("/admin/sync-stats"),
   goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>

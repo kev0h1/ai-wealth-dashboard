@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Home, PieChart, Settings, CalendarClock, Target } from "lucide-react";
-import PennyMark from "@/components/PennyMark";
-import { BRAND_GRADIENT } from "@/lib/brand";
+import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
+import { usePreferences } from "@/components/PreferencesContext";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { screenForPathname } from "@/components/BottomNav";
 import { isNavExemptPath } from "@/lib/navExemptRoutes";
@@ -19,6 +19,7 @@ const TABS = [
 ];
 
 export default function Sidebar() {
+  const { pennyAppearance } = usePreferences();
   const pathname = usePathname();
   // Desktop's own door into the Penny sheet — BottomNav.tsx (the mobile
   // rail with the raised gradient button that opens it there) is
@@ -135,7 +136,7 @@ export default function Sidebar() {
       {/* Penny trigger — deliberately its own bordered footer block below
           the plain nav list above, not a sixth TABS entry, so it reads as
           "the assistant lives here" rather than another page link. Carries
-          Penny's gradient mark (DESIGN.md's Penny Gradient Rule: the
+          the saved Penny icon (DESIGN.md's Penny Gradient Rule: the
           indigo→violet gradient is reserved for surfaces that are actually
           a door to advice, which this is). Toggles the same sheet
           BottomNav.tsx's raised button does (`usePennySheet`), with the
@@ -155,12 +156,7 @@ export default function Sidebar() {
               : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-300"
           }`}
         >
-          <span
-            className="w-[18px] h-[18px] rounded-md flex items-center justify-center flex-shrink-0"
-            style={{ background: BRAND_GRADIENT }}
-          >
-            <PennyMark size={11} className="text-white" />
-          </span>
+          <PennyAppearanceIcon appearance={pennyAppearance} size={pennyAppearance === "original" ? 18 : 24} />
           <span className={`text-sm font-medium ${isOpen ? "font-semibold" : ""}`}>Ask Penny</span>
         </button>
       </div>

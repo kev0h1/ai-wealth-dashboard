@@ -72,6 +72,17 @@ export interface Connection {
   status: string;
   expires_at: string | null;
   accounts: number;
+  /** Finexer only: the bank id the consent was made for (A182). */
+  provider_id?: string | null;
+  /** A182: the 90-day reconfirmation. Absent for TrueLayer connections. */
+  renewed_at?: string | null;
+  next_reconfirm_by?: string | null;
+  /** True inside the prompt window before the due day, and after it until reconfirmed. */
+  reconfirm_prompt?: boolean;
+  /** YYYY-MM-DD: the history start we asked the bank for. Its own maximum applies. */
+  history_requested_from?: string | null;
+  /** A182: one plain sentence for the reconnect banner when the bank failed or ended the consent. */
+  failure_reason?: string | null;
 }
 
 export type ManualAccountType = "savings" | "current" | "credit_card";
