@@ -31,7 +31,9 @@ to the scope selector yet.
 """
 from __future__ import annotations
 
+import asyncio
 import calendar as _calendar
+import logging
 import math
 from datetime import date as _date, datetime, timedelta
 
@@ -889,26 +891,46 @@ def _thin_response() -> dict:
     }
 
 
-async def compute_and_cache_money_shape(uid: str) -> dict:
-    """Background task: compute money shape and store to cache. Called after
-    every sync. Stores the FULL response verbatim (no per-request slicing —
-    see module docstring) plus ``computed_at`` (TTL sentinel, same convention
-    as compute_and_cache_cashflow, and FastAPI auto-serialises it to an ISO
+logger = logging.getLogger(__name__)
+_BACKGROUND_RETRY_PAUSES = (0.2, 0.5)
+
+
+async def compute_and_cache_money_shape(uid: str, *, background: bool = False) -> dict | None:
+    """Compute money shape and store to cache. Called after every sync.
+    Stores the FULL response verbatim (no per-request slicing, see module
+    docstring) plus ``computed_at`` (TTL sentinel, same convention as
+    compute_and_cache_cashflow, and FastAPI auto-serialises it to an ISO
     string on the way out) and ``schema_version`` (see get_money_shape_cached).
+
+    Compare-and-swap on the user's data version: a compute whose version
+    moved underneath it is never stored. The request path (``background``
+    False) tries twice and raises RuntimeError so the caller retries the
+    request. The background path (worker, H146) tries up to three times with
+    a short pause, then skips quietly and returns None: several consents for
+    one user can sync concurrently and each bumps the version, so a moved
+    version there is normal, not an error. The skip is self-healing:
+    get_money_shape_cached recomputes on read whenever the cache doc's
+    ``data_version`` no longer matches, so the next read rebuilds it.
     """
-    for _ in range(2):
+    attempts = 3 if background else 2
+    for attempt in range(attempts):
         version = await data_version.current(uid, fresh=True)
         data = await compute_money_shape(uid)
         data["data_version"] = version
         data["computed_at"] = datetime.now()
         data["schema_version"] = SCHEMA_VERSION
-        if await data_version.current(uid, fresh=True) != version:
-            continue
-        await money_shape_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         if await data_version.current(uid, fresh=True) == version:
-            return data
+            await money_shape_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
+            if await data_version.current(uid, fresh=True) == version:
+                return data
+        if background and attempt < attempts - 1:
+            await asyncio.sleep(_BACKGROUND_RETRY_PAUSES[attempt])
+    if background:
+        logger.info(
+            "money shape refresh skipped for %s: data changed during refresh, next read rebuilds it", uid
+        )
+        return None
     raise RuntimeError("Money shape changed while refreshing; retry the request")
-
 
 
 async def get_money_shape_cached(uid: str, ttl_hours: int = 6) -> dict:
