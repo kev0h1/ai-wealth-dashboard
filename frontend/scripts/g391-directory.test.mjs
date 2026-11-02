@@ -36,7 +36,9 @@ assert.ok(rates.includes("edit this card&#x27;s rates"), "credit terms remain re
 
 const availability = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"ready",value:0,warning:"payments"},position:{after_payments:-289,after_payments_and_plans:-289,low_point:-289,plans_reserved:0}}));
 assert.ok(availability.includes("Available to spend") && availability.includes("£0") && availability.includes("Projected shortfall") && availability.includes("£289"), "detail retains the Available floor and actual shortfall");
-assert.ok(availability.includes("Working") && availability.includes("After scheduled payments"), "detail retains stored projection disclosure");
+const summary = availability.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ?? "";
+assert.ok(summary.includes("Available to spend") && summary.includes("Projected shortfall") && summary.includes("£289"), "G406 available/shortfall line opens the evidence directly");
+assert.ok(!availability.includes("Working") && availability.includes("After scheduled payments"), "stored projections remain without a separate Working row");
 const hiddenWorking = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:true,reading:{kind:"ready",value:0,warning:"payments"},position:{low_point:-289,after_payments:-289}}));
 assert.ok(!hiddenWorking.includes("289") && hiddenWorking.includes("−£••••"), "Working keeps signs without leaking figures");
 const unavailable = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"unavailable"}}));

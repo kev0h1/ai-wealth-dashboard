@@ -85,7 +85,14 @@ const acct = { id: "a1", name: "Joint bills", type: "Current", subtype: "CURRENT
   for (const html of [on, off, refused]) clean("count row", html);
   // Only connected current and savings accounts get the row.
   const page = readFileSync(new URL("../app/components/AccountsPage.tsx", import.meta.url), "utf8");
-  assert.match(page, /!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !\(available\?\.kind === "ready" && available\.warning\) && \(\s*<div className="px-4 pt-4">\s*<AccountCountRow/);
+  assert.match(page, /!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !\(available\?\.kind === "ready" && available\.warning\) && \(\s*<div className="mt-3">\s*<AccountCountRow/);
+  const facts = page.slice(page.indexOf("<div data-account-facts"), page.indexOf("{pinMsg &&"));
+  assert.match(facts, /<AccountCountRow[\s\S]*?\bcompact\s*\/>/, "G406 compact setting belongs to account facts");
+  const compact = renderToStaticMarkup(React.createElement(CountTowardsSafeToSpendRow, { counted: true, onChange: noop, compact: true, reason, busy: true }));
+  assert.doesNotMatch(compact, /glass-card/);
+  assert.match(compact, /role="switch"/);
+  assert.match(compact, /disabled=""/);
+  assert.ok(compact.includes(COUNT_TOWARDS_HELPER) && compact.includes(reason), "compact presentation keeps helper, refusal and busy state");
   assert.match(page, /invalidateAllAccountData\(\);\s*void loadAccounts\(\);\s*\} catch \(err\)/, "successful toggles clear caches before refreshing availability");
 }
 

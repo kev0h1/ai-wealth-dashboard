@@ -2326,10 +2326,9 @@ export default function AccountsPage() {
             banner only when genuinely expired, then balance-forward block.
             Canvas Before Cards (G87, Variant A "Quiet position", Kevin
             approved 2026-09-16): the header lives directly on the canvas,
-            closed off by the horizontal rule below rather than a card
-            boundary — the transaction/category panel underneath keeps its
-            own card. */}
-        <div className="px-4 pt-4">
+            G406 groups availability, the count setting and bank freshness
+            with the facts, without stacked card borders or closing rules. */}
+        <div data-account-facts className="px-4 pt-4">
           <div className="flex items-center justify-between mb-4 gap-2">
             <button
               onClick={handleBack}
@@ -2460,36 +2459,31 @@ export default function AccountsPage() {
             </p>
           )}
           <AccountAvailabilityDetail key={selectedAccount.id} reading={available} position={position} hidden={hideNetWorth} />
-          {/* The horizontal rule Kevin asked to keep (G87 approval,
-              2026-09-16): it closes off the canvas header in place of the
-              card boundary that used to do that job. */}
-          <div className="mt-5 border-t border-slate-300/80 dark:border-slate-700" />
+
+          {/* Keep the G231 eligibility and server refusal behaviour. */}
+          {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !(available?.kind === "ready" && available.warning) && (
+            <div className="mt-3">
+              <AccountCountRow
+                account={selectedAccount}
+                counted={selectedAccount.include_in_safe_to_spend !== false}
+                busy={countBusy}
+                reason={countReason}
+                onChange={(next) => void setAccountCounted(selectedAccount.id, next)}
+                compact
+              />
+            </div>
+          )}
+
+          {canRefreshAccount(selectedAccount) && (
+            <div className="mt-3">
+              <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} compact />
+            </div>
+          )}
         </div>
 
         {pinMsg && (
           <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
             {pinMsg}
-          </div>
-        )}
-
-        {/* A179: the bank data time with a Refresh control. */}
-        {canRefreshAccount(selectedAccount) && (
-          <div className="px-4 pt-4">
-            <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} />
-          </div>
-        )}
-
-        {/* G231: only a connected bank current or savings account can be left
-            out of Safe to Spend; cards, offline accounts and statements cannot. */}
-        {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !(available?.kind === "ready" && available.warning) && (
-          <div className="px-4 pt-4">
-            <AccountCountRow
-              account={selectedAccount}
-              counted={selectedAccount.include_in_safe_to_spend !== false}
-              busy={countBusy}
-              reason={countReason}
-              onChange={(next) => void setAccountCounted(selectedAccount.id, next)}
-            />
           </div>
         )}
 
