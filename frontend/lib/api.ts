@@ -3143,7 +3143,7 @@ export const api = {
   // couldn't show when a consent ends until this was wired up. See
   // backend/app/routers/accounts.py:list_connections.
   connections: () => get<Connection[]>("/connections"),
-  syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
+  syncAccounts: () => post<{ message: string; total_accounts: number; paused?: boolean }>("/accounts/sync"),
   /** A179: refresh one connected bank account from its bank. Always 200; a
    *  refused or slow refresh is described in the body, never a raw 429. */
   refreshAccount: (id: string) =>

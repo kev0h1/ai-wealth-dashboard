@@ -262,3 +262,7 @@ Kevin's short task test after the coordinator publishes the round. Add `clean=1`
 5. Use five unfamiliar participants if available; a practical acceptance target is at least four finding Accounts unaided within ten seconds, with no participant blocked by loading or a missing forecast. This is a proposed test threshold, not a result already observed.
 
 Questions are deferred until the variants have a working UAT link, as required by the repository design workflow. G389 is handed off with `--uat-review`, not marked done or blocked on an unpublished choice.
+
+## G389 implementation update, 2 November 2026
+
+Kevin approved Home A and Accounts refresh A. The labelled Home entry, Refresh beside Add and clearer Add actions are folded into production. Both G389 preview routes and their browser scripts are retired; the earlier verification and route references above describe the historical design round. Current production verification is `frontend/scripts/g389-accounts.browser.mjs`. F2–F5 and F7 were implemented in G392. F8 remains the observed-task study G393; no participant outcome is claimed.
