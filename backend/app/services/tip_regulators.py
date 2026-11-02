@@ -83,7 +83,7 @@ def extract_annual(category: str, text: str) -> Optional[float]:
 
 def monthly_for(figure_annual: float) -> int:
     """Annual divided by 12, to the pound."""
-    return int(round(figure_annual / 12))
+    return int(figure_annual / 12 + 0.5)
 
 
 def _plain_url(url: str) -> str:

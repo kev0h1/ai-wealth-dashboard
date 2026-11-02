@@ -134,11 +134,14 @@ async def _fetch_hops(client: httpx.AsyncClient, url: str) -> str:
             if not (ctype.startswith("text/") or "xhtml" in ctype):
                 raise _Refused("type")
             buf = b""
-            async for chunk in r.aiter_raw():
-                buf += chunk
-                if len(buf) >= MAX_BYTES:
-                    buf = buf[:MAX_BYTES]
-                    break
+            if r.is_stream_consumed:
+                buf = r.content[:MAX_BYTES]  # already read by the transport (in-memory test responses)
+            else:
+                async for chunk in r.aiter_raw():
+                    buf += chunk
+                    if len(buf) >= MAX_BYTES:
+                        buf = buf[:MAX_BYTES]
+                        break
         return html_to_text(buf.decode("utf-8", errors="replace"), limit=MAX_BYTES)
     raise _Refused("redirects")
 

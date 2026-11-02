@@ -18,6 +18,18 @@ TODAY = datetime(2026, 11, 2).date()
 REAL_CLIENT = httpx.AsyncClient
 
 
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """No test in this file can reach a network, whatever the code under test does."""
+    import socket
+
+    def blocked(*a, **k):
+        raise OSError("network blocked in test")
+
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket, "getaddrinfo", blocked)
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -49,7 +61,7 @@ def test_only_allowlisted_hosts_are_fetched_and_at_most_three_pages():
     def handler(req):
         seen.append(req.url.host)
         assert "SortedTipResearch" in req.headers["user-agent"]
-        return html("<p>Page text</p>")
+        return html("<p>Page text. Plans from £10 a month.</p>")
 
     stats = tip_pages.new_stats()
     urls = ["https://seo-prices.example.com/x", "https://www.uswitch.com/a", "https://davidlloydmembership-price.co.uk/",
@@ -103,11 +115,11 @@ def test_same_host_redirect_is_followed_and_http_downgrade_refused():
     def handler(req):
         if req.url.path == "/a":
             return httpx.Response(301, headers={"location": "/b"})
-        return html("moved page")
+        return html("Moved page. Giffgaff £10 a month.")
 
     stats = tip_pages.new_stats()
     out = run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, stats, client_for(handler)))
-    assert out == {"uswitch.com": "moved page"}
+    assert out == {"uswitch.com": "Moved page. Giffgaff £10 a month."}
 
     def downgrade(req):
         return httpx.Response(302, headers={"location": "http://www.uswitch.com/b"})
@@ -131,14 +143,81 @@ def test_failed_fetches_count_and_never_raise():
     assert stats["pages_failed"] == 3 and stats["pages_fetched"] == 0
 
 
-def test_body_is_byte_capped():
-    big = "x " * 500_000
+def test_body_is_byte_capped_and_text_is_prefiltered_to_price_sentences():
+    big = ("Home about us. " * 30000) + "Intro line. Giffgaff SIM only, £10 a month. " + ("Footer text. " * 30000)
 
     def handler(req):
         return html(big)
 
     out = run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, tip_pages.new_stats(), client_for(handler)))
-    assert 0 < len(out["uswitch.com"]) <= tip_pages.MAX_CHARS
+    # the price sits beyond the 400 KB cap here, so nothing usable is kept
+    assert out == {}
+    near = "Home about us. " * 100 + "Intro line. Giffgaff SIM only, £10 a month. " + "Footer text. " * 5000
+    out = run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, tip_pages.new_stats(), client_for(lambda r: html(near))))
+    assert out["uswitch.com"] == "Intro line. Giffgaff SIM only, £10 a month."
+    assert len(out["uswitch.com"]) <= tip_pages.PAGE_TEXT_CHARS
+
+
+def test_price_sentences_keep_lead_in_cap_the_total_and_cut_long_menus():
+    text = "Menu. Plans. Gym A is £20 a month. More. Other. Gym B is £30 a month."
+    assert tip_pages.price_sentences(text) == "Plans. Gym A is £20 a month. Other. Gym B is £30 a month."
+    many = " ".join(f"Item {i}. Cost {i} is £{i} a month." for i in range(500))
+    assert len(tip_pages.price_sentences(many)) <= tip_pages.PAGE_TEXT_CHARS
+    menu = "Nav " * 300 + "£25 a month " + "Nav " * 300
+    assert len(tip_pages.price_sentences(menu)) <= 400 and "£25" in tip_pages.price_sentences(menu)
+
+
+def test_userinfo_url_is_refused_as_a_first_url_and_never_requested():
+    def handler(req):
+        raise AssertionError("must not be requested")
+
+    stats = tip_pages.new_stats()
+    urls = ["https://ofgem.gov.uk:x@evil.com/", "https://www.uswitch.com@evil.com/p", "https://www.uswitch.com:8443/p",
+            "https://user:pw@www.which.co.uk/p"]
+    assert run(tip_pages.fetch_pages(urls, None, stats, client_for(handler))) == {}
+    assert tip_facts.host_of("https://ofgem.gov.uk:x@evil.com/") == ""
+    assert tip_facts.allowed_source_name("https://ofgem.gov.uk:x@evil.com/") is None
+    assert tip_pages.safe_https_host("https://ofgem.gov.uk:x@evil.com/") is None
+    assert tip_pages.safe_https_host("https://www.Ofgem.gov.uk:443/a") == "ofgem.gov.uk"
+    assert si._clean_sources(["https://ofgem.gov.uk:x@evil.com/"]) == []
+
+
+def test_userinfo_redirect_location_is_refused_and_counted():
+    hits = []
+
+    def handler(req):
+        hits.append(req.url.host)
+        if req.url.host == "www.uswitch.com":
+            return httpx.Response(302, headers={"location": "https://uswitch.com:x@evil.com/p"})
+        raise AssertionError("evil host must not be requested")
+
+    stats = tip_pages.new_stats()
+    assert run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, stats, client_for(handler))) == {}
+    assert stats["pages_failed"] == 1 and hits == ["www.uswitch.com"]
+
+
+def test_compressed_body_is_refused_and_request_asks_for_identity():
+    seen = {}
+
+    def handler(req):
+        seen["ae"] = req.headers.get("accept-encoding")
+        return httpx.Response(200, content=b"x", headers={"content-type": "text/html", "content-encoding": "gzip"})
+
+    stats = tip_pages.new_stats()
+    assert run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, stats, client_for(handler))) == {}
+    assert seen["ae"] == "identity" and stats["pages_failed"] == 1
+
+
+def test_total_deadline_bounds_a_slow_page(monkeypatch):
+    monkeypatch.setattr(tip_pages, "TOTAL_DEADLINE", 0.05)
+
+    async def slow(req):
+        await asyncio.sleep(1)
+        return html("£1")
+
+    stats = tip_pages.new_stats()
+    assert run(tip_pages.fetch_pages(["https://www.uswitch.com/a"], None, stats, client_for(slow))) == {}
+    assert stats["pages_failed"] == 1
 
 
 # ── G315 rules on page text ─────────────────────────────────────────────────
@@ -181,6 +260,25 @@ def test_page_text_does_not_loosen_the_name_before_price_rule():
     assert f is None
 
 
+def test_a_list_of_providers_before_a_price_yields_no_listing():
+    text = "Page uswitch.com: Octopus, EDF, British Gas deals from £146 a month on tariffs"
+    for nm, ptype, cat in (("EDF", "energy_tariff", "energy"), ("British Gas", "energy_tariff", "energy"),
+                           ("Octopus", "energy_tariff", "energy")):
+        p = {"alternatives": [{"name": nm, "price": 146, "product_type": ptype, "basis": "month",
+                               "source_url": "https://www.uswitch.com/e/"}]}
+        f, _, v = si._build_findings(p, text, URLS, cat, TODAY)
+        assert f is None, nm
+    for text in ("Page uswitch.com: Octopus and EDF from £146 a month", "Page uswitch.com: EDF & Octopus from £146 a month",
+                 "Page uswitch.com: Octopus or EDF from £146 a month"):
+        p = {"alternatives": [{"name": "EDF", "price": 146, "product_type": "energy_tariff", "basis": "month",
+                               "source_url": "https://www.uswitch.com/e/"}]}
+        assert si._build_findings(p, text, URLS, "energy", TODAY)[0] is None
+    one = "Page uswitch.com: EDF standard variable tariff from £146 a month"
+    p = {"alternatives": [{"name": "EDF", "price": 146, "product_type": "energy_tariff", "basis": "month",
+                           "source_url": "https://www.uswitch.com/e/"}]}
+    assert si._build_findings(p, one, URLS, "energy", TODAY)[0]["alternatives"][0]["name"] == "EDF"
+
+
 def test_regulated_category_is_never_researched_or_fetched(monkeypatch):
     def handler(req):
         raise AssertionError("no request for a regulated category")
@@ -195,92 +293,109 @@ def test_regulated_category_is_never_researched_or_fetched(monkeypatch):
     assert fo.findings is None and fo.failure == "error"
     # and a stored regulator figure is never composed for one
     d = doc({"typical_low": None, "typical_high": None, "alternatives": [], "deal": None, "sources": [],
-             "typical_regulated": {"figure": 94.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
-                                   "read_on": "2026-11-02"}})
+             "typical_regulated": REG})
     out = si._compose_tip_content("mortgage", d, [row("Mtg", 1124.44, last="2026-10-01")], None, TODAY)
     assert "Typical" not in out["body"]
 
 
-# ── regulator extractors ────────────────────────────────────────────────────
+# ── regulator extractor (Ofgem price cap press release) ─────────────────────
 
-OFGEM = ("Energy price cap. The price cap for a typical household paying by Direct Debit is £1,758 a year. "
-         "That is about £146.50 per month for dual fuel. Other costs apply.")
-OFCOM = ("Pricing trends. The average monthly spend on mobile services was £21 a month in the year to March. "
-         "Broadband: the average monthly bill for broadband was £33.50 per month.")
-
-
-def test_ofgem_extractor_reads_only_the_labelled_monthly_figure():
-    assert tip_regulators.extract_monthly("energy", OFGEM) == 146.5
-    assert tip_regulators.extract_monthly("energy", "The price cap for a typical household is £1,758 a year.") is None
-    assert tip_regulators.extract_monthly("energy", "Typical household bills are £146.50 per month.") is None  # no "price cap"
-    assert tip_regulators.extract_monthly("energy", "price cap typical household £10 a month") is None  # out of bounds
+REG = {"figure_annual": 1723.0, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
+       "source_url": "https://www.ofgem.gov.uk/press-release/price-cap-rise-example", "read_on": "2026-11-02"}
+PRESS = ("Ofgem announces the price cap for January to March. The current price cap for a typical household paying by "
+         "direct debit for gas and electricity is £1,663 a year. From 1 January it will rise by £60 per year "
+         "(or £5 per month) to £1,723. Other costs apply.")
 
 
-def test_ofcom_extractor_reads_the_figure_for_its_own_category():
-    assert tip_regulators.extract_monthly("mobile", OFCOM) == 21.0
-    assert tip_regulators.extract_monthly("broadband", OFCOM) == 33.5
-    assert tip_regulators.extract_monthly("mobile", "Prices went up last year by £3 a month.") is None
-    assert tip_regulators.extract_monthly("mobile", "The average mobile spend is £21 a year.") is None
-    assert tip_regulators.extract_monthly("gym", OFCOM) is None  # no regulator
+def test_ofgem_extractor_reads_the_current_cap_not_the_new_one():
+    assert tip_regulators.extract_annual("energy", PRESS) == 1663.0
+    only = "The price cap for a typical household paying by direct debit is £1,723 a year."
+    assert tip_regulators.extract_annual("energy", only) == 1723.0
 
 
-def test_two_different_qualifying_figures_are_ambiguous():
-    text = ("The price cap for a typical household is £140 per month by Direct Debit. "
-            "The price cap for a typical household is £150 per month by prepayment.")
-    assert tip_regulators.extract_monthly("energy", text) is None
+def test_ofgem_extractor_is_none_when_wording_is_absent_or_ambiguous():
+    assert tip_regulators.extract_annual("energy", "The price cap is £1,663 a year.") is None
+    assert tip_regulators.extract_annual("energy", "A typical household pays by direct debit £1,663 a year.") is None
+    assert tip_regulators.extract_annual("energy", "price cap typical household direct debit £50 a year") is None
+    assert tip_regulators.extract_annual("energy", "price cap typical household direct debit £9,000 a year") is None
+    two = ("The price cap for a typical household paying by direct debit is £1,663 a year. "
+           "The price cap for a typical household paying by direct debit is £1,723 a year.")
+    assert tip_regulators.extract_annual("energy", two) is None
+    assert tip_regulators.extract_annual("mobile", PRESS) is None and tip_regulators.extract_annual("broadband", PRESS) is None
+    assert set(tip_regulators.REGULATORS) == {"energy"}
 
 
-def test_fetch_typical_stores_amount_source_and_read_date_or_nothing():
-    def good(req):
-        assert req.url.host == "www.ofgem.gov.uk"
-        return html(f"<p>{OFGEM}</p>")
+def test_fetch_typical_searches_once_picks_ofgem_urls_and_stores_source():
+    queries, hosts = [], []
+
+    async def search(q):
+        queries.append(q)
+        return ([], ["https://example.com/seo", "https://www.ofgem.gov.uk/press-release/a", "https://www.uswitch.com/e/"])
+
+    def handler(req):
+        hosts.append(req.url.host)
+        return html(f"<p>{PRESS}</p>")
 
     stats = tip_pages.new_stats()
-    v = run(tip_regulators.fetch_typical("energy", stats, TODAY, client_for(good)))
-    assert v == {"figure": 146.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem", "read_on": "2026-11-02"}
+    v = run(tip_regulators.fetch_typical("energy", stats, TODAY, search, client_for(handler)))
+    assert queries == ['site:ofgem.gov.uk "price cap" "typical household"'] and hosts == ["www.ofgem.gov.uk"]
+    assert v == {"figure_annual": 1663.0, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
+                 "source_url": "https://www.ofgem.gov.uk/press-release/a", "read_on": "2026-11-02"}
     assert stats["regulator_read"] == 1
 
+
+def test_fetch_typical_returns_none_and_counts_on_every_failure():
+    async def one_url(q):
+        return ([], ["https://www.ofgem.gov.uk/press-release/a"])
+
+    async def none_search(q):
+        return None
+
+    async def boom(q):
+        raise RuntimeError("x")
+
+    for search, handler in ((one_url, lambda r: html("<p>nothing</p>")), (one_url, lambda r: httpx.Response(404)),
+                            (none_search, lambda r: 1 / 0), (boom, lambda r: 1 / 0)):
+        stats = tip_pages.new_stats()
+        assert run(tip_regulators.fetch_typical("energy", stats, TODAY, search, client_for(handler))) is None
+        assert stats["regulator_failed"] == 1 and stats["regulator_read"] == 0
     stats = tip_pages.new_stats()
-    assert run(tip_regulators.fetch_typical("energy", stats, TODAY, client_for(lambda r: html("<p>nothing</p>")))) is None
-    assert stats["regulator_failed"] == 1
-    stats = tip_pages.new_stats()
-    assert run(tip_regulators.fetch_typical("energy", stats, TODAY, client_for(lambda r: httpx.Response(404)))) is None
-    assert stats["regulator_failed"] == 1
-    stats = tip_pages.new_stats()
-    assert run(tip_regulators.fetch_typical("gym", stats, TODAY, client_for(lambda r: 1 / 0))) is None
-    assert stats == tip_pages.new_stats()  # no regulator, no request, no count
+
+    async def never(q):
+        raise AssertionError("no search without a regulator")
+
+    assert run(tip_regulators.fetch_typical("gym", stats, TODAY, never)) is None
+    assert stats == tip_pages.new_stats()
 
 
 def test_stored_value_is_only_accepted_from_the_categorys_own_regulator():
-    ok = {"figure": 146.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem", "read_on": "2026-11-02"}
-    assert tip_regulators.valid_typical("energy", ok) == ok
-    assert tip_regulators.valid_typical("mobile", ok) is None
-    assert tip_regulators.valid_typical("energy", {**ok, "source_name": "Which?"}) is None
-    assert tip_regulators.valid_typical("energy", {**ok, "read_on": "soon"}) is None
-    assert tip_regulators.valid_typical("energy", {**ok, "figure": 9000}) is None
+    assert tip_regulators.valid_typical("energy", REG) == REG
+    assert tip_regulators.valid_typical("mobile", REG) is None
+    assert tip_regulators.valid_typical("energy", {**REG, "source_name": "Which?"}) is None
+    assert tip_regulators.valid_typical("energy", {**REG, "read_on": "soon"}) is None
+    assert tip_regulators.valid_typical("energy", {**REG, "figure_annual": 90000}) is None
+    assert tip_regulators.valid_typical("energy", {**REG, "source_url": "https://evil.com/x"}) is None
+    assert tip_regulators.valid_typical("energy", {**REG, "source_url": "https://ofgem.gov.uk:x@evil.com/"}) is None
 
 
 # ── the card ────────────────────────────────────────────────────────────────
 
 def _energy_doc(**over):
     f = {"typical_low": None, "typical_high": None, "alternatives": [], "deal": None, "sources": [],
-         "typical_regulated": {"figure": 146.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem",
-                               "read_on": "2026-11-02"}}
+         "typical_regulated": dict(REG)}
     f.update(over)
     return doc(f)
 
 
 def test_card_line_text_is_exactly_the_typical_style_with_source_and_date():
-    out = si._compose_tip_content("energy", _energy_doc(), [row("British Gas", 303.0, recurring=False, n=3)], None, TODAY)
-    assert "Typical: £146.50 a month (Ofgem, 2 Nov 2026)." in out["body"]
+    rows = [row("British Gas", 303.0, recurring=False, n=3)]
+    out = si._compose_tip_content("energy", _energy_doc(), rows, None, TODAY)
+    assert "Typical: £144 a month (Ofgem price cap £1,723 a year, 2 Nov 2026)." in out["body"]
     assert out["body"].count("Typical") == 1
     card = {"title": out["title"], "body": out["body"], "lead_line": out["title"],
-            "triggered_by": tip_facts.present_triggers("energy", [row("British Gas", 303.0, recurring=False, n=3)])}
+            "triggered_by": tip_facts.present_triggers("energy", rows)}
     assert tip_facts.card_violations(card, "energy", "Energy") == []
-    whole = _energy_doc()
-    whole["findings"]["typical_regulated"]["figure"] = 95.0
-    out = si._compose_tip_content("energy", whole, [row("British Gas", 303.0)], None, TODAY)
-    assert "Typical: £95 a month (Ofgem, 2 Nov 2026)." in out["body"]
+    assert tip_regulators.monthly_for(1663.0) == 139 and tip_regulators.monthly_for(1758.0) == 147
 
 
 def test_no_regulator_figure_means_no_typical_line():
@@ -297,17 +412,20 @@ def test_typical_shape_is_policed_by_the_card_gate():
     base = {"title": "You pay about £303 a month for energy", "lead_line": "You pay about £303 a month for energy",
             "triggered_by": []}
     bad = dict(base, body="That is based on 3 payments in the last 90 days. Typical: £150 a month. Checked 1 Nov.")
+    bad2 = dict(base, body="Typical: £150 a month (Ofgem, 2 Nov 2026). Checked 1 Nov.")
+    assert "typical_not_allowed" in tip_facts.card_violations(bad2, "energy", "Energy")
     assert "typical_not_allowed" in tip_facts.card_violations(bad, "energy", "Energy")
-    good = dict(base, body="Typical: £150 a month (Ofgem, 2 Nov 2026). Checked 1 Nov.")
+    good = dict(base, body="Typical: £144 a month (Ofgem price cap £1,723 a year, 2 Nov 2026). Checked 1 Nov.")
     assert tip_facts.card_violations(good, "energy", "Energy") == []
     assert "typical_not_allowed" in tip_facts.card_violations(good, "mortgage", "Mortgage")
 
 
 def test_regulator_figure_passes_the_shared_document_privacy_guard():
-    tr.assert_no_user_data({"findings": {"typical_regulated": {
-        "figure": 146.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem", "read_on": "2026-11-02"}}})
+    tr.assert_no_user_data({"findings": {"typical_regulated": dict(REG)}})
     with pytest.raises(ValueError):
-        tr.assert_no_user_data({"findings": {"typical_regulated": {"figure": 1, "extra": 5}}})
+        tr.assert_no_user_data({"findings": {"typical_regulated": {"figure_annual": 1, "extra": 5}}})
+    with pytest.raises(ValueError):
+        tr.assert_no_user_data({"findings": {"typical_regulated": {**REG, "source_url": "https://www.ofgem.gov.uk/a?x=1"}}})
 
 
 # ── whole research, counters ────────────────────────────────────────────────
@@ -318,19 +436,23 @@ def research(monkeypatch):
     monkeypatch.setattr(tr, "tip_research_col", col)
     monkeypatch.setattr(si, "OPENROUTER_API_KEY", "fake")
     requests = []
-    state = {"pages": True}
+    searches = []
+    state = {"pages": True, "searches": searches}
 
     def handler(req):
         requests.append(req.url.host)
         if not state["pages"]:
             return httpx.Response(500)
         if req.url.host == "www.ofgem.gov.uk":
-            return html(OFGEM)
+            return html(f"<p>{PRESS}</p>")
         return html("<p>SIM only plans. Giffgaff 20GB SIM only plan, £10 a month.</p>")
 
     monkeypatch.setattr(si.httpx, "AsyncClient", lambda *a, **k: client_for(handler))
 
     async def fake_tavily(query, category_key, outcome, *, pipeline):
+        searches.append(query)
+        if query.startswith("site:ofgem.gov.uk"):
+            return ([], ["https://www.ofgem.gov.uk/press-release/a"])
         return (["Page uswitch.com: Compare SIM only plans listed for 2026."],
                 ["https://www.uswitch.com/mobiles/sim-only/", "https://example.com/seo"])
 
@@ -359,8 +481,8 @@ def test_research_reads_a_page_listing_and_stores_counters(research):
     stats = res.doc["fetch_stats"]
     assert stats["pages_fetched"] == 1 and stats["pages_failed"] == 0
     assert stats["listings_from_pages"] == 1 and stats["listings_from_snippets"] == 0
-    assert "typical_regulated" not in f  # Ofcom page had no usable wording here
-    assert stats["regulator_failed"] == 1
+    assert "typical_regulated" not in f
+    assert stats["regulator_failed"] == 0 and stats["regulator_read"] == 0  # mobile has no regulator
     s = run(tr.fetch_summary(14))
     assert s["runs"] == 1 and s["runs_with_listing"] == 1 and s["pages_fetched"] == 1 and s["runs_with_regulator"] == 0
 
@@ -375,7 +497,7 @@ def test_failed_pages_fall_back_to_the_snippet_path_and_count(research):
 
 
 def test_energy_research_stores_the_regulator_figure(research, monkeypatch):
-    col, _, _ = research
+    col, _, state = research
 
     async def fake_llm(body, **k):
         class R:
@@ -389,7 +511,9 @@ def test_energy_research_stores_the_regulator_figure(research, monkeypatch):
     res = run(tr.ensure_research(tr.make_key("energy", None, None), si._fetch_market_findings))
     assert res.state == "fetched"
     t = res.doc["findings"]["typical_regulated"]
-    assert t["figure"] == 146.5 and t["source_name"] == "Ofgem" and len(t["read_on"]) == 10
+    assert t["figure_annual"] == 1663.0 and t["source_name"] == "Ofgem" and len(t["read_on"]) == 10
+    assert t["source_url"] == "https://www.ofgem.gov.uk/press-release/a"
+    assert sum(q.startswith("site:ofgem.gov.uk") for q in state["searches"]) == 1
     assert res.doc["fetch_stats"]["regulator_read"] == 1
     assert run(tr.fetch_summary(14))["runs_with_regulator"] == 1
 
