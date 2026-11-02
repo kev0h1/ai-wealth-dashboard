@@ -44,7 +44,7 @@ from app.services.account_kinds import (
     manual_account_class,
 )
 from app.services.categories import MOVEMENT
-from app.services.categorisation import series_key
+from app.services.own_account_transfers import series_key  # G403
 
 
 _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]

@@ -104,7 +104,7 @@ def is_rent_payee(text: str) -> bool:
 
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
-    (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit|\bAMERICAN EXPRESS\b', re.I), 'Transfer'),
+    (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I), 'Transfer'),
     (re.compile(r'interest received|interest earned|interest credit|gross interest|net interest|interest payment to you|interest paid to you|credit interest', re.I), 'Income'),
     (re.compile(r'\bmarcus\b', re.I), 'Transfer'),
     (re.compile(r'nw world mastercar|natwest.*mastercard|world mastercard payment', re.I), 'Debt'),
@@ -140,7 +140,7 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'airbnb|booking\.com|hotels\.com|expedia|trivago|ryanair|easyjet|british airways|jet2|tui\b|virgin atlantic|wizz air|blue air|hilton|marriott|premier inn|travelodge|holiday inn|ibis\b|accor|airfare|holiday|travel insurance', re.I), 'Travel'),
     (re.compile(r'github\b|digitalocean|aws\b|amazon web services|google cloud|azure\b|heroku|netlify|vercel|cloudflare|linode|hetzner|namecheap|godaddy|1password|lastpass|dashlane|bitwarden|notion\b|figma\b|slack\b|zoom\b|webflow|railway\b|supabase|mongodb atlas|datadog|sentry\b|linear\b', re.I), 'Software'),
     (re.compile(r'vanguard|nutmeg|wealthify|wealthsimple|hargreaves lansdown|hl invest|fidelity|trading ?212|freetrade|interactive investor|\bii\b', re.I), 'Investment'),
-    (re.compile(r'\bsavings?\b|\bsaver\b|isa|moneybox|plum\b|chip\b|pension', re.I), 'Savings'),
+    (re.compile(r'\bsavings?\b|\bsaver\b|\bisa\b|moneybox|plum\b|chip\b|pension', re.I), 'Savings'),
     (re.compile(r'interest on your|interest charge|late fee|overdraft fee|annual fee|card fee|bank charge', re.I), 'Bills'),
     (re.compile(r'balance transfer|internal transfer|faster payment|bacs payment|chaps payment|from .* pot\b', re.I), 'Transfer'),
 

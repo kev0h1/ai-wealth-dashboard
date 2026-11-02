@@ -40,8 +40,9 @@ from app.services.account_names import display_account_name
 from app.services.pay_period import current_period_facts, get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
+from app.services.own_account_transfers import series_key  # G403: per-card key for a linked repayment
 from app.services.categorisation import (
-    series_key, has_date_fragment, own_transfer_evidence, user_identity,
+    has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
     _CHANNEL_CODES,
 )
