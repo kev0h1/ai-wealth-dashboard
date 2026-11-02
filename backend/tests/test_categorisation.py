@@ -281,6 +281,20 @@ class _FakeMerchantCacheCol:
         doc.update(update.get("$set") or {})
 
 
+class _NoRowsCol:
+    """G404: cache_merchant re-stamps the caller's rows after a changed write;
+    these tests have none, so a no-op collection keeps them off any database."""
+
+    async def update_many(self, filt, update):
+        return type("R", (), {"modified_count": 0})()
+
+
+def _stub_row_collections(monkeypatch):
+    import app.services.categorisation as categorisation
+    monkeypatch.setattr(categorisation, "transactions_col", _NoRowsCol())
+    monkeypatch.setattr(categorisation, "statement_transactions_col", _NoRowsCol())
+
+
 def test_person_referencing_key_forced_per_user_never_reaches_global_cache(monkeypatch):
     """A59/LLM-04: a PT-A transaction narrative shaped like a payment TO a
     named person (the exact structural shape the 2026-08-17 incident
@@ -296,6 +310,7 @@ def test_person_referencing_key_forced_per_user_never_reaches_global_cache(monke
 
     fake_col = _FakeMerchantCacheCol()
     monkeypatch.setattr(categorisation, "merchant_categories_col", fake_col)
+    _stub_row_collections(monkeypatch)
 
     injected_key = "to daniel maingi standing order fp 12"
     pt_a_uid = "a59-pentest-pt-a@pentest.invalid"
@@ -332,6 +347,7 @@ def test_ordinary_merchant_key_still_allowed_global_control_case(monkeypatch):
 
     fake_col = _FakeMerchantCacheCol()
     monkeypatch.setattr(categorisation, "merchant_categories_col", fake_col)
+    _stub_row_collections(monkeypatch)
 
     # "tesco stores" doesn't match _PERSON_PAYMENT_RE's structural shapes,
     # so _key_looks_user_relative falls through to a real user_identity()
