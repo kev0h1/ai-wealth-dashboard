@@ -54,7 +54,7 @@ import { accountAvailability, formatAvailabilityAmount, type AccountAvailability
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { connectionNotes } from "@/lib/reconfirm";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
-import { LEGACY_BANK_AVAILABLE, isLegacyBankSource } from "@/lib/legacyBankProvider";
+import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccessState } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
