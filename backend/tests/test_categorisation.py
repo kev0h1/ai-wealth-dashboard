@@ -277,8 +277,12 @@ class _FakeMerchantCacheCol:
 
     async def update_one(self, filt, update, upsert=False):
         doc_id = filt["_id"]
+        inserted = doc_id not in self.docs
         doc = self.docs.setdefault(doc_id, {"_id": doc_id})
         doc.update(update.get("$set") or {})
+        if inserted:
+            doc.update(update.get("$setOnInsert") or {})
+        return type("R", (), {"upserted_id": doc_id if inserted else None})()
 
 
 class _NoRowsCol:

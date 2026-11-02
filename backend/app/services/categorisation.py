@@ -889,13 +889,30 @@ async def cache_merchant(
     doc = {"category": category, "source": source, "updated_at": datetime.utcnow()}
     if not write_global:
         doc["uid"] = uid
-    await merchant_categories_col.update_one(
-        {"_id": store_id},
-        {"$set": doc},
-        upsert=True,
-    )
+    if rank == 1:
+        # An llm write is insert-only and atomic: $setOnInsert on an upsert, so
+        # two concurrent llm writes cannot both pass the check above. True only
+        # when THIS call inserted the doc.
+        try:
+            result = await merchant_categories_col.update_one(
+                {"_id": store_id}, {"$setOnInsert": doc}, upsert=True,
+            )
+        except Exception as exc:  # a concurrent insert of the same _id
+            if "duplicate key" in str(exc).lower() or exc.__class__.__name__ == "DuplicateKeyError":
+                return False
+            raise
+        if getattr(result, "upserted_id", None) is None:
+            return False
+    else:
+        await merchant_categories_col.update_one(
+            {"_id": store_id},
+            {"$set": doc},
+            upsert=True,
+        )
     if uid and (not existing or previous_category != category):
-        await _restamp_rows_for_key(uid, key, category, first_llm_write=(source != "user" and rank == 1))
+        await _restamp_rows_for_key(
+            uid, key, category, first_llm_write=(source != "user" and rank == 1), automatic=(source != "user"),
+        )
     return True
 
 
@@ -914,7 +931,9 @@ async def _stored_category(uid: str, key: str) -> str | None:
 _SOURCE_RANK = {"llm": 1, "rule": 2, "user": 3}
 
 
-async def _restamp_rows_for_key(uid: str, key: str, category: str, *, first_llm_write: bool) -> int:
+async def _restamp_rows_for_key(
+    uid: str, key: str, category: str, *, first_llm_write: bool, automatic: bool,
+) -> int:
     """G404: after the stored category for `key` changes, bring the caller's own
     rows of that merchant key in line, so identical rows never carry two
     engine categories. Writes only the engine `category` field on rows whose
@@ -933,7 +952,12 @@ async def _restamp_rows_for_key(uid: str, key: str, category: str, *, first_llm_
     if first_llm_write:
         query["category"] = {"$in": [None, "Other"]}
     else:
-        query["category"] = {"$ne": category}
+        # A detected own transfer does not flip on a merchant correction.
+        query["category"] = {"$nin": [category, "Transfer"]}
+    if automatic and automatic_category_for_direction(category, "debit") is None:
+        # Same direction rule as every automatic path: a debit is never
+        # automatically filed as Income. A user write stays authoritative.
+        query["transaction_type"] = "credit"
     modified = 0
     for col in (transactions_col, statement_transactions_col):
         result = await col.update_many(query, {"$set": {"category": category}})
@@ -1739,6 +1763,8 @@ async def categorise_others_bg(uid: str) -> int:
 
 
 async def llm_name_check(uid: str) -> int:
+    # G404: no production caller today. If it is wired in, it needs the
+    # standing-category check first (cache_merchant may refuse its write).
     """LLM pass that judges whether a transaction references the account owner's name.
 
     Prefilter: any transaction (custom_category=None, not already Transfer) whose

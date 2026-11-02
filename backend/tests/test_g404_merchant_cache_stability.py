@@ -19,9 +19,18 @@ class Rows(FakeCol):
     pass
 
 
+class Cache(FakeCol):
+    """FakeCol that reports upserted_id like Motor's UpdateResult."""
+
+    async def update_one(self, filt, update, upsert=False):
+        inserted = not any(d.get("_id") == filt.get("_id") for d in self.docs)
+        await super().update_one(filt, update, upsert=upsert)
+        return type("R", (), {"upserted_id": filt.get("_id") if inserted else None})()
+
+
 @pytest.fixture
 def env(monkeypatch):
-    cache, rows, stmts = FakeCol(), Rows(), Rows()
+    cache, rows, stmts = Cache(), Rows(), Rows()
     stale: list = []
 
     async def allowed(uid): return {"Bills", "Groceries", "Padel"}
@@ -42,8 +51,9 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def txn(id_, cat_, uid=UID, custom=None, key=KEY):
-    return {"_id": id_, "user_id": uid, "merchant_key": key, "category": cat_, "custom_category": custom}
+def txn(id_, cat_, uid=UID, custom=None, key=KEY, direction="debit"):
+    return {"_id": id_, "user_id": uid, "merchant_key": key, "category": cat_,
+            "custom_category": custom, "transaction_type": direction}
 
 
 def cats(env):
@@ -56,13 +66,13 @@ def test_second_llm_judgement_is_refused(env):
     assert env.cache.docs[0]["category"] == "Bills"
 
 
-def test_rule_replaces_llm_and_restamps_only_uncustomised_rows(env):
+def test_rule_replaces_llm_and_restamps_only_uncustomised_rows_never_transfers(env):
     run(cat.cache_merchant(KEY, "Bills", "llm", uid=UID))
     env.rows.docs += [txn("a", "Bills"), txn("b", "Bills", custom="Padel"), txn("c", "Transfer")]
     env.stmts.docs.append(txn("s", "Bills"))
     env.stale.clear()
     assert run(cat.cache_merchant(KEY, "Groceries", "rule", uid=UID)) is True
-    assert cats(env) == {"a": "Groceries", "b": "Bills", "c": "Groceries"}
+    assert cats(env) == {"a": "Groceries", "b": "Bills", "c": "Transfer"}
     assert env.stmts.docs[0]["category"] == "Groceries"
     assert env.stale == [(UID, "merchant_category_restamp")]
 
@@ -125,3 +135,25 @@ def test_report_counts_on_fake_collection():
     counts = run(mod.count_stale_user_keys(col, UID))
     assert counts["user_docs"] == 2
     assert counts["would_not_resolve"] == 1
+
+
+def test_llm_income_never_lands_on_a_debit_row(env):
+    env.rows.docs += [txn("debit", "Other"), txn("credit", "Other", direction="credit")]
+    assert run(cat.cache_merchant(KEY, "Income", "llm", uid=UID)) is True
+    assert cats(env) == {"debit": "Other", "credit": "Income"}
+
+
+def test_llm_write_is_insert_only_even_if_check_raced(env):
+    # The pre-check sees nothing, but the doc appears before the upsert: the
+    # setOnInsert write must not overwrite it and must report False.
+    original = env.cache.find_one
+
+    async def racing_find_one(query=None, projection=None, sort=None):
+        found = await original(query, projection)
+        env.cache.docs.append({"_id": f"{UID}::{KEY}", "category": "Bills", "source": "llm", "uid": UID})
+        env.cache.find_one = original
+        return found
+
+    env.cache.find_one = racing_find_one
+    assert run(cat.cache_merchant(KEY, "Groceries", "llm", uid=UID)) is False
+    assert env.cache.docs[0]["category"] == "Bills"
