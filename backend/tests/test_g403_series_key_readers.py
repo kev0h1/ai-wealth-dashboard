@@ -233,3 +233,29 @@ def test_penny_recurring_tool_rows_carry_both_name_and_key(monkeypatch):
     res = asyncio.run(pt._exec_get_recurring_payments("u"))
     row = res["series"][0]
     assert row["name"] == "American Express Platinum" and row["key"] == KEY
+
+
+def test_two_series_with_one_label_resolve_as_ambiguous_with_distinct_keys(monkeypatch):
+    import app.services.penny_tools as pt
+    other_key = "American Express 64f1a2b3c4d5e6f708192a3c"
+
+    async def recurring(_uid):
+        return {"series": [{"name": "American Express", "key": KEY}, {"name": "American Express", "key": other_key}]}
+    monkeypatch.setattr(pt, "_exec_get_recurring_payments", recurring)
+    out = asyncio.run(pt._resolve_recurring_key("u", "American Express", dismissed=False))
+    assert out["ambiguous"] is True
+    assert {m["key"] for m in out["matches"]} == {KEY, other_key}
+    # The exact key still resolves to exactly one series.
+    assert asyncio.run(pt._resolve_recurring_key("u", other_key, dismissed=False))["key"] == other_key
+
+
+def test_edit_and_clear_override_proposals_print_the_label_and_carry_the_key(monkeypatch):
+    pt, captured = _penny_setup(monkeypatch)
+    asyncio.run(pt._exec_propose_edit_occurrence("u", "American Express Platinum", "2026-11-10", new_amount=95, scope="one"))
+    assert captured["params"]["key"] == KEY
+    assert captured["kw"]["entity"] == "American Express Platinum"
+    assert _long_tokens([captured["summary"], captured["consequence"], captured["kw"]]) == []
+    captured.clear()
+    asyncio.run(pt._exec_propose_clear_override("u", "American Express Platinum", "2026-11-10"))
+    assert captured["params"] == {"key": KEY, "date": "2026-11-10"}
+    assert _long_tokens([captured["summary"], captured["consequence"]]) == []
