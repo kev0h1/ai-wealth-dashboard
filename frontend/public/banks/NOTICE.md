@@ -1,5 +1,15 @@
 # Bank logo provenance and licence basis (G107)
 
+## G394 addition, 2 November 2026
+
+`tide.svg` is the unchanged vector mark linked from [Tide's homepage](https://www.tide.co/),
+downloaded from [Tide's official logo asset](https://web-assets.tide.co/assets/images/logo/Tide_Logo_Blue_RGB.svg).
+It is served locally, with the same bank-identification purpose as the marks
+below. No customer data or browser request is sent to the source. The existing
+NatWest and Amex assets are retained: G394 corrects identity resolution and
+routes bank-merchant rows through these curated marks instead of the generic
+merchant-logo lookup.
+
 This directory bundles brand marks for banks curated in `BANK_META`
 (`components/AccountMiniCard.tsx`) so a linked account can show its bank's
 own logo instead of an initials chip. Every file here is served locally
