@@ -115,8 +115,7 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
   }
 }
 
-// 4 real tabs. Slot indices leave slot 2 (of 5) empty as the spacer the
-// raised Penny button floats over — mirrors app/design/_nav/NavPrototype.tsx.
+// Four route tabs leave the centre slot for the Penny sheet launcher.
 type TabId = "home" | "spend" | "upcoming" | "planning";
 const TABS: { id: TabId; href: string; label: string; Icon: typeof Home; slot: number }[] = [
   { id: "home", href: "/", label: "Home", Icon: Home, slot: 0 },
@@ -161,7 +160,11 @@ export default function BottomNav() {
       <div
         data-penny-navigation
         aria-hidden="true"
-        className="nav-scrim lg:hidden fixed inset-x-0 bottom-0 z-40 h-[116px] pointer-events-none"
+        className="nav-scrim lg:hidden fixed inset-x-0 bottom-0 z-40 pointer-events-none"
+        // 64px rail plus a 16px fade above it, measured from its safe-area offset.
+        // G396: the launcher now stays inside the rail, so its former raised
+        // footprint must not fade a full-width action label above the rail.
+        style={{ height: "calc(80px + max(env(safe-area-inset-bottom, 0px), 10px))" }}
       />
 
       {/* Floating cockpit rail (Nav A) — ported from the approved

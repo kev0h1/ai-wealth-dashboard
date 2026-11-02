@@ -20,6 +20,7 @@
   --foreground: #0f172a;
   --card: #ffffff;
   --card-border: #f1f5f9;
+  --nav-rail-surface: #eef1f7;
   color-scheme: only light;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -30,6 +31,7 @@
   --foreground: #f1f5f9;
   --card: #1e293b;
   --card-border: #334155;
+  --nav-rail-surface: #1c2537;
   color-scheme: dark;
 }
 
@@ -554,11 +556,10 @@ a:focus-visible,
    one soft lift shadow, no blur, no highlight. A .nav-scrim (below) fades
    page content into the canvas before it ever reaches the rail. */
 .glass-rail {
-  background: #eef1f7;
+  background: var(--nav-rail-surface);
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.04), 0 6px 20px rgba(15, 23, 42, 0.14);
 }
 .dark .glass-rail {
-  background: #1c2537;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
