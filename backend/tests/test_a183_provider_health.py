@@ -55,7 +55,7 @@ def test_api_exposes_health_status_and_not_remote_logo_or_roles(monkeypatch):
     monkeypatch.setattr(finexer_router, "list_providers", _providers)
     monkeypatch.setattr(finexer_router, "_providers_cache", [])
     out = asyncio.run(finexer_router.finexer_providers(user={"email": "t@example.com"}))
-    assert out == [{"id": "a", "name": "Alpha", "logo": "", "bg_colors": [], "health_status": "down"}]
+    assert out == [{"id": "a", "name": "Alpha", "logo": "", "bg_colors": [], "health_status": "down", "supported_kinds": [], "coverage_captured_on": None}]
 
 
 def test_api_defaults_a_cached_provider_without_health_to_operational(monkeypatch):

@@ -35,6 +35,7 @@ from app.services.finexer_sync import (
     _client as _finexer_client,
     log_finexer_error,
 )
+from app.services.finexer_coverage import COVERAGE_CAPTURED_ON, supported_kinds
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,11 @@ async def finexer_providers(user: dict = Depends(current_user)):
                 "logo": provider_logo_path(p.get("id", ""), p.get("logo")),
                 "bg_colors": p.get("bg_colors") or [],
                 "health_status": p.get("health_status") or "operational",
+                # G395: Finexer's published account-kind listing is advisory.
+                # An unmapped provider is explicit: no listed kinds and no
+                # provider-specific capture date, rather than guessed coverage.
+                "supported_kinds": sorted(supported_kinds(p.get("id"))),
+                "coverage_captured_on": COVERAGE_CAPTURED_ON if supported_kinds(p.get("id")) else None,
             }
             for p in providers
         ]
