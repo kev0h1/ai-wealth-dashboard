@@ -6,6 +6,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -291,15 +292,19 @@ def _sync_object(body) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-def _sync_fields(obj: dict) -> dict:
+def _sync_fields(obj: dict, requested_at: Optional[datetime] = None) -> dict:
     """Account-doc `$set` fields from a sync object: the bank's own as-of
-    window (synced_from/synced_to) and the status word."""
+    window (synced_from/synced_to) and the status word. `requested_at` is our
+    own naive-UTC request stamp for the future-clamp check (default: now)."""
     fields: dict = {}
     status = obj.get("status")
     if isinstance(status, str) and status:
         fields["bank_sync_status"] = status[:40]
-    frm = _parse_iso_utc(obj.get("synced_from"))
-    to = _parse_iso_utc(obj.get("synced_to"))
+    _log_timestamp_shape("synced_to", obj.get("synced_to"))
+    frm = parse_finexer_timestamp(obj.get("synced_from"))
+    to = parse_finexer_timestamp(obj.get("synced_to"))
+    if to is not None:
+        _check_not_in_future("synced_to", to, obj.get("synced_to"), requested_at)
     if frm:
         fields["bank_synced_from"] = frm
     if to:
@@ -1077,6 +1082,75 @@ def _parse_iso_utc(s) -> Optional[datetime]:
         return None
 
 
+def timestamp_shape(s) -> str:
+    """The SHAPE of a raw timestamp string, never its value: whether it ends
+    in Z, carries an explicit offset or is naive, and its length."""
+    if not isinstance(s, str):
+        return "type=" + type(s).__name__
+    t = s.strip()
+    if t.endswith(("Z", "z")):
+        kind = "z"
+    elif re.search(r"[+-]\d{2}:?\d{2}$", t) and ("T" in t or " " in t):
+        kind = "offset"
+    else:
+        kind = "naive"
+    return f"{kind} len={len(t)}"
+
+
+_shape_logged = False
+_future_warned = False
+
+
+def _log_timestamp_shape(field: str, raw) -> None:
+    """INFO shape line, once per process."""
+    global _shape_logged
+    if _shape_logged:
+        return
+    _shape_logged = True
+    logger.info("Finexer %s timestamp shape: %s", field, timestamp_shape(raw))
+
+
+def _check_not_in_future(field: str, parsed: datetime, raw, requested_at: Optional[datetime]) -> None:
+    """A187: a parsed Finexer time more than five minutes after our own request
+    stamp is suspicious (the zone may be wrong). Log the shape once per process, never the
+    value, and keep the data regardless."""
+    global _future_warned
+    ref = requested_at or _utcnow()
+    if parsed - ref > timedelta(minutes=5) and not _future_warned:
+        _future_warned = True  # once per process; no await between check and set
+        logger.warning(
+            "Finexer %s parsed more than 5 minutes after our request stamp (shape: %s); stored anyway",
+            field, timestamp_shape(raw),
+        )
+
+
+_LONDON = ZoneInfo("Europe/London")
+
+
+def parse_finexer_timestamp(s) -> Optional[datetime]:
+    """Parse a Finexer-provided ISO 8601 timestamp to NAIVE UTC.
+
+    Evidence (production, 2026-11-02, A187): every account refreshed at
+    06:25 UTC carried bank_synced_to exactly one hour after our own request
+    stamp, in BST. Finexer appears to send synced_from/synced_to without a
+    zone offset, on a Europe/London clock. Assumption: a NAIVE Finexer
+    timestamp is London local time, converted to UTC (BST in summer, GMT in
+    winter). A trailing Z or an explicit offset is honoured as given. Our own
+    stamps never go through here; they stay UTC via _parse_iso_utc."""
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(s.strip().replace("Z", "+00:00").replace("z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        # fold=0: an ambiguous autumn hour resolves to BST; a nonexistent spring-gap
+        # time resolves with the pre-transition GMT offset. A date-only string reads
+        # as London midnight (deliberate, harmless for expiry_date).
+        dt = dt.replace(tzinfo=_LONDON)
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _parse_date(txn: dict) -> datetime:
     """Parse transaction date from possible field names."""
     raw = (
@@ -1641,7 +1715,7 @@ async def sync_finexer_consent(
             # to bail below — a stale local "authorized" must not linger.
             update_fields = {
                 "status":      remote_status,
-                "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
+                "expiry_date": parse_finexer_timestamp(consent_doc.get("expiry_date")),
             }
             # A182: failure code and message, and the 90-day reconfirmation date.
             from app.services.finexer_consent import consent_sync_fields

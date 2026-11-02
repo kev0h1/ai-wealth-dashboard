@@ -171,3 +171,13 @@ from Kevin's reading of the reference on 2026-10-31. Confirm each in one pass:
 13. The 12-hour stale alert threshold on /ops/health, and whether paused or
     free-tier (Statements) consents should be excluded from it. Today every
     authorised consent counts.
+
+## A187 timezone assumption for Finexer timestamps
+
+Evidence (production, 2 Nov 2026): every account refreshed at 06:25 to 06:26 UTC carried `bank_synced_to` exactly one hour after `bank_sync_requested_at`. Finexer appears to send `synced_from` and `synced_to` without a zone offset, on a Europe/London clock.
+
+Assumption, held in one helper (`parse_finexer_timestamp` in `services/finexer_sync.py`): a naive Finexer timestamp is London local time and is converted to UTC (BST in summer, GMT in winter); a trailing Z or an explicit offset is honoured as given. It is used for `synced_from`, `synced_to`, consent `expiry_date` and consent `renewed_at`. Our own stamps (`authed_at`, `bank_sync_requested_at`, `reconfirmed_at`) stay UTC. Transaction dates and event `created` still use `_parse_iso_utc` (no evidence for them).
+
+Log lines to read on the first production pass after release (each appears once per process, so look after a restart):
+- `Finexer synced_to timestamp shape: <z|offset|naive> len=<n>` at INFO, shape only, never the value. `naive len=19` confirms the offset-less form.
+- `Finexer synced_to parsed more than 5 minutes after our request stamp (shape: ...); stored anyway` at WARNING. If it appears after the fix, the London interpretation is wrong for that account; the data is still stored.
