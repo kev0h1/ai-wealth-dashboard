@@ -237,10 +237,10 @@ def focus_from_result(name: str, result) -> dict | None:
             add(a.get("id"), a.get("name"))
     elif name == "get_upcoming_bills":
         for b in result.get("upcoming_bills") or []:
-            add(b.get("name"), b.get("name"))
+            add(b.get("key") or b.get("name"), b.get("name"))
     elif name == "get_recurring_payments":
         for s in result.get("series") or []:
-            add(s.get("name"), s.get("name"))
+            add(s.get("key") or s.get("name"), s.get("name"))
     return clean_focus({"tool": name, "kind": KIND_BY_TOOL[name], "ids": ids, "labels": labels, "args": {}})
 
 

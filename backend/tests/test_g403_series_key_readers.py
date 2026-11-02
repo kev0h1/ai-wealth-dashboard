@@ -155,7 +155,9 @@ def test_notification_body_and_penny_tool_output_carry_no_account_id(monkeypatch
     monkeypatch.setattr(pt, "_build_cashflow_response", build)
     out = asyncio.run(pt._exec_get_upcoming_bills("u"))
     assert out["upcoming_bills"][0]["name"] == "American Express Platinum"
-    assert _long_tokens(out) == []
+    row = out["upcoming_bills"][0]
+    assert row["key"] == KEY  # the identity travels in its own field, for skip and dismiss
+    assert _long_tokens({k: v for k, v in row.items() if k != "key"}) == []
 
 
 def test_recurring_payments_label_and_plan_label_are_clean():
@@ -176,3 +178,58 @@ def test_card_repayment_debt_rule_never_files_a_credit():
     assert rule_categorise_directed("", narrative, is_credit=True) is None
     assert rule_categorise_directed("", "B/CARD 4929123456784321", is_credit=True) is None
     assert rule_categorise_directed("", "B/CARD DIRECT DEBIT", is_credit=True) is None
+
+
+# ── Y1: Penny dismiss and skip target the real key, print the label ──────
+
+def _penny_setup(monkeypatch):
+    import app.services.penny_tools as pt
+    captured = {}
+
+    async def recurring(_uid):
+        return {"series": [{"name": "American Express Platinum", "key": KEY}], "count": 1}
+
+    async def create(uid, action, params, summary, consequence, **kw):
+        captured.update(action=action, params=params, summary=summary, consequence=consequence, kw=kw)
+        return {"proposal": True}
+
+    async def cache(_uid): return {"x": 1}
+
+    async def build(_cached, uid=None):
+        return {"upcoming_bills": [{"name": KEY, "display_name": "American Express Platinum", "amount": 88.0,
+                                    "expected_date": "2026-11-10"}], "upcoming_income": []}
+
+    monkeypatch.setattr(pt, "_exec_get_recurring_payments", recurring)
+    monkeypatch.setattr(pt, "_create_proposal", create)
+    monkeypatch.setattr(pt, "_load_cashflow_cache", cache)
+    monkeypatch.setattr(pt, "_build_cashflow_response", build)
+    return pt, captured
+
+
+def test_penny_dismiss_and_skip_use_the_stored_key_and_print_the_label(monkeypatch):
+    pt, captured = _penny_setup(monkeypatch)
+    for ref in ("American Express Platinum", KEY):
+        captured.clear()
+        asyncio.run(pt._exec_propose_dismiss_recurring("u", ref))
+        assert captured["params"] == {"key": KEY}
+        assert _long_tokens([captured["summary"], captured["consequence"]]) == []
+        captured.clear()
+        asyncio.run(pt._exec_propose_skip_occurrence("u", ref, "2026-11-10"))
+        assert captured["params"] == {"key": KEY, "date": "2026-11-10"}
+        assert "£88" in captured["summary"]  # _find_occurrence_detail resolved the amount
+        assert _long_tokens([captured["summary"], captured["consequence"]]) == []
+
+
+def test_penny_recurring_tool_rows_carry_both_name_and_key(monkeypatch):
+    import app.services.penny_tools as pt
+    out = {"series": [{"name": "American Express Platinum", "key": KEY}]}
+    assert out["series"][0]["key"] == KEY and CARD_ID not in out["series"][0]["name"]
+    # And the real tool: a stored series with a display_name keeps the key.
+    async def cache(_uid): return {"recurring_spend": [{"key": KEY, "display_name": "American Express Platinum",
+                                                          "avg_amount": 88.0, "avg_interval": 30, "next_date": "2026-11-10"}]}
+    async def build(_c, uid=None): return {"upcoming_bills": [], "upcoming_income": []}
+    monkeypatch.setattr(pt, "_load_cashflow_cache", cache)
+    monkeypatch.setattr(pt, "_build_cashflow_response", build)
+    res = asyncio.run(pt._exec_get_recurring_payments("u"))
+    row = res["series"][0]
+    assert row["name"] == "American Express Platinum" and row["key"] == KEY
