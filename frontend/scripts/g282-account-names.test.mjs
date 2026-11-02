@@ -32,7 +32,7 @@ const page = read("app/components/AccountsPage.tsx");
 const list = page.slice(page.lastIndexOf("{connectNotice && ("));
 assert.match(page, /className="px-4 pt-5"/, "Accounts header block is pt-5");
 assert.match(list, /px-4 pt-3 space-y-3/, "Accounts status and directory container keeps its spacing");
-assert.match(page, /<AccountsDirectory[\s\S]*?rows=\{\[\.\.\.estate\.rows, \.\.\.manualEstateRows\]\}/, "G391 combines the canonical bank and manual projections in one directory");
+assert.match(page, /<AccountsDirectory[\s\S]*?estate=\{estate\}[\s\S]*?manualRows=\{manualEstateRows\}/, "G391 passes the original estate and offline projections to the restored list");
 assert.match(page, /name: displayAccountName\(m\.name\)/, "manual directory names use the same display contract");
 
 assert.match(page, /name=\{displayAccountName\(selectedAccount\.name\)\}/, "Accounts detail header uses the shared name");
@@ -42,7 +42,7 @@ assert.match(read("components/TeachingSheet.tsx"), /displayAccountName\(account\
 assert.match(read("components/MiscategorisedReviewSheet.tsx"), /displayAccountName\(account\.name\)/, "review sheet uses the shared name");
 // The payday plan card renders names the companion has already cased server-side (_clean_name -> display_account_name).
 assert.match(readFileSync(new URL("../../backend/app/services/companion.py", import.meta.url), "utf8"), /return display_account_name\(cleaned\) if cleaned else fallback/, "companion _clean_name applies the shared name for the payday plan card");
-assert.match(read("components/AccountsDirectory.tsx"), /aria-label="Account filters"/, "G391 directory owns the compact All/Pinned/Dormant controls");
+assert.match(read("components/AccountsEstateControls.tsx"), /aria-label="Account filters"/, "the restored estate controls expose account-type filters");
 
 const preview = read("app/design/home-accounts-rhythm/HomeAccountsRhythmClient.tsx");
 assert.match(preview, /top: "pt-5", brief: "space-y-3", section: "mt-5", label: "mb-2", group: "space-y-3", tail: "pb-5", accountsFirst: "pt-3"/, "preview rhythm mirrors production");

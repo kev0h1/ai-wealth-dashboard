@@ -17,7 +17,8 @@ import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolba
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
 import { pausedAccountCount } from "@/lib/billingCopy";
-import { buildEstate, type EstateRow } from "@/lib/accountsEstate";
+import { MINUS } from "@/lib/currency";
+import { buildEstate, type EstateLens, type EstateRow } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, isBusinessAccount, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
@@ -1664,7 +1665,8 @@ export default function AccountsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manualAccounts, accounts, pinnedIds]);
   const [estateQuery, setEstateQuery] = useState("");
-  const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [estateLens, setEstateLens] = useState<EstateLens>("All");
+  const estateIsFiltering = estateQuery.trim().length > 0 || estateLens !== "All";
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   // Hydrate persisted collapse choices post-mount only — reading localStorage
   // during render would desync from the SSR/prerendered {} initial state and
@@ -1682,9 +1684,9 @@ export default function AccountsPage() {
     }
   }, []);
   const [inactiveOpen, setInactiveOpen] = useState(false);
-  function toggleEstateGroup(label: string) {
+  function toggleEstateGroup(label: string, currentlyCollapsed: boolean) {
     setCollapsedGroups(c => {
-      const next = { ...c, [label]: !c[label] };
+      const next = { ...c, [label]: !currentlyCollapsed };
       try {
         window.localStorage.setItem("sorted:estate:collapsedGroups", JSON.stringify(next));
       } catch {
@@ -1694,9 +1696,8 @@ export default function AccountsPage() {
     });
   }
   function handleEstateRowClick(row: EstateRow, trigger?: HTMLElement) {
-    directoryFocusId.current = row.id;
+    directoryFocusId.current = trigger?.dataset.accountRowId ?? row.id;
     listScrollY.current = window.scrollY;
-    if (trigger) trigger.dataset.accountRowId = row.id;
     if (row.source === "investment") {
       setTab("Investments");
       handleToggleInvestment(row.id);
@@ -1704,6 +1705,20 @@ export default function AccountsPage() {
     } else {
       handleSelectAccount(row.raw as Account);
     }
+  }
+
+  /** Credit-row terms-pill props (confirmed APR/promo pill, or a quiet "Add
+   *  rates" affordance) — same entry point AccountMiniCard used to expose,
+   *  carried over onto the ledger rows so it isn't lost in the redesign. */
+  function estateTermsProps(row: EstateRow) {
+    if (row.kind !== "Credit" || row.source !== "bank") return {};
+    const termsCard = cardTermsByAccount[row.id];
+    const pill = termsPillFor(termsCard);
+    return {
+      termsPill: pill,
+      onTermsClick: pill ? () => openCardTermsAt(row.id) : undefined,
+      onAddRates: !pill && termsCard ? () => openCardTermsAt(row.id) : undefined,
+    };
   }
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
@@ -3010,12 +3025,13 @@ export default function AccountsPage() {
 
                 {accountLoadFailed && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">Some accounts could not be loaded. Showing the last known accounts. <button type="button" onClick={() => void loadAccounts()} className="min-h-11 rounded-lg px-2 font-semibold text-indigo-700 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Try again</button></p>}
                 <AccountsDirectory
-                  rows={[...estate.rows, ...manualEstateRows]}
+                  estate={estate}
+                  manualRows={manualEstateRows}
                   hidden={hideNetWorth}
                   query={estateQuery}
                   onQuery={setEstateQuery}
-                  pinnedOnly={pinnedOnly}
-                  onPinnedOnly={setPinnedOnly}
+                  lens={estateLens}
+                  onLens={setEstateLens}
                   showDormant={inactiveOpen}
                   onShowDormant={setInactiveOpen}
                   collapsed={collapsedGroups}
@@ -3023,11 +3039,62 @@ export default function AccountsPage() {
                   onOpen={handleEstateRowClick}
                   syncFor={syncFor}
                   availabilityFor={availabilityFor}
+                  termsFor={estateTermsProps}
                 />
               </>
             )}
           </div>
 
+          {/* ── Offline accounts ── hidden while the find bar / lens chips are
+              active: manualEstateRows already surfaces matching offline
+              accounts inside the filtered results list above, so showing
+              this too would duplicate them. */}
+          {!loading && (!accountLoadFailed || manualAccounts.length > 0) && !estateIsFiltering && (
+            <div className="px-4 mt-5">
+              <div className="mb-2">
+                <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Offline accounts</h2>
+                <p className="text-xs text-slate-400 dark:text-slate-500">Track balances we can&apos;t connect to: pots, cash, store cards. Tap to add transactions &amp; rules.</p>
+              </div>
+
+              {manualAccounts.length === 0 ? (
+                <div data-tutorial-id="tutorial-offline-empty" className="bg-white dark:bg-slate-800 rounded-2xl p-6 text-center shadow-sm">
+                  <p className="text-sm text-slate-400 dark:text-slate-500">No offline accounts yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {manualAccounts.map((acc) => {
+                    const meta = MANUAL_TYPES.find(t => t.value === acc.account_type) ?? MANUAL_TYPES[0];
+                    const isCredit = acc.account_type === "credit_card";
+                    const signedBalance = isCredit ? -Math.abs(acc.balance) : acc.balance;
+                    const row = manualEstateRows.find(r => r.id === acc.id);
+                    return (
+                      <button
+                        type="button"
+                        key={acc.id}
+                        data-account-row-id={`offline:${acc.id}`}
+                        disabled={!row}
+                        data-tutorial-id="tutorial-offline-rules"
+                        onClick={(event) => row && handleEstateRowClick(row, event.currentTarget)}
+                        className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 bg-white dark:bg-slate-800 rounded-2xl shadow-sm flex items-center gap-3 px-4 py-3 cursor-pointer active:scale-[0.99] transition-transform"
+                      >
+                        <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                          <meta.Icon size={16} className="text-slate-500 dark:text-slate-300" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{meta.label} · Offline</p>
+                        </div>
+                        <span className={`text-sm font-bold flex-shrink-0 money tabular-nums text-slate-800 dark:text-slate-100`}>
+                          {!Number.isFinite(signedBalance) ? "Pending" : `${signedBalance < 0 ? MINUS : ""}£${hideNetWorth ? "••••" : Math.round(Math.abs(signedBalance)).toLocaleString("en-GB")}`}
+                        </span>
+                        <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
