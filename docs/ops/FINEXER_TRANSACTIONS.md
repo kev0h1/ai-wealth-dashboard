@@ -194,7 +194,7 @@ returns both fields, the account sheet shows the reason followed by "The balance
 still updates.", and `/ops/health` leaves these accounts out of the stale alert
 and `consents_without_bank_data`.
 
-Pot subtype rule (A188): Finexer sends most Monzo pots as class current, and the
+Pot subtype rule (A188): Finexer was observed sending most Monzo pots as class current (one account, 2026-11-02; not a guarantee), and the
 payday plan gives every non-savings destination bills plus typical spend plus the
 buffer, so each pot was asked for the buffer. `is_pot_account` (the same rule as
 the pot branch of `is_balance_only`) now drives the sync: a pot whose class maps
@@ -203,7 +203,7 @@ subtype makes `is_savings_account` (the plan), the Left to spend pool classifier
 and the cover-plan ranking agree that a pot is savings. Cards, loans and debt,
 and accounts Finexer tags as business, are never overridden. The subtype is
 written on every sync, so existing pots correct themselves on their next pass,
-with no backfill. `include_in_safe_to_spend` is not touched for pots.
+with no backfill. `include_in_safe_to_spend` is not touched for pots. A class-current pot's balance now leaves the spendable pool (it no longer counts in Left to spend, matching class-savings pots), and transfers into it refine to Savings.
 
 To check whether Finexer already exposes account type support: on a forced
 provider refresh the API logs one INFO line, `Finexer GET /providers item keys:

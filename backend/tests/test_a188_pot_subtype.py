@@ -147,6 +147,7 @@ def test_plan_gives_a_stored_pot_no_move_and_no_buffer(monkeypatch):
     assert everyday["destination_kind"] == "spend"
     assert everyday["bills_total"] == 200 and everyday["buffer"] == 50
     assert everyday["move"] == everyday["bills_total"] + everyday["spend_typical"] + 50
+    assert everyday["spend_typical"] == 0 and everyday["move"] == 250
 
 
 def test_unfixed_class_current_pot_would_be_buffered(monkeypatch):
