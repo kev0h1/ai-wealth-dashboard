@@ -38,7 +38,7 @@ from typing import Optional
 from app.db.collections import accounts_col, card_terms_col, cashflow_cache_col, preferences_col, transactions_col
 from app.services import response_cache
 from app.services.account_kinds import is_credit_card_account
-from app.services.categorisation import series_key
+from app.services.own_account_transfers import series_key  # G403: per-card key for a linked repayment
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.routers.card_terms import _promos_from_legacy
 
@@ -393,7 +393,8 @@ async def _map_upcoming_bills_to_cards(
                 "transaction_type": "debit",
                 "date": {"$gte": lookback_cutoff_dt},
             },
-            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1},
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1,
+             "own_transfer_match": 1},
         ).to_list(None)
 
         # Group source debits by (account_id, series_key)

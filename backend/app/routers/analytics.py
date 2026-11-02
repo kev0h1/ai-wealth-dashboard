@@ -41,6 +41,7 @@ from app.services.pay_period import current_period_facts, get_pay_period_for_dat
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.own_account_transfers import series_key  # G403: per-card key for a linked repayment
+from app.services.categorisation import series_key as _base_series_key
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
@@ -4084,6 +4085,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     # --- observation index for bill matching ---
     observed: dict = {}
+    card_keys_by_base: dict[str, set] = {}
     if uid:
         _obs_since = today - timedelta(days=PENDING_GIVE_UP_DAYS + OBSERVATION_LOOKBACK_DAYS + 1)
         async def _load_recent_observations(_col):
@@ -4092,7 +4094,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 async for _t in _col.find(
                     {"user_id": uid, "date": {"$gte": _obs_since}, "transaction_type": "debit"},
                     {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
-                     "category": 1, "custom_category": 1, "account_id": 1}
+                     "category": 1, "custom_category": 1, "account_id": 1,
+                     "own_transfer_match": 1}  # G403: the wrapper keys a linked repayment per card
                 ):
                     rows.append(_t)
             except Exception:
@@ -4117,6 +4120,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             _key = series_key(_t)
             if not _key:
                 continue
+            if _key != _base_series_key(_t):
+                # G403: remember which per-card keys a base key resolves to, so
+                # an (unstampable) pending row can be matched to the same bill.
+                card_keys_by_base.setdefault(_base_series_key(_t), set()).add(_key)
             _raw_d = _t.get("date")
             _d_obj = _raw_d.date() if hasattr(_raw_d, "date") else _raw_d
             observed.setdefault(_key, []).append({
@@ -4148,12 +4155,18 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     continue
                 _praw_d = _pt.get("date")
                 _pd_obj = _praw_d.date() if hasattr(_praw_d, "date") else _praw_d
-                pending_observed.setdefault(_pkey, []).append({
+                _entry = {
                     "date": _pd_obj,
                     "amount": abs(float(_pt.get("amount", 0))),
                     "account_id": str(_pt.get("account_id") or ""),
                     "used": False,
-                })
+                }
+                pending_observed.setdefault(_pkey, []).append(_entry)
+                # G403: a pending row is never stamped, so it carries the base
+                # key; also register it under each per-card key that base key
+                # resolves to (same dict, so one use consumes both).
+                for _card_key in card_keys_by_base.get(_pkey, ()):
+                    pending_observed.setdefault(_card_key, []).append(_entry)
         except Exception:
             pass
 
