@@ -1,24 +1,23 @@
 "use client";
 
-import { MINUS } from "@/lib/currency";
 import { displayAccountName } from "@/lib/accountName";
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useEffectEvent, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
 import { formatPriceDay } from "@/lib/priceDay";
-import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
+import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
-import AccountsEstateControls from "@/components/AccountsEstateControls";
-import AccountGroupCard from "@/components/AccountGroupCard";
+import AccountsDirectory from "@/components/AccountsDirectory";
+import AccountAvailabilityDetail from "@/components/AccountAvailabilityDetail";
 import AccountsAddMenu from "@/components/AccountsAddMenu";
 import { useAccountsOverviewRefresh } from "@/lib/useAccountsOverviewRefresh";
 import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
 import { pausedAccountCount } from "@/lib/billingCopy";
-import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
+import { buildEstate, type EstateRow } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, isBusinessAccount, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
@@ -58,6 +57,7 @@ import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccessState } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
+import { openSheetHistoryCount } from "@/lib/useSheetA11y";
 import { SheetFrame } from "@/components/SheetFrame";
 import AccountCountRow from "@/components/AccountCountRow";
 import AccountBankEmpty from "@/components/AccountBankEmpty";
@@ -214,76 +214,16 @@ const MANUAL_KIND: Record<ManualAccountType, AccountKind> = {
   credit_card: "Credit",
 };
 
-/** Full-page cold-load skeleton — see the `ready` hold in AccountsPage
- *  below. Shape-matches the real list view (header hero incl. net-worth
- *  block, find bar, lens chips, a handful of ledger rows) at the same
- *  positions and approximate heights, so the swap to real content doesn't
- *  itself shift anything. The header block sits directly on the canvas
- *  (no card) to match the live header (Canvas Before Cards, G87 Variant A).
- *  Reshaped again for G113 to match the header/group-card changes below:
- *  the "+ Add" placeholder now sits inline beside the title instead of a
- *  full-width bar underneath, and the row placeholders sit inside one
- *  bounded group-card shape (header row + divided rows) instead of a bare
- *  glass-card list with a floating label above it. BottomNav is mounted
- *  once in app/layout.tsx (G79) rather than by this page, so it's already
- *  real (never a placeholder) and navigation stays available while the
- *  page settles with no extra work here. No entrance animation on the
- *  blocks themselves beyond the shared `animate-pulse` shimmer — this
- *  codebase's rule against visibility-gating cascades. */
+/** G391: the loading directory uses the same simple header and ledger rhythm. */
 function AccountsSkeleton() {
-  return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-hidden="true">
-      <div className="px-4 pt-5 animate-pulse">
-        <div>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="h-6 w-24 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-3 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2" />
-            </div>
-            <div className="h-11 w-24 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-          </div>
-          <div className="flex items-start justify-between gap-3 mt-5">
-            <div className="min-w-0 space-y-2">
-              <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-8 w-36 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-2.5 w-40 rounded bg-slate-200 dark:bg-slate-700" />
-            </div>
-            <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 pt-3 space-y-3">
-        <div className="h-11 rounded-xl bg-slate-200 dark:bg-slate-700 animate-pulse" />
-        <div className="flex items-center gap-1.5 overflow-hidden">
-          {["All", "Current", "Savings", "Credit", "Investment", "Owed"].map((l) => (
-            <div key={l} className="h-11 w-20 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse flex-shrink-0" />
-          ))}
-        </div>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none animate-pulse">
-          <div className="flex min-h-16 items-center justify-between gap-3 px-4">
-            <div className="space-y-1.5">
-              <div className="h-3.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-2.5 w-16 rounded bg-slate-200 dark:bg-slate-700" />
-            </div>
-            <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
-          </div>
-          <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="min-h-[60px] flex items-center gap-3 px-4 py-2.5">
-                <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <div className="h-3.5 w-32 rounded bg-slate-200 dark:bg-slate-700" />
-                  <div className="h-2.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-                </div>
-                <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="min-h-dvh px-4 pt-5" aria-label="Loading accounts" role="status">
+    <div aria-hidden="true" className="space-y-5 animate-pulse motion-reduce:animate-none">
+      <div className="flex items-center justify-between gap-4"><div className="h-7 w-24 rounded bg-slate-200 dark:bg-slate-700"/><div className="h-11 w-24 rounded-xl bg-slate-200 dark:bg-slate-700"/></div>
+      <div className="h-9 w-3/4 rounded bg-slate-200 dark:bg-slate-700"/><div className="h-11 rounded-xl bg-slate-200 dark:bg-slate-700"/>
+      <div className="flex gap-2">{[0,1,2].map(i=><div key={i} className="h-11 w-20 rounded-full bg-slate-200 dark:bg-slate-700"/>)}</div>
+      {[0,1,2,3,4].map(i=><div key={i} className="flex min-h-16 items-center gap-3 border-t border-slate-200 dark:border-slate-700"><div className="size-8 rounded-lg bg-slate-200 dark:bg-slate-700"/><div className="h-9 flex-1 rounded bg-slate-200 dark:bg-slate-700"/><div className="h-5 w-16 rounded bg-slate-200 dark:bg-slate-700"/></div>)}
+    </div><span className="sr-only">Loading accounts…</span>
+  </div>;
 }
 
 export default function AccountsPage() {
@@ -298,7 +238,6 @@ export default function AccountsPage() {
   // Home, so a new device never flashes balances from the localStorage default.
   const { hideNetWorth: hideNetWorthPref, setHideNetWorth, preferencesReady } = usePreferences();
   const hideNetWorth = hideNetWorthPref || !preferencesReady;
-  const [kpis, setKpis] = useState<KPIs | null>(null);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -311,6 +250,7 @@ export default function AccountsPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [txnMap, setTxnMap] = useState<Record<string, Transaction[]>>({});
   const [loading, setLoading] = useState(true);
+  const [accountLoadFailed, setAccountLoadFailed] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
   const [page, setPage] = useState(1);
@@ -443,11 +383,11 @@ export default function AccountsPage() {
   // pop in on their own and shove content the user is already reading.
   // Three independent fetches feed this screen's first paint:
   //   - loadAccounts() above: accounts/investmentAccounts/manualAccounts/
-  //     rules/kpis, all in one Promise.all, gating `loading`.
+  //     rules, all in one Promise.all, gating `loading`.
   //   - loadCardTerms() above: cardTermsCards, gating cardTermsReady.
   //   - the pinnedIds fetch below: gating prefsReady.
   // `settled` alone is not safety-bounded — several of the underlying calls
-  // swallow their own errors (api.kpis().catch(() => null), same pattern on
+  // swallow their own errors (the same pattern on
   // the other loadAccounts calls) so a slow or truly-hung request could
   // leave one flag stuck low forever. The 5s `forceReveal` timeout is the
   // non-negotiable backstop: whatever has arrived by then gets shown, so a
@@ -667,22 +607,21 @@ export default function AccountsPage() {
     // Start together, but never hold the existing Accounts reveal for the calculation.
     const todayPromise = api.getToday().catch(() => null);
     try {
-      const [accs, invAccs, manuals, mrules, kpiResult, conns] = await Promise.all([
+      const [accs, invAccs, manuals, mrules, conns] = await Promise.all([
         accountsPromise,
         api.getInvestmentAccounts().catch(() => null),
         api.manualAccounts().catch(() => null),
         api.manualAccountRules().catch(() => null),
-        api.kpis().catch(() => null),
         // A113: non-fatal like the rest of this batch — a failed fetch just
         // means no consent-expiry line renders, never a broken page.
         api.connections().catch(() => null),
       ]);
       if (availabilityRequest !== availabilityRequestRef.current) return;
+      setAccountLoadFailed(accs === null || invAccs === null || manuals === null);
       if (accs) setAccounts(accs);
       if (invAccs) setInvestmentAccounts(invAccs);
       if (manuals) setManualAccounts(manuals);
       if (mrules) setRules(mrules);
-      if (kpiResult) setKpis(kpiResult);
       if (conns) setConnections(conns);
       // Publish availability only after the matching accounts batch has applied.
       void todayPromise.then(today => {
@@ -913,6 +852,7 @@ export default function AccountsPage() {
   }
 
   const listScrollY = useRef(0);
+  const directoryFocusId = useRef<string | null>(null);
 
   // Home-screen pins — capped at the number of bank slots on the Home grid
   const MAX_PINS = 3;
@@ -990,10 +930,16 @@ export default function AccountsPage() {
   useEffect(() => {
     if (selectedAccountId) {
       window.scrollTo(0, 0);
+      document.querySelector<HTMLElement>("[data-account-detail-heading]")?.focus({ preventScroll: true });
     } else {
-      window.scrollTo(0, listScrollY.current);
+      if (tab === "Investments") document.querySelector<HTMLElement>("[data-investment-detail-back]")?.focus({ preventScroll: true });
+      if (tab === "Banks") {
+        window.scrollTo(0, listScrollY.current);
+        const id = directoryFocusId.current;
+        if (id) document.querySelector<HTMLElement>(`[data-account-row-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+      }
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, tab]);
 
   useAccountDetailHistory(setSelectedAccountId, clearSelectedTransaction);
 
@@ -1150,6 +1096,18 @@ export default function AccountsPage() {
       setSelectedTx(null);
     }
   }
+
+  const closeDetailOnEscape = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented || openSheetHistoryCount() > 0 || addMenuOpen || confirmDialog) return;
+    if (selectedAccountId) { event.preventDefault(); handleBack(); }
+    else if (tab === "Investments") { event.preventDefault(); setTab("Banks"); }
+  });
+  useEffect(() => {
+    if (!selectedAccountId && tab !== "Investments") return;
+    const listener = (event: KeyboardEvent) => closeDetailOnEscape(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, [selectedAccountId, tab]);
 
   // A67: `handleConnectBank` lived here and called the TrueLayer link with
   // no bank chosen. Nothing referenced it (verified by grep across the whole
@@ -1681,12 +1639,8 @@ export default function AccountsPage() {
     });
     void handleReconnect(provider.provider_id, account);
   }
-  // Offline (manual) accounts are deliberately excluded from buildEstate()
-  // (net worth, groups, pinned, attention/inactive all stay bank+investment
-  // only) — but that also made them invisible to the find bar and lens
-  // chips, so the "Credit" chip left offline cards sitting below as if
-  // Offline were always selected. This is a parallel, filter-only EstateRow
-  // projection: it only ever feeds estateFilteredRows, never `estate` itself.
+  // Offline accounts join the directory separately because buildEstate
+  // deliberately excludes them from its bank/investment totals.
   const manualEstateRows = useMemo(() => {
     const rows: EstateRow[] = [];
     for (const m of manualAccounts) {
@@ -1699,7 +1653,7 @@ export default function AccountsPage() {
         kind: MANUAL_KIND[m.account_type],
         balance: m.account_type === "credit_card" ? -Math.abs(m.balance) : m.balance,
         status: "connected",
-        pinned: false,
+        pinned: pinnedIds.includes(m.id),
         dormant: false,
         attention: false,
         source: "bank",
@@ -1708,9 +1662,9 @@ export default function AccountsPage() {
     }
     return rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manualAccounts, accounts]);
+  }, [manualAccounts, accounts, pinnedIds]);
   const [estateQuery, setEstateQuery] = useState("");
-  const [estateLens, setEstateLens] = useState<EstateLens>("All");
+  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   // Hydrate persisted collapse choices post-mount only — reading localStorage
   // during render would desync from the SSR/prerendered {} initial state and
@@ -1728,15 +1682,6 @@ export default function AccountsPage() {
     }
   }, []);
   const [inactiveOpen, setInactiveOpen] = useState(false);
-  const estateIsFiltering = estateQuery.trim().length > 0 || estateLens !== "All";
-  const estateFilteredRows = useMemo(
-    () =>
-      estateIsFiltering
-        ? filterEstate([...estate.rows, ...manualEstateRows], { query: estateQuery, lens: estateLens })
-        : [],
-    [estate.rows, manualEstateRows, estateQuery, estateLens, estateIsFiltering]
-  );
-  const inactiveRows = estate.inactive;
   function toggleEstateGroup(label: string) {
     setCollapsedGroups(c => {
       const next = { ...c, [label]: !c[label] };
@@ -1748,7 +1693,10 @@ export default function AccountsPage() {
       return next;
     });
   }
-  function handleEstateRowClick(row: EstateRow) {
+  function handleEstateRowClick(row: EstateRow, trigger?: HTMLElement) {
+    directoryFocusId.current = row.id;
+    listScrollY.current = window.scrollY;
+    if (trigger) trigger.dataset.accountRowId = row.id;
     if (row.source === "investment") {
       setTab("Investments");
       handleToggleInvestment(row.id);
@@ -1756,20 +1704,6 @@ export default function AccountsPage() {
     } else {
       handleSelectAccount(row.raw as Account);
     }
-  }
-
-  /** Credit-row terms-pill props (confirmed APR/promo pill, or a quiet "Add
-   *  rates" affordance) — same entry point AccountMiniCard used to expose,
-   *  carried over onto the ledger rows so it isn't lost in the redesign. */
-  function estateTermsProps(row: EstateRow) {
-    if (row.kind !== "Credit" || row.source !== "bank") return {};
-    const termsCard = cardTermsByAccount[row.id];
-    const pill = termsPillFor(termsCard);
-    return {
-      termsPill: pill,
-      onTermsClick: pill ? () => openCardTermsAt(row.id) : undefined,
-      onAddRates: !pill && termsCard ? () => openCardTermsAt(row.id) : undefined,
-    };
   }
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
@@ -2294,7 +2228,12 @@ export default function AccountsPage() {
     // A181: a loan or mortgage is owed, not overdrawn; no red, no Left to spend switch.
     const isDebt = accountKind(selectedAccount) === "Debt";
     const balance = selectedAccount.balance;
-    const available = accountAvailability(selectedAccount, currentAvailabilitySnapshot);
+    const detailPending = !selectedAccount.paused && !!selectedAccount.connection_id && syncInfoByConnection.get(selectedAccount.connection_id)?.kind === "new-bank";
+    const detailBalanceReady = Number.isFinite(balance) && !detailPending;
+    const detailBalanceText = detailPending ? "Balance pending" : detailBalanceReady
+      ? `${balance < 0 ? "−" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${hideNetWorth ? "••••" : Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : "Balance unavailable";
+    const available = detailBalanceReady ? accountAvailability(selectedAccount, currentAvailabilitySnapshot) : undefined;
     const position = currentAvailabilitySnapshot.status === "ready" ? currentAvailabilitySnapshot.positions?.[selectedAccount.id] : undefined;
     const isManual = !!selectedAccount.manual;
     const isStatement = selectedAccount.id.startsWith("statement-");
@@ -2459,17 +2398,17 @@ export default function AccountsPage() {
           />
 
           <p
-            className={`text-[30px] leading-none font-bold money ${balance < 0 && !isDebt ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
+            className={`${detailBalanceReady ? "text-[30px] leading-none font-bold money" : "text-sm font-medium"} ${detailBalanceReady && balance < 0 && !isDebt && (!isCredit || termsPill?.accruing) ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
           >
-            {hideNetWorth ? "••••" : `${!isCredit && balance < 0 ? "−" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            <span aria-hidden="true">{detailBalanceText}</span><span className="sr-only">{hideNetWorth && detailBalanceReady ? (balance < 0 ? "Negative balance hidden" : "Balance hidden") : detailBalanceText}</span>
           </p>
           {/* Caption is sign-aware, not just isCredit — an in-credit card
               is money the bank owes you, never "owed"; £0 is paid off and
               gets no caption. */}
-          {isCredit && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
-          {isCredit && balance > 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">in credit</p>}
-          {isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
-          {!isCredit && !isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
+          {detailBalanceReady && isCredit && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
+          {detailBalanceReady && isCredit && balance > 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">in credit</p>}
+          {detailBalanceReady && isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
+          {detailBalanceReady && !isCredit && !isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
 
           {isCredit && (termsPill ? (
             <button
@@ -2500,24 +2439,12 @@ export default function AccountsPage() {
           ) : null)}
 
           <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} connectionNotes={isExpired ? [] : connectionNotes(consentConnection)} />
-          {overdraftAvailable(selectedAccount) !== null && (
+          {detailBalanceReady && overdraftAvailable(selectedAccount) !== null && (
             <p data-a181-overdraft className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">
               <MoneyText text={availableWithOverdraftText(hideNetWorth ? "£••••" : formatAvailabilityAmount(overdraftAvailable(selectedAccount) as number))} />
             </p>
           )}
-          {available && (
-            <div data-account-availability-working className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">
-              {available.kind === "ready" ? <>
-                <dl className="space-y-1.5">
-                  <div className="flex justify-between gap-3 font-semibold"><dt>Available</dt><dd><MoneyText text={hideNetWorth ? "£••••" : formatAvailabilityAmount(available.value)} /></dd></div>
-                  {typeof position?.after_payments_and_plans === "number" && Number.isFinite(position.after_payments_and_plans) && <div className="flex justify-between gap-3"><dt>After payments and plans</dt><dd><MoneyText text={hideNetWorth ? "£••••" : formatAvailabilityAmount(position.after_payments_and_plans)} /></dd></div>}
-                  {typeof position?.low_point_and_plans === "number" && Number.isFinite(position.low_point_and_plans) && <div className="flex justify-between gap-3"><dt>Lowest after plans</dt><dd><MoneyText text={hideNetWorth ? "£••••" : formatAvailabilityAmount(position.low_point_and_plans)} /></dd></div>}
-                </dl>
-                <p className="mt-2">Available is an estimate for this pay period. It protects earlier low points and any move held back, and cannot exceed your shared Left to spend. Separate account limits, not amounts to add together.</p>
-                {available.warning && <p className="mt-1">{available.note}</p>}
-              </> : <p>{available.kind === "checking" ? "Checking what is available…" : "The available estimate could not be checked. Refresh to try again."}</p>}
-            </div>
-          )}
+          <AccountAvailabilityDetail key={selectedAccount.id} reading={available} position={position} hidden={hideNetWorth} />
           {/* The horizontal rule Kevin asked to keep (G87 approval,
               2026-09-16): it closes off the canvas header in place of the
               card boundary that used to do that job. */}
@@ -2539,7 +2466,7 @@ export default function AccountsPage() {
 
         {/* G231: only a connected bank current or savings account can be left
             out of Safe to Spend; cards, offline accounts and statements cannot. */}
-        {!isManual && !isStatement && !isCredit && !isDebt && (
+        {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !(available?.kind === "ready" && available.warning) && (
           <div className="px-4 pt-4">
             <AccountCountRow
               account={selectedAccount}
@@ -2816,36 +2743,17 @@ export default function AccountsPage() {
     return <AccountsSkeleton />;
   }
 
-  // Header Net worth reading (G236: the header block lives in
-  // components/AccountsHeader.tsx; the figures are still derived here).
-  const headerNetWorth = kpis
-    ? {
-        value: kpis.net_worth,
-        accountCount: bankAccounts.length + investmentAccounts.length + manualAccounts.length,
-      }
-    : null;
-
   return (
     <div className="min-h-dvh pb-[calc(max(env(safe-area-inset-bottom,0px),10px)+96px)] lg:pb-28" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      {/* Header — hidden once actually drilled into an investment (tab ===
-          "Investments" with at least one account) so that view owns the
-          screen the same way the bank account detail does; the zero-state
-          (no investments yet) keeps the hero, since its cold-start "Add
-          contract note" flow is the only way to create a first investment
-          account without a statement. Canvas Before Cards (G87, Variant A
-          "Quiet position", Kevin approved 2026-09-16): the title, net
-          worth reading and its context line sit directly on the canvas,
-          not in a card — the account-group cards below already carry the
-          evidence, so nothing here repeats as a second hero. relative +
-          z-30 so the "+ Add" popover stacks above later siblings (find
-          bar, lens chips, sticky group headers) that paint after it in
-          DOM order. */}
+      {/* G391 A keeps the directory header and adjacent G389 Refresh/Add.
+          Account and investment detail own their view once opened. */}
       {(tab === "Banks" || investmentAccounts.length === 0) && (
       <div
         className="px-4 pt-5"
       >
         <AccountsHeader
-          netWorth={headerNetWorth}
+          directory
+          netWorth={null}
           hidden={hideNetWorth}
           showChip={preferencesReady && hideNetWorthPref}
           onShow={() => setHideNetWorth(false)}
@@ -3013,12 +2921,14 @@ export default function AccountsPage() {
               <div className="flex items-center justify-center py-16">
                 <Spinner size={32} />
               </div>
-            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 && pendingRows.length === 0 ? (
+            ) : accountLoadFailed && estate.rows.length === 0 && manualEstateRows.length === 0 ? (
+              <div role="status" className="py-8 text-sm text-slate-600 dark:text-slate-300"><p>We could not load your accounts.</p><button type="button" onClick={() => void loadAccounts()} className="mt-2 min-h-11 rounded-xl px-3 font-semibold text-indigo-700 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Try again</button></div>
+            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 && manualEstateRows.length === 0 && pendingRows.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
                   <Landmark size={26} color="#4f46e5" />
                 </div>
-                <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
+                <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No accounts yet</p>
                 <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
                   {canConnectBank
                     ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
@@ -3098,231 +3008,26 @@ export default function AccountsPage() {
                   <ReconnectStrip providers={reconnectProviders.map(p => ({ ...p, health_status: p.provider_id ? providerHealth[p.provider_id] : undefined }))} onReconnect={handleEstateReconnect} />
                 )}
 
-                <AccountsEstateControls query={estateQuery} onQuery={setEstateQuery} lens={estateLens} onLens={setEstateLens} />
-
-                {estateIsFiltering ? (
-                  <div>
-                    <p className="px-1 mb-2 text-xs font-medium text-slate-400 dark:text-slate-500">
-                      {estateFilteredRows.length} result{estateFilteredRows.length === 1 ? "" : "s"}
-                    </p>
-                    {estateFilteredRows.length === 0 ? (
-                      <div className="glass-card rounded-2xl px-4 py-10 text-center text-sm text-slate-400 dark:text-slate-500">
-                        No accounts match
-                      </div>
-                    ) : (
-                      <div className="glass-card rounded-2xl overflow-hidden">
-                        {estateFilteredRows.map((row, i) => (
-                          <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                            <AccountLedgerRow
-                              row={row}
-                              onClick={handleEstateRowClick}
-                              sync={syncFor(row)}
-                              {...estateTermsProps(row)}
-                              hideAmount={hideNetWorth}
-                              availability={availabilityFor(row)}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    {/* Pinned band (G113 — matches the ratified preview's
-                        PinnedBand exactly: one bounded card, "Pinned" label
-                        inside it, not a bare uppercase label floating above
-                        unbounded rows). A pinned account also appears again
-                        inside its own kind-group below — that duplication
-                        is deliberate (A1, Kevin approved 2026-09-16) and is
-                        what check:accounts-pinned pins down via
-                        buildEstate() directly. */}
-                    {estate.pinned.length > 0 && (
-                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Pinned accounts">
-                        <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
-                        <div className="mt-1 divide-y divide-slate-100 dark:divide-slate-700">
-                          {estate.pinned.map((row) => (
-                            <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} availability={availabilityFor(row)} />
-                          ))}
-                        </div>
-                      </section>
-                    )}
-
-                    {/* Collapsible groups (G113 — matches the ratified
-                        preview's AccountGroupCard: header AND rows inside
-                        ONE bounded section with a border/radius/shadow, the
-                        group name at 15px bold with the count as an 11px
-                        subtitle beneath it, "one group, one object" instead
-                        of a detached floating label.
-
-                        The header keeps its sticky (top-0) behaviour —
-                        Kevin holds 23 bank accounts, several of them cards
-                        in the same "Credit" group, so a group's own rows
-                        can run well past one screen and losing the sticky
-                        label mid-scroll would mean losing track of which
-                        group and subtotal you're looking at. Getting this
-                        to coexist with "one bounded card" took a real fix,
-                        not just nesting: `overflow-hidden` on the section
-                        (needed to clip the rows list to the card's rounded
-                        corners) independently breaks `position: sticky` for
-                        any descendant, confirmed empirically in headless
-                        Chrome (a stuck header stayed pinned with
-                        `overflow-hidden` removed from the section, and
-                        scrolled away with it present, at every viewport
-                        width) — this is standard CSS: an `overflow: hidden`
-                        ancestor becomes the sticky element's scrolling
-                        containing block, and since the SECTION itself never
-                        scrolls (only the page does), the header can never
-                        enter its "stuck" state inside one. So the section
-                        below carries NO overflow-hidden; instead the header
-                        rounds its own top corners (full corners while
-                        collapsed, since it is then the only visible content)
-                        and the existing rows-collapse wrapper (already
-                        `overflow-hidden` for its height/opacity animation)
-                        rounds its own bottom corners — two shapes that tile
-                        exactly into the section's own rounded outline, so it
-                        still reads as one bounded object at rest and while
-                        scrolling, with the header genuinely able to stick.
-
-                        One more thing this does NOT fix: `#app-shell` sets
-                        `overflow-x: hidden` below the `lg` (1024px)
-                        breakpoint (app/globals.css, H56's comment on that
-                        rule), which independently makes IT the sticky
-                        containing block for every descendant sticky element
-                        in the app on mobile — the same pre-existing,
-                        already-tracked defect (H61 is the planned app-wide,
-                        audited fix; its own comment explicitly says not to
-                        pre-empt it from a single sandboxed item) that
-                        already silently broke this exact header's
-                        stickiness before G113 touched it. Confirmed in
-                        headless Chrome: at 1280px (`#app-shell`'s
-                        `overflow-x` computes to `visible` there) the header
-                        now sticks correctly with this fix in place; below
-                        1024px it still does not, for that separate, older,
-                        out-of-scope reason. G113 does not widen its own
-                        fix into #app-shell's rule — that is exactly the
-                        one-sandbox pre-emption H61's own comment warns
-                        against. At rest, or for any group short enough to
-                        fit on screen (most of them), none of this matters:
-                        it simply reads as the one bounded object the
-                        preview specifies. */}
-                    {estate.groups.length === 0 ? (
-                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 dark:shadow-none">
-                        No accounts in this view
-                      </div>
-                    ) : (
-                      estate.groups.map((group) => {
-                        const isCollapsed = collapsedGroups[group.label] ?? (group.kind === "Credit" && group.count > 4);
-                        return (
-                          <AccountGroupCard key={group.label} label={group.label} count={group.count} subtotal={group.subtotal} hidden={hideNetWorth} collapsed={isCollapsed} onToggle={() => toggleEstateGroup(group.label)}>
-                            {group.rows.map((row) => (
-                              <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} {...estateTermsProps(row)} hideAmount={hideNetWorth} availability={availabilityFor(row)} />
-                            ))}
-                          </AccountGroupCard>
-                        );
-                      })
-                    )}
-
-                    {/* Inactive — dormant £0 accounts, collapsed by default.
-                        A stale account keeps its connection-status dot here;
-                        the provider action stays in the strip above. Same
-                        bounded-card treatment as the groups above (G113),
-                        for the same reason: it shared the identical header
-                        class before this change and should keep matching
-                        it now — including the no-overflow-hidden-on-the-
-                        section / rounded-corners-on-the-header-and-rows-
-                        wrapper split that keeps `position: sticky` actually
-                        working (see the long comment on the groups above
-                        for why). */}
-                    {inactiveRows.length > 0 && (
-                      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none" aria-label="Inactive accounts">
-                        <button
-                          type="button"
-                          onClick={() => setInactiveOpen(o => !o)}
-                          aria-expanded={inactiveOpen}
-                          className={`sticky top-0 z-10 flex min-h-16 w-full items-center justify-between gap-3 bg-white px-4 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:bg-slate-800 dark:hover:bg-slate-700/60 dark:active:bg-slate-700 ${inactiveOpen ? "rounded-t-2xl" : "rounded-2xl"}`}
-                        >
-                          <span>
-                            <span role="heading" aria-level={2} className="block text-[15px] font-bold text-slate-900 dark:text-slate-100">Inactive</span>
-                            <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{inactiveRows.length} {inactiveRows.length === 1 ? "account" : "accounts"}</span>
-                          </span>
-                          <ChevronDown
-                            size={16}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${inactiveOpen ? "rotate-180" : ""}`}
-                            aria-hidden="true"
-                          />
-                        </button>
-                        <div
-                          className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
-                            inactiveOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-                          }`}
-                        >
-                          <div
-                            className={`overflow-hidden rounded-b-2xl transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
-                              inactiveOpen ? "opacity-100" : "opacity-0"
-                            }`}
-                          >
-                            <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700 dark:border-slate-700">
-                              {inactiveRows.map((row) => (
-                                <AccountLedgerRow key={row.id} row={row} onClick={handleEstateRowClick} sync={syncFor(row)} hideAmount={hideNetWorth} availability={availabilityFor(row)} />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </section>
-                    )}
-                  </>
-                )}
+                {accountLoadFailed && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">Some accounts could not be loaded. Showing the last known accounts. <button type="button" onClick={() => void loadAccounts()} className="min-h-11 rounded-lg px-2 font-semibold text-indigo-700 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Try again</button></p>}
+                <AccountsDirectory
+                  rows={[...estate.rows, ...manualEstateRows]}
+                  hidden={hideNetWorth}
+                  query={estateQuery}
+                  onQuery={setEstateQuery}
+                  pinnedOnly={pinnedOnly}
+                  onPinnedOnly={setPinnedOnly}
+                  showDormant={inactiveOpen}
+                  onShowDormant={setInactiveOpen}
+                  collapsed={collapsedGroups}
+                  onToggleGroup={toggleEstateGroup}
+                  onOpen={handleEstateRowClick}
+                  syncFor={syncFor}
+                  availabilityFor={availabilityFor}
+                />
               </>
             )}
           </div>
 
-          {/* ── Offline accounts ── hidden while the find bar / lens chips are
-              active: manualEstateRows already surfaces matching offline
-              accounts inside the filtered results list above, so showing
-              this too would duplicate them. */}
-          {!estateIsFiltering && (
-            <div className="px-4 mt-5">
-              <div className="mb-2">
-                <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Offline accounts</h2>
-                <p className="text-xs text-slate-400 dark:text-slate-500">Track balances we can&apos;t connect to: pots, cash, store cards. Tap to add transactions &amp; rules.</p>
-              </div>
-
-              {manualAccounts.length === 0 ? (
-                <div data-tutorial-id="tutorial-offline-empty" className="bg-white dark:bg-slate-800 rounded-2xl p-6 text-center shadow-sm">
-                  <p className="text-sm text-slate-400 dark:text-slate-500">No offline accounts yet.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {manualAccounts.map((acc) => {
-                    const meta = MANUAL_TYPES.find(t => t.value === acc.account_type) ?? MANUAL_TYPES[0];
-                    const isCredit = acc.account_type === "credit_card";
-                    const currency = "£";
-                    const accountForDetail = accounts.find(a => a.id === acc.id);
-                    return (
-                      <div
-                        key={acc.id}
-                        data-tutorial-id="tutorial-offline-rules"
-                        onClick={() => accountForDetail && handleSelectAccount(accountForDetail)}
-                        className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm flex items-center gap-3 px-4 py-3 cursor-pointer active:scale-[0.99] transition-transform"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
-                          <meta.Icon size={16} className="text-slate-500 dark:text-slate-300" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{displayAccountName(acc.name)}</p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">{meta.label} · Offline</p>
-                        </div>
-                        <span className={`text-sm font-bold flex-shrink-0 font-mono tabular-nums ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
-                          {hideNetWorth ? "••••" : `${isCredit ? MINUS : ""}${currency}${Math.round(acc.balance).toLocaleString("en-GB")}`}
-                        </span>
-                        <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
 
@@ -3333,6 +3038,7 @@ export default function AccountsPage() {
         <div className="px-4 pt-4 space-y-3">
           <button
             type="button"
+            data-investment-detail-back
             onClick={() => setTab("Banks")}
             className="flex items-center gap-1.5 min-h-[44px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
           >

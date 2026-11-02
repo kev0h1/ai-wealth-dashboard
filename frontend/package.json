@@ -203,7 +203,8 @@
     "check:g373-pending-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g373-pending-payments.test.mjs",
     "check:g379-home-transfers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g379-home-transfers.test.mjs",
     "check:g387-transfer-review": "node --no-warnings --experimental-strip-types scripts/g387-transfer-review.test.mjs",
-    "check:g394-bank-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g394-bank-icons.test.mjs"
+    "check:g394-bank-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g394-bank-icons.test.mjs",
+    "check:g391-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g391-directory.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

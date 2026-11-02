@@ -36,7 +36,8 @@ assert.ok(!/aria-label=\{hideNetWorth \? "Show balance"/.test(page) && !page.inc
 assert.ok(page.includes("preferencesReady") && /hideNetWorthPref \|\| !preferencesReady/.test(page), "masked until preferences resolve");
 {
   const rows = [...page.matchAll(/<AccountLedgerRow\b/g)].map((m) => m.index);
-  assert.ok(rows.length >= 5, "page renders its ledger rows");
+  assert.ok(rows.length >= 1, "pending bank rows keep the ledger placeholder");
+  assert.match(page, /<AccountsDirectory[\s\S]*?hidden=\{hideNetWorth\}/, "approved G391 directory uses the same global mask");
   for (const i of rows) {
     const end = page.indexOf("/>", page.indexOf("sync=", i));
     assert.ok(page.slice(i, end).includes("hideAmount={hideNetWorth}"), `AccountLedgerRow at offset ${i} passes hideAmount={hideNetWorth}`);

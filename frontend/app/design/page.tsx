@@ -33,17 +33,6 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
-    slug: "accounts-layout",
-    name: "Accounts layout · G391",
-    description: "Compare a compact account directory with a bank-grouped picture of your money. One balance per row, with Available and its working in the account detail. Synthetic examples with search, pinned and dormant accounts, masking and a short account.",
-    variants: [{ label: "A · Find an account", value: "a" }, { label: "B · Where your money is", value: "b" }],
-    states: [{ label: "Accounts", value: "normal" }, { label: "Loading", value: "loading" }, { label: "Unavailable", value: "error" }, { label: "No accounts", value: "empty" }, { label: "Updating", value: "syncing" }, { label: "Unknown balance", value: "unknown" }],
-    group: "current",
-  },
-
-
-
-  {
     slug: "spend-patterns-charts",
     name: "Clearer Spend patterns · G380",
     description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",

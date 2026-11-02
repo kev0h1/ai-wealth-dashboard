@@ -18,7 +18,7 @@ export function AccountDetailIdentity({
   return (
     <div className="flex items-center gap-3 mb-3">
       <BankBadge logoSrc={logoSrc} initials={initials} altText={label} brandBg={background} />
-      <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100 min-w-0 truncate">{name}</h1>
+      <h1 data-account-detail-heading tabIndex={-1} className="text-base font-semibold text-slate-900 dark:text-slate-100 min-w-0 break-words focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">{name}</h1>
     </div>
   );
 }

@@ -101,16 +101,16 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
     readyKey: "accounts",
     steps: [
       {
-        id: "accounts-networth",
-        target: "tutorial-networth",
+        id: "accounts-directory",
+        target: "tutorial-account-directory",
         fallbackTarget: "tutorial-add-account",
         tooltipSide: "below",
         iconName: "Layers",
         color: "#4f46e5",
         bg: "#ede9fe",
-        title: "Everything in one total",
+        title: "Find an account",
         description:
-          "Net worth counts what is in your banks, investments and offline pots, minus what is on your cards.",
+          "Accounts are grouped by type, with one balance on each row. Search or use Pinned to find one, then open it for details and what is available to spend.",
       },
       {
         id: "accounts-add",
