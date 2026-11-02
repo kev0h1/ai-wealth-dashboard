@@ -3326,7 +3326,9 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> b
         # layer here; the per-user data version bump below is what actually
         # makes every OTHER process's cached entries — and Mongo's — stale,
         # bounded at 6h if a version-bump signal is ever missed).
-        response_cache.invalidate(uid)
+        # H146: awaited, so the bump has landed before the caller's next
+        # version-compare (the money shape CAS in recompute_derived_caches).
+        await response_cache.ainvalidate(uid)
         return True
     except Exception as e:
         print(f"[cashflow_cache] compute failed for {uid}: {e}")
