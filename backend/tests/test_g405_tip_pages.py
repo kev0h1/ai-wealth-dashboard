@@ -370,6 +370,24 @@ def test_a_rise_page_whose_to_sentence_fails_the_window_gives_none_not_the_is_fi
     assert tip_regulators.extract_annual("energy", no_rise, OCT)[0] == 1663.0
 
 
+def test_is_set_to_rise_wording_counts_with_or_without_will():
+    ok = ("October 2026. The price cap for a typical household paying by direct debit is £1,663 a year. "
+          "The cap is set to rise by £60 per year to £1,723.")
+    assert tip_regulators.extract_annual("energy", ok, OCT) == (1723.0, datetime(2026, 10, 1).date())
+    for phrase in ("Rising by £60 per year to", "The cap is set to fall by £60 per year to", "Bills go up by £60 to",
+                   "It increases by £60 to", "The level changes to"):
+        page = ("October 2026. The price cap for a typical household paying by direct debit is £1,663 a year. "
+                + phrase + " £1,723.")
+        got = tip_regulators.extract_annual("energy", page, OCT)
+        assert got is not None and got[0] == 1723.0, phrase
+    far = ("October 2026. The price cap for a typical household paying by direct debit is £1,663 a year. "
+           + "Filler words about energy markets and wholesale costs. " * 8
+           + "The cap is set to rise by £60 per year to £1,723.")
+    assert tip_regulators.extract_annual("energy", far, OCT) is None
+    far2 = far.replace("is set to rise", "is rising").replace("rise by", "by")
+    assert tip_regulators.extract_annual("energy", far2, OCT) is None
+
+
 def test_period_not_current_gives_none():
     assert tip_regulators.extract_annual("energy", PRESS, SEP) is None  # same page read in September: future release
     older = PRESS.replace("October to December 2026", "July 2026").replace("1 October to 31 December 2026", "1 July to 30 September 2026")

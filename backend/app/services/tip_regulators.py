@@ -57,12 +57,13 @@ _POUND_RE = re.compile(r"£\s*(\d{1,3}(?:,\d{3})+|\d{1,6})(?:\.\d{1,2})?")
 
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
           "November", "December")
-_RISE_RE = re.compile(r"will\s+(?:rise|fall|go\s+up|go\s+down|increase|decrease)\b", re.IGNORECASE)
+# Any wording of a change, with or without "will": "will rise", "is set to rise", "rising",
+# "set to fall", "increases", "go up", "changes".
+_CHANGE = r"(?:rise[sn]?|rising|fall(?:s|ing)?|fell|increas\w*|decreas\w*|go(?:es)?\s+up|go(?:es)?\s+down|changes?)"
+_RISE_RE = re.compile(rf"\b{_CHANGE}\b", re.IGNORECASE)
 _TO_RE = re.compile(r"\bto\s+$", re.IGNORECASE)
 # a rise or fall sentence that gives a new level: "will rise by £60 per year (or £5 per month) to £1,723"
-_RISE_TO_RE = re.compile(
-    r"will\s+(?:rise|fall|go\s+up|go\s+down|increase|decrease)\b.{0,250}?\bto\s+£", re.IGNORECASE | re.DOTALL,
-)
+_RISE_TO_RE = re.compile(rf"\b{_CHANGE}\b.{{0,250}}?\bto\s+£", re.IGNORECASE | re.DOTALL)
 _HOUSEHOLD_RE = re.compile(r"typical(?:\s+\w+)?\s+household", re.IGNORECASE)
 TO_WINDOW = 350
 
