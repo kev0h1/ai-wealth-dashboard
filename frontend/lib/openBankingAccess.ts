@@ -180,3 +180,10 @@ export function useOpenBankingAccess(): boolean {
   useEffect(() => watchOpenBankingAccess(setAllowed), []);
   return allowed;
 }
+
+/** Accounts explains a plan restriction, so distinguish it from a pending read. */
+export function useOpenBankingAccessState(): { allowed: boolean; ready: boolean } {
+  const [access, setAccess] = useState({ allowed: false, ready: false });
+  useEffect(() => watchOpenBankingAccess(allowed => setAccess({ allowed, ready: true })), []);
+  return access;
+}

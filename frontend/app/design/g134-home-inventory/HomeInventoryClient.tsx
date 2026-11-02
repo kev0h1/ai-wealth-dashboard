@@ -295,9 +295,9 @@ export default function HomeInventoryClient() {
                   firstName="Kevin"
                   safeToSpend={SAFE_TO_SPEND_STATES[0].data}
                   loading={false}
-                  syncing={false}
+
                   syncError={false}
-                  onSync={noop}
+
                   hasAccounts={true}
                   hideNetWorth={hidden}
                   dismissible={false}
@@ -312,9 +312,9 @@ export default function HomeInventoryClient() {
                   firstName="Kevin"
                   safeToSpend={SAFE_TO_SPEND_STATES[0].data}
                   loading={false}
-                  syncing={false}
+
                   syncError={false}
-                  onSync={noop}
+
                   hasAccounts={true}
                   hideNetWorth={hidden}
                   dismissible={false}
@@ -325,7 +325,7 @@ export default function HomeInventoryClient() {
 
             <CatalogueEntry component="HomeBrief → BriefSkeleton" condition="loading = true — the two-line pulse shown while /today is still in flight">
               <div className="glass-card rounded-2xl p-4">
-                <HomeBrief items={[]} firstName="Kevin" safeToSpend={null} loading={true} syncing={false} syncError={false} onSync={noop} hideNetWorth={hidden} />
+                <HomeBrief items={[]} firstName="Kevin" safeToSpend={null} loading={true} syncError={false} hideNetWorth={hidden} />
               </div>
             </CatalogueEntry>
 
@@ -336,9 +336,9 @@ export default function HomeInventoryClient() {
                   firstName="Kevin"
                   safeToSpend={SAFE_TO_SPEND_STATES[0].data}
                   loading={false}
-                  syncing={false}
+
                   syncError={true}
-                  onSync={noop}
+
                   hasAccounts={true}
                   hideNetWorth={hidden}
                   dismissible={false}

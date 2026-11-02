@@ -41,23 +41,7 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
 
-  {
-    slug: "accounts-refresh",
-    name: "Accounts refresh placement · G389",
-    description: "Home A is approved. Compare A, refresh beside Add, with B, a labelled refresh beside bank-data status. Try updating, partial completion, failure, cooldown and no connected banks, plus clearer Add choices. Synthetic examples only.",
-    variants: [{ label: "A · Beside Add", value: "a" }, { label: "B · With update status", value: "b" }],
-    states: [{ label: "Ready", value: "idle" }, { label: "Updating", value: "updating" }, { label: "Partly updated", value: "partial" }, { label: "Could not update", value: "error" }, { label: "Wait to refresh", value: "cooldown" }, { label: "No connected banks", value: "empty" }],
-    group: "current",
-  },
 
-  {
-    slug: "ux-accounts-entry",
-    name: "Home Accounts entry · A approved · G389",
-    description: "Kevin chose A, the named Accounts action beside the greeting. This is the earlier comparison retained as the approval record. The Accounts refresh placement is being compared in the new G389 round. Synthetic data only.",
-    variants: [{ label: "A · A named door", value: "a" }, { label: "B · In the journey", value: "b" }, { label: "C · A primary destination", value: "c" }],
-    states: [{ label: "One bank", value: "one" }, { label: "Several accounts", value: "many" }, { label: "No accounts", value: "empty" }, { label: "Loading", value: "loading" }, { label: "Failed refresh", value: "error" }],
-    group: "earlier",
-  },
 
   {
     slug: "spend-patterns-charts",

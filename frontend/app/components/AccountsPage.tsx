@@ -12,7 +12,8 @@ import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
 import AccountsEstateControls from "@/components/AccountsEstateControls";
 import AccountGroupCard from "@/components/AccountGroupCard";
-import { formatUpdated } from "@/lib/updatedLabel";
+import AccountsAddMenu from "@/components/AccountsAddMenu";
+import { useAccountsOverviewRefresh } from "@/lib/useAccountsOverviewRefresh";
 import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
@@ -53,8 +54,8 @@ import { accountAvailability, formatAvailabilityAmount, type AccountAvailability
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { connectionNotes } from "@/lib/reconfirm";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
-import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL, isLegacyBankSource } from "@/lib/legacyBankProvider";
-import { useOpenBankingAccess } from "@/lib/openBankingAccess";
+import { isLegacyBankSource } from "@/lib/legacyBankProvider";
+import { useOpenBankingAccessState } from "@/lib/openBankingAccess";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -65,26 +66,6 @@ import { canRefreshAccount, type AccountRefreshResult } from "@/lib/accountRefre
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { useProviderHealth } from "@/lib/useProviderHealth";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
-
-/** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
- *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
-function AddMenuItem({
-  icon, label, onClick, disabled, tutorialId,
-}: {
-  icon: React.ReactNode; label: string; onClick: () => void; disabled?: boolean; tutorialId?: string;
-}) {
-  return (
-    <button
-      data-tutorial-id={tutorialId}
-      onClick={onClick}
-      disabled={disabled}
-      className="w-full min-h-[44px] flex items-center gap-2.5 px-3.5 py-3 text-sm font-medium text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 active:bg-slate-100 dark:active:bg-white/10 disabled:opacity-50"
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
 
 /** Muted terms pill for a confirmed card. APR is information, not alarm —
  *  slate ink; amber only when the soonest active promo ends within 60 days
@@ -389,7 +370,8 @@ export default function AccountsPage() {
   const [connectNotice, setConnectNotice] = useState(false);
   // A67: does this plan include connecting a bank? Resolved alongside the
   // page rather than gating it — see lib/openBankingAccess.ts.
-  const canConnectBank = useOpenBankingAccess();
+  const bankAccess = useOpenBankingAccessState();
+  const canConnectBank = bankAccess.allowed;
 
   // Offline (manually-tracked) accounts
   const [manualAccounts, setManualAccounts] = useState<ManualAccount[]>([]);
@@ -681,27 +663,27 @@ export default function AccountsPage() {
   const loadAccounts = useCallback(async () => {
     const availabilityRequest = ++availabilityRequestRef.current;
     setAvailabilitySnapshot({ status: "loading" });
-    const accountsPromise = getAccountsCached().catch(() => [] as Account[]);
+    const accountsPromise = getAccountsCached().catch(() => null);
     // Start together, but never hold the existing Accounts reveal for the calculation.
     const todayPromise = api.getToday().catch(() => null);
     try {
       const [accs, invAccs, manuals, mrules, kpiResult, conns] = await Promise.all([
         accountsPromise,
-        api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
-        api.manualAccounts().catch(() => [] as ManualAccount[]),
-        api.manualAccountRules().catch(() => [] as ManualAccountRule[]),
+        api.getInvestmentAccounts().catch(() => null),
+        api.manualAccounts().catch(() => null),
+        api.manualAccountRules().catch(() => null),
         api.kpis().catch(() => null),
         // A113: non-fatal like the rest of this batch — a failed fetch just
         // means no consent-expiry line renders, never a broken page.
-        api.connections().catch(() => [] as Connection[]),
+        api.connections().catch(() => null),
       ]);
       if (availabilityRequest !== availabilityRequestRef.current) return;
-      setAccounts(accs);
-      setInvestmentAccounts(invAccs);
-      setManualAccounts(manuals);
-      setRules(mrules);
-      setKpis(kpiResult);
-      setConnections(conns);
+      if (accs) setAccounts(accs);
+      if (invAccs) setInvestmentAccounts(invAccs);
+      if (manuals) setManualAccounts(manuals);
+      if (mrules) setRules(mrules);
+      if (kpiResult) setKpis(kpiResult);
+      if (conns) setConnections(conns);
       // Publish availability only after the matching accounts batch has applied.
       void todayPromise.then(today => {
         if (availabilityRequest !== availabilityRequestRef.current) return;
@@ -710,7 +692,7 @@ export default function AccountsPage() {
 
       // Validate reconnect: check if the newly connected account matches what was expected
       const raw = localStorage.getItem("reconnect_expected");
-      if (raw) {
+      if (raw && accs) {
         try {
           const expected = JSON.parse(raw) as { provider: string; account_id: string; last4: string | null };
           localStorage.removeItem("reconnect_expected");
@@ -887,7 +869,16 @@ export default function AccountsPage() {
     }, syncPollDelay);
     return () => clearInterval(id);
   }, [syncPollDelay, refreshSyncStatus]);
+  const overviewRefresh = useAccountsOverviewRefresh({
+    accounts,
+    canConnectBank,
+    loading: loading || !bankAccess.ready,
+    syncStatus,
+    refreshSyncStatus,
+    reload: loadAccounts,
+  });
   async function handleSyncRetry() {
+    // First-sync recovery also applies before any bank account has arrived.
     try { await api.syncAccounts(); } catch {}
     await refreshSyncStatus();
   }
@@ -2858,58 +2849,20 @@ export default function AccountsPage() {
           hidden={hideNetWorth}
           showChip={preferencesReady && hideNetWorthPref}
           onShow={() => setHideNetWorth(false)}
-          updated={formatUpdated(kpis?.last_updated)}
+          refresh={{ ...overviewRefresh, onRefresh: () => void overviewRefresh.refresh() }}
           onAdd={() => setAddMenuOpen(v => !v)}
           addOpen={addMenuOpen}
           addRef={addMenuRef}
           onAddClose={() => setAddMenuOpen(false)}
           addMenu={addMenuOpen ? (
-            <div
-              role="menu"
-              aria-label="Add an account"
-              className="absolute right-0 top-[calc(100%+8px)] z-30 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1 shadow-xl divide-y divide-slate-100 dark:border-white/10 dark:bg-slate-800 dark:divide-white/5"
-            >
-              {/* A67: Add Bank is hidden outright on a plan with no
-                  open banking (Statements), rather than shown and
-                  answered with a 402 when tapped. Hidden, not
-                  disabled: a greyed-out row that never explains itself
-                  is worse than a menu that only offers what this plan
-                  can actually do. Statement, Investment and Offline
-                  below are on every plan. */}
-              {canConnectBank && (
-                <AddMenuItem
-                  tutorialId="tutorial-add-bank"
-                  icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                  label="Add Bank"
-                  onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
-                />
-              )}
-              {canConnectBank && LEGACY_BANK_AVAILABLE && (
-                <AddMenuItem
-                  icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                  label={LEGACY_BANK_MENU_LABEL}
-                  onClick={() => { setAddMenuOpen(false); setShowBankPicker("legacy"); }}
-                />
-              )}
-              <AddMenuItem
-                tutorialId="tutorial-add-statement"
-                icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
-                label="Statement"
-                onClick={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
-              />
-              <AddMenuItem
-                tutorialId="tutorial-add-investment"
-                icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
-                label="Investment"
-                onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-              />
-              <AddMenuItem
-                tutorialId="tutorial-add-offline"
-                icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                label="Offline"
-                onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-              />
-            </div>
+            <AccountsAddMenu
+              allowed={canConnectBank}
+              ready={bankAccess.ready}
+              onBank={provider => { setAddMenuOpen(false); setShowBankPicker(provider); }}
+              onStatement={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
+              onInvestment={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+              onOffline={() => { setAddMenuOpen(false); openAddManual(); }}
+            />
           ) : null}
         />
 
