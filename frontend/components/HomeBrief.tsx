@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, Clock3, Circle, PiggyBank, CalendarClock } from "lucide-react";
+import { Landmark, AlertTriangle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, UserRound, CalendarDays, CreditCard, Check, Clock3, Circle, PiggyBank, CalendarClock } from "lucide-react";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import type { AllocationEditServices } from "@/components/AllocationPlanEditor";
 import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";
@@ -81,9 +81,7 @@ interface HomeBriefProps {
   displayName?: string;
   safeToSpend: SafeToSpend | null;
   loading: boolean;
-  syncing: boolean;
   syncError: boolean;
-  onSync: () => void;
   onHelp?: () => void;
   hideNetWorth?: boolean;
   onRefresh?: () => void;
@@ -109,7 +107,7 @@ interface HomeBriefProps {
   onCoverMoveVisibleChange?: (visible: boolean, reserves?: Record<string, number>, destinations?: Record<string, string[]>) => void;
   /**
    * Home-only: rendered directly beneath the greeting row (avatar/"Good
-   * morning"/refresh), above everything else the brief renders (sync-error
+   * morning"/Accounts), above everything else the brief renders (sync-error
    * banner, brief body, the payday plan card). This is the one slot that's
    * guaranteed to sit at the very top of the visual stack on Home — a
    * caller that wants a "this outranks everything below it" banner (e.g.
@@ -2366,7 +2364,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncError, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const name = firstName || "there";
 
@@ -2410,17 +2408,14 @@ export default function HomeBrief({ items, firstName, displayName, safeToSpend, 
             {avatarInitials ?? <UserRound size={16} aria-hidden="true" />}
           </span>
         </Link>
-        <h1 className="flex-1 min-w-0 truncate text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">{greeting}</h1>
-        <button
-          onClick={onSync}
-          disabled={syncing}
-          aria-label={syncing ? "Syncing…" : "Sync accounts"}
-          className="shrink-0 -mr-1 w-11 h-11 flex items-center justify-center rounded-full active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        <h1 className="flex-1 min-w-0 break-words text-[20px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight sm:text-[28px]">{greeting}</h1>
+        <Link
+          href="/accounts"
+          className="shrink-0 inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-[13px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-transform motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
-          <span className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
-            <RefreshCw size={14} aria-hidden="true" className={`text-slate-500 dark:text-slate-400 ${syncing ? "animate-spin" : ""}`} />
-          </span>
-        </button>
+          <Landmark size={16} aria-hidden="true" />
+          Accounts
+        </Link>
       </div>
 
       {/* Caller-supplied banner — see HomeBriefProps.banner. Sits directly

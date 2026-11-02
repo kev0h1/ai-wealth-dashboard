@@ -44,7 +44,7 @@ assert.ok(page.includes("preferencesReady") && /hideNetWorthPref \|\| !preferenc
   assert.ok(!/<AccountMiniCard\b/.test(page), "no unmasked AccountMiniCard");
   assert.ok(!page.includes("showAdd=") && !page.includes("onToggleAdd"), "no legacy header Add props");
   assert.ok(!page.includes("AccountsAddFab") && !page.includes("ADD_FAB_LIST_CLEARANCE"), "no floating Add");
-  assert.ok(page.includes("onAdd={() => setAddMenuOpen(v => !v)}") && page.includes("addRef={addMenuRef}") && page.includes("updated={formatUpdated(kpis?.last_updated)}"), "header Add opens the existing menu; updated from kpis.last_updated");
+  assert.ok(page.includes("onAdd={() => setAddMenuOpen(v => !v)}") && page.includes("addRef={addMenuRef}") && page.includes("onRefresh: () => void overviewRefresh.refresh()"), "header Add opens the menu; G389 refresh reads bank times rather than KPI freshness");
   assert.ok(page.includes("showChip={preferencesReady && hideNetWorthPref}"), "privacy rail wired");
   assert.ok(page.includes("onShow={() => setHideNetWorth(false)}"), "the chip toggles the same global preference");
   assert.ok(!/useState\([^)]*hide/i.test(page), "no second local mask state");

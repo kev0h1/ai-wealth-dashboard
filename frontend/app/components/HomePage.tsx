@@ -241,11 +241,12 @@ export default function HomePage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncRetrying, setSyncRetrying] = useState(false);
   const [syncError, setSyncError] = useState(false);
-  // E11: a refresh inside a minute of the last one is answered 429. That is not
-  // a failure, so it shows as a neutral note and never reaches the error state.
+  // A retry inside a minute can be rate-limited. Keep that neutral feedback
+  // beside the Safe-to-Spend recovery control rather than the removed header
+  // sync action.
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
   const refreshNoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // G214: a manual refresh that failed stays marked on the hero (the 6s
+  // G214: a sync retry that failed stays marked on the hero (the 6s
   // `syncError` flag above only drives the brief's own line), and the figure
   // time we dim to is captured when the refresh starts, before it moves.
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -414,7 +415,7 @@ export default function HomePage() {
       const recentTxP = api.transactionsSearch({ page: 1, page_size: 12, activity_order: true });
       // This is where the old code kicked off the 90-day bulk fetch
       // directly. It's lazy now (see the homePinnedWidget effect below), but
-      // every loadData call — mount and every manual sync — still needs to
+      // every loadData call — mount and every sync retry — still needs to
       // trigger a refresh of it when the widget is pinned, so bump the nonce
       // that effect is keyed on instead of awaiting the fetch here.
       setBulkNonce((n) => n + 1);
@@ -628,7 +629,7 @@ export default function HomePage() {
   // /preferences once, async), so this effect re-fires whenever the value
   // changes rather than running once on mount — it no-ops while unset.
   // bulkNonce is what re-couples this fetch to loadData/handleSync: it's
-  // bumped once per loadData call, so a manual sync still refreshes the
+  // bumped once per loadData call, so a sync retry still refreshes the
   // pinned widget's data exactly as it did before this fetch was pulled out
   // of loadData's own body — while an unpinned widget still costs nothing,
   // since the guard below returns before the fetch (or any nonce bump from
@@ -1068,18 +1069,13 @@ export default function HomePage() {
 
           {/* ── THE BRIEF ── */}
           <div className="px-4 pt-5 lg:px-0 lg:pt-0" ref={greetingRef}>
-            {refreshNote && (
-              <p role="status" className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{refreshNote}</p>
-            )}
             <HomeBrief
               items={hasNoAccounts ? [] : companionItems}
               firstName={firstName}
               displayName={displayName}
               safeToSpend={safeToSpend}
               loading={loading}
-              syncing={syncing}
               syncError={syncError}
-              onSync={handleSync}
               hideNetWorth={hideNetWorth || !preferencesReady}
               onRefresh={loadData}
               attnTarget={attn}
@@ -1154,6 +1150,9 @@ export default function HomePage() {
           {!loadError && !hasNoAccounts && (
             <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-5" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
+              {refreshNote && (
+                <p role="status" className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{refreshNote}</p>
+              )}
               {!verdictWithheld && (stsLoading || safeToSpend != null || stsError) && (
                 <SafeToSpendCard
                   data={safeToSpend}

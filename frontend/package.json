@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g389-refresh": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g389-refresh.test.mjs",
     "dev": "next dev",
     "build": "next build",
     "build:mobile": "bash scripts/build-mobile.sh",
