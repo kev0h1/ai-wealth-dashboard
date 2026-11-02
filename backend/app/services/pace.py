@@ -31,7 +31,7 @@ from app.db.collections import (
     yapily_transactions_col,
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
-from app.services.own_account_transfers import series_key  # G403
+from app.services.categorisation import series_key
 from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
 from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
