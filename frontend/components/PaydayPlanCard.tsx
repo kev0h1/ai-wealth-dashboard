@@ -252,12 +252,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
         </p>
       )}
 
-      {/* Trimmed notice — amber (not red): spending top-ups were reduced to make the
+      {/* Trimmed notice — amber (not red): buffers were reduced to make the
           plan fit this month, informational not alarming. */}
       {item.trimmed && (
         <p className="flex items-start gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
-          <span>Spending top-ups trimmed to fit this month.</span>
+          <span>Buffers trimmed to fit this month.</span>
         </p>
       )}
 
@@ -344,6 +344,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
                   const destChip = resolveBankChip(dest.provider ?? "");
                   const breakdownParts: string[] = [];
                   if (dest.bills_total > 0) breakdownParts.push(`£${Math.round(dest.bills_total).toLocaleString("en-GB")} payments`);
+                  // New plans always carry spend_typical 0 (G402); this is for old persisted docs.
                   if (dest.spend_typical > 0) breakdownParts.push(`~£${Math.round(dest.spend_typical).toLocaleString("en-GB")} spending`);
                   const showUsual = dest.usual != null && Math.abs(dest.usual - dest.move) > 25;
                   return <div key={dest.account_id ?? di} data-destination-row data-destination-move={dest.move} className="flex min-h-12 items-center gap-2.5 py-2">
@@ -376,6 +377,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
             if (dest.bills_total > 0) {
               breakdownParts.push(`£${Math.round(dest.bills_total).toLocaleString("en-GB")} payments`);
             }
+            // New plans always carry spend_typical 0 (G402); this is for old persisted docs.
             if (dest.spend_typical > 0) {
               breakdownParts.push(`~£${Math.round(dest.spend_typical).toLocaleString("en-GB")} spending`);
             }
@@ -444,6 +446,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth: hideNetWort
       {item.salary && item.salary.stays > 0 && (
         <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-300 leading-snug">
           <MoneyText text={maskAmounts(`£${Math.round(item.salary.stays).toLocaleString("en-GB")} stays with you in ${item.salary.name}.`)} />
+        </p>
+      )}
+      {/* G402: the plan leaves habitual transfers to the user, and says so. */}
+      {item.habitual_note && (
+        <p className="mt-0.5 text-[12px] text-slate-400 dark:text-slate-500 leading-snug">
+          This doesn&apos;t include your habitual transfers
         </p>
       )}
 

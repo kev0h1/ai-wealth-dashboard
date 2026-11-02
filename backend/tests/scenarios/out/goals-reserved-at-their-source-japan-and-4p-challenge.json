@@ -333,6 +333,7 @@
           "usual": null
         }
       ],
+      "habitual_note": false,
       "id": "payday_plan:2026-10-30:871e3470ad",
       "salary": {
         "account_id": "acc-prem",

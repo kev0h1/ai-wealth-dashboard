@@ -1533,19 +1533,20 @@ export type PaydayPlanDest = {
   move: number;
   usual: number | null;
   /**
-   * Which target/move formula this destination follows (G129, backend/app/
-   * services/companion.py's dest-building loop): "savings" keeps its own
-   * accumulation formula (target = move + bills_total, no spend/buffer
-   * padding — the user's saving ritual, mirrored not auto-buffered);
-   * "spend" is the ordinary bill/everyday-spend account (target =
-   * bills_total + spend_typical + buffer). Optional only because older
-   * frozen fixtures captured before G129 landed don't carry it.
+   * @deprecated G402: always "spend". One formula for every row (bills leaving
+   * the account + declared needs sourced from it, a buffer only when bills
+   * leave it); account type is never consulted. The card does not read it.
+   * Kept so older frozen fixtures still type-check. Formerly (G129): which
+   * target/move formula this destination followed, "savings" or "spend".
    */
   destination_kind?: "savings" | "spend";
   /**
-   * True when this is a savings pot with nothing owed (no bills) but a
-   * habitual amount still moving — an accumulation top-up, not a shortfall
-   * to cover (G129, G128 note). Server-computed; never infer this from
+   * @deprecated G402: always false. A savings pot is never a payday plan
+   * destination any more and habitual mirroring is gone; the plan carries
+   * `habitual_note` instead. Kept so older frozen fixtures still type-check.
+   * Formerly: true when this was a savings pot with nothing owed (no bills)
+   * but a habitual amount still moving — an accumulation top-up, not a
+   * shortfall to cover (G129, G128 note). Server-computed; never infer this from
    * `target === 0`, which only ever held by accident of a backend defect
    * (G129) now fixed. Optional only for the same frozen-fixture reason as
    * `destination_kind` above.
@@ -1823,6 +1824,12 @@ export type CompanionItem = {
   dests?: PaydayPlanDest[];
   salary?: PaydayPlanSalary;
   trimmed?: boolean;
+  /**
+   * G402: true when the user has a habitual payday transfer the plan did not
+   * include (no row for that account, or a move below the usual amount). The
+   * card then says so in one line beside the "stays with you" figure.
+   */
+  habitual_note?: boolean;
   /** G350: present only when the suggested moves exceed the expected pay. */
   over_salary?: PaydayPlanOverSalary | null;
   /** G350: moves left out of this month's plan (empty when nothing was). */

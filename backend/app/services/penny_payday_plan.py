@@ -21,13 +21,15 @@ PAYDAY_PLAN_SCHEMA = {
         "name": "get_payday_plan",
         "description": (
             "The payday plan: how the next salary is expected to be split across the user's accounts "
-            "(what stays in the pay account, what to move to each other account for bills, typical "
-            "spending and a buffer), the date the next pay is expected, what leaves each account on "
+            "(what stays in the pay account, what to move to each other account to cover its bills, "
+            "goals and set-asides, plus a small buffer where bills leave it), the date the next pay is expected, what leaves each account on "
             "payday itself and any payday-day shortfall. Use it for 'what is my payday plan', 'how "
             "should my pay be split' and 'what happens on payday'. Quote the figures and the summary "
             "verbatim, never recompute them. It is a recommendation for the coming period with no "
-            "lifecycle: nothing to verify and nothing to celebrate. Pay is only ever expected, so "
-            "keep the hedging in the summary."
+            "lifecycle: nothing to verify and nothing to celebrate. It never includes everyday "
+            "spending, savings top-ups or the user's own habitual transfers; when habitual_note is "
+            "true, say that this does not include their habitual transfers. Pay is only ever "
+            "expected, so keep the hedging in the summary."
         ),
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
@@ -88,6 +90,8 @@ def _summary(plan: dict, split: dict | None, risk: dict | None) -> str:
         kept = ", ".join(f"{_gbp(k['amount']['raw'])} for {k['name']}" for k in keeps[:3])
         more = f" and {len(keeps) - 3} more" if len(keeps) > 3 else ""
         parts.append(f"The plan keeps {kept}{more} in {plan['salary']['name']}.")
+    if plan.get("habitual_note"):
+        parts.append("This doesn't include your habitual transfers.")
     over = plan.get("over_salary")
     if over:
         if over.get("over_pay"):
@@ -140,6 +144,8 @@ async def exec_get_payday_plan(uid: str) -> dict:
 
     label = await _labeller(uid)
     plan = pt._shape_payday_plan(item)
+    # G402: true when the user has a habitual transfer this plan does not include.
+    plan["habitual_note"] = bool(item.get("habitual_note"))
     salary = item.get("salary") or {}
     plan["salary"]["name"] = label(salary.get("account_id"), salary.get("name"), salary.get("provider"))
     for shaped, raw in zip(plan["dests"], item.get("dests") or []):

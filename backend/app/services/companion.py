@@ -3760,7 +3760,9 @@ async def compute_today_items(
                 return _total, _count, _skipped
 
             recurring_keys = {r.get("key") for r in (cached.get("recurring_spend") or []) if r.get("key")}
-            everyday_spend = await _per_account_everyday_spend(uid, recurring_keys)
+            # G402: everyday spending is not a payday-plan requirement (the app
+            # already shows where to spend from), so `_per_account_everyday_spend`
+            # is no longer read here and every destination's spend_typical is 0.
             usual_moves = await _usual_payday_moves(uid, salary_acct, pay_cfg)
             # G350: goals and set-asides are tracked at their SOURCE account,
             # never at the pot they end up in. The salary account's share is
@@ -3818,11 +3820,14 @@ async def compute_today_items(
                 return _total, _count
 
             _salary_bills_total, _ = _salary_bills_excl_own_dests(salary_acct)
-            _salary_spend_typical = int(everyday_spend.get(salary_acct, 0))
             _salary_keeps = source_needs.get(salary_acct) or {}
             _salary_keeps_total = round(float(_salary_keeps.get("amount") or 0.0), 2)
+            # G402: bills first, a buffer only where bills leave the account
+            # (bills vary), no everyday-spend padding.
             _salary_target = (
-                _salary_bills_total + _salary_spend_typical + payday_buffer + _salary_keeps_total
+                _salary_bills_total
+                + (payday_buffer if _salary_bills_total > 0 else 0)
+                + _salary_keeps_total
             )
             # Envelope reservation (owner fix, 2026-08-31): the salary
             # account is itself a SOURCE for this plan's own legs, so it
@@ -3842,6 +3847,13 @@ async def compute_today_items(
 
             dests: list[dict] = []
             _leg_meta: dict[str, dict] = {}
+            # G402: every habitual (usual) payday transfer the plan saw, by
+            # account, so `habitual_note` can say when the plan left any of
+            # them out (no row, or a move below the usual amount).
+            # Seeded from every usual move (an account the engine does not list
+            # can still receive one); the loop below nets off any part a
+            # salary-sourced goal feeds, as it does for the row's `usual`.
+            _habitual_seen: dict[str, int] = {k: int(v) for k, v in usual_moves.items()}
             for acc in all_uk_accounts:
                 acct_id = acc["_str_id"]
                 if is_credit_card_account(acc):
@@ -3869,28 +3881,31 @@ async def compute_today_items(
                 if usual is not None and _sink_keeps > 0:
                     _usual_left = usual - _sink_keeps
                     usual = max(0, int(round(_usual_left))) or None
-                _dest_is_savings = _is_savings(acc)
-                if _dest_is_savings:
-                    # Savings pots: the user's saving intent is theirs (Grow
-                    # owns recommendations) — mirror their ritual, never
-                    # auto-buffer. No spend/buffer padding; the move is
-                    # whatever they usually put in (accumulation, not
-                    # target-filling — e.g. £100/mo to Rainy Day continues
-                    # regardless of balance; pots with no habitual funding
-                    # get nothing). Bills billed to a savings account are
-                    # rare but still get covered on top.
-                    spend_typical = 0
-                    buffer = 0
-                    move = usual if usual else 0
-                    if bills_total > 0:
-                        move = max(move, _ceil5(max(0.0, bills_total - balance)))
-                    target = move + bills_total
+                if usual is not None:
+                    _habitual_seen[acct_id] = int(usual)
                 else:
-                    spend_typical = int(everyday_spend.get(acct_id, 0))
-                    buffer = payday_buffer
-                    target = bills_total + spend_typical + buffer
-                    move_raw = max(0.0, target - balance)
-                    move = _ceil5(move_raw) if move_raw > 0 else 0
+                    _habitual_seen.pop(acct_id, None)
+                # G402 (Kevin 2026-11-02, PRODUCT.md "The payday plan"): the
+                # destination test is positive and is the whole rule. An
+                # account is a destination when an upcoming recurring payment,
+                # set-aside, goal or one-off is taken FROM it in the coming
+                # period. Account type (current, savings, pot, ISA) is never
+                # consulted, so a pot with nothing leaving it never gets a row
+                # and a savings-typed account with a direct debit does. A goal
+                # or set-aside is a requirement on its SOURCE account (G350),
+                # never a row on the account it goes to, and a habitual
+                # standing order into any account is the user's own, covered by
+                # the plan's habitual transfers line.
+                # Requirement = predicted recurring payments due from this
+                # account + declared goals, set-asides and one-offs leaving
+                # from it (the G350 source need). No everyday-spend padding;
+                # a buffer only when bills leave the account, added after the
+                # bills are covered.
+                spend_typical = 0
+                buffer = payday_buffer if bills_total > 0 else 0
+                target = bills_total + buffer
+                move_raw = max(0.0, target - balance)
+                move = _ceil5(move_raw) if move_raw > 0 else 0
                 _nat_move = move  # the move before any source need (G350)
                 # G350: this account is the SOURCE of goal/set-aside money,
                 # so the plan must leave it enough to cover those needs: they
@@ -3901,27 +3916,13 @@ async def compute_today_items(
                     # The need is added in full (exact pennies) on top of the
                     # natural move, less any balance already sitting above
                     # this account's own target.
-                    if _dest_is_savings:
-                        _surplus = max(0.0, balance - bills_total)
-                        move = round(move + max(0.0, _need_total - _surplus), 2)
-                        target = move + bills_total
-                    else:
-                        _surplus = max(0.0, balance - target)
-                        move = round(move + max(0.0, _need_total - _surplus), 2)
-                        target = bills_total + spend_typical + buffer + _need_total
-                if not (move > 0 or usual is not None):
+                    _surplus = max(0.0, balance - target)
+                    move = round(move + max(0.0, _need_total - _surplus), 2)
+                    target = bills_total + buffer + _need_total
+                # An account with no requirement gets no row, whatever its
+                # balance or its habitual pattern.
+                if not (bills_total > 0 or _need_total > 0):
                     continue
-                # G129 fix: a savings pot with no bills owed but a habitual
-                # amount still moving (e.g. Kevin's Barclays "Personal GBP"
-                # pot, £0 owed, £100 moving) is an accumulation top-up, not a
-                # shortfall — the frontend must be told this explicitly
-                # rather than infer it from `target == 0`, which only held
-                # by accident of the re-derive bug below (G129 note,
-                # 2026-09-18). Computed here, before the trim phases, since
-                # neither `bills_total` nor `move` for a savings destination
-                # is touched by Phase 1/2 trimming (those only cut
-                # buffer/spend_typical, both 0 for savings).
-                _habitual_top_up = _dest_is_savings and bills_total <= 0 and move > 0
                 _dest_entry = {
                     "account_id": acct_id,
                     "name": _clean_name(acc.get("name"), acct_id),
@@ -3934,19 +3935,12 @@ async def compute_today_items(
                     "target": round(target, 2),
                     "move": round(move, 2),
                     "usual": int(usual) if usual is not None else None,
-                    # Explicit destination kind (G129) — "savings" carries its
-                    # own target formula (target = move + bills_total, no
-                    # spend/buffer padding, see above); "spend" is the
-                    # ordinary bill/everyday-spend account. The trimmed-month
-                    # re-derive block below reads this to decide which
-                    # formula to reapply, instead of unconditionally
-                    # overwriting every destination's target with the
-                    # non-savings formula.
-                    "destination_kind": "savings" if _dest_is_savings else "spend",
-                    # Explicit habitual-top-up flag (G129) — see comment
-                    # above `_habitual_top_up`. Never infer this from
-                    # `target == 0` on the frontend.
-                    "habitual_top_up": _habitual_top_up,
+                    # Deprecated (G402): one formula for every row, so this is
+                    # always "spend". Kept so older clients still parse the row.
+                    "destination_kind": "spend",
+                    # Deprecated (G402): habitual mirroring is gone, so this is
+                    # always False. Kept so older clients still parse the row.
+                    "habitual_top_up": False,
                     # Sum of MOVEMENT bills on THIS account excluded from
                     # `bills_total` above because their learned destination is
                     # one of the user's own accounts (see
@@ -3997,7 +3991,9 @@ async def compute_today_items(
                 trimmed = True
                 overage = total_moves - distributable
 
-                # Phase 1 — reduce each dest's buffer portion, largest-move
+                # Phase 1 (the only trim phase since G402; everyday spend is no
+                # longer padded in, so there is nothing else to scale) — reduce
+                # each dest's buffer portion, largest-move
                 # dest first, until the overage clears or every buffer hits 0.
                 for d in sorted(dests, key=lambda d: d["move"], reverse=True):
                     if overage <= 0:
@@ -4013,71 +4009,33 @@ async def compute_today_items(
                     d["move"] = max(0.0, d["move"] - cut)
                     overage -= cut
 
-                # Phase 2 — if overage remains, scale down spend_typical
-                # proportionally to each dest's share of the total spend_typical
-                # pool, never cutting a dest's move below its bills-only floor.
-                if overage > 0:
-                    _pool = sum(d["spend_typical"] for d in dests if d["spend_typical"] > 0)
-                    if _pool > 0:
-                        for d in dests:
-                            if overage <= 0 or d["spend_typical"] <= 0:
-                                continue
-                            weight = d["spend_typical"] / _pool
-                            share = overage * weight
-                            floor = max(0.0, d["bills_total"] - d["balance"])
-                            max_cut = max(0.0, d["move"] - (floor + _leg_floor(d)))
-                            cut = min(share, d["spend_typical"], max_cut)
-                            if cut <= 0:
-                                continue
-                            _cut_by[d["account_id"]] = _cut_by.get(d["account_id"], 0.0) + cut
-                            d["spend_typical"] -= cut
-                            d["target"] -= cut
-                            d["move"] = max(floor, d["move"] - cut)
-
                 # Re-derive final integer moves (respecting each dest's
-                # bills-only floor) and re-round the other fields.
-                #
-                # G129 fix: this used to recompute EVERY destination's
-                # target as bills_total + spend_typical + buffer,
-                # unconditionally overwriting a savings destination's own
-                # formula from the dest-building loop above (target = move +
-                # bills_total — see that loop's comment). Neither
-                # spend_typical nor buffer is ever non-zero for a savings
-                # destination (both trim phases above only cut those two
-                # fields, and they start at 0 for savings), so the old line
-                # silently collapsed a savings pot's target to its
-                # bills_total alone — 0 whenever the pot has no bills, even
-                # while `move` stayed positive (Kevin's Barclays "Personal
-                # GBP" pot: target 0, move 100). `destination_kind` (set
-                # above) is read here so each kind keeps its own formula
-                # through this re-derive, exactly as it had it before
-                # trimming.
+                # bills-only floor) and re-round the other fields. G402: one
+                # formula for every destination (bills + buffer + source
+                # need); the savings branch and the spend_typical scaling
+                # phase are gone because neither can occur any more.
                 for d in dests:
                     floor = max(0.0, d["bills_total"] - d["balance"])
                     floor_ceil = _ceil5(floor) if floor > 0 else 0
                     move_ceil = _ceil5(d["move"]) if d["move"] > 0 else 0
                     d["move"] = max(move_ceil, round(floor_ceil + _leg_floor(d), 2))
                     d["buffer"] = int(round(d["buffer"]))
-                    d["spend_typical"] = int(round(d["spend_typical"]))
-                    if d.get("destination_kind") == "savings":
-                        d["target"] = d["move"] + int(round(d["bills_total"]))
-                    else:
-                        d["target"] = round(
-                            int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
-                            + (_leg_meta.get(d["account_id"]) or {}).get("need", 0.0), 2,
-                        )
+                    d["target"] = round(
+                        int(round(d["bills_total"])) + d["buffer"]
+                        + (_leg_meta.get(d["account_id"]) or {}).get("need", 0.0), 2,
+                    )
 
                 total = sum(d["move"] for d in dests)
             else:
                 total = total_moves
 
             # ── G350: never an over-pay plan shown silently ────────────────
-            # Buffers and spending top-ups are "trimmed" above (they are
-            # padding). If the moves STILL add up to more than can be
-            # distributed, deferrable legs are left out, largest first (the
-            # last may be reduced rather than dropped): set-aside and goal
-            # legs, then habitual top-ups to savings pots above their bills
-            # floor. A destination's bills floor is never cut. Each cut is
+            # Buffers are "trimmed" above (they are padding). If the moves
+            # STILL add up to more than can be distributed, deferrable legs
+            # are left out, largest first (the last may be reduced rather
+            # than dropped): set-aside and goal legs. A destination's bills
+            # floor is never cut (G402: no habitual savings legs exist any
+            # more, so there is nothing else to defer). Each cut is
             # recorded in `left_out`; what remains over after that is
             # `over_salary`. Destinations past the 10-row cap are always
             # listed (kind "destination").
@@ -4091,10 +4049,7 @@ async def compute_today_items(
 
             def _cut_move(d: dict, cut: float) -> None:
                 d["move"] = round(d["move"] - cut, 2)
-                if d.get("destination_kind") == "savings":
-                    d["target"] = round(d["move"] + int(round(d["bills_total"])), 2)
-                else:
-                    d["target"] = round(d["target"] - cut, 2)
+                d["target"] = round(d["target"] - cut, 2)
 
             def _drop_reason(d: dict, leg: dict, cut: float) -> None:
                 # Keep the shipped `reasons` honest: a dropped leg disappears,
@@ -4134,21 +4089,6 @@ async def compute_today_items(
                     _drop_reason(d, _l, _cut)
                     _over -= _cut
                     left_out.append({"name": _l["name"], "kind": _l["kind"], "amount": round(_cut, 2)})
-                if _over > _eps:
-                    for d in sorted(dests, key=lambda d: d["move"], reverse=True):
-                        if _over <= _eps:
-                            break
-                        if d.get("destination_kind") != "savings" or not d.get("usual"):
-                            continue
-                        _bf = max(0.0, d["bills_total"] - d["balance"])
-                        _bf = _ceil5(_bf) if _bf > 0 else 0
-                        _freed = d["move"] - (_bf + _leg_floor(d))
-                        if _freed <= _eps:
-                            continue
-                        _cut = min(_freed, _over)
-                        _cut_move(d, _cut)
-                        _over -= _cut
-                        left_out.append({"name": d["name"], "kind": "usual", "amount": round(_cut, 2)})
                 total = round(sum(d["move"] for d in dests), 2)
                 if total - distributable > _eps:
                     over_salary = {
@@ -4166,6 +4106,15 @@ async def compute_today_items(
             # Every destination this plan is ACTUALLY funding this window
             # (move > 0) — see the unfunded_move owner-extension (5d) below.
             _pp_dest_ids_final = {d["account_id"] for d in dests if d["move"] > 0}
+
+            # G402: true when the user has a habitual payday transfer the plan
+            # did not include (the account has no row, or its final move is
+            # below the usual amount). The card then says so in one line.
+            _final_move = {d["account_id"]: d["move"] for d in dests}
+            habitual_note = any(
+                _u > 0 and _final_move.get(_aid, 0) < _u
+                for _aid, _u in _habitual_seen.items()
+            )
 
             n_moves = len([d for d in dests if d["move"] > 0])
             covered = bool(round(total, 2) <= round(distributable, 2))
@@ -4212,11 +4161,11 @@ async def compute_today_items(
             elif left_out and covered:
                 body = f"£{_gbp_num(total)} distributed. Some moves were left out this month."
             elif covered and trimmed:
-                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp_num(total)} distributed."
+                body = f"A tight month: buffers trimmed so it fits. £{_gbp_num(total)} distributed."
             elif covered:
                 body = f"£{total:,} distributed, £{stays:,} stays in {_salary_name}."
             elif trimmed:
-                body = f"A tight month: spending top-ups trimmed so it fits. £{_gbp_num(total)} distributed."
+                body = f"A tight month: buffers trimmed so it fits. £{_gbp_num(total)} distributed."
             else:
                 body = f"£{total:,} distributed across {n_moves} accounts."
 
@@ -4339,6 +4288,7 @@ async def compute_today_items(
                         ],
                     },
                     "dests": dests,
+                    "habitual_note": bool(habitual_note),
                     "over_salary": over_salary,
                     "left_out": left_out,
                     "plan_period": _plan_period_out,
@@ -4392,6 +4342,7 @@ async def compute_today_items(
                         "_window_end": window_end.isoformat(),
                         "covered": covered,
                         "dests": dests,
+                        "habitual_note": bool(habitual_note),
                         "salary": payday_plan_item["salary"],
                         "trimmed": bool(trimmed),
                         "over_salary": over_salary,

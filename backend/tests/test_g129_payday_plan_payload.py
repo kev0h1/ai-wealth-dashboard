@@ -178,21 +178,21 @@ def _dest(plan, acct_id):
 
 
 def _run_trim_scenario(monkeypatch):
-    """One trimmed-month payday plan with a savings destination (habitual
-    £100 top-up, no bills owed) and a bill destination (£200 owed) whose
-    combined moves (£350, before trimming) exceed what SALARY_ACCT can
-    distribute (£350 balance, minus its own £50 buffer = £300; G350 raised this
-    from £100 so the trim stays buffer-only and the habitual savings top-up
-    is not left out, which is what the over-pay path now does) — forcing
-    `trimmed = True` and exercising the re-derive block defect (1) lives in.
-    The salary income (£999) is kept deliberately different from `total`
-    (£300, after trimming) so defect (2)'s headline bug is unambiguous
-    either way it's fixed or not."""
+    """One trimmed-month payday plan (G402 rule: bills first, a buffer only
+    where bills leave, an account is a destination only when something is taken from it).
+
+    Hand derivation: SALARY_ACCT holds 200, owes no bills and keeps nothing,
+    so distributable = 200. BILL_ACCT owes a 200 bill from a 0 balance:
+    requirement 200, buffer 50 (bills leave it), target 250, move 250. The
+    habitual 100 into the savings pot is not a row. 250 > 200, so Phase 1
+    cuts the 50 buffer: move 200, buffer 0, target 200, total 200, trimmed.
+    The salary income (999) differs from the total (200) so the headline
+    defect (2) stays unambiguous."""
     today_d = timeutil.user_today()
     pay_period, companion_items_col = _base_patch(
         monkeypatch,
         accounts=[
-            _account(SALARY_ACCT, 350.0, "Salary Account"),
+            _account(SALARY_ACCT, 200.0, "Salary Account"),
             _account(SAVINGS_ACCT, 0.0, "Personal GBP", subtype="SAVINGS"),
             _account(BILL_ACCT, 0.0, "Everyday"),
         ],
@@ -222,46 +222,33 @@ def _run_trim_scenario(monkeypatch):
     return plan
 
 
-# ── Defect 1: savings destination target survives the trimmed re-derive ────
+# ── G402: the saver has nothing leaving it so no row, the bill account is trimmed ─
 
-def test_trimmed_savings_destination_reports_its_own_target(monkeypatch):
+def test_trimmed_plan_has_no_savings_destination_and_says_so(monkeypatch):
     plan = _run_trim_scenario(monkeypatch)
-    savings = _dest(plan, SAVINGS_ACCT)
-    assert savings["move"] == 100
-    assert savings["bills_total"] == 0
-    assert savings["target"] == savings["move"] + savings["bills_total"]
-    assert savings["target"] != 0, (
-        "a savings pot with nothing owed but a habitual amount moving must "
-        "not report target 0 — that's the G129 defect, not a real reading"
-    )
+    assert [d["account_id"] for d in plan["dests"]] == [BILL_ACCT]
+    # The habitual 100 into the pot is the user's own, so the plan says it
+    # does not include it.
+    assert plan["habitual_note"] is True
 
 
 def test_trimmed_bill_destination_target_unaffected_by_the_fix(monkeypatch):
     plan = _run_trim_scenario(monkeypatch)
     bill_dest = _dest(plan, BILL_ACCT)
-    # The non-savings formula is exactly what the re-derive block already
-    # used before G129 — this destination's target must come out the same
-    # whether the block branches on destination_kind or not.
+    assert bill_dest["bills_total"] == 200
+    assert bill_dest["buffer"] == 0, "Phase 1 cut the whole 50 buffer"
+    assert bill_dest["spend_typical"] == 0
+    assert bill_dest["move"] == 200
     assert bill_dest["target"] == (
         bill_dest["bills_total"] + bill_dest["spend_typical"] + bill_dest["buffer"]
-    )
+    ) == 200
 
 
-def test_habitual_top_up_flag_explicit_not_inferred(monkeypatch):
+def test_habitual_top_up_flag_is_deprecated_and_always_false(monkeypatch):
     plan = _run_trim_scenario(monkeypatch)
-    savings = _dest(plan, SAVINGS_ACCT)
     bill_dest = _dest(plan, BILL_ACCT)
-
-    assert savings["destination_kind"] == "savings"
     assert bill_dest["destination_kind"] == "spend"
-
-    assert savings["habitual_top_up"] is True, (
-        "nothing owed (bills_total 0) but £100 habitually moving is exactly "
-        "the top-up shape G128's note describes"
-    )
-    assert bill_dest["habitual_top_up"] is False, (
-        "an ordinary bill destination is never a habitual top-up"
-    )
+    assert bill_dest["habitual_top_up"] is False
 
 
 # ── Defect 2: the headline must quote the distributed total, not salary ────
@@ -269,7 +256,7 @@ def test_habitual_top_up_flag_explicit_not_inferred(monkeypatch):
 def test_headline_quotes_distributed_total_not_salary_amount(monkeypatch):
     plan = _run_trim_scenario(monkeypatch)
     assert plan["salary"]["amount"] == 999
-    assert plan["total"] == 300
+    assert plan["total"] == 200
 
     assert f"£{plan['total']:,}" in plan["headline"], (
         "the headline must name the amount actually distributed across the "

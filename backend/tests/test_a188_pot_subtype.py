@@ -138,19 +138,24 @@ def _pot_doc(acct_id, subtype):
 
 
 def test_plan_gives_a_stored_pot_no_move_and_no_buffer(monkeypatch):
+    # G402 hand derivation: SALARY_ACCT 1000, no bills, so distributable 1000.
+    # Everyday owes a 200 bill from 0: buffer 50 (bills leave it), target 250,
+    # move 250. Pots with nothing leaving them (no bill, goal or set-aside) have no row
+    # and no buffer, and neither does the Rainy day pot with its habitual 100,
+    # which is why the plan says it does not include habitual transfers. Stays 1000 - 250 = 750.
     plan = _plan(monkeypatch, [_pot_doc("pot-a", "SAVINGS"), _pot_doc("pot-b", "SAVINGS")])
-    assert not any(d["account_id"] in ("pot-a", "pot-b") for d in plan["dests"])
-    saver = _dest(plan, SAVER)  # class-savings pot: mirrors the habit, never buffered
-    assert saver["destination_kind"] == "savings" and saver["buffer"] == 0 and saver["move"] == 100
+    assert [d["account_id"] for d in plan["dests"]] == [BILL_ACCT]
     everyday = _dest(plan, BILL_ACCT)
-    # a real current account: bills + typical spend + buffer, minus balance
     assert everyday["destination_kind"] == "spend"
     assert everyday["bills_total"] == 200 and everyday["buffer"] == 50
-    assert everyday["move"] == everyday["bills_total"] + everyday["spend_typical"] + 50
     assert everyday["spend_typical"] == 0 and everyday["move"] == 250
+    assert plan["salary"]["stays"] == 750
+    assert plan["habitual_note"] is True
 
 
-def test_unfixed_class_current_pot_would_be_buffered(monkeypatch):
-    # Documents the A188 defect shape: this is why the sync test above matters.
+def test_unfixed_class_current_pot_gets_no_row_without_a_requirement(monkeypatch):
+    # A188 shipped by storing pots as savings. Since G402 even a pot that is
+    # still stored as a current account gets no row, because it has no bills
+    # and no goal or set-aside leaving it: no requirement, no row, no buffer.
     plan = _plan(monkeypatch, [_pot_doc("pot-a", "TRANSACTION")])
-    assert _dest(plan, "pot-a")["buffer"] == 50
+    assert not any(d["account_id"] == "pot-a" for d in plan["dests"])
