@@ -81,7 +81,12 @@ def _dest(plan, acct):
 def test_goal_sourced_from_the_salary_account_is_kept_not_moved(monkeypatch):
     accounts = [_account(SALARY_ACCT, 3000.0), _sav(POT)]
     baseline = _plan(monkeypatch, {}, accounts=accounts, transactions=_usual_into_pot(100.0))
-    assert _dest(baseline, POT)["move"] == 100  # today's "Personal GBP £100, funds Japan"
+    # G402: a habitual 100 into a pot with nothing leaving it is no row; the plan
+    # only says it does not include it. Hand figures: salary 3000, no bills, so
+    # distributable and stays are 3000.
+    assert _dest(baseline, POT) is None
+    assert baseline["habitual_note"] is True
+    assert baseline["salary"]["stays"] == 3000
     needs = {SALARY_ACCT: _need(100.0, ("Japan", "goal", 100.0, [POT]))}
     plan = _plan(monkeypatch, needs, accounts=accounts, transactions=_usual_into_pot(100.0))
     assert _dest(plan, POT) is None, "the pot is never a destination for a salary-sourced goal"
@@ -89,8 +94,11 @@ def test_goal_sourced_from_the_salary_account_is_kept_not_moved(monkeypatch):
         {"name": "Japan", "kind": "goal", "amount": 100.0, "source_assumed": False}
     ]
     assert plan["total"] == 0
-    # Counted once: the £100 moved from "moving" to "kept", so stays is unchanged.
-    assert plan["salary"]["stays"] == baseline["salary"]["stays"]
+    # Counted once: the 100 is kept in the salary account (target 100), so stays
+    # is 3000 - 100 = 2900. The habitual 100 into the pot is that need (netted
+    # off), so nothing habitual is left out and the note is off.
+    assert plan["salary"]["stays"] == 2900
+    assert plan["habitual_note"] is False
 
 
 def test_salary_keeps_reduce_distributable_once(monkeypatch):
@@ -107,7 +115,9 @@ def test_set_aside_sourced_from_another_account_raises_that_accounts_move(monkey
     needs = {MONZO: _need(120.0, ("Saving Challenge", "set_aside", 120.0, [POT]))}
     plan = _plan(monkeypatch, needs, accounts=accounts)
     d = _dest(plan, MONZO)
-    assert d["move"] == 170  # its own £50 buffer move plus the period's total
+    # G402: no bill leaves Monzo, so no buffer; requirement = the 120 set-aside,
+    # balance 0, move 120.
+    assert d["move"] == 120
     assert d["reasons"] == [{"name": "Saving Challenge", "kind": "set_aside", "amount": 120.0}]
     assert _dest(plan, POT) is None, "never routed into the pot"
     assert plan["salary"]["keeps"] == []

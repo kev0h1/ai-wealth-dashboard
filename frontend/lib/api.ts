@@ -1533,13 +1533,11 @@ export type PaydayPlanDest = {
   move: number;
   usual: number | null;
   /**
-   * Which target/move formula this destination follows (G129, backend/app/
-   * services/companion.py's dest-building loop): "savings" keeps its own
-   * accumulation formula (target = move + bills_total, no spend/buffer
-   * padding — the user's saving ritual, mirrored not auto-buffered);
-   * "spend" is the ordinary bill/everyday-spend account (target =
-   * bills_total + spend_typical + buffer). Optional only because older
-   * frozen fixtures captured before G129 landed don't carry it.
+   * @deprecated G402: always "spend". One formula for every row (bills leaving
+   * the account + declared needs sourced from it, a buffer only when bills
+   * leave it); account type is never consulted. The card does not read it.
+   * Kept so older frozen fixtures still type-check. Formerly (G129): which
+   * target/move formula this destination followed, "savings" or "spend".
    */
   destination_kind?: "savings" | "spend";
   /**

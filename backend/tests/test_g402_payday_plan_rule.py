@@ -2,9 +2,9 @@
 
 requirement = predicted recurring payments from the account + declared goals,
 set-asides and one-offs leaving it; buffer only when bills leave the account,
-added after the bills; no everyday spend; a pot, savings account or ISA is
-never a destination; an account with no requirement gets no row. Every figure
-below is derived by hand in the test. Account and bill names are generic.
+added after the bills; no everyday spend; an account gets a row only when
+something is taken from it, and account type (current, savings, pot, ISA) is
+never consulted. Every figure below is derived by hand in the test. Account and bill names are generic.
 """
 import asyncio
 from datetime import datetime, timedelta
@@ -86,8 +86,8 @@ def test_account_already_covered_keeps_its_row_at_zero(monkeypatch):
     assert d["move"] == 0 and d["target"] == 150 and d["buffer"] == 50
 
 
-def test_savings_account_is_never_a_destination_and_habitual_note_is_set(monkeypatch):
-    # A habitual 100 into the saver is the user's own: no row, note true.
+def test_savings_account_with_nothing_leaving_it_has_no_row_and_habitual_note_is_set(monkeypatch):
+    # A habitual 100 into the saver has no item behind it: no row, note true.
     plan = _plan(
         monkeypatch,
         [_account(SALARY_ACCT, 1000.0, "Pay"), _account(BILLS, 0.0, "Bills"),
@@ -98,6 +98,42 @@ def test_savings_account_is_never_a_destination_and_habitual_note_is_set(monkeyp
     assert [d["account_id"] for d in plan["dests"]] == [BILLS]
     assert plan["habitual_note"] is True
     assert all(d["habitual_top_up"] is False for d in plan["dests"])
+
+
+def test_savings_typed_account_with_a_direct_debit_is_a_destination(monkeypatch):
+    # The test is positive and ignores type: the saver pays a 40 direct debit
+    # from a 0 balance, so requirement 40, buffer 50 (a payment leaves it),
+    # target 90, move ceil5(90) = 90. Same formula as a current account.
+    plan = _plan(
+        monkeypatch,
+        [_account(SALARY_ACCT, 1000.0, "Pay"), _account(SAVER, 0.0, "Saver", subtype="SAVINGS")],
+        [_bill("Direct debit", 2, 40.0, account_id=SAVER)],
+    )
+    d = _dest(plan, SAVER)
+    assert (d["bills_total"], d["buffer"], d["target"], d["move"]) == (40, 50, 90, 90)
+    assert d["destination_kind"] == "spend"
+
+
+def test_pot_with_a_set_aside_funded_from_it_is_a_destination(monkeypatch):
+    # A set-aside sourced from the pot (G350 source need 60): no bills, so no
+    # buffer; target 60, balance 0, move 60 with the reason attached. A
+    # current account with nothing due (BARE) has no row.
+    async def needs(*_a, **_k):
+        return {SAVER: {"amount": 60.0, "source_assumed": False, "reasons": [
+            {"name": "Holiday", "kind": "set_aside", "amount": 60.0, "source_assumed": False, "to": []},
+        ]}}
+
+    monkeypatch.setattr(companion, "_plan_source_needs", needs)
+    plan = _plan(
+        monkeypatch,
+        [_account(SALARY_ACCT, 1000.0, "Pay"), _account(SAVER, 0.0, "Pot", subtype="SAVINGS"),
+         _account(BARE, 0.0, "Bare")],
+        [],
+    )
+    assert [d["account_id"] for d in plan["dests"]] == [SAVER]
+    d = _dest(plan, SAVER)
+    assert (d["buffer"], d["target"], d["move"]) == (0, 60, 60)
+    assert [r["name"] for r in d["reasons"]] == ["Holiday"]
 
 
 def test_habitual_note_false_when_the_plan_move_covers_the_usual_amount(monkeypatch):

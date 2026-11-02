@@ -140,9 +140,9 @@ def _pot_doc(acct_id, subtype):
 def test_plan_gives_a_stored_pot_no_move_and_no_buffer(monkeypatch):
     # G402 hand derivation: SALARY_ACCT 1000, no bills, so distributable 1000.
     # Everyday owes a 200 bill from 0: buffer 50 (bills leave it), target 250,
-    # move 250. A savings pot is never a destination (no row, no buffer) and
-    # neither is the Rainy day pot with its habitual 100, which is why the
-    # plan says it does not include habitual transfers. Stays 1000 - 250 = 750.
+    # move 250. Pots with nothing leaving them (no bill, goal or set-aside) have no row
+    # and no buffer, and neither does the Rainy day pot with its habitual 100,
+    # which is why the plan says it does not include habitual transfers. Stays 1000 - 250 = 750.
     plan = _plan(monkeypatch, [_pot_doc("pot-a", "SAVINGS"), _pot_doc("pot-b", "SAVINGS")])
     assert [d["account_id"] for d in plan["dests"]] == [BILL_ACCT]
     everyday = _dest(plan, BILL_ACCT)

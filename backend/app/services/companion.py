@@ -3878,14 +3878,17 @@ async def compute_today_items(
                     _habitual_seen[acct_id] = int(usual)
                 else:
                     _habitual_seen.pop(acct_id, None)
-                # G402 (Kevin 2026-11-02, PRODUCT.md "The payday plan"): a pot,
-                # savings account or ISA is never a destination. Saving leaves
-                # from a current account, so a goal or set-aside is a
-                # requirement on its SOURCE account (G350), and a habitual
-                # standing order into a savings account is the user's own,
-                # covered by the plan's habitual transfers line.
-                if _is_savings(acc):
-                    continue
+                # G402 (Kevin 2026-11-02, PRODUCT.md "The payday plan"): the
+                # destination test is positive and is the whole rule. An
+                # account is a destination when an upcoming recurring payment,
+                # set-aside, goal or one-off is taken FROM it in the coming
+                # period. Account type (current, savings, pot, ISA) is never
+                # consulted, so a pot with nothing leaving it never gets a row
+                # and a savings-typed account with a direct debit does. A goal
+                # or set-aside is a requirement on its SOURCE account (G350),
+                # never a row on the account it goes to, and a habitual
+                # standing order into any account is the user's own, covered by
+                # the plan's habitual transfers line.
                 # Requirement = predicted recurring payments due from this
                 # account + declared goals, set-asides and one-offs leaving
                 # from it (the G350 source need). No everyday-spend padding;
@@ -3925,9 +3928,8 @@ async def compute_today_items(
                     "target": round(target, 2),
                     "move": round(move, 2),
                     "usual": int(usual) if usual is not None else None,
-                    # Destination kind (G129). Since G402 every destination is
-                    # "spend" (a pot, savings account or ISA is never one); the
-                    # field stays because the card reads it to choose its formula.
+                    # Deprecated (G402): one formula for every row, so this is
+                    # always "spend". Kept so older clients still parse the row.
                     "destination_kind": "spend",
                     # Deprecated (G402): habitual mirroring is gone, so this is
                     # always False. Kept so older clients still parse the row.

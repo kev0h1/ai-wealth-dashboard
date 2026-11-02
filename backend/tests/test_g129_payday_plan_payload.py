@@ -179,7 +179,7 @@ def _dest(plan, acct_id):
 
 def _run_trim_scenario(monkeypatch):
     """One trimmed-month payday plan (G402 rule: bills first, a buffer only
-    where bills leave, a savings pot is never a destination).
+    where bills leave, an account is a destination only when something is taken from it).
 
     Hand derivation: SALARY_ACCT holds 200, owes no bills and keeps nothing,
     so distributable = 200. BILL_ACCT owes a 200 bill from a 0 balance:
@@ -222,7 +222,7 @@ def _run_trim_scenario(monkeypatch):
     return plan
 
 
-# ── G402: the savings pot is never a destination, the bill account is trimmed ─
+# ── G402: the saver has nothing leaving it so no row, the bill account is trimmed ─
 
 def test_trimmed_plan_has_no_savings_destination_and_says_so(monkeypatch):
     plan = _run_trim_scenario(monkeypatch)

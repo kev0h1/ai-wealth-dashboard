@@ -422,7 +422,7 @@
       "type": "needle"
     }
   ],
-  "name": "Payday plan, G402 rule: bills first, buffer only where bills leave, no spend padding, no pot or savings row, habitual transfers noted (salary landed, not yet posted, G362 gap kept)",
+  "name": "Payday plan, G402 rule: bills first, buffer only where bills leave, no spend padding, no row for an account with nothing leaving it, habitual transfers noted (salary landed, not yet posted, G362 gap kept)",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
