@@ -9,7 +9,7 @@
 // Rendered across AccountsPage and HomePage.
 
 import { AlertTriangle, Info, Star } from "lucide-react";
-import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
+import { BankIcon, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
@@ -236,7 +236,7 @@ export default function AccountLedgerRow({
       aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : moneyStr(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
-      <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
+      <BankIcon identity={brandAccountFor(row)} altText={brand.label} />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1 min-w-0">

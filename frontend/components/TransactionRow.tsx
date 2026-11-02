@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Transaction, logoUrl } from "@/lib/api";
+import { BankIcon } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -113,14 +114,43 @@ function getMerchantDomain(name: string): string | null {
   return null;
 }
 
+// This list deliberately matches full normalised descriptions only. A bank
+// transfer can use a bank name as its merchant, but an arbitrary merchant
+// string must never become a bank just because it contains one word.
+const BANK_MERCHANT_ALIASES: Record<string, string> = {
+  BARCLAYS: "Barclays",
+  BARCLAYCARD: "Barclays",
+  HSBC: "HSBC",
+  NATWEST: "NatWest",
+  NAT_WEST: "NatWest",
+  MONZO: "Monzo",
+  STARLING: "Starling",
+  REVOLUT: "Revolut",
+  CHASE: "Chase",
+  CHASE_UK: "Chase",
+  AMEX: "Amex",
+  AMERICAN_EXPRESS: "American Express",
+  AMERICAN_EXPRESS_UK: "American Express",
+  NATIONWIDE: "Nationwide",
+  NATIONWIDE_BUILDING_SOCIETY: "Nationwide",
+  TIDE: "Tide",
+};
+
+export function bankProviderForMerchant(name: string): string | null {
+  const key = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return BANK_MERCHANT_ALIASES[key] ?? null;
+}
+
 function initialFor(name: string): string {
   const m = name.match(/[a-z0-9]/i);
   return m ? m[0].toUpperCase() : "•";
 }
 
-function MerchantIcon({ transaction, colour }: { transaction: Transaction; colour: string }) {
+export function MerchantIcon({ transaction, colour }: { transaction: Transaction; colour: string }) {
   const [imgFailed, setImgFailed] = useState(false);
   const name = transaction.merchant_name || transaction.description || "";
+  const bankProvider = bankProviderForMerchant(name);
+  if (bankProvider) return <BankIcon identity={{ provider: bankProvider }} altText="" size={36} />;
   const domain = !imgFailed ? getMerchantDomain(name) : null;
 
   if (domain) {

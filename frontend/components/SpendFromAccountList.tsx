@@ -1,4 +1,4 @@
-import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
+import { BankIcon, accountBrand } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import { displayAccountName } from "@/lib/accountName";
 import type { SpendFromAccount } from "@/lib/spendFromAccount";
@@ -52,11 +52,9 @@ export default function SpendFromAccountList({
               data-spend-from-account={entry.accountId}
               className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-2"
             >
-              <BankBadge
-                logoSrc={brand.logoSrc}
-                initials={brand.initials}
+              <BankIcon
+                identity={entry.account}
                 altText=""
-                brandBg={brand.background}
                 size={24}
                 onLogoError={brand.logoSrc ? () => onLogoError(brand.logoSrc!) : undefined}
               />
