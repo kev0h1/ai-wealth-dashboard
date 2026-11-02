@@ -6448,16 +6448,27 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
         d = t["date"]
         return d.date() if hasattr(d, "date") else d
 
+    # G390: bucket debits by (currency, pennies) once. The all-pairs scan used
+    # to recompute both rows' keys inside the inner loop (a Decimal parse per
+    # comparison), which dominated the cold read; only same-key rows can pair,
+    # and the candidates are fully re-sorted below, so visit order is moot.
+    debits_by_key: dict = defaultdict(list)
+    for d in debits:
+        if str(d["_id"]) in active_separate_ids:
+            continue
+        d_key = _pair_key(d)
+        if d_key is not None:
+            debits_by_key[d_key].append(d)
+
     candidates = []  # (date_diff, amount, credit, debit, pair_key)
     for c in credits:
         if str(c["_id"]) in active_separate_ids:
             continue
+        c_pair_key = _pair_key(c)
+        if c_pair_key is None:
+            continue
         c_day = _day(c)
-        for d in debits:
-            if str(d["_id"]) in active_separate_ids:
-                continue
-            if _pair_key(c) is None or _pair_key(c) != _pair_key(d):
-                continue
+        for d in debits_by_key.get(c_pair_key, ()):
             if c.get("account_id") == d.get("account_id"):
                 continue
             date_diff = abs((c_day - _day(d)).days)
