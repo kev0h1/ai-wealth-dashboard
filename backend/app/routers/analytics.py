@@ -4469,10 +4469,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             if display_d > window_end.date():
                 continue
             _occ_kind = kind_of(kind_map, r.get("category"))
+            _bill_label = r.get("display_name") or repayment_display_name(
+                r["key"], r.get("card_dest_account_name") and display_account_name(r.get("card_dest_account_name")))
             entries.append({
                 "name":            r["key"],
-                "display_name":    r.get("display_name") or repayment_display_name(
-                    r["key"], r.get("card_dest_account_name") and display_account_name(r.get("card_dest_account_name"))),
+                # Only present for a per-card repayment key (G403), so every other bill keeps its shape.
+                **({"display_name": _bill_label} if _bill_label else {}),
                 "amount":          final_amount,
                 "expected_date":   display_d.isoformat(),
                 "days_away":       (display_d - today_d).days,
