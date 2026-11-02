@@ -290,6 +290,7 @@ function CardBalanceFact({
   wording,
   dueDate,
   amount,
+  showCardsLink,
   muted = false,
 }: {
   growth: number;
@@ -299,6 +300,7 @@ function CardBalanceFact({
   wording: "carried" | "cleared_monthly" | null | undefined;
   dueDate: string | null;
   amount: (value: number) => string;
+  showCardsLink: boolean;
   /** G214: while a sync runs, no amber signifier. */
   muted?: boolean;
 }) {
@@ -323,12 +325,20 @@ function CardBalanceFact({
           <span className="money ml-auto shrink-0 text-[13px]"><MoneyText text={amount(headline)} /></span>
         </DisclosureSummary>
         <div className="space-y-2 pb-3 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            {hasUnconfirmedReserve
+              ? <p className="flex items-center gap-1.5"><AlertCircle size={13} aria-hidden="true" className={muted ? "text-slate-400" : "text-amber-700 dark:text-amber-300"} />Repayment not confirmed</p>
+              : <p><MoneyText text={`You've spent ${amount(newSpend)} on credit cards this pay period.`} /></p>}
+            {showCardsLink && (
+              <Link href="/cards" className="inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] [@media(hover:hover)]:hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transform-none motion-reduce:transition-none dark:bg-indigo-400/10 dark:text-indigo-300 dark:[@media(hover:hover)]:hover:bg-indigo-400/15 [-webkit-tap-highlight-color:transparent]">
+                See your cards<ArrowRight size={15} aria-hidden="true" />
+              </Link>
+            )}
+          </div>
           {hasUnconfirmedReserve ? <>
-            <p className="flex items-center gap-1.5"><AlertCircle size={13} aria-hidden="true" className={muted ? "text-slate-400" : "text-amber-700 dark:text-amber-300"} />Repayment not confirmed</p>
             <p><MoneyText text={`${amount(reserve)} is already held back because the repayment isn't confirmed.`} /></p>
             {finalPosition < 0 && <p><MoneyText text={`That leaves a ${amount(Math.abs(finalPosition))} safety shortfall.`} /></p>}
           </> : <>
-            <p><MoneyText text={`You've spent ${amount(newSpend)} on credit cards this pay period.`} /></p>
             <p>Purchases only. Balance transfers and repayments are not counted here.{wording === "cleared_monthly" && due ? ` Due around ${due}. Its repayment is forecast separately.` : wording === "cleared_monthly" ? " Its repayment is forecast separately." : ""}</p>
           </>}
         </div>
@@ -589,7 +599,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     && Math.abs((data.spendable_now - data.bills_total + data.income_before_payday) - exactLowestProjected) < 0.02;
   const recovery = sync ? null : state === "short"
     ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
-    : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
+    : null;
+  // G397 moves this existing action beside the card explanation. Its
+  // eligibility stays unchanged, including when this period has no activity.
+  const showCardsLink = !sync && state === "tight" && (data.card_debt ?? 0) >= 1000;
   const heroFigureClass = sync ? "text-slate-700 dark:text-slate-200" : FORECAST_INK;
   const heroHeading = (
     <h2 id="safe-to-spend-heading" aria-describedby="safe-to-spend-scope" className={spendFromTreatment?.heroAside ? "min-w-0 flex-1" : "mt-5"}>
@@ -644,17 +657,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </Link>
       )}
 
-      <div data-g219-action-row className="mt-4 flex flex-wrap items-center gap-x-3">
-        {recovery && <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>}
-        <Link
-          href="/accounts"
-          data-g219-accounts-link
-          className="group -mr-3 ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-slate-600 transition-colors hover:text-slate-900 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none dark:text-slate-300 dark:hover:text-slate-100 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          Your accounts
-          <ArrowRight size={15} className="text-slate-400 transition-colors group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300" aria-hidden="true" />
-        </Link>
-      </div>
+      {recovery && (
+        <div data-g219-action-row className="mt-4 flex flex-wrap items-center gap-x-3">
+          <button type="button" onClick={() => router.push(recovery.href)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300 dark:hover:bg-indigo-400/15">{recovery.label}<ArrowRight size={15} aria-hidden="true" /></button>
+        </div>
+      )}
     </section>
     <div data-g324-evidence className="mt-3 [&_.text-slate-500]:text-slate-600 dark:[&_.text-slate-500]:text-slate-300">
       <details data-sts-caveat className="border-b border-slate-200 dark:border-slate-700">
@@ -724,7 +731,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </details>
       </div>
 
-      {(cardGrowth > 0 || cardNewSpend > 0 || cardReserve > 0) && (
+      {(cardGrowth > 0 || cardNewSpend > 0 || cardReserve > 0 || showCardsLink) && (
         <CardBalanceFact
           growth={cardGrowth}
           newSpend={cardNewSpend}
@@ -733,6 +740,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
           wording={data.card_growth_wording}
           dueDate={data.card_growth_due_date ?? null}
           amount={amount}
+          showCardsLink={showCardsLink}
           muted={!!sync}
         />
       )}

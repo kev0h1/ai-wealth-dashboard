@@ -33,7 +33,8 @@ for(const state of STATES.map(s=>s.id))for(const hidden of [false,true]){
     const hero=html.slice(html.indexOf('data-g324-hero'),html.indexOf('data-g324-evidence'));
     assert.match(hero,/Based on your connected current accounts and the bills Sorted knows about\./);
     assert.doesNotMatch(hero,/payments still pending|How we got|Card balances this pay period|Card spending/,'evidence stays below the hero');
-    assert.match(hero,/data-g219-action-row/,'next actions stay in the hero');
+    if(['payments-short','plans-only','card-reserve'].includes(state))assert.match(hero,/data-g219-action-row/,'shortfall recovery stays in the hero');
+    else assert.doesNotMatch(hero,/data-g219-action-row/,'G397 leaves no empty action row after relocating navigation');
     const caveat=html.slice(html.indexOf('data-sts-caveat'),html.indexOf('</details>',html.indexOf('data-sts-caveat')));
     assert.match(caveat,/What this estimate counts/);assert.match(plain(caveat),/It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet\./);assert.match(caveat,/It can be wrong/);
     const working=html.slice(html.indexOf('data-g324-calculation'),html.indexOf('</details>',html.indexOf('data-g324-calculation')));
