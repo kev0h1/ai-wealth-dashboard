@@ -170,7 +170,7 @@ _PERSONAL_WORD_RE = re.compile(r"\b(?:you|your|yours|i|my|me|we|our|ours)\b", re
 _MONEY_OR_DECIMAL_RE = re.compile(r"£|\d\.\d")
 # The only places a figure may live: grounded numbers, not text.
 _NUMBER_PATHS = re.compile(
-    r"^findings\.(?:typical_low|typical_high|deal\.price|alternatives\.\d+\.price)$"
+    r"^findings\.(?:typical_low|typical_high|typical_regulated\.figure_annual|deal\.price|alternatives\.\d+\.price)$"
 )
 
 
@@ -199,7 +199,7 @@ def assert_no_user_data(doc) -> None:
             where = path.rstrip(".")
             if _EMAIL_RE.search(node):
                 raise ValueError(f"tip_research document carries an email address at {where}")
-            if where.startswith("findings.sources."):
+            if where.startswith("findings.sources.") or where == "findings.typical_regulated.source_url":
                 low = node.lower()
                 if not node.startswith("https://") or any(b in low for b in ("?", "#", "%40", "£", "%c2%a3")):
                     raise ValueError(f"tip_research source is not a plain scheme, host and path at {where}")
@@ -222,6 +222,7 @@ class FetchOutcome:
     findings: Optional[dict] = None
     claim_valid_until: Optional[datetime] = None
     failure: Optional[str] = None  # static code from tips_research_health, never provider text
+    stats: Optional[dict] = None   # G405 counts only: pages and listings, never text
 
 
 @dataclass
@@ -350,6 +351,9 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
             "status": "ok", "last_attempt_at": fetched_at, "last_failure_code": None,
             "lease_until": _EPOCH, "origin": "fetched",
         }
+        if outcome.stats:
+            update["fetch_stats"] = dict(outcome.stats)
+            update["fetch_history"] = _history(prior, fetched_at, outcome.stats)
         try:
             assert_no_user_data(update)
         except ValueError:
@@ -367,9 +371,47 @@ async def _fetch_once(key: TipKey, fetcher: Fetcher, now: datetime) -> ResearchR
         "status": "stale" if _has_findings(prior) else "failed",
         "last_attempt_at": _now(), "last_failure_code": code, "lease_until": _EPOCH,
     }
+    if outcome.stats:
+        update["fetch_stats"] = dict(outcome.stats)
+        update["fetch_history"] = _history(prior, update["last_attempt_at"], outcome.stats)
     await tip_research_col.update_one({"_id": key.doc_id}, {"$set": update})
     doc = await tip_research_col.find_one({"_id": key.doc_id})
     return ResearchResult(doc, "stale" if _has_findings(doc) else "none", fetched=True, failure=code)
+
+
+# G405: counts-only history of what each research read, so the two-week measure
+# (how many tips gain a line) can be summed without a second collection.
+# Worst case in 14 days: a key that fails is retried every RETRY_AFTER (6 h), so
+# 4 a day x 14 days = 56 runs; a healthy key runs once per 7 day TTL. 60 covers both.
+HISTORY_KEEP = 60
+STAT_KEYS = ("pages_fetched", "pages_failed", "listings_from_pages", "listings_from_snippets",
+             "regulator_read", "regulator_failed")
+
+
+def _history(prior: dict, at: datetime, stats: dict) -> list[dict]:
+    entry = {"at": at, **{k: int(stats.get(k) or 0) for k in STAT_KEYS}}
+    entry["has_listing"] = 1 if (entry["listings_from_pages"] + entry["listings_from_snippets"]) else 0
+    entry["has_regulator"] = 1 if entry["regulator_read"] else 0
+    return (list(prior.get("fetch_history") or []) + [entry])[-HISTORY_KEEP:]
+
+
+async def fetch_summary(days: int = 14, now: Optional[datetime] = None) -> dict:
+    """Counts only, over the research runs of the last `days`: runs, the
+    totals of each STAT_KEYS counter, and how many runs ended with a market
+    listing and with a regulator line. No text, key or provider."""
+    since = (now or _now()) - timedelta(days=days)
+    out = {"days": days, "runs": 0, "runs_with_listing": 0, "runs_with_regulator": 0, **{k: 0 for k in STAT_KEYS}}
+    docs = await tip_research_col.find({"fetch_history": {"$exists": True}}, {"fetch_history": 1}).to_list(None)
+    for d in docs:
+        for e in d.get("fetch_history") or []:
+            if not e.get("at") or e["at"] < since:
+                continue
+            out["runs"] += 1
+            out["runs_with_listing"] += int(e.get("has_listing") or 0)
+            out["runs_with_regulator"] += int(e.get("has_regulator") or 0)
+            for k in STAT_KEYS:
+                out[k] += int(e.get(k) or 0)
+    return out
 
 
 async def precreate_pending(key: TipKey, *, dry_run: bool = False) -> bool:

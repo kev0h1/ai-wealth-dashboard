@@ -266,9 +266,22 @@ def test_admin_sync_stats_reports_research_failing_since_date(monkeypatch, runs)
 
     monkeypatch.setattr(admin_usage, "finexer_consents_col", Empty())
     monkeypatch.setattr(admin_usage, "orphaned_revocations_col", Empty())
+    from app.services import tip_research as _tr
+
+    class _Docs:
+        def find(self, *a, **k):
+            class C:
+                async def to_list(self, n):
+                    return [{"fetch_history": [{"at": datetime.utcnow(), "pages_fetched": 2, "has_listing": 1}]}]
+            return C()
+
+    monkeypatch.setattr(_tr, "tip_research_col", _Docs())
     out = _run(admin_usage.admin_sync_stats(user={"name": "Bot"}))
     assert out["tips_research"]["line"] == "Tips research failing since 1 Oct (quota)"
     assert out["tips_research"]["status"] == "failing"
+    # G405: counts-only fetch summary sits beside the status
+    assert out["tips_research"]["fetch_counts"]["pages_fetched"] == 2
+    assert out["tips_research"]["fetch_counts"]["runs_with_listing"] == 1
 
 
 def test_status_line_is_none_when_healthy():

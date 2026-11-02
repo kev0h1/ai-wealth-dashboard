@@ -19,7 +19,7 @@ from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, TIP_LLM_PHRASING, TIP_RESEARCH_PROFILE_KEYS
 from app.core.llm import openrouter_chat, record_tavily_call
 from app.core import timeutil
-from app.services import tip_copy, tip_facts, tip_research, tips_research_health
+from app.services import tip_copy, tip_facts, tip_pages, tip_regulators, tip_research, tips_research_health
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
@@ -1301,7 +1301,7 @@ async def _tavily_search(
                             web_snippets.append(f"Page {page}: {snippet}" if page else snippet)
                     for res in (data.get("results") or [])[:3]:
                         url = str(res.get("url") or "")
-                        if url.startswith("https://") and len(url) <= 200:
+                        if url.startswith("https://") and len(url) <= 200 and tip_pages.safe_https_host(url):
                             urls.append(url)
                     await tips_research_health.record_success(datetime.utcnow())  # naive-ok: persisted provider-health audit timestamp
                 else:
@@ -1467,7 +1467,7 @@ def _clean_sources(urls: list[str]) -> list[str]:
     out: list[str] = []
     for u in urls:
         parts = urlparse(str(u))
-        if parts.scheme != "https" or not parts.netloc:
+        if parts.scheme != "https" or not parts.netloc or not tip_pages.safe_https_host(str(u)):
             continue
         clean = f"https://{parts.netloc}{parts.path}"
         try:
@@ -1492,10 +1492,19 @@ def _is_shareable_text(text: str) -> bool:
 _POUND_FIGURE_RE = re.compile(r"£\s*\d[\d,]*(?:\.\d+)?")
 
 
+_LIST_BEFORE_RE = re.compile(r"(?:,|&|\band|\bor|\bvs\.?|/)\s*$", re.IGNORECASE)
+_LIST_AFTER_RE = re.compile(r"^\s*(?:,|&|and\b|or\b|vs\.?|/)\s*[A-Z0-9]")
+
+
 def _provider_named_before_price(text: str, name: str, price: float) -> bool:
-    want = re.sub(r"[^a-z0-9]", "", name.lower())
-    if not want:
+    """The provider's name sits in the clause just before the figure (within 80
+    characters, after the previous £ figure) and is the ONLY provider named
+    there: a name that is part of a list ("Octopus, EDF, British Gas deals from
+    £146") is not tied to the price. G405."""
+    chars = [re.escape(c) for c in re.sub(r"[^a-z0-9]", "", name.lower())]
+    if not chars:
         return False
+    name_re = re.compile(r"[^A-Za-z0-9]*".join(chars), re.IGNORECASE)
     figures = list(_POUND_FIGURE_RE.finditer(text))
     for i, m in enumerate(figures):
         try:
@@ -1505,8 +1514,14 @@ def _provider_named_before_price(text: str, name: str, price: float) -> bool:
         if abs(value - price) > 0.005:
             continue
         start = max(m.start() - 80, figures[i - 1].end() if i else 0)
-        if want in re.sub(r"[^a-z0-9]", "", text[start:m.start()].lower()):
-            return True
+        window = text[start:m.start()]
+        hits = list(name_re.finditer(window))
+        if not hits:
+            continue
+        hit = hits[-1]
+        if _LIST_BEFORE_RE.search(window[:hit.start()]) or _LIST_AFTER_RE.match(window[hit.end():]):
+            continue
+        return True
     return False
 
 
@@ -1521,12 +1536,28 @@ def _host_snippets(web_text: str) -> dict[str, str]:
     return out
 
 
+def _listing_text_ok(host_text: dict[str, str], host: str, name: str, price: float) -> bool:
+    """The G315 text rules for one listing against one host's own text: the
+    price is derivable from it and the provider is named just before it."""
+    if host not in host_text:
+        return False
+    if not _number_is_derivable(price, _build_allowed_savings_numbers(host_text[host], None, None)):
+        return False
+    return _provider_named_before_price(host_text[host], name, price)
+
+
 def _build_findings(
     parsed: dict, web_text: str, urls: list[str], category_key: str, today,
+    *, snippet_text: Optional[str] = None, stats: Optional[dict] = None,
+    typical_regulated: Optional[dict] = None,
 ) -> tuple[Optional[dict], Optional[datetime], Optional[str]]:
     """Validate and normalise the model's market findings. Returns
     (findings, deal claim deadline, violation). Every figure must trace to the
-    search results; a figure that does not is dropped, not kept."""
+    search results; a figure that does not is dropped, not kept.
+    G405: `web_text` may carry fetched page text beside the snippets; the rules
+    are the same either way. `snippet_text` (the snippets alone) only decides
+    whether a kept listing is counted in `stats` as from a page or a snippet.
+    `typical_regulated` is a regulator figure already read by tip_regulators."""
     allowed = _build_allowed_savings_numbers(web_text, None, None)
     low = _grounded_number(parsed.get("typical_low"), allowed)
     high = _grounded_number(parsed.get("typical_high"), allowed)
@@ -1572,16 +1603,15 @@ def _build_findings(
         host = tip_facts.host_of(str(a.get("source_url") or ""))
         if not host or host not in result_hosts or tip_facts.allowed_source_name(host, name) is None:
             continue
-        # the price must be derivable from the stated host's OWN snippet, not just
-        # from some other page in the same search; no snippet for the host, no listing
-        if host not in host_text or not _number_is_derivable(price, _build_allowed_savings_numbers(host_text[host], None, None)):
-            continue
-        # and that snippet must tie THIS provider to THIS price: the provider's name
+        # the price must be derivable from the stated host's OWN text (snippet or,
+        # G405, fetched page), not just from some other page in the same search;
+        # and that text must tie THIS provider to THIS price: the provider's name
         # sits in the clause just before the figure (within 80 characters, after the
         # previous £ figure), so "PureGym from £25. Premium clubs £117" cannot give
         # Gymbox £25 or PureGym £117
-        if not _provider_named_before_price(host_text[host], name, price):
+        if not _listing_text_ok(host_text, host, name, price):
             continue
+        from_snippet = snippet_text is None or _listing_text_ok(_host_snippets(snippet_text), host, name, price)
         if not tip_facts.is_like_for_like(
             {"category": category_key, "product_type": expected_type, "period": "month"},
             {"name": name, "price": price, "product_type": expected_type, "basis": "month", "source_host": host},
@@ -1591,6 +1621,9 @@ def _build_findings(
             "name": name, "price": price, "note": None,
             "product_type": expected_type, "basis": "month", "source_host": host,
         })
+        if stats is not None:
+            key = "listings_from_snippets" if from_snippet else "listings_from_pages"
+            stats[key] = stats.get(key, 0) + 1
         if len(alternatives) >= 3:
             break
 
@@ -1622,7 +1655,7 @@ def _build_findings(
         return None, None, "non_uk"
     if _CARD_DEBT_MOVE_RE.search(combined):
         return None, None, "card_debt"
-    if not (low is not None or headline or alternatives or deal):
+    if not (low is not None or headline or alternatives or deal or typical_regulated):
         return None, None, "empty"
     findings = {
         "typical_low": low, "typical_high": high, "headline": headline or None,
@@ -1632,6 +1665,8 @@ def _build_findings(
         # site or any unlisted domain is dropped here, at source.
         "sources": tip_facts.allowed_source_urls(clean_urls),
     }
+    if typical_regulated:
+        findings["typical_regulated"] = typical_regulated
     return findings, claim_dt, None
 
 
@@ -1658,16 +1693,41 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
     if not query:
         return tip_research.FetchOutcome(failure="error")
 
+    # G405: counts for this research (pages, listings, regulator), stored on the
+    # shared document. Nothing is fetched until the search has answered.
+    stats = tip_pages.new_stats()
+    typical_regulated: Optional[dict] = None
+
+    def _regulator_only(failure: str) -> tip_research.FetchOutcome:
+        if typical_regulated:
+            findings, claim, _v = _build_findings(
+                {}, "", [], key.category, today, typical_regulated=typical_regulated, stats=stats,
+            )
+            if findings is not None:
+                return tip_research.FetchOutcome(findings=findings, claim_valid_until=claim, stats=stats)
+        return tip_research.FetchOutcome(failure=failure, stats=stats)
+
     searched = await _tavily_search(query, key.category, outcome, pipeline="tip_research_tavily")
     if searched is None:
         return tip_research.FetchOutcome(failure="backoff")
     snippets, urls = searched
     if not snippets:
         return tip_research.FetchOutcome(failure=outcome.get("failure") or "error")
+    # a regulator's typical figure, read from its own page by a strict rule (no
+    # model, nothing hardcoded); None when it cannot be read
+    async def _regulator_search(q: str):
+        return await _tavily_search(q, key.category, {}, pipeline="tip_research_tavily")
+
+    typical_regulated = await tip_regulators.fetch_typical(key.category, stats, today, _regulator_search)
     if not OPENROUTER_API_KEY:
         log.warning("tip research: OPENROUTER_API_KEY not configured, aborting for category=%s", key.category)
-        return tip_research.FetchOutcome(failure="error")
-    web_text = "\n\n".join(snippets)
+        return _regulator_only("error")
+    snippet_text = "\n\n".join(snippets)
+    # G405: the allowlisted pages the search returned, fetched once, their text
+    # added beside the snippets as that host's own text. A failed fetch leaves
+    # the snippet path exactly as it was.
+    pages = await tip_pages.fetch_pages(urls, provider_text or None, stats)
+    web_text = "\n\n".join(snippets + [f"Page {h}: {t}" for h, t in pages.items()])
 
     subject = f"{cfg['label']}" + (f", provider {provider_text}" if provider_text else "")
     if band_text:
@@ -1728,11 +1788,17 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
                             key.category, attempt, e)
         if not isinstance(parsed, dict):
             continue
-        findings, claim_dt, violation = _build_findings(parsed, web_text, urls, key.category, today)
+        attempt_stats = {"listings_from_pages": 0, "listings_from_snippets": 0}
+        findings, claim_dt, violation = _build_findings(
+            parsed, web_text, urls, key.category, today,
+            snippet_text=snippet_text, stats=attempt_stats, typical_regulated=typical_regulated,
+        )
         if findings is not None:
-            return tip_research.FetchOutcome(findings=findings, claim_valid_until=claim_dt)
+            stats["listings_from_pages"] += attempt_stats["listings_from_pages"]
+            stats["listings_from_snippets"] += attempt_stats["listings_from_snippets"]
+            return tip_research.FetchOutcome(findings=findings, claim_valid_until=claim_dt, stats=stats)
     log.warning("tip research: no usable findings for category=%s (%s)", key.category, violation or "no answer")
-    return tip_research.FetchOutcome(failure="error")
+    return _regulator_only("error")
 
 
 def _money(n: float) -> str:
@@ -1825,6 +1891,19 @@ def _compose_tip_content(
             "merchant": rows[0].get("display_name") if rows else None,
         }
         doc_sources = tip_facts.source_names(list(f.get("sources") or []))
+        # G405: a regulator's typical monthly figure, read from its own page, with
+        # its source name and the date it was read. Nothing else is said.
+        reg = tip_regulators.valid_typical(category_key, f.get("typical_regulated"), today)
+        if reg:
+            read = datetime.strptime(reg["read_on"], "%Y-%m-%d")
+            period = datetime.strptime(reg["period_start"], "%Y-%m-%d")
+            annual = float(reg["figure_annual"])
+            sentences.append(
+                f"Typical: {tip_facts.money(tip_regulators.monthly_for(annual))} a month "
+                f"({reg['source_name']} price cap {tip_facts.money(annual)} a year from "
+                f"{period.day} {tip_regulators.MONTHS[period.month - 1]} {period.year}, "
+                f"read {read.day} {read.strftime('%b')} {read.year})."
+            )
         low, high = f.get("typical_low"), f.get("typical_high")
         noun = _RANGE_NOUN.get(category_key)
         if (
