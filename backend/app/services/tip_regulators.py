@@ -5,7 +5,7 @@ typical monthly figure. The research fetches that page (`tip_pages`), and a
 strict, model-free rule reads one figure from it. When the wording is absent,
 ambiguous or the page cannot be read, nothing is stored and the card has no
 Typical line. The stored value is
-  {"amount": 94.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem", "read_on": "2026-11-02"}
+  {"figure": 94.5, "source_host": "ofgem.gov.uk", "source_name": "Ofgem", "read_on": "2026-11-02"}
 and the card shows "Typical: £94.50 a month (Ofgem, 2 Nov 2026)".
 
 The page URLs below could not be checked against the live sites from this
@@ -58,15 +58,19 @@ def extract_monthly(category: str, text: str) -> Optional[float]:
     """The one labelled monthly figure on `text` for `category`, or None.
     Strict: the figure must be followed by "per month" or "a month", the
     category's required phrases must all sit within the WINDOW characters
-    before it, it must be inside the plausibility bounds, and when two
+    before it (and after any earlier monthly figure), it must be inside the plausibility bounds, and when two
     different qualifying figures appear the page is ambiguous and yields None.
     An annual figure is never converted."""
     reg = REGULATORS.get(category)
     if reg is None or not text:
         return None
     found: set[float] = set()
+    prev_end = 0
     for m in _MONTHLY_FIGURE_RE.finditer(text):
-        window = text[max(0, m.start() - WINDOW):m.end()].lower()
+        # the window never reaches back past the previous monthly figure, so one
+        # figure's wording cannot qualify the next one
+        window = text[max(prev_end, m.start() - WINDOW):m.end()].lower()
+        prev_end = m.end()
         if not all(p in window for p in reg.must_have):
             continue
         try:
@@ -110,7 +114,7 @@ async def fetch_typical(category: str, stats: dict, today: date, client=None) ->
         stats["regulator_failed"] += 1
         return None
     stats["regulator_read"] += 1
-    return {"amount": amount, "source_host": reg.host, "source_name": name, "read_on": today.isoformat()}
+    return {"figure": amount, "source_host": reg.host, "source_name": name, "read_on": today.isoformat()}
 
 
 def valid_typical(category: str, value) -> Optional[dict]:
@@ -119,7 +123,7 @@ def valid_typical(category: str, value) -> Optional[dict]:
     reg = REGULATORS.get(category)
     if reg is None or not isinstance(value, dict):
         return None
-    amount = value.get("amount")
+    amount = value.get("figure")
     if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not (reg.low <= amount <= reg.high):
         return None
     if value.get("source_host") != reg.host:

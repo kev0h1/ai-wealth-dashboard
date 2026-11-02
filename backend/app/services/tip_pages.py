@@ -106,7 +106,7 @@ async def fetch_pages(
     todo: list[tuple[str, str]] = []
     for u in urls or []:
         host = tip_facts.host_of(u)
-        if not host or any(h == host for h, _ in todo):
+        if not str(u).startswith("https://") or not host or any(h == host for h, _ in todo):
             continue
         if tip_facts.allowed_source_name(host, provider_name) is None:
             continue

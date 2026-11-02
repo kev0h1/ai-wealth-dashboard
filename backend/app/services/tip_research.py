@@ -170,7 +170,7 @@ _PERSONAL_WORD_RE = re.compile(r"\b(?:you|your|yours|i|my|me|we|our|ours)\b", re
 _MONEY_OR_DECIMAL_RE = re.compile(r"£|\d\.\d")
 # The only places a figure may live: grounded numbers, not text.
 _NUMBER_PATHS = re.compile(
-    r"^findings\.(?:typical_low|typical_high|typical_regulated\.amount|deal\.price|alternatives\.\d+\.price)$"
+    r"^findings\.(?:typical_low|typical_high|typical_regulated\.figure|deal\.price|alternatives\.\d+\.price)$"
 )
 
 

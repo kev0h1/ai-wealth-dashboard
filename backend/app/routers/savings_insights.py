@@ -1679,10 +1679,9 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
         return tip_research.FetchOutcome(failure="error")
 
     # G405: counts for this research (pages, listings, regulator), stored on the
-    # shared document. A regulator's typical figure is read from its own page
-    # (strict rule, no model, nothing hardcoded); None when it cannot be.
+    # shared document. Nothing is fetched until the search has answered.
     stats = tip_pages.new_stats()
-    typical_regulated = await tip_regulators.fetch_typical(key.category, stats, today)
+    typical_regulated: Optional[dict] = None
 
     def _regulator_only(failure: str) -> tip_research.FetchOutcome:
         if typical_regulated:
@@ -1695,10 +1694,13 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
 
     searched = await _tavily_search(query, key.category, outcome, pipeline="tip_research_tavily")
     if searched is None:
-        return _regulator_only("backoff")
+        return tip_research.FetchOutcome(failure="backoff")
     snippets, urls = searched
     if not snippets:
-        return _regulator_only(outcome.get("failure") or "error")
+        return tip_research.FetchOutcome(failure=outcome.get("failure") or "error")
+    # a regulator's typical figure, read from its own page by a strict rule (no
+    # model, nothing hardcoded); None when it cannot be read
+    typical_regulated = await tip_regulators.fetch_typical(key.category, stats, today)
     if not OPENROUTER_API_KEY:
         log.warning("tip research: OPENROUTER_API_KEY not configured, aborting for category=%s", key.category)
         return _regulator_only("error")
@@ -1876,7 +1878,7 @@ def _compose_tip_content(
         reg = tip_regulators.valid_typical(category_key, f.get("typical_regulated"))
         if reg:
             read = datetime.strptime(reg["read_on"], "%Y-%m-%d")
-            amt = float(reg["amount"])
+            amt = float(reg["figure"])
             figure = tip_facts.money(amt) if amt == int(amt) else tip_facts.money2(amt)
             sentences.append(
                 f"Typical: {figure} a month ({reg['source_name']}, {read.day} {read.strftime('%b')} {read.year})."
