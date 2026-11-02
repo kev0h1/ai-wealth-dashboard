@@ -288,8 +288,8 @@ async def _mark_accounts_expired(consent_id: str) -> None:
     await _mark_finexer_accounts_expired(consent_id)
 
 
-def _parse_iso_utc(v):
-    from app.services.finexer_sync import _parse_iso_utc as _p
+def _parse_finexer_timestamp(v):
+    from app.services.finexer_sync import parse_finexer_timestamp as _p
     return _p(v)
 
 
@@ -512,7 +512,7 @@ async def process_finexer_event(event: dict, *, source: str = "webhook") -> dict
         # so the "needs reconnecting" banner shows, and the nag throttle cleared
         # so task_consent_watch (A6.2A reconsent prompt) pushes at its next run.
         fields = {"status": "expired", "status_changed_at": datetime.utcnow()}  # naive-ok: retention grace-period clock
-        exp = _parse_iso_utc(obj.get("expiry_date")) if obj.get("object") == "consent" else None
+        exp = _parse_finexer_timestamp(obj.get("expiry_date")) if obj.get("object") == "consent" else None
         if exp:
             fields["expiry_date"] = exp
         await finexer_consents_col.update_one(
@@ -574,7 +574,7 @@ async def process_finexer_event(event: dict, *, source: str = "webhook") -> dict
         # Map Finexer's own status value onto the consent we store (the sync
         # only runs for local status "authorized") and keep the expiry date.
         fields = {"status": "authorized"}
-        exp = _parse_iso_utc(obj.get("expiry_date"))
+        exp = _parse_finexer_timestamp(obj.get("expiry_date"))
         if exp:
             fields["expiry_date"] = exp
         await finexer_consents_col.update_one({"_id": doc["_id"]}, {"$set": fields})

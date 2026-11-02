@@ -91,7 +91,7 @@ def test_pot_skips_syncs_but_keeps_balance_and_rows(monkeypatch):
 def test_corrected_map_heals_the_flag(monkeypatch):
     accts = Col([{"_id": "pot1", "balance_only": True, "balance_only_reason": "stale"}])
     _wire_sync(monkeypatch, accts)
-    monkeypatch.setattr(fs, "is_balance_only", lambda code, acc: (False, ""))
+    monkeypatch.setattr(fs, "is_balance_only", lambda code, acc, **kw: (False, ""))
     c = PotClient(booked=[])
     monkeypatch.setattr(fs, "_client", lambda: c)
     asyncio.run(fs.sync_finexer_consent(CONSENT, UID))
@@ -136,3 +136,27 @@ def test_health_still_alerts_on_a_stale_syncing_account(monkeypatch):
          {"_id": "p1", "connection_id": "c1", "source": "finexer", "balance_only": True}],
     )
     assert out["alert"] is True and out["consents_stale"] == 1
+
+
+def test_reason_uses_the_display_name_and_falls_back_to_title_case():
+    ok, why = cov.is_balance_only("hsbc_kinetic", {"class": "savings"}, display_name="HSBC Kinetic")
+    assert ok and why == "HSBC Kinetic does not appear to share savings account transactions through Open Banking."
+    assert "Hsbc" not in why
+    assert cov.is_balance_only("monzo", {"class": "current", "identification": {}}, display_name="Monzo Bank")[1] \
+        == "Monzo Bank does not share pot transactions through Open Banking."
+    assert cov.is_balance_only("hsbc_kinetic", {"class": "savings"})[1].startswith("Hsbc Kinetic ")
+    assert cov.is_balance_only("hsbc_kinetic", {"class": "savings"}, display_name="  ")[1].startswith("Hsbc Kinetic ")
+
+
+def test_backfill_skips_balance_only_accounts(monkeypatch):
+    import app.db.collections as colls
+    import scripts.finexer_backfill_auto_sync as bf
+    docs = [
+        {"_id": "normal", "source": "finexer", "connection_id": "c1"},
+        {"_id": "pot", "source": "finexer", "connection_id": "c1", "balance_only": True},
+        {"_id": "healed", "source": "finexer", "connection_id": "c1", "balance_only": False},
+    ]
+    monkeypatch.setattr(colls, "finexer_consents_col", Col([{"_id": "c1", "status": "authorized"}]))
+    monkeypatch.setattr(colls, "accounts_col", Col(docs))
+    summary = asyncio.run(bf.run(apply=False, hours=6))
+    assert summary["eligible"] == 2

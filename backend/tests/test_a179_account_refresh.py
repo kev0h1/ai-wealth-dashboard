@@ -122,7 +122,8 @@ def recomputes(monkeypatch):
 
 
 def _finexer_world(monkeypatch, acc_extra=None, client=None):
-    acc = {"_id": "acc1", "user_id": UID, "connection_id": CONSENT, "finexer": True, "source": "finexer"}
+    acc = {"_id": "acc1", "user_id": UID, "connection_id": CONSENT, "finexer": True, "source": "finexer",
+           "bank_auto_sync_hours": 6}  # A185: auto sync already set, so only the manual POST is asserted
     acc.update(acc_extra or {})
     accts = AccCol([acc, {"_id": "acc2", "user_id": UID, "connection_id": CONSENT, "finexer": True},
                     {"_id": "other", "user_id": "someone-else", "connection_id": "c9", "finexer": True}])

@@ -5,9 +5,11 @@
 // No visual change on Home: the markup and classes are unchanged.
 import { displayAccountName } from "@/lib/accountName";
 import { ArrowRight, ChevronDown } from "lucide-react";
-import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
+import { BankIcon, BANK_META, bankKey, bankLogoSrc, type BankIdentity } from "@/components/AccountMiniCard";
 import { AmountText } from "@/components/MoneyText";
 
+/** Compatibility resolver retained for the Home move ledger and its callers.
+ * New endpoint icons render through BankIcon, which uses this same resolver. */
 export function resolveBankChip(provider: string) {
   const key = bankKey({ provider });
   const meta = BANK_META[key];
@@ -21,7 +23,7 @@ export function resolveBankChip(provider: string) {
 }
 
 /** `display_label` (G359) is the server's sentence label that tells two same-bank accounts apart ("your Barclays current account"); the bank icon still keys off provider. */
-export type MoveLedgerLeg = { provider: string; name: string; amount: number; display_label?: string | null };
+export type MoveLedgerLeg = BankIdentity & { provider: string; name: string; amount: number; display_label?: string | null };
 
 /** The name an endpoint shows: the server's distinct label when present (first letter capitalised), else the cleaned account name. */
 export function moveAccountLabel(account: { name: string; display_label?: string | null }): string {
@@ -34,18 +36,8 @@ export function moveMoney(value: number, hideNetWorth: boolean) {
   return hideNetWorth ? "£••••" : `£${Math.round(value).toLocaleString("en-GB")}`;
 }
 
-export function MoveAccountIcon({ account, size = 28 }: { account: { provider: string; name: string }; size?: number }) {
-  const chip = resolveBankChip(account.provider);
-  return (
-    <BankBadge
-      logoSrc={chip.logoSrc}
-      initials={chip.initials}
-      initialsSize={chip.initialsSize}
-      altText={chip.label}
-      brandBg={chip.bg}
-      size={size}
-    />
-  );
+export function MoveAccountIcon({ account, size = 28 }: { account: BankIdentity & { provider: string; name: string }; size?: number }) {
+  return <BankIcon identity={account} size={size} />;
 }
 
 /**
@@ -95,7 +87,7 @@ export function MoveRouteSummary({
   destination,
 }: {
   sources: readonly MoveLedgerLeg[];
-  destination: { provider: string; name: string; display_label?: string | null };
+  destination: BankIdentity & { provider: string; name: string; display_label?: string | null };
 }) {
   const firstSource = sources[0];
   return (

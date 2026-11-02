@@ -84,12 +84,9 @@ COVERAGE: dict[str, frozenset] = {
     code: frozenset(_KIND_FOR_LETTER[ch] for ch in letters) for code, letters in _RAW.items()
 }
 
-# Banks whose current accounts are shared but whose pots or spaces are not.
-_POT_PROVIDERS = {
-    "monzo": "Monzo does not share pot transactions through Open Banking.",
-    "revolut": "Revolut does not share vault or pocket transactions through Open Banking.",
-    "starling": "Starling does not share space transactions through Open Banking.",
-}
+# Banks whose current accounts are shared but whose pots or spaces are not:
+# provider code -> the user-facing word for the sub-account.
+_POT_PROVIDERS = {"monzo": "pot", "revolut": "vault or pocket", "starling": "space"}
 
 _KIND_WORDS = {"current": "current account", "savings": "savings account", "card": "card"}
 
@@ -103,30 +100,32 @@ def _provider_label(provider_code: str) -> str:
     return provider_code.replace("_", " ").title()
 
 
-def is_balance_only(provider_code, acc) -> tuple:
+def is_balance_only(provider_code, acc, display_name=None) -> tuple:
     """(True, reason) when this account is unlikely to share transactions.
 
     `acc` is the raw Finexer account object. Only decides when the provider
     is in the map and the account kind maps cleanly to current, savings or
     card; otherwise the account is treated as normal. The reason is
-    user-facing and hedged.
+    user-facing and hedged and names the bank by `display_name` (the provider
+    name Finexer reports) when given, else a title-cased provider code.
     """
     code = str(provider_code or "").strip().lower()
     kinds = COVERAGE.get(code)
     if kinds is None:
         return False, ""
     acc = acc or {}
+    label = (str(display_name).strip() if display_name else "") or _provider_label(code)
     if code in _POT_PROVIDERS:
         ident = acc.get("identification") or {}
         if not (ident.get("sort_code") or ident.get("account_number") or ident.get("number")):
-            return True, _POT_PROVIDERS[code]
+            return True, f"{label} does not share {_POT_PROVIDERS[code]} transactions through Open Banking."
     info = finexer_account_kind(acc.get("class"))
     kind = info["kind"]
     if info.get("class_unknown") or kind not in _KIND_WORDS:
         return False, ""
     if kind not in kinds:
         return True, (
-            f"{_provider_label(code)} does not appear to share {_KIND_WORDS[kind]} "
+            f"{label} does not appear to share {_KIND_WORDS[kind]} "
             "transactions through Open Banking."
         )
     return False, ""

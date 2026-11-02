@@ -69,6 +69,7 @@ const FINEXER_ALIAS: Record<string, string> = {
   rbs_clearspend:        "NATWEST",
   chase_uk:              "CHASE",
   amex:                  "AMEX",
+  american_express:      "AMEX",
   first_direct:          "FIRST_DIRECT",
   barclays_personal:     "BARCLAYS",
   barclays_business:     "BARCLAYS",
@@ -93,6 +94,22 @@ const FINEXER_ALIAS: Record<string, string> = {
   monzo:                 "MONZO",
   starling:              "STARLING",
   revolut:               "REVOLUT",
+  tide:                  "TIDE",
+};
+
+/** Display names are less reliable than Finexer's ids, but these exact names
+ * are emitted by existing connections and must retain their bank identity. */
+const DISPLAY_ALIAS: Record<string, string> = {
+  AMERICAN_EXPRESS: "AMEX",
+  AMERICAN_EXPRESS_UK: "AMEX",
+  AMEX_UK: "AMEX",
+};
+
+export type BankIdentity = {
+  provider?: string;
+  provider_id?: string | null;
+  logo_url?: string | null;
+  bg_colors?: string[] | null;
 };
 
 /**
@@ -101,7 +118,7 @@ const FINEXER_ALIAS: Record<string, string> = {
  *   1. Finexer provider_id alias (most reliable for Finexer accounts)
  *   2. Normalised display name (covers TrueLayer + manual accounts)
  */
-export function bankKey(account: { provider?: string; provider_id?: string }): string {
+export function bankKey(account: BankIdentity): string {
   // 1. Finexer stable code
   const pid = (account.provider_id ?? "").toLowerCase();
   if (pid && FINEXER_ALIAS[pid]) return FINEXER_ALIAS[pid];
@@ -110,6 +127,7 @@ export function bankKey(account: { provider?: string; provider_id?: string }): s
   const n = (account.provider ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
   if (!n) return "";
   if (BANK_META[n]) return n;
+  if (DISPLAY_ALIAS[n]) return DISPLAY_ALIAS[n];
 
   // Strip common suffixes and retry
   const stripped = n.replace(/_(UK|PERSONAL|BUSINESS|CORPORATE|COMMERCIAL|WEALTH|CURRENT|SAVINGS|ONLINE|365)$/, "");
@@ -127,6 +145,9 @@ export const BANK_META: Record<string, BankMeta> = {
   LLOYDS:       { label: "Lloyds",       bg: "linear-gradient(135deg,#024731,#006a4d)", logoFile: "lloyds.png",    initials: "L" },
   AMEX:         { label: "Amex",         bg: "linear-gradient(135deg,#007bc1,#003f6b)", logoFile: "amex.png",      initials: "AX" },
   REVOLUT:      { label: "Revolut",      bg: "linear-gradient(135deg,#191c1f,#3d4451)", logoFile: "revolut.png",    initials: "R" },
+  // Official G394 Tide mark, kept local with the other curated provider
+  // assets so an account identity never triggers a third-party request.
+  TIDE:         { label: "Tide",         bg: "linear-gradient(135deg,#005eb8,#003e7e)", logoFile: "tide.svg",      initials: "T" },
   SANTANDER:    { label: "Santander",    bg: "linear-gradient(135deg,#ec0000,#8b0000)", logoFile: "santander.png",  initials: "S" },
   HALIFAX:      { label: "Halifax",      bg: "linear-gradient(135deg,#1c5aa0,#003580)", logoFile: "halifax.png",    initials: "HFX", initialsSize: "9px" },
   NATIONWIDE:   { label: "Nationwide",   bg: "linear-gradient(135deg,#1a2e6b,#3c5fa0)", logoFile: "nationwide.png", initials: "NBS", initialsSize: "9px" },
@@ -222,7 +243,7 @@ export function bankLogoSrc(meta: BankMeta | null | undefined): string | null {
  * TrueLayer accounts have no logo_url/bg_colors so they are unaffected by the
  * priority change — they still fall through to BANK_META as before.
  */
-export function accountBrand(account: Account): AccountBrand {
+export function accountBrand(account: BankIdentity): AccountBrand {
   const key = bankKey(account);
   const meta = BANK_META[key];
 
@@ -317,15 +338,7 @@ function typeLabel(account: Account): AccountKind {
   return "Current";
 }
 
-export function BankBadge({
-  logoSrc,
-  initials,
-  initialsSize,
-  altText,
-  brandBg,
-  size,
-  onLogoError,
-}: {
+export interface BankBadgeProps {
   logoSrc: string | null;
   initials: string;
   initialsSize?: string;
@@ -337,7 +350,19 @@ export function BankBadge({
   size?: number;
   /** Lets a composed treatment replace the whole logo group on asset failure. */
   onLogoError?: () => void;
-}) {
+  /** A failed image remounts when its bank identity changes. */
+  resetKey?: string;
+}
+
+function BankBadgeContents({
+  logoSrc,
+  initials,
+  initialsSize,
+  altText,
+  brandBg,
+  size,
+  onLogoError,
+}: BankBadgeProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const sized = size !== undefined && size !== 36;
   const radius = size !== undefined ? (size <= 20 ? 6 : size <= 28 ? 8 : 12) : undefined;
@@ -346,12 +371,14 @@ export function BankBadge({
     return (
       <img
         src={logoSrc}
+        width={size ?? 36}
+        height={size ?? 36}
         alt={altText}
         onError={() => {
           setImgFailed(true);
           onLogoError?.();
         }}
-        className={`${sized ? "" : "w-9 h-9 rounded-xl"} object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
+        className={`${sized ? "" : "w-9 h-9 rounded-xl"} shrink-0 object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
         style={sized ? { width: size, height: size, borderRadius: radius } : undefined}
       />
     );
@@ -391,6 +418,37 @@ export function BankBadge({
     >
       {text}
     </div>
+  );
+}
+
+/** A key makes a failed image a fresh component when its source or identity
+ * changes, without scheduling state updates from an effect. */
+export function BankBadge(props: BankBadgeProps) {
+  return <BankBadgeContents key={`${props.logoSrc ?? ""}:${props.resetKey ?? ""}`} {...props} />;
+}
+
+/** Shared bank identity tile. Curated local assets always win. Unknown
+ * Finexer providers may use only the same-origin provider-logo proxy; if it
+ * fails, BankBadge settles on neutral readable initials. */
+export function BankIcon({ identity, size, altText, brandBg, onLogoError }: {
+  identity: BankIdentity;
+  size?: number;
+  altText?: string;
+  brandBg?: string;
+  onLogoError?: () => void;
+}) {
+  const brand = accountBrand(identity);
+  return (
+    <BankBadge
+      logoSrc={brand.logoSrc}
+      initials={brand.initials}
+      initialsSize={BANK_META[bankKey(identity)]?.initialsSize}
+      altText={altText ?? brand.label}
+      brandBg={brandBg ?? (brand.initials ? "#64748b" : "#e2e8f0")}
+      size={size}
+      onLogoError={onLogoError}
+      resetKey={`${identity.provider_id ?? ""}:${identity.provider ?? ""}:${identity.logo_url ?? ""}`}
+    />
   );
 }
 
@@ -435,12 +493,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         <div className="p-4 flex flex-col flex-1">
           {/* Top row: brand chip + name / bank·type */}
           <div className="flex items-start gap-2.5 mb-3">
-            <BankBadge
-              logoSrc={brand.logoSrc}
-              initials={brand.initials}
-              altText={brand.label}
-              brandBg={brand.background}
-            />
+            <BankIcon identity={account} />
             <div className="min-w-0 flex-1">
               {/* Account name — wraps to 2 lines rather than truncating, so a
                   long name never eats the balance/hierarchy below it. */}
@@ -550,9 +603,8 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
     >
       {/* Top: badge + type chip */}
       <div className="flex items-start justify-between mb-3">
-        <BankBadge
-          logoSrc={brand.logoSrc}
-          initials={brand.initials}
+        <BankIcon
+          identity={account}
           altText={brand.label}
           // This variant's own container is the colourful provider gradient
           // (brand.background, set as the button's background above), so the

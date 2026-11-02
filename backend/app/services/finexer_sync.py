@@ -6,6 +6,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -292,15 +293,19 @@ def _sync_object(body) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-def _sync_fields(obj: dict) -> dict:
+def _sync_fields(obj: dict, requested_at: Optional[datetime] = None) -> dict:
     """Account-doc `$set` fields from a sync object: the bank's own as-of
-    window (synced_from/synced_to) and the status word."""
+    window (synced_from/synced_to) and the status word. `requested_at` is our
+    own naive-UTC request stamp for the future-clamp check (default: now)."""
     fields: dict = {}
     status = obj.get("status")
     if isinstance(status, str) and status:
         fields["bank_sync_status"] = status[:40]
-    frm = _parse_iso_utc(obj.get("synced_from"))
-    to = _parse_iso_utc(obj.get("synced_to"))
+    _log_timestamp_shape("synced_to", obj.get("synced_to"))
+    frm = parse_finexer_timestamp(obj.get("synced_from"))
+    to = parse_finexer_timestamp(obj.get("synced_to"))
+    if to is not None:
+        _check_not_in_future("synced_to", to, obj.get("synced_to"), requested_at)
     if frm:
         fields["bank_synced_from"] = frm
     if to:
@@ -495,6 +500,55 @@ def _looks_like_sync_object(obj: dict) -> bool:
     return str(obj.get("status") or "").strip().lower() in ("idle", "running")
 
 
+# A185: the ONE definition of "this account still needs its automatic sync
+# set": it carries neither bank_auto_sync_hours (Finexer echoed it) nor
+# bank_auto_sync_refused_at (Finexer refused the setter). The sync pass and the
+# A176 backfill script both select with this, so the two always agree.
+# A185 review: a setter response that does not echo the interval is stamped
+# (bank_auto_sync_requested_at) and not retried for this long.
+AUTO_SYNC_NO_ECHO_RETRY = timedelta(hours=24)
+AUTO_SYNC_MISSING_QUERY: dict = {
+    "bank_auto_sync_hours": {"$exists": False},
+    "bank_auto_sync_refused_at": {"$exists": False},
+}
+
+
+def account_needs_auto_sync(doc: Optional[dict], now: Optional[datetime] = None) -> bool:
+    """A185: True for an account doc with neither bank_auto_sync_hours nor
+    bank_auto_sync_refused_at (a missing doc is a new account, so True), and
+    no no-echo attempt within AUTO_SYNC_NO_ECHO_RETRY. Mirrors
+    AUTO_SYNC_MISSING_QUERY plus the no-echo window."""
+    doc = doc or {}
+    if "bank_auto_sync_hours" in doc or "bank_auto_sync_refused_at" in doc:
+        return False
+    last = doc.get("bank_auto_sync_requested_at")
+    if isinstance(last, datetime) and (now or _utcnow()) - last < AUTO_SYNC_NO_ECHO_RETRY:
+        return False
+    return True
+
+
+def auto_sync_blocked_until(doc: Optional[dict], now: datetime) -> Optional[datetime]:
+    """A185: the stored 60-minute rule for the setter, shared with the backfill
+    script. Returns when the setter may next POST for this doc (naive UTC), or
+    None when it may go now. An account asked or refused within the hour, or
+    with a stored next-request time still ahead, is blocked."""
+    doc = doc or {}
+    until = None
+    for key in ("bank_sync_requested_at", "bank_auto_sync_refused_at"):
+        last = doc.get(key)
+        if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
+            cand = last + BANK_SYNC_MIN_GAP
+            until = cand if until is None or cand > until else until
+    noecho = doc.get("bank_auto_sync_requested_at")
+    if isinstance(noecho, datetime) and now - noecho < AUTO_SYNC_NO_ECHO_RETRY:
+        cand = noecho + AUTO_SYNC_NO_ECHO_RETRY
+        until = cand if until is None or cand > until else until
+    nxt = doc.get("bank_sync_next_at")
+    if isinstance(nxt, datetime) and nxt > now and (until is None or nxt > until):
+        until = nxt
+    return until
+
+
 async def ensure_auto_sync(
     client: httpx.AsyncClient,
     account_id: str,
@@ -517,7 +571,8 @@ async def ensure_auto_sync(
         triggered a sync, so bank_sync_requested_at and the as-of window are
         stamped from it and the caller skips its own manual trigger;
       - 429: recorded like any other bank sync 429.
-    The same 60-minute rule as the manual trigger applies. A 4xx is logged
+    The same 60-minute rule as the manual trigger applies (a skip inside the
+    hour is logged at debug). A 4xx stamps bank_auto_sync_refused_at, is logged
     once per process and tolerated, and a failure never fails the sync.
     `hours` of 0 means off here and nothing is sent.
 
@@ -532,17 +587,13 @@ async def ensure_auto_sync(
     try:
         doc = await accounts_col.find_one(
             {"_id": account_id},
-            {"bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1},
+            {"bank_sync_requested_at": 1, "bank_sync_next_at": 1, "bank_auto_sync_refused_at": 1,
+             "bank_auto_sync_requested_at": 1},
         ) or {}
     except Exception:
         doc = {}
-    for key in ("bank_sync_requested_at", "bank_auto_sync_refused_at"):
-        last = doc.get(key)
-        if isinstance(last, datetime) and now - last < BANK_SYNC_MIN_GAP:
-            res["outcome"] = "skipped_local"
-            return res
-    nxt = doc.get("bank_sync_next_at")
-    if isinstance(nxt, datetime) and nxt > now:
+    if auto_sync_blocked_until(doc, now) is not None:
+        logger.debug("Finexer auto sync setter skipped: inside the 60-minute rule")
         res["outcome"] = "skipped_local"
         return res
     try:
@@ -582,12 +633,16 @@ async def ensure_auto_sync(
     if _echoes_interval(obj, hours):
         sets["bank_auto_sync_hours"] = hours
         res["ok"] = True
+    else:
+        # No echo (bare 2xx or a different interval): stamp it so the account
+        # is not re-POSTed on every pass; retried after AUTO_SYNC_NO_ECHO_RETRY.
+        sets["bank_auto_sync_requested_at"] = now
     if _looks_like_sync_object(obj):
         sets.update({"bank_sync_requested_at": now, "bank_sync_next_at": now + BANK_SYNC_MIN_GAP, **_sync_fields(obj)})
         unsets = {"bank_sync_error": "", "bank_sync_error_at": ""}
         res["triggered"] = True
         res["status"] = sets.get("bank_sync_status")
-    res["outcome"] = "accepted" if sets else "no_echo"
+    res["outcome"] = "accepted" if (res["ok"] or res["triggered"]) else "no_echo"
     res["set"] = sets
     await _write_account_fields(account_id, sets, unsets)
     return res
@@ -1031,6 +1086,75 @@ def _parse_iso_utc(s) -> Optional[datetime]:
         return dt
     except (ValueError, TypeError):
         return None
+
+
+def timestamp_shape(s) -> str:
+    """The SHAPE of a raw timestamp string, never its value: whether it ends
+    in Z, carries an explicit offset or is naive, and its length."""
+    if not isinstance(s, str):
+        return "type=" + type(s).__name__
+    t = s.strip()
+    if t.endswith(("Z", "z")):
+        kind = "z"
+    elif re.search(r"[+-]\d{2}:?\d{2}$", t) and ("T" in t or " " in t):
+        kind = "offset"
+    else:
+        kind = "naive"
+    return f"{kind} len={len(t)}"
+
+
+_shape_logged = False
+_future_warned = False
+
+
+def _log_timestamp_shape(field: str, raw) -> None:
+    """INFO shape line, once per process."""
+    global _shape_logged
+    if _shape_logged:
+        return
+    _shape_logged = True
+    logger.info("Finexer %s timestamp shape: %s", field, timestamp_shape(raw))
+
+
+def _check_not_in_future(field: str, parsed: datetime, raw, requested_at: Optional[datetime]) -> None:
+    """A187: a parsed Finexer time more than five minutes after our own request
+    stamp is suspicious (the zone may be wrong). Log the shape once per process, never the
+    value, and keep the data regardless."""
+    global _future_warned
+    ref = requested_at or _utcnow()
+    if parsed - ref > timedelta(minutes=5) and not _future_warned:
+        _future_warned = True  # once per process; no await between check and set
+        logger.warning(
+            "Finexer %s parsed more than 5 minutes after our request stamp (shape: %s); stored anyway",
+            field, timestamp_shape(raw),
+        )
+
+
+_LONDON = ZoneInfo("Europe/London")
+
+
+def parse_finexer_timestamp(s) -> Optional[datetime]:
+    """Parse a Finexer-provided ISO 8601 timestamp to NAIVE UTC.
+
+    Evidence (production, 2026-11-02, A187): every account refreshed at
+    06:25 UTC carried bank_synced_to exactly one hour after our own request
+    stamp, in BST. Finexer appears to send synced_from/synced_to without a
+    zone offset, on a Europe/London clock. Assumption: a NAIVE Finexer
+    timestamp is London local time, converted to UTC (BST in summer, GMT in
+    winter). A trailing Z or an explicit offset is honoured as given. Our own
+    stamps never go through here; they stay UTC via _parse_iso_utc."""
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(s.strip().replace("Z", "+00:00").replace("z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        # fold=0: an ambiguous autumn hour resolves to BST; a nonexistent spring-gap
+        # time resolves with the pre-transition GMT offset. A date-only string reads
+        # as London midnight (deliberate, harmless for expiry_date).
+        dt = dt.replace(tzinfo=_LONDON)
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _parse_date(txn: dict) -> datetime:
@@ -1597,7 +1721,7 @@ async def sync_finexer_consent(
             # to bail below — a stale local "authorized" must not linger.
             update_fields = {
                 "status":      remote_status,
-                "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
+                "expiry_date": parse_finexer_timestamp(consent_doc.get("expiry_date")),
             }
             # A182: failure code and message, and the 90-day reconfirmation date.
             from app.services.finexer_consent import consent_sync_fields
@@ -1740,7 +1864,9 @@ async def sync_finexer_consent(
             # A186: accounts the provider does not share transactions for skip the
             # sync requests below (they only fail). Advisory: the balance is still
             # fetched and any transactions that return are still stored.
-            balance_only, balance_only_reason = is_balance_only(provider_code, acc)
+            balance_only, balance_only_reason = is_balance_only(
+                provider_code, acc, display_name=pinfo.get("name"),
+            )
 
             # A176: ask Finexer to refresh this account from the bank first, so
             # the balance and transactions below are the bank's current ones.
@@ -1751,7 +1877,22 @@ async def sync_finexer_consent(
             # setter is a POST to the same path as the manual trigger and may
             # itself trigger a sync, in which case the manual trigger is
             # skipped for this account (one POST, not two within seconds).
-            if is_initial_sync and auto_sync_hours and not balance_only:
+            # A185: not only on the first sync. Accounts connected before A176
+            # shipped never got the setter, so any account with neither
+            # bank_auto_sync_hours nor bank_auto_sync_refused_at gets one
+            # attempt per pass, on every path. That includes the reconcile cron
+            # (request_bank_sync False): it is the only way those accounts ever
+            # get automatic sync. The cron still never POSTs the manual trigger
+            # itself (the `request_bank_sync` gate below); if the setter's own
+            # response is a sync object that already counts as the refresh.
+            # A185 review: on a user tap (request_bank_sync) that is not the
+            # initial sync, the manual trigger goes FIRST and the setter is left
+            # to the next cron pass (the trigger stamps requested_at, so the
+            # setter is blocked for the hour anyway). Two POSTs to the same path
+            # within seconds is avoided; setter-first stays on the initial sync.
+            tap_trigger_first = request_bank_sync and not is_initial_sync
+            if (auto_sync_hours and not balance_only and not tap_trigger_first
+                    and (is_initial_sync or account_needs_auto_sync(local_doc))):
                 try:
                     au = await ensure_auto_sync(client, account_id, auto_sync_hours, counter, finexer_id=finexer_id)
                     bank_sync_set.update(au.get("set") or {})
