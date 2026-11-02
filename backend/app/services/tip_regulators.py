@@ -62,8 +62,6 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July", "Augus
 _CHANGE = r"(?:rise[sn]?|rising|fall(?:s|ing)?|fell|increas\w*|decreas\w*|go(?:es)?\s+up|go(?:es)?\s+down|changes?)"
 _RISE_RE = re.compile(rf"\b{_CHANGE}\b", re.IGNORECASE)
 _TO_RE = re.compile(r"\bto\s+$", re.IGNORECASE)
-# a rise or fall sentence that gives a new level: "will rise by £60 per year (or £5 per month) to £1,723"
-_RISE_TO_RE = re.compile(rf"\b{_CHANGE}\b.{{0,250}}?\bto\s+£", re.IGNORECASE | re.DOTALL)
 _HOUSEHOLD_RE = re.compile(r"typical(?:\s+\w+)?\s+household", re.IGNORECASE)
 TO_WINDOW = 350
 
@@ -127,7 +125,7 @@ def extract_annual(category: str, text: str, today: date) -> Optional[tuple[floa
             if in_bounds and all(p in window for p in reg.must_have):
                 is_figs.add(round(value, 2))
         prev_end = m.end()
-    if not to_figs and _RISE_TO_RE.search(text):
+    if not to_figs and _RISE_RE.search(text):
         return None  # the page announces a change we could not read: never the outgoing cap
     chosen = to_figs or is_figs
     return (next(iter(chosen)), start) if len(chosen) == 1 else None

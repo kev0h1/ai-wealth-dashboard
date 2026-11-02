@@ -388,6 +388,12 @@ def test_is_set_to_rise_wording_counts_with_or_without_will():
     assert tip_regulators.extract_annual("energy", far2, OCT) is None
 
 
+def test_any_change_word_on_the_page_refuses_the_is_figure():
+    page = ("October 2026. The current price cap for a typical household paying by direct debit is £1,663. "
+            "The cap will rise by 4% from October 2026.")
+    assert tip_regulators.extract_annual("energy", page, OCT) is None
+
+
 def test_period_not_current_gives_none():
     assert tip_regulators.extract_annual("energy", PRESS, SEP) is None  # same page read in September: future release
     older = PRESS.replace("October to December 2026", "July 2026").replace("1 October to 31 December 2026", "1 July to 30 September 2026")
