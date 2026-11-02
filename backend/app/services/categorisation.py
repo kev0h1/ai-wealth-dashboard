@@ -1503,6 +1503,11 @@ async def apply_single_rule(user_id: str, pattern: str, category: str) -> list[d
             {"_id": m["id"]},
             {"$set": {"category": category, "custom_category": None, "rule_applied_at": stamp}},
         )
+    if matched:
+        # G390: rows were recategorised, so the stored transfer-review
+        # candidates are stale for every caller (create_rule's refetch too).
+        from app.services import transfer_review_store
+        await transfer_review_store.mark_stale(user_id)
     return matched
 
 

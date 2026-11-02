@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PennyLauncherButton from "../components/PennyLauncherButton.tsx";
@@ -61,5 +62,17 @@ assert.equal(target.data.get(PENNY_APPEARANCE_STORAGE_KEY), "outline");
 assert.equal(readSeededPennyAppearance(target), "outline");
 // The default prop is resolved by default, so every existing caller is unchanged.
 assert.match(render({ appearance: "outline" }), /data-penny-appearance="outline"/);
+
+// Source wiring: the seed is read before paint with empty deps, and the nav passes `resolved`.
+const prefs = readFileSync(new URL("../components/PreferencesContext.tsx", import.meta.url), "utf8");
+assert.match(prefs, /const useIsomorphicLayoutEffect = typeof window === "undefined" \? useEffect : useLayoutEffect;/);
+const seedEffect = prefs.match(/useIsomorphicLayoutEffect\(\(\) => \{([\s\S]*?)\}, \[\]\);/);
+assert.ok(seedEffect, "seed read is a useIsomorphicLayoutEffect with empty deps");
+assert.match(seedEffect[1], /readSeededPennyAppearance\(\)/);
+assert.match(prefs, /pennyAppearanceResolved: pennyAppearanceSeeded \|\| preferencesReady/);
+assert.match(prefs, /writeSeededPennyAppearance\(next\)/);
+const nav = readFileSync(new URL("../components/BottomNav.tsx", import.meta.url), "utf8");
+assert.match(nav, /pennyAppearanceResolved\s*\}\s*=\s*usePreferences\(\)/);
+assert.match(nav, /resolved=\{pennyAppearanceResolved\}/);
 
 console.log("G390: seeded launcher paints the stored look first, neutral and markless without a seed, no animation.");
