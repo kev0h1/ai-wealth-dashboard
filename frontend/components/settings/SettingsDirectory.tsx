@@ -59,7 +59,7 @@ export function buildSettingsGroups(status: SettingsDirectoryStatus): Group[] {
       { section: "account", label: "Profile, sign-in and data", keywords: "profile name account sign in google apple identity security biometrics face id data history sync set aside", value: status.accountSummary },
     ] },
     { title: "Penny and your plan", intro: "What Penny can help with and your allowance.", tasks: [
-      { section: "penny-plan", label: "Penny and your plan", keywords: "plan subscription usage penny setting things up consent allowance", value: status.planSummary },
+      { section: "penny-plan", label: "Subscription, Penny and your plan", keywords: "subscription plan billing bill payment cancel cancellation manage membership usage penny setting things up consent allowance", value: status.planSummary },
       ...(status.assistantsVisible ? [{ section: "assistants" as const, label: "Connected assistants", keywords: "assistants connections mcp integrations", value: "Available when enabled" }] : []),
     ] },
     { title: "Help and information", intro: "Replay a tour or read the small print.", tasks: [

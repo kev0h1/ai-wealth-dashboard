@@ -10,7 +10,8 @@
 // TeachingSheet, same as everywhere else in Spend.
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, Transaction, Account, type SavingsInsight } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
@@ -29,13 +30,17 @@ import { applyCategoryChange } from "@/lib/transactionsListUpdate";
 import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
 import PendingPaymentsGroup from "@/components/PendingPaymentsGroup";
 import { transactionActivityDate } from "@/lib/transactionActivity";
+import { readTransactionSearchRoute, writeTransactionSearchRoute } from "@/lib/transactionSearchRoute";
 
 const PAGE_SIZE = 20;
 
 export default function TransactionsPage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const { showTips } = usePreferences();
+  const initialRoute = readTransactionSearchRoute(searchParams);
+  const lastRouteKeyRef = useRef<string | null>(null);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipUrlWriteRef = useRef(false);
 
   const [categoryFilter, setCategoryFilter] = useState<string | null>(() => searchParams.get("category"));
   // Multi-category deep-link (e.g. SpendVerdictView's "money you moved"
@@ -85,9 +90,13 @@ export default function TransactionsPage() {
   // filters above), so a second tip deep-link landing on a live page
   // instance pairs with its OWN tip rather than the previous one.
   const [tipParam, setTipParam] = useState<string | null>(() => searchParams.get("tip"));
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [page, setPage] = useState(1);
+  // The input is a draft. It is intentionally separate from the durable,
+  // trimmed URL query so typing (including a trailing space) is never
+  // rewritten by a delayed router acknowledgement.
+  const [searchQuery, setSearchQuery] = useState(() => initialRoute.query);
+  const [committedQuery, setCommittedQuery] = useState(() => initialRoute.query);
+  const [debouncedQuery, setDebouncedQuery] = useState(() => initialRoute.query);
+  const [page, setPage] = useState(() => initialRoute.page);
   const [items, setItems] = useState<Transaction[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -135,8 +144,29 @@ export default function TransactionsPage() {
   // filters it per render). Tolerant of failure: a rejected fetch just
   // leaves the tips line absent, never an error UI.
   const insightsLoadedRef = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
+
+  function cancelDraftCommit() {
+    if (draftTimerRef.current !== null) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+  }
+
+  function scheduleDraftCommit(nextDraft: string) {
+    cancelDraftCommit();
+    draftTimerRef.current = setTimeout(() => {
+      const nextQuery = nextDraft.trim();
+      setCommittedQuery(nextQuery);
+      setDebouncedQuery(nextQuery);
+      setPage((current) => current === 1 ? current : 1);
+      draftTimerRef.current = null;
+    }, 300);
+  }
+
+  useEffect(() => () => cancelDraftCommit(), []);
 
   useEffect(() => {
     getAccountsCached().then(setAccounts).catch(() => {});
@@ -170,6 +200,13 @@ export default function TransactionsPage() {
   // "Between your accounts" landed on the stale "Between your accounts"
   // results, not a real routing/id mismatch).
   useEffect(() => {
+    const routeKey = searchParams.toString();
+    if (lastRouteKeyRef.current === routeKey) return;
+    lastRouteKeyRef.current = routeKey;
+    // A real deep link or history navigation wins over local typing.
+    cancelDraftCommit();
+    skipUrlWriteRef.current = true;
+    const route = readTransactionSearchRoute(searchParams);
     setCategoryFilter(searchParams.get("category"));
     const cats = searchParams.getAll("categories");
     setCategoriesFilter(cats.length > 0 ? cats : null);
@@ -182,15 +219,13 @@ export default function TransactionsPage() {
     setPeriodFrom(searchParams.get("from"));
     setPeriodTo(searchParams.get("to"));
     setTipParam(searchParams.get("tip"));
+    setSearchQuery(route.query);
+    setCommittedQuery(route.query);
+    // A browser Back/Forward restore should immediately query the restored
+    // address rather than briefly showing the previous result for a debounce.
+    setDebouncedQuery(route.query);
+    setPage(route.page);
   }, [searchParams]);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
-
-  // A new search or a cleared/changed category/merchants/period/txn-type filter always restarts at page 1.
-  useEffect(() => { setPage(1); }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType]);
 
   // Clear the provisional group as soon as its context changes. This avoids
   // one filter's pending payments briefly appearing under another filter
@@ -344,6 +379,8 @@ export default function TransactionsPage() {
     to?: string | null;
     label?: string | null;
     txnType?: "debit" | "credit" | null;
+    query?: string | null;
+    page?: number;
   }) {
     const cat = overrides.category !== undefined ? overrides.category : categoryFilter;
     const cats = overrides.categories !== undefined ? overrides.categories : categoriesFilter;
@@ -352,6 +389,8 @@ export default function TransactionsPage() {
     const to = overrides.to !== undefined ? overrides.to : periodTo;
     const label = overrides.label !== undefined ? overrides.label : categoryLabel;
     const tt = overrides.txnType !== undefined ? overrides.txnType : txnType;
+    const query = overrides.query !== undefined ? overrides.query : committedQuery;
+    const nextPage = overrides.page !== undefined ? overrides.page : page;
     const params = new URLSearchParams();
     // Repeated `categories` param, no delimiter — mirrors how the deep link
     // arrived (SpendPage's onOpenMoved) and how the backend reads it.
@@ -365,9 +404,31 @@ export default function TransactionsPage() {
     if (to) params.set("to", to);
     if (label) params.set("label", label);
     if (tt) params.set("txn_type", tt);
-    const qs = params.toString();
+    if (tipParam) params.set("tip", tipParam);
+    const routeParams = writeTransactionSearchRoute(params, { query: query ?? "", page: nextPage });
+    const qs = routeParams.toString();
     return qs ? `/transactions?${qs}` : "/transactions";
   }
+
+  // State is canonical, but the address is durable: a refresh, a reopened
+  // result or browser Back/Forward gets the same query, page and filters.
+  // Native replaceState updates Next's useSearchParams integration
+  // synchronously, so local writes never need asynchronous router-ack logic.
+  useEffect(() => {
+    if (skipUrlWriteRef.current) {
+      skipUrlWriteRef.current = false;
+      return;
+    }
+    const next = urlFor({});
+    const current = searchParams.toString();
+    const currentHref = current ? `/transactions?${current}` : "/transactions";
+    if (next !== currentHref) {
+      const nextKey = next.split("?")[1] ?? "";
+      lastRouteKeyRef.current = nextKey;
+      const href = `${window.location.pathname}${nextKey ? `?${nextKey}` : ""}${window.location.hash}`;
+      window.history.replaceState(null, "", href);
+    }
+  }, [committedQuery, page, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, categoryLabel, txnType, tipParam, searchParams]);
 
   // Category, label and txn_type are one filter unit ONLY when categoryLabel
   // is set — a deep link like "Money you moved" (or the overspent-only
@@ -387,15 +448,13 @@ export default function TransactionsPage() {
     setCategoryLabel(null);
     if (clearingLabelledUnit) {
       setTxnType(null);
-      router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
-    } else {
-      router.replace(urlFor({ category: null, categories: null, label: null }));
     }
+    setPage(1);
   }
 
   function clearMerchantsFilter() {
     setMerchantsFilter(null);
-    router.replace(urlFor({ merchants: null }));
+    setPage(1);
   }
 
   // The scope-transparency fix: widening to all history is always one tap,
@@ -404,7 +463,7 @@ export default function TransactionsPage() {
   function clearPeriodFilter() {
     setPeriodFrom(null);
     setPeriodTo(null);
-    router.replace(urlFor({ from: null, to: null }));
+    setPage(1);
   }
 
   // G119: a direction-only filter (no category) is new — the filter sheet
@@ -415,7 +474,7 @@ export default function TransactionsPage() {
   // FilterChips renders when there's no category alongside it).
   function clearDirection() {
     setTxnType(null);
-    router.replace(urlFor({ txnType: null }));
+    setPage(1);
   }
 
   // "Clear all" — shown by FilterChips once more than one chip is active.
@@ -429,10 +488,7 @@ export default function TransactionsPage() {
     setMerchantsFilter(null);
     setPeriodFrom(null);
     setPeriodTo(null);
-    router.replace(urlFor({
-      category: null, categories: null, label: null, txnType: null,
-      merchants: null, from: null, to: null,
-    }));
+    setPage(1);
     setFilterOpen(false);
   }
 
@@ -452,11 +508,7 @@ export default function TransactionsPage() {
     setPeriodFrom(draft.from);
     setPeriodTo(draft.to);
     setTxnType(draft.txnType);
-    router.replace(urlFor({
-      category: cat, categories: cats, label: null,
-      merchants: merch.length > 0 ? merch : null,
-      from: draft.from, to: draft.to, txnType: draft.txnType,
-    }));
+    setPage(1);
     setFilterOpen(false);
   }
 
@@ -590,14 +642,13 @@ export default function TransactionsPage() {
           away with the content (owner's phone report, 2026-08-30). */}
       <div className="sticky top-0 z-10 bg-[#f0f2f7]/90 dark:bg-[#0f172a]/90 backdrop-blur-sm border-b border-slate-200/60 dark:border-slate-700/60">
         <div className="px-4 pt-6 pb-3 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            aria-label="Back"
+          <Link
+            href="/spend"
+            aria-label="Back to Spend"
             className="w-11 h-11 flex items-center justify-center rounded-full glass-tile flex-shrink-0 active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} className="text-slate-500 dark:text-slate-400" />
-          </button>
+          </Link>
           <div className="flex-1 min-w-0">
             <p className="text-xs text-slate-600 dark:text-slate-400 font-medium uppercase tracking-wide">
               Every payment
@@ -616,28 +667,44 @@ export default function TransactionsPage() {
       <div className="px-4 pt-4 pb-2">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
+          <label htmlFor="transactions-search" className="sr-only">Search transactions</label>
           <input
+            id="transactions-search"
+            ref={searchInputRef}
             type="search"
+            name="transaction-search"
+            autoComplete="off"
             enterKeyHint="search"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              scheduleDraftCommit(e.target.value);
+            }}
             placeholder="Search transactions…"
-            className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm [&::-webkit-search-cancel-button]:hidden"
+            className="min-h-11 w-full pl-9 pr-12 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm [&::-webkit-search-cancel-button]:hidden"
           />
           {searchQuery && (
             <button
               type="button"
-              onClick={() => setSearchQuery("")}
+              onClick={() => {
+                cancelDraftCommit();
+                setSearchQuery("");
+                setCommittedQuery("");
+                setDebouncedQuery("");
+                setPage(1);
+                searchInputRef.current?.focus();
+              }}
               aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:text-slate-300"
             >
-              <X size={14} />
+              <X size={16} aria-hidden="true" />
             </button>
           )}
         </div>
 
         <div className="mt-2 flex items-center justify-between gap-2 min-h-[28px] flex-wrap">
           <p className="text-[11px] text-slate-600 dark:text-slate-400">{scopeLine}</p>
+          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{loading ? "Loading payments" : bookedError ? "Payments could not be loaded" : `${total} booked ${total === 1 ? "payment" : "payments"}, page ${page} of ${totalPages}`}</p>
         </div>
 
         {/* G119: Kevin's approved "tint" treatment — indigo-50 fill,
