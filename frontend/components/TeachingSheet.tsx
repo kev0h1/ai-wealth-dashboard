@@ -28,7 +28,7 @@
 import { displayAccountName } from "@/lib/accountName";
 import { useState, useEffect, useRef, type MutableRefObject } from "react";
 import { Check, Undo2, ChevronRight, ChevronLeft, Home, Landmark, PiggyBank, ReceiptText, Target } from "lucide-react";
-import { Transaction, Commitment, Account, api } from "@/lib/api";
+import { Transaction, Commitment, Account, api, ApiError } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour, inferCategoryKind, type CategoryKind } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
@@ -42,6 +42,7 @@ import { formatCurrency } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from "@/lib/cacheInvalidation";
+import { runTeachingUndoStages, type TeachingUndoStage } from "@/lib/teachingUndo";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
 
@@ -157,16 +158,49 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }, [namingText, step]);
 
   const [proposal, setProposal] = useState<{ category: string; matchesPast: number; pattern: string } | null>(null);
-  const [toast, setToast] = useState<{ message: string; undo: () => void | Promise<void> } | null>(null);
+  const [toast, setToast] = useState<{ message: string; undoStages: TeachingUndoStage[] } | null>(null);
+  const [undoFailed, setUndoFailed] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoStarted = useRef(false);
+  const undoInFlight = useRef(false);
+  const undoCompleted = useRef(new Set<string>());
   const sheetCloseRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
-  function finish(message: string, undo: () => void | Promise<void>) {
+  function finish(message: string, undoStages: TeachingUndoStage[]) {
     setStep("done");
-    setToast({ message, undo });
+    setToast({ message, undoStages });
+    setUndoFailed(false);
+    undoStarted.current = false;
+    undoInFlight.current = false;
+    undoCompleted.current = new Set<string>();
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => sheetCloseRef.current?.(), 5000);
+    toastTimer.current = setTimeout(() => {
+      if (!undoStarted.current) sheetCloseRef.current?.();
+    }, 5000);
+  }
+
+  async function retryUndo(close: () => void) {
+    if (!toast || undoInFlight.current) return;
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    undoStarted.current = true;
+    undoInFlight.current = true;
+    setBusy(true);
+    setUndoFailed(false);
+    try {
+      const result = await runTeachingUndoStages(toast.undoStages, undoCompleted.current);
+      if (result.complete) {
+        setToast(null);
+        close();
+      } else {
+        // This is a product-state recovery, not a financial-risk warning.
+        // The sheet stays open and the completed stage set makes Retry safe.
+        setUndoFailed(true);
+      }
+    } finally {
+      undoInFlight.current = false;
+      setBusy(false);
+    }
   }
 
   // G83 fix-round (2026-09-18 review): every successful write below
@@ -215,7 +249,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       if (isMovementRead) {
         await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category });
         notifyUpdated({ ...transaction, category });
-        finish(`Filed as ${category}.`, () => undoToSpend(category));
+        finish(`Filed as ${category}.`, [{ id: "primary", run: () => undoToSpend(category) }]);
         return;
       }
       const res = await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category });
@@ -227,7 +261,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
         setProposal({ category, matchesPast: res.matches_past, pattern: res.rule_suggestion.pattern });
         setStep("propose-rule");
       } else {
-        finish(`Filed as ${category}.`, () => undoToSpend(category));
+        finish(`Filed as ${category}.`, [{ id: "primary", run: () => undoToSpend(category) }]);
       }
     } catch (e) {
       setError(saveErrorMessage(e));
@@ -237,17 +271,12 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }
 
   async function undoToSpend(_appliedCategory: string) {
-    try {
-      if (isMovementRead) {
-        await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
-      } else {
-        await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
-      }
-      notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
-    } catch {
-      // Undo failing quietly is the least-bad outcome here — the sheet is
-      // already closing and there's no surface left to report to.
+    if (isMovementRead) {
+      await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
+    } else {
+      await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
     }
+    notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
   }
 
   async function handleSaveNewCategory() {
@@ -280,7 +309,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           ? "Investment"
           : "Transfer";
       notifyUpdated({ ...transaction, category: result.custom_category ?? category });
-      finish(successMessage, undoMovement);
+      finish(successMessage, [{ id: "primary", run: undoMovement }]);
     } catch (e) {
       setError(saveErrorMessage(e));
     } finally {
@@ -289,12 +318,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }
 
   async function undoMovement() {
-    try {
-      await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
-      notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
-    } catch {
-      // see undoToSpend
-    }
+    await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
+    notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
   }
 
   // ── Movement fork, CREDIT side (owner review defect 2) ──────────────────
@@ -315,7 +340,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     try {
       await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category });
       notifyUpdated({ ...transaction, category });
-      finish(`Filed as ${category}.`, undoCreditMovement);
+      finish(`Filed as ${category}.`, [{ id: "primary", run: undoCreditMovement }]);
     } catch (e) {
       setError(saveErrorMessage(e));
     } finally {
@@ -324,12 +349,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }
 
   async function undoCreditMovement() {
-    try {
-      await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
-      notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
-    } catch {
-      // see undoToSpend
-    }
+    await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
+    notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
   }
 
   // ── Propagation offer ───────────────────────────────────────────────────
@@ -358,30 +379,38 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
         { ...transaction, category: proposal.category },
         (saved.affected_ids ?? (saved.affected || []).map((a) => a.id)).filter((id) => id !== transaction.id),
       );
-      finish("Filed and rule saved. Undo", async () => {
-        await undoToSpend(proposal.category);
-        try { await api.deleteRule(saved.id); } catch { /* best-effort */ }
-        // Revert every sibling row the rule bulk-recategorised too — without
-        // this, "Undo" only touched the primary transaction and left the
-        // rest silently mis-filed (fix-round HIGH finding).
-        await Promise.all(
-          (saved.affected || [])
-            .filter((a) => a.id !== transaction.id)
-            .map((a) =>
-              api.patchTransaction(a.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: a.previous_category || "Other" }).then(() => {
-                if (deferRecompute) onUpdated({ ...transaction, id: a.id, category: a.previous_category || "Other" }, undefined, true);
-              }).catch(() => {
-                /* A failed rollback stays resolved locally, matching the server. */
-              }),
-            ),
-        );
-        if (!deferRecompute) notifyTransactionsChanged();
-      });
+      const siblingStages: TeachingUndoStage[] = (saved.affected || [])
+        .filter((a) => a.id !== transaction.id)
+        .map((a) => {
+          const previousCategory = a.previous_category || "Other";
+          return {
+            id: `sibling:${a.id}`,
+            run: async () => {
+              await api.patchTransaction(a.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: previousCategory });
+              if (deferRecompute) {
+                onUpdated({ ...transaction, id: a.id, category: previousCategory }, undefined, true);
+                return;
+              }
+              invalidateAfterTransactionCorrection(a.id, { oldCategory: proposal.category, newCategory: previousCategory });
+              onUpdated({ ...transaction, id: a.id, category: previousCategory });
+              notifyTransactionsChanged([a.id], previousCategory);
+            },
+          };
+        });
+      finish("Filed and rule saved. Undo", [
+        // Deleting first prevents an active rule from reapplying its category
+        // while the primary and historical rows are being restored.
+        // A DELETE can commit before its response is lost. The following 404
+        // is therefore the desired state for this one idempotent stage.
+        { id: "rule", run: () => api.deleteRule(saved.id), acceptsError: (error) => error instanceof ApiError && error.status === 404 },
+        { id: "primary", dependsOn: ["rule"], run: () => undoToSpend(proposal.category) },
+        ...siblingStages.map((stage) => ({ ...stage, dependsOn: ["rule"] })),
+      ]);
     } catch {
       // Rule save failed (e.g. free-tier gate) — the categorisation itself
       // already succeeded, so still land on a clean undo toast rather than
       // stranding the user on the propagation card.
-      finish("Filed.", () => undoToSpend(proposal.category));
+      finish("Filed.", [{ id: "primary", run: () => undoToSpend(proposal.category) }]);
     } finally {
       setBusy(false);
     }
@@ -389,7 +418,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   function handleJustThisOnce() {
     if (!proposal) return;
-    finish("Filed.", () => undoToSpend(proposal.category));
+    finish("Filed.", [{ id: "primary", run: () => undoToSpend(proposal.category) }]);
   }
 
   const colour = getCategoryColour(originalCategory, colours);
@@ -673,7 +702,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">Which goal does this fund?</p>
               {goalsFailed ? (
                 <>
-                  <p className="mt-3 text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">
+                  <p className="mt-3 rounded-xl bg-slate-100 dark:bg-slate-700/60 px-3 py-2 text-[12px] font-semibold text-slate-700 dark:text-slate-200" role="alert">
                     I couldn&apos;t check your goals just now, try again in a moment.
                   </p>
                   <button
@@ -936,32 +965,56 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           )}
 
           {step === "done" && toast && (
-            <div className="mt-4 glass-tile rounded-2xl p-4 flex items-center gap-3">
-              <span className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
-                <Check size={15} className="text-emerald-600 dark:text-emerald-400" />
+            <div className="mt-4 glass-tile rounded-2xl p-4">
+              <div className="flex items-center gap-3">
+              <span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${undoStarted.current ? "bg-slate-100 dark:bg-slate-700/60" : "bg-emerald-100 dark:bg-emerald-500/15"}`}>
+                {undoStarted.current ? <Undo2 size={15} className="text-slate-600 dark:text-slate-300" /> : <Check size={15} className="text-emerald-600 dark:text-emerald-400" />}
               </span>
-              <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">{toast.message}</p>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={async () => {
-                  if (toastTimer.current) clearTimeout(toastTimer.current);
-                  setBusy(true);
-                  try {
-                    await toast.undo();
-                    close();
-                  } finally { setBusy(false); }
-                }}
-                className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
-              >
-                <Undo2 size={13} />
-                Undo
-              </button>
+              <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                {undoStarted.current ? (undoFailed ? "Undo needs your attention." : "Undoing your changes…") : toast.message}
+              </p>
+              {!undoStarted.current && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => retryUndo(close)}
+                  className="min-h-[44px] flex-shrink-0 flex items-center gap-1 px-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity disabled:opacity-50"
+                >
+                  <Undo2 size={13} />
+                  Undo
+                </button>
+              )}
+              </div>
+              {undoFailed && (
+                <div className="mt-3 rounded-xl bg-slate-100 dark:bg-slate-700/60 p-3" role="alert">
+                  <p className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">
+                    Undo could not finish. Some saved changes may still be in place.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => retryUndo(close)}
+                      className="min-h-[44px] rounded-xl bg-indigo-600 px-3 text-[12px] font-semibold text-white active:scale-95 transition-transform disabled:opacity-50"
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={close}
+                      className="min-h-[44px] rounded-xl px-3 text-[12px] font-semibold text-slate-600 dark:text-slate-300 active:opacity-70 transition-opacity disabled:opacity-50"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {error && (
-            <p className="mt-3 text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">{error}</p>
+            <p className="mt-3 rounded-xl bg-slate-100 dark:bg-slate-700/60 px-3 py-2 text-[12px] font-semibold text-slate-700 dark:text-slate-200" role="alert">{error}</p>
           )}
 
           {/* Footer whisper — every step, first person, never "the engine" */}
