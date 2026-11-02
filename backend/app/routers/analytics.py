@@ -1,5 +1,6 @@
 """KPI, insights, and budget pace-profile endpoints."""
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -5971,6 +5972,99 @@ async def _separate_pair_review_items(uid: str) -> list[dict]:
     return result
 
 
+_SLIM_FLAGGED_FIELDS = (
+    "merchant_name", "description", "amount", "date", "currency", "account_id",
+    "transaction_type", "_series_key", "_effective_category", "_evidence",
+)
+
+
+def _slim_flagged(t: dict) -> dict:
+    """The fields grouping and period scoping read from a flagged row, in a
+    shape the stored review document can hold."""
+    return {"_id": str(t["_id"]), **{k: t.get(k) for k in _SLIM_FLAGGED_FIELDS}}
+
+
+async def _build_review_state(uid: str) -> dict:
+    """Compute the whole review candidate set (G390: done at sync, stored).
+
+    Pair suggestions come FIRST (owner device-testing fix 2) so their leg ids
+    can be filtered out of the flagged-series set: one transaction gets one
+    ask. The three shapes are a disjoint partition; filtering raw rows before
+    grouping matters because a paired payment can be the newest member of a
+    wider recurring series whose older siblings remain useful."""
+    pairs = await _transfer_pair_suggestions(uid)
+    separate_items = await _separate_pair_review_items(uid)
+    excluded_ids = _pair_leg_ids(pairs) | frozenset(item["id"] for item in separate_items)
+    flagged = await _flagged_miscategorised(uid, exclude_ids=excluded_ids)
+    return {
+        "pairs": pairs,
+        "separate_items": separate_items,
+        "flagged": [_slim_flagged(t) for t in flagged],
+    }
+
+
+async def _review_inputs_fingerprint(uid: str) -> str:
+    """Hash of everything besides transaction edits that changes the review
+    state: the user's decisions (row and series dismissals, dismissed or
+    split pairs with G382's snapshots, learned pairs), category kinds,
+    identity, account facts and the transaction count. A decision change
+    therefore rebuilds the stored state from the same decisions, and a
+    recompute can never drop one."""
+    prefs = await preferences_col.find_one(
+        {"user_id": uid},
+        {"dismissed_miscategorised": 1, "dismissed_miscategorised_series": 1,
+         "dismissed_transfer_pairs": 1, "separate_transfer_pair_reviews": 1},
+    ) or {}
+    learned = await confirmed_transfer_pairs_col.find(
+        {"user_id": uid}, {"key_a": 1, "key_b": 1},
+    ).to_list(None)
+    kinds = await get_category_kinds(uid)
+    identity = await user_identity(uid)
+    accounts = [
+        [str(a["_id"]), a.get("currency"), a.get("provider"), a.get("type"), a.get("subtype")]
+        async for a in accounts_col.find(
+            {"user_id": uid}, {"currency": 1, "provider": 1, "type": 1, "subtype": 1},
+        )
+    ]
+    txn_count = await transactions_col.count_documents({"user_id": uid})
+    material = {
+        "dismissed_rows": sorted(str(x) for x in prefs.get("dismissed_miscategorised") or []),
+        "dismissed_series": sorted(str(x) for x in prefs.get("dismissed_miscategorised_series") or []),
+        "dismissed_pairs": sorted(str(x) for x in prefs.get("dismissed_transfer_pairs") or []),
+        "separate": prefs.get("separate_transfer_pair_reviews") or [],
+        "learned": sorted(tuple(sorted((str(d.get("key_a")), str(d.get("key_b"))))) for d in learned),
+        "kinds": sorted((str(k), str(v)) for k, v in dict(kinds).items()),
+        "name_tokens": sorted(str(x) for x in identity.get("name_tokens") or []),
+        "own_ids": sorted(identity.get("own_ids") or []),
+        "accounts": sorted(accounts, key=lambda a: a[0]),
+        "txn_count": txn_count,
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True, default=str).encode()).hexdigest()
+
+
+async def get_review_state(uid: str) -> dict:
+    """Serve the review candidates from the per-user store; recompute inline
+    only when the store is absent or stale, then save it."""
+    from app.services import transfer_review_store as store
+    fingerprint = await _review_inputs_fingerprint(uid)
+    doc = await store.load(uid)
+    if store.is_valid(doc, fingerprint):
+        return doc["state"]
+    built_epoch = int((doc or {}).get("epoch") or 0)
+    state = await _build_review_state(uid)
+    await store.save(uid, state, fingerprint, built_epoch)
+    return state
+
+
+async def refresh_review_state(uid: str) -> None:
+    """Sync-pipeline hook: rebuild the stored review state now, so the next
+    open reads storage. Never raises into the sync that called it."""
+    try:
+        await get_review_state(uid)
+    except Exception:
+        logger.exception("refresh_review_state failed")
+
+
 @router.get("/transactions/miscategorised-count")
 async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current_user)):
     """Read-only guardrail feeding the Spend page's quiet banner: how many
@@ -6002,17 +6096,10 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
         return cached
     v = await response_cache.snapshot(uid)
 
-    # Pair suggestions computed FIRST (owner device-testing fix 2) so their
-    # leg ids can be filtered out of the flagged-series set below — one
-    # transaction gets one ask, and the pair (fixes both legs + learns) beats
-    # the series ask. This also feeds `pair_count` further down, unchanged.
-    pairs = await _transfer_pair_suggestions(uid)
-    # The three review shapes are a disjoint partition.  Filtering raw rows
-    # before grouping is important: a paired payment can be the newest member
-    # of a wider recurring series, while its older siblings remain useful.
-    separate_items = await _separate_pair_review_items(uid)
-    excluded_ids = _pair_leg_ids(pairs) | frozenset(item["id"] for item in separate_items)
-    txns = await _flagged_miscategorised(uid, exclude_ids=excluded_ids)
+    state = await get_review_state(uid)
+    pairs = state["pairs"]
+    separate_items = state["separate_items"]
+    txns = state["flagged"]
     period_start, period_end = await _resolve_period_bounds(uid, off)
     in_period_keys = _series_touching_period(txns, period_start, period_end)
     period_txns = [t for t in txns if t["_series_key"] in in_period_keys]
@@ -6061,10 +6148,9 @@ async def get_miscategorised_transactions(user: dict = Depends(current_user)):
         return cached
     v = await response_cache.snapshot(uid)
 
-    pairs = await _transfer_pair_suggestions(uid)
-    separate_items = await _separate_pair_review_items(uid)
-    excluded_ids = _pair_leg_ids(pairs) | frozenset(item["id"] for item in separate_items)
-    items = _group_miscategorised(await _flagged_miscategorised(uid, exclude_ids=excluded_ids))[:50]
+    state = await get_review_state(uid)
+    items = _group_miscategorised(state["flagged"])[:50]
+    separate_items = state["separate_items"]
     # Additive response field.  These single-payment questions include a
     # credit where appropriate, so keeping them distinct lets old clients
     # continue their debit-series rendering unchanged.
@@ -6593,6 +6679,8 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
 
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
+    from app.services import transfer_review_store
+    await transfer_review_store.mark_stale(uid)
     await response_cache.ainvalidate(uid)
 
     if changed:

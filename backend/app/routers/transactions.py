@@ -22,6 +22,7 @@ from app.db.collections import (
     pending_transactions_col,
 )
 from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
+from app.services import transfer_review_store as _transfer_review_store
 from app.services.categorisation import (
     RAW_TRUELAYER_CATEGORIES, VALID_CATEGORIES,
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
@@ -43,6 +44,9 @@ async def _after_category_correction(uid: str, *, defer_recompute: bool) -> None
     their expensive forecast calculation for the transfer review sheet."""
     from app.routers.analytics import compute_and_cache_cashflow
     from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
+    from app.services import transfer_review_store
+    # G390: a recategorise changes the stored review candidates.
+    await transfer_review_store.mark_stale(uid)
     if defer_recompute:
         await defer_transfer_review_recompute(uid)
     else:
@@ -1218,6 +1222,7 @@ async def auto_categorise(
             needs_ai.append(t)
 
     if not needs_ai or not OPENROUTER_API_KEY:
+        await _transfer_review_store.mark_stale(uid)
         await response_cache.ainvalidate(uid)
         return {"rules_fixed": rules_fixed, "history_matched": history_matched, "ai_categorised": 0}
 
@@ -1296,5 +1301,6 @@ async def auto_categorise(
             for t in batch:
                 await transactions_col.update_one({"_id": t["_id"], "user_id": uid, "custom_category": None}, {"$set": {"category": "Other"}})
 
+    await _transfer_review_store.mark_stale(uid)
     await response_cache.ainvalidate(uid)
     return {"rules_fixed": rules_fixed, "history_matched": history_matched, "ai_categorised": ai_total}

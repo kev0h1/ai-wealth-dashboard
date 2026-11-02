@@ -88,6 +88,9 @@ class FakeCol:
                 return d
         return None
 
+    async def count_documents(self, query=None):
+        return len([d for d in self.docs if _match(d, query or {})])
+
     async def update_one(self, filt, update, upsert=False):
         for d in self.docs:
             if _match(d, filt):
@@ -112,6 +115,8 @@ class FakeCol:
             d[k] = v
         for k, v in (update.get("$setOnInsert") or {}).items():
             d.setdefault(k, v)
+        for k, v in (update.get("$inc") or {}).items():
+            d[k] = d.get(k, 0) + v
         for k, v in (update.get("$addToSet") or {}).items():
             d.setdefault(k, [])
             if v not in d[k]:
@@ -875,6 +880,8 @@ def _setup_pair_and_series(monkeypatch, *, dismissed_pairs=None):
     monkeypatch.setattr(analytics, "get_category_kinds", _fake_get_category_kinds)
     monkeypatch.setattr(analytics, "user_identity", _fake_user_identity(identity))
     monkeypatch.setattr(analytics, "response_cache", fake_cache)
+    import app.services.transfer_review_store as review_store
+    monkeypatch.setattr(review_store, "transfer_review_store_col", FakeCol([]))
     return txns
 
 
