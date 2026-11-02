@@ -25,6 +25,8 @@ export interface AccountsHeaderNetWorth {
 export interface AccountsHeaderProps {
   /** Null until the KPIs have loaded, or when they fail: the card keeps the label and Add, with "Not available right now" in place of the figure. */
   netWorth: AccountsHeaderNetWorth | null;
+  /** G391 A directory, without a position total above the list. */
+  directory?: boolean;
   /** The figure is masked (global hide-balances preference, or not yet resolved). */
   hidden: boolean;
   /** Show the privacy rail (preference resolved and on). */
@@ -54,7 +56,7 @@ function money(v: number, hidden: boolean): string {
 
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 
-export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onAdd, updated, addOpen = false, addRef, onAddClose, addMenu, refresh }: AccountsHeaderProps) {
+export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onAdd, updated, addOpen = false, addRef, onAddClose, addMenu, refresh, directory = false }: AccountsHeaderProps) {
   const text = netWorth ? money(netWorth.value, hidden) : "";
   useEffect(() => {
     if (addOpen) addRef?.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
@@ -73,24 +75,8 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onA
       e.preventDefault();
     }
   };
-  return (
-    <header className="relative z-30">
-      <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
-      {(
-        <div className="glass-card mt-3 rounded-2xl p-4" data-tutorial-id="tutorial-networth">
-          <div className={refresh ? "flex flex-wrap items-start justify-between gap-x-3 gap-y-2" : "flex items-start justify-between gap-3"}>
-            <div className="min-w-0">
-              <p className="text-[13px] font-medium text-slate-600 dark:text-slate-400">Net worth</p>
-              {netWorth ? (
-                <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white">
-                  <span aria-hidden="true">{text}</span>
-                  <span className="sr-only">{hidden ? (netWorth.value < 0 ? "Negative balance hidden" : "Balance hidden") : text}</span>
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-slate-600 dark:text-slate-400" data-networth-unavailable>Not available right now</p>
-              )}
-            </div>
-            <div className={refresh ? "-mr-1 -mt-1 ml-auto flex shrink-0 items-start gap-2" : "contents"}>
+  const actions = (
+    <div className={refresh ? `${directory ? "" : "-mr-1 -mt-1 "}ml-auto flex shrink-0 items-start gap-2` : "contents"}>
             {refresh && <button
               type="button"
               onClick={refresh.onRefresh}
@@ -117,6 +103,33 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onA
               {addMenu}
             </div>
             </div>
+  );
+  if (directory) return <header className="relative z-30" data-account-directory-header>
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0"><h1 className="text-xl font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1><p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">Find an account</p></div>
+      {actions}
+    </div>
+    {showChip && <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-300" data-privacy-rail><span className="flex items-center gap-1.5"><EyeOff size={14} aria-hidden="true"/>Balances hidden</span><button type="button" data-hidden-chip onClick={onShow} className={`min-h-11 rounded-lg px-3 font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 dark:text-indigo-300 dark:hover:bg-white/5 ${focusRing}`}>Show<span className="sr-only"> balances</span></button></div>}
+    {refresh && <div className="mt-3 space-y-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300"><p data-bank-freshness>{refresh.freshness}</p><p id="accounts-refresh-status" role="status" aria-live="polite">{refresh.message}</p></div>}
+  </header>;
+  return (
+    <header className="relative z-30">
+      <h1 className="text-[20px] font-bold leading-tight text-slate-950 dark:text-white">Accounts</h1>
+      {(
+        <div className="glass-card mt-3 rounded-2xl p-4" data-tutorial-id="tutorial-networth">
+          <div className={refresh ? "flex flex-wrap items-start justify-between gap-x-3 gap-y-2" : "flex items-start justify-between gap-3"}>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-slate-600 dark:text-slate-400">Net worth</p>
+              {netWorth ? (
+                <p className="money mt-1 text-[30px] font-bold leading-[1.2] tracking-[-0.025em] text-slate-950 dark:text-white">
+                  <span aria-hidden="true">{text}</span>
+                  <span className="sr-only">{hidden ? (netWorth.value < 0 ? "Negative balance hidden" : "Balance hidden") : text}</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-400" data-networth-unavailable>Not available right now</p>
+              )}
+            </div>
+            {actions}
           </div>
           {netWorth && (
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">

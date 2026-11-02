@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, type Account, type SyncStatus } from "@/lib/api";
 import {
-  accountsFreshness, advancedTimestampSignature, RATE_LIMIT_COOLDOWN_MS, refreshBaseline, refreshCooldown,
+  accountsFreshness, advancedTimestampSignature, isRefreshEligible, isConnectedBankAccount, RATE_LIMIT_COOLDOWN_MS, refreshBaseline, refreshCooldown,
   refreshCooldownMessage, refreshProgress, REFRESH_POLL_MS, REFRESH_TIMEOUT_MS,
   syncFailureKey, syncFailureMessage, type RefreshBaseline,
 } from "@/lib/accountsOverviewRefresh";
@@ -55,7 +55,7 @@ export function useAccountsOverviewRefresh({
   const cooldownAt = localCooldownUntil && localCooldownUntil > clock
     ? bankCooldownAt === null ? localCooldownUntil : Math.max(bankCooldownAt, localCooldownUntil)
     : bankCooldownAt;
-  const eligibleCount = useMemo(() => accounts.filter((account) => !account.manual && !account.id.startsWith("statement-") && !!account.connection_id && !account.paused).length, [accounts]);
+  const eligibleCount = useMemo(() => accounts.filter(isRefreshEligible).length, [accounts]);
   const freshness = useMemo(() => accountsFreshness(accounts, clock), [accounts, clock]);
 
   useEffect(() => {
@@ -178,6 +178,7 @@ export function useAccountsOverviewRefresh({
     if (loading) neutralMessage = "Loading bank accounts.";
     else if (!canConnectBank) neutralMessage = "Bank refresh is not available on your current plan.";
     else if (eligibleCount === 0 && accounts.some((account) => !account.manual && !account.id.startsWith("statement-") && !!account.connection_id && account.paused)) neutralMessage = "Bank refresh is paused for your current plan.";
+    else if (eligibleCount === 0 && accounts.some(account => isConnectedBankAccount(account) && account.balance_only)) neutralMessage = "These accounts share balances only. Bank refresh is unavailable.";
     else if (eligibleCount === 0 && canConnectBank) neutralMessage = "Connect a bank to refresh its data.";
     else if (eligibleCount === 0) neutralMessage = "No bank accounts are available to refresh.";
     else if (cooldownAt !== null) neutralMessage = refreshCooldownMessage(cooldownAt);

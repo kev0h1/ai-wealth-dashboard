@@ -20,6 +20,15 @@ assert.equal(isRefreshEligible(bank({ manual: true })), false);
 assert.equal(isRefreshEligible(bank({ id: "statement-1" })), false);
 assert.equal(isRefreshEligible(bank({ paused: true })), false);
 
+// A186 balance-only accounts have no setter work to confirm. A pot must not
+// leave an otherwise completed overview refresh waiting for its timeout.
+assert.equal(isRefreshEligible(bank({ balance_only: true })), false);
+const pot = bank({ id: "pot", balance_only: true, bank_synced_to: null });
+const mixedBaseline = refreshBaseline([bank(), pot]);
+assert.deepEqual([...mixedBaseline.keys()], ["bank-1"]);
+assert.equal(refreshProgress([bank({ bank_synced_to: "2026-11-02T10:01:00Z" }), pot], mixedBaseline), "updated");
+assert.equal(refreshCooldown([bank({ bank_next_refresh_at: "2026-11-02T12:30:00Z" }), pot], now), Date.parse("2026-11-02T12:30:00Z"));
+
 // Freshness includes paused banks, but never transaction download times.
 assert.match(accountsFreshness([bank(), bank({ id: "paused", paused: true, bank_synced_to: "2026-11-02T09:00:00Z" })], now), /3 hours ago/);
 assert.match(accountsFreshness([bank({ bank_synced_to: null, transactions_synced_at: "2026-11-02T11:00:00Z" })], now), /not reported/);

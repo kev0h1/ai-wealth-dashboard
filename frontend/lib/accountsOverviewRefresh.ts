@@ -14,8 +14,8 @@ export function isConnectedBankAccount(account: Pick<Account, "id" | "manual" | 
   return !account.manual && !account.id.startsWith("statement-") && !!account.connection_id;
 }
 
-export function isRefreshEligible(account: Pick<Account, "id" | "manual" | "connection_id" | "paused">): boolean {
-  return isConnectedBankAccount(account) && !account.paused;
+export function isRefreshEligible(account: Pick<Account, "id" | "manual" | "connection_id" | "paused" | "balance_only">): boolean {
+  return isConnectedBankAccount(account) && !account.paused && !account.balance_only;
 }
 
 function time(iso: string | null | undefined): number | null {

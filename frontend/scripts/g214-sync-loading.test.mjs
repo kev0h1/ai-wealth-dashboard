@@ -139,7 +139,8 @@ assert.match(home, /pollDelayMs\(syncStatus\?\.state\)/, "Home polls on the shar
 assert.equal((home.match(/setInterval\(/g) ?? []).length, 1, "one poll, not a second");
 const acc = src("../app/components/AccountsPage.tsx");
 assert.match(acc, /<AccountsSyncBanner/);
-assert.match(acc, /sync=\{syncFor\(row\)\}/);
+assert.match(acc, /syncFor=\{syncFor\}/, "G391 passes connection sync into the directory");
+assert.match(src("../components/AccountsDirectory.tsx"), /sync=\{syncFor\?\.\(row\)\}/, "each directory row receives sync state");
 assert.match(acc, /info\.kind === "new-bank" && !pausedConnectionIds/, "only a never-synced bank gets a Pending row");
 assert.match(acc, /acc\.paused/, "a paused bank never shows as syncing");
 assert.match(acc, /PausedBanksStrip/);

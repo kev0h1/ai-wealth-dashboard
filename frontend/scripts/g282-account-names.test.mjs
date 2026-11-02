@@ -30,10 +30,10 @@ assert.ok(!/account\.manual \? account\.name/.test(read("components/AccountRadio
 
 const page = read("app/components/AccountsPage.tsx");
 const list = page.slice(page.lastIndexOf("{connectNotice && ("));
-assert.ok(!/\b(?:mt-4|pt-4|pb-4|mt-6|pt-6|mt-8)\b/.test(list.slice(0, list.indexOf("Offline accounts"))), "Accounts list has no ad hoc 16/24/32px margins");
 assert.match(page, /className="px-4 pt-5"/, "Accounts header block is pt-5");
-assert.match(list, /px-4 pt-3 space-y-3/, "Accounts list is one 12px group");
-assert.match(list, /px-4 mt-5/, "Offline accounts is a 20px section");
+assert.match(list, /px-4 pt-3 space-y-3/, "Accounts status and directory container keeps its spacing");
+assert.match(page, /<AccountsDirectory[\s\S]*?rows=\{\[\.\.\.estate\.rows, \.\.\.manualEstateRows\]\}/, "G391 combines the canonical bank and manual projections in one directory");
+assert.match(page, /name: displayAccountName\(m\.name\)/, "manual directory names use the same display contract");
 
 assert.match(page, /name=\{displayAccountName\(selectedAccount\.name\)\}/, "Accounts detail header uses the shared name");
 assert.match(page, /rule\.source_account_name \? displayAccountName/, "rule source name uses the shared name");
@@ -42,8 +42,7 @@ assert.match(read("components/TeachingSheet.tsx"), /displayAccountName\(account\
 assert.match(read("components/MiscategorisedReviewSheet.tsx"), /displayAccountName\(account\.name\)/, "review sheet uses the shared name");
 // The payday plan card renders names the companion has already cased server-side (_clean_name -> display_account_name).
 assert.match(readFileSync(new URL("../../backend/app/services/companion.py", import.meta.url), "utf8"), /return display_account_name\(cleaned\) if cleaned else fallback/, "companion _clean_name applies the shared name for the payday plan card");
-assert.match(read("app/components/AccountsPage.tsx"), /pb-0\.5 -mx-1 px-1|AccountsEstateControls/, "chip row present");
-assert.match(read("components/AccountsEstateControls.tsx"), /pb-0\.5/, "chip row keeps 2px bottom room");
+assert.match(read("components/AccountsDirectory.tsx"), /aria-label="Account filters"/, "G391 directory owns the compact All/Pinned/Dormant controls");
 
 const preview = read("app/design/home-accounts-rhythm/HomeAccountsRhythmClient.tsx");
 assert.match(preview, /top: "pt-5", brief: "space-y-3", section: "mt-5", label: "mb-2", group: "space-y-3", tail: "pb-5", accountsFirst: "pt-3"/, "preview rhythm mirrors production");
