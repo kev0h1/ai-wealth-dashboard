@@ -277,8 +277,26 @@ class _FakeMerchantCacheCol:
 
     async def update_one(self, filt, update, upsert=False):
         doc_id = filt["_id"]
+        inserted = doc_id not in self.docs
         doc = self.docs.setdefault(doc_id, {"_id": doc_id})
         doc.update(update.get("$set") or {})
+        if inserted:
+            doc.update(update.get("$setOnInsert") or {})
+        return type("R", (), {"upserted_id": doc_id if inserted else None})()
+
+
+class _NoRowsCol:
+    """G404: cache_merchant re-stamps the caller's rows after a changed write;
+    these tests have none, so a no-op collection keeps them off any database."""
+
+    async def update_many(self, filt, update):
+        return type("R", (), {"modified_count": 0})()
+
+
+def _stub_row_collections(monkeypatch):
+    import app.services.categorisation as categorisation
+    monkeypatch.setattr(categorisation, "transactions_col", _NoRowsCol())
+    monkeypatch.setattr(categorisation, "statement_transactions_col", _NoRowsCol())
 
 
 def test_person_referencing_key_forced_per_user_never_reaches_global_cache(monkeypatch):
@@ -296,6 +314,7 @@ def test_person_referencing_key_forced_per_user_never_reaches_global_cache(monke
 
     fake_col = _FakeMerchantCacheCol()
     monkeypatch.setattr(categorisation, "merchant_categories_col", fake_col)
+    _stub_row_collections(monkeypatch)
 
     injected_key = "to daniel maingi standing order fp 12"
     pt_a_uid = "a59-pentest-pt-a@pentest.invalid"
@@ -332,6 +351,7 @@ def test_ordinary_merchant_key_still_allowed_global_control_case(monkeypatch):
 
     fake_col = _FakeMerchantCacheCol()
     monkeypatch.setattr(categorisation, "merchant_categories_col", fake_col)
+    _stub_row_collections(monkeypatch)
 
     # "tesco stores" doesn't match _PERSON_PAYMENT_RE's structural shapes,
     # so _key_looks_user_relative falls through to a real user_identity()
