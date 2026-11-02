@@ -428,7 +428,7 @@ def test_preferences_patch_invalidates_every_cached_response_for_user(monkeypatc
     ))
 
     assert cache.calls == [("user@example.com",)]
-    assert result == {"hide_net_worth": False, "show_tips": True, "dark_mode": True, "penny_appearance": "original", "open_last_chat": False, "pay_split_reference": "50-30-20", "version": 1}
+    assert result == {"hide_net_worth": False, "show_tips": True, "dark_mode": True, "penny_appearance": "ink", "open_last_chat": False, "pay_split_reference": "50-30-20", "version": 1}
 
 
 # ── G35: pin the composed safe_to_spend figure against a fixed fixture ─────

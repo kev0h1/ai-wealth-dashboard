@@ -33,11 +33,20 @@ def _patch(monkeypatch, appearance=None):
     monkeypatch.setattr(preferences, "response_cache", _Cache())
     return col
 
-def test_missing_or_corrupt_appearance_reads_as_original_without_rewrite(monkeypatch):
+def test_missing_or_corrupt_appearance_reads_as_ink_without_rewrite(monkeypatch):
+    # G398: Ink is the fallback for anyone who has never chosen.
     for value in (None, "chat", [], 9):
         col = _patch(monkeypatch, value)
-        assert asyncio.run(preferences.get_preferences({"email": UID}))["penny_appearance"] == "original"
+        assert asyncio.run(preferences.get_preferences({"email": UID}))["penny_appearance"] == "ink"
         assert col.writes == 0
+
+
+@pytest.mark.parametrize("stored", ("original", "outline", "ink"))
+def test_stored_appearance_is_returned_unchanged_and_never_rewritten(monkeypatch, stored):
+    col = _patch(monkeypatch, stored)
+    assert asyncio.run(preferences.get_preferences({"email": UID}))["penny_appearance"] == stored
+    assert col.writes == 0
+    assert col.docs[0]["penny_appearance"] == stored
 
 @pytest.mark.parametrize("appearance", ("original", "outline", "ink"))
 def test_appearance_persists_and_returns_the_incremented_version(monkeypatch, appearance):

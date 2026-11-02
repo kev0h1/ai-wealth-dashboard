@@ -14,11 +14,11 @@ import {
 
 const valid = (id) => ["category_pie", "daily_bars", "period_compare", "size_distribution", "transport_modes", "pace_curve", "debt_burndown"].includes(id);
 
-// 1. Default order: Category breakdown first, the others kept visible below it.
+// 1. G398 default: Category breakdown only; every other chart is added from the picker.
 const fresh = resolveSpendWidgets(null, valid);
-assert.equal(fresh[0], "category_pie", "the donut leads for a user with nothing saved");
+assert.deepEqual(fresh, ["category_pie"], "a user with nothing saved starts with the donut alone");
+assert.deepEqual(DEFAULT_SPEND_WIDGETS, ["category_pie"]);
 assert.deepEqual(resolveSpendWidgets(undefined, valid), fresh);
-assert.ok(fresh.includes("pace_curve") && fresh.includes("period_compare"), "the other charts stay visible");
 assert.deepEqual(fresh, DEFAULT_SPEND_WIDGETS);
 fresh.push("x");
 assert.equal(DEFAULT_SPEND_WIDGETS.includes("x"), false, "the default is returned as a copy");
@@ -28,6 +28,20 @@ assert.deepEqual(resolveSpendWidgets(["period_compare", "category_pie"], valid),
 assert.deepEqual(resolveSpendWidgets(["pace_curve"], valid), ["pace_curve"]);
 assert.deepEqual(resolveSpendWidgets([], valid), [], "an emptied collection stays empty");
 assert.deepEqual(resolveSpendWidgets(["period_compare", "nope"], valid), ["period_compare"], "unknown ids are dropped, nothing else changes");
+
+// 2b. Existing users who saved the old four-chart default keep it exactly.
+const oldDefault = ["category_pie", "daily_bars", "pace_curve", "period_compare"];
+assert.deepEqual(resolveSpendWidgets(oldDefault, valid), oldDefault, "a saved list is never reset to the new default");
+
+// 2c. Every chart stays available from the picker.
+const trendsSrc = readFileSync(new URL("../components/SpendTrends.tsx", import.meta.url), "utf8");
+assert.match(trendsSrc, /const available = ALL_WIDGETS\.filter\(w => !widgets\.includes\(w\)\)/, "the picker lists every chart not already shown");
+for (const title of ["Category breakdown", "Daily spend", "Spending pace", "Period comparison", "Card balance ahead", "Transaction sizes"]) {
+  assert.ok(trendsSrc.includes(`title: "${title}"`), `${title} stays in the picker`);
+}
+const pageSrc = readFileSync(new URL("../app/components/SpendPage.tsx", import.meta.url), "utf8");
+assert.match(pageSrc, /Add more charts/, "helper copy says more charts can be added");
+assert.doesNotMatch(pageSrc, /Choose what appears here/);
 
 // 3. Nothing is pinned to Home by default in the chart code.
 const trends = readFileSync(new URL("../components/SpendTrends.tsx", import.meta.url), "utf8");

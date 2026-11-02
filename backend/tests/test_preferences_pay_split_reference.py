@@ -103,7 +103,7 @@ def test_patch_persists_each_valid_reference_and_returns_incremented_version(mon
         "hide_net_worth": False,
         "show_tips": True,
         "dark_mode": False,
-        "penny_appearance": "original",
+        "penny_appearance": "ink",
         "open_last_chat": False,
         "pay_split_reference": reference,
         "version": 9,
