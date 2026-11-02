@@ -63,6 +63,11 @@ from app.routers import (
 # E6: Sentry is a no-op without SENTRY_DSN; every event and breadcrumb is
 # scrubbed in app.core.observability before it leaves the process.
 from app.core.observability import init_sentry
+from app.core.log_config import configure_diagnostic_logging
+
+# A190: make the Finexer diagnostic INFO lines visible regardless of
+# uvicorn's --log-level (which does not touch app loggers).
+configure_diagnostic_logging()
 init_sentry()
 
 _slow_request_logger = logging.getLogger("app.perf")
