@@ -33,15 +33,6 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
-    slug: "card-details",
-    name: "Card bills and account details · G412",
-    description: "G412 · frontend-design then impeccable · A leads with the closed statement bill; B groups one tidy account record. Optional statement dates and payment settings, rates and deals, connection and actions in one sheet. Includes current, savings and offline accounts. Synthetic examples only; production and the money engine are unchanged.",
-    variants: [{ label: "A · Payment first", value: "a" }, { label: "B · One tidy record", value: "b" }],
-    states: [{ label: "Statement dates set", value: "dated" }, { label: "No statement dates", value: "undated" }],
-    group: "current",
-  },
-
-  {
     slug: "spend-patterns-charts",
     name: "Clearer Spend patterns · G380",
     description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
