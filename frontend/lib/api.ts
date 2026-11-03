@@ -1905,6 +1905,17 @@ export type AccountEligibility = {
   low_point_and_plans?: number | null;
   uncertain?: boolean;
   estimated?: boolean;
+  // G410 (2026-11-03): the earmark of a live suggested cover move, from the same
+  // legs and move gate as the move card (absent when nothing is earmarked, so
+  // a dismissed or no-longer-needed move leaves no trace). Source side:
+  // `earmarked_total` is already excluded from `spend_from_headroom`.
+  // Destination side: `covered_by_move` is what the suggested move would
+  // cover and `short_after_cover` what would still be short. The walk figures
+  // above are untouched; display only.
+  earmarks_out?: { to_account_id: string; to_name: string; amount: number }[];
+  earmarked_total?: number;
+  covered_by_move?: { amount: number; from: { account_id: string; name: string; amount: number }[] };
+  short_after_cover?: number;
 };
 
 export type TodayResponse = {

@@ -194,7 +194,9 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   }));
   const textOf = (html) => html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
   const markup = renderList();
-  check("G320: pool-sized account figure is not repeated", !textOf(markup).includes("up to £120"));
+  // G410: every listed account shows its figure, including the one equal to the pool.
+  check("G410: the pool-sized account still shows its figure (no account is listed without one)", textOf(markup).includes("up to £120"));
+  check("G410: every listed account row carries a limit figure", (markup.match(/data-spend-from-limit/g) ?? []).length === entries.length);
   check("G320: lower account limit remains visible", textOf(markup).includes("up to £30") && markup.includes('data-spend-from-limit'));
   check("G324: lower limits carry the quiet independent-ceilings explanation", markup.includes("Each amount is the most that account could cover") && markup.includes("add them together") && markup.includes("Showing your top 2 accounts."));
   check("G320: duplicate bank accounts show their display names", markup.includes("Premier Current Account") && markup.includes("Maingi K M"));

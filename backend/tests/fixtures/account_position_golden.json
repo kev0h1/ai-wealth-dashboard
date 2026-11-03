@@ -50,12 +50,24 @@
    {
     "after_payments": -90.0,
     "after_payments_and_plans": -90.0,
+    "covered_by_move": {
+     "amount": 135.0,
+     "from": [
+      {
+       "account_id": "barclays",
+       "amount": 135.0,
+       "name": "barclays"
+      }
+     ],
+     "shortfall": 125.0
+    },
     "estimated": false,
     "headroom": -135.0,
     "low_point": -125.0,
     "low_point_and_plans": -125.0,
     "plans_reserved": 0.0,
     "short": true,
+    "short_after_cover": 0.0,
     "spend_from_headroom": -125.0,
     "uncertain": false
    }

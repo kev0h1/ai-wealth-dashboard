@@ -4468,6 +4468,51 @@ async def compute_today_items(
             if not _entry.get("uncertain"):
                 _entry["spend_from_headroom"] = round(_entry["spend_from_headroom"] - _reserved, 2)
 
+        # G410 (Kevin, 2026-11-03): the earmark. The same legs that reserve
+        # the source (above) are DISCLOSED per account so every surface says
+        # the same thing: the source has `earmarked_total` set aside for the
+        # suggested move(s) and the destination's shortfall is
+        # `covered_by_move`. Derived here, from the live move gate and the
+        # legs sized this request, so it can never outlive the move: a
+        # transfer arriving, other money, a paid or edited payment, a plan
+        # change or a dismissal all change the walk or the gate and the
+        # legs (hence this) follow on the next compute. No stored flag.
+        # Keys are ABSENT when there is no earmark. The walk verdict
+        # (`after_payments`, `low_point`) is untouched, and so is the pooled
+        # Left to spend (own-account moves never change it, G336).
+        for _dest, _will_emit in _regular_move_gate.will_emit_by_dest.items():
+            if not _will_emit:
+                continue
+            _dest_legs = [
+                _l for _l in legs_by_dest.get(_dest, []) if float(_l["amount"]) > 0
+            ]
+            if not _dest_legs:
+                continue
+            _dest_name = _dest_legs[0]["move_map"]["to"]["name"]
+            _covered_amt = round(sum(float(_l["amount"]) for _l in _dest_legs), 2)
+            _dest_short = round(float(dest_shortfall.get(_dest, _covered_amt)), 2)
+            _from_rows: list[dict] = []
+            for _l in _dest_legs:
+                _src_id = _l["move_map"]["from"]["account_id"]
+                _src_name = _l["move_map"]["from"]["name"]
+                _amt = round(float(_l["amount"]), 2)
+                _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt})
+                _src_entry = account_eligibility_out.get(_src_id)
+                # Same guard as the `spend_from_headroom` reserve above: an uncertain
+                # source shows no deduction against an unchanged Available.
+                if _src_entry is None or _src_entry.get("uncertain"):
+                    continue
+                _src_entry.setdefault("earmarks_out", []).append(
+                    {"to_account_id": _dest, "to_name": _dest_name, "amount": _amt}
+                )
+                _src_entry["earmarked_total"] = round(
+                    float(_src_entry.get("earmarked_total") or 0.0) + _amt, 2
+                )
+            _dest_entry = account_eligibility_out.get(_dest)
+            if _dest_entry is not None:
+                _dest_entry["covered_by_move"] = {"amount": _covered_amt, "from": _from_rows, "shortfall": _dest_short}
+                _dest_entry["short_after_cover"] = round(max(0.0, _dest_short - _covered_amt), 2)
+
     unfunded_move_items: list[dict] = []
     try:
         _um_qualifying: list[tuple[str, dict]] = []

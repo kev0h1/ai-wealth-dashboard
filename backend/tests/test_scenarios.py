@@ -421,6 +421,28 @@ def _check_expected(snap: dict, spec: dict) -> None:
                 chk.check(f"{acct_id} {key}", _r2(got[key]), _r2(want[key]))
         if "verdict" in want:
             chk.check(f"{acct_id} verdict", _verdict(got), want["verdict"])
+        # G410: the earmark fields (absent from the payload when there is no earmark).
+        if "earmarked_total" in want:
+            chk.check(f"{acct_id} earmarked_total", _r2(got.get("earmarked_total") or 0), _r2(want["earmarked_total"]))
+        if "earmarks_out" in want:
+            chk.check(
+                f"{acct_id} earmarks_out",
+                sorted((e["to_account_id"], _r2(e["amount"])) for e in got.get("earmarks_out") or []),
+                sorted((e["to"], _r2(e["amount"])) for e in want["earmarks_out"]),
+            )
+        if "covered_by_move" in want:
+            cov = got.get("covered_by_move") or {}
+            chk.check(f"{acct_id} covered_by_move amount", _r2(cov.get("amount") or 0), _r2(want["covered_by_move"]["amount"]))
+            chk.check(
+                f"{acct_id} covered_by_move from",
+                sorted((e["account_id"], _r2(e["amount"])) for e in cov.get("from") or []),
+                sorted((e["account_id"], _r2(e["amount"])) for e in want["covered_by_move"]["from"]),
+            )
+        if "short_after_cover" in want:
+            chk.check(f"{acct_id} short_after_cover", _r2(got.get("short_after_cover")), _r2(want["short_after_cover"]))
+        if want.get("no_earmark"):
+            for key in ("earmarks_out", "earmarked_total", "covered_by_move", "short_after_cover"):
+                assert key not in got, f"{where} {acct_id} must carry no {key} when nothing is earmarked"
     for acct_id in exp.get("not_spendable") or []:
         # Savings pots and the like: in no pool, so no balance of theirs is in the pooled figure.
         doc = next(a for a in snap["accounts"] if a["id"] == acct_id)

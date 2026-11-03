@@ -421,6 +421,9 @@ async def exec_plan_consolidation(
             "and do not list raw balances."
         ),
     }
+    _facts = earmark_facts(eligibility=eligibility, accounts=accounts, name_tokens=tokens)
+    if _facts["earmarked"] or _facts["covered_by_move"]:
+        result["suggested_moves"] = {"earmarked": _facts["earmarked"], "covered_by_move": _facts["covered_by_move"]}
     if plan["legs"] and _card_ok:
         result["_move_plan"] = {
             "kind": "move_plan",
@@ -439,6 +442,70 @@ async def exec_plan_consolidation(
             result["_move_plan"]["unmatched_exclusions"] = plan["unmatched_exclusions"]
     return result
 
+
+
+def earmark_facts(*, eligibility: dict, accounts: list[dict], name_tokens: list[str]) -> dict:
+    """PURE (G410). The earmark of a live suggested cover move, read from the
+    engine's own account_eligibility fields (`earmarks_out`, `earmarked_total`,
+    `covered_by_move`, `short_after_cover`), never recomputed here. One plain
+    sentence each, a recommendation never an action. Returns
+    {"earmarked": [...], "covered_by_move": [...], "by_account": {id: {...}}};
+    all empty when no move is live (the engine leaves the fields off)."""
+    labels = {str(a.get("id")): _label(a, name_tokens)[0] for a in accounts}
+    earmarked: list[dict] = []
+    covered: list[dict] = []
+    by_account: dict[str, dict] = {}
+    for aid, entry in (eligibility or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        name = labels.get(str(aid), "this account")
+        total = entry.get("earmarked_total")
+        if total and entry.get("earmarks_out"):
+            dests = _join([str(e.get("to_name") or "another account") for e in entry["earmarks_out"]])
+            sentence = (
+                f"{_fmt(total)} is set aside in {name} for the suggested move to {dests}. "
+                "It is only a suggestion, nothing has been moved."
+            )
+            row = {"name": name, "earmarked_total": _money(total), "sentence": sentence}
+            earmarked.append(row)
+            by_account.setdefault(str(aid), {})["earmarked"] = row
+        cov = entry.get("covered_by_move")
+        if isinstance(cov, dict) and cov.get("amount"):
+            froms = _join([str(f.get("name") or "another account") for f in cov.get("from") or []])
+            short = float(cov.get("shortfall") or 0.0)  # the engine's own figure, never recomputed
+            after = float(entry.get("short_after_cover") or 0.0)
+            if after > 0:
+                sentence = f"{name} would still be short {_fmt(after)} after the suggested move from {froms}."
+            else:
+                sentence = f"{name} is short {_fmt(short)}, covered by the suggested move from {froms}."
+            row = {"name": name, "covered_amount": _money(cov["amount"]),
+                   "short_after_cover": _money(after), "from": froms, "sentence": sentence}
+            covered.append(row)
+            by_account.setdefault(str(aid), {})["covered_by_move"] = row
+    return {"earmarked": earmarked, "covered_by_move": covered, "by_account": by_account}
+
+
+async def attach_suggested_move_facts(uid: str, rows: list[dict]) -> None:
+    """G410: per-account earmark facts for get_accounts (source `earmarked`,
+    destination `covered_by_move`, one plain sentence each) from the engine's
+    own eligibility via the shared reader; never recomputed here. Absent when
+    no suggested move is live, and never raises."""
+    try:
+        from app.services.notifications import _user_name_tokens
+
+        payload = await _load_today(uid)
+        eligibility = payload.get("account_eligibility") if isinstance(payload, dict) else None
+        if not isinstance(eligibility, dict):
+            return
+        facts = earmark_facts(
+            eligibility=eligibility, accounts=await _load_accounts(uid), name_tokens=await _user_name_tokens(uid),
+        )
+        for row in rows:
+            extra = facts["by_account"].get(str(row.get("id")))
+            if extra:
+                row["suggested_move"] = extra
+    except Exception:
+        logger.warning("get_accounts: earmark facts failed for %s", uid, exc_info=True)
 
 
 async def spend_from_extras(uid: str) -> dict:
@@ -473,6 +540,10 @@ async def spend_from_extras(uid: str) -> dict:
         {"name": k["name"], "reason": k["reason"]}
         for k in skipped if k["reason"] in ("set_aside_pot", "savings", "credit_card")
     ]
+    facts = earmark_facts(eligibility=eligibility, accounts=accounts, name_tokens=tokens)
+    if facts["earmarked"] or facts["covered_by_move"]:
+        # G410: the same fields the cards read; Left to spend is unchanged by them.
+        out["suggested_moves"] = {"earmarked": facts["earmarked"], "covered_by_move": facts["covered_by_move"]}
     return out
 
 

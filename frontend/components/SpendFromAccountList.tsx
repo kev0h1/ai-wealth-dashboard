@@ -43,7 +43,9 @@ export default function SpendFromAccountList({
       <ul aria-label="Current accounts to spend from" className="mt-2 space-y-2">
         {entries.map((entry) => {
           const brand = accountBrand(entry.account);
-          const showLimit = !hasKnownPool || Math.round(entry.headroom) < Math.round(pool);
+          // G410: every listed account shows its figure. The old rule hid "up to" when the
+          // (pool-capped) figure was not below the pool, which left the one account whose
+          // figure equals Left to spend with no amount at all.
           const sameBank = brands.filter((label) => label === brand.label).length > 1;
 
           return (
@@ -62,11 +64,9 @@ export default function SpendFromAccountList({
                 <span className="block break-words text-[12px] font-medium leading-5 text-slate-700 dark:text-slate-200">{brand.label}</span>
                 {sameBank && <span className="block break-words text-[12px] leading-5 text-slate-600 dark:text-slate-300">{displayAccountName(entry.name)}</span>}
               </span>
-              {showLimit && (
-                <span className="shrink-0 text-right text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                  up to <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span>
-                </span>
-              )}
+              <span className="shrink-0 text-right text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+                up to <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span>
+              </span>
             </li>
           );
         })}
