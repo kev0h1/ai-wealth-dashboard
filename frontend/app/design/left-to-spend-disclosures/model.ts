@@ -8,7 +8,7 @@ export type Example = {
   status: ForecastStatus; headlineLabel: string; support: string;
   rows: Row[]; ledgerNote?: string; daily: number | null;
   payday: string; days: number; expectedPay: number | null;
-  laterIncome?: { value: number; date: string };
+  lowPoint?: number; incomeBeforePayday?: number;
   card: { purchases: number | null; balanceGrowth: number | null; hold: number | null; repayment: "unconfirmed" | "confirmed" | "unknown"; debt: number };
   sources: { account: Account; limit: number }[];
   showCardsLink: boolean; syncing?: boolean;

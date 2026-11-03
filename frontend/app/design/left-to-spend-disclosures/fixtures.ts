@@ -41,12 +41,14 @@ export const EXAMPLES: Record<string, Example> = {
     daily: null, sources: [], showCardsLink: false, recovery: { label: "Review card bill", destination: "/cards" },
   },
   "earlier-gap": {
-    ...base, id: "earlier-gap", label: "Bill before later income", headline: -400, projected: -400,
+    ...base, id: "earlier-gap", label: "Earlier cash low point", headline: -400, projected: -400, lowPoint: -400,
     status: { tone: "risk", label: "Short" }, headlineLabel: "Shortfall before payday",
-    support: "A bill falls before the next income arrives. Later income cannot cover that earlier gap.",
-    rows: [{ label: "Cash now", value: 500 }, { label: "Bill due 6 Nov, before income", value: -900 }, { label: "Left to spend at the low point", value: -400, total: true }],
-    ledgerNote: "The low point is on 6 Nov, before later income arrives. Another £300 of bills follow on 18 Nov; the later closing balance cannot cover the earlier bill.",
-    laterIncome: { value: 1300, date: "2026-11-11" }, daily: null,
+    support: "The cash forecast dips below zero before payday. An ending balance can hide an earlier gap.",
+    // Home exposes the minimum, not its dated event breakdown. Do not
+    // invent a prefix equation or rebuild the backend walk in the client.
+    rows: [{ label: "Left to spend at the cash low point", value: -400, total: true }],
+    ledgerNote: "This uses the lowest cash forecast, rather than the ending balance. Income elsewhere in the period does not necessarily cover an earlier cash gap.",
+    incomeBeforePayday: 1300, daily: null,
     card: { ...base.card, hold: 0, repayment: "confirmed" }, sources: [], showCardsLink: false,
     recovery: { label: "See what’s due", destination: "/upcoming" },
   },

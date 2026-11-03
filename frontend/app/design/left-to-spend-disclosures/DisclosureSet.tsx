@@ -47,7 +47,7 @@ export default function DisclosureSet({ example, embedded, onCards }: { example:
           <dl className={styles.facts}>
             <QuietFact label="Daily amount">{example.daily === null ? "Unavailable" : <MoneyText text={`${money(example.daily, true)} a day`} />}</QuietFact>
             <QuietFact label="Expected pay">{example.expectedPay === null ? "Not known yet" : <><MoneyText text={`About ${money(example.expectedPay)}`} /> due {dateLabel(example.payday, true)}</>}</QuietFact>
-            {example.laterIncome && <QuietFact label="Later income"><><MoneyText text={money(example.laterIncome.value)} /> expected {dateLabel(example.laterIncome.date, true)}</></QuietFact>}
+            {example.incomeBeforePayday !== undefined && <QuietFact label="Income expected before payday"><MoneyText text={money(example.incomeBeforePayday)} /></QuietFact>}
           </dl>
           {example.syncing && <p className={styles.sync}>Using your last known figures while bank data updates.</p>}
         </> : <p>We do not have enough bank information to show the working yet.</p>}
