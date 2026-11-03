@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertCircle, ArrowRight } from "lucide-react";
-import { SafeToSpend } from "@/lib/api";
+import type { SafeToSpend } from "@/lib/api";
 import { formatSafeToSpendAmount, deriveSafeToSpendHeadline } from "@/lib/pennyScreenViews";
 import { homeForecastPresentation, FORECAST_INK } from "@/lib/cashForecastStatus";
 import ForecastStatusBadge from "@/components/ForecastStatusBadge";
