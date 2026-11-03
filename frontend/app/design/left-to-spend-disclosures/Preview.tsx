@@ -9,6 +9,7 @@ import ForecastStatusBadge from "@/components/ForecastStatusBadge";
 import MoneyText from "@/components/MoneyText";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import DisclosureSet from "./DisclosureSet";
+import ExistingLayout from "./ExistingLayout";
 import { EXAMPLES, EXAMPLE_IDS } from "./fixtures";
 import { COUNTS_INTRO, money, type Example, type Variant } from "./model";
 import styles from "./preview.module.css";
@@ -35,8 +36,8 @@ function Hero({ example, onNavigate }: { example: Example; onNavigate: (destinat
 
 export default function Preview() {
   const params = useSearchParams();
-  const variant: Variant = params.get("variant") === "a" ? "a" : "b";
-  const state = EXAMPLE_IDS.includes(params.get("state") ?? "") ? params.get("state")! : "unconfirmed";
+  const variant: Variant = params.get("variant") === "c" ? "c" : params.get("variant") === "a" ? "a" : "b";
+  const state = EXAMPLE_IDS.includes(params.get("state") ?? "") ? params.get("state")! : "reference";
   const example = EXAMPLES[state];
   const dark = params.get("mode") === "dark";
   const hidden = params.get("hidden") === "1";
@@ -53,14 +54,14 @@ export default function Preview() {
     Object.entries(patch).forEach(([key, value]) => next.set(key, value));
     return `/design/left-to-spend-disclosures?${next.toString()}`;
   };
-  const navigate = (destination: string) => setNotice(destination === "/cards" ? "Preview: opens Your cards." : destination === "/refresh" ? "Preview: retries the forecast." : "Preview: opens Upcoming.");
+  const navigate = (destination: string) => setNotice(destination === "/cards" ? "Preview: opens Your cards." : destination === "/refresh" ? "Preview: retries the forecast." : destination === "/accounts" ? "Preview: opens Your accounts." : "Preview: opens Upcoming.");
   const disclosures = <DisclosureSet key={`${variant}-${state}-${hidden}-${dark}`} example={example} embedded={variant === "a"} onCards={() => navigate("/cards")} />;
   return <div className={dark ? "dark" : ""}><main className={styles.page}>
     {!clean && <header className={styles.controls}>
       <div className={styles.title}><h1>Behind Left to spend</h1><Link href="/design"><ChevronLeft size={15} aria-hidden="true" />Designs</Link></div>
-      <p>G408 · Two layouts for the estimate details. Invented figures; production is unchanged.</p>
+      <p>G408 · Three layouts for the estimate details. Invented figures; production is unchanged.</p>
       <nav aria-label="Design alternatives" className={styles.options}>
-        {(["a", "b"] as const).map(id => <Link key={id} aria-current={variant === id ? "page" : undefined} href={href({ variant: id })}>{id === "a" ? "A · Within the estimate" : "B · One detail card"}</Link>)}
+        {(["a", "b", "c"] as const).map(id => <Link key={id} aria-current={variant === id ? "page" : undefined} href={href({ variant: id })}>{id === "a" ? "A · Within the estimate" : id === "b" ? "B · One detail card" : "C · Existing layout, refined"}</Link>)}
         <Link className={styles.fullScreen} href={href({ clean: "1" })}>Open full screen<ArrowRight size={14} aria-hidden="true" /></Link>
       </nav>
       <details className={styles.examples}><summary>Examples and display<ChevronDown size={15} aria-hidden="true" /></summary><div>
@@ -71,11 +72,14 @@ export default function Preview() {
     </header>}
     <BalancesHiddenContext.Provider value={hidden}>
       <div data-g408-surface className={styles.surface}>
+        {variant === "c" ? <ExistingLayout key={`${state}-${hidden}-${dark}`} example={example} hidden={hidden} onNavigate={navigate} /> : <>
         <section className={styles.heroCard} aria-label="Estimated left to spend">
           <Hero example={example} onNavigate={navigate} />
           {variant === "a" && disclosures}
         </section>
         {variant === "b" && disclosures}
+        </>}
+        <h2 data-g408-following-section className={styles.following}>Your money</h2>
       </div>
     </BalancesHiddenContext.Provider>
     {notice && <p role="status" className={styles.notice}>{notice}</p>}

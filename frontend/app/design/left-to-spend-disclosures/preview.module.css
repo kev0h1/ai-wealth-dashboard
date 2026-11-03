@@ -48,3 +48,12 @@
 .recovery:hover { background: #4338ca; }
 .recovery:focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }
 .notice { margin-top: 12px; font-size: 13px; line-height: 20px; }
+
+.following { margin-top: 16px; font-size: 11px; font-weight: 600; line-height: 16px; letter-spacing: .05em; text-transform: uppercase; color: #64748b; }
+:global(.dark) .following { color: #94a3b8; }
+/* C keeps the unboxed production rows. Amounts share a right edge, and the
+   same 16px shared chevron is the final grid track on every summary. */
+.existing summary { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; column-gap: 8px; min-height: 48px; }
+.existing summary > :global(.disclosure-chevron) { grid-column: 3; grid-row: 1; }
+.existing summary > [data-g408-summary-amount] { grid-column: 2; grid-row: 1; text-align: right; }
+.existing details[open] > summary > :global(.disclosure-chevron) { transform: rotate(180deg); }

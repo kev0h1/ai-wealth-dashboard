@@ -1,7 +1,7 @@
 import type { Account } from "@/lib/api";
 import type { ForecastStatus } from "@/lib/cashForecastStatus";
 
-export type Variant = "a" | "b";
+export type Variant = "a" | "b" | "c";
 export type Row = { label: string; value: number; total?: boolean };
 export type Example = {
   id: string; label: string; headline: number | null; projected: number | null;

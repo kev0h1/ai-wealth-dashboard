@@ -27,6 +27,16 @@ const confirmed: Example = {
 export const EXAMPLES: Record<string, Example> = {
   unconfirmed: base,
   confirmed,
+  reference: {
+    ...base, id: "reference", label: "Layout reference", headline: 1792, projected: 1792,
+    status: { tone: "good", label: "Looks on track" },
+    support: "£310 held while a card bill is unconfirmed, after upcoming bills.",
+    // Screenshot-shaped totals. Reserve and aggregate balance growth are
+    // distinct supplied fields, not an equation reconstructed from purchases.
+    rows: [{ label: "Cash now", value: 3402 }, { label: "Bills before payday", value: -1300 }, { label: "Card amount held back", value: -310 }, { label: "Left to spend", value: 1792, total: true }],
+    daily: 71.68, card: { ...base.card, hold: 310 }, showCardsLink: false,
+    sources: [{ account: { ...barclays, balance: 2200 }, limit: 1388 }, { account: bank("g408-chase", "Chase", "Everyday account", 1202), limit: 300 }],
+  },
   transfer: {
     ...base, id: "transfer", label: "Balance includes a transfer", headline: 1240.37, projected: 1240.37,
     rows: [{ label: "Cash now", value: 3000.37 }, { label: "Bills before payday", value: -1300 }, { label: "Card amount held back", value: -460 }, { label: "Left to spend", value: 1240.37, total: true }],
