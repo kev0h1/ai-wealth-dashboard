@@ -3442,6 +3442,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-11-03, codex): Attribution correction: this G412 design round and the preceding verification note are Codex work. The CLI note actor defaults to claude independently of BACKLOG_AGENT; this note records the correct actor. Final 16-case browser matrix and repeated full interaction checks also pass.
   - note (2026-11-03, codex): Handoff complete at 854545ab2a25d57a9f15b1ea980390c7bc31f074. scripts/session.sh finish G412 --uat-review passed: 7,265 backend tests passed (4 skipped), 46 scenario-order tests passed, TypeScript and every frontend check gate passed. Feature branch is pushed, upstream matches HEAD and worktree is clean. Design round only, awaiting coordinator merge/deploy before Kevin chooses A or B; production and financial engine remain unchanged. No blocked state and no request to choose an unpublished preview.
   - note (2026-11-03, codex): approved: Kevin selected A, Payment first, in chat. Implement the approved consolidated Account details and statement/payment contract; retain the latest no-dates fallback correction.
+  - note (2026-11-03, claude): Reassigned to claude by Kevin (chat, 2026-11-03): finish the approved variant A fold-in. Continuing in Codex's existing worktree from its uncommitted fold-in work (card_statements engine, card terms route, Penny and debt plan wiring, CardTermsSheet rework, tests), stopped at 20:43 UTC.
 
 ## H. Repo hygiene
 
