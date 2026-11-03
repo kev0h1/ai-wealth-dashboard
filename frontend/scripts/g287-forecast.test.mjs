@@ -99,7 +99,7 @@ const shortHome = render(React.createElement(SafeToSpendCard, { ...g287CardProps
 assert.match(shortHome, /Shortfall before payday/);
 assert.match(shortHome, /−£573/);
 assert.match(shortHome, /See what’s due/);
-assert.match(shortHome, /How we got £573 short/);
+assert.match(plain(shortHome), /How we got −£573/);
 const maskedHome = render(React.createElement(SafeToSpendCard, { ...g287CardProps("habitual"), onRetry: noop }));
 assert.match(maskedHome, /£••••/);
 assert.doesNotMatch(maskedHome, /£573|£923|£350/, "Home honours unresolved/hidden preferences across all calculations");
@@ -109,7 +109,7 @@ assert.doesNotMatch(staleHome, /data-forecast-tone/, "syncing replaces the verdi
 const cardCheck = plain(render(React.createElement(SafeToSpendCard, { ...g287CardProps("card-check"), onRetry: noop, previewBalancesVisible: true })));
 assert.match(cardCheck, /Check card bill/);
 assert.match(cardCheck, /Review card bill/);
-assert.match(cardCheck, /Safety position/);
+assert.match(cardCheck, /After card hold/);
 const cards = plain(render(React.createElement(SafeToSpendCard, { ...g287CardProps("cards"), onRetry: noop, previewBalancesVisible: true })));
 assert.match(cards, /See your cards/);
 assert.match(cards, /Card spending this pay period/);

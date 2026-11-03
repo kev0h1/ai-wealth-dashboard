@@ -3,6 +3,12 @@
   --voice: #475569;
   --hairline: #e2e8f0;
   --amber: #b45309;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
   color: var(--ink);
 }
 
@@ -11,11 +17,10 @@
   --voice: #cbd5e1;
   --hairline: #334155;
   --amber: #fbbf24;
+  background: #1e293b;
+  box-shadow: none;
 }
 
-.standalone { overflow: hidden; border: 1px solid var(--hairline); border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgb(15 23 42 / 0.05); }
-:global(.dark) .standalone { background: #1e293b; box-shadow: none; }
-.embedded { border-top: 1px solid var(--hairline); }
 .item + .item { border-top: 1px solid var(--hairline); }
 .summary { min-height: 48px; padding: 12px 16px; color: var(--ink); font-size: 13px; font-weight: 600; line-height: 20px; cursor: pointer; touch-action: manipulation; }
 .summary:hover { color: #4338ca; }
@@ -24,8 +29,6 @@
 .summary :global(.disclosure-chevron) { width: 16px; height: 16px; color: var(--voice); }
 .item[open] > .summary > :global(.disclosure-chevron) { transform: rotate(180deg); }
 .amount { margin-left: auto; padding-left: 8px; color: var(--ink); font-weight: 700; white-space: nowrap; }
-.cardHeading { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
-.dot { width: 6px; height: 6px; flex: none; border-radius: 999px; background: var(--amber); }
 .body { padding: 4px 16px 16px; color: var(--voice); font-size: 12px; line-height: 20px; text-wrap: pretty; }
 .body > * + * { margin-top: 12px; }
 .ledger { margin-top: 4px; }
@@ -35,15 +38,17 @@
 .ledgerRow dd { color: var(--ink); font-weight: 600; white-space: nowrap; }
 .total { margin-top: 4px; padding-top: 12px; border-top-color: #94a3b8; }
 .total dt, .total dd { color: var(--ink); font-weight: 700; }
-.ledgerNote { color: var(--voice); }
+.note, .freshness { color: var(--voice); }
 .facts { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); }
-.quietFact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 12px; padding: 4px 0; }
-.quietFact dt { color: var(--voice); }
-.quietFact dd { color: var(--ink); text-align: right; }
-.sync { display: flex; align-items: center; gap: 8px; color: var(--voice); }
+.fact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 12px; padding: 4px 0; }
+.fact dt { color: var(--voice); }
+.fact dd { color: var(--ink); text-align: right; }
+.cardHeading { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
+.dot { width: 6px; height: 6px; flex: none; border-radius: 999px; background: var(--amber); }
 .warning { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600; }
 .warning svg { flex: none; color: var(--amber); }
-.cardsButton { width: 100%; min-height: 44px; border-radius: 12px; background: #4f46e5; padding: 10px 16px; color: #fff; font-size: 14px; font-weight: 600; transition: transform 150ms, background-color 150ms; touch-action: manipulation; }
+.sync { color: var(--voice); }
+.cardsButton { display: inline-flex; min-height: 44px; width: 100%; align-items: center; justify-content: center; border-radius: 12px; background: #4f46e5; padding: 10px 16px; color: #fff; font-size: 14px; font-weight: 600; transition: transform 150ms, background-color 150ms; touch-action: manipulation; }
 .cardsButton:hover { background: #4338ca; }
 .cardsButton:active { transform: scale(0.98); }
 .cardsButton:focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }

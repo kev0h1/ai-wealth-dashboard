@@ -4,6 +4,7 @@
 // Run: npm run -s check:g219-accounts-route
 
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import React from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -80,6 +81,10 @@ assert.match(render({ data: FIGURE_DATA.card }), /Review card bill/);
 
 // 7. The existing tight/high-card-debt route lives inside card evidence,
 // including when repayments leave zero growth or there is no period activity.
+const cardStyles=readFileSync(new URL('../components/SafeToSpendDisclosures.module.css',import.meta.url),'utf8');
+assert.match(cardStyles,/\.cardsButton \{[^}]*min-height: 44px/);
+assert.match(cardStyles,/\.cardsButton:focus-visible \{[^}]*outline: 2px/);
+assert.match(cardStyles,/\.cardsButton \{[^}]*background: #4f46e5/);
 const hero = html => html.slice(html.indexOf("data-g324-hero"), html.indexOf("data-g324-evidence"));
 for (const patch of [
   { card_growth_total: 420, card_new_spend_total: 420, card_growth_reserved: 0 },
@@ -93,8 +98,7 @@ for (const patch of [
     assert.doesNotMatch(hero(html), /See your cards|data-g219-action-row/);
     const card = html.slice(html.indexOf("data-g324-card-activity"));
     assert.equal(count(card, 'href="/cards"'), 1, "one real Cards route within card evidence");
-    assert.match(card, /min-h-11[^>]*>See your cards/);
-    assert.match(card, /focus-visible:ring-2/);
+    assert.match(card, /class="[^"]*cardsButton[^"]*"[^>]*>See your cards/);
     if (patch.card_growth_reserved) assert.match(card, /Repayment not confirmed/);
     if (hidden) assert.doesNotMatch(html, /£\d/, "amounts remain masked in DOM and accessible names");
   }

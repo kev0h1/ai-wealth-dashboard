@@ -38,9 +38,9 @@ for(const state of STATES.map(s=>s.id))for(const hidden of [false,true]){
     const caveat=html.slice(html.indexOf('data-sts-caveat'),html.indexOf('</details>',html.indexOf('data-sts-caveat')));
     assert.match(caveat,/What this estimate counts/);assert.match(plain(caveat),/It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet\./);assert.match(caveat,/It can be wrong/);
     const working=html.slice(html.indexOf('data-g324-calculation'),html.indexOf('</details>',html.indexOf('data-g324-calculation')));
-    if((FORECASTS[state]?.payday_income??0)>0)assert.match(working,/Pay of about.*due/,'expected pay explicitly labelled inside working');
+    if((FORECASTS[state]?.payday_income??0)>0)assert.match(plain(working),/Expected pay.*About £.*due/,'expected pay explicitly labelled inside working');
     if(['payments-short','plans-only','card-reserve','no-account'].includes(state))assert.doesNotMatch(hero,/data-spend-from-account=/,'no positive account guidance with no cash to spend');
-    if(!hidden&&state==='card-reserve'){assert.match(plain(hero),/£325 held/);assert.match(plain(hero),/£73 safety shortfall/);assert.match(working,/Safety position/);assert.match(working,/−£73\.00/);}
+    if(!hidden&&state==='card-reserve'){assert.match(plain(hero),/£325 held/);assert.match(plain(hero),/£73 safety shortfall/);assert.match(working,/After card hold/);assert.match(working,/−£73\.00/);}
   }
   cases++;
 }
@@ -72,11 +72,11 @@ console.log(`G324 B2: ${cases} production state/account/masking contracts plus c
 
 // G340: card purchases, cash forecasts and fallback reserves remain distinct.
 for (const [options, expected] of [
-  [{}, /You've spent £1,947 on credit cards/],
+  [{}, /Card spending this pay period £1,947/],
   [{patch:{safe_to_spend:0,safe_to_spend_cash:0}}, /Known card repayments due before payday are included in your estimate/],
   [{state:'payments-short'}, /Card purchases aren't deducted again/],
   [{state:'card-monthly'}, /Due around .* Its repayment is forecast separately/],
-  [{state:'card-reserve'}, /£200 on credit cards.*separate figure from the £325 already held back above/],
+  [{state:'card-reserve'}, /Card spending this pay period £200.*£325.00 is already held back/],
 ]) {
   const html=renderScenario(options), text=plain(html);
   assert.match(text,expected);
